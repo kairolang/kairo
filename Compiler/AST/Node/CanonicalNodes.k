@@ -395,6 +395,7 @@ eval fn BF_SIGNED()       -> u8 { return 2;  }
 eval fn BF_FLOAT()        -> u8 { return 4;  }
 eval fn BF_TARGET_WIDTH() -> u8 { return 8;  }  ///< bits == 0; store fills from the triple.
 eval fn BF_X86_ONLY()     -> u8 { return 16; }  ///< TypeResolution hard-errors on other targets.
+eval fn BF_TARGET_CXX()   -> u8 { return 32; }  ///< cxx == ""; store fills from the triple.
 
 /// \struct BuiltinInfo
 /// \brief One row per BuiltinKind.
@@ -413,7 +414,7 @@ class BuiltinInfo {
     pub var kind:     BuiltinKind;
     pub var tk:       TokenKind;    ///< TokenKind::COUNT for the rows with no type-position token.
     pub var spelling: string;       ///< source spelling, for diagnostics and dumps.
-    pub var cxx:      string;       ///< C++ emission. "" is a codegen bug, never valid.
+    pub var cxx:      string;       ///< C++ emission. "" only on a BF_TARGET_CXX row before the store's init; a codegen bug anywhere else.
     pub var bits:     usize;        ///< 0 for Void/Never and for the target-width pair.
     pub var flags:    u8;
     pub var fp:       FloatLayout;
@@ -463,6 +464,14 @@ class BuiltinInfo {
 ///      store", which fills the real width from the target triple. Never read
 ///      the literal 0 as a width.
 ///
+///      `I64`/`U64` carry cxx == "" with BF_TARGET_CXX. `int64_t` is `long`
+///      only on LP64; on LLP64 (Windows) and every 32-bit target `long` is 32
+///      bits and `int64_t` is `long long`. A hardcoded `long` there makes every
+///      i64 a 32-bit type and every i64 parameter disagree with every header's
+///      int64_t, so the store writes the spelling from the triple, as it does
+///      the width of the pair above. `signed int` / `signed short` are
+///      int32_t / int16_t on every target Kairo sees, so those rows stay fixed.
+///
 ///      `F256`/`F512` carry exp/mant/bias == 0. A limb representation has no
 ///      single exponent field; those columns are not meaningful for them.
 ///
@@ -496,14 +505,14 @@ inline "c++" { // PORT(trivial): reason for this inline c++, stage0 does not hav
         BuiltinInfo(BuiltinKind::I8,     TokenKind::AtI8,      "i8",      "signed char",           8,   BF_INTEGER()|BF_SIGNED(), float_layout_none()),
         BuiltinInfo(BuiltinKind::I16,    TokenKind::AtI16,     "i16",     "signed short",          16,  BF_INTEGER()|BF_SIGNED(), float_layout_none()),
         BuiltinInfo(BuiltinKind::I32,    TokenKind::AtI32,     "i32",     "signed int",            32,  BF_INTEGER()|BF_SIGNED(), float_layout_none()),
-        BuiltinInfo(BuiltinKind::I64,    TokenKind::AtI64,     "i64",     "signed long",           64,  BF_INTEGER()|BF_SIGNED(), float_layout_none()),
+        BuiltinInfo(BuiltinKind::I64,    TokenKind::AtI64,     "i64",     "",                      64,  BF_INTEGER()|BF_SIGNED()|BF_TARGET_CXX(), float_layout_none()),
         BuiltinInfo(BuiltinKind::I128,   TokenKind::AtI128,    "i128",    "__int128",              128, BF_INTEGER()|BF_SIGNED(), float_layout_none()),
         BuiltinInfo(BuiltinKind::I256,   TokenKind::AtI256,    "i256",    "_BitInt(256)",          256, BF_INTEGER()|BF_SIGNED(), float_layout_none()),
         BuiltinInfo(BuiltinKind::I512,   TokenKind::AtI512,    "i512",    "_BitInt(512)",          512, BF_INTEGER()|BF_SIGNED(), float_layout_none()),
         BuiltinInfo(BuiltinKind::U8,     TokenKind::AtU8,      "u8",      "unsigned char",         8,   BF_INTEGER(),             float_layout_none()),
         BuiltinInfo(BuiltinKind::U16,    TokenKind::AtU16,     "u16",     "unsigned short",        16,  BF_INTEGER(),             float_layout_none()),
         BuiltinInfo(BuiltinKind::U32,    TokenKind::AtU32,     "u32",     "unsigned int",          32,  BF_INTEGER(),             float_layout_none()),
-        BuiltinInfo(BuiltinKind::U64,    TokenKind::AtU64,     "u64",     "unsigned long",         64,  BF_INTEGER(),             float_layout_none()),
+        BuiltinInfo(BuiltinKind::U64,    TokenKind::AtU64,     "u64",     "",                      64,  BF_INTEGER()|BF_TARGET_CXX(),             float_layout_none()),
         BuiltinInfo(BuiltinKind::U128,   TokenKind::AtU128,    "u128",    "unsigned __int128",     128, BF_INTEGER(),             float_layout_none()),
         BuiltinInfo(BuiltinKind::U256,   TokenKind::AtU256,    "u256",    "unsigned _BitInt(256)", 256, BF_INTEGER(),             float_layout_none()),
         BuiltinInfo(BuiltinKind::U512,   TokenKind::AtU512,    "u512",    "unsigned _BitInt(512)", 512, BF_INTEGER(),             float_layout_none()),
@@ -610,11 +619,14 @@ eval fn verify_builtin_table() -> bool {
 
         if (static_cast::<u8>(row->kind) != i) { return false; }
         if (row->spelling == "")               { return false; }
-        if (row->cxx == "")                    { return false; }
 
         var is_float  = (row->flags & BF_FLOAT())   != 0;
         var is_int    = (row->flags & BF_INTEGER()) != 0;
         var is_target = (row->flags & BF_TARGET_WIDTH()) != 0;
+        var is_tcxx   = (row->flags & BF_TARGET_CXX()) != 0;
+
+        // cxx == "" must mean "ask the store", and only for the rows that say so.
+        if ((!is_tcxx) && (row->cxx == "")) { return false; }
 
         if (is_float && is_int) { return false; }
 

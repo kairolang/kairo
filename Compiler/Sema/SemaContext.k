@@ -228,9 +228,10 @@ class SemaContext {
             self.types      = g->types();
             self.well_known = g->well_known();
             var pbits: usize = 64;
-            if ctx->ci != &null { pbits = ctx->ci->target.pointer_width; }
-            if pbits == 0 { pbits = 64; }
-            self.types->init(pbits);
+            var lp64 = true;
+            if ctx->ci != &null { pbits = ctx->ci->target.pointer_width; lp64 = ctx->ci->target.lp64; }
+            if pbits == 0 { pbits = 64; lp64 = true; }
+            self.types->init(pbits, lp64);
         }
 
         if ctx->ci != &null {

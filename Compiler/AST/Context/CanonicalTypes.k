@@ -126,10 +126,20 @@ class CanonicalTypeStore {
     ///
     /// \param ptr_bits target pointer width, for usize/isize. Everything else
     ///        has a width fixed by its name.
-    fn init(self, ptr_bits: usize) {
+    /// \param lp64 whether the target's int64_t is `long` (LP64) rather than
+    ///        `long long` (LLP64, every 32-bit target). Spells i64/u64.
+    ///
+    /// \details the i64/u64 spellings are written into BuiltinTable itself,
+    ///          not onto the nodes: every emitter reads builtin_info()->cxx,
+    ///          and the table is as build-wide as this store. First caller
+    ///          wins here, so the table is written exactly once.
+    fn init(self, ptr_bits: usize, lp64: bool) {
         var lock = std::LockGuard(self._mu);
         if self._ready { return; }
         self._ptr_bits = ptr_bits;
+
+        builtin_info(BuiltinKind::I64)->cxx = ("signed long")   if lp64 else ("signed long long");
+        builtin_info(BuiltinKind::U64)->cxx = ("unsigned long") if lp64 else ("unsigned long long");
 
         var n = static_cast::<usize>(BuiltinKind::COUNT);
         for var i: usize = 0; i < n; ++i {

@@ -1405,6 +1405,9 @@ class CompilerInstance {
         }
         
         (self.invocation().target.pointer_width) = width;
+        // int64_t is `long` only on LP64; LLP64 (Windows) and 32-bit targets
+        // make it `long long`. BuiltinTable spells i64/u64 from this.
+        (self.invocation().target.lp64) = (width == 64) && (!tt.isOSWindows());
 
         // The rest of the derived target facts, off the SAME Triple, so
         // pointer width and ISA can never disagree about which target this
