@@ -369,22 +369,27 @@ equal precedence and associate in the direction shown.
 | 2 | `()` `[]` `.` `->` `.*` `->*` `?.` `?->` `?.*` `?->*` | Left | Postfix / member access |
 | 3 | `++` `--` (postfix) | Left | Postfix increment/decrement |
 | 4 | `++` `--` (prefix) `!` `~` `+` `-` (unary) `*` `&` `sizeof` `alignof` `typeof` | Right | Prefix / unary |
-| 5 | `^^` | Right | Exponentiation |
-| 6 | `*` `/` `%` | Left | Multiplicative |
-| 7 | `+` `-` | Left | Additive |
-| 8 | `<<` `>>` | Left | Bitwise shift |
-| 9 | `<=>` | Left | Three-way comparison |
-| 10 | `<` `<=` `>` `>=` | Left | Relational |
-| 11 | `==` `!=` `===` | Left | Equality |
-| 12 | `&` | Left | Bitwise AND |
-| 13 | `^` | Left | Bitwise XOR |
-| 14 | `\|` | Left | Bitwise OR |
-| 15 | `&&` | Left | Logical AND |
-| 16 | `\|\|` | Left | Logical OR |
-| 17 | `..` `..=` | Left | Range |
-| 18 | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | Right | Assignment |
-| 19 | `in` | Left | Containment / iteration |
-| 20 | `as` | Left | Type cast |
+| 5 | `as` | Left | Type cast |
+| 6 | `^^` | Right | Exponentiation |
+| 7 | `*` `/` `%` | Left | Multiplicative |
+| 8 | `+` `-` | Left | Additive |
+| 9 | `<<` `>>` | Left | Bitwise shift |
+| 10 | `<=>` | Left | Three-way comparison |
+| 11 | `<` `<=` `>` `>=` | Left | Relational |
+| 12 | `==` `!=` `===` | Left | Equality |
+| 13 | `&` | Left | Bitwise AND |
+| 14 | `^` | Left | Bitwise XOR |
+| 15 | `\|` | Left | Bitwise OR |
+| 16 | `&&` | Left | Logical AND |
+| 17 | `\|\|` | Left | Logical OR |
+| 18 | `..` `..=` | Left | Range |
+| 19 | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | Right | Assignment |
+| 20 | `in` | Left | Containment / iteration |
+
+> [!NOTE]
+> `as` binds looser than every prefix operator and tighter than every binary one: `&x as *const T` casts
+> the address of `x`, `-1 as u8` casts `-1` rather than negating `1 as u8`, and `x as i64 + 1` is `(x as i64) + 1`.
+> A cast chains left to right: `x as i32 as u8`.
 
 > [!NOTE]
 > `==` binds tighter than `&&` and `||` compound conditions like `a == b && c == d` do not require

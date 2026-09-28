@@ -187,7 +187,7 @@ class <T> ExprParse {
         if self._should_stop(stop) { return &null; }
         if !dyn()->enter_depth() { return &null; }
 
-        var lhs = self._parse_unary_expr(stop);
+        var lhs = self._parse_cast_expr(stop);
         if lhs == &null {
             dyn()->exit_depth();
             return &null;
@@ -243,7 +243,7 @@ class <T> ExprParse {
                 var op_tok = dyn()->current();
                 dyn()->advance(T::SkipNL::After); // consume operator
 
-                var rhs = self._parse_unary_expr(stop);
+                var rhs = self._parse_cast_expr(stop);
                 if rhs == &null {
                     dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                         f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}\x27"
@@ -267,7 +267,7 @@ class <T> ExprParse {
                 var op_tok = dyn()->current();
                 dyn()->advance(T::SkipNL::After);
 
-                var rhs = self._parse_unary_expr(stop);
+                var rhs = self._parse_cast_expr(stop);
                 if rhs == &null {
                     dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                         "expected expression after '^^\x27"
@@ -290,7 +290,7 @@ class <T> ExprParse {
             if cur_kind == TokenKind::OpQuestionQuestion {
                 var op_tok = dyn()->current();
                 dyn()->advance(T::SkipNL::After);
-                var rhs = self._parse_unary_expr(stop);
+                var rhs = self._parse_cast_expr(stop);
                 if rhs == &null {
                     dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                         "expected expression after '??\x27"
@@ -336,7 +336,7 @@ class <T> ExprParse {
             var op_tok = dyn()->current();
             dyn()->advance(T::SkipNL::After); // consume operator
 
-            var rhs = self._parse_unary_expr(stop);
+            var rhs = self._parse_cast_expr(stop);
             if rhs == &null {
                 dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                     f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}\x27"
@@ -411,7 +411,7 @@ class <T> ExprParse {
             return RangeExpr::create(dyn()->ctx, lhs->range | op_range, lhs, &null, is_inclusive);
         }
 
-        var rhs = self._parse_unary_expr(stop);
+        var rhs = self._parse_cast_expr(stop);
         if rhs != &null {
             // don't recurse range is non-associative (a..b..c is illegal)
             // but do parse higher-precedence ops on the rhs
@@ -541,7 +541,7 @@ class <T> ExprParse {
         // NOT an access separator   `.`/`->` take an id-expression, while
         // `.*`/`->*` take a full cast-expression on the right (the C++
         // pm-expression level), which is exactly what the generic binary path
-        // below already produces via _parse_unary_expr.
+        // below already produces via _parse_cast_expr.
         if (k == TokenKind::OpDotStar)
         || (k == TokenKind::OpArrowStar)
         || (k == TokenKind::OpQuestionDotStar)
@@ -636,6 +636,41 @@ class <T> ExprParse {
 
         // any remaining infix operator (arithmetic, bitwise, logical, ...)
         return self._infix_precedence(k) != Precedence::None;
+    }
+
+    //  Cast expressions
+
+    /// \brief a unary expression followed by any number of `as` casts.
+    ///
+    /// `as` binds looser than every prefix operator and tighter than every
+    /// binary one (Rust's table), so `&x as *const T` casts the ADDRESS,
+    /// `-1 as u8` casts the negated literal, and `x as i64 + 1` is
+    /// `(x as i64) + 1`. While `as` was a postfix step the first two cast
+    /// `x` and `1` instead and the prefix applied to the result -- a
+    /// silent misparse, not an error. Nothing lower is possible anyway:
+    /// the right side of `as` is a type, so no operator can follow it and
+    /// still reach back over the cast.
+    ///
+    /// Every binary / range / assignment operand comes through here; prefix
+    /// operands do not (they recurse on _parse_unary_expr), which is what
+    /// puts the cast outside them.
+    inline fn _parse_cast_expr(self, stop: ExprStopKind) -> *Expr {
+        var e = self._parse_unary_expr(stop);
+        if e == &null { return &null; }
+
+        while dyn()->check(TokenKind::KwAs) {
+            // `as var`: var can't begin a type, so this is unambiguously a
+            // bare context binding. Hand `as` to the statement layer.
+            if dyn()->check_peek(TokenKind::KwVar) { break; }
+
+            // Everything else speculates: `as const`, `as (`, and plain type
+            // positions are disambiguated inside _try_type_cast by the
+            // trailing-`{` tiebreaker.
+            var c = self._try_type_cast(e);
+            if c == &null { break; }   // binding (or unparseable) -> stmt layer owns `as`
+            e = c;
+        }
+        return e;
     }
 
     //  Unary expressions
@@ -1072,29 +1107,9 @@ class <T> ExprParse {
                 continue;
             }
 
-            // -- postfix as Type (type cast) -------------------------
-            if dyn()->check(TokenKind::KwAs) {
-                // `as var`: var can't begin a type, so this is unambiguously
-                // a bare context binding. Hand `as` to the statement layer.
-                if dyn()->check_peek(TokenKind::KwVar) {
-                    break;
-                }
-
-                base = self._flush_chain(base, &chain_steps, chain_start);
-
-                // Everything else speculates: `as const`, `as (`, and plain
-                // type positions are disambiguated inside _try_type_cast by
-                // the trailing-`{` tiebreaker.
-                var maybe_cast = self._try_type_cast(base);
-                if maybe_cast == &null {
-                    break; // binding (or unparseable) -> stmt layer owns `as`
-                }
-                base = maybe_cast;
-                chain_start = base->range;
-                continue;
-            }
-
             // -- nothing matched: end of postfix ---------------------
+            // `as` is not postfix: _parse_cast_expr owns it, one level
+            // looser than prefix operators.
             break;
         }
 
@@ -1950,7 +1965,7 @@ class <T> ExprParse {
                 return RangeExpr::create(dyn()->ctx, op_range, &null, &null, is_inclusive);
             }
 
-            var rhs = self._parse_unary_expr(stop);
+            var rhs = self._parse_cast_expr(stop);
             var end_range = (rhs->range) if (rhs != &null) else op_range;
             return RangeExpr::create(dyn()->ctx, op_range | end_range, &null, rhs, is_inclusive);
         }
