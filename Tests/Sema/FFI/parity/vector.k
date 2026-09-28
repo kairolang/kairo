@@ -4,7 +4,7 @@
 
 ffi "c++" import "vector"
 
-fn use_vector() -> u64 {
+fn use_vector() -> usize {
     var v: cxx::std::vector<i32>
     v.push_back(1)
     return v.size()
@@ -21,10 +21,11 @@ fn use_vector() -> u64 {
 // `v.size()` is the case that needs clang's instantiation: vector's
 // `size_type` is spelled through `allocator_traits<...>::size_type`, a
 // dependent member typedef the pattern cannot answer. The first lookup into
-// `std::vector<i32>` fills the instance from clang (ForeignInstantiate), so
-// size() returns canonical `unsigned long` -- u64. The function returns u64
-// to match: `usize` is a distinct type and crossing to it takes `as`
-// (Tests/Sema/Types/usize_distinct.k), exactly as the oracle's `unsigned long`.
+// `std::vector<i32>` fills the instance from clang (ForeignInstantiate), and
+// size() returns `size_type` -- spelled through `size_t`, so usize, not the
+// u64 its canonical `unsigned long` would give. The function returns usize to
+// match: u64 is a distinct type and crossing to it takes `as`
+// (Tests/Sema/Types/usize_distinct.k); the oracle returns `std::size_t`.
 //
 // The bound NAMES, not just the types: the fill pins members to vector's
 // forward-declaring header (<__fwd/vector.h>) while they are written in

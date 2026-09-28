@@ -8,7 +8,7 @@
 
 ffi "c++" import "vector"
 
-fn destroy(d: *cxx::std::vector<i32>::__destroy_vector) -> u64 {
+fn destroy(d: *cxx::std::vector<i32>::__destroy_vector) -> usize {
     return d->__vec_.size()
 }
 

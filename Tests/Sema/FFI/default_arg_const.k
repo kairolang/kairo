@@ -17,7 +17,7 @@
 
 ffi "c++" import "map"
 
-fn cmp() -> u64 {
+fn cmp() -> usize {
     var m: cxx::std::map<i32, i32>
     return m.size()
 }

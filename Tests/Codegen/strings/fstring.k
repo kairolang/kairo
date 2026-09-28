@@ -19,6 +19,9 @@ struct Vec2 {
 
 struct Id {
     var n: i32
+}
+
+extend Id {
     fn repr(self) -> string { return f"Id#{self.n}" }
 }
 
@@ -50,11 +53,14 @@ fn main() -> i32 {
     var ns = f"{np}"                                                // "&null"
 
     // 51 + 35 + 2 + 11 + 4 == 103
-    return ((s.len + t.len + o.len + u.len) as i32)
-         + chk(c == 12)
-         + chk(starts_with(ps, "i32 @ 0x"))
-         + chk(starts_with(bs, "Bare @ 0x"))
-         + chk((ns.len == 5) && starts_with(ns, "&null"))
+    // Accumulated: a newline ends a statement, so a `+` leading the next
+    // line would start a new, unreachable one.
+    var n = (s.len + t.len + o.len + u.len) as i32
+    n += chk(c == 12)
+    n += chk(starts_with(ps, "i32 @ 0x"))
+    n += chk(starts_with(bs, "Bare @ 0x"))
+    n += chk((ns.len == 5) && starts_with(ns, "&null"))
+    return n
 }
 
 // --- lit wiring -----------------------------------------------------------

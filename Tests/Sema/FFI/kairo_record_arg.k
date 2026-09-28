@@ -32,7 +32,7 @@ fn plain() -> i32 {
     var x: cxx::std::vector<S>
     x.push_back(S(10))
     var sum: i32 = 0
-    for var i: u64 = 0; i < x.size(); i++ {
+    for var i: usize = 0; i < x.size(); i++ {
         sum += x.at(i).G()
     }
     return sum
@@ -45,7 +45,7 @@ fn shapes() -> i32 {
     var node_v = a.at(0).v
     var inner_a = b.at(0).i.a
     var deep_a = c.at(0).at(0).a
-    var n: u64 = a.size() + b.size() + c.size()
+    var n: usize = a.size() + b.size() + c.size()
     return node_v + inner_a + deep_a
 }
 

@@ -25,7 +25,7 @@ fn use_assoc() {
 // SEMA:      member  .size {{.*}} [member of unordered_map]  [filled by clang, {{[0-9]+}} bytes, align {{[0-9]+}}]
 // SEMA:      0 unknown, 0 errored
 // SEMA:      -- inferred decls --
-// SEMA-NEXT: n : u64
+// SEMA-NEXT: n : usize
 
 // --- lit wiring -----------------------------------------------------------
 // PARITY CASE. The .cpp beside this file is the ORACLE: the assertion is that
