@@ -459,7 +459,7 @@ class ImportResolution {
     /// reaches are the header TUs' own, they keep their own DC chains and
     /// their own paths, and codegen spells them `::std::…` exactly as it did
     /// when bare `std` reached them. It exists for one reason -- bare `std`
-    /// now means Kairo's (`kairo::std`).
+    /// is Kairo's (`import std` binds `kairo::std`) or nothing, never C++'s.
     ///
     /// No new lookup arm. `cxx::std::cout` walks the path that already
     /// exists: `cxx` is a Module anchor (module_scopes on a ring of one

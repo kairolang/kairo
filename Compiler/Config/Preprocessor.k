@@ -55,15 +55,14 @@ class PreprocessorOptions {
     /// same shape.
     pub var no_builtins:        bool   = false;     ///< --no-builtins
     /// --std-dir: where the Kairo standard library tree lives. Empty means
-    /// `<resource-dir>/std`; with neither there is no std root, bare `std`
-    /// binds nothing, and every use of it is an ordinary unresolved-name
-    /// error. Read by the DRIVER (it registers the search root under the name
-    /// `kairo::std`) and by the PP, which folds `kairo::std` into the import
-    /// GRAPH the same way it folds `builtin`.
+    /// `<resource-dir>/std`; with neither there is no std root and
+    /// `import std::...` is an ordinary unresolved import. Read by the DRIVER,
+    /// which registers the root NAMED `kairo::std` (identity, namespace) and
+    /// SPELLED `std` (what source imports). Nothing pulls std in implicitly.
     pub var std_dir:            string = "";        ///< --std-dir
-    /// --no-stdlib: no std root, no `import kairo::std as std` alias. Distinct
-    /// from --no-builtins: builtin DECLARES the lang items sema needs, std
-    /// only extends them, so a freestanding TU can drop std and keep builtin.
+    /// --no-stdlib: no std root. Distinct from --no-builtins: builtin
+    /// DECLARES the lang items sema needs, std only extends them, so a
+    /// freestanding TU can drop std and keep builtin.
     pub var no_stdlib:          bool   = false;     ///< --no-stdlib / --freestanding
     // -- debug / trace -----------------------------------------------------
     pub var macro_debug_filter: string = "";     ///< --macro-debug-filter

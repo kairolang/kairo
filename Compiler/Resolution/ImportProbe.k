@@ -194,6 +194,7 @@ class ImportResolver {
         priv var _cwd:           std::Nullable::<Path>;
         priv var _include_paths: vec::<Path>;
         priv var _include_names: vec::<vec::<string>>;  ///< parallel to _include_paths.
+        priv var _include_spellings: vec::<vec::<string>>;  ///< parallel; empty = the name.
         priv var _ext_cfg:       *FileExtensions;
         priv var _pool:          *ThreadPool;
 
@@ -202,6 +203,7 @@ class ImportResolver {
             self._cwd           = null;
             self._include_paths = vec::<Path>();
             self._include_names = vec::<vec::<string>>();
+            self._include_spellings = vec::<vec::<string>>();
             self._ext_cfg       = &null;
             self._pool          = &null;
         }
@@ -223,13 +225,18 @@ class ImportResolver {
         ///             directory's basename"; only the ENTRY root is
         ///             legitimately unnamed.
         ///
+        /// \param spelling what an import writes to reach the root, when it
+        ///             differs from the name (SearchRoot::spelling). Empty
+        ///             means "the name".
+        ///
         /// The `::` split happens HERE and nowhere else, so `-I name=path`,
         /// the driver's own registrations and any future caller agree on what
         /// a dotted name means.
-        fn add_include(self, path: Path, name: string = "") -> ref!(Builder) {
+        fn add_include(self, path: Path, name: string = "", spelling: string = "") -> ref!(Builder) {
             self._include_paths.push_back(path);
             var segs = split_module_name((name) if (name.size() > 0) else (path.filename()));
             self._include_names.push_back(segs);
+            self._include_spellings.push_back(split_module_name(spelling));
             return self;
         }
 
@@ -268,7 +275,7 @@ class ImportResolver {
             // CompilationBatch::run() calls wait_for_index() before dispatching
             // any TU tasks - the spin was immediate and free-threaded for zero gain.
             resolver->build_index(cwd_path, self._include_paths, &null,
-                                  self._include_names);
+                                  self._include_names, self._include_spellings);
             return resolver;
         }
     }
@@ -293,7 +300,8 @@ class ImportResolver {
     /// \param include_paths additional include directories (priority 1+)
     /// \param pool optional thread pool; currently unused in body but reserved for parallel indexing
     fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null,
-                   include_names: vec::<vec::<string>> = vec::<vec::<string>>()) {
+                   include_names: vec::<vec::<string>> = vec::<vec::<string>>(),
+                   include_spellings: vec::<vec::<string>> = vec::<vec::<string>>()) {
         Logger::info(Logger::Stage::Preprocessor,
             f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
 
@@ -311,20 +319,25 @@ class ImportResolver {
             if p.exists() && p.is_directory() {
                 var nm = (include_names[i]) if (i < include_names.size()) else (vec::<string>());
                 if nm.size() == 0 { nm = split_module_name(p.filename()); }
+                var sp = (include_spellings[i]) if (i < include_spellings.size()) else (vec::<string>());
+                if sp.size() == 0 { sp = nm; }
                 // Two roots claiming one name is a build error, never
                 // first-wins and never a merge (IMPORTS.md §2.1). EQUAL names
                 // only: one name being a PREFIX of another is legal, because
                 // resolve_module_rel matches longest-first and so has exactly
                 // one answer for every path.
+                // The spelling collides too: two roots an import reaches by one
+                // path would make that path ambiguous even with two names.
                 for var k: usize = 0; k < self._roots.size(); ++k {
-                    if !root_names_equal(self._roots[k]->name, nm) { continue; }
+                    if (!root_names_equal(self._roots[k]->name, nm))
+                    && (!root_names_equal(self._roots[k]->spelling, sp)) { continue; }
                     var c = RootNameCollision{};
-                    c.name = self._name_str(nm);
+                    c.name = (self._name_str(nm)) if (root_names_equal(self._roots[k]->name, nm)) else (self._name_str(sp));
                     c.a    = self._roots[k]->base_path.full_path();
                     c.b    = p.full_path();
                     self._root_collisions.push_back(c);
                 }
-                var root = std::create::<SearchRoot>(p, priority, self._ext_cfg, nm);
+                var root = std::create::<SearchRoot>(p, priority, self._ext_cfg, nm, sp);
                 self._roots.push_back(root);
                 priority += 1;
             }
@@ -537,10 +550,12 @@ class ImportResolver {
             }
         }
 
-        // Named roots, LONGEST NAME FIRST. A root's name is a module path,
-        // not an identifier, so the match is on the leading N segments of the
-        // import: with roots `kairo::std` and `kairo`, `import kairo::std::vec`
-        // is the former's `vec.k` and never the latter's `std/vec.k`.
+        // Named roots, LONGEST SPELLING FIRST. A root is reached by its
+        // spelling (SearchRoot::spelling: its name unless it registered a
+        // shorter one, as std does), a module path matched on the leading N
+        // segments of the import: with roots spelled `kairo::x` and `kairo`,
+        // `import kairo::x::vec` is the former's `vec.k` and never the
+        // latter's `x/vec.k`.
         // Longest-first is also what makes prefix pairs legal -- only EQUAL
         // names are the R018E collision.
         //
@@ -550,13 +565,13 @@ class ImportResolver {
         // segments[size-1] and would read off the front of an empty vec.
         // Without it a root named `builtin` is reachable as
         // `builtin::containers` but never as `builtin` -- the spelling the
-        // prelude uses -- and `import kairo::std` never resolves at all.
+        // prelude uses -- and `import std` never resolves at all.
         if !root_hit {
             var cands = vec::<*SearchRoot>();
             for var ni: usize = 0; ni < self._roots.size(); ++ni {
                 var r = self._roots[ni];
-                if r->name.size() == 0 { continue; }
-                if !root_name_matches(r->name, segments) { continue; }
+                if r->spelling.size() == 0 { continue; }
+                if !root_name_matches(r->spelling, segments) { continue; }
                 cands.push_back(r);
             }
             // Insertion sort, descending by name length. The candidate set is
@@ -565,7 +580,7 @@ class ImportResolver {
             for var a: usize = 1; a < cands.size(); ++a {
                 var c = cands[a];
                 var b = a;
-                while (b > 0) && (cands[b - 1]->name.size() < c->name.size()) {
+                while (b > 0) && (cands[b - 1]->spelling.size() < c->spelling.size()) {
                     cands[b] = cands[b - 1];
                     b -= 1;
                 }
@@ -578,7 +593,7 @@ class ImportResolver {
                 ci += 1;
 
                 var tail = vec::<string>();
-                for var ti: usize = r->name.size(); ti < segments.size(); ++ti {
+                for var ti: usize = r->spelling.size(); ti < segments.size(); ++ti {
                     tail.push_back(segments[ti]);
                 }
 

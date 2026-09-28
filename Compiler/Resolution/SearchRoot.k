@@ -33,15 +33,25 @@ class SearchRoot {
     ///
     /// Multi-segment because a root's name is a module PATH, not an
     /// identifier: Kairo's own standard library registers under `kairo::std`
-    /// so that `Lib/std/vec.k` is `kairo::std::vec` and bare `std` can be a
-    /// prelude alias rather than a root name anyone could collide with.
+    /// so that `Lib/std/vec.k` is `kairo::std::vec` and emits into
+    /// `::kairo::std`, which can never collide with C++'s own `std`.
     pub var name: vec::<string>;
 
+    /// The leading segments an IMPORT writes to reach this root. Equal to
+    /// `name` unless the root registered a shorter spelling: the std root is
+    /// NAMED `kairo::std` (its identity and namespace) but SPELLED `std`, so
+    /// source writes `import std::io` and still gets `kairo::std::io`.
+    /// resolve_module_rel matches on this; canonical_module_path never reads
+    /// it, which is what keeps the emitted namespace independent of it.
+    pub var spelling: vec::<string>;
+
     fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions,
-                  name: vec::<string> = vec::<string>()) {
+                  name: vec::<string> = vec::<string>(),
+                  spelling: vec::<string> = vec::<string>()) {
         self.base_path     = path;
         self.priority      = priority;
         self.name          = name;
+        self.spelling      = (spelling) if (spelling.size() > 0) else (name);
         self.ext_cfg       = ext_cfg;
         self.root          = std::create::<DirEntry>(path.filename(), true);
         self.root->fs_path = path;

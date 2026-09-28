@@ -155,38 +155,30 @@ under a named root never falls back into the entry root, which is a leaf
 of the import graph. Two roots claiming one name is an R018E from the
 driver before anything is parsed (`take_root_collisions`).
 
-**The std root.** `Lib/std` is a named root whose name is the two-segment
-path `kairo::std` (`<resource-dir>/std`; `--std-dir` overrides, `--no-stdlib`
-skips it). Two segments so that its decls emit into `::kairo::std`, which can
-never collide with C++'s `std`, and so that the bare name `std` is free to
-mean something else. It means a TU-LOCAL ALIAS: every non-builtin, non-std TU
-receives a synthesized `import kairo::std as std` with `is_prelude = true` and
-`resolved_fid` stamped to `Lib/std/module.k`, folded by I through `_fold_plain`
-like any other aliased plain import. `--no-stdlib` or `--no-prelude` suppresses
-it; `--print-imports` labels it `<prelude>`; the AST printer hides it.
+**The std root.** `Lib/std` is a named root with a NAME and a SPELLING
+(`SearchRoot::name` / `::spelling`). The name is the two-segment path
+`kairo::std` (`<resource-dir>/std`; `--std-dir` overrides, `--no-stdlib` skips
+it): it is the root's identity, so `Lib/std/io.k` is `kairo::std::io` and emits
+into `::kairo::std`, which can never collide with C++'s `std`. The spelling is
+`std`: what source writes to reach it. `resolve_module_rel` matches roots on
+their spelling, longest first; `canonical_module_path` reads only the name, so
+the spelling never reaches the emitted namespace. Every other root's spelling
+is its name. Two roots with one name OR one spelling are the R018E collision.
 
-A graph edge and a name binding are two different things, so BOTH halves
-exist: the PP adds `kairo::std` to the import graph next to `builtin` (without
-it the tree is never loaded and there is no fid to stamp), and the driver
-synthesizes the ImportDecl once sema has a TU to hang it on. `PPResult::std_fid`
-carries the fid between them, and the std subtree is marked
-(`GlobalDisambigTable::mark_std_fid`) rather than tested on the module path,
-because the segments are PreprocessorSymbolTable ids no Sema pass can reach.
-builtin files are skipped too: builtin DECLARES what std extends, so std
-imports builtin and never the reverse.
+There is no std prelude. Nothing reaches std without importing it:
+`import std::io` binds `io`, `import std` binds `std` (the root's `module.k`),
+and bare `std` in a file that did neither is an ordinary unresolved name. The
+PP does not fold std into the graph either; an import of it does.
 
-**Shadowing the alias.** Bare `std` is an ordinary overlay binding, so a TU's
-own `module std { }` shadows it by the ordinary rule (DC chain before
-overlay), with no special case. A real IMPORT of the same name is not
-ordinary, and this is the one place the prelude is not: two `ModuleHandle`
-targets under one key UNION into a multi-scope module -- `non_function_count`
-exempts ModuleHandle so reopened namespaces and ffi closures work (§4.3) --
-so a user's `import std` would silently merge their namespace with
-`kairo::std` and `is_ambiguous()` would never fire. Rule: a real import
-EVICTS a prelude handle of the same name, and a prelude handle never lands on
-a name a real import already bound (`ImportResolution::_add`). Handles only:
-builtin's wildcard folds Type and FunctionSet targets, and a user import
-colliding with one of those is still the R016E it always was.
+**Prelude handles.** A real import of a name EVICTS a prelude `ModuleHandle`
+of the same name, and a prelude handle never lands on a name a real import
+already bound (`ImportResolution::_add`): two handles under one key would
+otherwise UNION into a multi-scope module (`non_function_count` exempts
+ModuleHandle so reopened namespaces and ffi closures work, §4.3) and
+`is_ambiguous()` would never fire. The rule was written for the std alias,
+which is gone; builtin's wildcard folds Type and FunctionSet targets, never
+handles, so today it never fires. A user import colliding with a builtin
+name is still the R016E it always was.
 
 **The builtin root.** `Lib/builtin` is a named root (`builtin`) the
 compiler always registers (`<resource-dir>/builtin`; `--builtins-dir`
@@ -770,11 +762,11 @@ Each item is independently testable. Do them in this order.
    16. Per-TU object emission (_codegen loop, obj dir)    Codegen    DONE
    17. Builtin root + prelude                             PP/driver  DONE
    18. Container migration (items 2-9)                    Sema/Codegen  IN PROGRESS
-   19. std root named `kairo::std` + bare-`std` prelude alias  Resolution/PP/driver  DONE
-        Multi-segment SearchRoot::name, longest-first root matching,
-        `module.k` at a root's top level naming the ROOT, PPResult::std_fid,
-        the synthesized `import kairo::std as std`, and the prelude-handle
-        eviction rule in _add. Tests: Tests/Sema/Imports/std_root.k,
+   19. std root named `kairo::std`, spelled `std`          Resolution/driver  DONE
+        Multi-segment SearchRoot::name, SearchRoot::spelling (matched by
+        resolve_module_rel, never by canonical_module_path), longest-first
+        root matching, `module.k` at a root's top level naming the ROOT. No
+        std prelude: `import std::io`. Tests: Tests/Sema/Imports/std_root.k,
         Tests/Sema/Imports/std_shadow.k.
    20. `cxx::std` overlay                                 I          DONE
         Tests: Tests/Sema/Imports/cxx_overlay.k, Tests/Sema/Imports/cxx_overlay_no_ffi.k.

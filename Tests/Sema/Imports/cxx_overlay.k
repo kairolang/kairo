@@ -1,21 +1,22 @@
-// rule: `cxx::std` is C++'s `std`; bare `std` is kairo's. The overlay is a
-// TRANSPARENT alias -- the declarations it reaches are the header TUs' own,
-// they keep their own paths, and codegen spells them `::std::…` exactly as it
-// did when bare `std` reached them. `cxx` exists for one reason: bare `std`
-// now means `kairo::std`.
+// rule: `cxx::std` is C++'s `std`; bare `std` is kairo's once `import std`
+// binds it, and never C++'s. The overlay is a TRANSPARENT alias -- the
+// declarations it reaches are the header TUs' own, they keep their own paths,
+// and codegen spells them `::std::…` exactly as it did when bare `std` reached
+// them. `cxx` exists for one reason: bare `std` means `kairo::std`.
 //
 // `cxx` binds only in a TU with an ffi import, has exactly one member, and is
 // not a general prefix: every other top-level C++ name still folds bare, so
 // `boost::`, `absl::` and friends are untouched.
 
 ffi "c++" import "<string>"
+import std
 
 fn from_cxx() -> void {
     var s: cxx::std::string
 }
 
 fn from_kairo() -> void {
-    std::print(3)
+    std::io::println("3")
 }
 
 fn cxx_alone() -> void {

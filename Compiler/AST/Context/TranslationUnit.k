@@ -181,7 +181,7 @@ class TranslationUnit derives DeclContext {
     /// The synthetic `cxx` module, built by phase I for a TU with any ffi
     /// import, or null. It owns one binding -- `std` -> every top-level `std`
     /// ModuleDecl in this TU's ffi closure -- so `cxx::std` names C++'s `std`
-    /// while bare `std` means Kairo's (IMPORTS.md §5).
+    /// while bare `std` is Kairo's, once `import std` binds it (IMPORTS.md §5).
     ///
     /// A TRANSPARENT alias: the decls reached through it keep their own paths
     /// and codegen spells them `::std::…`. Nothing downstream reads this
