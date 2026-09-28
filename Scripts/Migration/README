@@ -97,6 +97,17 @@ need to re-run one rule against a fresh copy.
 Other
 -----
 
+hex_escapes_to_chars.py   \x27 -> ' and \x22 -> \" in every string, \x7B /
+                          \x7D -> { / } outside f-strings. Stage 0 lexer
+                          workarounds (CLAUDE.md); Stage 1 needs none of them.
+                          Stage 0's r"" keeps C escapes and Stage 1's is truly
+                          raw, so an r"" holding a backslash becomes the plain
+                          string it always meant. Comments, char literals and
+                          inline "c++" bodies are left alone. --selftest.
+                          On Compiler/ (2026-09-28, run on a copy): 293 sites
+                          in 45 files; the 20 escapes it leaves are all in
+                          comments or char literals.
+
 ref_and_mref.py           ref!(T) / mref(T) in parameter position
                           -> @inout x: T / @move x: T
 
