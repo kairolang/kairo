@@ -1,13 +1,19 @@
 #pragma once
-// kbld_lib.hh — build script library for build.k
-// ffi "c++" import "kbld_lib.hh";
+// kbld.hh — build script library for build.k
+// ffi "c++" import "kbld.hh";
 //
 // build.k emits a single JSON blob to stdout via Project::emit().
 // kbld reads it after the script exits and deserializes into Config.
 //
+// Build mode has exactly one source: the kbld command line (--debug or
+// --release, default release). kbld resolves it before anything runs and
+// exports it to the script as KBLD_MODE. The script reads it through
+// build_mode() / is_debug() and never sends a mode back.
+//
 // Dependencies: nlohmann/json.hpp, include/core.hh
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -20,14 +26,17 @@
 #include <unordered_map>
 #include <vector>
 #if defined(_WIN32)
+#include <process.h>
 #include <windows.h>
 #define kbld_lib_popen _popen
 #define kbld_lib_pclose _pclose
+#define kbld_lib_getpid _getpid
 #else
 #include <sys/wait.h>
 #include <unistd.h>
 #define kbld_lib_popen popen
 #define kbld_lib_pclose pclose
+#define kbld_lib_getpid getpid
 #endif
 
 #include "include/core.hh"
@@ -40,7 +49,6 @@ using json   = nlohmann::json;
 using _kstr = std::string;
 
 // ─── narrow↔wide helpers ──────────────────────────────────────────────────────
-// These live outside kairo:: so the detail namespace can use them freely.
 
 inline auto _w2n(const kairo::string &s) -> _kstr { return kairo::std::string_to_cstring(s); }
 
@@ -49,13 +57,19 @@ inline auto _n2w(const _kstr &s) -> kairo::string { return kairo::std::cstring_t
 inline auto _n2w(const char *s) -> kairo::string {
     if (!s)
         return kairo::string{};
-    return kairo::string(s);  // basic<wchar_t>(const char*) constructor
+    return kairo::string(s);
 }
 
-// ─── fs::path from kairo string ──────────────────────────────────────────────
+inline auto _kpath(const kairo::string &s) -> fs::path { return fs::path(s.raw_string()); }
 
-inline auto _kpath(const kairo::string &s) -> fs::path {
-    return fs::path(s.raw_string());  // raw_string() is std::wstring
+// ─── unique temp file per call ───────────────────────────────────────────────
+// Parallel target builds each capture stderr; a shared filename races.
+
+inline auto _kbld_unique_tmp(const char *stem) -> fs::path {
+    static std::atomic<unsigned> counter{0};
+    auto n = counter.fetch_add(1, std::memory_order_relaxed);
+    return fs::temp_directory_path() /
+           (_kstr(stem) + "." + std::to_string(kbld_lib_getpid()) + "." + std::to_string(n) + ".tmp");
 }
 
 namespace kairo {
@@ -77,29 +91,25 @@ struct RunResult {
 
 namespace _kbld_detail {
 
-    // Run cmd (narrow), capture stdout into out (wide), stderr into err (wide).
     inline auto capture_all(_kstr cmd, string &out, string &err) -> int {
         out.clear();
         err.clear();
 
-        auto tmp      = fs::temp_directory_path() / "kbld_lib_stderr.tmp";
-        auto full_cmd = cmd + " 2>" + tmp.string();
+        auto tmp      = _kbld_unique_tmp("kbld_lib_stderr");
+        auto full_cmd = cmd + " 2>\"" + tmp.string() + "\"";
 
         FILE *fp = kbld_lib_popen(full_cmd.c_str(), "r");
         if (!fp)
             return -1;
 
-        // read stdout as narrow bytes, convert to wide
         _kstr narrow_out;
         char  buf[4096];
-        while (auto n = libcxx::fread(buf, 1, sizeof(buf), fp)) {
+        while (auto n = libcxx::fread(buf, 1, sizeof(buf), fp))
             narrow_out.append(buf, n);
-        }
         out = _n2w(narrow_out);
 
         int status = kbld_lib_pclose(fp);
 
-        // read stderr file as narrow, convert to wide
         {
             libcxx::ifstream ifs(tmp);
             if (ifs) {
@@ -108,7 +118,8 @@ namespace _kbld_detail {
                 err = _n2w(ss.str());
             }
         }
-        fs::remove(tmp);
+        libcxx::error_code ec;
+        fs::remove(tmp, ec);
 
 #ifndef _WIN32
         if (WIFEXITED(status))
@@ -131,7 +142,6 @@ namespace _kbld_detail {
         } catch (...) { return fallback; }
     }
 
-    // Quote a single wide arg into a narrow shell-safe token.
     inline auto quote_arg(const string &a) -> _kstr {
         auto na = _w2n(a);
 #ifdef _WIN32
@@ -160,19 +170,10 @@ namespace _kbld_detail {
         return cmd;
     }
 
-    inline auto resolve_path(const string &path) -> string {
-        if (_kpath(path).is_absolute())
-            return path;
-        auto root = getenv_str("KBLD_ROOT");
-        if (root.is_empty())
-            return path;
-        return string((fs::path(root.raw_string()) / _kpath(path)).wstring().c_str());
-    }
-
 }  // namespace _kbld_detail
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Environment query
+// Environment query — everything kbld exports to the script
 // ─────────────────────────────────────────────────────────────────────────────
 
 inline auto target_name() -> string { return _kbld_detail::getenv_str("KBLD_TARGET"); }
@@ -197,7 +198,7 @@ inline auto env(const string &key) -> libcxx::optional<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Logging — always stderr, never stdout
+// Logging — always stderr, never stdout (stdout is the JSON channel)
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace log {
@@ -242,7 +243,7 @@ inline auto run_or_fail(const vec<string> &args) -> RunResult {
 }
 
 inline auto run_in(const string &dir, const vec<string> &args) -> RunResult {
-    auto      cmd = "cd " + _w2n(dir) + " && " + _kbld_detail::argv_to_cmd(args);
+    auto      cmd = "cd " + _kbld_detail::quote_arg(dir) + " && " + _kbld_detail::argv_to_cmd(args);
     RunResult r;
     r.exit_code = _kbld_detail::capture_all(cmd, r.stdout_str, r.stderr_str);
     r.success   = (r.exit_code == 0);
@@ -256,7 +257,7 @@ inline auto run_env(const vec<string> &args, const libcxx::unordered_map<string,
 #ifdef _WIN32
         prefix += "set " + _w2n(k) + "=" + _w2n(v) + " && ";
 #else
-        prefix += _w2n(k) + "=" + _w2n(v) + " ";
+        prefix += _w2n(k) + "=" + _kbld_detail::quote_arg(v) + " ";
 #endif
     }
     auto      cmd = prefix + _kbld_detail::argv_to_cmd(args);
@@ -413,7 +414,6 @@ inline void cache_set(const string &key, const string &val) {
     auto doc       = _cache_detail::load();
     doc[_w2n(key)] = _w2n(val);
 
-    // record timestamp for cache_stale
     auto now_ns             = libcxx::chrono::duration_cast<libcxx::chrono::nanoseconds>(
                                   libcxx::chrono::system_clock::now().time_since_epoch())
                                   .count();
@@ -526,7 +526,6 @@ class Target {
         return *this;
     }
 
-    // batch setters
     auto includes(const vec<string> &v) -> Target & {
         for (auto &x : v)
             _includes.push_back(x);
@@ -568,7 +567,6 @@ class Target {
         return *this;
     }
 
-    // JSON serialization — all values narrowed for nlohmann
     auto to_json() const -> json {
         auto ws = [](const string &s) { return _w2n(s); };
         auto wa = [&](const vec<string> &v) {
@@ -626,13 +624,12 @@ class Project {
         _name = name;
     }
 
-    Project(const Project &other)            = default;  // shared_ptr copies, shares the flag
+    Project(const Project &other)            = default;
     Project &operator=(const Project &other) = default;
     Project(Project &&other)                 = default;
     Project &operator=(Project &&other)      = default;
 
     ~Project() {
-        // only emit if we're the last holder of the flag and it hasn't been emitted
         if (_emitted.use_count() == 1 && !*_emitted && !libcxx::uncaught_exceptions())
             emit();
     }
@@ -655,10 +652,6 @@ class Project {
     }
     auto compiler(const string &v) -> Project & {
         _compiler = v;
-        return *this;
-    }
-    auto mode(const string &v) -> Project & {
-        _mode = v;
         return *this;
     }
 
@@ -694,7 +687,6 @@ class Project {
         doc["project"]["license"] = ws(_license);
 
         doc["build"]["compiler"] = ws(_compiler);
-        doc["build"]["mode"]     = ws(_mode);
 
         json skip = json::array();
         for (auto &s : _skip_dirs)
@@ -717,7 +709,6 @@ class Project {
     string                   _author;
     string                   _license;
     string                   _compiler = string(L"kairo");
-    string                   _mode     = string(L"release");
     vec<string>              _skip_dirs;
     vec<Target>              _targets;
 };
@@ -764,45 +755,52 @@ inline void apply_env(const ScriptEnvVars &e) {
 #undef kbld_setenv
 }
 
-inline auto script_is_stale(const fs::path &src, const fs::path &bin) -> bool {
-    if (!fs::exists(bin))
-        return true;
+inline auto lib_header_for(const fs::path &kbld_bin) -> fs::path {
+    return kbld_bin.parent_path().parent_path() / "include" / "kbld.hh";
+}
+
+// The script binary is stale if it is missing or older than any of its inputs:
+// build.k itself, the library header it was compiled against, or the compiler
+// that produced it.
+inline auto script_is_stale(const fs::path &bin, const std::vector<fs::path> &inputs) -> bool {
     std::error_code ec;
-    auto            src_t = fs::last_write_time(src, ec);
-    if (ec)
+    if (!fs::exists(bin))
         return true;
     auto bin_t = fs::last_write_time(bin, ec);
     if (ec)
         return true;
-    return src_t > bin_t;
+    for (auto &in : inputs) {
+        if (in.empty())
+            continue;
+        auto t = fs::last_write_time(in, ec);
+        if (ec)
+            continue;
+        if (t > bin_t)
+            return true;
+    }
+    return false;
 }
 
-inline auto compile_script(const _kstr      &kairo,
-                           const fs::path   &script_src,
-                           const fs::path   &script_bin,
-                           const vec<_kstr> &includes,
-                           const fs::path   &kbld_bin,
-                           bool              verbose) -> std::pair<int, _kstr> {
+inline auto compile_script(const _kstr    &kairo,
+                           const fs::path &script_src,
+                           const fs::path &script_bin,
+                           const fs::path &lib_hh,
+                           bool            verbose) -> std::pair<int, _kstr> {
     fs::create_directories(script_bin.parent_path());
-    auto lib_hh = kbld_bin.parent_path().parent_path() / "include" / "kbld.hh";
 
     _kstr cmd = kairo + " " + script_src.string() + " -o" + script_bin.string();
-    for (auto &inc : includes)
-        cmd += " -I" + inc;
     cmd += " --release";
     if (verbose)
         cmd += " --verbose";
-
     cmd += " -- -include " + lib_hh.string();
 
-    // capture into wide then convert back for return
     kairo::string out_w, err_w;
     int           rc = kairo::_kbld_detail::capture_all(cmd, out_w, err_w);
     return {rc, _w2n(out_w) + _w2n(err_w)};
 }
 
 // Run the script binary, capturing only stdout (JSON blob).
-// Script's stderr goes live to the terminal via popen without redirect.
+// Script's stderr goes live to the terminal.
 inline auto run_script(const fs::path &bin, const ScriptEnvVars &env_vars)
     -> std::pair<int, _kstr> {
     apply_env(env_vars);
@@ -825,12 +823,10 @@ inline auto run_script(const fs::path &bin, const ScriptEnvVars &env_vars)
     return {rc, out};
 }
 
-// Deserialize the JSON blob into kbld's Config/Target structs.
-// Templated to avoid circular dependency with types.hpp.
 template <typename T_Config, typename T_Target>
 inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &error_msg) -> bool {
     if (raw_json.empty()) {
-        error_msg = "build.k produced no output — did you call Project::emit()?";
+        error_msg = "build.k produced no output";
         return false;
     }
 
@@ -856,8 +852,6 @@ inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &err
                 r.push_back(e.get<_kstr>());
         return r;
     };
-    // kbld's Config fields are std::string-based (C++ side), so no conversion needed here.
-    // The JSON is already narrow throughout.
 
     if (doc.contains("project") && doc["project"].is_object()) {
         auto &p             = doc["project"];
@@ -867,13 +861,8 @@ inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &err
         cfg.project.license = str_or(p, "license", "");
     }
 
-    if (doc.contains("build") && doc["build"].is_object()) {
-        auto &b            = doc["build"];
-        cfg.build.compiler = str_or(b, "compiler", "kairo");
-        auto mode_str      = str_or(b, "mode", "release");
-        cfg.build.mode     = (mode_str == "debug") ? decltype(cfg.build.mode)::Debug
-                                                   : decltype(cfg.build.mode)::Release;
-    }
+    if (doc.contains("build") && doc["build"].is_object())
+        cfg.build.compiler = str_or(doc["build"], "compiler", "kairo");
 
     if (doc.contains("workspace") && doc["workspace"].is_object()) {
         auto raw = str_arr(doc["workspace"], "skip_dirs");
@@ -941,42 +930,31 @@ inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &err
 template <typename T_Config, typename T_Target>
 inline auto run_build_script(const fs::path &script_src,
                              const fs::path &root,
+                             const fs::path &kbld_bin,
                              const _kstr    &kairo,
                              const _kstr    &kbld_ver,
+                             const _kstr    &mode,
+                             const _kstr    &triple,
+                             const _kstr    &platform,
+                             const _kstr    &arch,
                              int             jobs,
                              bool            verbose,
                              T_Config       &cfg) -> int {
     auto build_dir  = root / "build";
     auto script_bin = build_dir / ".kbld" / "build_script";
+    auto lib_hh     = lib_header_for(kbld_bin);
 
-    fs::path kbld_bin;
-#if defined(__linux__)
-    {
-        char    buf[4096] = {};
-        ssize_t n         = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (n > 0)
-            kbld_bin = fs::path(buf);
+    if (!fs::exists(lib_hh)) {
+        std::fprintf(stderr, "\033[1;31m[kbld]\033[0m kbld.hh not found at %s\n",
+                     lib_hh.string().c_str());
+        return 1;
     }
-#elif defined(__APPLE__)
-    {
-        char     buf[4096] = {};
-        uint32_t sz        = sizeof(buf);
-        if (_NSGetExecutablePath(buf, &sz) == 0)
-            kbld_bin = fs::path(buf);
-    }
-#elif defined(_WIN32)
-    {
-        char buf[MAX_PATH] = {};
-        if (GetModuleFileNameA(nullptr, buf, MAX_PATH))
-            kbld_bin = fs::path(buf);
-    }
-#endif
 
-    if (script_is_stale(script_src, script_bin)) {
+    if (script_is_stale(script_bin, {script_src, lib_hh, fs::path(kairo)})) {
         if (verbose)
             std::fprintf(
                 stderr, "\033[1;36m[kbld]\033[0m compiling %s\n", script_src.string().c_str());
-        auto [rc, output] = compile_script(kairo, script_src, script_bin, {}, kbld_bin, verbose);
+        auto [rc, output] = compile_script(kairo, script_src, script_bin, lib_hh, verbose);
         if (rc != 0) {
             std::fprintf(stderr, "\033[1;31m[kbld]\033[0m build.k compilation failed\n");
             if (!output.empty())
@@ -988,32 +966,14 @@ inline auto run_build_script(const fs::path &script_src,
     ScriptEnvVars e;
     e.root      = fs::absolute(root).string();
     e.build_dir = fs::absolute(build_dir).string();
-    e.out_dir   = (build_dir / "bin").string();
+    e.out_dir   = (fs::absolute(build_dir) / triple / mode / "bin").string();
     e.jobs      = std::to_string(jobs > 0 ? jobs : 1);
     e.compiler  = kairo;
     e.version   = kbld_ver;
-    e.mode      = "release";
-
-#if defined(__x86_64__) || defined(_M_X64)
-    e.arch = "x86_64";
-#elif defined(__aarch64__) || defined(_M_ARM64)
-    e.arch = "arm64";
-#elif defined(__wasm__)
-    e.arch = "wasm32";
-#else
-    e.arch = "unknown";
-#endif
-
-#if defined(_WIN32)
-    e.platform = "windows";
-    e.triple   = e.arch + "-windows-msvc";
-#elif defined(__APPLE__)
-    e.platform = "macos";
-    e.triple   = e.arch + "-apple-macosx";
-#else
-    e.platform = "linux";
-    e.triple   = e.arch + "-linux-gnu";
-#endif
+    e.mode      = mode;
+    e.triple    = triple;
+    e.platform  = platform;
+    e.arch      = arch;
 
     auto [rc, raw_json] = run_script(script_bin, e);
     if (rc != 0) {
