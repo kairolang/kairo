@@ -1282,7 +1282,7 @@ group = "import"
     """
 
 [R054]
-brief = "overloads differ only in the '@move' mode"
+brief = "overloads differ only in the '@move' "
 group = "redeclaration"
 
     [R054.E]
