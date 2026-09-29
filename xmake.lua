@@ -61,8 +61,12 @@ function add_static_cxx_runtime()
     if not is_plat("linux") then return end
     add_cxxflags("-stdlib=libc++", "-fexperimental-library", "-std=c++23", { force = true })
     on_load(function (target)
-        import("core.base.option")
-        local ldflags = {"-stdlib=libc++", "-fexperimental-library", "-static-libstdc++"}
+        local ldflags = {
+            "-stdlib=libc++",
+            "-fexperimental-library",
+            "-nostdlib++",
+            "-Wl,-Bstatic,--start-group,-lc++,-lc++abi,--end-group,-Bdynamic",
+        }
         local unwind_a
         try {
             function()
