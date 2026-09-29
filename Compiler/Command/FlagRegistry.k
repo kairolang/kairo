@@ -55,8 +55,8 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  OUTPUT
 
-    cmd->define::<FlagKind::String>("output",         "o", "output",         "write primary output to this path",                                                 "");
-    cmd->define::<FlagKind::String>("out-dir",        "",  "out-dir",        "write outputs to this directory with auto-named files",                             "");
+    cmd->define::<FlagKind::String>("output",         "o", "output",         "write the output to this file: the executable or library, or with -c the one object", "");
+    cmd->define::<FlagKind::String>("cache-dir",      "",  "cache-dir",      "directory for object files, kept (default: a temp dir removed after linking; . with -c)", "");
     cmd->define::<FlagKind::String>("emit",           "",  "emit",           "comma-separated output types: obj,asm,llvm-ir,llvm-bc,tokens,ast,sema,bcir,cxx,dep-info", "obj");
     cmd->define::<FlagKind::String>("entry",          "",  "entry",          "override entry point symbol name (default: main)",                                  "main");
     cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link (sugar for --emit obj)",                                  false);
@@ -424,7 +424,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("strict-aliasing",       "", "strict-aliasing",        "enable strict aliasing optimizations (off in debug, on in release)",      false);
     cmd->define::<FlagKind::String>("thread-model",          "", "thread-model",           "threading model: posix|single (default: posix)",                          "posix");
     cmd->define::<FlagKind::String>("unwind-tables",         "", "unwind-tables",          "unwind table emission: none|sync|async (default: sync)",                  "sync");
-    cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: compiler-rt)",     "compiler-rt");
+    cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
     cmd->define::<FlagKind::String>("unwindlib",             "", "unwindlib",              "unwind library: libunwind|libgcc|none (default: platform default)",        "");
 
     //  debug info

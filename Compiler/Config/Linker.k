@@ -24,6 +24,28 @@ import Command::ParsedArgs::*;
 /// driver having to pick through unrelated option structs.
 ///
 class LinkerOptions {
+    // -- output shape and inputs -------------------------------------------
+    pub var lib_dirs:          vec::<string>;       ///< -L (repeatable)
+    pub var link_libs:         vec::<string>;       ///< -l [static:|dynamic:]name (repeatable)
+    pub var shared:            bool   = false;      ///< --shared, or --dll
+    pub var static_link:       bool   = false;      ///< --static
+    pub var no_entry:          bool   = false;      ///< --no-entry: no crt, no -e
+    pub var freestanding:      bool   = false;      ///< implies no_crt and no_default_libs
+    pub var no_crt:            bool   = false;      ///< --no-crt
+    pub var no_default_libs:   bool   = false;      ///< --no-default-libs
+    pub var entry:             string = "main";     ///< ELF entry only when there is no crt
+    pub var cache_dir:         string = "";         ///< --cache-dir: where objects go
+    pub var save_temps:        bool   = false;      ///< keep the object dir after linking
+    pub var compile_only:      bool   = false;      ///< -c, -S, or any --emit but the default obj
+    pub var print_ld_args:     bool   = false;      ///< print the link line instead of linking
+    pub var strip:             bool   = false;
+    pub var strip_debug:       bool   = false;
+    pub var icf:               bool   = false;
+    pub var icf_mode:          string = "safe";
+    pub var rtlib:             string = "";         ///< "" = the sysroot's choice, else host detection
+    pub var unwindlib:         string = "";         ///< "" = follows rtlib / the sysroot
+    pub var f_pie:             i32    = -1;         ///< -1 unset: on for Linux executables
+
     // -- general linking ---------------------------------------------------
     pub var linker_script:     string = "";
     pub var version_script:    string = "";
@@ -97,6 +119,29 @@ class LinkerOptions {
 
     static fn from_args(args: ref!(ParsedArgs)) -> LinkerOptions {
         var o = LinkerOptions();
+
+        // -- output shape and inputs ---------------------------------------
+        for s in args.get_list("lib-dirs")  { o.lib_dirs.push_back(s);  }
+        for s in args.get_list("link-libs") { o.link_libs.push_back(s); }
+        (o.shared)          = args.get_bool("shared") || args.get_bool("dll");
+        (o.static_link)     = args.get_bool("static");
+        (o.no_entry)        = args.get_bool("no-entry");
+        (o.freestanding)    = args.get_bool("freestanding");
+        (o.no_crt)          = args.get_bool("no-crt") || o.freestanding;
+        (o.no_default_libs) = args.get_bool("no-default-libs") || o.freestanding;
+        (o.entry)           = args.get_string("entry");
+        (o.cache_dir)       = args.get_string("cache-dir");
+        (o.save_temps)      = args.get_bool("save-temps");
+        (o.compile_only)    = args.get_bool("compile-only") || args.get_bool("emit-asm")
+                           || (args.get_string("emit") != "obj");
+        (o.print_ld_args)   = args.get_bool("print-ld-args");
+        (o.strip)           = args.get_bool("strip");
+        (o.strip_debug)     = args.get_bool("strip-debug");
+        (o.icf)             = args.get_bool("icf");
+        (o.icf_mode)        = args.get_string("icf-mode");
+        (o.rtlib)           = args.get_string("rtlib");
+        (o.unwindlib)       = args.get_string("unwindlib");
+        (o.f_pie)           = args.get_feature("pie");
 
         // -- general linking -----------------------------------------------
         (o.linker_script)   = args.get_string("linker-script");

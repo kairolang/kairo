@@ -37,7 +37,6 @@ enum FrontendActionKind derives u8 {
 class FrontendOptions {
     // output
     pub var output:              string = "";
-    pub var out_dir:             string = "";
     pub var entry:               string = "main";
     pub var emit:                string = "obj";
     // verbosity / timing
@@ -147,7 +146,6 @@ class FrontendOptions {
     static fn from_args(args: ref!(ParsedArgs)) -> FrontendOptions {
         var o = FrontendOptions();
         (o.output)          = args.get_string("output");
-        (o.out_dir)         = args.get_string("out-dir");
         (o.entry)           = args.get_string("entry");
         (o.emit)            = args.get_string("emit");
         (o.shared)          = args.get_bool("shared");
