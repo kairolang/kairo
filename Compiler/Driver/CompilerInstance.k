@@ -144,6 +144,12 @@ import Sema::Foreign::HeaderIndex::*;
 import Sema::Foreign::ForeignRegistry::*;
 import Sema::Foreign::ForeignInstantiate::*;
 import Diagnostic::ClangDiagLookup::*;
+import Linker::API::Link::*;
+import Linker::API::LinkJob::*;
+import Linker::API::LinkDiag::*;
+import Linker::API::Toolchain::*;
+import Linker::API::FS::*;
+import Linker::API::Text::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -271,6 +277,11 @@ class CompilerInstance {
     priv var _hindex:  *HeaderIndex     = &null; ///< header set -> Kairo TUs; owned
     priv var _freg:    *ForeignRegistry = &null; ///< USR -> imported decl, build-wide; owned
     priv var _finst:   *ForeignInstantiate = &null; ///< fills instances of imported templates from clang; owned
+    priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
+    priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
+    priv var _obj_tmp:     bool   = false;///< _obj_dir is a temp dir this run owns and removes
+    priv var _native_objs: vec::<string>; ///< objects from _compile_native_inputs, in order
+    priv var _link_inputs: vec::<string>; ///< .o/.a/.so given on the command line, in order
 
     // --- CLI state -------------------------------------------------------
     //   The invocation IS the CLI state. Flag-level queries go through
@@ -468,7 +479,6 @@ class CompilerInstance {
             || self.invocation().args.get_bool("print-cpus")
             || self.invocation().args.get_bool("print-dirs")
             || self.invocation().args.get_bool("print-clang-args")
-            || self.invocation().args.get_bool("print-ld-args")
             || self.invocation().args.get_bool("print-target-info")
             || self.invocation().args.get_bool("print-pass-pipeline")
             || self.invocation().args.get_bool("print-cfg");
@@ -805,6 +815,10 @@ class CompilerInstance {
             return self.print_target_info();
         }
 
+        if self.invocation().args.get_bool("print-dirs") {
+            return self.print_dirs();
+        }
+
         if self.invocation().args.get_bool("print-cfg") {
             for s: string in self.invocation().args.get_list("cfg") { std::print(s); }
             return 0;
@@ -997,15 +1011,11 @@ class CompilerInstance {
     }
 
     /// \brief compiles the command line's C/C++ inputs, and -- when Kairo
-    ///        objects were emitted -- the runtime's, to objects beside them.
-    ///
-    /// \details Layout, matching what the link (kr, the lit tests) globs:
-    ///            <out>/<stem>.o         each C/C++ input
-    ///            <out>/kairo/<stem>.o   each Lib/rt source, next to kairo/std.o
-    ///          `-o x.o` names the object only when x.o can hold everything:
-    ///          one C/C++ input and no Kairo input; otherwise objects go in
-    ///          x.o's directory. The runtime is compiled per build, not
-    ///          shipped prebuilt, so it always matches the target and roots.
+    ///        objects were emitted -- the runtime's, into the object dir:
+    ///            <dir>/<stem>.o         each C/C++ input
+    ///            <dir>/kairo/<stem>.o   each Lib/rt source, beside kairo/std.o
+    ///        Under -c, -o names the object only when it is the build's one
+    ///        object: a single C/C++ input and no Kairo input.
     priv fn _compile_native_inputs(self, natives: ref!(vec::<string>), with_runtime: bool) -> bool {
         var runtime = vec::<string>();
         if with_runtime { runtime = self._runtime_sources(); }
@@ -1015,14 +1025,13 @@ class CompilerInstance {
             return false;
         }
 
-        var out = self.invocation().frontend.output;
-        var single = "";
-        var dir    = out;
-        if (!out.empty()) && (Path(out).extension() == "o") {
-            if (natives.size() == 1) && (!with_runtime) { single = out; }
-            dir = CompilerInstance::_parent_dir(out);
+        var single = self.single_object();
+        if (!single.empty()) && (with_runtime || (natives.size() != 1)) {
+            self._diag->report(DiagID::I004F,
+                f"-o {single} names one object, but this build emits more than one; use --cache-dir <dir> for the objects").emit();
+            return false;
         }
-        if dir.empty() { dir = "."; }
+        var dir = self.object_dir();
 
         var ok = true;
         for src: string in natives {
@@ -1044,6 +1053,7 @@ class CompilerInstance {
         }
         var is_c = CompilerInstance::_native_lang(Path(src).extension()) == 1;
         if !self._backend->compile_native(src, obj, is_c) { return false; }
+        self._native_objs.push_back(obj);
         Logger::info(Logger::Stage::Driver, f"emitted object {obj}");
         return true;
     }
@@ -1115,6 +1125,144 @@ class CompilerInstance {
         return res;
     }
 
+    // --- Linking ---------------------------------------------------------
+
+    /// \brief decides once per batch what -o names and where objects go.
+    ///
+    /// \details -o is always ONE output file: the executable or library when
+    ///          this run links, the single object under -c. Objects go to
+    ///          --cache-dir (kept); without it, a linking run uses a temp dir
+    ///          it removes afterwards (`<output>.kobj` under --save-temps),
+    ///          and a -c run uses the working directory. -o naming a
+    ///          directory is an error: that is --cache-dir's job.
+    ///
+    /// \return false on a fatal planning error; nothing may compile.
+    priv fn _plan_outputs(self) -> bool {
+        var lk  = &(self.invocation().linker);
+        var out = self.invocation().frontend.output;
+        self._link_out = "";
+        self._obj_dir  = lk->cache_dir;
+        self._obj_tmp  = false;
+
+        if (!out.empty()) && (LinkText::ends_with(out, "/") || LinkFS::is_dir(out)) {
+            self._diag->report(DiagID::I004F,
+                f"-o {out} is a directory; -o names the output file, and object files go to --cache-dir <dir>").emit();
+            return false;
+        }
+
+        var links = (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen());
+        if !links {
+            if self._obj_dir.empty() { self._obj_dir = "."; }
+            return true;
+        }
+
+        self._link_out = (out) if (!out.empty()) else ("a.out");
+        if !self._obj_dir.empty() { return true; }
+        if lk->save_temps {
+            self._obj_dir = self._link_out + ".kobj";
+            return true;
+        }
+
+        self._obj_dir = LinkFS::temp_dir("kairo-obj");
+        self._obj_tmp = true;
+        if self._obj_dir.empty() {
+            self._diag->report(DiagID::L001F, "cannot create a temporary directory for object files").emit();
+            return false;
+        }
+        return true;
+    }
+
+    /// Where objects go. Always a directory, always set after _plan_outputs.
+    fn object_dir(self) -> string { return self._obj_dir; }
+
+    /// The file -o names when it names an object: a -c run with -o. "" when
+    /// this run links (-o is the executable then) or there is no -o. Valid
+    /// only if the build emits exactly one object; each emitter checks.
+    fn single_object(self) -> string {
+        if !self._link_out.empty() { return ""; }
+        return self.invocation().frontend.output;
+    }
+
+    /// kld beside this binary: the out-of-process fallback, used only after
+    /// the in-process linker poisons itself or for an -mllvm link.
+    priv fn _kld_path(self) -> string {
+        var dir = string(((std::get_exe_path()).parent_path()).generic_wstring());
+        var exe = "kld";
+        if llvm::Triple(llvm::sys::getProcessTriple()).isOSWindows() { exe = "kld.exe"; }
+        return dir + "/" + exe;
+    }
+
+    /// Plans, echoes under -v, runs. The object list is exactly what this
+    /// run emitted, never a directory glob: a reused --cache-dir can hold
+    /// objects from modules that no longer exist.
+    priv fn _link(self, result: ref!(BatchResult)) {
+        var _t  = TimeRegion("Link");
+        var lk  = &(self.invocation().linker);
+        var job = LinkJob(&(self.invocation().target), lk);
+        job.output   = self._link_out;
+        job.threads  = u32(self._pool->get_thread_count());
+        job.kld_path = self._kld_path();
+
+        for tr: TUResult in result.tu_results {
+            for obj: string in tr.objects { job.add_object(obj); }
+        }
+        for obj: string in self._native_objs { job.add_object(obj); }
+        for obj: string in self._link_inputs { job.add_object(obj); }
+
+        var tc      = Toolchain();
+        var argv    = vec::<string>();
+        var msgs    = vec::<LinkMessage>();
+        var planned = Link::plan(job, tc, argv, msgs);
+        self._report_link(msgs);
+        if !planned { return; }
+
+        if lk->print_ld_args {
+            std::print(Link::render(argv));
+            return;
+        }
+        if self.invocation().frontend.verbose {
+            self._diag->report(DiagID::L001V, Link::render(argv)).emit();
+        }
+
+        var res = LinkResult{};
+        Link::execute(job, argv, res);
+        self._report_link(res.messages);
+        if !res.stdout_text.empty() { std::print(res.stdout_text); }
+        if res.ok { Logger::info(Logger::Stage::Driver, f"linked {self._link_out}"); }
+    }
+
+    /// LinkMessage -> the placeholder L001 codes. Verbose and Debug only
+    /// under -v.
+    priv fn _report_link(self, msgs: ref!(vec::<LinkMessage>)) {
+        var verbose = self.invocation().frontend.verbose;
+        for m: LinkMessage in msgs {
+            if m.severity == LinkSeverity::Fatal        { self._diag->report(DiagID::L001F, m.text).emit(); }
+            else if m.severity == LinkSeverity::Error   { self._diag->report(DiagID::L001E, m.text).emit(); }
+            else if m.severity == LinkSeverity::Warning { self._diag->report(DiagID::L001W, m.text).emit(); }
+            else if m.severity == LinkSeverity::Note    { self._diag->report(DiagID::L001N, m.text).emit(); }
+            else if m.severity == LinkSeverity::Remark  { self._diag->report(DiagID::L001R, m.text).emit(); }
+            else if m.severity == LinkSeverity::Info    { self._diag->report(DiagID::L001I, m.text).emit(); }
+            else if m.severity == LinkSeverity::Verbose { if verbose { self._diag->report(DiagID::L001V, m.text).emit(); } }
+            else if m.severity == LinkSeverity::Debug   { if verbose { self._diag->report(DiagID::L001D, m.text).emit(); } }
+        }
+    }
+
+    //  --print-dirs
+
+    /// Resolves the link toolchain for the effective target and sysroot and
+    /// prints where everything was found. Exit 1 if resolution failed.
+    fn print_dirs(self) -> i32 {
+        var tc   = Toolchain();
+        var msgs = vec::<LinkMessage>();
+        var ok   = tc.resolve(&(self.invocation().target), &(self.invocation().linker), msgs);
+        for line: string in tc.describe() { std::print(line); }
+        self._report_link(msgs);
+        // Info queries return before execute(), so nothing else drains the
+        // engine; without this a failed resolve exits 1 silently.
+        self.flush_errors();
+        return (0) if (ok) else (1);
+    }
+
     fn execute(self) -> BatchResult {
         assert((self._imp != &null) && r"initialize() must be called before execute()");
 
@@ -1136,6 +1284,11 @@ class CompilerInstance {
             return result;
         }
 
+        if !self._plan_outputs() {
+            result.aborted = true;
+            return result;
+        }
+
         Logger::info(Logger::Stage::Driver,
             f"CompilerInstance::execute: {self.invocation().input_files.size()} file(s)");
 
@@ -1150,6 +1303,11 @@ class CompilerInstance {
 
         for path_str: string in self.invocation().input_files {
             if result.aborted { break; }
+            var lext = Path(path_str).extension();
+            if (lext == "o") || (lext == "a") || (lext == "so") {
+                self._link_inputs.push_back(path_str);
+                continue;
+            }
             if CompilerInstance::_native_lang(Path(path_str).extension()) != 0 {
                 natives.push_back(path_str);
                 continue;
@@ -1183,6 +1341,17 @@ class CompilerInstance {
         // Releasing each set once its last importer passes Checked is the
         // refinement; the PCH bytes and include tree outlive the release.
         if self._headers != &null { self._headers->release_all(); }
+
+        // The link runs after every TU and native compile, and before the
+        // totals are taken, so a link error fails the batch like any other.
+        if !self._link_out.empty() {
+            if (!result.aborted) && (self._diag->error_count() == 0) { self._link(result); }
+            if self._obj_tmp && (!self.invocation().linker.save_temps) { LinkFS::remove_tree(self._obj_dir); }
+        } else if !self._link_inputs.empty() {
+            for p: string in self._link_inputs {
+                self._diag->report(DiagID::L001W, f"linker input {p} unused: this run does not link").emit();
+            }
+        }
 
         // `self._diag` is one engine shared across every TU in this batch
         // (never reset between files), so its final counts are already the
@@ -2250,16 +2419,15 @@ fn FrontendAction::_codegen() -> bool {
         return self._fatal(DiagID::I006F, "codegen: no Kairo translation unit to emit");
     }
 
-    // `-o x.o` names THE object only when there is one; with a graph it is
-    // a directory, because n TUs cannot share one output path.
-    var single_obj = "";
-    var obj_dir    = fe.output;
-    if (!obj_dir.empty()) && (Path(obj_dir).extension() == "o") && (own.size() == 1) {
-        single_obj = obj_dir;
-        obj_dir    = "";
-    } else if obj_dir.empty() {
-        obj_dir = ".";
+    // -o under -c names the one object; a graph emits several, and they go
+    // to --cache-dir. A linking run never has a single object here: -o is
+    // the executable then.
+    var single_obj = self._ci->single_object();
+    if (!single_obj.empty()) && (own.size() > 1) {
+        return self._fatal(DiagID::I004F,
+            f"-o {single_obj} names one object, but this build emits {own.size()}; use --cache-dir <dir> for the objects");
     }
+    var obj_dir = self._ci->object_dir();
 
     for fid: u32 in own {
         var ctx = self._global_scope->get_context(fid);
@@ -2334,6 +2502,7 @@ fn FrontendAction::_codegen() -> bool {
             return false;
         }
         Logger::info(Logger::Stage::Driver, f"emitted object {out}");
+        self.result.objects.push_back(out);
     }
 
     self._stage = TUStage::Done;

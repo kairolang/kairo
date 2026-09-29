@@ -26,6 +26,7 @@ class TUResult {
     pub var warn_count:   u32;     ///< Warnings attributed to this TU at halt time.
     pub var stage:        TUStage; ///< Last stage reached before halt or Done.
     pub var had_fatal:    bool;    ///< True if this TU emitted a fatal diagnostic.
+    pub var objects:      vec::<string>; ///< objects this TU's action emitted, in emission order
 
     fn TUResult(self) {
         self.path        = "";

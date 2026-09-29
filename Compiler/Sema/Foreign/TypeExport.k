@@ -10,10 +10,11 @@
 ///     instantiate in phase A" -- never as an error of the user's.
 ///
 ///     What cannot be expressed, and why:
-///       generic params, opaque, anything dependent   no concrete clang type.
-///       a GENERIC Kairo record   (or an instance of one, or one nested in
-///                                another type, or one with a base) no
-///                                stand-in yet; see below.
+///       generic params, opaque, anything dependent   no concrete clang type
+///                                (a parameter IS expressible while a stand-in
+///                                specialization is being defined; see below).
+///       a Kairo record nested in another type, with a base, with a pack or
+///       value parameter   no stand-in shape for it yet.
 ///       a decl from ANOTHER set  its clang_decl points into a different
 ///                                ASTContext. v1 instantiates only through
 ///                                the set the primary came from, so a decl
@@ -32,7 +33,16 @@
 ///     The stand-in's USR is registered to S itself, so TypeImport reads
 ///     `S&` out of `reference` as the Kairo record, not as a foreign one.
 ///
-///     The stand-in carries layout, not behaviour: no methods, and implicit
+///     A GENERIC Kairo record needs the same spelling to be a template-id:
+///     `std::vector<G<i32>>` records `::stem::G<int>`. So the primary gets a
+///     stand-in TEMPLATE (_standin_template) -- declared with its parameters,
+///     never defined -- and each instance an EXPLICIT SPECIALIZATION of it
+///     (_standin_instance), defined with the pattern's fields under that
+///     instance's arguments. The specialization's USR is registered to the
+///     instance, the template's to the primary, so TypeImport reads
+///     `G<int>&` back as the registry instance the user already has.
+///
+///     A stand-in carries layout, not behaviour: no methods, and implicit
 ///     special members only (a Kairo destructor or deleted copy is not
 ///     mirrored). That is enough for phase A, which declares members and
 ///     never instantiates their bodies; phase B sees the real type.
@@ -88,6 +98,13 @@ class TypeExport {
     pub var psym:      obs::<PreprocessorSymbolTable> = &null;   ///< CXXSpell's module segments.
     pub var instances: obs::<InstantiationRegistry>   = &null;   ///< CXXSpell's CodegenContext wants it.
 
+    /// The substitution in force while a stand-in specialization is being
+    /// defined: the primary whose parameters are being read, and what they
+    /// read as. Null outside _standin_instance, where a parameter has no
+    /// clang type at all. Saved and restored around a nested one.
+    priv var _sub_owner: *Decl = &null;
+    priv var _sub_args:  *llvm::SmallVector::<clang::QualType, 8> = &null;
+
     fn TypeExport(self, cctx: *clang::ASTContext, sema: *clang::Sema, set: *void) {
         self.cctx = cctx;
         self.sema = sema;
@@ -97,7 +114,20 @@ class TypeExport {
     /// The clang type for canonical \p t, or a null QualType.
     fn to_clang(self, t: *Type) -> clang::QualType {
         if t == &null { return clang::QualType(); }
-        if t->is_dependent() || t->is_instantiation_dependent() { return clang::QualType(); }
+
+        // A parameter is a type only under a substitution, and only the
+        // primary's own: any other template's parameter, or a pack, is
+        // still nothing here.
+        if isa::<GenericParamType>(t) {
+            var g = cast::<GenericParamType>(t);
+            if (self._sub_owner == &null) || g->is_pack { return clang::QualType(); }
+            if NameLookup::representative(g->owner) != self._sub_owner { return clang::QualType(); }
+            if static_cast::<usize>(g->param_index) >= self._sub_args->size() { return clang::QualType(); }
+            return (*(self._sub_args))[static_cast::<usize>(g->param_index)];
+        }
+        // Under a substitution a dependent composite still walks: its
+        // parameters resolve through the arm above, or fail there.
+        if (self._sub_owner == &null) && (t->is_dependent() || t->is_instantiation_dependent()) { return clang::QualType(); }
 
         if isa::<QualifiedType>(t) {
             var q = cast::<QualifiedType>(t);
@@ -166,8 +196,8 @@ class TypeExport {
 
         if isa::<RecordType>(t) { return self._record(cast::<RecordType>(t)); }
 
-        // GenericParamType and OpaqueFFIType were caught as dependent / have
-        // no shape; nullable, vector, map, slice, tuple have no C++ twin.
+        // OpaqueFFIType has no shape; nullable, vector, map, slice, tuple
+        // have no C++ twin.
         return clang::QualType();
     }
 
@@ -225,13 +255,23 @@ class TypeExport {
             if tag != &null { return clang::QualType(self.cctx->getCanonicalTagType(tag)); }
         }
 
-        // A Kairo-authored record: a stand-in under its emitted name.
-        if (!decl_is_imported(d)) && (!decl_is_instance(d)) { return self._standin(d, rt); }
+        // A Kairo-authored record: a stand-in under its emitted name. With
+        // arguments it is the primary named from inside its own pattern
+        // (`next: *G<T>` while G<int> is being defined): the specialization.
+        if (!decl_is_imported(d)) && (!decl_is_instance(d)) {
+            if rt->args.size() == 0 { return self._standin(d, rt); }
+            return self._standin_instance(d, rt->args);
+        }
+
+        var prim = decl_instantiated_from(d);
+        if (prim == &null) || (!decl_is_instance(d)) { return clang::QualType(); }
+
+        // An instance of a KAIRO generic: an explicit specialization of the
+        // primary's stand-in template.
+        if !decl_is_imported(NameLookup::representative(prim)) { return self._standin_instance(prim, rt->args); }
 
         // An unfilled instance of an imported template: spell the template-id
         // from its args. Recursing here is what makes `cont<cont<i32>>` work.
-        var prim = decl_instantiated_from(d);
-        if (prim == &null) || (!decl_is_instance(d)) { return clang::QualType(); }
         if decl_origin_set(prim) != self.set { return clang::QualType(); }
         var ct = TypeExport::class_template_of(reinterpret_cast::<*clang::Decl>(decl_clang(prim)));
         if ct == &null { return clang::QualType(); }
@@ -244,53 +284,109 @@ class TypeExport {
         return self.template_id(ct, qs);
     }
 
-    /// The stand-in for Kairo record \p d in this set's AST, declared on
-    /// first use and found by name after that. Null QualType when \p d is
-    /// a shape it cannot mirror, or when its name is already taken there.
-    /// PRE: sema_lock() held (it mutates the AST).
-    priv fn _standin(self, d_in: *Decl, rt: *RecordType) -> clang::QualType {
-        if (self.reg == &null) || (self.psym == &null) || (self.instances == &null) { return clang::QualType(); }
-        var d = NameLookup::representative(d_in);
-        if rt->args.size() > 0 { return clang::QualType(); }
-        if decl_generic_params(d).size() > 0 { return clang::QualType(); }
-        var tk = clang::TagTypeKind::Struct;
-        var fields: *FrozenList::<*FieldDecl> = &null;
-        if isa::<StructDecl>(d) { fields = &(cast::<StructDecl>(d)->fields); }
-        else if isa::<UnionDecl>(d) { fields = &(cast::<UnionDecl>(d)->fields); tk = clang::TagTypeKind::Union; }
-        else if isa::<ClassDecl>(d) {
-            // A base would have to be mirrored first, and its layout with it.
-            if cast::<ClassDecl>(d)->derives_list.size() > 0 { return clang::QualType(); }
-            fields = &(cast::<ClassDecl>(d)->fields);
-        }
-        if fields == &null { return clang::QualType(); }   // enums, interfaces: no stand-in.
+    // --- stand-ins ----------------------------------------------------------------
 
-        // The name EmitIR gives d. CXXSpell only reads decl facts, the TU's
-        // imm table and the PP symbols, so a sink-less context is enough.
+    /// True when the three stand-in collaborators are wired.
+    priv fn _can_standin(self) -> bool {
+        return (self.reg != &null) && (self.psym != &null) && (self.instances != &null);
+    }
+
+    /// The field list a stand-in mirrors, and the tag kind, or null for a
+    /// shape with no stand-in (an enum, an interface, a class with a base).
+    priv fn _fields_of(self, d: *Decl, tk: *clang::TagTypeKind) -> *FrozenList::<*FieldDecl> {
+        (*tk) = clang::TagTypeKind::Struct;
+        if isa::<StructDecl>(d) { return &(cast::<StructDecl>(d)->fields); }
+        if isa::<UnionDecl>(d)  { (*tk) = clang::TagTypeKind::Union; return &(cast::<UnionDecl>(d)->fields); }
+        if isa::<ClassDecl>(d) {
+            // A base would have to be mirrored first, and its layout with it.
+            if cast::<ClassDecl>(d)->derives_list.size() > 0 { return &null; }
+            return &(cast::<ClassDecl>(d)->fields);
+        }
+        return &null;
+    }
+
+    /// The speller for the name EmitIR gives a Kairo decl. CXXSpell only
+    /// reads decl facts, the TU's imm table and the PP symbols, so a
+    /// sink-less context is enough. False if \p d has no TU to spell from
+    /// or is nested in a type (the owner would need a stand-in of its own).
+    priv fn _spell_for(self, d: *Decl, segs: *vec::<string>, leaf: *string, fid: *u32) -> bool {
         var tu = CXXSpell::tu_of(d);
-        if (tu == &null) || (tu->ctx == &null) { return clang::QualType(); }
+        if (tu == &null) || (tu->ctx == &null) { return false; }
         var cg = CodegenContext(tu->ctx, &null, self.psym, self.instances);
         var sp = CXXSpell(&cg);
-        // Nested in a type: the owner would need a stand-in of its own.
-        if sp.owner_types(d).size() > 0 { return clang::QualType(); }
-        var segs = sp.ns_segments(d);
-        var leaf = sp.leaf(d);
+        if sp.owner_types(d).size() > 0 { return false; }
+        (*segs) = sp.ns_segments(d);
+        (*leaf) = sp.leaf(d);
+        (*fid)  = tu->fid;
+        return true;
+    }
 
+    /// The namespace \p segs names in this AST, declared as needed; null
+    /// when a header's non-namespace already owns a segment's name.
+    priv fn _namespace_for(self, segs: *vec::<string>) -> *clang::DeclContext {
         var loc = clang::SourceLocation();
         var dc  = static_cast::<*clang::DeclContext>(self.cctx->getTranslationUnitDecl());
-        for var i: usize = 0; i < segs.size(); ++i {
-            var ii  = self._ident(segs[i]);
+        for var i: usize = 0; i < segs->size(); ++i {
+            var ii  = self._ident((*segs)[i]);
             var res = dc->lookup(clang::DeclarationName(ii));
             var ns: *clang::NamespaceDecl = &null;
             if !res.empty() {
                 ns = llvm::dyn_cast::<clang::NamespaceDecl>(res.front());
-                if ns == &null { return clang::QualType(); }   // a header's non-namespace owns the name.
+                if ns == &null { return &null; }
             } else {
                 ns = clang::NamespaceDecl::Create(*(self.cctx), dc, false, loc, loc, ii, &null, false);
                 dc->addDecl(ns);
             }
             dc = static_cast::<*clang::DeclContext>(ns);
         }
+        return dc;
+    }
 
+    /// Define \p rd with \p fields, each type through to_clang (and so
+    /// through the substitution in force). False, with \p rd marked
+    /// invalid, when a field has no clang type: all or nothing, or a
+    /// stand-in found by name later would have the wrong shape.
+    priv fn _define(self, rd: *clang::CXXRecordDecl, fields: *FrozenList::<*FieldDecl>) -> bool {
+        var loc = clang::SourceLocation();
+        rd->startDefinition();
+        for var i: usize = 0; i < fields->size(); ++i {
+            var fd = (*fields)[i];
+            if (fd == &null) || fd->is_static() { continue; }
+            var ft: clang::QualType;
+            if (fd->type_ != &null) && (fd->type_->canonical != &null) { ft = self.to_clang(fd->type_->canonical); }
+            if ft.isNull() { rd->setInvalidDecl(); return false; }
+            var fii = self._ident(f"__kairo_f{i}");
+            var cf  = clang::FieldDecl::Create(*(self.cctx), rd, loc, loc, fii, ft,
+                                               self.cctx->getTrivialTypeSourceInfo(ft, loc),
+                                               &null, false, clang::ICIS_NoInit);
+            cf->setAccess(clang::AS_public);
+            rd->addDecl(cf);
+        }
+        rd->completeDefinition();
+        return true;
+    }
+
+    /// The stand-in for plain Kairo record \p d in this set's AST, declared
+    /// on first use and found by name after that. Null QualType when \p d
+    /// is a shape it cannot mirror, or when its name is already taken there.
+    /// PRE: sema_lock() held (it mutates the AST).
+    priv fn _standin(self, d_in: *Decl, rt: *RecordType) -> clang::QualType {
+        if !self._can_standin() { return clang::QualType(); }
+        var d = NameLookup::representative(d_in);
+        if rt->args.size() > 0 { return clang::QualType(); }
+        if decl_generic_params(d).size() > 0 { return clang::QualType(); }
+        var tk = clang::TagTypeKind::Struct;
+        var fields = self._fields_of(d, &tk);
+        if fields == &null { return clang::QualType(); }
+
+        var segs = vec::<string>();
+        var leaf = "";
+        var fid: u32 = 0;
+        if !self._spell_for(d, &segs, &leaf, &fid) { return clang::QualType(); }
+        var dc = self._namespace_for(&segs);
+        if dc == &null { return clang::QualType(); }
+
+        var loc = clang::SourceLocation();
         var lii = self._ident(leaf);
         var res = dc->lookup(clang::DeclarationName(lii));
         if !res.empty() {
@@ -308,31 +404,149 @@ class TypeExport {
         var rd = clang::CXXRecordDecl::Create(*(self.cctx), tk, dc, loc, loc, lii, &null);
         rd->setImplicit(true);
         dc->addDecl(rd);
-        rd->startDefinition();
-        for var i: usize = 0; i < fields->size(); ++i {
-            var fd = (*fields)[i];
-            if (fd == &null) || fd->is_static() { continue; }
-            var ft: clang::QualType;
-            if (fd->type_ != &null) && (fd->type_->canonical != &null) { ft = self.to_clang(fd->type_->canonical); }
-            if ft.isNull() {
-                // All or nothing: a stand-in missing a field would be found
-                // by name later with the wrong shape.
-                dc->removeDecl(rd);
-                return clang::QualType();
-            }
-            var fii = self._ident(f"__kairo_f{i}");
-            var cf  = clang::FieldDecl::Create(*(self.cctx), rd, loc, loc, fii, ft,
-                                               self.cctx->getTrivialTypeSourceInfo(ft, loc),
-                                               &null, false, clang::ICIS_NoInit);
-            cf->setAccess(clang::AS_public);
-            rd->addDecl(cf);
-        }
-        rd->completeDefinition();
+        if !self._define(rd, fields) { dc->removeDecl(rd); return clang::QualType(); }
 
         var usr = TypeImport::usr_of(rd);
         if usr.empty() { dc->removeDecl(rd); return clang::QualType(); }
         self.reg->put(usr, d);
         return clang::QualType(self.cctx->getCanonicalTagType(rd));
+    }
+
+    /// The stand-in TEMPLATE for Kairo generic primary \p prim: declared
+    /// with its type parameters, never defined. Every instance is an
+    /// explicit specialization of it. Found by name after the first use.
+    /// Null for a shape with no stand-in, or a taken name.
+    /// PRE: sema_lock() held.
+    priv fn _standin_template(self, prim: *Decl) -> *clang::ClassTemplateDecl {
+        var gps = decl_generic_params(prim);
+        if gps.size() == 0 { return &null; }
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            // A pack has no fixed arity to specialize on; a value parameter
+            // has no canonical shape in the registry yet (TypeImport::_args).
+            if (gp == &null) || gp->is_pack || gp->is_const_param { return &null; }
+        }
+        var tk = clang::TagTypeKind::Struct;
+        if self._fields_of(prim, &tk) == &null { return &null; }
+
+        var segs = vec::<string>();
+        var leaf = "";
+        var fid: u32 = 0;
+        if !self._spell_for(prim, &segs, &leaf, &fid) { return &null; }
+        var dc = self._namespace_for(&segs);
+        if dc == &null { return &null; }
+
+        var lii = self._ident(leaf);
+        var res = dc->lookup(clang::DeclarationName(lii));
+        if !res.empty() {
+            var prev = llvm::dyn_cast::<clang::ClassTemplateDecl>(res.front());
+            if prev == &null { return &null; }                  // a header's own `stem::G`, not a template.
+            if self.reg->find(TypeImport::usr_of(prev)) != prim { return &null; }
+            return prev;
+        }
+
+        var loc = clang::SourceLocation();
+        var tu  = self.cctx->getTranslationUnitDecl();
+        var params: llvm::SmallVector::<*clang::NamedDecl, 8>;
+        var tu_ctx = CXXSpell::tu_of(prim)->ctx;
+        var cg = CodegenContext(tu_ctx, &null, self.psym, self.instances);
+        var sp = CXXSpell(&cg);
+        for var i: usize = 0; i < gps.size(); ++i {
+            var name = sp.imm_name(gps[i]->name.imm, fid);
+            var tp = clang::TemplateTypeParmDecl::Create(*(self.cctx), static_cast::<*clang::DeclContext>(tu),
+                                                         loc, loc, 0, static_cast::<u32>(i),
+                                                         self._ident(name), true, false);
+            params.push_back(static_cast::<*clang::NamedDecl>(tp));
+        }
+        var tpl = clang::TemplateParameterList::Create(*(self.cctx), loc, loc, params, loc, &null);
+
+        var pat = clang::CXXRecordDecl::Create(*(self.cctx), tk, dc, loc, loc, lii, &null);
+        var ct  = clang::ClassTemplateDecl::Create(*(self.cctx), dc, loc, clang::DeclarationName(lii), tpl,
+                                                   static_cast::<*clang::NamedDecl>(pat));
+        pat->setDescribedClassTemplate(ct);
+        pat->setImplicit(true);
+        ct->setImplicit(true);
+        dc->addDecl(ct);
+
+        // TypeImport::_record reads an instance back through the TEMPLATE's
+        // USR (spec->getSpecializedTemplate()); both spellings map to prim.
+        var usr = TypeImport::usr_of(ct);
+        if usr.empty() { dc->removeDecl(ct); return &null; }
+        self.reg->put(usr, prim);
+        var pusr = TypeImport::usr_of(pat);
+        if !pusr.empty() { self.reg->put(pusr, prim); }
+        return ct;
+    }
+
+    /// `G<int>` for an instance of Kairo generic \p prim_in at \p args: an
+    /// explicit specialization of the stand-in template, defined with the
+    /// pattern's fields where each parameter is read as this instance's
+    /// argument. clang's specialization table answers the second use, and
+    /// a self-reference mid-definition, so this is declared once per
+    /// argument list. With concrete arguments the specialization's USR is
+    /// registered to the registry instance, so `G<int>&` reads back as it.
+    /// PRE: sema_lock() held.
+    priv fn _standin_instance(self, prim_in: *Decl, args: FrozenList::<*Type>) -> clang::QualType {
+        if !self._can_standin() { return clang::QualType(); }
+        var prim = NameLookup::representative(prim_in);
+        var ct = self._standin_template(prim);
+        if ct == &null { return clang::QualType(); }
+        if decl_generic_params(prim).size() != args.size() { return clang::QualType(); }
+
+        var qs: llvm::SmallVector::<clang::QualType, 8>;
+        var targs: llvm::SmallVector::<clang::TemplateArgument, 8>;
+        var concrete = true;
+        for var i: usize = 0; i < args.size(); ++i {
+            var a = *(args.get(i));
+            if a->is_dependent() || a->is_instantiation_dependent() { concrete = false; }
+            var q = self.to_clang(a);
+            if q.isNull() { return q; }
+            qs.push_back(q);
+            targs.push_back(clang::TemplateArgument(q));
+        }
+
+        var pos: *void = &null;
+        var prev = ct->findSpecialization(targs, pos);
+        if prev != &null {
+            if prev->isInvalidDecl() { return clang::QualType(); }   // a field of it had no clang type; refused, sticky.
+            return clang::QualType(self.cctx->getCanonicalTagType(prev));
+        }
+
+        var tk = clang::TagTypeKind::Struct;
+        var fields = self._fields_of(prim, &tk);
+        if fields == &null { return clang::QualType(); }
+        var loc = clang::SourceLocation();
+        var dc  = ct->getDeclContext();
+        // 22.x: the `StrictPackMatch` bool before PrevDecl. If the build says
+        // the call has one argument too many, drop the `false`.
+        var spec = clang::ClassTemplateSpecializationDecl::Create(*(self.cctx), tk, dc, loc, loc, ct, targs, false, &null);
+        spec->setSpecializationKind(clang::TSK_ExplicitSpecialization);
+        spec->setImplicit(true);
+        ct->AddSpecialization(spec, pos);
+        dc->addDecl(spec);
+
+        // The pattern's fields, its parameters read as this instance's
+        // arguments. Saved around: a field's own instance argument
+        // (`G<H<T>>`) nests one of these.
+        var saved_owner = self._sub_owner;
+        var saved_args  = self._sub_args;
+        self._sub_owner = prim;
+        self._sub_args  = &qs;
+        var ok = self._define(spec, fields);
+        self._sub_owner = saved_owner;
+        self._sub_args  = saved_args;
+        // On failure the spec stays in clang's table, invalid: findSpecialization
+        // refuses it above, and it is never printed.
+        if !ok { return clang::QualType(); }
+
+        if concrete {
+            var kargs = vec::<*Type>();
+            for var i: usize = 0; i < args.size(); ++i { kargs.push_back(*(args.get(i))); }
+            var e = self.instances->instance_for(prim, &kargs, CXXSpell::fid_of(prim), NameLookup::ctx_of(prim));
+            var usr = TypeImport::usr_of(spec);
+            if (e != &null) && (!usr.empty()) { self.reg->put(usr, e->decl); }
+        }
+        return clang::QualType(self.cctx->getCanonicalTagType(spec));
     }
 
     priv fn _ident(self, s: string) -> *clang::IdentifierInfo {
