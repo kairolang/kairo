@@ -492,8 +492,8 @@ fn main() -> i32 {
     var kals_inc     = ["Analyzer", core, "Compiler", "Extras/KaTAR", "Linker"];
     var kpkg_inc     = ["Extras/PackageManager", core];
     var compiler_inc = ["Compiler", core, "Extras/KaTAR", "Linker"];
-
-    p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",                KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
+    var kairo_inc    = ["Compiler", core, "Extras/KaTAR", "Linker", "."];
+    p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",                KAIRO_VERSION, kairo_inc,    llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kbld",  "Extras/BuildTool/Driver/kbld.k",         KBLD_VERSION,  kbld_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kfmt",  "Extras/Formatter/Driver/kfmt.k",         KFMT_VERSION,  kfmt_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kld",   "Linker/Driver/kld.k",                    KLD_VERSION,   kld_inc,      llvm_src, llvm_build, out_lib));
