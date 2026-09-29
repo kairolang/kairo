@@ -1,6 +1,6 @@
 /// kbld.cc — build tool for Kairo projects
 /// compile: clang++ -std=c++23 -O2 -o kbld kbld.cc
-///          (needs nlohmann/json.hpp and lib.hh on include path)
+///          (needs nlohmann/json.hpp and kbld.hh on include path)
 
 #include <algorithm>
 #include <atomic>
@@ -36,6 +36,9 @@
 #define kbld_popen popen
 #define kbld_pclose pclose
 #endif
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #include "include/source/Casting.tpp"
 #include "include/source/Finally.tpp"
@@ -52,8 +55,10 @@
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
+static constexpr const char *kKbldVersion = "0.2.0";
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Narrow string helpers (kbld.cc is pure C++, no kairo strings here)
+// Narrow string helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 template <typename... Args>
@@ -90,14 +95,6 @@ static auto to_string(TargetType t) -> std::string {
             break;
     }
     return "binary";
-}
-
-static auto parse_target_type(std::string_view s) -> TargetType {
-    if (s == "static")
-        return TargetType::Static;
-    if (s == "shared")
-        return TargetType::Shared;
-    return TargetType::Binary;
 }
 
 struct ProjectConfig {
@@ -142,7 +139,7 @@ struct Config {
 struct CLIOptions {
     Command                  command = Command::Build;
     std::vector<std::string> positional;
-    std::optional<BuildMode> mode_override;
+    BuildMode                mode           = BuildMode::Release;
     bool                     verbose        = false;
     int                      jobs           = 0;
     bool                     dry_run        = false;
@@ -166,83 +163,110 @@ static auto is_windows() -> bool {
 #endif
 }
 
-static auto get_triple() -> std::string {
+static auto host_arch() -> std::string {
 #if defined(__x86_64__) || defined(_M_X64)
-    const char *arch = "x86_64";
+    return "x86_64";
 #elif defined(__i386__) || defined(_M_IX86)
-    const char *arch = "i686";
+    return "i686";
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    const char *arch = "arm64";
+    return "arm64";
 #elif defined(__arm__) || defined(_M_ARM)
 #if defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__)
-    const char *arch = "armv7";
+    return "armv7";
 #else
-    const char *arch = "arm";
+    return "arm";
 #endif
 #elif defined(__riscv)
 #if __riscv_xlen == 64
-    const char *arch = "riscv64";
+    return "riscv64";
 #else
-    const char *arch = "riscv32";
+    return "riscv32";
 #endif
 #elif defined(__wasm64__)
-    const char *arch = "wasm64";
+    return "wasm64";
 #elif defined(__wasm32__) || defined(__wasm__)
-    const char *arch = "wasm32";
+    return "wasm32";
 #elif defined(__powerpc64__)
 #if defined(__LITTLE_ENDIAN__)
-    const char *arch = "powerpc64le";
+    return "powerpc64le";
 #else
-    const char *arch = "powerpc64";
+    return "powerpc64";
 #endif
 #elif defined(__powerpc__)
-    const char *arch = "powerpc";
+    return "powerpc";
 #elif defined(__mips64)
-    const char *arch = "mips64";
+    return "mips64";
 #elif defined(__mips__)
-    const char *arch = "mips";
+    return "mips";
 #elif defined(__s390x__)
-    const char *arch = "s390x";
+    return "s390x";
 #elif defined(__loongarch64)
-    const char *arch = "loongarch64";
+    return "loongarch64";
 #elif defined(__sparc_v9__) || defined(__sparcv9)
-    const char *arch = "sparcv9";
+    return "sparcv9";
 #elif defined(__sparc__)
-    const char *arch = "sparc";
+    return "sparc";
 #else
-    const char *arch = "unknown";
+    return "unknown";
 #endif
+}
 
+static auto host_platform() -> std::string {
 #if defined(_WIN32)
-    return std::string(arch) + "-pc-windows-msvc";
+    return "windows";
 #elif defined(__APPLE__)
-    return std::string(arch) + "-apple-macosx";
+    return "macos";
 #elif defined(__ANDROID__)
-    return std::string(arch) + "-linux-android";
+    return "android";
 #elif defined(__wasi__)
-    return std::string(arch) + "-wasi";
+    return "wasi";
 #elif defined(__FreeBSD__)
-    return std::string(arch) + "-freebsd";
+    return "freebsd";
 #elif defined(__NetBSD__)
-    return std::string(arch) + "-netbsd";
+    return "netbsd";
 #elif defined(__OpenBSD__)
-    return std::string(arch) + "-openbsd";
+    return "openbsd";
 #elif defined(__Fuchsia__)
-    return std::string(arch) + "-fuchsia";
+    return "fuchsia";
+#elif defined(__linux__)
+    return "linux";
+#else
+    return "unknown";
+#endif
+}
+
+static auto get_triple() -> std::string {
+    auto arch = host_arch();
+#if defined(_WIN32)
+    return arch + "-pc-windows-msvc";
+#elif defined(__APPLE__)
+    return arch + "-apple-macosx";
+#elif defined(__ANDROID__)
+    return arch + "-linux-android";
+#elif defined(__wasi__)
+    return arch + "-wasi";
+#elif defined(__FreeBSD__)
+    return arch + "-freebsd";
+#elif defined(__NetBSD__)
+    return arch + "-netbsd";
+#elif defined(__OpenBSD__)
+    return arch + "-openbsd";
+#elif defined(__Fuchsia__)
+    return arch + "-fuchsia";
 #elif defined(__linux__)
 #if defined(__arm__) && defined(__ARM_EABI__)
 #if defined(__ARM_PCS_VFP)
-    return std::string(arch) + "-linux-gnueabihf";
+    return arch + "-linux-gnueabihf";
 #else
-    return std::string(arch) + "-linux-gnueabi";
+    return arch + "-linux-gnueabi";
 #endif
 #elif defined(__MUSL__)
-    return std::string(arch) + "-linux-musl";
+    return arch + "-linux-musl";
 #else
-    return std::string(arch) + "-linux-gnu";
+    return arch + "-linux-gnu";
 #endif
 #else
-    return std::string(arch) + "-unknown-unknown";
+    return arch + "-unknown-unknown";
 #endif
 }
 
@@ -281,44 +305,14 @@ static auto terminal_width() -> int {
 #endif
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Find sibling kairo binary
-// kbld lives next to kairo — resolve own exe path, look there first.
-// ─────────────────────────────────────────────────────────────────────────────
-
-static auto find_kairo(const std::string &configured) -> std::string {
-    // 1. Try sibling of kbld's own executable
-#if defined(__linux__)
-    {
-        char    buf[4096] = {};
-        ssize_t n         = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-        if (n > 0) {
-            auto sibling = fs::path(buf).parent_path() / "kairo";
-            if (fs::exists(sibling))
-                return sibling.string();
-        }
+// kbld lives next to kairo. Prefer the sibling; fall back to the configured
+// name, which resolves through PATH.
+static auto find_kairo(const fs::path &kbld_bin, const std::string &configured) -> std::string {
+    if (!kbld_bin.empty()) {
+        auto sibling = kbld_bin.parent_path() / (is_windows() ? "kairo.exe" : "kairo");
+        if (fs::exists(sibling))
+            return sibling.string();
     }
-#elif defined(__APPLE__)
-    {
-        char     buf[4096] = {};
-        uint32_t sz        = sizeof(buf);
-        if (_NSGetExecutablePath(buf, &sz) == 0) {
-            auto sibling = fs::path(buf).parent_path() / "kairo";
-            if (fs::exists(sibling))
-                return sibling.string();
-        }
-    }
-#elif defined(_WIN32)
-    {
-        char buf[MAX_PATH] = {};
-        if (GetModuleFileNameA(nullptr, buf, MAX_PATH)) {
-            auto sibling = fs::path(buf).parent_path() / "kairo.exe";
-            if (fs::exists(sibling))
-                return sibling.string();
-        }
-    }
-#endif
-    // 2. Fall back to whatever build.k specified (hits PATH)
     return configured;
 }
 
@@ -340,8 +334,8 @@ static auto run_command(const std::string &cmd) -> int {
 static auto run_capture_all(const std::string &cmd, std::string &out, std::string &err) -> int {
     out.clear();
     err.clear();
-    auto        tmp  = fs::temp_directory_path() / "kbld_stderr.tmp";
-    std::string full = cmd + " 2>" + tmp.string();
+    auto        tmp  = _kbld_unique_tmp("kbld_stderr");
+    std::string full = cmd + " 2>\"" + tmp.string() + "\"";
     FILE       *fp   = kbld_popen(full.c_str(), "r");
     if (!fp)
         return -1;
@@ -354,7 +348,8 @@ static auto run_capture_all(const std::string &cmd, std::string &out, std::strin
         ss << ifs.rdbuf();
         err = ss.str();
     }
-    fs::remove(tmp);
+    std::error_code ec;
+    fs::remove(tmp, ec);
 #ifndef _WIN32
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
@@ -416,13 +411,6 @@ static void error(std::string_view msg) {
     auto            s = fmt("\033[1;31m[kbld]\033[0m {}\n", std::string(msg));
     std::fwrite(s.data(), 1, s.size(), stderr);
 }
-static void verbose(std::string_view msg, bool enabled) {
-    if (!enabled)
-        return;
-    std::lock_guard lk(g_mtx);
-    auto            s = fmt("\033[1;36m[kbld]\033[0m {}\n", std::string(msg));
-    std::fwrite(s.data(), 1, s.size(), stderr);
-}
 }  // namespace _I_log
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -459,14 +447,13 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
         opts.command = Command::Install;
         ++i;
     }
-    // anything else: default Build, don't consume
 
     for (; i < argc; ++i) {
         std::string_view arg = argv[i];
         if (arg == "--debug")
-            opts.mode_override = BuildMode::Debug;
+            opts.mode = BuildMode::Debug;
         else if (arg == "--release")
-            opts.mode_override = BuildMode::Release;
+            opts.mode = BuildMode::Release;
         else if (arg == "--verbose")
             opts.verbose = true;
         else if (arg == "--dry-run")
@@ -493,7 +480,10 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
             opts.jobs = std::atoi(std::string(arg.substr(7)).c_str());
         else if (arg.starts_with("-j"))
             opts.jobs = std::atoi(std::string(arg.substr(2)).c_str());
-        else if (arg == "--help" || arg == "-h") {
+        else if (arg == "--version") {
+            putln(fmt("kbld {}", kKbldVersion));
+            std::exit(0);
+        } else if (arg == "--help" || arg == "-h") {
             std::fputs("kbld — build tool for Kairo projects\n"
                        "\n"
                        "Usage: kbld [command] [options]\n"
@@ -501,15 +491,15 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
                        "Commands:\n"
                        "  build  [targets...]    Build all or specified targets (default)\n"
                        "  clean  [targets...]    Remove build artifacts\n"
-                       "  test   <file.k>      Compile and run a test file\n"
-                       "  deps   <file.k>      Print dependency tree for a file\n"
+                       "  test   <file.k>        Compile and run a test file\n"
+                       "  deps   <file.k>        Print dependency tree for a file\n"
                        "  index                  Regenerate compile_commands.json only\n"
                        "  drivers                Print the build graph's targets as JSON\n"
                        "  install [prefix]       Copy binaries to prefix/bin\n"
                        "\n"
                        "Options:\n"
-                       "  --debug                Force debug mode\n"
-                       "  --release              Force release mode\n"
+                       "  --debug                Debug mode\n"
+                       "  --release              Release mode (default)\n"
                        "  --verbose              Verbose output\n"
                        "  --jobs <n>             Max parallel jobs\n"
                        "  --dry-run              Print commands, don't execute\n"
@@ -518,13 +508,13 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
                        "  --keep-going           Don't stop on first failure\n"
                        "  --perf                 (test) compile in release mode\n"
                        "  --compile-only         (test) compile but don't run\n"
-                       "  --get-drivers          Alias for the 'drivers' command\n",
+                       "  --version              Print version\n",
                        stdout);
             std::exit(0);
         } else if (!arg.starts_with("-"))
             opts.positional.emplace_back(arg);
         else
-            _I_log::warn(fmt("unknown option: {}", std::string(arg)));
+            throw std::runtime_error(fmt("unknown option: {}", std::string(arg)));
     }
 
     if (opts.command == Command::Install && !opts.positional.empty()) {
@@ -536,24 +526,29 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// build.k → Config via kbld::script
+// build.k → Config
 // ─────────────────────────────────────────────────────────────────────────────
 
 static auto load_config(const fs::path    &script_src,
                         const fs::path    &root,
+                        const fs::path    &kbld_bin,
                         const std::string &kairo_bin,
                         const CLIOptions  &opts) -> Config {
-    Config      cfg;
-    std::string err;
+    Config cfg;
+    cfg.build.mode = opts.mode;
 
     int rc = kbld::script::run_build_script<Config, Target>(script_src,
                                                             root,
+                                                            kbld_bin,
                                                             kairo_bin,
-                                                            "0.2.0",  // kbld version string
+                                                            kKbldVersion,
+                                                            to_string(opts.mode),
+                                                            get_triple(),
+                                                            host_platform(),
+                                                            host_arch(),
                                                             opts.jobs,
                                                             opts.verbose,
                                                             cfg);
-
     if (rc != 0)
         throw std::runtime_error("build.k failed");
 
@@ -564,8 +559,6 @@ static auto load_config(const fs::path    &script_src,
 // Invocation assembly
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The build-only half of an invocation: where the binary lands, which mode it
-/// is built in, and the CLI's emit flags.  Absent when assembling for analysis.
 struct BuildInvocation {
     BuildMode         mode;
     fs::path          output_dir;
@@ -574,11 +567,9 @@ struct BuildInvocation {
 };
 
 /// True for the flags an analysis run still needs: -I, -L, -D, -W.
-///
-/// -Wl, is a linker flag wearing a -W costume, so it is excluded here.  So is
-/// lowercase -w: it silences every warning, and warnings are exactly what the
-/// analysis run exists to report.  The uppercase -W family (-Wno-*, -Werror=*)
-/// is kept, so analysis and build agree on which warnings matter.
+/// -Wl, is a linker flag wearing a -W costume, so it is excluded. So is
+/// lowercase -w: it silences every warning, and warnings are exactly what
+/// the analysis run exists to report.
 static auto keep_for_analysis(const std::string &arg) -> bool {
     if (arg.starts_with("-Wl,"))
         return false;
@@ -587,25 +578,10 @@ static auto keep_for_analysis(const std::string &arg) -> bool {
 }
 
 /// The full kairo argument vector for `t`, in invocation order.
-///
-/// `for_analysis` drops link-only flags (-flto, -fuse-ld, -l*, -Wl,*, -o, and
-/// the generated _meta.cpp / registry.o inputs).  Those are meaningless under
-/// --emit-ir, which stops at -fsyntax-only, and some of them make clang error.
-/// Kept in both modes: -I, -L, -D, -W.
-///
-/// The `--` separator is included in the returned vector.  Everything after it
-/// is handed to clang verbatim; kairo does not parse it.
-///
-/// The kairo binary and the entry file are *not* included -- callers place
-/// those themselves, because compile_commands.json carries the file separately
-/// and non-entry .k files borrow a target's flags without borrowing its entry.
-///
-/// `inv` is required when `for_analysis` is false and ignored otherwise.
-static auto build_args_for(const Config          &cfg,
-                           const Target          &t,
+/// The kairo binary and the entry file are not included; callers place those.
+static auto build_args_for(const Target          &t,
                            bool                   for_analysis,
                            const BuildInvocation *inv = nullptr) -> std::vector<std::string> {
-    (void)cfg;
     std::vector<std::string> args;
 
     if (!for_analysis) {
@@ -631,7 +607,6 @@ static auto build_args_for(const Config          &cfg,
             args.push_back("--emit-ast");
     }
 
-    // collect passthrough items
     std::vector<std::string> passthrough;
     for (auto &def : t.defines)
         passthrough.push_back("-D" + def);
@@ -641,12 +616,10 @@ static auto build_args_for(const Config          &cfg,
         passthrough.push_back(src);
 
     if (!for_analysis) {
-        // auto-inject metadata
         auto meta_file = inv->gen_dir / (t.name + "_meta.cpp");
         if (fs::exists(meta_file))
             passthrough.push_back(meta_file.string());
 
-        // windows: inject .res if it was compiled
         if (is_windows()) {
             auto res_file = inv->gen_dir / (t.name + ".res");
             if (fs::exists(res_file))
@@ -673,7 +646,9 @@ static auto build_args_for(const Config          &cfg,
 // compile_commands.json
 // ─────────────────────────────────────────────────────────────────────────────
 
-static auto generate_compile_commands(const Config &cfg, const fs::path &root) -> bool {
+static auto generate_compile_commands(const Config   &cfg,
+                                      const fs::path &root,
+                                      const fs::path &kbld_bin) -> bool {
     json entries = json::array();
     auto cwd     = fs::absolute(root).string();
 
@@ -681,8 +656,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
     for (auto &t : cfg.targets)
         entry_paths.insert(fs::absolute(t.entry));
 
-    // build.k is always excluded from normal k scanning — gets its own entry
-    auto build_kro_abs = fs::absolute(root / "build.k");
+    auto build_k_abs = fs::absolute(root / "build.k");
 
     const auto &first = cfg.targets.front();
 
@@ -702,7 +676,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         return false;
     };
 
-    std::vector<fs::path> cxx_files, kro_non_entry;
+    std::vector<fs::path> cxx_files, k_non_entry;
     std::error_code       ec;
     for (auto &de : fs::recursive_directory_iterator(
              root, fs::directory_options::skip_permission_denied, ec)) {
@@ -714,25 +688,20 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         auto ext = de.path().extension().string();
         if (cxx_exts.contains(ext)) {
             cxx_files.push_back(abs);
-        } else if (ext == ".k" && !entry_paths.contains(abs) &&
-                   abs != build_kro_abs) {  // exclude build.k from non-entry scan
-            kro_non_entry.push_back(abs);
+        } else if (ext == ".k" && !entry_paths.contains(abs) && abs != build_k_abs) {
+            k_non_entry.push_back(abs);
         }
     }
 
-    // C++ files — full clang++ invocation
     for (auto &f : cxx_files) {
         json args = json::array();
         if (is_windows()) {
             args.push_back("clang-cl.exe");
         } else {
             args.push_back("clang++");
-            args.push_back("-lc++");
-            args.push_back("-lc++abi");
             args.push_back("-stdlib=libc++");
         }
         args.push_back("-std=c++23");
-        args.push_back("-O3");
         args.push_back("-w");
         for (auto &inc : first.includes)
             args.push_back("-I" + inc);
@@ -746,12 +715,8 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // Non-entry .k files — the first target's analysis flags, in full.  The
-    // post-`--` half matters: without it clang cannot find the LLVM headers the
-    // import closure pulls in, and aborts with a fatal before it ever reaches
-    // the file being analysed.
-    for (auto &f : kro_non_entry) {
-        json args = build_args_for(cfg, first, /*for_analysis=*/true);
+    for (auto &f : k_non_entry) {
+        json args = build_args_for(first, /*for_analysis=*/true);
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
@@ -759,9 +724,8 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // Target entry .k files — each target's own analysis flags
     for (auto &t : cfg.targets) {
-        json args = build_args_for(cfg, t, /*for_analysis=*/true);
+        json args = build_args_for(t, /*for_analysis=*/true);
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
@@ -769,11 +733,8 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // build.k — always gets its own entry with -include kbld_lib.hh
-    // path is deterministic: <self_exe>/../include/kbld_lib.hh
-    if (fs::exists(build_kro_abs)) {
-        auto kbld_bin = self_exe();  // the static helper from earlier
-        auto lib_hh   = kbld_bin.parent_path().parent_path() / "include" / "kbld.hh";
+    if (fs::exists(build_k_abs)) {
+        auto lib_hh = kbld::script::lib_header_for(kbld_bin);
 
         json args = json::array();
         args.push_back("--");
@@ -785,7 +746,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
-        e["file"]      = build_kro_abs.string();
+        e["file"]      = build_k_abs.string();
         entries.push_back(std::move(e));
     }
 
@@ -848,13 +809,11 @@ generate_metadata(const ProjectConfig &proj, const Target &target, const fs::pat
                         proj.license,
                         ts);
 #if defined(__APPLE__)
-    auto content = fmt("// auto-generated by kbld\n"
-                       "__attribute__((section(\"__DATA,__build_meta\"), used))\n"
+    auto content = fmt("__attribute__((section(\"__DATA,__build_meta\"), used))\n"
                        "static const char kBuildMeta[] = \"{}\";\n",
                        meta);
 #else
-    auto content = fmt("// auto-generated by kbld\n"
-                       "__attribute__((section(\".build_meta\"), used))\n"
+    auto content = fmt("__attribute__((section(\".build_meta\"), used))\n"
                        "static const char kBuildMeta[] = \"{}\";\n",
                        meta);
 #endif
@@ -866,6 +825,9 @@ generate_metadata(const ProjectConfig &proj, const Target &target, const fs::pat
 // ─────────────────────────────────────────────────────────────────────────────
 
 static auto topo_sort(const std::vector<Target> &targets) -> std::vector<std::string> {
+    std::unordered_set<std::string> known;
+    for (auto &t : targets)
+        known.insert(t.name);
 
     std::unordered_map<std::string, std::vector<std::string>> adj;
     std::unordered_map<std::string, int>                      indegree;
@@ -874,6 +836,9 @@ static auto topo_sort(const std::vector<Target> &targets) -> std::vector<std::st
         if (!indegree.contains(t.name))
             indegree[t.name] = 0;
         for (auto &d : t.deps) {
+            if (!known.contains(d))
+                throw std::runtime_error(
+                    fmt("target '{}' depends on unknown target '{}'", t.name, d));
             adj[d].push_back(t.name);
             indegree[t.name]++;
         }
@@ -896,7 +861,6 @@ static auto topo_sort(const std::vector<Target> &targets) -> std::vector<std::st
     }
 
     if (order.size() != targets.size()) {
-        // cycle — find and print it
         std::string cycle;
         for (auto &[name, deg] : indegree)
             if (deg > 0)
@@ -933,39 +897,16 @@ static auto build_waves(const std::vector<Target> &targets, const std::vector<st
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Build command construction
-// ─────────────────────────────────────────────────────────────────────────────
-
-static auto build_command(const Target      &target,
-                          const Config      &cfg,
-                          BuildMode          mode,
-                          const fs::path    &output_dir,
-                          const fs::path    &gen_dir,
-                          const CLIOptions  &opts,
-                          const std::string &kairo) -> std::string {
-    BuildInvocation inv{mode, output_dir, gen_dir, &opts};
-
-    std::string cmd = kairo;
-    cmd += " " + target.entry;
-    for (auto &a : build_args_for(cfg, target, /*for_analysis=*/false, &inv))
-        cmd += " " + a;
-
-    return cmd;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Build single target
 // ─────────────────────────────────────────────────────────────────────────────
 
 static auto build_target(const Target      &target,
                          const Config      &cfg,
-                         BuildMode          mode,
                          const CLIOptions  &opts,
                          const std::string &kairo,
-                         std::mutex        &log_mtx) -> int {
-    auto triple     = get_triple();
-    auto mode_str   = to_string(mode);
-    auto output_dir = fs::path("build") / triple / mode_str;
+                         bool               live_output) -> int {
+    auto mode       = cfg.build.mode;
+    auto output_dir = fs::path("build") / get_triple() / to_string(mode);
     auto gen_dir    = fs::path("build") / ".gen";
 
     fs::create_directories(output_dir / "bin");
@@ -990,15 +931,13 @@ static auto build_target(const Target      &target,
     generate_metadata(cfg.project, target, gen_dir);
 
 #ifdef _WIN32
-    // compile .rc → .res via rc.exe if present
     {
         auto rc_file  = gen_dir / (target.name + ".rc");
         auto res_file = gen_dir / (target.name + ".res");
         if (fs::exists(rc_file) && !opts.dry_run) {
             std::string rc_cmd =
                 "rc.exe /nologo /fo\"" + res_file.string() + "\" \"" + rc_file.string() + "\"";
-            std::string rc_out;
-            std::string rc_err;
+            std::string rc_out, rc_err;
             int         rc = run_capture_all(rc_cmd, rc_out, rc_err);
             if (rc != 0)
                 _I_log::warn(fmt("rc.exe failed for '{}', continuing", target.name));
@@ -1006,29 +945,34 @@ static auto build_target(const Target      &target,
     }
 #endif
 
-    auto cmd = build_command(target, cfg, mode, output_dir, gen_dir, opts, kairo);
+    BuildInvocation inv{mode, output_dir, gen_dir, &opts};
+    std::string     cmd = kairo + " " + target.entry;
+    for (auto &a : build_args_for(target, /*for_analysis=*/false, &inv))
+        cmd += " " + a;
 
-    _I_log::info(fmt("building '{}'", target.name));
+    _I_log::info(fmt("building '{}' ({})", target.name, to_string(mode)));
     if (opts.verbose || opts.dry_run)
         _I_log::info(fmt("  {}", cmd));
 
     if (opts.dry_run)
         return 0;
 
-    std::string out, err;
-    int         rc = run_capture_all(cmd, out, err);
+    int rc;
+    if (live_output) {
+        rc = run_command(cmd);
+    } else {
+        std::string out, err;
+        rc = run_capture_all(cmd, out, err);
+        if (!out.empty())
+            puts_out(out);
+        if (!err.empty() && (rc != 0 || opts.verbose))
+            puts_err(err);
+    }
 
-    // always print kairo's stdout — it has diagnostics
-    if (!out.empty())
-        puts_out(out);
     if (rc != 0) {
         _I_log::error(fmt("target '{}' failed (exit {})", target.name, rc));
-        if (!err.empty())
-            puts_err(err);
         return rc;
     }
-    if (!err.empty() && opts.verbose)
-        puts_err(err);
 
     if (!target.post_build.empty()) {
         _I_log::info(fmt("'{}' post-build: {}", target.name, target.post_build));
@@ -1047,15 +991,14 @@ static auto build_target(const Target      &target,
 // Commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-static auto execute_build(const Config &cfg, const CLIOptions &opts, const std::string &kairo)
-    -> int {
-    auto mode = opts.mode_override.value_or(cfg.build.mode);
-
+static auto execute_build(const Config      &cfg,
+                          const CLIOptions  &opts,
+                          const std::string &kairo,
+                          const fs::path    &kbld_bin) -> int {
     _I_log::info("generating compile_commands.json");
-    if (!generate_compile_commands(cfg, fs::current_path()))
+    if (!generate_compile_commands(cfg, fs::current_path(), kbld_bin))
         _I_log::warn("failed to generate compile_commands.json, continuing");
 
-    // select targets
     std::vector<Target> selected;
     if (opts.positional.empty()) {
         selected = cfg.targets;
@@ -1064,7 +1007,6 @@ static auto execute_build(const Config &cfg, const CLIOptions &opts, const std::
         for (auto &t : cfg.targets)
             by_name[t.name] = &t;
 
-        // collect requested + their transitive deps
         std::unordered_set<std::string>          needed;
         std::function<void(const std::string &)> add_deps = [&](const std::string &n) {
             if (needed.contains(n))
@@ -1095,53 +1037,59 @@ static auto execute_build(const Config &cfg, const CLIOptions &opts, const std::
     for (auto &t : selected)
         by_name[t.name] = &t;
 
-    std::mutex        log_mtx;
     std::atomic<bool> any_failed{false};
     int               max_jobs =
         opts.jobs > 0 ? opts.jobs : static_cast<int>(std::thread::hardware_concurrency());
     if (max_jobs < 1)
         max_jobs = 1;
 
+    int first_rc = 0;
     for (auto &wave : waves) {
         if (any_failed.load() && !opts.keep_going)
             break;
 
-        if (wave.size() == 1) {
-            int rc = build_target(*by_name[wave[0]], cfg, mode, opts, kairo, log_mtx);
-            if (rc != 0) {
-                any_failed.store(true);
-                if (!opts.keep_going)
-                    return rc;
-            }
-        } else {
-            std::counting_semaphore<> sem(max_jobs);
-            std::vector<std::jthread> threads;
-            std::atomic<int>          wave_rc{0};
-
+        // One target, or forced serial: stream kairo's output live.
+        if (wave.size() == 1 || max_jobs == 1) {
             for (auto &name : wave) {
                 if (any_failed.load() && !opts.keep_going)
                     break;
-                sem.acquire();
-                threads.emplace_back([&, name]() {
-                    int rc = build_target(*by_name[name], cfg, mode, opts, kairo, log_mtx);
-                    if (rc != 0) {
-                        wave_rc.store(rc);
-                        any_failed.store(true);
-                    }
-                    sem.release();
-                });
+                int rc = build_target(*by_name[name], cfg, opts, kairo, /*live_output=*/true);
+                if (rc != 0) {
+                    any_failed.store(true);
+                    if (first_rc == 0)
+                        first_rc = rc;
+                }
             }
-            threads.clear();  // join all
-
-            if (wave_rc.load() != 0 && !opts.keep_going)
-                return wave_rc.load();
+            continue;
         }
+
+        std::counting_semaphore<> sem(max_jobs);
+        std::vector<std::jthread> threads;
+        std::atomic<int>          wave_rc{0};
+
+        for (auto &name : wave) {
+            if (any_failed.load() && !opts.keep_going)
+                break;
+            sem.acquire();
+            threads.emplace_back([&, name]() {
+                int rc = build_target(*by_name[name], cfg, opts, kairo, /*live_output=*/false);
+                if (rc != 0) {
+                    wave_rc.store(rc);
+                    any_failed.store(true);
+                }
+                sem.release();
+            });
+        }
+        threads.clear();
+
+        if (wave_rc.load() != 0 && first_rc == 0)
+            first_rc = wave_rc.load();
     }
 
-    return any_failed.load() ? 1 : 0;
+    return any_failed.load() ? (first_rc != 0 ? first_rc : 1) : 0;
 }
 
-static auto execute_clean(const Config &cfg, const CLIOptions &opts) -> int {
+static auto execute_clean(const CLIOptions &opts) -> int {
     if (opts.positional.empty()) {
         _I_log::info("cleaning all build artifacts");
         std::error_code ec;
@@ -1169,16 +1117,8 @@ static auto execute_clean(const Config &cfg, const CLIOptions &opts) -> int {
     return 0;
 }
 
-/// Emit the build graph's targets as JSON on stdout, for tooling that needs to
-/// know what to index and with which flags.  All diagnostics go to stderr, so
-/// stdout is a single clean JSON document.
-///
-/// `includes` are reproduced verbatim from build.k, which means they may be
-/// relative -- kairo resolves relative -I against $PWD rather than the process
-/// cwd, so `root` is emitted alongside them and a consumer must set PWD to it.
-///
-/// `args` is the whole analysis invocation, `--` separator included; `includes`
-/// is a subset of it, kept for consumers that already read that key.
+/// Emit the build graph's targets as JSON on stdout, for tooling.
+/// `includes` may be relative; `root` is emitted so a consumer can resolve.
 static auto execute_get_drivers(const Config &cfg) -> int {
     auto root = fs::absolute(fs::current_path());
 
@@ -1190,7 +1130,7 @@ static auto execute_get_drivers(const Config &cfg) -> int {
         d["entry"]    = fs::absolute(t.entry).string();
         d["includes"] = t.includes;
         d["defines"]  = t.defines;
-        d["args"]     = build_args_for(cfg, t, /*for_analysis=*/true);
+        d["args"]     = build_args_for(t, /*for_analysis=*/true);
         drivers.push_back(std::move(d));
     }
 
@@ -1205,9 +1145,9 @@ static auto execute_get_drivers(const Config &cfg) -> int {
     return 0;
 }
 
-static auto execute_index(const Config &cfg) -> int {
+static auto execute_index(const Config &cfg, const fs::path &kbld_bin) -> int {
     _I_log::info("regenerating compile_commands.json");
-    if (!generate_compile_commands(cfg, fs::current_path())) {
+    if (!generate_compile_commands(cfg, fs::current_path(), kbld_bin)) {
         _I_log::error("failed to generate compile_commands.json");
         return 1;
     }
@@ -1236,7 +1176,6 @@ static auto execute_deps(const Config &cfg, const CLIOptions &opts, const std::s
     std::string out, err;
     run_capture_all(cmd, out, err);
 
-    // parse {"dependencies": [...]} from stdout
     auto pos = out.find("{\"dependencies\":");
     if (pos == std::string::npos) {
         putln(fmt("no dependencies found for {}", file));
@@ -1262,9 +1201,7 @@ static auto execute_deps(const Config &cfg, const CLIOptions &opts, const std::s
 }
 
 static auto execute_install(const Config &cfg, const CLIOptions &opts) -> int {
-    auto mode    = opts.mode_override.value_or(cfg.build.mode);
-    auto triple  = get_triple();
-    auto bin_dir = fs::path("build") / triple / to_string(mode) / "bin";
+    auto bin_dir = fs::path("build") / get_triple() / to_string(cfg.build.mode) / "bin";
     auto dest    = fs::path(opts.install_prefix) / "bin";
 
     if (!fs::exists(bin_dir)) {
@@ -1318,7 +1255,6 @@ static auto execute_test(const Config &cfg, const CLIOptions &opts, const std::s
 
     auto source = read_file(file);
 
-    // strip comments, look for fn Test() -> i32
     std::string stripped;
     stripped.reserve(source.size());
     for (std::size_t i = 0; i < source.size(); ++i) {
@@ -1350,7 +1286,7 @@ static auto execute_test(const Config &cfg, const CLIOptions &opts, const std::s
 
     auto filename  = fs::path(file).filename().string();
     auto test_file = test_dir / filename;
-    auto test_bin  = gen_dir / "test_run";
+    auto test_bin  = gen_dir / ("test_" + fs::path(file).stem().string());
 
     write_file(test_file, source + "\n\nfn main() -> i32 {\n    return Test();\n}\n");
 
@@ -1364,20 +1300,15 @@ static auto execute_test(const Config &cfg, const CLIOptions &opts, const std::s
     if (opts.verbose)
         cmd += " --verbose";
 
-    _I_log::info(fmt("compiling test: {}", filename));
+    _I_log::info(fmt("compiling test: {} ({})", filename, to_string(mode)));
     if (opts.verbose)
         _I_log::info(fmt("  {}", cmd));
     if (opts.dry_run)
         return 0;
 
-    std::string out, err;
-    int         rc = run_capture_all(cmd, out, err);
-    if (!out.empty())
-        puts_out(out);
+    int rc = run_command(cmd);
     if (rc != 0) {
         _I_log::error(fmt("test compilation failed (exit {})", rc));
-        if (!err.empty())
-            puts_err(err);
         return rc;
     }
 
@@ -1408,7 +1339,6 @@ int main(int argc, char *argv[]) {
     try {
         auto opts = parse_cli(argc, argv);
 
-        // find build.k — walk up from cwd
         fs::path script_src;
         fs::path root = fs::current_path();
         {
@@ -1422,7 +1352,7 @@ int main(int argc, char *argv[]) {
                 }
                 auto parent = dir.parent_path();
                 if (parent == dir)
-                    break;  // filesystem root, give up
+                    break;
                 dir = parent;
             }
         }
@@ -1432,25 +1362,26 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        auto cfg = load_config(script_src, root, "kairo", opts);
+        auto kbld_bin = self_exe();
 
-        // resolve actual kairo binary after we have cfg.build.compiler
-        auto kairo = find_kairo(cfg.build.compiler);
-
-        if (opts.mode_override.has_value())
-            cfg.build.mode = *opts.mode_override;
+        // Resolve the compiler once, before the script is compiled, so the
+        // script and the targets are built by the same binary.
+        auto kairo = find_kairo(kbld_bin, "kairo");
+        auto cfg   = load_config(script_src, root, kbld_bin, kairo, opts);
+        if (cfg.build.compiler != "kairo")
+            kairo = find_kairo(kbld_bin, cfg.build.compiler);
 
         switch (opts.command) {
             case Command::Build:
-                return execute_build(cfg, opts, kairo);
+                return execute_build(cfg, opts, kairo, kbld_bin);
             case Command::Clean:
-                return execute_clean(cfg, opts);
+                return execute_clean(opts);
             case Command::Test:
                 return execute_test(cfg, opts, kairo);
             case Command::Deps:
                 return execute_deps(cfg, opts, kairo);
             case Command::Index:
-                return execute_index(cfg);
+                return execute_index(cfg, kbld_bin);
             case Command::GetDrivers:
                 return execute_get_drivers(cfg);
             case Command::Install:
