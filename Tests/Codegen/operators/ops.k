@@ -89,6 +89,6 @@ fn main() -> i32 {
 // `-o` names a DIRECTORY: the entry TU's object, plus one per builtin TU it
 // pulled in; the Slice and pow instances are homed in whichever used them.
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.d
+// RUN: %kairo %s -c --cache-dir %t.d
 // RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
 // RUN: %t.exe; test $? -eq 86
