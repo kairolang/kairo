@@ -16,6 +16,10 @@
 ///     (custom Clang PP-token injection); system LLVM lacks the patch and
 ///     would silently produce a broken compiler. Absence is a hard error.
 ///
+///   BUILD MODE: kbld decides (--debug / --release, default release) and
+///   exports it as KBLD_MODE. This script reads is_debug() and never sets a
+///   mode of its own.
+///
 
 fn zero_pad(n: i32) -> string {
     if n < 10 { return f"0{n}"; }
@@ -271,7 +275,7 @@ fn windows_sdk_paths(t: ref!(Target)) {
           0, KEY_READ, &hkey) == ERROR_SUCCESS {
             var buf: std::Memory::buffer::<char, 512>;
             var sz:  DWORD = 512;
-            
+
             if RegQueryValueExA(hkey, r"KitsRoot10", &null, &null,
               reinterpret_cast::<LPBYTE>(buf), &sz) == ERROR_SUCCESS {
                 sdk_lib_root = (
@@ -297,7 +301,7 @@ fn windows_sdk_paths(t: ref!(Target)) {
                 }
             }
         }
-        
+
         if newest_sdk.is_empty() {
             log::error("No Windows SDK found in " + sdk_lib_root);
             log::error("Install the Windows 10/11 SDK");
@@ -335,45 +339,46 @@ fn windows_sdk_paths(t: ref!(Target)) {
     }
 }
 
-fn really_is_debug() -> bool {
-    // KBLD_MODE is hardcoded to "release" by kbld's driver right now.
-    // Fall back to a separate env var the user sets explicitly.
-    var m = env("KAIRO_BUILD_MODE");
-    if (m.has_value()) && (m.value() == "debug") { return true; }
-    return false;
-}
-
 fn common_flags(t: ref!(Target)) {
-    // Every target gets these. One place, no per-target drift.
-    t.passthrough("-flto=thin")
-     .passthrough("-fuse-ld=lld")
+    // Every target, every mode. Deterministic FP, lld, quiet.
+    t.passthrough("-fuse-ld=lld")
      .passthrough("-w")
-     .passthrough("-g")
      .passthrough("-fno-fast-math")
      .passthrough("-fno-approx-func")
      .passthrough("-ffp-contract=off")
      .passthrough("-fno-associative-math")
      .passthrough("-fno-rounding-math");
+}
 
-    // Stage 0 unconditionally adds -fsanitize=undefined,bounds,function in debug.
-    // On Windows that pulls MSVC's compiler-rt which is incompatible with our
-    // LLVM 19 toolchain. Cancel it here; clang takes the last -fsanitize wins.
-    if (really_is_debug()) {
-        t.passthrough("-fno-sanitize=all");
+// Optimization / codegen policy. Everything here overrides a flag stage0
+// emits earlier on the line (-O3, -flto, -g -g3, -rdynamic, -fsanitize);
+// clang takes the last one, so these must come after the stage0 set.
+fn optimize(t: ref!(Target)) {
+    // stage0 passes -rdynamic, which exports everything and blocks LTO
+    // internalization. Hide by default; backtraces symbolize from DWARF.
+    t.passthrough("-fvisibility=hidden")
+     .passthrough("-fvisibility-inlines-hidden")
+     .passthrough("-Wl,--no-export-dynamic");
+
+    if is_debug() {
+        // No optimizer, no LTO. stage0's -g -g3 stays.
+        t.passthrough("-O0")
+         .passthrough("-fno-lto")
+         .passthrough("-DDEBUG");
+        return;
     }
 
-    if (really_is_debug()) {
-        t.passthrough("-DDEBUG");
-        t.passthrough("-fno-lto");
-    } else {
-        t.passthrough("-DNDEBUG");
-    }
+    // Single TU, so LTO buys no cross-module visibility; full LTO stays only
+    // because --lto-partitions is the one way to parallelize codegen of one
+    // module. The optimizer itself stays serial.
+    t.passthrough("-O3")
+     .passthrough("-Wl,--lto-O2")
+     .passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}")
+     .passthrough("-gline-tables-only")
+     .passthrough("-DNDEBUG");
 }
 
 fn require_vendored_llvm(llvm_build: string) {
-    // Hard gate. The prebuild script should have already built or errored,
-    // but if build.k is invoked with no vendored LLVM present, fail loud
-    // rather than limp toward a system fallback that doesn't exist.
     if !path_exists(llvm_build + "/include") {
         log::error("vendored LLVM not found at " + llvm_build);
         log::error("the patched llvm-project fork is REQUIRED, there is no system fallback.");
@@ -438,6 +443,7 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
     llvm_includes(t, llvm_src, llvm_build);
     llvm_libs(t, llvm_build, out_lib);
     platform_glue(t);
+    optimize(t);
 }
 
 // Target wiring
@@ -472,6 +478,8 @@ fn main() -> i32 {
     const KWATCH_VERSION: string = version_macro("kwatch","-0.1.0+dev");
     const KPKG_VERSION  : string = version_macro("kpkg",  "-0.1.0+dev");
 
+    log::info("mode: " + build_mode());
+
     var llvm_build = build_dir() + "/llvm";
     var llvm_src   = project_root() + "/Lib/llvm-runtimes";
     var out_lib    = build_dir() + "/" + triple() + "/" + build_mode() + "/lib";
@@ -481,7 +489,6 @@ fn main() -> i32 {
         .author("Dhruvan, Ojas and Arnav")
         .license("CC-BY-4.0")
         .compiler("kairo")
-        .mode("release")
         .skip_dirs(["build", "Lib", "private"]);
 
     var core         = "Lib/bootstrap/lib-helix/core";

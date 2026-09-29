@@ -255,7 +255,7 @@ def main():
         "--",
         "-o", lib_output_path,
         "-c",
-        "-flto=thin",
+        "-fno-lto",
         "-fuse-ld=lld"
     ]
     if sys.platform == "win32":
