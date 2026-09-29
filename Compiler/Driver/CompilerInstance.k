@@ -1197,6 +1197,15 @@ class CompilerInstance {
     /// objects from modules that no longer exist.
     priv fn _link(self, result: ref!(BatchResult)) {
         var _t  = TimeRegion("Link");
+
+        // lld::lldMain is not reentrant and resets process-global state
+        // (CommonLinkerContext, cl options, parallel::strategy); it must run
+        // with nothing else in the process inside clang/LLVM. Every group is
+        // drained here, not just the ones this driver knows it enqueued, so a
+        // late pool task (a header build, a clang startup) can never overlap
+        // the link, and no object's writer is still open when lld mmaps it.
+        self._pool->wait_all();
+
         var lk  = &(self.invocation().linker);
         var job = LinkJob(&(self.invocation().target), lk);
         job.output   = self._link_out;
@@ -1208,6 +1217,18 @@ class CompilerInstance {
         }
         for obj: string in self._native_objs { job.add_object(obj); }
         for obj: string in self._link_inputs { job.add_object(obj); }
+
+        // Emission is synchronous (ExecuteAction closes the output through
+        // clearOutputFiles before returning), so a missing object here is a
+        // driver bug, not a race. Say so instead of letting lld mmap nothing.
+        var missing = false;
+        for obj: string in job.objects {
+            if !LinkFS::is_file(obj) {
+                self._diag->report(DiagID::L001E, f"object {obj} was never written; not linking").emit();
+                missing = true;
+            }
+        }
+        if missing { return; }
 
         var tc      = Toolchain();
         var argv    = vec::<string>();
