@@ -23,7 +23,7 @@ design.
 v0.0.1 -> v0.1.0 port
 ---------------------
 
-Split out of private/port_dryrun.py, which carried all six of these plus the
+Split out of private/port_dryrun.py, which carried the first six of these plus the
 lexer in one file. Run order, which is the order the dry-run used:
 
     ternary_to_if.py        A if C else B  ->  if C { A } else { B }
@@ -32,6 +32,7 @@ lexer in one file. Run order, which is the order the dry-run used:
     drop_turbofish.py       Foo::<T> -> Foo<T>
     case_labels_to_arms.py  case A: case B: -> case A, B { ... }
     ranged_for_binding.py   for x: T in xs -> for var x: T in xs
+    qualified_var_binding.py  static/const/eval var x -> static/const/eval x
 
 Two deliberate differences from port_dryrun.py: it hardcoded
 private/portdry/ and wrote unconditionally, because it ran on a throwaway copy
@@ -107,6 +108,12 @@ hex_escapes_to_chars.py   \x27 -> ' and \x22 -> \" in every string, \x7B /
                           On Compiler/ (2026-09-28, run on a copy): 293 sites
                           in 45 files; the 20 escapes it leaves are all in
                           comments or char literals.
+
+template_alias_macros.py  __inline_cpp("#define B_T B<T>") -> B<T> at every
+                          use; the #define and any #undef block are removed.
+                          Only object-like `Name<...>` bodies; any other
+                          #define (`sink`, function-like) is reported, never
+                          substituted. --selftest.
 
 ref_and_mref.py           ref!(T) / mref(T) in parameter position
                           -> @inout x: T / @move x: T
