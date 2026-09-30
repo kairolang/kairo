@@ -1062,6 +1062,10 @@ class ASTParse
             var n = cast::<FunctionDecl>(d);
             if n->qualifier != &null { return; }             // out-of-line impl: not a new decl
             if n->name.kind == TokenKind::KwSelf { return; } // ctor: not a root name
+            // Operators carry no name token (`fn op +`): spelling the empty
+            // default resolved to "$unknown$" and keyed every operator of
+            // every type under it, and asserts on the null table in debug.
+            if n->is_operator { return; }
             // Non-generic callables are stored as NEGATIVE evidence: rule 4
             // of the disambiguation model demands that `<` after a known
             // non-generic name commits to a comparison, and the verdict

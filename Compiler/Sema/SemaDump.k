@@ -1032,7 +1032,9 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
         if n == &null { return n; }
         var saved = self._scope;
-        self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
+        // Through sema_dump_decl_name, not get_spelling(n->name): an operator
+        // has no name token, and spelling the empty one asserts in debug.
+        self._scope = f"{self._scope}::{sema_dump_decl_name(self.ctx, n)}";
         var out = RecursiveASTVisitor_SemaDump::traverse_function_decl(n);
         self._scope = saved;
         return out;
