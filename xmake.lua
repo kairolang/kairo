@@ -1,6 +1,6 @@
 set_project    ("kairo")
 
-local KAIRO_VERSION = "0.1.1-beta-rc.20260724"
+local KAIRO_VERSION = "0.1.2-beta-rc.20260930"
 
 set_version    (KAIRO_VERSION, { soname = true })
 set_description("The Kairo Compiler. Python's Simplicity, Rust inspired Syntax, and C++'s Power")
