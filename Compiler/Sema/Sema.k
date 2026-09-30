@@ -49,6 +49,7 @@ import Sema::Check::ShadowCheck::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
+import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::ExprBodyDesugar::*;
@@ -294,6 +295,11 @@ class Sema {
         // Runs late: it REQUIRES ExprTyper to be complete.
 
         { var _p = TimeRegion("ShadowCheck"); ShadowCheck(&self.sc).run(); }
+
+        // Missing return on some path. REQUIRES ExprTyper: a call is a
+        // terminator when its type is `!`, and match coverage reads the
+        // scrutinee's type.
+        { var _p = TimeRegion("ReturnPath"); ReturnPathCheck(&self.sc).run(); }
 
         // Per-record lifecycle facts (copyable / movable / trivial) and the
         // rules about the lifecycle itself: one transfer ctor, no user
