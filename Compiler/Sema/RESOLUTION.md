@@ -308,9 +308,16 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 ### 2.8 C checks [PARTIAL]
 
 In order: `ConstraintExtraction`, `TypeCycleCheck`,
-`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`.
-`ConformanceChecking`, `ConstChecking`, `AccessCheck`,
+`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
+`ReturnPathCheck`. `ConformanceChecking`, `ConstChecking`, `AccessCheck`,
 `ExtensionOrphanCheck` are stubs / missing.
+
+`ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
+value-returning body can reach its closing brace, SC105 for `-> !`. After X
+because a call ends a path when its type is `!`, and a `match` ends one only
+when exhaustive (default, catch-all, every enum variant by name, or
+`true`+`false`), which reads the scrutinee type. Unknowns (recovery nodes,
+`inline` blocks, `jump!`, an untyped scrutinee) count as ending the path.
 
 `OperatorSignatureCheck` [DONE] runs BEFORE X, because X's derived
 operators and compound-assignment pairing assume the shapes it rejects:

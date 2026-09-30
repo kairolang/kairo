@@ -2190,3 +2190,60 @@ group = "type-check"
 
     use `.N` for tuples, an integer index, or give the type an `op []`.
     """
+
+[SC104]
+brief = "control reaches the end of a value-returning function"
+group = "type-check"
+
+    [SC104.E]
+    explain = """
+    # missing return
+
+    a function declared to return a value has a path through its body that reaches the closing
+    brace without a `return`. every path must end in `return <value>`, a `panic`, or a call to a
+    function returning `!`.
+
+    ```kairo
+    fn sign(x: i32) -> i32 {
+        if x > 0 { return 1; }
+        else if x < 0 { return -1; }
+    }   // error: x == 0 falls off the end
+    ```
+
+    a `match` ends a path only when it is exhaustive - a `default`, a catch-all arm, every variant
+    of an enum, or both `true` and `false` - and every arm ends it. `loop { }` ends a path unless a
+    `break` leaves it.
+
+    ## how to fix
+
+    add the missing `return`, add an `else` / `default` that returns, or change the return type to
+    `void`.
+    """
+
+    [SC104.N]
+    explain = "the declared return type the missing path fails to produce."
+
+[SC105]
+brief = "control reaches the end of a `-> !` function"
+group = "type-check"
+
+    [SC105.E]
+    explain = """
+    # never-returning function can return
+
+    a function declared `-> !` has a path that reaches its closing brace, which would return to the
+    caller it promised never to return to.
+
+    ```kairo
+    fn fail(msg: string) -> ! {
+        log(msg);
+    }   // error: falls off the end
+    ```
+
+    ## how to fix
+
+    end every path with a `panic`, a call to another `-> !` function, or an infinite `loop { }`.
+    """
+
+    [SC105.N]
+    explain = "the `-> !` declaration the body does not honor."
