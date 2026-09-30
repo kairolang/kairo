@@ -419,6 +419,10 @@ class Lexer {
 
         self._sm->wait_for_line_index(fid);
 
+        // Invalid bytes are reported here, once, as S072E; lexing continues
+        // regardless so the user still sees the errors after them.
+        self._sm->validate_utf8(fid);
+
         if self.file_data() == &null {
             Logger::error(Logger::Stage::Lexer, f"Lexer::open: null file_data for fid={fid}");
             return false;
@@ -698,11 +702,11 @@ class Lexer {
     ///        is what every scan loop breaks on.
     inline static fn decode_at(const p: std::ConstPtr::<u8>, const avail: usize) -> DecodeResult {
         if avail == 0 {
-            return DecodeResult('\0', 0);
+            return DecodeResult('\0', 0, false);
         }
 
         if p[0] < 0x80 {
-            return DecodeResult(static_cast::<char32>(p[0]), 1);
+            return DecodeResult(static_cast::<char32>(p[0]), 1, true);
         }
 
         return UTF8View::decode_utf8(p, avail);
@@ -742,7 +746,7 @@ class Lexer {
             // byte of a file (scan_text_body's triple-quote probe) does exactly
             // that.
             if fwd >= size {
-                return DecodeResult('\0', 0);
+                return DecodeResult('\0', 0, false);
             }
 
             data += fwd;
@@ -750,7 +754,7 @@ class Lexer {
         }
 
         if size == 0 {
-            return DecodeResult('\0', 0);
+            return DecodeResult('\0', 0, false);
         }
 
         return Lexer::decode_at(data, size);
@@ -765,7 +769,7 @@ class Lexer {
 
     inline priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
         var res = array::<DecodeResult, N>();
-        res.fill(DecodeResult('\0', 0));
+        res.fill(DecodeResult('\0', 0, false));
 
         var data: std::ConstPtr::<u8> = self.current_data();
         var remain: usize = self.remaining_bytes();
@@ -815,7 +819,7 @@ class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -830,7 +834,7 @@ class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -858,7 +862,7 @@ class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -873,7 +877,7 @@ class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -900,7 +904,7 @@ class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -915,7 +919,7 @@ class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -950,7 +954,7 @@ class Lexer {
                     if out_i + STRIDE > N { limit = N - out_i; }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 
@@ -963,7 +967,7 @@ class Lexer {
                     if out_i + limit > N { limit = N - out_i; }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1, true);
                         ++out_i;
                     }
 

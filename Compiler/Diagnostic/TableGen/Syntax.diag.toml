@@ -1598,3 +1598,26 @@ group = "declarations"
 
     remove the `const` from the type.
     """
+
+[S072]
+brief = "invalid UTF-8 in source file"
+group = "syntax"
+
+    [S072.E]
+    explain = """
+    # invalid UTF-8 in source
+
+    kairo source files must be valid UTF-8. the file contains a byte (or a run of bytes) that
+    does not form a well-formed UTF-8 sequence: a stray continuation byte (0x80-0xBF), a lead byte
+    that can never start a sequence (0xC0, 0xC1, 0xF5-0xFF), a sequence cut short by the end of
+    the file or by a non-continuation byte, an overlong encoding, an encoded surrogate
+    (U+D800-U+DFFF), or a code point above U+10FFFF.
+
+    consecutive invalid bytes are reported once, at the first byte of the run. the file is still
+    lexed afterwards so later errors are reported too.
+
+    ## how to fix
+
+    re-save the file as UTF-8. if the bytes are meant as data, write them as escapes in a byte
+    string literal instead, e.g. `b"\\xff"`.
+    """

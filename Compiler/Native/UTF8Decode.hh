@@ -52,9 +52,14 @@ namespace kairo {
 /// consumed (`len`). if the input sequence is invalid, `chr` is set to the
 /// unicode replacement character (0xFFFD) and `len` may be set to 1.
 ///
+/// `ok` is the only reliable validity test: a literal U+FFFD in the source
+/// (EF BF BD) decodes to the same `chr` as an error, so testing `chr` for
+/// 0xFFFD would reject valid input.
+///
 struct DecodeResult {
     char32_t chr; ///< decoded codepoint or 0xFFFD on error.
     u8       len; ///< number of bytes consumed from input.
+    bool     ok;  ///< true iff `chr` was decoded from a well-formed sequence.
 };
 
 ///
@@ -62,7 +67,8 @@ struct DecodeResult {
 ///
 /// \details
 /// precomputed for all 256 byte values. values correspond to how many bytes
-/// a character beginning with that leading byte should occupy.
+/// a character beginning with that leading byte should occupy. 0 marks a
+/// byte that can never lead a well-formed sequence (C0, C1, F5..FF).
 ///
 /// layout is aligned to 64 bytes for cache friendliness.
 ///
@@ -77,25 +83,25 @@ alignas(64) static constexpr u8 Utf8LengthTable[256] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-    // 0x80-0xBF: continuation bytes (invalid starts)
+    // 0x80-0xBF: continuation bytes (invalid starts; decode rejects them
+    // before the table is read)
     /* 0x80-0xBF */
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-    // 0xC0-0xDF: 2-byte sequences
+    // 0xC0-0xDF: 2-byte sequences; C0/C1 can only start an overlong
+    // encoding, so they are 0 (never a valid lead) like the other invalids.
     /* 0xC0-0xDF */
-    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+    0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
     2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
     // 0xE0-0xEF: 3-byte sequences
     /* 0xE0-0xEF */
     3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
-    // 0xF0-0xF7: 4-byte sequences
-    /* 0xF0-0xF7 */
-    4,4,4,4,4,4,4,4,
-    // 0xF8-0xFF: invalid starts
-    /* 0xF8-0xFF */
-    1,1,1,1,1,1,1,1
+    // 0xF0-0xF4: 4-byte sequences; F5-FF would encode past U+10FFFF (or
+    // are not lead bytes at all) and are 0.
+    /* 0xF0-0xFF */
+    4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0
 };
 
 ///
@@ -111,7 +117,6 @@ alignas(64) static constexpr u8 Utf8LengthTable[256] = {
 ///
 static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
 #if defined(_x86_64_simd)
-    const __m128i mask = _mm_set1_epi8(static_cast<char>(0x80));
     while (end - p >= 16) {
         __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(p));
         if (_mm_movemask_epi8(v) != 0)
@@ -150,25 +155,25 @@ static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
 static inline DecodeResult decode_utf8_lut(const u8 *s,
                                            usize     remaining) noexcept {
     if (remaining == 0) {
-        return {.chr = 0xFFFD, .len = 0};
+        return {.chr = 0xFFFD, .len = 0, .ok = false};
     }
 
     u8 b0 = s[0];
 
     // ASCII fast path
     if (b0 < 0x80) {
-        return {.chr = b0, .len = 1};
+        return {.chr = b0, .len = 1, .ok = true};
     }
 
     // Invalid continuation byte as start
     if (b0 < 0xC0) {
-        return {.chr = 0xFFFD, .len = 1};
+        return {.chr = 0xFFFD, .len = 1, .ok = false};
     }
 
     u8 len = Utf8LengthTable[b0];
 
     if (remaining < len) {
-        return {.chr = 0xFFFD, .len = 1};
+        return {.chr = 0xFFFD, .len = 1, .ok = false};
     }
 
     char32_t cp;
@@ -178,12 +183,12 @@ static inline DecodeResult decode_utf8_lut(const u8 *s,
             u8 b1 = s[1];
 
             if ((b1 & 0xC0) != 0x80) {
-                return {.chr = 0xFFFD, .len = 1};
+                return {.chr = 0xFFFD, .len = 1, .ok = false};
             }
 
             cp = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
             if (cp < 0x80) {
-                return {.chr = 0xFFFD, .len = 1};
+                return {.chr = 0xFFFD, .len = 1, .ok = false};
             }
             break;
         } case 3: {
@@ -191,12 +196,12 @@ static inline DecodeResult decode_utf8_lut(const u8 *s,
             u8 b2 = s[2];
 
             if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) {
-                return {.chr = 0xFFFD, .len = 1};
+                return {.chr = 0xFFFD, .len = 1, .ok = false};
             }
 
             cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
             if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) {
-                return {.chr = 0xFFFD, .len = 1};
+                return {.chr = 0xFFFD, .len = 1, .ok = false};
             }
             break;
         } case 4: {
@@ -206,31 +211,23 @@ static inline DecodeResult decode_utf8_lut(const u8 *s,
 
             if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80 ||
                 (b3 & 0xC0) != 0x80) {
-                return {.chr = 0xFFFD, .len = 1};
+                return {.chr = 0xFFFD, .len = 1, .ok = false};
             }
 
             cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) |
                  ((b2 & 0x3F) << 6) | (b3 & 0x3F);
             if (cp < 0x10000 || cp > 0x10FFFF) {
-                return {.chr = 0xFFFD, .len = 1};
+                return {.chr = 0xFFFD, .len = 1, .ok = false};
             }
 
             break;
         } default:
-            return {.chr = 0xFFFD, .len = 1};
+            return {.chr = 0xFFFD, .len = 1, .ok = false};
     }
 
-    return {.chr = cp, .len = len};
+    return {.chr = cp, .len = len, .ok = true};
 }
 
-
-///
-/// \brief decodes a single utf-8 block from the given buffer.
-///
-/// \details
-/// fast path uses simd to skip ascii, then falls back to table-based
-/// decoding for multibyte sequences.
-///
 }  // namespace kairo
 
 #endif  // __KAIRO_TOOLCHAIN_CORE_UTF8_DECODE_HH__
