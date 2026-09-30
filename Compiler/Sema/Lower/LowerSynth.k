@@ -25,6 +25,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/UTF8Decode.hh";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import AST::LangItems::*;
@@ -340,7 +341,22 @@ class LowerSynth {
     }
 
     /// Codepoints in \p bytes: every byte that is not a continuation byte.
+    ///
+    /// Requires valid UTF-8, which SourceManager::validate_utf8 (source bytes)
+    /// plus decode_text's escape encoding (every escape is written as a full
+    /// UTF-8 sequence) guarantee; on anything else the count is wrong, not an
+    /// error. Debug builds re-decode \p bytes to catch a path that bypassed
+    /// validation.
     static fn cp_count(bytes: *vec::<u8>) -> usize {
+        const eval if defined(DEBUG) {
+            const base: std::ConstPtr::<u8> = reinterpret_cast::<std::ConstPtr::<u8>>(bytes->data());
+            var i: usize = 0;
+            while i < bytes->size() {
+                var d = decode_utf8_lut(base + i, bytes->size() - i);
+                ICE_IF(!d.ok, "cp_count: invalid UTF-8 reached lowering; SourceManager validation bypassed");
+                i += d.len;
+            }
+        }
         var cp: usize = 0;
         for var i: usize = 0; i < bytes->size(); ++i { if ((*bytes)[i] & 0xC0) != 0x80 { cp += 1; } }
         return cp;

@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "Native/UTF8Decode.hh";
 
 import Location::SourceFile::*;
 import Location::SourceLocation::*;
@@ -485,6 +486,70 @@ class SourceManager {
     ///
     fn wait_for_line_index(self, file_id: FileID) {
         self._line_table.wait_until_ready(file_id);
+    }
+
+    ///
+    /// \brief checks that \p fid's buffer is well-formed UTF-8, reporting
+    ///        S072E once per maximal run of invalid bytes.
+    ///
+    /// \details Runs once per file, before lexing, and is linear: ASCII is
+    ///          skipped 16 bytes at a time and only non-ASCII reaches the
+    ///          decoder. A run is merged into one diagnostic because a single
+    ///          corrupt character is often several bad bytes (`ED A0 80`),
+    ///          and one error per byte would bury the real ones.
+    ///
+    ///          The verdict is cached on the SourceFile, so the lexer opening
+    ///          the same fid again (dependency scan, then the real parse)
+    ///          neither rescans nor re-reports. An invalid file is still
+    ///          lexed; the lexer then reports what it can, and max-errors
+    ///          caps the total.
+    ///
+    ///          Everything downstream that counts code points (LowerSynth::
+    ///          cp_count) relies on this having run.
+    ///
+    /// \return true if the buffer is valid UTF-8 (or the fid is unknown).
+    fn validate_utf8(self, fid: FileID) -> bool {
+        var lock = std::LockGuard(self._load_mu);
+        if ((fid as usize) >= self._files.size()) || (self._files[fid] == &null) { return true; }
+        if self._files[fid]->utf8_checked { return self._files[fid]->utf8_valid; }
+        self._files[fid]->utf8_checked = true;
+
+        var buf = self._files[fid]->buffer->bytes();
+        const base: std::ConstPtr::<u8> = buf.data();
+        const end:  std::ConstPtr::<u8> = base + buf.size();
+        var p     = base;
+        var valid = true;
+
+        while p < end {
+            p = skip_ascii_simd(p, end);
+            if p >= end { break; }
+
+            var d = decode_utf8_lut(p, static_cast::<usize>(end - p));
+            if d.ok {
+                p += d.len;
+                continue;
+            }
+
+            var run = p;
+            while p < end {
+                var r = decode_utf8_lut(p, static_cast::<usize>(end - p));
+                if r.ok { break; }
+                p += r.len;   // always 1 on failure with bytes remaining
+            }
+
+            valid = false;
+            var off = static_cast::<usize>(run - base);
+            var len = static_cast::<usize>(p - run);
+            var range = self.get_range(fid, off, len);
+            var hex: string = libcxx::format(r"{:02X}", static_cast::<u32>(run[0])).data();
+            var b = self._diag->report(DiagID::S072E, range.start,
+                f"invalid UTF-8 byte 0x{hex} in source");
+            b.first(range);
+            b.emit();
+        }
+
+        self._files[fid]->utf8_valid = valid;
+        return valid;
     }
 
     ///

@@ -51,6 +51,13 @@ class SourceFile {
     pub var base_offset: usize = 0;                ///< base offset within global space.
     pub var size_bytes:  usize = 0;                ///< size of the file in bytes.
 
+    /// Set once by SourceManager::validate_utf8. Checked-and-valid is two
+    /// flags rather than one because "not yet scanned" must not read as
+    /// either verdict: the scan reports diagnostics, and a second scan of the
+    /// same buffer would report them twice.
+    pub var utf8_checked: bool = false;
+    pub var utf8_valid:   bool = true;
+
     ///
     /// \brief constructs a `SourceFile` from an existing mapped buffer.
     ///
