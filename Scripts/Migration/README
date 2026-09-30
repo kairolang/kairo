@@ -12,6 +12,16 @@ These run on a COPY of the tree, not on Compiler/ in place. Compiler/ stays
 Stage 0 syntax because Stage 0 is what compiles it; the Stage 1 test corpus is
 the migrated copy. private/portdry/ was the first one.
 
+migrate.py is the pass manager: it threads every file through all the
+passes below in order, in memory, and writes once. --list prints the order
+and why each pass sits where it does; --passes / --skip / --from / --to pick
+a slice; --check-idempotent re-runs the pipeline on its own output;
+--selftest runs each pass's own table. It refuses --apply on Compiler/, Lib/
+or Linker/ themselves unless given --in-place.
+
+    python3 Scripts/Migration/migrate.py private/portdry --check-idempotent
+    python3 Scripts/Migration/migrate.py private/portdry --apply
+
 kairo_lex.py is the shared lexer-lite and CLI driver. It is not a parser: it
 only has to be right about which byte offsets are Kairo CODE, so a rewrite
 never fires inside a // or /* */ comment, a string literal, or an
@@ -27,12 +37,17 @@ Split out of private/port_dryrun.py, which carried the first six of these plus t
 lexer in one file. Run order, which is the order the dry-run used:
 
     ternary_to_if.py        A if C else B  ->  if C { A } else { B }
-    switch_to_match.py      switch -> match, statement keyword only
+    switch_to_match.py      switch -> match + colon labels -> braced arms (idempotent;
+                            also fixes arms inside an already-renamed match)
     stub_ffi_imports.py     ffi "c++" import -> commented out   (DRY-RUN ONLY)
     drop_turbofish.py       Foo::<T> -> Foo<T>
-    case_labels_to_arms.py  case A: case B: -> case A, B { ... }
+    case_labels_to_arms.py  case A: case B: -> case A, B { ... }  (superseded by
+                            switch_to_match.py; a no-op after it)
     ranged_for_binding.py   for x: T in xs -> for var x: T in xs
     qualified_var_binding.py  static/const/eval var x -> static/const/eval x
+    defaulted_fn_suffix.py  default fn X(self); -> fn X(self) = default  (and delete)
+    split_oneliner_blocks.py  if c { a; b; } -> one statement per line  (--all: single-stmt too)
+    visibility_first.py     inline pub fn -> pub inline fn  (pub/priv/prot lead the modifiers)
 
 Two deliberate differences from port_dryrun.py: it hardcoded
 private/portdry/ and wrote unconditionally, because it ran on a throwaway copy
