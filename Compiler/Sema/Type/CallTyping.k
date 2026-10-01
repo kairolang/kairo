@@ -493,6 +493,10 @@ class <T> CallTyping {
         var off: usize = 0;
         if (np > 0) && (f->params[0] != &null) && f->params[0]->is_self && r->receiver_bound { off = 1; }
 
+        // The receiver bound to `self` is no argument: -2, not -1, which reads
+        // as "use the default" and would send CallLowering looking for one.
+        if off == 1 { map[0] = i32(-2); }
+
         var pack_lo: i32   = i32(-1);
         var pack_n:  usize = 0;
         var pack_at        = usize(-1);
@@ -560,6 +564,7 @@ class <T> CallTyping {
         self.finish_call_args(r.decl, &args, &r);
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
+        n->ctor_decl = static_cast::<*Decl>(r.decl);
         return rec;
     }
 

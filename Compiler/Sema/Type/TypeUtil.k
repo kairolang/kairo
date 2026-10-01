@@ -401,6 +401,38 @@ class TypeUtil {
         return usize(-1);
     }
 
+    /// A lang record's constructor BY SHAPE: \p nparams non-self parameters,
+    /// and for \p from_slice the single one is a Slice. Found through the lang
+    /// item, never by name. LiteralTyping binds literals through it and
+    /// CallLowering binds a pack's slice through it: one lookup, one answer.
+    fn lang_ctor(self, k: WellKnownType, nparams: usize, from_slice: bool) -> *Decl {
+        var d = self.sc->well_known->get(k);
+        if d == &null { return &null; }
+        var body = self.pattern_of(NameLookup::representative(d));
+        var dc   = NameLookup::context_of(body);
+        if dc == &null { return &null; }
+        var cell = self.sc->lookup.in_context(dc, DeclName::ctor());
+        if !cell.found() { return &null; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cell.cell->get(i));
+            if f == &null { continue; }
+            var n: usize = 0;
+            var only: *ParamDecl = &null;
+            for var p: usize = 0; p < f->params.size(); ++p {
+                var pd = f->params[p];
+                if (pd == &null) || pd->is_self { continue; }
+                n += 1;
+                only = pd;
+            }
+            if n != nparams { continue; }
+            if from_slice {
+                if (only == &null) || (only->type_ == &null) || (!self.is_slice(only->type_->canonical)) { continue; }
+            }
+            return cell.cell->get(i);
+        }
+        return &null;
+    }
+
     // === qualifiers =========================================================
 
     fn quals(self, t: *Type)        -> u8    { return canon_quals(t); }

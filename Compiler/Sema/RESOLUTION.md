@@ -37,8 +37,6 @@ an ordinary `NamedIdentExpr` head; `Self<...>` never takes generic args.
     [MISSING] `TypeCastExpr::cast_mode` (Default / Static / Const /
     Unsafe). Only `is_unsafe` is recorded today; `as static` / `as const`
     parse but are not distinguishable by sema.                        (spec 3)
-    [MISSING] Named call arguments have no node; every argument is
-    positional until one exists.                                      (spec 8)
     [MISSING] `<T: type>` -> `GenericParamKindBound::Duck`.
     [MISSING] `PointerType::is_unsafe` stamped from the `unsafe` qual. (spec 2)
 
@@ -383,8 +381,11 @@ an operator up again); `op_instance` on Binary/Unary/Assign and
 `CallExpr::instance` (the registry entry of a GENERIC callee's instance,
 `*InstanceEntry` stored as `*void`, which EmitIR spells the call's template
 arguments from and EmitPlan homes); and `CallExpr::arg_map`/`pack_len`
-(argument placement over `f->params`, `self` included, -1 = default).
-`Lower/` reads them; codegen reads only the instance slots.
+(argument placement over `f->params`, `self` included, -1 = default, -2 =
+the bound receiver in slot 0, which is no argument and has no default); and
+`CallExpr::ctor_decl` (a constructor call's selected constructor: the callee
+names the TYPE, so nothing else records which ctor `arg_map` is parallel
+to). `Lower/` reads them; codegen reads the instance slots and `ctor_decl`.
 
 **Four terminal states per expression.** typed (`type_` set); poisoned
 (diagnosed, `type_` null); unknown (`IsInstantiationDependent` set,
@@ -476,8 +477,13 @@ not a conversion ordering: among Exact winners a non-generic candidate
 beats a generic one (otherwise `fn f(i32)` beside `fn <T> f(T)` is
 ambiguous on every call). A fwd/def pair is one candidate (representative).
 Specializations are skipped (paired later). Packs are accepted at
-Converted and not deduced. Diagnostics: no viable (capped candidate notes),
-ambiguous, not callable.
+Converted and not deduced. A default is looked for across the WHOLE redecl
+chain (`TypeUtil::param_default`): defaults accumulate over redeclarations,
+and the link judged need not be the one that wrote it. An imported C++
+callee can only omit TRAILING defaults (clang applies them by omission); a
+named argument that fills a parameter after an unfilled defaulted one is
+SC107E. Diagnostics: no viable (capped candidate notes), ambiguous, not
+callable.
 
 **Deduction** (`ArgumentDeduction.k`). Structural unify of the param's
 canonical against the arg's, binding `(owner, index)`; conflicts fail,
@@ -575,7 +581,10 @@ xs`: element from the container / map (K,V) tuple / string char / Range
 arg / `op in` (through `Yield<T>`); binders get it through their
 shorthands. Destructuring by position or field name. Context bindings take
 the value's type until ContextLowering. `yield`'s check against `yield T`
-is YieldLowering's.
+is YieldLowering's. A parameter default is typed against its parameter, and
+may not refer to another parameter or `self` (SC106E: a default is evaluated
+by a nullary thunk, so it has nothing to read them from) nor be a slice
+literal (SC082E: the thunk would return a view of a dead array).
 
 **What X does NOT do**: ADL through the global namespace (a type at TU
 scope associates no scope, by design; see `_enclosing_modules`); pack deduction and
@@ -602,15 +611,30 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: OperatorLowering -> CallLowering -> SequenceLowering ->
-ListLiteralLowering -> ExtensionLowering -> EnumLayoutLowering ->
-NullableTypeLowering -> NullTestLowering -> CoalesceLowering ->
-FStringLowering -> IterLowering -> MatchLowering/PatternCompilation ->
+§6). Order, fixed: ExprBodyDesugar -> OperatorLowering -> FStringLowering
+-> CallLowering -> SequenceLowering -> ListLiteralLowering -> StringLowering
+(the passes `Sema.k` runs today), then ExtensionLowering ->
+EnumLayoutLowering -> NullableTypeLowering -> NullTestLowering ->
+CoalesceLowering -> IterLowering -> MatchLowering/PatternCompilation ->
 PanicLowering/FinallyLowering -> YieldLowering ->
 TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
 CopyMoveLowering -> DestructorInsertion. Sugar first, control flow second,
 lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
 codegen is an ICE naming the pass.
+
+CallLowering [DONE]. After it every call is one positional argument list in
+parameter order; `NamedArgExpr` is gone and `arg_map` is empty. A default
+becomes a nullary thunk (`LowerTargets::default_thunk`), one per entity and
+parameter index, stamped as `ParamDecl::default_thunk` on that index in
+every link of the redecl chain, and spliced beside the declaring link; a
+default written on an out-of-line definition becomes a member of the owner.
+`default_val` is MOVED into the thunk, so it is null afterwards. Explicit
+arguments evaluate left to right as written, whatever parameter they name;
+defaults evaluate after them, in parameter order. A pack is a `Slice<E>` by
+value (`ParamDecl::pack_type`) over a backing array alive for the call's
+full-expression. A call with an lvalue or record result keeps C++ order
+(the documented SequenceLowering hole). Dependent calls are left as written
+until M2.
 
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
@@ -785,6 +809,7 @@ A pass that needs one asks that file; it never spells the string itself.
    `Expr::type_`, `value_category`, `expr_flags`, inferred decl slots: X.
    `instantiated_from` on implicit nodes: registry (then M2).
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
+   `default_thunk` / `pack_type` on ParamDecl: CallLowering.
 8. **Canonical identity is build-wide, and cv-qualified: const i32 and i32
    are two canonicals.**
 9. **T never rewrites nodes.** X never allocates nodes.

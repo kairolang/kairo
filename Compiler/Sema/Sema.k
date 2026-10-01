@@ -54,6 +54,7 @@ import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
+import Sema::Lower::CallLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
 import Sema::Lower::SequenceLowering::*;
 import Sema::Lower::FStringLowering::*;
@@ -340,9 +341,10 @@ class Sema {
         // literal here). Everything it mints is pure or single-use, so its
         // position relative to SequenceLowering is free.
         { var _p = TimeRegion("FStringLowering"); FStringLowering(&self.sc).run(); }
-        // TODO(sema): CallLowering(&self.sc).run();        // goes HERE, before
-        //             SequenceLowering: defaults are filled first, so a thunk
-        //             call is an impure argument and gets ordered with the rest.
+        // Defaults and named/packed arguments become one positional list in
+        // parameter order. Before SequenceLowering: a default thunk's call is
+        // an impure argument, and it is ordered with the rest there.
+        { var _p = TimeRegion("CallLowering"); CallLowering(&self.sc).run(); }
         // Argument order: after OperatorLowering (operators are calls now),
         // before ListLiteralLowering (a hoisted slice literal is marked
         // Extended here and gets its backing there).

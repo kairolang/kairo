@@ -332,31 +332,7 @@ class <T> LiteralTyping {
     /// and for \p from_slice the single one is a Slice. Found through the lang
     /// item, never by name.
     priv fn _lang_ctor(self, k: WellKnownType, nparams: usize, from_slice: bool) -> *Decl {
-        var d = dyn()->sc->well_known->get(k);
-        if d == &null { return &null; }
-        var body = dyn()->tu.pattern_of(NameLookup::representative(d));
-        var dc   = NameLookup::context_of(body);
-        if dc == &null { return &null; }
-        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ctor());
-        if !cell.found() { return &null; }
-        for var i: usize = 0; i < cell.cell->size(); ++i {
-            var f = dyn_cast::<FunctionDecl>(cell.cell->get(i));
-            if f == &null { continue; }
-            var n: usize = 0;
-            var only: *ParamDecl = &null;
-            for var p: usize = 0; p < f->params.size(); ++p {
-                var pd = f->params[p];
-                if (pd == &null) || pd->is_self { continue; }
-                n += 1;
-                only = pd;
-            }
-            if n != nparams { continue; }
-            if from_slice {
-                if (only == &null) || (only->type_ == &null) || (!dyn()->tu.is_slice(only->type_->canonical)) { continue; }
-            }
-            return cell.cell->get(i);
-        }
-        return &null;
+        return dyn()->tu.lang_ctor(k, nparams, from_slice);
     }
 
     priv fn _type_format_literal(self, n: *StringLiteralExpr, s: *Type) -> bool {

@@ -55,6 +55,15 @@ fn bad_interleaved() {
     print("hi", spacing: '\n', "there")
 }
 
+class Bag {
+    var n: i32
+    fn put(self, x: i32) { }
+}
+
+fn methods(@inout b: Bag) {
+    b.put(1)
+}
+
 // --- lit wiring -----------------------------------------------------------
 // At the BOTTOM: every DIAG line below names a line number in the code above,
 // so anything inserted before `fn print` invalidates all of them.
@@ -87,3 +96,9 @@ fn bad_interleaved() {
 // The NOT above needs an end: the builtin TUs dump after this one, and their
 // constructors DO assign, so without this anchor it scans into them.
 // AST: ============== AST (tree) for fid {{[0-9]+}}
+
+// arg_map as X wrote it: the receiver slot is `self` (-2), never -1, which
+// would read as "use the default".
+// RUN: { %kairo %s --type-check-only --print-sema 2>&1 || true; } | %FileCheck %s --check-prefix=SEMA
+// SEMA: [arg_map 0 -1 -1 pack_len 2]
+// SEMA: [arg_map self 0]

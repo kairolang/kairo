@@ -569,7 +569,25 @@ class OverloadResolution {
             return;
         }
 
-        // 3. rank every placed argument.
+        // 3b. A C++ function's defaults are clang's, applied by omission, and a
+        //     C++ call can only omit TRAILING arguments. A named argument that
+        //     fills a parameter after an unfilled defaulted one has no C++
+        //     spelling.
+        if f->is_imported() {
+            var skipped: *ParamDecl = &null;
+            for var j: usize = 0; j < nparams; ++j {
+                if j == pack_at { continue; }
+                if !filled[j] { if skipped == &null { skipped = params[j]; } continue; }
+                if skipped != &null {
+                    c->viable = false;
+                    c->reason_code = DiagID::SC107E;
+                    c->reason = f"parameter '{self.tu.param_name(params[j])}' is given but '{self.tu.param_name(skipped)}' before it is left to its C++ default; a C++ call can only leave out trailing defaults";
+                    return;
+                }
+            }
+        }
+
+        // 4. rank every placed argument.
         for var i: usize = 0; i < args->size(); ++i {
             var a  = &((*args)[i]);
             var pi = c->arg_to_param[i];
@@ -631,7 +649,7 @@ class OverloadResolution {
             }
         }
 
-        // 4. a generic candidate must have deduced every param.
+        // 5. a generic candidate must have deduced every param.
         if c->generic && (!c->ded.is_complete(static_cast::<*Decl>(f))) {
             c->viable = false;
             c->reason = "could not deduce every generic parameter from the arguments";

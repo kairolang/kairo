@@ -1256,7 +1256,17 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// is derived, and which instance a generic call or operator names.
     priv fn _note_lowering_choices(self, n: *Expr) {
         if isa::<CallExpr>(n) {
-            self._note_instance(cast::<CallExpr>(n)->instance);
+            var c = cast::<CallExpr>(n);
+            if c->arg_map.size() > 0 {
+                var s = "  [arg_map";
+                for var i: usize = 0; i < c->arg_map.size(); ++i {
+                    var v = c->arg_map[i];
+                    s += (" self") if (v == i32(-2)) else (f" {v}");
+                }
+                if c->pack_len > 0 { s += f" pack_len {c->pack_len}"; }
+                self._p.paint(Color::Dim, s + "]");
+            }
+            self._note_instance(c->instance);
             return;
         }
         if isa::<BinaryOperatorExpr>(n) {

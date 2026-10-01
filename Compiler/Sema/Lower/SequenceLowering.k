@@ -124,7 +124,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
             var a = n->args[i];
             args.push((a) if (LowerSynth::pure(a)) else (self._bind(a, &stmts)));
         }
-        args.freeze_into(&(n->args));                 // same indices: arg_map is untouched.
+        args.freeze_into(&(n->args));                 // arg_map is empty after CallLowering.
 
         stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, static_cast::<*Expr>(n))));
         var body = CompoundStmt::create(self.ctx, n->range);
