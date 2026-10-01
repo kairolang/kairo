@@ -165,7 +165,7 @@ class Sema {
     /// contained. Import-existence errors live here, nowhere else.
     priv fn _stage_imports(self) -> bool {
         if self._already(SemaPhase::ImportsResolved) { return true; }
-        var _t = TimeRegion("I-imports");
+        var _t = TimeRegion("Imports");
         self.sc.require_phase(SemaPhase::Parsed);
         ImportResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::ImportsResolved);
@@ -181,7 +181,7 @@ class Sema {
     /// lowering land here too when implemented.
     priv fn _stage_expand(self) -> bool {
         if self._already(SemaPhase::Expanded) { return true; }
-        var _t = TimeRegion("E-expand");
+        var _t = TimeRegion("Expand");
         self.sc.require_phase(SemaPhase::ImportsResolved);
         // TODO(sema): MacroExpansion(&self.sc).run();
         // TODO(sema): EvalLowering(&self.sc).run();  // extract eval fns -> dylib
@@ -199,7 +199,7 @@ class Sema {
     /// not worth resolving.
     priv fn _stage_verify(self) -> bool {
         if self._already(SemaPhase::Verified) { return true; }
-        var _t = TimeRegion("V-verify");
+        var _t = TimeRegion("Verify");
         self.sc.require_phase(SemaPhase::Expanded);
 
         // Per pass, not one number for the stage. Six independent full-tree
@@ -222,7 +222,7 @@ class Sema {
     /// resolved_decl. Redefinition + unresolved-ident errors live here.
     priv fn _stage_name_resolution(self) -> bool {
         if self._already(SemaPhase::NamesResolved) { return true; }
-        var _t = TimeRegion("N-names");
+        var _t = TimeRegion("Names");
         self.sc.require_phase(SemaPhase::Verified);
         var nr = NameResolution(&self.sc);
         nr.run();
@@ -243,7 +243,7 @@ class Sema {
     /// Arity / unknown-type-name / no-member errors live here.
     priv fn _stage_type_resolution(self) -> bool {
         if self._already(SemaPhase::TypesResolved) { return true; }
-        var _t = TimeRegion("T-types");
+        var _t = TimeRegion("Types");
         self.sc.require_phase(SemaPhase::NamesResolved);
         { var _p = TimeRegion("TypeResolve");  TypeResolution(&self.sc).run(); }
         { var _p = TimeRegion("RedeclMerge");  RedeclMerge(&self.sc).run();    }
@@ -269,7 +269,7 @@ class Sema {
     /// compile.
     priv fn _stage_checks(self) -> bool {
         if self._already(SemaPhase::Checked) { return true; }
-        var _t = TimeRegion("C-checks");
+        var _t = TimeRegion("Checks");
         self.sc.require_phase(SemaPhase::TypesResolved);
 
         // Layout acyclicity. Runs before anything that needs a size:
@@ -327,7 +327,8 @@ class Sema {
     /// not in comments scattered across pass files.
     priv fn _stage_lowerings(self) -> bool {
         if self._already(SemaPhase::Lowered) { return true; }
-        var _t = TimeRegion("L-lowerings");
+        // No stage region: the driver opens "Lower" around this, and a
+        // nested one would only repeat it (Lower.Lowerings.X).
         self.sc.require_phase(SemaPhase::Checked);
 
         // First: `fn f() -> T = e` becomes `{ return e }`, so every pass below
@@ -371,7 +372,7 @@ class Sema {
     /// M1: monomorphization usage collection (parallel-safe).
     priv fn _stage_mono_collect(self) -> bool {
         if self._already(SemaPhase::MonoCollected) { return true; }
-        var _t = TimeRegion("M1-collect");
+        var _t = TimeRegion("Collect");
         self.sc.require_phase(SemaPhase::Lowered);
         // TODO(sema): Monomorphization::collect(&self.sc);
         self.sc.advance_phase(SemaPhase::MonoCollected);
@@ -382,7 +383,7 @@ class Sema {
     /// stage allowed to touch cross-TU mutable state.
     priv fn _stage_mono_instantiate(self) -> bool {
         if self._already(SemaPhase::Complete) { return true; }
-        var _t = TimeRegion("M2-instantiate");
+        var _t = TimeRegion("Instantiate");
         self.sc.require_phase(SemaPhase::MonoCollected);
         // TODO(sema): Monomorphization::instantiate(&self.sc);
         // TODO(sema): DependentResolution(&self.sc).run();
