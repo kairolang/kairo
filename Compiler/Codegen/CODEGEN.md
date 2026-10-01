@@ -169,8 +169,8 @@ extension (receiver first). Tier 3: `extern template class X<A>;` /
 the Complete dependencies' headers.
 
 V1 refusals (each an ICE naming its owner): ADT enums, unions, interfaces,
-parameter defaults (CallLowering removes the need), field initializers,
-packs, method bodies in headers.
+field initializers, method bodies in headers. A pack is spelled as its
+`Slice<E>` (`ParamDecl::pack_type`).
 
 ## 6. EmitIR — the core
 
@@ -222,7 +222,17 @@ The no-headroom rules, each with one home:
   `CallExpr::instance`, never leaving clang to deduce them: an argument
   whose C++ type is not its Kairo type (an int literal typed `i64`) would
   deduce an instance no TU homed. A generic METHOD through `.` still
-  deduces (`.template m<...>` is RESOLUTION.md item r).
+  deduces (`.template m<...>` is RESOLUTION.md item r). A default-thunk
+  call to a generic type's method is spelled through `CallExpr::qualifier`
+  (`Box<int>::__kairo_default_m_x()`). A constructor call's parameters are
+  `CallExpr::ctor_decl`'s, not the named type's.
+- `_check_arity`: CallLowering's postcondition, checked in `_call`. Every
+  parameter has an argument; more arguments than parameters only for a C
+  `...` tail. A dependent call is as written until M2 and is not checked.
+- Decision 6, the one headroom: an imported C++ function's TRAILING
+  defaults are omitted from the call and clang supplies them
+  (`has_default` with no `default_thunk`). A non-trailing omission has no
+  C++ spelling and is rejected in Sema (SC107E).
 - `_arg`/`_value`: `static_cast<P>(a)` whenever the argument's canonical
   differs from the parameter's (records excluded; they copy-construct);
   `@inout` emits the operand bare; `@move` emits `static_cast<T&&>(x)`
@@ -246,7 +256,8 @@ YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
 → async lowering; `ListLiteralExpr` / set / map literals →
 ListLiteralLowering (set and map have no lowering yet); labeled
 break/continue → label lowering; typeof/impl/derives tests →
-TypeQueryLowering; NamedArgExpr → CallLowering; a `TypeCastExpr` with a
+TypeQueryLowering; NamedArgExpr → CallLowering; a call short of
+arguments → CallLowering; a `TypeCastExpr` with a
 record operand and no `resolved_ctor` → OperatorLowering.
 
 ## 7. Templates
@@ -278,6 +289,11 @@ extension call through a field path, homed template instance, one `.o`
 per module, `clang++ -Wodr` link, exit 9. `Tests/Codegen/operators`,
 `Tests/Codegen/defaults`, `Tests/Codegen/slices`: one per lowering, each
 with a `--print-cxx` golden and a link that exits with a computed value.
+`Tests/Codegen/defaults` holds `order` (evaluation order of named arguments
+and defaults), `defaults` (thunks on free, method and generic functions),
+`packs`, `ctor` (named and defaulted constructor arguments), `redecl`
+(defaults accumulated over a chain), `ffi_defaults` (decision 6) and
+`ffi_defaults_skip` (SC107E).
 `Tests/Codegen/slices/sum.k` is the list-literal link test: an array
 prvalue as an argument, an Extended backing array behind a `var`, a literal
 under a conditional, exit 38. Its `-o` names a DIRECTORY, so the link takes

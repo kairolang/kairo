@@ -226,7 +226,6 @@ class EmitIR {
     priv fn _free_fn(self, n: *FunctionDecl, ext: *ExtensionDecl) {
         if !n->has_body() { return; }
         if n->body_kind != FnBodyKind::Block { self._unsupported_body(n); return; }
-        ICE_IF(n->is_variadic, "EmitIR: variadic pack parameters are not emitted yet");
         if n->is_method() && (ext == &null) { return; }   // a method reached the free path; its owner emits it.
 
         var at = CXXSpell::at(static_cast::<*Decl>(n));
@@ -253,7 +252,6 @@ class EmitIR {
     priv fn _method(self, m: *FunctionDecl, owner: *Decl) {
         if !m->has_body() { return; }
         if m->body_kind != FnBodyKind::Block { self._unsupported_body(m); return; }
-        ICE_IF(m->is_variadic, "EmitIR: variadic pack parameters are not emitted yet");
 
         var at = CXXSpell::at(static_cast::<*Decl>(m));
         var wrap = self._open_ns(owner, at);
@@ -342,7 +340,6 @@ class EmitIR {
         for var i: usize = 0; i < f->params.size(); ++i {
             var p = f->params[i];
             if p == &null { continue; }
-            ICE_IF(p->default_val != &null, "EmitIR: parameter defaults are not emitted yet");
             if p->is_self {
                 if ext == &null { continue; }
                 if !first { s += ", "; }
@@ -892,8 +889,16 @@ class EmitIR {
             }
         }
 
-        var f    = dyn_cast::<FunctionDecl>(callee);
-        var inst = reinterpret_cast::<*InstanceEntry>(n->instance);
+        // The constructor, not the type the callee names: its parameters are
+        // what the arguments are cast to.
+        var f = dyn_cast::<FunctionDecl>(callee);
+        if n->ctor_decl != &null { f = dyn_cast::<FunctionDecl>(n->ctor_decl); }
+        var inst  = reinterpret_cast::<*InstanceEntry>(n->instance);
+        var bound = ext_call || (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f)
+                 || ((ch != &null) && (ch->steps.size() > 0)
+                     && (ch->steps.get(ch->steps.size() - 1)->access_kind != ChainExpr::AccessKind::ColonColon));
+        self._check_arity(n, f, bound);
+
         if ext_call {
             ICE_IF(f == &null, "EmitIR: UFCS step that is not a function");
             sink->spell(n->callee->range, self._spell.qual_name(callee) + "(");
@@ -903,17 +908,22 @@ class EmitIR {
             return;
         }
 
-        // A constructor call names the TYPE being built, from the call's own
-        // canonical (`Slice<int>(...)`), never the ctor decl's owner template.
         if self._is_ctor(f) || self._is_type_decl(callee) {
             ICE_IF(n->type_ == &null, "EmitIR: untyped constructor call; ExprTyper gate failure");
             sink->spell(n->callee->range, self._spell._type(n->type_));
+        } else if n->qualifier != &null {
+            // A default thunk of a generic type's method: a static member of a
+            // class template, named through the receiver's record so the
+            // owner's arguments are spelled.
+            var s = self._spell._type(n->qualifier) + "::";
+            if (inst != &null) && (f != &null) && (f->generic_params.size() > 0) {
+                if n->qualifier->is_dependent() { s += "template "; }
+                s += self._spell.leaf(callee) + self._spell.args_str(&(inst->args));
+            } else {
+                s += self._spell.leaf(callee);
+            }
+            sink->spell(n->callee->range, s);
         } else if (inst != &null) && (f != &null) && (f->generic_params.size() > 0) && self._plain_callee(n->callee) {
-            // A generic free function: the instance's arguments are spelled
-            // out. Left to clang, they would be deduced from the emitted
-            // argument EXPRESSIONS, and an argument whose C++ type is not its
-            // Kairo type (an int literal typed i64) deduces an instance no TU
-            // homed, so nothing defines it.
             sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
         } else {
             self.emit(n->callee);
@@ -921,6 +931,30 @@ class EmitIR {
         sink->synth_at_end(n->callee->range, clang::tok::l_paren);
         self._args(n, f, false, inst);
         sink->synth_at_end(n->range, clang::tok::r_paren);
+    }
+
+    /// CallLowering's postcondition, checked where it matters: every
+    /// parameter has an argument. The one exception is decision 6: trailing
+    /// imported C++ defaults are omitted and clang supplies them -- the one
+    /// place this layer gives clang headroom, on purpose. A dependent call is
+    /// as written until M2 and is not checked.
+    priv fn _check_arity(self, n: *CallExpr, f: *FunctionDecl, bound: bool) {
+        if (f == &null) || n->is_instantiation_dependent() { return; }
+        var want: usize = 0;
+        var tail: usize = 0;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if p == &null { continue; }
+            if p->is_self && bound { continue; }
+            want += 1;
+            if p->has_default && (p->default_thunk == &null) { tail += 1; } else { tail = 0; }
+        }
+        // `x.op++(0)`: C++'s postfix dummy, minted by OperatorLowering and
+        // declared by no Kairo parameter (CXXSpell::op_is_postfix).
+        if CXXSpell::op_is_postfix(f) { want += 1; }
+        var have = n->args.size();
+        ICE_IF(have + tail < want, "EmitIR: a call short of arguments reached codegen; CallLowering owns defaults");
+        ICE_IF((have > want) && (!f->ffi_c_variadic), "EmitIR: a call with more arguments than parameters reached codegen");
     }
 
     /// A callee whose name is spelled whole: a bare name or a `::` path. A
@@ -952,10 +986,15 @@ class EmitIR {
         var u = dyn_cast::<UnaryOperatorExpr>(a);
         if (u != &null) && u->is_mode_marker { self.emit(u->operand); return; }
         if p == &null { self.emit(a); return; }
+        var pt = p->type_;
+        if p->is_pack {
+            ICE_IF(p->pack_type == &null, "EmitIR: pack parameter with no slice type; CallLowering stamps it");
+            pt = p->pack_type;
+        }
         if p->mode == ParamMode::Move {
             // An lvalue must be moved explicitly; a prvalue already is.
             if a->is_lvalue() {
-                sink->spell(a->range, "static_cast<" + self._spell._type(p->type_, inst) + "&&>(");
+                sink->spell(a->range, "static_cast<" + self._spell._type(pt, inst) + "&&>(");
                 self.emit(a);
                 sink->spell(a->range, ")");
                 return;
@@ -964,7 +1003,7 @@ class EmitIR {
             return;
         }
         if p->mode == ParamMode::Inout { self.emit(a); return; }   // an lvalue binds to T& as is.
-        self._value(a, p->type_, inst);
+        self._value(a, pt, inst);
     }
 
     /// The parameters an argument list maps onto: `self` excluded.

@@ -460,7 +460,10 @@ fn EmitPlan::visit_decl(d: *Decl) -> bool {
     switch d->kind {
         case DeclKind::VariableDecl  { self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Complete); }
         case DeclKind::FieldDecl     { self._admit_type(cast::<FieldDecl>(d)->type_, PlanNeed::Complete); }
-        case DeclKind::ParamDecl     { self._admit_type(cast::<ParamDecl>(d)->type_, PlanNeed::Complete); }
+        case DeclKind::ParamDecl {
+            var p = cast::<ParamDecl>(d);
+            self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Complete);
+        }
         case DeclKind::FunctionDecl  { self._admit_type(cast::<FunctionDecl>(d)->return_type, PlanNeed::Complete); }
         case DeclKind::TypeAliasDecl { self._admit_type(cast::<TypeAliasDecl>(d)->aliased, PlanNeed::Complete); }
         default { break; }
@@ -626,7 +629,7 @@ fn EmitPlan::_expand_fn(n: *FunctionDecl) {
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
-        self._admit_type(p->type_, PlanNeed::Fwd);
+        self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Fwd);
     }
     self._admit_type(n->return_type, PlanNeed::Fwd);
 }

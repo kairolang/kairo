@@ -502,6 +502,10 @@ class CXXSpell {
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as
     /// EmitIR documents them). \p is_const is the `const x: T` marker.
     fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null) -> string {
+        if p->is_pack {
+            ICE_IF(p->pack_type == &null, "CXXSpell: pack parameter with no slice type; CallLowering stamps it");
+            return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst);
+        }
         return self._param_type(p->type_, p->mode, p->is_const, subst);
     }
 
@@ -512,7 +516,7 @@ class CXXSpell {
     /// declarator and `decl()` builds it. Empty \p name is the abstract form.
     fn param_decl(self, p: *ParamDecl, name: string, subst: *InstanceEntry = &null) -> string {
         var c = (p->type_->canonical) if (p->type_ != &null) else (&null);
-        if (c != &null) && (canon_unqual(c)->kind == TypeKind::FixedArrayType) {
+        if (!p->is_pack) && (c != &null) && (canon_unqual(c)->kind == TypeKind::FixedArrayType) {
             ICE_IF((p->mode == ParamMode::Value) && (!p->is_const),
                 "CXXSpell: array parameter by value; StmtTyping must reject it");
             var s = self.decl(canon_unqual(c), "&" + name, subst);
@@ -603,10 +607,19 @@ class CXXSpell {
     priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry) -> string {
         ICE_IF(g->owner == &null, "CXXSpell: canonical generic param with no owner");
         var owner = CXXSpell::rep(g->owner);
-        if (subst != &null) && (CXXSpell::rep(subst->primary) == owner) {
-            ICE_IF(static_cast::<usize>(g->param_index) >= subst->args.size(),
-                "CXXSpell: instance args shorter than the primary's parameter list");
-            return self._type(subst->args[static_cast::<usize>(g->param_index)], &null);
+        if subst != &null {
+            var prim = CXXSpell::rep(subst->primary);
+            var idx  = static_cast::<usize>(g->param_index);
+            // A default thunk carries its callee's generic-parameter list, so
+            // its instance substitutes the callee's T: the params are the same
+            // GenericParamDecls, and that is the identity, not the owner.
+            var sp = decl_generic_params(prim);
+            var _op = decl_generic_params(owner);
+            var same = (prim == owner) || ((idx < sp.size()) && (idx < _op.size()) && (sp[idx] == _op[idx]));
+            if same {
+                ICE_IF(idx >= subst->args.size(), "CXXSpell: instance args shorter than the primary's parameter list");
+                return self._type(subst->args[idx], &null);
+            }
         }
         ICE_IF(g->is_pack, "CXXSpell: pack parameter in a non-expansion position");
         var gps = decl_generic_params(owner);

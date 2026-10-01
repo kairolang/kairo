@@ -425,7 +425,6 @@ class InterfaceEmitter {
     /// A method declaration inside its class. `self` is dropped (it is
     /// `this`); a function without `self` is `static`.
     priv fn _method_decl(self, m: *FunctionDecl, owner: *Decl) -> string {
-        ICE_IF(m->is_variadic, "InterfaceEmitter: variadic pack parameters are not emitted yet");
         var s = self._spell->template_head(static_cast::<*Decl>(m));
         var is_ctor = self._is_ctor(m, owner);
         // One spelling, computed once. `op delete` comes back from leaf() as
@@ -467,7 +466,6 @@ class InterfaceEmitter {
     /// A namespace-scope declaration. An extension member keeps its receiver
     /// as an explicit first parameter (`Self*` / `const Self*`).
     priv fn _free_fn_text(self, f: *FunctionDecl, ext: *ExtensionDecl) -> string {
-        ICE_IF(f->is_variadic, "InterfaceEmitter: variadic pack parameters are not emitted yet");
         var s = "";
         if ext != &null { s += self._spell->template_head(static_cast::<*Decl>(ext)); }
         s += self._spell->template_head(static_cast::<*Decl>(f));
@@ -487,7 +485,6 @@ class InterfaceEmitter {
         for var i: usize = 0; i < f->params.size(); ++i {
             var p = f->params[i];
             if p == &null { continue; }
-            ICE_IF(p->default_val != &null, "InterfaceEmitter: parameter default values are not emitted yet");
             if p->is_self {
                 if !with_self { continue; }
                 ICE_IF(ext == &null, "InterfaceEmitter: `self` outside a type or extension");
