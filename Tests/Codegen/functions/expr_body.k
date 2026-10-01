@@ -31,8 +31,8 @@ fn main() -> i32 {
 // A written return type returns the expression; no written type runs it.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR: CODEGEN C++: {{.*}}functions/expr_body.k
-// IR-DAG: return {{.*}}self{{.*}}x{{.*}}o{{.*}}x
-// IR-DAG: return {{.*}}a{{.*}}+{{.*}}b
+// IR-DAG: return{{.*}}self{{.*}}x{{.*}}o{{.*}}x
+// IR-DAG: return{{.*}}a{{.*}}+{{.*}}b
 // IR-NOT: expression-bodied
 //
 // REQUIRES: clang

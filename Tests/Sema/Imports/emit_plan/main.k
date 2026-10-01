@@ -59,7 +59,7 @@ fn main() -> i32 {
 // main is this TU's own; use_f is reached through foo. The own/foreign
 // column is the point -- a plan that marked either wrongly would emit a
 // definition in the wrong object.
-// PLAN-DAG: fn ::main [fwd] own
+// PLAN-DAG: fn ::main::main [fwd] own
 // PLAN-DAG: fn ::foo::use_f [fwd] foreign
 
 // Never named from main, so never in MAIN's plan. It does appear in foo's
