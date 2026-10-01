@@ -21,6 +21,11 @@
 #   --with-libcxx        enable libcxx_to_cxx_std (Stage 1.5, off by default)
 #   --all                forwarded: split_oneliner_blocks splits
 #                        single-statement blocks too
+#   --no-stage0-safe     forwarded: redundant_parens uses pure Stage 1
+#                        precedence. Its default is STAGE 0 SAFE -- see
+#                        redundant_parens.py --help before passing this
+#   --log-bail           forwarded: redundant_parens lists every pair it kept
+#                        because it could not parse the interior
 #   --check-idempotent   run the pipeline a second time over its own output
 #                        and list every file that changes again
 #   --selftest           run each pass's own --selftest table, touch nothing
@@ -82,6 +87,12 @@ PIPELINE = [
          "default/delete prefix -> `= default`/`= delete`; before visibility_first "
          "so the modifier run it reorders is final"),
     Pass("visibility_first", "pub/priv/prot lead the modifier run"),
+
+    # Expressions.
+    Pass("redundant_parens",
+         "drops parens precedence makes redundant (Stage 0 safe unless "
+         "--no-stage0-safe); after ternary_to_if/switch_to_match so it sees "
+         "the final statement heads, before layout"),
 
     # Layout last: it formats the output of everything above.
     Pass("split_oneliner_blocks",

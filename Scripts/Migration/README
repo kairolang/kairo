@@ -48,6 +48,8 @@ lexer in one file. Run order, which is the order the dry-run used:
     defaulted_fn_suffix.py  default fn X(self); -> fn X(self) = default  (and delete)
     split_oneliner_blocks.py  if c { a; b; } -> one statement per line  (--all: single-stmt too)
     visibility_first.py     inline pub fn -> pub inline fn  (pub/priv/prot lead the modifiers)
+    redundant_parens.py     if (x > 0) { -> if x > 0 {; (a * b) + c -> a * b + c
+                            (STAGE 0 SAFE by default; see below)
 
 Two deliberate differences from port_dryrun.py: it hardcoded
 private/portdry/ and wrote unconditionally, because it ran on a throwaway copy
@@ -65,6 +67,72 @@ newline-terminated language `foo()\nif x {` is a statement, not a ternary, and
 only unbalanced brackets tell the two apart. Those sites are by hand:
 
     rg '^\s+else\s+[^{]*$'
+
+
+redundant_parens.py -- STAGE 0 SAFE BY DEFAULT
+----------------------------------------------
+
+Two rules. Rule 1: a pair wrapping the WHOLE head of if / else if / while /
+match / switch / for, i.e. whose `)` is followed by the body `{`, goes
+(`if (x > 0) {` -> `if x > 0 {`; `for` only in its C-style three-clause form).
+Rule 2: anywhere else in code, a pair whose interior parses as one expression
+and that precedence/associativity make redundant goes; a needed one stays
+(`a - (b - c)`, `(a + b) * c`). Each removal is decided against the text left
+by the ones before it, outer first, so `((a + b)) * c` ends as `(a + b) * c`.
+`if (a) && (b) {` is NOT a whole-head wrap, so rule 1 leaves it -- but both
+pairs hold one operand, so rule 2 still makes it `if a && b {`. Intended.
+
+The table is ExprParse.k's. Where Spec/Docs/operators.md disagrees with the
+parser -- `<=>`, `in`, `.*` / `->*` / `?.*` / `?->*`, range associativity,
+`??` -- the operator is treated as uncertain: a pair whose fate depends on its
+precedence against another operator is kept, in both modes.
+
+Default mode is Stage 0 safe, because Compiler/ is compiled by Stage 0 and
+Stage 0's prefix operators swallow the rest of their level. Measured with
+`kairo --emit-ir` (2026-10-01): `!a && b` -> `!(a && b)`, `-6 - x` ->
+`-(6 - x)`, and `!(a) && b` -> `!((a) && b)` too -- a paren right after the
+operator does NOT bound it (bad_pred_fix.py's docstring says otherwise; it is
+wrong for this Stage 0). `-x as u8` -> `-(x as u8)`; `x as u8 + 1` is a Stage 0
+syntax error. So in safe mode:
+
+    (!a) && b, (*p) += x, (-a) == 0, (-x) as u8   kept
+    (x as u8) + 1, (a ^^ b) ^^ c                  kept (as, ^^, === uncertain)
+    !(a) && b                                     kept, and reported
+    (!a == b) && c                                kept, and reported: Stage 0
+                                                  already reads !(a == b)
+
+--no-stage0-safe gives the pure Stage 1 result (`if !a == b && c {`). Only
+use it on a tree Stage 0 will never compile. The flag is read from argv, so
+migrate.py forwards it.
+
+Reported in both modes: "STAGE 0 DIVERGES" -- a prefix operator followed by a
+binary operator inside one level, where the two compilers already read the
+source differently. These are real bugs when the file is Stage 0-compiled;
+on 2026-10-01 the tree had two, Lib/std/rt/Float8.k:139 and :251
+(`(-6 - unb) as u32`, which Stage 0 computes as `-(6 - unb)`).
+
+Never touched: call / index / generic / signature / closure-param parens,
+tuples, `({ ... })`, any interior with a top-level `{` (parens reset
+NoStructLiteral), a pair followed by `(`, lone `(u8)`, `(5).x`, case
+patterns, types (after `:`, `->`, `as`, inside `<...>`), macro bodies and
+`name!(...)` / `@attr(...)` arguments, expression-if / Stage 0 ternary
+interiors, f-string interpolations (opaque here, unlike kairo_lex), a pair
+spanning lines unless a surviving ( or [ encloses it, and any removal that
+would glue two operator characters (`-(-a)`). An interior the parser does not
+understand is kept and counted (--log-bail lists them). Only paren characters
+and the padding they held are deleted; `if(x){` becomes `if x {`.
+
+    python3 Scripts/Migration/redundant_parens.py --selftest
+    python3 Scripts/Migration/migrate.py <copy> --passes redundant_parens --check-idempotent
+
+On Compiler/ + Lib/ (2026-10-01, on a copy): 4897 pairs in 178 of 263 files
+safe, 5243 in 182 with --no-stage0-safe; idempotent; only paren characters
+and padding change. Stage 1 `--type-check-only --print-sema`, before vs after,
+columns normalized: identical for every syntax-clean changed file, and for
+files Stage 1 already rejects, identical up to the first syntax error (past
+it, error recovery drifts with the token count). That check is what found
+`x as usize < n` -- the type parser takes `<` as generic args -- so a cast
+keeps its parens before a `<`-family operator.
 
 
 inline C++ retirement
