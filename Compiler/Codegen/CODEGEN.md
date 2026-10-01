@@ -203,8 +203,9 @@ clang-only -- it is not C++, it is a GNU extension clang implements -- so it
 carries the same HARD clang dependency.
 
 Definitions it produces: free functions (namespace wrapper per function),
-methods out of line (`RET Owner<T>::name(params) const`), constructors and
-destructors, extension members as free functions with the receiver first,
+methods out of line (`RET Owner<T>::name(params) const`), methods defined
+out of line (`fn C::m`), reached through the in-class declaration's chain,
+constructors and destructors, extension members as free functions with the receiver first,
 template member bodies (own TU always; homing TUs via the plan), `int
 main()` at global scope.
 

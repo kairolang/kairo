@@ -173,7 +173,14 @@ class EmitIR {
         var methods = self._methods_of(d);
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
-            if m != &null { self._method(m, d); }
+            if m == &null { continue; }
+            // An out-of-line definition is in no member list: the in-class
+            // declaration is, and the chain leads to the body.
+            if !m->has_body() {
+                var def = m->definition();
+                if (def != &null) && (!def->is_poisoned()) { m = def; }
+            }
+            self._method(m, d);
         }
         var dc = CXXSpell::dc_of(d);
         if dc == &null { return; }
