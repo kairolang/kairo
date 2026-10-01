@@ -55,6 +55,25 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
 
+/// The first name in a default argument that binds to a parameter of \p fn,
+/// `self` included. A default is evaluated by a nullary thunk (CallLowering),
+/// so it has no parameters to read; this is a language rule, not a lowering
+/// limit.
+class DefaultRefScan derives RecursiveASTVisitor::<DefaultRefScan> {
+    pub var fn_decl: *FunctionDecl  = &null;
+    pub var hit:     *NamedIdentExpr = &null;
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if (self.hit != &null) || (n == &null) { return true; }
+        var p = dyn_cast::<ParamDecl>(n->resolved_decl);
+        if p == &null { return true; }
+        for var i: usize = 0; i < self.fn_decl->params.size(); ++i {
+            if self.fn_decl->params[i] == p { self.hit = n; return true; }
+        }
+        return true;
+    }
+}
+
 class TyperFrame {
     pub var fn_decl:  *FunctionDecl = &null;   ///< null for a closure.
     pub var closure:  *ClosureExpr  = &null;
@@ -201,13 +220,25 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n == &null { return n; }
         if n->is_poisoned() { return n; }
 
-        // signature pieces first: defaults against their param types.
+        // signature pieces first: defaults against their param types. A
+        // default may not read another parameter or `self`, and may not be a
+        // slice literal (its thunk would return a view of a dead array).
         for var i: usize = 0; i < n->params.size(); ++i {
             var p = n->params[i];
             if (p == &null) || (p->default_val == &null) { continue; }
             var pt = (p->type_->canonical) if (p->type_ != &null) else (&null);
             dyn()->type_of(p->default_val, pt);
+            if dyn()->reject_slice_literal(p->default_val, "used as a default argument") { continue; }
             if pt != &null { dyn()->check_convertible(p->default_val, pt); }
+            var scan = DefaultRefScan();
+            scan.fn_decl = n;
+            scan.dispatch_expr(p->default_val);
+            if scan.hit != &null {
+                var rp = cast::<ParamDecl>(scan.hit->resolved_decl);
+                var what = ("'self\x27") if (rp->is_self) else (f"parameter '{dyn()->tu.param_name(rp)}\x27");
+                dyn()->fail(scan.hit, DiagID::SC106E,
+                    f"a default argument cannot refer to {what}; a default is evaluated with no access to the call's other arguments");
+            }
         }
         // `[T; N]` is a C array: by value it would decay to a pointer and
         // pass by reference. `const` and `@inout` say what is meant.
