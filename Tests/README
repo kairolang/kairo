@@ -138,5 +138,5 @@ FileCheck. `%kairo` expands to the resolved binary plus `--error-format=basic`,
 
 Tests whose expected behaviour is not implemented yet get `// XFAIL: *` and a
 comment saying what the CHECK lines describe and when to remove the marker --
-see Parser/Expr/fstring_interpolation_unimplemented.k for the pattern. An
+see Sema/Types/type_cycle_generic.k for the pattern. An
 XFAIL that starts XPASSing means the feature landed.

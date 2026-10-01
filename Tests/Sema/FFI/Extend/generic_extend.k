@@ -11,7 +11,11 @@
 
 ffi "c++" import "../traits_typedef.h"
 
-extend <T> cont<T> {
+interface <T> Div { // with or without this should be working
+    fn op / (self, other: T) -> T
+}
+
+extend <T impl Div<T>> cont<T> {
     fn halved(self) -> u64 { return self.size() / 2 }
 }
 
