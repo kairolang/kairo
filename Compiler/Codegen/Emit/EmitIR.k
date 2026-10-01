@@ -719,20 +719,34 @@ class EmitIR {
     // --- Names -------------------------------------------------------------------
 
     /// A local (param, body var, binder, generic param) is bare: unique by
-    /// construction. `self` is `this` or the receiver parameter. Everything
-    /// else is qualified from its decl; an overload set here is an X gate
-    /// failure.
+    /// construction. `self` is the OBJECT in Kairo and `this` / the receiver
+    /// parameter is a POINTER in C++, so a value use is `(*this)` /
+    /// `(*self)`: bare, `return self` would not compile and `self * 2` in
+    /// `extend i32` would be pointer arithmetic. Bare only where the tree
+    /// asks for the pointer: a pointer-typed read (ExtensionLowering's
+    /// receiver) here, and a chain base in _chain_prefix (`this->x`).
+    /// Everything else is qualified from its decl; an overload set here is
+    /// an X gate failure.
     priv fn _name(self, n: *NamedIdentExpr) {
         var d = n->resolved_decl;
         ICE_IF((d == &null) && (n->candidate_cell != &null), "EmitIR: unpromoted overload set reached codegen; ExprTyper gate failure");
         ICE_IF(d == &null, "EmitIR: unbound name reached codegen; NameResolution gate failure");
 
         if self._is_self_decl(d) {
-            sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
+            if self._is_pointer(static_cast::<*Expr>(n)) { self._self_ptr(n); return; }
+            sink->spell(n->range, "(*");
+            self._self_ptr(n);
+            sink->spell(n->range, ")");
             return;
         }
         if self._is_local(d) { self._name(n->name); return; }
         sink->spell(n->range, self._spell.qual_name(d));
+    }
+
+    /// `self` as C++ has it: `this` in a method, the receiver parameter in an
+    /// extension member. Always the pointer.
+    priv fn _self_ptr(self, n: *NamedIdentExpr) {
+        sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
     }
 
     priv fn _is_self_decl(self, d: *Decl) -> bool {
@@ -777,7 +791,13 @@ class EmitIR {
             i = k + 1;
         } else {
             ICE_IF(n->base == &null, "EmitIR: global-root chain with no `::` step");
-            self.emit(n->base);
+            // `self.x` is `this->x`: the base is the pointer, not _name's
+            // value form `(*this)`.
+            if self._base_is_self(n->base) {
+                self._self_ptr(cast::<NamedIdentExpr>(n->base));
+            } else {
+                self.emit(n->base);
+            }
             is_ptr = self._base_is_self(n->base) || self._is_pointer(n->base);
         }
         for var j: usize = i; j < upto; ++j {
