@@ -91,19 +91,23 @@ class InterfaceEmitter {
         // tier 0: consecutive same-namespace entries share one wrapper.
         while (i < n) && (self._plan->entries[i].tier == PlanTier::FwdDecls) {
             var e = &(self._plan->entries[i]);
-            var ns = self._spell->ns_segments(e->decl);
+            var ns = self._entry_ns(e);
             // The unnamed nesting is part of the wrapper, so a run shares one
             // only if it agrees on that too: grouping on the segments alone
             // would put a `priv` decl in a `pub` decl's namespace.
-            var anon = CXXSpell::is_anon(e->decl);
+            var anon = self._entry_anon(e);
             var opened = self._ns_open(e->decl, ns, anon);
             while (i < n) && (self._plan->entries[i].tier == PlanTier::FwdDecls) {
                 var f = &(self._plan->entries[i]);
-                var fns = self._spell->ns_segments(f->decl);
+                var fns = self._entry_ns(f);
                 if !self._same_ns(ns, fns) { break; }
-                if CXXSpell::is_anon(f->decl) != anon { break; }
+                if self._entry_anon(f) != anon { break; }
                 if header && (!f->own) && (f->need == PlanNeed::Complete) { i += 1; continue; }   // included.
-                self._fwd_decl(f->decl);
+                if f->scope != &null {
+                    sink->spell(self._at(f->decl), "struct " + f->scope->name + ";");
+                } else {
+                    self._fwd_decl(f->decl);
+                }
                 i += 1;
             }
             self._ns_close(opened);
@@ -114,6 +118,12 @@ class InterfaceEmitter {
             var e = &(self._plan->entries[i]);
             i += 1;
             if header && (!e->own) { continue; }   // its header was included.
+            if e->scope != &null {
+                var opened = self._ns_open(e->decl, e->scope->ns, false);
+                self._scope_def(e->scope);
+                self._ns_close(opened);
+                continue;
+            }
             self._wrapped(e->decl, fn () { self._type_def(e->decl); });
         }
 
@@ -126,7 +136,7 @@ class InterfaceEmitter {
             // declaration buys nothing, and inside the file's namespace it
             // would declare a different function.
             if self._is_entry_main(e->decl) { continue; }
-            self._wrapped(e->decl, fn () { self._free_fn_decl(cast::<FunctionDecl>(e->decl), e->ext); });
+            self._wrapped(e->decl, fn () { self._free_fn_decl(cast::<FunctionDecl>(e->decl), &null); });
         }
 
         // tier 3
@@ -210,6 +220,26 @@ class InterfaceEmitter {
         var opened = self._ns_open(d, ns, CXXSpell::is_anon(d));
         body();
         self._ns_close(opened);
+    }
+
+    /// A plan entry's namespace: an extension scope's own, else its decl's.
+    priv fn _entry_ns(self, e: *PlanEntry) -> vec::<string> {
+        if e->scope != &null { return e->scope->ns; }
+        return self._spell->ns_segments(e->decl);
+    }
+
+    /// An extension scope is never in the unnamed namespace: its members
+    /// are reached as `::N::__kairo_ext_X::m` from other TUs' preambles,
+    /// and a priv member is AccessCheck's to hide, not linkage's.
+    priv fn _entry_anon(self, e: *PlanEntry) -> bool {
+        if e->scope != &null { return false; }
+        return CXXSpell::is_anon(e->decl);
+    }
+
+    priv fn _scope_qual(self, s: *ExtScope) -> string {
+        var q = "";
+        for var i: usize = 0; i < s->ns.size(); ++i { q += "::"; q += s->ns[i]; }
+        return q + "::" + s->name;
     }
 
     priv fn _is_entry_main(self, d: *Decl) -> bool {
@@ -337,20 +367,13 @@ class InterfaceEmitter {
             sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
-        // Friends: same-file extension members, so a free function written
-        // beside the type can reach its privates. Only where the extension's
-        // namespace is the type's own; a differently-scoped friend would need
-        // a prior declaration the plan does not order for.
-        var fr = vec::<*FunctionDecl>();
-        self._plan->friends_of(d, fr);
-        var my_ns = self._spell->ns_segments(d);
-        for var i: usize = 0; i < fr.size(); ++i {
-            var f = fr[i];
-            var fns = self._spell->ns_segments(static_cast::<*Decl>(f));
-            if !self._same_ns(my_ns, fns) { continue; }
-            var x = reinterpret_cast::<*DeclContext>(f->lexical_dc);
-            var xd = dyn_cast::<ExtensionDecl>(x->dc_owner);
-            sink->spell(self._at(static_cast::<*Decl>(f)), "friend " + self._free_fn_text(f, xd));
+        // Friend: the same-file extension scope, so an extension member
+        // written beside the type can reach its privates. One line covers
+        // every member, generic or not, and the struct was declared in tier
+        // 0, so the qualified name needs no other prior declaration.
+        var fs = self._plan->friend_scope_of(d);
+        if fs != &null {
+            sink->spell(self._at(static_cast::<*Decl>(fs->anchor)), "friend struct " + self._scope_qual(fs) + ";");
             if self._cg->opts.extension_member_wrappers {
                 ICE_FAIL("InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
             }
@@ -469,13 +492,16 @@ class InterfaceEmitter {
         sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
     }
 
-    /// A namespace-scope declaration. An extension member keeps its receiver
-    /// as an explicit first parameter (`Self*` / `const Self*`).
+    /// A function declaration. With \p ext, an extension member: a static
+    /// member of its scope, its receiver an explicit first parameter
+    /// (`Self*` / `const Self*`), its template head the merged one (the
+    /// extension's, then its own).
     priv fn _free_fn_text(self, f: *FunctionDecl, ext: *ExtensionDecl) -> string {
-        var s = "";
-        if ext != &null { s += self._spell->template_head(static_cast::<*Decl>(ext)); }
-        s += self._spell->template_head(static_cast::<*Decl>(f));
+        var s = self._spell->template_head(static_cast::<*Decl>(f));
+        // The attribute leads the decl-specifiers; between `static` and the
+        // type it is ill-formed.
         if f->is_noreturn { s += "[[noreturn]] "; }
+        if ext != &null { s += "static "; }
         s += self._ret(f);
         s += " ";
         s += self._fn_name(f);
@@ -483,6 +509,81 @@ class InterfaceEmitter {
         s += self._params(f, ext != &null, ext);
         s += ");";
         return s;
+    }
+
+    // --- Extension scopes ----------------------------------------------------------
+
+    /// `struct __kairo_ext_X { static ...; };`, every member declared, then
+    /// the operator forwarders. Inside the scope's namespace wrapper. All
+    /// members are public: Kairo's visibility is AccessCheck's, not C++
+    /// access control's, and the struct must be one text everywhere.
+    priv fn _scope_def(self, sc: *ExtScope) {
+        var at = self._at(static_cast::<*Decl>(sc->anchor));
+        sink->spell(at, "struct " + sc->name + " {");
+        for var i: usize = 0; i < sc->members.size(); ++i {
+            var m = sc->members[i];
+            sink->spell(self._at(static_cast::<*Decl>(m)), self._free_fn_text(m, sc->exts[i]));
+        }
+        sink->spell(at, "};");
+        sink->brk();
+        for var i: usize = 0; i < sc->members.size(); ++i {
+            var m = sc->members[i];
+            if !m->is_operator { continue; }
+            self._forwarder(sc, m, sc->exts[i]);
+        }
+    }
+
+    /// `inline RET operator+(X& __kairo_a0, Y __kairo_a1) { return
+    /// ::N::__kairo_ext_X::__kairo_op_plus(__kairo_a0, ...); }`: the C++
+    /// operator an extension operator is, for C++ callers. Kairo calls the
+    /// static member directly. Every operand is forwarded as its own
+    /// declared type (`static_cast<decltype(a)&&>`), so a by-value or
+    /// `@move` operand moves on and an `@inout` one stays an lvalue; the
+    /// postfix dummy is passed as is.
+    priv fn _forwarder(self, sc: *ExtScope, f: *FunctionDecl, ext: *ExtensionDecl) {
+        var _op = self._spell->ext_forwarder_name(f);
+        if _op.size() == 0 { return; }   // `in`, `^^`, ...: no C++ operator to forward from.
+        var fid = CXXSpell::fid_of(static_cast::<*Decl>(f));
+        var s = self._spell->template_head(static_cast::<*Decl>(f));
+        s += "inline ";
+        s += self._ret(f);
+        s += " ";
+        s += _op;
+        s += "(";
+        var call = "";
+        var k: usize = 0;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if p == &null { continue; }
+            var nm = f"__kairo_a{k}";
+            if k > 0 { s += ", "; call += ", "; }
+            if p->is_self {
+                s += self._spell->ext_receiver(f, ext) + " " + nm;
+                call += nm;
+            } else {
+                s += self._spell->param_decl(p, nm);
+                call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")";
+            }
+            k += 1;
+        }
+        if CXXSpell::op_is_postfix(f) {
+            var nm = f"__kairo_a{k}";
+            if k > 0 { s += ", "; call += ", "; }
+            s += "int " + nm;
+            call += nm;
+        }
+        // Explicit template arguments: the forwarder's own parameters are the
+        // static member's, so nothing is left for deduction to choose.
+        var targs = "";
+        var tps = CXXSpell::template_params(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < tps.size(); ++i {
+            targs += (("<") if (i == 0) else (", "));
+            targs += self._spell->imm_name(tps[i]->name.imm, fid);
+            if tps[i]->is_pack { targs += "..."; }
+        }
+        if tps.size() > 0 { targs += ">"; }
+        s += ") { return " + self._scope_qual(sc) + "::" + self._spell->leaf(static_cast::<*Decl>(f)) + targs + "(" + call + "); }";
+        sink->spell(self._at(static_cast::<*Decl>(f)), s);
     }
 
     priv fn _params(self, f: *FunctionDecl, with_self: bool, ext: *ExtensionDecl) -> string {

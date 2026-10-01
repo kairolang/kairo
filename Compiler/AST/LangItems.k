@@ -295,10 +295,11 @@ class LowerTargets {
     static fn op_spawn()    -> string { return "__kairo_spawn"; }
     /// `fn op thread`.
     static fn op_thread()   -> string { return "__kairo_thread"; }
-    /// An extension operator's receiver in its C++ definition. The operator
-    /// takes `X&` ([over.oper]/7 wants a class-typed parameter), and the
-    /// body's first statement binds `self` to its address, so the body is
-    /// emitted exactly as any other extension member's.
+    /// An extension operator's receiver in its C++ definition. The static
+    /// member takes `X&` (so its forwarder, the C++ operator, has the
+    /// class-typed parameter [over.oper]/7 wants), and the body's first
+    /// statement binds `self` to its address, so the body is emitted exactly
+    /// as any other extension member's.
     static fn ext_self() -> string { return "__kairo_self"; }
 
     // --- Witnesses (writer: EmitWitness) -------------------------------------------------
@@ -313,6 +314,57 @@ class LowerTargets {
     /// An alias, so it is never instantiated: `__kairo_array<int, 3>` IS
     /// `int[3]`, given a name a functional cast can use.
     static fn array_alias() -> string { return "__kairo_array"; }
+
+    // --- Extension scopes (writer: InterfaceEmitter; reader: CXXSpell) -----------------
+
+    /// `struct N::__kairo_ext_<X>`: every extension member of X declared in
+    /// namespace N is a static member of it (RESOLUTION.md §2b).
+    static fn ext_scope_prefix() -> string { return "__kairo_ext_"; }
+
+    /// An extension operator's static-member name. A static member cannot be
+    /// named `operator+`, so it gets a mnemonic, and a namespace-scope
+    /// `operator+` forwarder (InterfaceEmitter) gives C++ callers the
+    /// operator. \p sym is OperatorFacts' symbol, with `l`/`r` kept on
+    /// `++`/`--` (an unmarked one is prefix). The operators with a name
+    /// above (`in`, `^^`, `await`, `spawn`, `thread`) keep it and never
+    /// reach here. "" for a symbol with no row; the caller ICEs.
+    static fn ext_op(sym: string) -> string {
+        var p = "__kairo_op_";
+        if sym == "+"   { return p + "plus"; }
+        if sym == "-"   { return p + "minus"; }
+        if sym == "*"   { return p + "mul"; }
+        if sym == "/"   { return p + "div"; }
+        if sym == "%"   { return p + "mod"; }
+        if sym == "=="  { return p + "eq"; }
+        if sym == "!="  { return p + "ne"; }
+        if sym == "<"   { return p + "lt"; }
+        if sym == "<="  { return p + "le"; }
+        if sym == ">"   { return p + "gt"; }
+        if sym == ">="  { return p + "ge"; }
+        if sym == "<=>" { return p + "cmp"; }
+        if sym == "&"   { return p + "band"; }
+        if sym == "|"   { return p + "bor"; }
+        if sym == "^"   { return p + "bxor"; }
+        if sym == "~"   { return p + "bnot"; }
+        if sym == "<<"  { return p + "shl"; }
+        if sym == ">>"  { return p + "shr"; }
+        if sym == "+="  { return p + "plus_eq"; }
+        if sym == "-="  { return p + "minus_eq"; }
+        if sym == "*="  { return p + "mul_eq"; }
+        if sym == "/="  { return p + "div_eq"; }
+        if sym == "%="  { return p + "mod_eq"; }
+        if sym == "&="  { return p + "band_eq"; }
+        if sym == "|="  { return p + "bor_eq"; }
+        if sym == "^="  { return p + "bxor_eq"; }
+        if sym == "<<=" { return p + "shl_eq"; }
+        if sym == ">>=" { return p + "shr_eq"; }
+        if sym == "l++" { return p + "preinc"; }
+        if sym == "r++" { return p + "postinc"; }
+        if sym == "l--" { return p + "predec"; }
+        if sym == "r--" { return p + "postdec"; }
+        if sym == "!"   { return p + "not"; }
+        return "";
+    }
 
     // --- Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR) ----------
 

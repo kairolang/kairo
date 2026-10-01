@@ -705,29 +705,45 @@ both declaring `push` on one type collide at the use; the qualified call
 form (`VectorI::push(v, x)` / `v.VectorI::push(x)`, spelling TBD) is the
 tiebreak and is required before the ambiguity diagnostic can suggest it.
 
-**Every extension member lowers to a free function with an explicit
-receiver** [DECIDED]. `extend Foo { fn m(self) }` is `m(Foo*)` in the
-extension's module namespace; `a.push(19)` -> `std::Vec::push(&a, 19)`,
-qualified from `resolved_decl` (IMPORTS.md §6.5). Receiver `Self*` /
+**Every extension member lowers to a static member of the extension scope
+`__kairo_ext_X`, with an explicit receiver** [DECIDED]. Every extension
+member of target X declared in namespace N (the file's module path plus
+any enclosing module blocks) is a static member of `struct
+N::__kairo_ext_X`, one struct per (N, X), every extend block in that scope
+contributing. X is the target's leaf (nested owners joined with `__`, a
+generic record's primary, a builtin's Kairo spelling: `__kairo_ext_i32`).
+The struct is always complete -- priv members included, in the preamble
+and the header alike -- and all of it is public in C++: visibility is
+AccessCheck's, and the struct is one text everywhere (invariant 11).
+`extend Foo { fn m(self) }` is `__kairo_ext_Foo::m(Foo*)`; `a.push(19)` ->
+`::std::__kairo_ext_Vec::push(&a, 19)`, qualified from `resolved_decl`
+(IMPORTS.md §6.5). Receiver `Self*` /
 `const Self*` from `fn f(self)` / `fn f(self) const`; a prvalue receiver
-(`f().push(1)`) is materialized into a temporary by ExtensionLowering.
+(`f().push(1)`) is materialized (`__kairo_tmp`, ExtensionLowering) and
+lives to the end of the full-expression.
 Extension methods are never virtual, never `override`, never a ctor.
 Record extends follow the same rule; there are not two. The one exception
-is an extension OPERATOR: it is a non-member C++ operator taking `X&` /
-`const X&` ([over.oper]/7 needs a class-typed parameter, and a C++
-consumer can then write `-x`), and its body rebinds `self` to the
-reference's address; every Kairo use is still an explicit call.
+is an extension OPERATOR: it takes `X&` / `const X&` and its body rebinds
+`self` to the reference's address. A static member cannot be an
+`operator+`, so it is named by mnemonic (`LowerTargets::ext_op`:
+`__kairo_op_plus`, `__kairo_op_preinc`, ...; `in`, `^^`, `await`, `spawn`,
+`thread` keep their LowerTargets names), and every Kairo use is an
+explicit call to it. **Operator forwarders:** beside the scope, each
+extension operator C++ can spell gets an inline namespace-scope
+`operator<sym>` that forwards every operand to the static member
+([over.oper]/7 needs the class-typed parameter, and a C++ consumer can
+then write `-x`). The postfix `int` dummy is forwarded as is.
 
 **Friend iff the extend is in the type's file** [DECIDED]. The type's
-emitted definition carries `friend` declarations for exactly its
-same-file extension members, so they see `priv`; an `impl` extend in the
-interface's file is pub-only. The friend list is therefore closed at the
+emitted definition carries one `friend struct ::N::__kairo_ext_X;` for
+the same-file scope, so its members see `priv`; an `impl` extend in the
+interface's file gets its own scope in that file's namespace and is not
+a friend, so it is pub-only. The friend line is therefore closed at the
 file, so a class definition is byte-identical in every TU (IMPORTS.md
 invariant 12), library builds cache, and adding an extend downstream
-rebuilds nothing upstream. EmitPlan: a class at Complete admits its
-same-file extension members at Fwd, placed BEFORE the class definition
-(tier 0), since a namespaced friend needs a prior declaration. Generic:
-`template<class T> struct Box { template<class U> friend void m(Box<U>*); }`.
+rebuilds nothing upstream. EmitPlan: a class at Complete touches its
+same-file scope, forward-declared in tier 0, since a qualified friend
+needs a prior declaration.
 
 **builtin declares, std extends** [DONE for the root; std pending].
 `Lib/builtin` declares every lang item with fields and constructors only (a
@@ -842,9 +858,9 @@ A pass that needs one asks that file; it never spells the string itself.
     candidate but never select a different one (lattice §7).
 17. **A generic parameter's regime is its declaration's.** `<T>` opaque,
     `<T impl I>` bounded, `<T: type>` duck. No inference of regime from use.
-18. **A class definition is closed at its file.** Friends are same-file
-    extension members only; nothing in another file changes the emitted
-    definition.
+18. **A class definition is closed at its file.** Its one friend is the
+    same-file extension scope; nothing in another file changes the
+    emitted definition.
 19. **An interface bound names every interface argument.**
 
 ---

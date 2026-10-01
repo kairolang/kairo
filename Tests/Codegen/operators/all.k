@@ -101,7 +101,8 @@ fn op <=>(a: F, b: F) -> Ordering {                            // operator<=>(F,
 fn op in(xs: F, x: i32) -> bool { return xs.v == x }           // __kairo_contains(F, int)
 fn op ^^(a: F, e: i32) -> F { return F{ v: a.v ^^ e } }        // __kairo_pow(F, int)
 
-// Extension forms: non-member C++ operators taking X& / const X&.
+// Extension forms: static members of `__kairo_ext_X` taking X& / const X&,
+// each spelled by mnemonic and forwarded from a non-member C++ operator.
 struct X { var v: i32 }
 extend X {
     fn op -(self) -> X { return X{ v: 0 - self.v } }             // operator-(X&)
@@ -243,13 +244,22 @@ fn main() -> i32 {
 // CXX-DAG: void operator+=(::all::Compound o);
 // CXX-DAG: void operator<<=(
 // CXX-DAG: void operator>>=(
-// CXX-DAG: X operator-(::all::X&);
-// CXX-DAG: X operator-(::all::X&,
-// CXX-DAG: X operator--(::all::X&, int);
-// CXX-DAG: void operator+=(::all::X&,
+// CXX-DAG: friend struct{{ ?}}::all::__kairo_ext_X;
+// CXX-DAG: struct __kairo_ext_X {
+// CXX-DAG: static{{ ?}}::all::X __kairo_op_minus(::all::X&);
+// CXX-DAG: static{{ ?}}::all::X __kairo_op_minus(::all::X&,{{ ?}}::all::X o);
+// CXX-DAG: static{{ ?}}::all::X __kairo_op_postdec(::all::X&, int);
+// CXX-DAG: static void __kairo_op_plus_eq(::all::X&,
+// CXX-DAG: static bool __kairo_contains(::all::X&, signed int x);
+// CXX-DAG: X operator-(::all::X& __kairo_a0) {
+// CXX-DAG: X operator--(::all::X& __kairo_a0, int __kairo_a1) {
+// CXX-DAG: return{{ ?}}::all::__kairo_ext_X::__kairo_op_postdec(__kairo_a0, __kairo_a1);
+// CXX-DAG: void operator+=(::all::X& __kairo_a0,
 
+// `op in` is a LowerTargets name, not a C++ operator: a static member only,
+// with no forwarder.
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=NOEXT
-// NOEXT-NOT: __kairo_op_
+// NOEXT-NOT: __kairo_contains(::all::X& __kairo_a0
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

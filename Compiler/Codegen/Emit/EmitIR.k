@@ -37,8 +37,8 @@
 ///     InterfaceEmitter declared them in (an out-of-line definition names
 ///     the entity only if the scopes match). Template member bodies: this
 ///     TU if it owns the template, and every TU whose plan HOMES an instance
-///     of it (IMPORTS.md §7). Extension members: free functions with the
-///     receiver first.
+///     of it (IMPORTS.md §7). Extension members: out-of-line definitions
+///     of their scope's static members, in its namespace, receiver first.
 ///
 ///   Import law: CodegenContext only. clang::tok is visible transitively.
 ///
@@ -211,7 +211,9 @@ class EmitIR {
 
     /// Open the wrapper InterfaceEmitter declared \p d in.
     /// The named namespace, plus an unnamed one nested in it for a decl with
-    /// no linkage outside its file. Returns how many braces to close.
+    /// no linkage outside its file -- never for an extension member, whose
+    /// scope struct lives in the named one whatever its visibility. Returns
+    /// how many braces to close.
     priv fn _open_ns(self, d: *Decl, at: SourceRange) -> u32 {
         var n: u32 = 0;
         var ns = self._spell.ns_segments(d);
@@ -219,7 +221,7 @@ class EmitIR {
             sink->spell(at, "namespace " + self._spell.ns_join(ns) + " {");
             n += 1;
         }
-        if CXXSpell::is_anon(d) { sink->spell(at, "namespace {"); n += 1; }
+        if CXXSpell::is_anon(d) && (decl_extension_of(d) == &null) { sink->spell(at, "namespace {"); n += 1; }
         return n;
     }
 
@@ -230,8 +232,9 @@ class EmitIR {
 
     // --- Functions ------------------------------------------------------------------
 
-    /// A free function, or an extension member (\p ext non-null) as a free
-    /// function with the receiver first.
+    /// A free function, or an extension member (\p ext non-null): the
+    /// out-of-line definition of its scope's static member, receiver first
+    /// (`void __kairo_ext_Vec::push(Vec* self, ...)`; no `static` out of line).
     priv fn _free_fn(self, n: *FunctionDecl, ext: *ExtensionDecl) {
         if !n->has_body() { return; }
         if n->body_kind != FnBodyKind::Block { self._unsupported_body(n); return; }
@@ -242,11 +245,11 @@ class EmitIR {
         var wrap: u32 = 0;
         if !is_main { wrap = self._open_ns(n, at); }
 
-        var head = "";
-        if ext != &null { head += self._spell.template_head(static_cast::<*Decl>(ext)); }
-        head += self._spell.template_head(static_cast::<*Decl>(n));
+        // One merged list: the extension's parameters, then the member's.
+        var head = self._spell.template_head(static_cast::<*Decl>(n));
         head += (("int") if (is_main) else (self._ret(n)));
         head += " ";
+        if ext != &null { head += self._spell.ext_scope_name(ext) + "::"; }
         head += self._spell.leaf(n);
         head += "(";
         head += self._params_text(n, ext);

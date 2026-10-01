@@ -122,7 +122,7 @@ class CXXSpell {
         if dc == &null {
             // A scope owner with no parent link (an ExtensionDecl has no
             // semantic_dc): use its own chain, or fid_of answers u32(-1)
-            // and friends_of rejects every extension member.
+            // and friend_scope_of finds no same-file scope.
             var own = CXXSpell::dc_of(d);
             if own != &null { dc = own->dc_parent; }
         }
@@ -171,19 +171,7 @@ class CXXSpell {
     /// `op delete` -> `~Owner`; operators C++ cannot spell -> LowerTargets.
     /// l/r on ++/-- is fixity, not part of the name (see op_is_postfix).
     fn operator_name(self, f: *FunctionDecl) -> string {
-        var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
-        var marked = (f->op_token.size() == 2) && (f->op_token[0].kind == TokenKind::LitIdentifier)
-                  && ((f->op_token[1].kind == TokenKind::OpPlusPlus) || (f->op_token[1].kind == TokenKind::OpMinusMinus));
-        var sym = "";
-        if marked {
-            sym = ("++") if (f->op_token[1].kind == TokenKind::OpPlusPlus) else ("--");
-        } else {
-            for var i: usize = 0; i < f->op_token.size(); ++i { sym += self._op_sym(f->op_token[i], ctx); }
-        }
-        // An extension operator is spelled as a member's is: it is a
-        // non-member C++ operator taking `X&` (the receiver type, not a name,
-        // is what satisfies [over.oper]/7). The member-only set never gets
-        // here from an extension; OperatorSignatureCheck rejects it.
+        var sym = self._op_symbol(f);
         if sym == "delete" { return "~" + self.leaf(self.operator_owner(f)); }
         if sym == "as" {
             ICE_IF(f->return_type == &null, "CXXSpell: `op as` with no target type");
@@ -191,7 +179,40 @@ class CXXSpell {
         }
         var named = CXXSpell::named_operator(sym, f);
         if named.size() > 0 { return named; }
+        // An extension operator is a STATIC MEMBER of its scope, and a static
+        // member cannot be an `operator+`: it gets a mnemonic, and
+        // InterfaceEmitter writes the `operator+` forwarder beside the scope.
+        // The member-only set never gets here from an extension;
+        // OperatorSignatureCheck rejects it.
+        if decl_extension_of(static_cast::<*Decl>(f)) != &null {
+            var key = sym;
+            if (sym == "++") || (sym == "--") { key = (("r") if (CXXSpell::op_is_postfix(f)) else ("l")) + sym; }
+            var m = LowerTargets::ext_op(key);
+            ICE_IF(m.size() == 0, f"CXXSpell: extension 'op {sym}' has no C++ non-member form; OperatorSignatureCheck should reject it");
+            return m;
+        }
         return "operator" + sym;
+    }
+
+    /// The namespace-scope `operator<sym>` an extension operator is forwarded
+    /// from, or "" when it has none: the operators named by LowerTargets
+    /// (`in`, `^^`, ...) are not C++ operators, and are only static members.
+    fn ext_forwarder_name(self, f: *FunctionDecl) -> string {
+        var sym = self._op_symbol(f);
+        if CXXSpell::named_operator(sym, f).size() > 0 { return ""; }
+        return "operator" + sym;
+    }
+
+    /// The operator's symbol as C++ spells it: word operators mapped, and
+    /// `l`/`r` dropped from `++`/`--` (fixity is op_is_postfix's).
+    priv fn _op_symbol(self, f: *FunctionDecl) -> string {
+        var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
+        var marked = (f->op_token.size() == 2) && (f->op_token[0].kind == TokenKind::LitIdentifier)
+                  && ((f->op_token[1].kind == TokenKind::OpPlusPlus) || (f->op_token[1].kind == TokenKind::OpMinusMinus));
+        if marked { return ("++") if (f->op_token[1].kind == TokenKind::OpPlusPlus) else ("--"); }
+        var sym = "";
+        for var i: usize = 0; i < f->op_token.size(); ++i { sym += self._op_sym(f->op_token[i], ctx); }
+        return sym;
     }
 
     static fn named_operator(sym: string, f: *FunctionDecl) -> string {
@@ -341,10 +362,10 @@ class CXXSpell {
         return (v == VIS_PRIV()) || (v == VIS_INTERNAL());
     }
 
-    /// The scope a decl's C++ name is qualified from: for an extension
-    /// member the extension's parent (an extension is transparent, its
-    /// members are free functions in the enclosing module), otherwise the
-    /// decl's semantic scope.
+    /// The scope a decl's NAMESPACE is read from: for an extension member
+    /// the extension's parent (its scope struct lives in the enclosing
+    /// module; owner_types supplies the struct), otherwise the decl's
+    /// semantic scope.
     priv fn _home_dc(self, d: *Decl) -> *DeclContext {
         var lex = reinterpret_cast::<*DeclContext>(d->lexical_dc);
         if (lex != &null) && (lex->dc_kind == DeclContextKind::Extension) { return lex->dc_parent; }
@@ -353,8 +374,20 @@ class CXXSpell {
 
     /// Namespace segments (modules only) enclosing \p d, outermost first.
     fn ns_segments(self, d: *Decl) -> vec::<string> {
+        return self._ns_from(self._home_dc(d));
+    }
+
+    /// The namespace N of \p x's scope struct: the scope its members are
+    /// qualified from (_home_dc), read off the extension itself, so a scope
+    /// has a namespace even before a member is picked.
+    fn scope_ns(self, x: *ExtensionDecl) -> vec::<string> {
+        var dc = CXXSpell::dc_of(static_cast::<*Decl>(x));
+        return self._ns_from((dc->dc_parent) if (dc != &null) else (&null));
+    }
+
+    priv fn _ns_from(self, home: *DeclContext) -> vec::<string> {
         var mods = vec::<string>();
-        var dc = self._home_dc(d);
+        var dc = home;
         while dc != &null {
             if dc->dc_kind == DeclContextKind::TranslationUnit { break; }
             if dc->dc_kind == DeclContextKind::Module {
@@ -365,7 +398,7 @@ class CXXSpell {
             }
             dc = dc->dc_parent;
         }
-        var tu  = CXXSpell::tu_of_dc(self._home_dc(d));
+        var tu  = CXXSpell::tu_of_dc(home);
         var out = self.module_segments(tu);
         // An entry TU declares no module, so module_segments gives nothing;
         // its file stem is the namespace instead.
@@ -374,8 +407,32 @@ class CXXSpell {
         return out;
     }
 
-    /// Enclosing TYPE names for a nested decl, outermost first.
+    /// `__kairo_ext_<X>`: the struct whose static members are \p x's (and
+    /// every other extend of X in the same namespace). X is the target's
+    /// leaf, nested owners joined with `__` (`__kairo_ext_Outer__Inner`), a
+    /// generic record's primary, a builtin's Kairo spelling (`__kairo_ext_i32`).
+    fn ext_scope_name(self, x: *ExtensionDecl) -> string {
+        ICE_IF((x == &null) || (x->target == &null) || (x->target->canonical == &null),
+            "CXXSpell: extension with an unresolved target reached codegen");
+        var c = canon_unqual(x->target->canonical);
+        var s = LowerTargets::ext_scope_prefix();
+        if isa::<BuiltinType>(c) { return s + builtin_info(cast::<BuiltinType>(c)->builtin)->spelling; }
+        ICE_IF(!isa::<RecordType>(c), "CXXSpell: extension of a non-record, non-builtin target; no scope naming rule for it yet");
+        var prim = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(c)->decl)));
+        var ow = self.owner_types(prim);
+        for var i: usize = 0; i < ow.size(); ++i { s += ow[i]; s += "__"; }
+        return s + self.leaf(prim);
+    }
+
+    /// Enclosing TYPE names for a nested decl, outermost first. An extension
+    /// member's one owner is its scope struct.
     fn owner_types(self, d: *Decl) -> vec::<string> {
+        var x = decl_extension_of(d);
+        if x != &null {
+            var one = vec::<string>();
+            one.push_back(self.ext_scope_name(x));
+            return one;
+        }
         var rev = vec::<string>();
         var dc = self._home_dc(d);
         while (dc != &null) && dc->is_type_scope() {

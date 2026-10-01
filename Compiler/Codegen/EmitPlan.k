@@ -14,9 +14,12 @@
 ///
 ///     Four tiers (IMPORTS.md §6.3 plus the instantiation tier):
 ///
-///       0  every namespace-scope type as a forward declaration
-///       1  type definitions, topologically sorted on Complete edges only
-///       2  function declarations, any order
+///       0  every namespace-scope type as a forward declaration, and every
+///          extension scope (`struct __kairo_ext_X;`) the plan touches
+///       1  type definitions, topologically sorted on Complete edges only;
+///          an extension scope's definition after its target's
+///       2  function declarations, any order (extension members are not
+///          here: they are static members of their scope)
 ///       3  explicit instantiations: `template class X<A>;` in the instance's
 ///          home TU, `extern template ...` everywhere else
 ///
@@ -54,6 +57,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
+import AST::ParamMode::*;
 import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
@@ -93,6 +97,34 @@ enum PlanMode derives u8 {
     Header,
 }
 
+/// `struct N::__kairo_ext_X`: every extension member of target X declared in
+/// namespace N, as one struct of static members (RESOLUTION.md §2b). One per
+/// (N, X); every extend block in that scope contributes. Always COMPLETE --
+/// all its blocks, priv members included -- so its text is the same in every
+/// TU and header that carries it (invariant 11).
+class ExtScope {
+    pub var ns:        vec::<string>;
+    pub var name:      string;                ///< `__kairo_ext_X`.
+    /// The target's layout decl for a record (a generic one's primary), or
+    /// null for a builtin, which is keyed by `target_ty` instead.
+    pub var target:    *Decl = &null;
+    pub var target_ty: *Type = &null;
+    /// The first extend block in source order: where the scope sits.
+    pub var anchor:    *ExtensionDecl = &null;
+    /// Every member, in source order, parallel to the block it was written in.
+    pub var members:   vec::<*FunctionDecl>;
+    pub var exts:      vec::<*ExtensionDecl>;
+    /// What the definition and its operator forwarders need complete: the
+    /// target, and every by-value record a forwarder's signature names (a
+    /// forwarder is an inline DEFINITION, and a definition lays them out).
+    pub var deps:      vec::<*Decl>;
+    /// A member is reachable from the plan's roots. Header mode defines only
+    /// reachable scopes; an unreachable one is declared for a friend line.
+    pub var reachable: bool = false;
+
+    fn ExtScope(self) { }
+}
+
 class PlanEntry {
     pub var decl:    *Decl          = &null;
     pub var need:    PlanNeed       = PlanNeed::Fwd;
@@ -104,13 +136,12 @@ class PlanEntry {
     pub var inst:    *InstanceEntry = &null;
     /// Tier 3 only: this TU defines the instantiation.
     pub var is_home: bool           = false;
-    /// Tier 2 only: the extension this free function was written in, or null
-    /// for an ordinary function. Its receiver is the extension's target.
-    pub var ext:     *ExtensionDecl = &null;
+    /// Tiers 0 and 1: the extension scope this entry declares or defines,
+    /// or null. `decl` is then the scope's anchor, for position only.
+    pub var scope:   *ExtScope      = &null;
 
     fn PlanEntry(self) { }
 }
-
 
 class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     priv var _cg:    obs::<CodegenContext>;
@@ -122,10 +153,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     priv var _need:  vec::<PlanNeed>;
     priv var _queue: vec::<usize>;
     priv var _insts: vec::<*InstanceEntry>;
-    /// Extension members admitted as tier-2 free functions, parallel to the
-    /// ExtensionDecl each was written in.
-    priv var _ext_fns:  vec::<*FunctionDecl>;
-    priv var _ext_of:   vec::<*ExtensionDecl>;
+    /// Every extension scope the plan touches. Indexed while the closure
+    /// runs (it grows); PlanEntry::scope points in only once it is done.
+    priv var _scopes:   vec::<ExtScope>;
 
     /// Memo for param_by_value: (primary, index) -> answer. Pairs, linear
     /// scan; a build has tens of generic primaries, not thousands.
@@ -148,14 +178,17 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _close(self);
     fn _order(self);
     fn _collect_uses(self);
-    fn friends_of(self, d: *Decl, out: ref!(vec::<*FunctionDecl>));
+    fn friend_scope_of(self, d: *Decl) -> *ExtScope;
     fn dump(self, path: string);
     fn _tier_name(self, t: PlanTier) -> string;
     fn _need_name(self, n: PlanNeed) -> string;
     fn _kind_name(self, d: *Decl) -> string;
     fn _collect_own(self, dc: *DeclContext);
     fn _collect_own_decl(self, d: *Decl);
-    fn _admit_ext_fn(self, m: *FunctionDecl, x: *ExtensionDecl);
+    fn _scope_for(self, x: *ExtensionDecl, reach: bool) -> usize;
+    fn _fill_scope(self, k: usize, cand: *Decl);
+    fn _same_scope(self, k: usize, x: *ExtensionDecl) -> bool;
+    fn _scope_dep(self, k: usize, t: *Type);
     fn visit_expr(self, e: *Expr) -> bool;
     fn visit_type(self, t: *Type) -> bool;
     fn visit_decl(self, d: *Decl) -> bool;
@@ -181,9 +214,11 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _fields_reach_param(self, list: *FrozenList::<*FieldDecl>, prim: *Decl, idx: u32) -> bool;
     fn _type_reaches_param(self, t: *Type, prim: *Decl, idx: u32) -> bool;
     fn _same_root(self, a: u32, b: u32) -> bool;
+    fn _same_ns_vec(self, a: *vec::<string>, b: *vec::<string>) -> bool;
     fn _entry(self, d: *Decl, need: PlanNeed, tier: PlanTier) -> PlanEntry;
     fn _sort(self, v: *vec::<PlanEntry>);
     fn _toposort(self, v: *vec::<PlanEntry>);
+    fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_type_decl(self, d: *Decl) -> bool;
@@ -273,15 +308,21 @@ fn EmitPlan::run() {
     self._order();
 }
 
-/// Same-file extension members of \p d, for the emitter's `friend` lines.
-fn EmitPlan::friends_of(d: *Decl, out: ref!(vec::<*FunctionDecl>)) {
+/// The extension scope written in \p d's OWN file, for the definition's one
+/// `friend struct` line, or null. One: a second same-file scope means extend
+/// blocks of d in two module blocks of its file, which no friend rule covers
+/// yet, and that ICEs rather than befriending one of them silently.
+fn EmitPlan::friend_scope_of(d: *Decl) -> *ExtScope {
     var c = self.layout_decl(d);
-    for var i: usize = 0; i < self._ext_fns.size(); ++i {
-        var ext = self._ext_of[i];
-        if self._ext_target(ext) != c { continue; }
-        if CXXSpell::fid_of(static_cast::<*Decl>(ext)) != CXXSpell::fid_of(c) { continue; }
-        out.push_back(self._ext_fns[i]);
+    var hit: *ExtScope = &null;
+    for var i: usize = 0; i < self._scopes.size(); ++i {
+        var s = &(self._scopes[i]);
+        if (s->target == &null) || (s->target != c) { continue; }
+        if CXXSpell::fid_of(static_cast::<*Decl>(s->anchor)) != CXXSpell::fid_of(c) { continue; }
+        ICE_IF(hit != &null, "EmitPlan: two extension scopes of one type in its own file (extends in different module blocks); one friend struct per type");
+        hit = s;
     }
+    return hit;
 }
 
 // --- Dump --------------------------------------------------------------------
@@ -297,13 +338,22 @@ fn EmitPlan::dump(path: string) {
             tier = static_cast::<u8>(e->tier);
             std::print(f"  -- {self._tier_name(e->tier)} --");
         }
-        var nm = self._spell.qual_name(e->decl);
-        if e->inst != &null { nm += self._spell.args_str(&(e->inst->args)); }
-        var kd = self._kind_name(e->decl);
         var own = ("own") if (e->own) else ("foreign");
         var extra = "";
-        if e->inst != &null { extra = (" home") if (e->is_home) else (" extern"); }
-        if e->ext != &null  { extra = " extension"; }
+        var nm = "";
+        var kd = "struct";
+        if e->scope != &null {
+            // The anchor is an ExtensionDecl, which has no name of its own.
+            for var k: usize = 0; k < e->scope->ns.size(); ++k { nm += "::"; nm += e->scope->ns[k]; }
+            nm += "::";
+            nm += e->scope->name;
+            extra = f" extension scope, {e->scope->members.size()} members";
+        } else {
+            nm = self._spell.qual_name(e->decl);
+            if e->inst != &null { nm += self._spell.args_str(&(e->inst->args)); }
+            kd = self._kind_name(e->decl);
+            if e->inst != &null { extra = (" home") if (e->is_home) else (" extern"); }
+        }
         std::print(f"    {kd} {nm}   [{self._need_name(e->need)}] {own} fid {e->fid} @ {e->off}{extra}");
     }
 }
@@ -339,7 +389,7 @@ fn EmitPlan::_kind_name(d: *Decl) -> string {
 /// Every plannable decl the TU declares, at the strength its own kind
 /// demands: a type is defined here (Complete), a function is declared.
 /// Header mode takes only `pub` ones. Modules and visibility groups are
-/// walked through; extension members are admitted as free functions.
+/// walked through; an extension block puts its scope in the plan.
 fn EmitPlan::_collect_own(dc: *DeclContext) {
     for var i: usize = 0; i < dc->dc_decls.size(); ++i {
         var d = *(dc->dc_decls.get(i));
@@ -361,13 +411,17 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
     }
     if isa::<ExtensionDecl>(d) {
         var x = cast::<ExtensionDecl>(d);
+        // A header reaches the scope through any visible member, and then
+        // carries the WHOLE struct; a block with none adds no root.
         if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
+        var visible = false;
         for var i: usize = 0; i < x->methods.size(); ++i {
             var m = x->methods[i];
             if m == &null { continue; }
             if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(static_cast::<*Decl>(m))) { continue; }
-            self._admit_ext_fn(m, x);
+            visible = true;
         }
+        if visible { self._scope_for(x, true); }
         return;
     }
     if !self._plannable(d) { return; }
@@ -381,17 +435,130 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
     }
 }
 
-fn EmitPlan::_admit_ext_fn(m: *FunctionDecl, x: *ExtensionDecl) {
-    var c = CXXSpell::rep(static_cast::<*Decl>(m));
-    for var i: usize = 0; i < self._ext_fns.size(); ++i {
-        if static_cast::<*Decl>(self._ext_fns[i]) == c { return; }
+// --- Extension scopes ----------------------------------------------------------
+
+/// The scope \p x contributes to, created on first touch; \p reach marks it
+/// reachable. Index-based: the closure below can grow _scopes.
+///
+/// Filled COMPLETELY at creation, never from the use that touched it: with
+/// members appended per use, TU A's struct would have the three it calls
+/// and TU B's the five it calls, two definitions of one class.
+fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
+    ICE_IF((x == &null) || (x->target == &null) || (x->target->canonical == &null),
+        "EmitPlan: extension with an unresolved target reached codegen");
+    var ns   = self._spell.scope_ns(x);
+    var name = self._spell.ext_scope_name(x);
+    for var i: usize = 0; i < self._scopes.size(); ++i {
+        var s = &(self._scopes[i]);
+        if (s->name != name) || (!self._same_ns_vec(&(s->ns), &ns)) { continue; }
+        // Same N, same struct name: it must be the same target, or two
+        // targets (`a::Point`, `b::Point`) would share one struct.
+        ICE_IF(!self._same_scope(i, x),
+            f"EmitPlan: two extension targets in one namespace both spell '{name}'; the scope naming rule needs a disambiguator");
+        if reach { s->reachable = true; }
+        return i;
     }
-    self._ext_fns.push_back(cast::<FunctionDecl>(c));
-    self._ext_of.push_back(x);
-    // The receiver's type must be declared; its members are not laid
-    // out by a free function's signature.
-    if (x->target != &null) { self._admit_type(x->target, PlanNeed::Fwd); }
-    self._expand_fn(cast::<FunctionDecl>(c));
+
+    var fresh = ExtScope();
+    fresh.ns   = ns;
+    fresh.name = name;
+    var c = canon_unqual(x->target->canonical);
+    if isa::<RecordType>(c) {
+        fresh.target = self.layout_decl(cast::<RecordType>(c)->decl);
+    } else {
+        fresh.target_ty = c;
+    }
+    fresh.reachable = reach;
+    self._scopes.push_back(fresh);
+    var k = self._scopes.size() - 1;
+
+    // Every block of this (N, X) lives in x's file: N is that file's
+    // module path plus its module blocks.
+    var tu = CXXSpell::tu_of(static_cast::<*Decl>(x));
+    ICE_IF((tu == &null) || (tu->program == &null), "EmitPlan: extension with no owning TU");
+    var items = &(tu->program->items);
+    for var i: usize = 0; i < items->size(); ++i {
+        var item = *(items->get(i));
+        if item.kind != TopLevelKind::Decl { continue; }
+        self._fill_scope(k, item.as_decl());
+    }
+    ICE_IF(self._scopes[k].anchor == &null, "EmitPlan: an extension's own file does not contain it");
+
+    // A static member's signature names its types and lays none out; the
+    // definition and its forwarders need the deps complete.
+    self._scope_dep(k, x->target);
+    var nm = self._scopes[k].members.size();
+    for var i: usize = 0; i < nm; ++i {
+        var m = self._scopes[k].members[i];
+        self._expand_fn(m);
+        if (!m->is_operator) || (self._spell.ext_forwarder_name(m).size() == 0) { continue; }
+        self._scope_dep(k, m->return_type);
+        for var j: usize = 0; j < m->params.size(); ++j {
+            var p = m->params[j];
+            if (p == &null) || p->is_self || (p->mode != ParamMode::Value) { continue; }
+            self._scope_dep(k, p->type_);
+        }
+    }
+    return k;
+}
+
+/// Walk \p cand (modules, visibility groups) for every extend block of
+/// scope \p k, adding its members in source order.
+fn EmitPlan::_fill_scope(k: usize, cand: *Decl) {
+    if (cand == &null) || cand->is_poisoned() { return; }
+    if isa::<VisibilityGroupDecl>(cand) {
+        var g = cast::<VisibilityGroupDecl>(cand);
+        for var i: usize = 0; i < g->members.size(); ++i { self._fill_scope(k, g->members[i]); }
+        return;
+    }
+    if isa::<ModuleDecl>(cand) {
+        var dc = static_cast::<*DeclContext>(cast::<ModuleDecl>(cand));
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i { self._fill_scope(k, *(dc->dc_decls.get(i))); }
+        return;
+    }
+    var x = dyn_cast::<ExtensionDecl>(cand);
+    if (x == &null) || (x->target == &null) || (x->target->canonical == &null) { return; }
+    if !self._same_scope(k, x) { return; }
+    var ns = self._spell.scope_ns(x);
+    if !self._same_ns_vec(&(self._scopes[k].ns), &ns) { return; }
+    if self._scopes[k].anchor == &null { self._scopes[k].anchor = x; }
+    for var i: usize = 0; i < x->methods.size(); ++i {
+        var m = x->methods[i];
+        if (m == &null) || m->is_poisoned() { continue; }
+        var c = cast::<FunctionDecl>(CXXSpell::rep(static_cast::<*Decl>(m)));
+        var dup = false;
+        for var j: usize = 0; j < self._scopes[k].members.size(); ++j {
+            if self._scopes[k].members[j] == c { dup = true; break; }
+        }
+        if dup { continue; }
+        self._scopes[k].members.push_back(c);
+        self._scopes[k].exts.push_back(x);
+    }
+}
+
+/// \p x's target is scope \p k's: the same layout decl for a record, the
+/// same canonical type for a builtin. Namespace is the caller's to compare.
+fn EmitPlan::_same_scope(k: usize, x: *ExtensionDecl) -> bool {
+    var c = canon_unqual(x->target->canonical);
+    var s = &(self._scopes[k]);
+    if isa::<RecordType>(c) { return (s->target != &null) && (self.layout_decl(cast::<RecordType>(c)->decl) == s->target); }
+    return (s->target == &null) && (s->target_ty == c);
+}
+
+/// A by-value record \p t is a Complete dependency of scope \p k, recorded
+/// as the tier-1 entry that defines it (an outermost type, a primary).
+fn EmitPlan::_scope_dep(k: usize, t: *Type) {
+    if (t == &null) || (t->canonical == &null) { return; }
+    var c = canon_unqual(t->canonical);
+    if !isa::<RecordType>(c) { return; }
+    var d = self.layout_decl(cast::<RecordType>(c)->decl);
+    if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
+    d = self._outermost_type(d);
+    self._admit_type(t, PlanNeed::Complete);
+    for var i: usize = 0; i < self._scopes[k].deps.size(); ++i {
+        if self._scopes[k].deps[i] == d { return; }
+    }
+    self._scopes[k].deps.push_back(d);
 }
 
 // --- Roots: uses (preamble only) -------------------------------------------------
@@ -491,7 +658,7 @@ fn EmitPlan::_member_owner(d: *Decl) -> *Decl {
     var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
     if dc == &null { return &null; }
     if !dc->is_type_scope() { return &null; }
-    if dc->dc_kind == DeclContextKind::Extension { return &null; }   // a free function.
+    if dc->dc_kind == DeclContextKind::Extension { return &null; }   // its scope's static member, not the target's.
     return dc->dc_owner;
 }
 
@@ -507,14 +674,9 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     if isa::<InterfaceDecl>(c) { return; }         // no C++ entity yet (witnesses MISSING).
     // An extension member reached through a use (`l.pos.len()`) is not a
     // member by _member_owner, so without this it is admitted a second time
-    // as an ordinary function beside its _ext_fns entry.
-    if isa::<FunctionDecl>(c) {
-        var lex = reinterpret_cast::<*DeclContext>(c->lexical_dc);
-        if (lex != &null) && (lex->dc_kind == DeclContextKind::Extension) {
-            var x = dyn_cast::<ExtensionDecl>(lex->dc_owner);
-            if x != &null { self._admit_ext_fn(cast::<FunctionDecl>(c), x); return; }
-        }
-    }
+    // as an ordinary function; it is its scope's static member instead.
+    var x = decl_extension_of(c);
+    if x != &null { self._scope_for(x, true); return; }
 
     if decl_is_instance(c) {
         var e = self._cg->instances->entry_of(c);
@@ -699,10 +861,10 @@ fn EmitPlan::_methods(methods: *FrozenList::<*FunctionDecl>) {
     }
 }
 
-/// Extensions targeting \p d written in d's OWN file: their members are
-/// friends of the definition (RESOLUTION.md §2b) and tier-2 free
-/// functions. Found by walking that file's program; an extension index
-/// lives in sema and codegen keeps no second one.
+/// Extensions targeting \p d written in d's OWN file: their scope is the
+/// definition's friend struct (RESOLUTION.md §2b), so it must be declared
+/// before it. Touched, not reached. Found by walking that file's program;
+/// an extension index lives in sema and codegen keeps no second one.
 fn EmitPlan::_collect_same_file_extensions(d: *Decl) {
     var tu = CXXSpell::tu_of(d);
     if (tu == &null) || (tu->program == &null) { return; }
@@ -729,10 +891,8 @@ fn EmitPlan::_collect_ext_in(cand: *Decl, target: *Decl) {
     var x = dyn_cast::<ExtensionDecl>(cand);
     if x == &null { return; }
     if self._ext_target(x) != target { return; }
-    for var i: usize = 0; i < x->methods.size(); ++i {
-        var m = x->methods[i];
-        if m != &null { self._admit_ext_fn(m, x); }
-    }
+    if x->methods.size() == 0 { return; }
+    self._scope_for(x, self._mode == PlanMode::Preamble);
 }
 
 /// The layout decl an extension targets: the primary for a generic one.
@@ -854,6 +1014,12 @@ fn EmitPlan::_order() {
         if !self._is_type_decl(d) { continue; }
         t0.push_back(self._entry(d, PlanNeed::Fwd, PlanTier::FwdDecls));
     }
+    // The closure is done: _scopes no longer grows, so entries may point in.
+    for var i: usize = 0; i < self._scopes.size(); ++i {
+        var e = self._entry(static_cast::<*Decl>(self._scopes[i].anchor), PlanNeed::Fwd, PlanTier::FwdDecls);
+        e.scope = &(self._scopes[i]);
+        t0.push_back(e);
+    }
     self._sort(&t0);
     for var i: usize = 0; i < t0.size(); ++i { self.entries.push_back(t0[i]); }
 
@@ -865,22 +1031,26 @@ fn EmitPlan::_order() {
         if self._need[i] != PlanNeed::Complete { continue; }
         t1.push_back(self._entry(d, PlanNeed::Complete, PlanTier::Definitions));
     }
+    // Every scope a preamble touches is defined (its members' out-of-line
+    // definitions and every call need the class); a header defines the ones
+    // its roots reach and only declares the rest.
+    for var i: usize = 0; i < self._scopes.size(); ++i {
+        if (self._mode == PlanMode::Header) && (!self._scopes[i].reachable) { continue; }
+        var e = self._entry(static_cast::<*Decl>(self._scopes[i].anchor), PlanNeed::Complete, PlanTier::Definitions);
+        e.scope = &(self._scopes[i]);
+        t1.push_back(e);
+    }
     self._sort(&t1);
     self._toposort(&t1);
     for var i: usize = 0; i < t1.size(); ++i { self.entries.push_back(t1[i]); }
 
-    // Tier 2: functions. Ordinary ones from the set, extension members
-    // from their own list.
+    // Tier 2: functions. Extension members are declared by their scope's
+    // definition and never listed here.
     var t2: vec::<PlanEntry>;
     for var i: usize = 0; i < self._set.size(); ++i {
         var d = self._set[i];
         if d->kind != DeclKind::FunctionDecl { continue; }
         t2.push_back(self._entry(d, PlanNeed::Fwd, PlanTier::Functions));
-    }
-    for var i: usize = 0; i < self._ext_fns.size(); ++i {
-        var e = self._entry(static_cast::<*Decl>(self._ext_fns[i]), PlanNeed::Fwd, PlanTier::Functions);
-        e.ext = self._ext_of[i];
-        t2.push_back(e);
     }
     self._sort(&t2);
     for var i: usize = 0; i < t2.size(); ++i { self.entries.push_back(t2[i]); }
@@ -914,6 +1084,12 @@ fn EmitPlan::_same_root(a: u32, b: u32) -> bool {
     var res = self._cg->ctx->resolver;
     if (sm == &null) || (res == &null) { return a == b; }
     return res->root_for_dir(sm->get_file_dir(a)) == res->root_for_dir(sm->get_file_dir(b));
+}
+
+fn EmitPlan::_same_ns_vec(a: *vec::<string>, b: *vec::<string>) -> bool {
+    if a->size() != b->size() { return false; }
+    for var i: usize = 0; i < a->size(); ++i { if (*a)[i] != (*b)[i] { return false; } }
+    return true;
 }
 
 fn EmitPlan::_entry(d: *Decl, need: PlanNeed, tier: PlanTier) -> PlanEntry {
@@ -962,7 +1138,7 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
             var ready = true;
             for var j: usize = 0; j < n; ++j {
                 if taken[j] || (j == i) { continue; }
-                if self._needs_complete(((*v)[i]).decl, ((*v)[j]).decl) { ready = false; break; }
+                if self._entry_needs(&((*v)[i]), &((*v)[j])) { ready = false; break; }
             }
             if ready { picked = i; break; }
         }
@@ -972,6 +1148,19 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
         out.push_back((*v)[picked]);
     }
     for var i: usize = 0; i < n; ++i { (*v)[i] = out[i]; }
+}
+
+/// True when entry \p who must follow entry \p dep. A scope follows its
+/// deps; nothing waits on a scope (a friend line needs only tier 0).
+fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
+    if dep->scope != &null { return false; }
+    if who->scope != &null {
+        for var i: usize = 0; i < who->scope->deps.size(); ++i {
+            if who->scope->deps[i] == dep->decl { return true; }
+        }
+        return false;
+    }
+    return self._needs_complete(who->decl, dep->decl);
 }
 
 /// True when \p who's definition requires \p dep's definition first.

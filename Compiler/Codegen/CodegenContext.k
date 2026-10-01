@@ -38,9 +38,9 @@ enum CodegenPhase derives u8 {
 /// Emission switches. Every one is a build-wide decision, never per site.
 class EmitOptions {
     /// Same-file extension members ALSO declared as inline member wrappers
-    /// in the class body. OFF: the class text carries only `friend` lines
-    /// and an extension member is reached as a free function from Kairo
-    /// and C++ alike. Kept as a switch, not deleted, so the surface can be
+    /// in the class body. OFF: the class text carries only its `friend
+    /// struct` line and an extension member is reached as a static member
+    /// of its scope from Kairo and C++ alike. Kept as a switch, not deleted, so the surface can be
     /// reopened without re-deriving where the wrapper would go.
     pub var extension_member_wrappers: bool = false;
 

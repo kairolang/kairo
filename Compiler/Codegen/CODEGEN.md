@@ -83,14 +83,26 @@ pointers, signature types Fwd. Refinements decided since:
   memoized, depth-capped).
 - A member call admits the OWNER at Complete (C++ cannot call into an
   incomplete class).
-- An extension member is a free function; it never appears twice (a
-  `FunctionDecl` whose `lexical_dc` is an Extension is routed to the
-  extension path on admission).
-- A class at Complete admits its SAME-FILE extension members at Fwd before
-  it (friends); `friends_of()` filters by fid.
+- An extension member is a static member of its EXTENSION SCOPE
+  (`ExtScope`: `struct N::__kairo_ext_X`, one per (namespace, target),
+  RESOLUTION.md §2b); it never appears twice (a `FunctionDecl` whose
+  `lexical_dc` is an Extension is routed to its scope on admission). A
+  scope is filled COMPLETELY when first touched -- every extend block of
+  that (N, X) in its file, in source order, priv members included -- never
+  from the use that touched it, so its text is the same in every TU. Two
+  targets that spell one struct name in one N ICE.
+- A scope's Complete deps are its target and every by-value record its
+  operator forwarders' signatures name (a forwarder is an inline
+  definition).
+- A class at Complete touches its SAME-FILE scope (its friend struct);
+  `friend_scope_of()` returns it, or null. Two same-file scopes for one
+  type (extends in two module blocks) ICE.
 
-Tiers: 0 forward declarations; 1 definitions, topo-sorted on Complete;
-2 function declarations; 3 instantiations (`extern template` unless this
+Tiers: 0 forward declarations, and `struct __kairo_ext_X;` for every scope
+the plan touches; 1 definitions, topo-sorted on Complete, each scope's
+after its deps -- every touched scope in a preamble, in a header only
+those a root reaches (a header always emits the whole struct); 2 function
+declarations (extension members are never listed); 3 instantiations (`extern template` unless this
 TU is the instance's home, `template class` if it is). Entry-TU decls go
 in the file's own namespace (§5); `main` is emitted at global scope and
 never declared in the interface.
@@ -143,7 +155,30 @@ emitters use the same instance; a declaration and a body cannot disagree.
   `operator->` returns one). OperatorLowering rewrites the body's `return`
   (`return &x` -> `return x`, `return p` -> `return *p`), and EmitIR's
   `_return` checks the value against the pointee, not the pointer.
-- `template_head(d)`: `template <class T, ...>`.
+- `template_params(d)`: `d`'s C++ template parameters as one list: an
+  extension member's extension's (`decl_extension_of`), then its own. A
+  non-member function takes one list, so `extend <T> Vec<T> { fn <U> m }`
+  is `template <class T, class U>`.
+- `template_head(d)`: `template <class T, ...>` over `template_params(d)`.
+- `subst_for(g, inst)`: the instance argument a generic parameter stands
+  for, found by the GenericParamDecl's IDENTITY in the primary's
+  `template_params` (so an extension's T, a member's own U and a default
+  thunk's borrowed list resolve alike), or null. `_gparam` and EmitIR's
+  `_needs_cast` both go through it.
+- `ext_receiver(f, x, inst)`: an extension member's receiver parameter,
+  unnamed: `[const ]X*`, or `[const ]X&` for an operator. Both emitters'
+  parameter lists and InterfaceEmitter's explicit instantiations use it.
+- `ext_scope_name(x)`: `__kairo_ext_<X>` (`LowerTargets::ext_scope_prefix`):
+  the target's leaf, nested owners joined with `__`, a generic record's
+  primary, a builtin's Kairo spelling. `owner_types` of an extension member
+  is that one name, so `qual_name` is `::N::__kairo_ext_X::m` unchanged;
+  `scope_ns(x)` is N.
+- `ext_op(sym)` (`LowerTargets`): an extension operator's static-member name,
+  `__kairo_op_<mnemonic>` (`plus`, `eq`, `cmp`, `plus_eq`, `preinc`,
+  `postdec`, ...), which `operator_name` spells for an extension member;
+  `ext_forwarder_name(f)` is the `operator<sym>` its forwarder takes, ""
+  for the LowerTargets-named ones (`in`, `^^`, ...). A symbol with no row
+  ICEs.
 
 ## 5. InterfaceEmitter
 
@@ -169,8 +204,16 @@ it. Library roots still wrap by `module_base` (Piece 1 open).
 
 Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields, method DECLARATIONS (never bodies — invariant 12),
-friend lines, nested types. Enums: C-like only. Functions: free and
-extension (receiver first). Tier 3: `extern template class X<A>;` /
+one `friend struct ::N::__kairo_ext_X;` for the same-file scope, nested
+types. Enums: C-like only. Functions: free only. Extension scopes:
+`struct __kairo_ext_X {` and one `static` declaration per member (merged
+template head, receiver first via `ext_receiver`, the postfix `int` dummy
+where it applies), `};`, all public and never in the unnamed namespace;
+then, per operator member C++ can spell, an inline forwarder
+`template_head inline RET operator<sym>(X& __kairo_a0, ...) { return
+::N::__kairo_ext_X::__kairo_op_<m>(__kairo_a0, ...); }`, each operand
+forwarded as `static_cast<decltype(a)&&>(a)` and the postfix dummy as is.
+Tier 3: `extern template class X<A>;` /
 `template class X<A>;`. Header mode adds `#pragma once` and `#include`s of
 the Complete dependencies' headers.
 
@@ -211,7 +254,8 @@ carries the same HARD clang dependency.
 Definitions it produces: free functions (namespace wrapper per function),
 methods out of line (`RET Owner<T>::name(params) const`), methods defined
 out of line (`fn C::m`), reached through the in-class declaration's chain,
-constructors and destructors, extension members as free functions with the receiver first,
+constructors and destructors, extension members as out-of-line definitions of their scope's
+static members (`RET __kairo_ext_X::m(X* self, ...)` in N, receiver first),
 template member bodies (own TU always; homing TUs via the plan), `int
 main()` at global scope.
 
