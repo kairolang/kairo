@@ -347,11 +347,7 @@ class CallLowering derives ASTWriter::<CallLowering> {
 
     /// A pack parameter's C++ type, stamped once. Null for a dependent element.
     priv fn _pack_type(self, p: *ParamDecl) -> *Type {
-        if p->pack_type != &null { return p->pack_type; }
-        if (p->type_ == &null) || (p->type_->canonical == &null) { return &null; }
-        var elem = canon_unqual(p->type_->canonical);
-        if (elem == &null) || elem->is_dependent() { return &null; }
-        p->pack_type = self.tu.slice_of(elem);
+        if p->pack_type == &null { p->pack_type = self.tu.param_value_type(p); }
         return p->pack_type;
     }
 

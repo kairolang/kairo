@@ -75,6 +75,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Type::TypeUtil::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -221,7 +222,10 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
         if d == &null { return &null; }
         var t: *Type = &null;
         if      isa::<VariableDecl>(d) { t = cast::<VariableDecl>(d)->type_; }
-        else if isa::<ParamDecl>(d)    { t = cast::<ParamDecl>(d)->type_;    }
+        else if isa::<ParamDecl>(d) {
+            var tu = TypeUtil(self.sc);
+            return tu.param_value_type(cast::<ParamDecl>(d));   // a pack is its slice.
+        }
         else                           { return &null; }   // local fn/type: not a value rebinding.
         if t == &null { return &null; }
         return t->canonical;

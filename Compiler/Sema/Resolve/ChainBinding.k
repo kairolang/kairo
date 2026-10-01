@@ -55,6 +55,7 @@ import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::GenericArgs::*;
 import Sema::Resolve::ResolutionTrace::*;
 import Sema::Resolve::ResolutionState::*;
+import Sema::Type::TypeUtil::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -367,6 +368,20 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             }
             case DeclKind::ParamDecl {
                 var p = cast::<ParamDecl>(d);
+                // A pack reads as its Slice<E>, not the element its type_
+                // names. Over a dependent element there is no slice yet:
+                // Dependent, exactly as a generic param, never Errored.
+                if p->is_pack {
+                    if (p->type_ == &null) || p->type_->is_poisoned() { return self._value_anchor(d, p->type_); }
+                    var tu = TypeUtil(self.sc);
+                    var st = tu.param_value_type(p);
+                    if st == &null {
+                        a.kind = AnchorKind::Dependent;
+                        a.decl = d;
+                        return a;
+                    }
+                    return self._value_anchor_from(d, st);
+                }
                 return self._value_anchor(d, p->type_);
             }
             case DeclKind::VariableDecl {

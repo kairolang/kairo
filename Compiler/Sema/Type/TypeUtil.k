@@ -395,6 +395,21 @@ class TypeUtil {
         return &null;
     }
 
+    /// The type a USE of \p p has inside its function. A pack `...xs: T` is
+    /// `[T;]` (Slice<T>, by value); every other parameter is its declared
+    /// canonical. Null when the pack's element is dependent (a generic pack;
+    /// not modelled yet) or the type never resolved. The declared `type_`
+    /// stays the element: overload resolution ranks each pack argument
+    /// against it, and CallLowering builds the slice from it.
+    fn param_value_type(self, p: *ParamDecl) -> *Type {
+        if (p == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return &null; }
+        var c = p->type_->canonical;
+        if !p->is_pack { return c; }
+        var elem = canon_unqual(c);
+        if (elem == &null) || elem->is_dependent() { return &null; }
+        return self.slice_of(elem);
+    }
+
     /// \p p's index in \p f->params, `self` included; usize(-1) if absent.
     fn param_index(self, f: *FunctionDecl, p: *ParamDecl) -> usize {
         for var i: usize = 0; i < f->params.size(); ++i { if f->params[i] == p { return i; } }

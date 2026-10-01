@@ -323,18 +323,16 @@ class ExprTyper
 
     // === identifiers ========================================================
 
-    /// The type a USE of \p p has. A pack's `type_` names its element, but
-    /// the binding is the whole run of arguments: `Slice<E>`, the type
-    /// CallLowering stamps as pack_type and passes by value. A `const` binding
-    /// is a const OBJECT, and an object's type carries its cv: `&x` on a const
-    /// param is `*const T`, and `T&` deduces `const T` from it. The receiver
-    /// is exempt: a const method's `self` already has type `const Record`
-    /// (TypeResolve::_synthesize_receiver, DeclImport). Null when the
-    /// parameter's type is unknown.
+    /// The type a USE of \p p has: TypeUtil::param_value_type (a pack reads
+    /// as its Slice<E>), cv-qualified for a `const` binding. A `const`
+    /// binding is a const OBJECT, and an object's type carries its cv: `&x`
+    /// on a const param is `*const T`, and `T&` deduces `const T` from it.
+    /// The receiver is exempt: a const method's `self` already has type
+    /// `const Record` (TypeResolve::_synthesize_receiver, DeclImport). Null
+    /// when the type is unknown, which includes a pack over a dependent
+    /// element: instantiation-dependent, never poisoned.
     fn param_value_type(self, p: *ParamDecl) -> *Type {
-        if (p == &null) || (p->type_ == &null) { return &null; }
-        var t = p->type_->canonical;
-        if p->is_pack { t = self.tu.slice_of(t); }
+        var t = self.tu.param_value_type(p);
         if t == &null { return &null; }
         if p->is_const && (!p->is_self) { t = self.sc->types->qualified(t, QUAL_CONST()); }
         return t;
