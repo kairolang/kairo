@@ -2247,3 +2247,46 @@ group = "type-check"
 
     [SC105.N]
     explain = "the `-> !` declaration the body does not honor."
+
+[SC106]
+brief = "a default argument cannot refer to a parameter"
+group = "type-check"
+
+    [SC106.E]
+    explain = """
+    # default argument reads a parameter
+
+    a default argument is evaluated on its own, with no access to the call's other arguments, so it
+    cannot name another parameter of the same function or `self`.
+
+    ```kairo
+    fn pad(s: string, width: usize = s.len) { ... }   // error: `s` is a parameter
+    ```
+
+    ## how to fix
+
+    use a constant default, or split the function into an overload that computes the value from the
+    other arguments and forwards it.
+    """
+
+[SC107]
+brief = "a C++ call can only leave out trailing default arguments"
+group = "type-check"
+
+    [SC107.E]
+    explain = """
+    # named argument skips a C++ default
+
+    an imported C++ function's defaults are applied by clang, and a C++ call can only leave out
+    TRAILING arguments. naming a later parameter while an earlier defaulted one is left out has no
+    C++ spelling.
+
+    ```kairo
+    // C++: void open(const char* path, int mode = 0, int flags = 0);
+    open("f", flags: 1);   // error: `mode` is skipped but `flags` after it is given
+    ```
+
+    ## how to fix
+
+    pass every parameter up to the last one you name, writing the default value out explicitly.
+    """
