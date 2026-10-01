@@ -756,8 +756,8 @@ class EmitIR {
 
     /// `::` steps collapse to the qualified name of the last scope-resolved
     /// entity (aliases vanish); value steps emit `.`/`->` from the base's
-    /// canonical. A UFCS step (extension member) is only meaningful as a
-    /// callee and is handled in _call.
+    /// canonical. An extension member arrives as a plain call, receiver
+    /// first; a step naming one here ICEs.
     priv fn _chain(self, n: *ChainExpr) {
         self._chain_prefix(n, n->steps.size());
     }
@@ -790,7 +790,7 @@ class EmitIR {
                 continue;
             }
             ICE_IF(st->is_tuple_index(), "EmitIR: tuple index; no lowering yet");
-            ICE_IF(st->is_ufcs || self._is_extension_member(st->resolved_decl), "EmitIR: extension member used as a value; only a call form exists");
+            ICE_IF(self._is_extension_member(st->resolved_decl), "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form");
             ICE_IF(st->resolved_decl == &null, "EmitIR: unbound member step reached codegen; gate failure");
             sink->spell(st->range, (("->") if (is_ptr) else (".")));
             self._name(st->name->name);
@@ -806,59 +806,6 @@ class EmitIR {
             if n->steps.get(j)->access_kind == ChainExpr::AccessKind::ColonColon { last = j; }
         }
         return last;
-    }
-
-    /// The receiver of a UFCS callee: the chain minus its last step, as a
-    /// pointer -- itself if it already is one, `(&...)` otherwise.
-    priv fn _receiver(self, ch: *ChainExpr) {
-        var last = ch->steps.size() - 1;
-        if last == 0 {
-            var b = ch->base;
-            if self._base_is_self(b) || self._is_pointer(b) { self.emit(b); return; }
-            ICE_IF(!b->is_lvalue(), "EmitIR: extension call on a prvalue receiver; ExtensionLowering must materialize a temporary");
-            sink->spell(b->range, "(&");
-            self.emit(b);
-            sink->spell(b->range, ")");
-            return;
-        }
-        // A field path off an lvalue is an lvalue; off a pointer it is too.
-        var prev = ch->steps.get(last - 1);
-        if self._type_is_pointer(prev->resolved_type) {
-            self._chain_prefix(ch, last);
-            return;
-        }
-        sink->spell(ch->range, "(&");
-        self._chain_prefix(ch, last);
-        sink->spell(ch->range, ")");
-    }
-
-    /// The receiver of an extension OPERATOR: the object itself, since the
-    /// operator takes `X&` (InterfaceEmitter::_params). The dual of
-    /// _receiver -- a pointer is dereferenced, an lvalue passes as-is.
-    priv fn _receiver_ref(self, ch: *ChainExpr) {
-        var last = ch->steps.size() - 1;
-        if last == 0 {
-            var b = ch->base;
-            if self._base_is_self(b) || self._is_pointer(b) {
-                sink->spell(b->range, "(*");
-                self.emit(b);
-                sink->spell(b->range, ")");
-                return;
-            }
-            ICE_IF(!b->is_lvalue(), "EmitIR: extension call on a prvalue receiver; ExtensionLowering must materialize a temporary");
-            self.emit(b);
-            return;
-        }
-        // A field path is an lvalue already; only a pointer-typed one needs
-        // the `*`.
-        var prev = ch->steps.get(last - 1);
-        if self._type_is_pointer(prev->resolved_type) {
-            sink->spell(ch->range, "(*");
-            self._chain_prefix(ch, last);
-            sink->spell(ch->range, ")");
-            return;
-        }
-        self._chain_prefix(ch, last);
     }
 
     priv fn _base_is_self(self, e: *Expr) -> bool {
@@ -885,35 +832,20 @@ class EmitIR {
         var callee = self._callee_decl(n->callee);
         ICE_IF(callee == &null, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");
 
-        // Extension member through a receiver: `x.len()` -> `::ns::len(&x)`.
         var ch = dyn_cast::<ChainExpr>(n->callee);
-        var ext_call = false;
-        if (ch != &null) && (ch->steps.size() > 0) {
-            var last = ch->steps.get(ch->steps.size() - 1);
-            if last->is_ufcs || self._is_extension_member(last->resolved_decl) {
-                ICE_IF(last->access_kind == ChainExpr::AccessKind::ColonColon, "EmitIR: extension member called through `::`; ExtensionLowering owns the qualified form");
-                ext_call = true;
-            }
-        }
+        var last: *ChainExpr::Step = &null;
+        if (ch != &null) && (ch->steps.size() > 0) { last = ch->steps.get(ch->steps.size() - 1); }
+        ICE_IF((last != &null) && self._is_extension_member(last->resolved_decl),
+            "EmitIR: an extension member called through a chain reached codegen; ExtensionLowering rewrites it to a free call");
 
         // The constructor, not the type the callee names: its parameters are
         // what the arguments are cast to.
         var f = dyn_cast::<FunctionDecl>(callee);
         if n->ctor_decl != &null { f = dyn_cast::<FunctionDecl>(n->ctor_decl); }
         var inst  = reinterpret_cast::<*InstanceEntry>(n->instance);
-        var bound = ext_call || (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f)
-                 || ((ch != &null) && (ch->steps.size() > 0)
-                     && (ch->steps.get(ch->steps.size() - 1)->access_kind != ChainExpr::AccessKind::ColonColon));
+        var bound = (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f)
+                 || ((last != &null) && (last->access_kind != ChainExpr::AccessKind::ColonColon));
         self._check_arity(n, f, bound);
-
-        if ext_call {
-            ICE_IF(f == &null, "EmitIR: UFCS step that is not a function");
-            sink->spell(n->callee->range, self._spell.qual_name(callee) + "(");
-            if f->is_operator { self._receiver_ref(ch); } else { self._receiver(ch); }
-            self._args(n, f, true, inst);
-            sink->synth_at_end(n->range, clang::tok::r_paren);
-            return;
-        }
 
         if self._is_ctor(f) || self._is_type_decl(callee) {
             ICE_IF(n->type_ == &null, "EmitIR: untyped constructor call; ExprTyper gate failure");
@@ -936,7 +868,7 @@ class EmitIR {
             self.emit(n->callee);
         }
         sink->synth_at_end(n->callee->range, clang::tok::l_paren);
-        self._args(n, f, false, inst);
+        self._args(n, f, bound, inst);
         sink->synth_at_end(n->range, clang::tok::r_paren);
     }
 
@@ -975,10 +907,9 @@ class EmitIR {
     }
 
     /// Arguments, each cast to its parameter's canonical where it differs.
-    /// \p have_recv: a receiver was already emitted, so a comma precedes.
-    priv fn _args(self, n: *CallExpr, f: *FunctionDecl, have_recv: bool, inst: *InstanceEntry) {
-        var params = self._value_params(f);
-        if have_recv && (n->args.size() > 0) { sink->spell(n->range, ","); }
+    /// \p bound: the callee carries its receiver, so `self` takes no argument.
+    priv fn _args(self, n: *CallExpr, f: *FunctionDecl, bound: bool, inst: *InstanceEntry) {
+        var params = self._call_params(f, bound);
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
             if i > 0 { sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
@@ -992,6 +923,9 @@ class EmitIR {
         // `&x` bound to an @inout parameter is the mode marker, not address-of.
         var u = dyn_cast::<UnaryOperatorExpr>(a);
         if (u != &null) && u->is_mode_marker { self.emit(u->operand); return; }
+        // An extension call's receiver: its pointer or object form was decided
+        // in the tree (ExtensionLowering), so it is emitted as it stands.
+        if (p != &null) && p->is_self { self.emit(a); return; }
         if p == &null { self.emit(a); return; }
         var pt = p->type_;
         if p->is_pack {
@@ -1013,13 +947,15 @@ class EmitIR {
         self._value(a, pt, inst);
     }
 
-    /// The parameters an argument list maps onto: `self` excluded.
-    priv fn _value_params(self, f: *FunctionDecl) -> vec::<*ParamDecl> {
+    /// The parameters an argument list maps onto: `self` excluded only when
+    /// \p bound -- an extension call passes its receiver as argument zero.
+    priv fn _call_params(self, f: *FunctionDecl, bound: bool) -> vec::<*ParamDecl> {
         var out = vec::<*ParamDecl>();
         if f == &null { return out; }
         for var i: usize = 0; i < f->params.size(); ++i {
             var p = f->params[i];
-            if (p == &null) || p->is_self { continue; }
+            if p == &null { continue; }
+            if p->is_self && bound { continue; }
             out.push_back(p);
         }
         return out;
@@ -1041,9 +977,7 @@ class EmitIR {
     }
 
     priv fn _is_extension_member(self, d: *Decl) -> bool {
-        if (d == &null) || (!isa::<FunctionDecl>(d)) { return false; }
-        var lex = reinterpret_cast::<*DeclContext>(d->lexical_dc);
-        return (lex != &null) && (lex->dc_kind == DeclContextKind::Extension);
+        return decl_extension_of(d) != &null;
     }
 
     priv fn _is_type_decl(self, d: *Decl) -> bool {
@@ -1100,6 +1034,12 @@ class EmitIR {
 
     priv fn _unary(self, n: *UnaryOperatorExpr) {
         if n->is_mode_marker { self.emit(n->operand); return; }
+        if n->materialize {
+            sink->spell(n->range, "::" + LowerTargets::tmp_addr() + "(");
+            self.emit(n->operand);
+            sink->spell(n->range, ")");
+            return;
+        }
         var k = n->op_token.kind;
         var addr_or_deref = (k == TokenKind::OpAmp) || (k == TokenKind::OpStar);
         ICE_IF(self._record_operand(n->operand) && (!addr_or_deref), "EmitIR: user operator; OperatorLowering must rewrite it into a call");

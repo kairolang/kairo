@@ -347,9 +347,6 @@ class ChainExpr derives Expr {
         /// Same three-state contract as NamedIdentExpr::candidate_cell.
         pub var candidate_cell: *OverloadCell = &null;
 
-        /// true if sema resolved this as a UFCS call (extension method).
-        pub var is_ufcs:       bool = false;
-
         fn is_operator(self) -> bool {
             return self.target == StepTarget::Operator;
         }

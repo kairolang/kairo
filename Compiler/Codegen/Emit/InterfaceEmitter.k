@@ -77,6 +77,12 @@ class InterfaceEmitter {
             sink->spell(self._tu_at(),
                 "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
             sink->brk();
+            // The materialized-temporary helper: the one place it is spelled.
+            // A forwarding reference binds the prvalue, so the address is the
+            // temporary's, which lives to the end of the full-expression.
+            sink->spell(self._tu_at(),
+                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
+            sink->brk();
         }
 
         var i: usize = 0;

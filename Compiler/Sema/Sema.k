@@ -55,6 +55,7 @@ import Sema::Type::ExprTyper::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
+import Sema::Lower::ExtensionLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
 import Sema::Lower::SequenceLowering::*;
 import Sema::Lower::FStringLowering::*;
@@ -346,6 +347,9 @@ class Sema {
         // parameter order. Before SequenceLowering: a default thunk's call is
         // an impure argument, and it is ordered with the rest there.
         { var _p = TimeRegion("CallLowering"); CallLowering(&self.sc).run(); }
+        // An extension member call becomes the free call: the receiver goes in
+        // front of the placed arguments. Before SequenceLowering, which orders it.
+        { var _p = TimeRegion("ExtensionLowering"); ExtensionLowering(&self.sc).run(); }
         // Argument order: after OperatorLowering (operators are calls now),
         // before ListLiteralLowering (a hoisted slice literal is marked
         // Extended here and gets its backing there).
@@ -357,7 +361,6 @@ class Sema {
         // Last: a literal is pure until it is a constructor call, and
         // SequenceLowering must not hoist every `"hi"` argument into a local.
         { var _p = TimeRegion("StringLowering"); StringLowering(&self.sc).run(); }
-        // TODO(sema): ExtensionLowering(&self.sc).run();     // folds extends
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
         //             using Base::name; for merged base overloads C++ would
         //             hide reads type->needs_using written by MemberLookup,

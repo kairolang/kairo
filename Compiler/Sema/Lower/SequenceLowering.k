@@ -21,7 +21,8 @@
 ///     Only arguments with side effects are bound; a name, a literal, a field
 ///     path, `&x` stay in place. A call with fewer than two such arguments is
 ///     never rewritten -- there is nothing to order -- so almost every call is
-///     untouched. The receiver of a member call counts as argument zero.
+///     untouched. The receiver of `x.m(...)` is operand zero for a member
+///     call, and argument zero for an extension call after ExtensionLowering.
 ///
 ///   \par Not rewritten
 ///     A call whose result is an lvalue (an imported `T&` return) or a record
@@ -94,7 +95,8 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         if n->is_poisoned() || n->is_instantiation_dependent() { return out; }
         if !self._result_sequenceable(n) { return out; }
 
-        // The receiver of `x.m(...)` is operand zero.
+        // The receiver of `x.m(...)` is operand zero; an extension call's is
+        // argument zero, ExtensionLowering having moved it there.
         var recv: *ChainExpr = &null;
         if (n->callee != &null) && isa::<ChainExpr>(n->callee) {
             var ch = cast::<ChainExpr>(n->callee);
@@ -152,6 +154,31 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
 
     /// `T __kairo_argK = e;` into \p stmts; returns the name that reads it.
     priv fn _bind(self, e: *Expr, stmts: *ListBuilder::<*Stmt>) -> *Expr {
+        // `__kairo_tmp(p)` / `*__kairo_tmp(p)`: an extension call's prvalue
+        // receiver. A pointer local would end the temporary at its own `;`, so
+        // the PRVALUE is bound (elided: no copy or move asked of the type) and
+        // its address, or the object, is handed back.
+        var x = self.tu.strip_parens(e);
+        var u = dyn_cast::<UnaryOperatorExpr>(x);
+        var deref = false;
+        if (u != &null) && u->is_prefix() && (u->resolved_op == &null) && (u->op_token.kind == TokenKind::OpStar) {
+            var inner = dyn_cast::<UnaryOperatorExpr>(self.tu.strip_parens(u->operand));
+            u = (inner) if ((inner != &null) && inner->materialize) else (&null);
+            deref = true;
+        }
+        if (u != &null) && u->materialize {
+            ICE_IF(u->operand->type_ == &null, "SequenceLowering: untyped materialized receiver");
+            var vd = self.synth.local(e->range, "arg", u->operand->type_, u->operand);
+            self._mark_extended(u->operand);
+            stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, e->range, static_cast::<*Decl>(vd))));
+            var use = self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue);
+            if deref { return use; }
+            var a = UnaryOperatorExpr::create(self.ctx, e->range, use, self.synth.punct(e->range, TokenKind::OpAmp), UnaryOperatorExpr::Fix::Prefix);
+            a->type_ = u->type_;
+            a->value_category = Expr::ValueCategory::RValue;
+            return static_cast::<*Expr>(a);
+        }
+
         var t = e->type_;
         var vd = self.synth.local(e->range, "arg", t, e);
         self._mark_extended(e);                         // a slice literal's backing lives in this block.

@@ -617,8 +617,8 @@ dependent as failed, and that is the first bug to fix).
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
 §6). Order, fixed: ExprBodyDesugar -> OperatorLowering -> FStringLowering
--> CallLowering -> SequenceLowering -> ListLiteralLowering -> StringLowering
-(the passes `Sema.k` runs today), then ExtensionLowering ->
+-> CallLowering -> ExtensionLowering -> SequenceLowering ->
+ListLiteralLowering -> StringLowering (the passes `Sema.k` runs today), then
 EnumLayoutLowering -> NullableTypeLowering -> NullTestLowering ->
 CoalesceLowering -> IterLowering -> MatchLowering/PatternCompilation ->
 PanicLowering/FinallyLowering -> YieldLowering ->

@@ -1131,7 +1131,6 @@ class <T> ExprParse {
         result.access_kind   = ChainExpr::AccessKind::Dot;
         result.resolved_type = &null;
         result.resolved_decl = &null;
-        result.is_ufcs       = false;
 
         var sep_range = dyn()->current_ptr()->range;
         var sep_kind  = dyn()->resolve_kind_deep(dyn()->current_ptr());
@@ -2120,7 +2119,6 @@ class <T> ExprParse {
         first_step.range         = start_range | id_range;
         first_step.resolved_type = &null;
         first_step.resolved_decl = &null;
-        first_step.is_ufcs       = false;
 
         // check for generic args on first segment
         if dyn()->check(TokenKind::OpLess) && self._can_take_generic_args(*id_ptr) {

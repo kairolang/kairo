@@ -27,6 +27,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import AST::ASTSupport::*;
+import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
@@ -299,4 +300,15 @@ fn decl_bases(d: *Decl) -> FrozenList::<InheritEdge> {
     if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->derives_list;     }
     if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->derives_list; }
     return create_empty_frozen_list::<InheritEdge>();
+}
+
+// === Extension membership =================================================
+
+/// The extension \p d was written in, or null. Lexical: an extension
+/// member's C++ home and template parameters are its extension's.
+fn decl_extension_of(d: *Decl) -> *ExtensionDecl {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) { return &null; }
+    var lex = reinterpret_cast::<*DeclContext>(d->lexical_dc);
+    if (lex == &null) || (lex->dc_kind != DeclContextKind::Extension) { return &null; }
+    return dyn_cast::<ExtensionDecl>(lex->dc_owner);
 }

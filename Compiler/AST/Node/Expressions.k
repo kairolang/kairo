@@ -608,6 +608,10 @@ class UnaryOperatorExpr derives Expr {
     /// operand's type and the node is an lvalue. Codegen emits the operand
     /// bare. False for every other `&`.
     pub var is_mode_marker: bool = false;
+    /// `&e` on a prvalue: the address of its materialized temporary, spelled
+    /// `::__kairo_tmp(e)`. Written by ExtensionLowering only. SequenceLowering
+    /// binds `e`, never the pointer.
+    pub var materialize: bool = false;
 
     /// The user operator overload resolution selected, or null for a builtin
     /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
@@ -634,6 +638,7 @@ class UnaryOperatorExpr derives Expr {
         node->op_token = op_token;
         node->fix      = fix;
         node->is_mode_marker = false;
+        node->materialize    = false;
         node->resolved_op    = &null;
         node->op_via_free    = false;
         node->op_instance    = &null;
@@ -651,6 +656,7 @@ class UnaryOperatorExpr derives Expr {
         node->range         = range;
         node->operand       = &null;
         node->is_mode_marker = false;
+        node->materialize    = false;
         node->resolved_op    = &null;
         node->op_via_free    = false;
         node->op_instance    = &null;

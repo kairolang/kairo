@@ -314,6 +314,13 @@ class LowerTargets {
     /// `int[3]`, given a name a functional cast can use.
     static fn array_alias() -> string { return "__kairo_array"; }
 
+    // --- Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR) ----------
+
+    /// `template <class T> auto* __kairo_tmp(T&& t)`: the address of a
+    /// prvalue's materialized temporary, valid to the end of the
+    /// full-expression. ExtensionLowering's `materialize` `&` spells it.
+    static fn tmp_addr() -> string { return "__kairo_tmp"; }
+
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
     static fn reserved_prefix() -> string { return "__kairo_"; }

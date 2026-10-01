@@ -1276,7 +1276,12 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
             self._note_instance(b->op_instance);
             return;
         }
-        if isa::<UnaryOperatorExpr>(n)  { self._note_instance(cast::<UnaryOperatorExpr>(n)->op_instance);  return; }
+        if isa::<UnaryOperatorExpr>(n) {
+            var u = cast::<UnaryOperatorExpr>(n);
+            if u->materialize { self._p.paint(Color::Dim, "  [materialized]"); }
+            self._note_instance(u->op_instance);
+            return;
+        }
         if isa::<AssignOperatorExpr>(n) { self._note_instance(cast::<AssignOperatorExpr>(n)->op_instance); return; }
         if isa::<ListLiteralExpr>(n) {
             if cast::<ListLiteralExpr>(n)->storage == ListStorage::Extended {

@@ -150,8 +150,13 @@ emitters use the same instance; a declaration and a body cannot disagree.
 Every Preamble — never a Header, which carries no bodies — opens with
 
     template <class T, decltype(sizeof(0)) N> using __kairo_array = T[N];
+    template <class T> auto* __kairo_tmp(T&& t) { return __builtin_addressof(t); }
 
-(`LowerTargets::array_alias`). It is an alias, so it is never instantiated.
+(`LowerTargets::array_alias`, `LowerTargets::tmp_addr`). The alias is never
+instantiated. `__kairo_tmp` is the address of a prvalue's materialized
+temporary, valid to the end of the full-expression: ExtensionLowering's
+`materialize` `&` on a prvalue receiver, which EmitIR spells as
+`::__kairo_tmp(e)`. The preamble is the one place it is spelled.
 
 Namespace wrapping: an entry-TU decl lives in `namespace <file stem>`, the
 stem sanitized to an identifier, with a trailing `_` when it is a C++
@@ -259,7 +264,8 @@ YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
 ListLiteralLowering (set and map have no lowering yet); labeled
 break/continue → label lowering; typeof/impl/derives tests →
 TypeQueryLowering; NamedArgExpr → CallLowering; a call short of
-arguments → CallLowering; a `TypeCastExpr` with a
+arguments → CallLowering; a ChainExpr callee ending in an extension
+member → ExtensionLowering; a `TypeCastExpr` with a
 record operand and no `resolved_ctor` → OperatorLowering.
 
 ## 7. Templates
