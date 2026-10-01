@@ -317,4 +317,14 @@ class LowerTargets {
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
     static fn reserved_prefix() -> string { return "__kairo_"; }
+
+    // --- Default arguments (writer: CallLowering) -------------------------------
+
+    /// `__kairo_default_<fn>_<param>`: the nullary function a parameter's
+    /// default becomes. CallLowering appends `_<k>` when the function's name
+    /// cell holds more than one entity, k being the entity's 1-based position
+    /// in the cell, which is source order and so the same in every TU.
+    static fn default_thunk(fn_name: string, param: string) -> string {
+        return "__kairo_default_" + fn_name + "_" + param;
+    }
 }

@@ -74,6 +74,18 @@ class CallExpr derives Expr {
     /// homed.
     pub var instance: *void = &null;
 
+    /// A constructor call's selected constructor. The callee names the TYPE
+    /// (EmitIR spells the type from `type_`), so without this nothing after X
+    /// knows which ctor `arg_map` is parallel to. Written by
+    /// CallTyping::_ctor_call at Selected.
+    pub var ctor_decl: *Decl = &null;
+
+    /// The record a static-member callee is named THROUGH: set by CallLowering
+    /// on a default-thunk call whose owner is generic, so EmitIR spells
+    /// `Box<int>::__kairo_default_m_x()` rather than an unqualified template
+    /// name. Null everywhere else.
+    pub var qualifier: *Type = &null;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -86,6 +98,8 @@ class CallExpr derives Expr {
         node->pack_len = 0;
         node->arg_map  = create_empty_frozen_list::<i32>();   // a minted call is positional; nothing may read an unset list.
         node->instance = &null;
+        node->ctor_decl = &null;
+        node->qualifier = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -102,6 +116,8 @@ class CallExpr derives Expr {
         node->pack_len      = 0;
         node->arg_map       = create_empty_frozen_list::<i32>();   // a minted call is positional; nothing may read an unset list.
         node->instance      = &null;
+        node->ctor_decl     = &null;
+        node->qualifier     = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

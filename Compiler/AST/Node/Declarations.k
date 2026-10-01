@@ -306,6 +306,20 @@ class ParamDecl derives Decl {
     /// Set by DeclParse when it closes the list.
     pub var keyword_only: bool = false;
 
+    /// The nullary function CallLowering minted for this parameter's default,
+    /// stamped on the parameter at this index in EVERY link of the redecl
+    /// chain: overload resolution may select any link, and defaults
+    /// accumulate across links (RedeclMerge admits one per index). Null when
+    /// the parameter has no default, or has an imported C++ one (has_default),
+    /// which is omitted from the call and never has a thunk.
+    pub var default_thunk: *Decl = &null;
+
+    /// is_pack only: the parameter's C++ type, `Slice<E>` by value, E being
+    /// the canonical `type_` names. Stamped by CallLowering when it visits
+    /// the function (or first lowers a call to it); read by CXXSpell and
+    /// EmitIR. Null for a pack over a dependent element (not lowered yet).
+    pub var pack_type: *Type = &null;
+
     /// Passing mode. Legal only here (and on a fn-pointer type's parameter
     /// positions); the parser rejects it everywhere else. See AST/ParamMode.k.
     /// Never set on `self`: the receiver is already a reference parameter.
@@ -335,6 +349,8 @@ class ParamDecl derives Decl {
         node->unname = unname;
         node->is_pack      = false;
         node->keyword_only = false;
+        node->default_thunk = &null;
+        node->pack_type     = &null;
         return node;
     }
 
@@ -352,6 +368,8 @@ class ParamDecl derives Decl {
         node->index   = 0;
         node->is_pack      = false;
         node->keyword_only = false;
+        node->default_thunk = &null;
+        node->pack_type     = &null;
         return node;
     }
 
@@ -366,6 +384,8 @@ class ParamDecl derives Decl {
         node->mode_range = SourceRange::invalid();
         node->is_pack      = false;
         node->keyword_only = false;
+        node->default_thunk = &null;
+        node->pack_type     = &null;
         return node;
     }
 
