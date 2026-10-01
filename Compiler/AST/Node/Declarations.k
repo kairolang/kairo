@@ -414,7 +414,14 @@ class FunctionDecl
           Redeclarable::<FunctionDecl>,
           TemplateParams::<FunctionDecl>,
           FFILinkage::<FunctionDecl> {
-    pub var name:          Token;                 ///< function name (or ctor = type name).
+    /// Function name (or ctor = type name). INVARIANT: exactly one of `name`
+    /// and `op_token` is set. An operator (`is_operator`) has `name` =
+    /// Token(), the default-constructed empty token, and its spelling lives in
+    /// `op_token`; spelling that `name` (decl_name, get_spelling, an f-string
+    /// in an ICE message) asserts in TokenText::resolve. Every other function
+    /// has a real `name` and an empty `op_token`. Check is_operator before
+    /// reading `name`.
+    pub var name:          Token;
     pub var params:        FrozenList::<*ParamDecl>;
     pub var return_type:  *Type = &null;          ///< null => void (or inferred for expr body).
     pub var abi:           AbiKind    = AbiKind::None;
@@ -423,7 +430,7 @@ class FunctionDecl
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.
     pub var is_operator:   bool = false;          ///< `fn op <x>`.
-    pub var op_token:      FrozenList::<Token>;   ///< the operator token when is_operator.
+    pub var op_token:      FrozenList::<Token>;   ///< the operator token(s) when is_operator; empty otherwise (see `name`).
     pub var is_variadic:   bool = false;          ///< trailing `...name: T` pack param.
     pub var is_noreturn:   bool = false;          ///< return type is `!`.
     pub var transfer:      TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.
