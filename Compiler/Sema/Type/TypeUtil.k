@@ -21,6 +21,7 @@ import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::CanonicalTypes::*;
+import AST::Context::SymbolTable::*;
 import AST::Mixin::TypeQual::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
@@ -370,6 +371,34 @@ class TypeUtil {
             if args.size() >= 2 { (*k) = args[0]; (*v) = args[1]; return true; }
         }
         return false;
+    }
+
+    // === calls ==============================================================
+
+    /// The parameter at \p i across \p f's WHOLE redeclaration chain that
+    /// specifies a default -- a Kairo expression, the thunk CallLowering made
+    /// of one, or an imported C++ default -- or null. Defaults accumulate
+    /// across a chain and RedeclMerge admits one per index, so no single link
+    /// is authoritative and every reader asks here.
+    fn param_default(self, f: *FunctionDecl, i: usize) -> *ParamDecl {
+        if f == &null { return &null; }
+        var links = vec::<*Decl>();
+        NameLookup::collect_chain(static_cast::<*Decl>(f), links);
+        if links.size() == 0 { links.push_back(static_cast::<*Decl>(f)); }
+        for var k: usize = 0; k < links.size(); ++k {
+            var g = dyn_cast::<FunctionDecl>(links[k]);
+            if (g == &null) || (i >= g->params.size()) { continue; }
+            var p = g->params[i];
+            if p == &null { continue; }
+            if (p->default_val != &null) || (p->default_thunk != &null) || p->has_default { return p; }
+        }
+        return &null;
+    }
+
+    /// \p p's index in \p f->params, `self` included; usize(-1) if absent.
+    fn param_index(self, f: *FunctionDecl, p: *ParamDecl) -> usize {
+        for var i: usize = 0; i < f->params.size(); ++i { if f->params[i] == p { return i; } }
+        return usize(-1);
     }
 
     // === qualifiers =========================================================

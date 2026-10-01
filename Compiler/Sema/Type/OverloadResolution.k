@@ -555,11 +555,13 @@ class OverloadResolution {
 
         // 3. missing parameters need defaults. A parameter WITHOUT a default is
         //    allowed to follow one with a default, so an unfilled slot here is
-        //    never implied by the slots around it.
+        //    never implied by the slots around it. The default is looked for
+        //    across the WHOLE chain: defaults accumulate over redeclarations,
+        //    and the link judged here need not be the one that wrote it.
         for var j: usize = 0; j < nparams; ++j {
             if filled[j] { continue; }
             if j == pack_at { continue; }
-            if (params[j]->default_val != &null) || params[j]->has_default { continue; }
+            if self.tu.param_default(f, self.tu.param_index(f, params[j])) != &null { continue; }
             var pn = self.tu.param_name(params[j]);
             c->reason_code = DiagID::SC021E;
             c->viable = false;
