@@ -1315,7 +1315,9 @@ class CompilerInstance {
 
         result.tu_results.reserve(self.invocation().input_files.size());
 
-        var _t_frontend = TimeRegion("Frontend");
+        // No umbrella region here: every stage below (Load .. Codegen, then
+        // Link) is a root of the timing tree, so a stage's row is its own
+        // time and Link is not reported as part of a frontend.
 
         // C and C++ inputs are not Kairo TUs: they compile after every Kairo
         // file, through the same clang backend (_compile_native_inputs).
@@ -1353,6 +1355,7 @@ class CompilerInstance {
 
         if (!result.aborted) && (self._diag->error_count() == 0)
         && (!self.invocation().frontend.stops_before_codegen()) {
+            var _t = TimeRegion("NativeCompile");
             if !self._compile_native_inputs(natives, kairo_inputs > 0) { result.aborted = true; }
         }
 
@@ -2102,8 +2105,9 @@ fn FrontendAction::_parse() -> bool {
 /// Semantic analysis stage: runs the pipeline to its current end (N) over
 /// every fid of this TU's graph, then honors the sema dump flags.
 fn FrontendAction::_sema() -> bool {
-    var _t = TimeRegion("Sema");
-
+    // Timed per piece, not as one region: this function also runs the FFI
+    // header join, the lowerings and mono, none of which is semantic
+    // analysis, and a "Sema" row that contained them misreported all three.
     self._stage = TUStage::Sema;
     var fe = self._ci->invocation().frontend;
     if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
@@ -2126,6 +2130,7 @@ fn FrontendAction::_sema() -> bool {
     // each ffi ImportDecl with the closure it imports.
     var hc = self._ci->headers();
     if hc != &null {
+        var _th = TimeRegion("Headers");
         {
             var _tw = TimeRegion("HeaderSetWait");
             hc->wait_all();
@@ -2247,9 +2252,16 @@ fn FrontendAction::_sema() -> bool {
         // would carry on past it -- running the checks and the lowerings over
         // a tree whose names or types never resolved, which is cascade noise
         // by the schedule's own policy (Sema.k::_hard_stop).
-        var reached = sem.run_to(SemaPhase::Checked);
+        var reached = false;
+        { var _ts = TimeRegion("Sema"); reached = sem.run_to(SemaPhase::Checked); }
         if fe.print_sema { SemaDump(&(sem.sc), sema_opts).run(); }
-        if reached { sem.run(); }
+        // Two continuations instead of one run(), only so the timing tree can
+        // tell lowering from mono. run_to is re-entrant and _done() is pure,
+        // so stopping at Lowered and resuming is the same schedule.
+        if reached {
+            { var _tl = TimeRegion("Lower"); sem.run_to(SemaPhase::Lowered); }
+            { var _tm = TimeRegion("Mono");  sem.run(); }
+        }
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
 
         // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
@@ -2504,7 +2516,7 @@ fn FrontendAction::_codegen() -> bool {
 
         var ok = false;
         {
-            var _tr = TimeRegion("Emit");
+            var _tr = TimeRegion("Backend");
             self._ensure_parent_dir(out);
             ok = cg.run(out);
         }

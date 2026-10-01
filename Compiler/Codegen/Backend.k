@@ -49,6 +49,7 @@ ffi "c++" import "clang/Frontend/FrontendOptions.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
 ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
+ffi "c++" import "Native/KTimeClang.hh";
 
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::HeaderSet::*;
@@ -69,6 +70,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::Node::Program::*;
 import Preprocessor::PreprocessorSymbolTable::*;
+import Support::TimeReport::*;
 
 /// \class CodegenBackend
 /// \brief Per-TU codegen run over the shared ClangBackend. Constructed by
@@ -115,6 +117,10 @@ class CodegenBackend derives TokenFiller {
     /// for m1_hello.k the two are BYTE-IDENTICAL   run --print-cg against
     /// both and diff.
     override fn fill(self, sink: *TokenSink) -> bool {
+        // Runs inside ExecuteAction (BeginSourceFileAction), so this lands
+        // under the driver's Clang region beside what clang itself spends.
+        var _t = TimeRegion("IRGeneration");
+
         var tu = reinterpret_cast::<*TranslationUnit>(self._ctx->tu);
         if tu == &null { return false; }
         if tu->program == &null { return false; }
@@ -241,6 +247,13 @@ class CodegenBackend derives TokenFiller {
         act.kfid   = self._kfid;
         act.ksize  = self._ksize;
         act.arena  = self._arena;
-        return ci->ExecuteAction(act);
+
+        // Clang's phases (parse/sema, IRGen, optimizer, machine code) are
+        // timed by clang itself; this folds them into --time-passes under the
+        // caller's open region. A no-op unless timing is on.
+        var clang_time = kairo::ktime_clang_begin();
+        var ok = ci->ExecuteAction(act);
+        kairo::ktime_clang_end(clang_time);
+        return ok;
     }
 }
