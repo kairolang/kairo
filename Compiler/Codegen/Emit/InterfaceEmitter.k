@@ -328,7 +328,9 @@ class InterfaceEmitter {
         sink->spell(at, s);
 
         // Default access follows the keyword: a Kairo struct's members are
-        // public unless marked, a class's private unless marked.
+        // public unless marked; in a class only the VARIABLES are private
+        // unless marked, and methods, constructors and nested types are
+        // public (classes.md, Default visibility).
         var cur_access = (VIS_PRIV()) if (is_class) else (VIS_PUB());
 
         // Nested types first: a field may name one.
@@ -339,7 +341,7 @@ class InterfaceEmitter {
                 if nd == &null { continue; }
                 if isa::<VisibilityGroupDecl>(nd) { continue; }   // members are pointers back into the lists below.
                 if !self._is_type(nd) { continue; }
-                cur_access = self._access(cur_access, CXXSpell::vis_of(nd), is_class, at);
+                cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
                 self._type_def(CXXSpell::rep(nd));
             }
         }
@@ -363,7 +365,7 @@ class InterfaceEmitter {
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
             if m == &null { continue; }
-            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), is_class, at);
+            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
             sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
@@ -390,9 +392,11 @@ class InterfaceEmitter {
 
     /// Emit an access specifier when the member's visibility differs from
     /// the running one. `prot` is `protected`.
-    priv fn _access(self, cur: u8, want_in: u8, is_class: bool, at: SourceRange) -> u8 {
+    /// \p default_priv: an unmarked member of this kind is private (a class's
+    /// variables, and nothing else).
+    priv fn _access(self, cur: u8, want_in: u8, default_priv: bool, at: SourceRange) -> u8 {
         var want = want_in;
-        if want == VIS_NONE() { want = (VIS_PRIV()) if (is_class) else (VIS_PUB()); }
+        if want == VIS_NONE() { want = (VIS_PRIV()) if (default_priv) else (VIS_PUB()); }
         if want == cur { return cur; }
         if want == VIS_PUB()  { sink->spell(at, "public:"); }
         if want == VIS_PROT() { sink->spell(at, "protected:"); }
