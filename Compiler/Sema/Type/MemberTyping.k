@@ -240,10 +240,9 @@ class <T> MemberTyping {
                     n->value_category = Expr::ValueCategory::LValue;
                 }
                 case DeclKind::ParamDecl {
-                    var p = cast::<ParamDecl>(d);
-                    cur = (p->type_->canonical) if (p->type_ != &null) else (&null);
+                    // A pack reads as its Slice<E>; see ExprTyper::param_value_type.
+                    cur = dyn()->param_value_type(cast::<ParamDecl>(d));
                     if cur == &null { info->unknown = true; dyn()->mark_unknown(n); return &null; }
-                    if p->is_const && (!p->is_self) { cur = dyn()->sc->types->qualified(cur, QUAL_CONST()); }
                     cur_kind = 0; st->resolved_type = cur;
                     n->value_category = Expr::ValueCategory::LValue;
                 }

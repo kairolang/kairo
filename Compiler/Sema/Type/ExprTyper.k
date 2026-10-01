@@ -323,6 +323,23 @@ class ExprTyper
 
     // === identifiers ========================================================
 
+    /// The type a USE of \p p has. A pack's `type_` names its element, but
+    /// the binding is the whole run of arguments: `Slice<E>`, the type
+    /// CallLowering stamps as pack_type and passes by value. A `const` binding
+    /// is a const OBJECT, and an object's type carries its cv: `&x` on a const
+    /// param is `*const T`, and `T&` deduces `const T` from it. The receiver
+    /// is exempt: a const method's `self` already has type `const Record`
+    /// (TypeResolve::_synthesize_receiver, DeclImport). Null when the
+    /// parameter's type is unknown.
+    fn param_value_type(self, p: *ParamDecl) -> *Type {
+        if (p == &null) || (p->type_ == &null) { return &null; }
+        var t = p->type_->canonical;
+        if p->is_pack { t = self.tu.slice_of(t); }
+        if t == &null { return &null; }
+        if p->is_const && (!p->is_self) { t = self.sc->types->qualified(t, QUAL_CONST()); }
+        return t;
+    }
+
     priv fn _type_ident(self, n: *NamedIdentExpr, expected: *Type) -> *Type {
         if n->is_deferred() {
             // an overload set as a value: only a callee may read a cell.
@@ -342,14 +359,8 @@ class ExprTyper
             case DeclKind::ParamDecl {
                 var p = cast::<ParamDecl>(d);
                 n->value_category = Expr::ValueCategory::LValue;
-                if p->type_ == &null { self.mark_unknown(n); return &null; }
-                // A `const` binding is a const OBJECT, and an object's type
-                // carries its cv: `&x` on a const param is `*const T`, and
-                // `T&` deduces `const T` from it. The receiver is exempt: a
-                // const method's `self` already has type `const Record`
-                // (TypeResolve::_synthesize_receiver, DeclImport).
-                var t = p->type_->canonical;
-                if p->is_const && (!p->is_self) { t = self.sc->types->qualified(t, QUAL_CONST()); }
+                var t = self.param_value_type(p);
+                if t == &null { self.mark_unknown(n); return &null; }
                 return t;
             }
             case DeclKind::VariableDecl {
