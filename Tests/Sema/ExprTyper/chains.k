@@ -41,11 +41,10 @@ fn chains(o: *Outer, t: (i32, f64)) {
 // DIAG-NOT: error
 
 // SEMA: -- expression types --
-// A generic static through an explicit instance head is still open: the
-// return type is `Box<T>` and nothing substitutes T for the instance until
-// M2, so the CALL has no type yet. `<unknown>` is the honest answer -- not an
-// error, and not a guess.
-// SEMA:      CallExpr {{.*}}@ 35:13{{.*}} : <unknown>
+// A generic static through an explicit instance head: the callee is still
+// declared `-> Box<T>`, but a `::` call off a type has that type as its
+// receiver (MemberTyping), so `Box<i32>` binds T and the CALL is `Box<i32>`.
+// SEMA:      CallExpr {{.*}}@ 35:13{{.*}} : Box<i32>
 // SEMA-NEXT: ChainExpr {{.*}}@ 35:13{{.*}} : fn () -> Box<T>
 
 // SEMA: -- inferred decls --

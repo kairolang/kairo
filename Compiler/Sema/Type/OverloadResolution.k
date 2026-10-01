@@ -52,6 +52,7 @@ import Sema::Type::Conversion::*;
 import Sema::Type::ArgumentDeduction::*;
 import Diagnostic::Registry::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
@@ -456,6 +457,15 @@ class OverloadResolution {
             }
             params.push_back(p);
         }
+
+        // An extension's own parameters are the receiver's, decided before any
+        // argument is ranked (Deduction::bind_from_extension).
+        if !c->ded.bind_from_extension(f, receiver) {
+            c->viable = false;
+            c->reason = "the receiver is not an instance this extension applies to";
+            return;
+        }
+
         var nparams = params.size();
         // The pack is wherever it is MARKED, not the last slot: a keyword-only
         // tail sits after it, and treating the last parameter as the pack gave
@@ -655,6 +665,12 @@ class OverloadResolution {
             c->reason = "could not deduce every generic parameter from the arguments";
             return;
         }
+        var ext = decl_extension_of(static_cast::<*Decl>(f));
+        if (ext != &null) && (!c->ded.is_complete(static_cast::<*Decl>(ext))) {
+            c->viable = false;
+            c->reason = "could not deduce the extension's generic parameters";
+            return;
+        }
     }
 
     /// The keyword-only parameter \p a was probably meant for, or usize(-1).
@@ -697,6 +713,12 @@ class OverloadResolution {
     /// writes nothing, and MoveCheck owns what follows. No new ranking rule
     /// lives here; modes restate the reference rules in Kairo terms.
     priv fn _rank_arg(self, c: *Candidate, a: *ArgInfo, pt: *Type, is_pack: bool, mode: ParamMode) -> ImplicitRank {
+        // A parameter the receiver already decided ranks as the type it is: a
+        // literal takes it (§5), an argument converts to it, nothing re-deduces it.
+        if c->ded.seeded && (pt != &null) && pt->is_dependent() {
+            var s = c->ded.substitute(pt);
+            if s != &null { pt = s; }
+        }
         if mode == ParamMode::Inout {
             // The operand's view when marked; the argument itself otherwise
             // (viable; CallTyping warns). A literal is a prvalue and can never

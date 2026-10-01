@@ -201,7 +201,9 @@ class EmitIR {
     /// Bodies of a FOREIGN template this TU homes an instance of. The tokens
     /// live in the template's file; the sink maps every registered fid.
     priv fn _template_bodies(self, prim: *Decl) {
-        if isa::<FunctionDecl>(prim) { self._free_fn(cast::<FunctionDecl>(prim), &null); return; }
+        // An extension member homed here still needs its extension: its
+        // receiver parameter and the extension's template parameters.
+        if isa::<FunctionDecl>(prim) { self._free_fn(cast::<FunctionDecl>(prim), decl_extension_of(prim)); return; }
         self._record_bodies(prim);
     }
 
@@ -351,11 +353,10 @@ class EmitIR {
                 if ext == &null { continue; }
                 if !first { s += ", "; }
                 first = false;
-                if f->is_const() { s += "const "; }
-                s += self._spell._type(ext->target);
                 // An extension operator takes its receiver by reference (see
                 // InterfaceEmitter::_params); _body rebinds `self` from it.
-                s += ("& " + LowerTargets::ext_self()) if (f->is_operator) else ("* self");
+                s += self._spell.ext_receiver(f, ext);
+                s += (" " + LowerTargets::ext_self()) if (f->is_operator) else (" self");
                 continue;
             }
             if !first { s += ", "; }
@@ -668,11 +669,8 @@ class EmitIR {
         var w = want->canonical;
         if (have == &null) || (w == &null) { return false; }
         if (subst != &null) && (canon_unqual(w) != &null) && (canon_unqual(w)->kind == TypeKind::GenericParamType) {
-            var g = cast::<GenericParamType>(canon_unqual(w));
-            if (g->owner != &null) && (CXXSpell::rep(g->owner) == CXXSpell::rep(subst->primary))
-            && (static_cast::<usize>(g->param_index) < subst->args.size()) {
-                w = subst->args[static_cast::<usize>(g->param_index)];
-            }
+            var s = self._spell.subst_for(cast::<GenericParamType>(canon_unqual(w)), subst);
+            if s != &null { w = s; }
         }
         if have->is_dependent() || w->is_dependent() { return false; }
         if have->is_instantiation_dependent() || w->is_instantiation_dependent() { return false; }
@@ -862,7 +860,8 @@ class EmitIR {
                 s += self._spell.leaf(callee);
             }
             sink->spell(n->callee->range, s);
-        } else if (inst != &null) && (f != &null) && (f->generic_params.size() > 0) && self._plain_callee(n->callee) {
+        } else if (inst != &null) && (CXXSpell::template_params(callee).size() > 0) && self._plain_callee(n->callee) {
+            // A generic extension member's instance is `<ext args..., member args...>`.
             sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
         } else {
             self.emit(n->callee);

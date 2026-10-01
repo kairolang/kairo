@@ -222,11 +222,15 @@ The no-headroom rules, each with one home:
   failure.
 - `_chain_prefix`: separator from the base's canonical; operator steps
   spell `leaf(resolved_decl)`.
-- `_call`: callee = promoted decl; a type as callee is a ctor call; a UFCS
-  step is `::ns::m(&recv, args)` (until ExtensionLowering makes the tree
-  say it). A GENERIC free function called by a bare name or `::` path
+- `_call`: callee = promoted decl; a type as callee is a ctor call; an
+  extension member arrives as a plain call, receiver first (ExtensionLowering
+  decided its pointer or object form in the tree, and `_arg` emits a `self`
+  argument as it stands); a chain callee ending in an extension member is
+  an ICE. `self` takes an argument unless the callee is bound (a `.`/`->`
+  step, a constructor). A GENERIC free function called by a bare name or `::` path
   spells its instance's arguments (`::m::pow<double, long>(...)`) from
-  `CallExpr::instance`, never leaving clang to deduce them: an argument
+  `CallExpr::instance`; a generic EXTENSION member spells
+  `<ext args..., member args...>`, the order of `template_params`, never leaving clang to deduce them: an argument
   whose C++ type is not its Kairo type (an int literal typed `i64`) would
   deduce an instance no TU homed. A generic METHOD through `.` still
   deduces (`.template m<...>` is RESOLUTION.md item r). A default-thunk

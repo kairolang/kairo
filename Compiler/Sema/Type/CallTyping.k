@@ -61,6 +61,7 @@ import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::ParamMode::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
@@ -303,23 +304,34 @@ class <T> CallTyping {
         // then lands on the finished type.
         rt = r->ded.through_receiver(f, r->receiver, rt);
         // Register the generic function instance for M1/EmitPlan (see spec).
-        if f->generic_params.size() > 0 {
+        // An extension member's instance arguments are its extension's, then
+        // its own: the order CXXSpell::template_params spells them in.
+        var ext = decl_extension_of(static_cast::<*Decl>(f));
+        var ext_n = (decl_generic_params(static_cast::<*Decl>(ext)).size()) if (ext != &null) else (usize(0));
+        if (f->generic_params.size() > 0) || (ext_n > 0) {
             var args = vec::<*Type>();
-            var gps  = f->generic_params;
-            var ok   = true;
-            for var i: usize = 0; i < gps.size(); ++i {
-                var gp = gps[i];
-                if (gp == &null) || gp->is_pack { continue; }
-                var b = r->ded.lookup(static_cast::<*Decl>(f), gp->index);
-                if (b == &null) || b->is_dependent() { ok = false; break; }
-                args.push_back(b);
-            }
+            var ok = ((ext == &null) || self._bound_args(r, static_cast::<*Decl>(ext), &args))
+                  && self._bound_args(r, static_cast::<*Decl>(f), &args);
             if ok {
                 r->instance = dyn()->sc->instances->instance_for(NameLookup::representative(static_cast::<*Decl>(f)), &args,
                                                                  dyn()->sc->ctx->fid, NameLookup::ctx_of(static_cast::<*Decl>(f)));
             }
         }
         return rt;
+    }
+
+    /// \p owner's deduced arguments, appended to \p out in parameter order.
+    /// Packs are skipped; false on an unbound or still-dependent binding.
+    priv fn _bound_args(self, r: *OvlResult, owner: *Decl, out: *vec::<*Type>) -> bool {
+        var gps = decl_generic_params(owner);
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            if (gp == &null) || gp->is_pack { continue; }
+            var b = r->ded.lookup(owner, gp->index);
+            if (b == &null) || b->is_dependent() { return false; }
+            out->push_back(b);
+        }
+        return true;
     }
 
     // === the call ===========================================================

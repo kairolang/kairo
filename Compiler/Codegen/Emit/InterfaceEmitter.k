@@ -496,12 +496,11 @@ class InterfaceEmitter {
                 ICE_IF(ext == &null, "InterfaceEmitter: `self` outside a type or extension");
                 if !first { s += ", "; }
                 first = false;
-                if f->is_const() { s += "const "; }
-                s += self._spell->_type(ext->target);
                 // An extension operator is a real non-member C++ operator, and
                 // [over.oper]/7 wants a class-typed parameter: the receiver is
                 // `X&`. Unnamed here; EmitIR's definition names it.
-                s += ("&") if (f->is_operator) else ("* self");
+                s += self._spell->ext_receiver(f, ext);
+                if !f->is_operator { s += " self"; }   // just the type for an operator; EmitIR names it.
                 continue;
             }
             if !first { s += ", "; }
@@ -559,12 +558,17 @@ class InterfaceEmitter {
             s += self._spell->qual_name(d);
             s += self._spell->args_str(&(ie->args));
             s += "(";
+            // An extension member's receiver is a real first parameter; a
+            // method's `self` is `this` and has no slot.
+            var ext = decl_extension_of(d);
             var first = true;
             for var i: usize = 0; i < f->params.size(); ++i {
                 var p = f->params[i];
-                if (p == &null) || p->is_self { continue; }
+                if p == &null { continue; }
+                if p->is_self && (ext == &null) { continue; }
                 if !first { s += ", "; }
                 first = false;
+                if p->is_self { s += self._spell->ext_receiver(f, ext, ie); continue; }
                 s += self._spell->param_decl(p, "", ie);
             }
             s += ");";

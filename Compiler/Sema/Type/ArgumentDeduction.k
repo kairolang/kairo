@@ -35,6 +35,7 @@ import Sema::Type::Conversion::*;
 import AST::Context::DeclContext::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
@@ -55,6 +56,10 @@ class Deduction {
     pub var conv:     *Conversion;
     pub var tu:       TypeUtil;
     pub var bindings: vec::<DeducedBinding>;
+    /// Some bindings came from the receiver (bind_from_extension), not from
+    /// an argument. OverloadResolution then ranks an argument against its
+    /// parameter with them substituted in.
+    pub var seeded: bool = false;
 
     fn Deduction(self) { self.sc = &null; self.conv = &null; }
     fn Deduction(self, sc: *SemaContext, conv: *Conversion) {
@@ -91,6 +96,23 @@ class Deduction {
         for var i: usize = 0; i < args.size(); ++i {
             self.bind(pat, static_cast::<u32>(i), args[i]);
         }
+    }
+
+    /// `extend <T> Vec<T>` reached through a `Vec<i64>`: T := i64, before any
+    /// argument is ranked. The target is UNIFIED with the receiver, so a
+    /// non-identity target (`extend <T> Vec<Box<T>>`) binds what it names and
+    /// rejects a receiver it does not match (false). No receiver, or a
+    /// dependent one, binds nothing: `Vec::m(v)` deduces from its `self`
+    /// argument like any other parameter.
+    fn bind_from_extension(self, f: *FunctionDecl, receiver: *Type) -> bool {
+        var ext = decl_extension_of(static_cast::<*Decl>(f));
+        if (ext == &null) || (self.tu.generic_params_of(static_cast::<*Decl>(ext)).size() == 0) { return true; }
+        if (receiver == &null) || (ext->target == &null) || (ext->target->canonical == &null) { return true; }
+        var r = canon_unqual(receiver);
+        if r->is_dependent() || r->is_instantiation_dependent() { return true; }
+        if self.unify(canon_unqual(ext->target->canonical), r, false) == ImplicitRank::None { return false; }
+        self.seeded = true;
+        return true;
     }
 
     /// Every param of \p owner has a binding.

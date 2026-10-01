@@ -557,9 +557,52 @@ class CXXSpell {
         return s;
     }
 
+    /// \p d's C++ template parameters: an extension member's extension's,
+    /// then its own. One list; a non-member function takes one.
+    static fn template_params(d: *Decl) -> vec::<*GenericParamDecl> {
+        var out = vec::<*GenericParamDecl>();
+        var ext = decl_extension_of(d);
+        if ext != &null {
+            var eps = decl_generic_params(static_cast::<*Decl>(ext));
+            for var i: usize = 0; i < eps.size(); ++i { out.push_back(eps[i]); }
+        }
+        var gps = decl_generic_params(d);
+        for var i: usize = 0; i < gps.size(); ++i { out.push_back(gps[i]); }
+        return out;
+    }
+
+    /// The instance argument \p g stands for in \p subst, or null. Keyed on
+    /// the GenericParamDecl's identity in the primary's template_params, so
+    /// an extension's T, a member's own U and a default thunk's borrowed
+    /// list (the callee's GenericParamDecls) all resolve the same way.
+    fn subst_for(self, g: *GenericParamType, subst: *InstanceEntry) -> *Type {
+        if (g == &null) || (g->owner == &null) || (subst == &null) { return &null; }
+        var own = decl_generic_params(CXXSpell::rep(g->owner));
+        var idx = static_cast::<usize>(g->param_index);
+        if idx >= own.size() { return &null; }
+        var gp = own[idx];
+        var tps = CXXSpell::template_params(CXXSpell::rep(subst->primary));
+        for var k: usize = 0; k < tps.size(); ++k {
+            if tps[k] != gp { continue; }
+            ICE_IF(k >= subst->args.size(), "CXXSpell: instance args shorter than the primary's template parameters");
+            return subst->args[k];
+        }
+        return &null;
+    }
+
+    /// An extension member's receiver parameter, unnamed: `[const ]X*`, or
+    /// `[const ]X&` for an operator ([over.oper]/7 wants a class type).
+    fn ext_receiver(self, f: *FunctionDecl, x: *ExtensionDecl, subst: *InstanceEntry = &null) -> string {
+        var s = "";
+        if f->is_const() { s += "const "; }
+        s += self._type(x->target, subst);
+        s += ("&") if (f->is_operator) else ("*");
+        return s;
+    }
+
     /// `template <class T, class... Ts, int N>` for a generic decl; "" otherwise.
     fn template_head(self, d: *Decl) -> string {
-        var gps = decl_generic_params(d);
+        var gps = CXXSpell::template_params(d);
         if gps.size() == 0 { return ""; }
         var s = "template <";
         for var i: usize = 0; i < gps.size(); ++i {
@@ -612,20 +655,8 @@ class CXXSpell {
     priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry) -> string {
         ICE_IF(g->owner == &null, "CXXSpell: canonical generic param with no owner");
         var owner = CXXSpell::rep(g->owner);
-        if subst != &null {
-            var prim = CXXSpell::rep(subst->primary);
-            var idx  = static_cast::<usize>(g->param_index);
-            // A default thunk carries its callee's generic-parameter list, so
-            // its instance substitutes the callee's T: the params are the same
-            // GenericParamDecls, and that is the identity, not the owner.
-            var sp = decl_generic_params(prim);
-            var _op = decl_generic_params(owner);
-            var same = (prim == owner) || ((idx < sp.size()) && (idx < _op.size()) && (sp[idx] == _op[idx]));
-            if same {
-                ICE_IF(idx >= subst->args.size(), "CXXSpell: instance args shorter than the primary's parameter list");
-                return self._type(subst->args[idx], &null);
-            }
-        }
+        var t = self.subst_for(g, subst);
+        if t != &null { return self._type(t, &null); }
         ICE_IF(g->is_pack, "CXXSpell: pack parameter in a non-expansion position");
         var gps = decl_generic_params(owner);
         ICE_IF(static_cast::<usize>(g->param_index) >= gps.size(), "CXXSpell: generic param index out of range");

@@ -487,8 +487,13 @@ chain (`TypeUtil::param_default`): defaults accumulate over redeclarations,
 and the link judged need not be the one that wrote it. An imported C++
 callee can only omit TRAILING defaults (clang applies them by omission); a
 named argument that fills a parameter after an unfilled defaulted one is
-SC107E. Diagnostics: no viable (capped candidate notes), ambiguous, not
-callable.
+SC107E. An extension member's own parameters are the receiver's
+(`Deduction::bind_from_extension`, after the receiver is judged, before
+placement); once `seeded`, a dependent parameter is ranked as its
+SUBSTITUTED type, so a literal takes it and an argument converts to it
+rather than re-deducing it, and an extension whose parameters are still
+unbound is not viable. Diagnostics: no viable (capped candidate notes),
+ambiguous, not callable.
 
 **Deduction** (`ArgumentDeduction.k`). Structural unify of the param's
 canonical against the arg's, binding `(owner, index)`; conflicts fail,
@@ -497,7 +502,12 @@ relation (Converted); inside a structure exact or nothing. `substitute`
 rebuilds through the store and goes through the registry for a concrete
 record. `member_through(recv, mt)` reads a member type through the
 receiver's args. `replace_self(t, I, T)` reads an interface member through
-a bound (`-> Self` is `T`).
+a bound (`-> Self` is `T`). `bind_from_extension(f, recv)` seeds a generic
+extension's parameters from the receiver before any argument is ranked:
+the extension's target is UNIFIED with the receiver, so `extend <T>
+Vec<Box<T>>` binds what it names and a receiver it does not match makes
+the candidate non-viable. No receiver, or a dependent one, binds nothing
+(`Vec::m(v)` deduces from its `self` argument). It sets `seeded`.
 
 **Calls** (`CallTyping.k`). Callee shapes: name (function / set / type ->
 ctor / fn-pointer value), chain (method or set with the chain's receiver /
@@ -886,8 +896,10 @@ Type domain (each unblocks the next):
     k. ADL / free operator functions (X, OperatorTyping)     DONE
     l. AccessCheck (+ `prot` same-library provenance)
     m. ConstChecking, PanicEffectChecking (reads panic_sites)
-    n. ExtensionLowering: `a.m()` -> `m(&a)`, prvalue receiver
-       materialization, `semantic_dc` rewrite
+    n. ExtensionLowering: `a.m()` -> `m(&a)`, prvalue receiver   DONE
+       materialization (`__kairo_tmp`), generic extensions (receiver
+       deduction, one merged template head). Residue: the `semantic_dc`
+       rewrite
     n2. CopyMoveLowering: copying a MOVE class is an error
 
 Mono / codegen:

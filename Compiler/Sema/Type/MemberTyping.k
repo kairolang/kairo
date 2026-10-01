@@ -155,8 +155,11 @@ class <T> MemberTyping {
 
             if is_last {
                 // Qualified with the object's cv: OverloadResolution ranks
-                // the receiver on it and strips it for everything else.
-                info->receiver     = dyn()->sc->types->qualified(val, recv_q);
+                // the receiver on it and strips it for everything else. A
+                // `::` call off a type has that type as its receiver, so a
+                // static on `Vec<i64>::` seeds the extension's parameters.
+                var recv_ty = (cur_type) if (cur_kind == 1) else (val);
+                info->receiver     = (dyn()->sc->types->qualified(recv_ty, recv_q)) if (recv_ty != &null) else (&null);
                 info->has_receiver = (cur_kind == 0) && (st->access_kind != ChainExpr::AccessKind::ColonColon);
             }
 
