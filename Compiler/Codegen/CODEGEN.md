@@ -154,7 +154,8 @@ Every Preamble — never a Header, which carries no bodies — opens with
 (`LowerTargets::array_alias`). It is an alias, so it is never instantiated.
 
 Namespace wrapping: an entry-TU decl lives in `namespace <file stem>`, the
-stem sanitized to an identifier (`CXXSpell::entry_stem`); a `priv` or
+stem sanitized to an identifier, with a trailing `_` when it is a C++
+keyword (`operator.k` -> `operator_`; `CXXSpell::entry_stem`); a `priv` or
 `internal` decl goes one level deeper, into an unnamed namespace nested
 inside it (`CXXSpell::is_anon`); `main` stays at global scope. Qualified
 names are unchanged — `::stem::x` reaches into the unnamed namespace through

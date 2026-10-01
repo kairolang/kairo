@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------- Sema/Verify/CxxReservedWords.k --- ///
+/// --- The Kairo Project -------------------- AST/CxxReservedWords.k --- ///
 ///
 ///   \brief The C++ keyword set for one file, plus the [lex.name]/3
 ///          reserved-identifier patterns clang does not flag.
@@ -23,7 +23,10 @@
 ///     parse, so that holds; do not move a consumer of this earlier in
 ///     the pipeline without re-reading this paragraph.
 ///
-///   Phase: VERIFY (pre-N)
+///     Two consumers: CxxNameCheck (VERIFY, pre-N) probes user names
+///     through CxxKeywordSet; CXXSpell::entry_stem asks is_cxx_keyword of
+///     a file stem, which is no table entry at all. A leaf with no Sema
+///     dependency, so it lives here and codegen can import it.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -95,4 +98,25 @@ fn cxx_reserved_reason(s: string) -> string {
     }
 
     return "";
+}
+
+/// True if \p s is spelled as a C++ keyword in any language mode clang
+/// knows, or as one of the [lex.digraph] alternative tokens (`and`, `not`,
+/// ...), which clang lexes as punctuators and so has no keyword spelling
+/// for. String-keyed, for a spelling that is in no ImmediateTable (a file
+/// stem). Over-inclusive on purpose: a C-only or extension keyword costs a
+/// trailing `_`, a missed one costs a clang error.
+fn is_cxx_keyword(s: string) -> bool {
+    if s.length() == 0 { return false; }
+    for var k: u32 = 0; k < static_cast::<u32>(clang::tok::NUM_TOKENS); ++k {
+        var kw = clang::tok::getKeywordSpelling(static_cast::<clang::tok::TokenKind>(k));
+        if kw == &null { continue; }
+        // Length first: entry_stem runs once per qualified name, and almost
+        // every keyword fails here without building a string.
+        if libcxx::strlen(kw) != s.length() { continue; }
+        if string(kw) == s { return true; }
+    }
+    return (s == "and") || (s == "and_eq") || (s == "bitand") || (s == "bitor")
+        || (s == "compl") || (s == "not") || (s == "not_eq") || (s == "or")
+        || (s == "or_eq") || (s == "xor") || (s == "xor_eq");
 }

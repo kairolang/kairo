@@ -40,7 +40,7 @@ import AST::Node::Declarations::*;
 import AST::Node::Patterns::*;
 import AST::Node::Casting::*;
 import AST::Visitor::RecursiveASTVisitor::*;
-import Sema::Verify::CxxReservedWords::*;
+import AST::CxxReservedWords::*;
 import AST::LangItems::*;
 import Token::Token::*;
 import Diagnostic::Registry::*;

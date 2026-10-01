@@ -41,6 +41,7 @@ import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
 import AST::LangItems::*;
+import AST::CxxReservedWords::*;
 import Token::TokenKind::*;
 import Location::SourceManager::*;
 import Location::SourceRange::*;
@@ -322,6 +323,10 @@ class CXXSpell {
         }
         if out.size() == 0 { return "_"; }
         if (out[0] >= '0') && (out[0] <= '9') { return "_" + out; }
+        // `operator.k` would open `namespace operator`. A trailing `_` cannot
+        // collide with another keyword stem, and the stem reaches the ABI
+        // only through here (invariant 9a).
+        if is_cxx_keyword(out) { return out + "_"; }
         return out;
     }
 
