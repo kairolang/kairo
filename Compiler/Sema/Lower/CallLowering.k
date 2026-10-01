@@ -26,9 +26,9 @@
 ///     accumulate across a redecl chain (RedeclMerge admits one per index), so
 ///     the thunk is minted from whichever link wrote it and stamped on that
 ///     index's ParamDecl in every link. It is spliced beside the link that
-///     wrote the default; a default written on an out-of-line definition goes
-///     into the owner's method list, since a namespace-scope sibling of
-///     `fn C::g` cannot be a member of C. Minted on first need: a call above
+///     wrote the default. A default is never written on an out-of-line
+///     definition (RedeclMerge, R056E), so every method thunk splices beside
+///     its in-class declaration. Minted on first need: a call above
 ///     its callee in the file mints it early, and the callee's own visit
 ///     splices it.
 ///
@@ -306,8 +306,11 @@ class CallLowering derives ASTWriter::<CallLowering> {
         th->body_block = body;
     }
 
-    /// A default written on `fn C::g(...)`: its thunk is a member of C.
+    /// A default written on `fn C::g(...)`: its thunk would be a member of C.
+    /// Unreachable: RedeclMerge rejects such a default (R056E) and clears it.
+    /// The body stays so the guard names the cause if that ever changes.
     priv fn _append_member(self, carrier: *FunctionDecl, th: *FunctionDecl) {
+        ICE_FAIL("CallLowering: a default on an out-of-line definition reached lowering; RedeclMerge (R056E) clears it");
         var dc = reinterpret_cast::<*DeclContext>(carrier->semantic_dc);
         ICE_IF((dc == &null) || (!dc->is_type_scope()), "CallLowering: out-of-line definition with no owning type");
         var owner = dc->dc_owner;

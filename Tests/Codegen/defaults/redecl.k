@@ -1,6 +1,6 @@
 // Defaults accumulate across a redeclaration chain: each parameter's default
 // may sit on a different declaration, and every one of them reaches a call.
-// A default on an out-of-line definition becomes a member of the class.
+// An out-of-line method's defaults come from its in-class declaration.
 
 fn chk(c: bool) -> i32 { if c { return 1 } return 0 }
 
@@ -14,10 +14,10 @@ fn g(x: i32) -> i32 { return x }
 
 class C {
     pub fn C(self) { }
-    pub fn m(self, i: i32, j: i32 = 9) -> i32
+    pub fn m(self, i: i32 = 8, j: i32 = 9) -> i32
 }
 
-fn C::m(self, i: i32 = 8, j: i32) -> i32 { return i * 10 + j }
+fn C::m(self, i: i32, j: i32) -> i32 { return i * 10 + j }
 
 fn main() -> i32 {
     var n = chk(f0() == 123)

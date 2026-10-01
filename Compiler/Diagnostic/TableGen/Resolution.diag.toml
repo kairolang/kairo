@@ -1327,3 +1327,31 @@ group = "type"
 
     make sure the compiler is pointed at the builtin root that ships with it (`--builtins-dir`).
     """
+
+[R056]
+brief = "a default argument cannot be written on an out-of-line definition"
+group = "redeclaration"
+
+    [R056.E]
+    explain = """
+    # default on an out-of-line definition
+
+    a method's defaults belong to its in-class declaration. the class is the interface, and an
+    out-of-line definition `fn C::m(...)` may live in a file that not every caller imports, so a
+    default written there would apply to some calls and not others. C++ accepts a default added by
+    the out-of-line definition; Kairo does not.
+
+    ```kairo
+    class C {
+        fn m(self, i: i32) -> i32
+    }
+    fn C::m(self, i: i32 = 8) -> i32 { return i }   // error
+    ```
+
+    ## how to fix
+
+    move the default onto the in-class declaration: `fn m(self, i: i32 = 8) -> i32`.
+    """
+
+    [R056.N]
+    explain = "the in-class declaration, where defaults go."

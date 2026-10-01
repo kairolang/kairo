@@ -246,6 +246,11 @@ builtin table only (`usize`/`isize` vs the fixed-width integer of
 `target.pointer_width`); records, pointers and refs compare by canonical as
 identity does. Kairo-authored pairs only.
 
+An out-of-line definition may not carry a default (R056E, in R(b)): a
+method's defaults are its in-class declaration's. The default is cleared
+once diagnosed and the definition still links. Free-function
+redeclarations still accumulate defaults.
+
 ### 2.7 ChainBinding [DONE]
 
 `Sema/Resolve/ChainBinding.k`, after RedeclMerge in the T stage. Walks
@@ -787,7 +792,8 @@ A pass that needs one asks that file; it never spells the string itself.
    owner's parents are the header's, not this file's.
 3. **One error, one home.** Import existence/ambiguity: I. Import access:
    N(b). Redefinition / conflicting kinds: N(a). Function redefinition /
-   signature disagreement: R. Unresolved head, `Self` outside a type body
+   signature disagreement / default on an out-of-line definition: R.
+   Unresolved head, `Self` outside a type body
    (expression): N(b). Unknown type / arity / alias cycle / primitive
    misuse / no primary for a spec / spec redefinition / spec after
    instantiation: T. No member / wrong separator / member ambiguity /

@@ -401,6 +401,27 @@ class RedeclMerge {
                 continue;
             }
 
+            // A default belongs to the in-class declaration: the class is the
+            // interface, and an out-of-line definition may sit in a file some
+            // callers never import, so a default here would apply to some calls
+            // and not others. Cleared once diagnosed, so _check_defaults_once
+            // does not report the same default a second time and CallLowering
+            // never mints a thunk for it. f is NOT poisoned: it still links, so
+            // its body resolves and uses of the method do not cascade.
+            for var j: usize = 0; j < f->params.size(); ++j {
+                var p = f->params[j];
+                if (p == &null) || (p->default_val == &null) { continue; }
+                // An unnamed parameter's name is the empty Token, which
+                // asserts when spelled.
+                var what = (f"parameter {j}") if (p->unname) else (f"'{self.sc->ctx->get_spelling(p->name)}\x27");
+                self.sc->diag->report(DiagID::R056E, p->default_val->range.start,
+                    f"a default argument for {what} cannot be written on an out-of-line definition; write it on the in-class declaration"
+                ).first(p->default_val->range)
+                 .note(DiagID::R056N, hit->range.start, "the in-class declaration, where defaults go")
+                 .first(hit->range).emit();
+                p->default_val = &null;
+            }
+
             // File-scope rule, deliberately: the out-of-line definition is
             // not part of the member-specification, so it may legally pair
             // with the in-class declaration.
