@@ -382,7 +382,17 @@ class <T> LiteralTyping {
             }
 
             h.put = self._lang_method(WellKnownType::FmtBuf, fmt_put_name(h.kind));
-            if h.put == &null { dyn()->missing_lang_item(n, "FmtBuf"); ok = false; continue; }
+            if h.put == &null {
+                // FIXME(CONST-EVAL-FOLD): put_f80 is out of the builtin root until
+                // it can be declared per target; every other row is always there.
+                if h.kind == FormatKind::F80 {
+                    dyn()->fail(e, DiagID::SC081E, "an 'f80' value cannot be formatted yet; convert it with 'as f64' first");
+                } else {
+                    dyn()->missing_lang_item(n, "FmtBuf");
+                }
+                ok = false;
+                continue;
+            }
             out.push_back(h);
         }
         if !ok { return false; }

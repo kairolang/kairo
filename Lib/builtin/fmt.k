@@ -175,14 +175,15 @@ pub class FmtBuf {
         self.number_(&self.data[slot], n as usize, neg, spec)
     }
 
-    pub inline fn put_f80(self, v: f80, spec: u64) {
-        var neg = false
-        unsafe { neg = (FmtBuf::bits16_((&v) as unsafe *const u8, 8) >> 15) != 0 }   // x87 extended: the sign is bit 79
-        var slot = self.float_open_(spec)
-        var n: i32 = 0
-        unsafe { n = kairo_rt_fmt_f80(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
-        self.number_(&self.data[slot], n as usize, neg, spec)
-    }
+    // FIXME: add back once the Constant Eval Folder is in.
+    // pub inline fn put_f80(self, v: f80, spec: u64) {
+    //     var neg = false
+    //     unsafe { neg = (FmtBuf::bits16_((&v) as unsafe *const u8, 8) >> 15) != 0 }   // x87 extended: the sign is bit 79
+    //     var slot = self.float_open_(spec)
+    //     var n: i32 = 0
+    //     unsafe { n = kairo_rt_fmt_f80(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+    //     self.number_(&self.data[slot], n as usize, neg, spec)
+    // }
 
     pub inline fn put_f128(self, v: f128, spec: u64) {
         var lo: u64 = 0
