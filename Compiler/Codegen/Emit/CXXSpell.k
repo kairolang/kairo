@@ -571,7 +571,7 @@ class CXXSpell {
                 var ps = "";
                 for var i: usize = 0; i < f->params.size(); ++i {
                     if i > 0 { ps += ", "; }
-                    ps += self._param_type(f->params[i], f->modes[i], false, subst);
+                    ps += self._param_type(f->params[i], f->modes[i], false, "", subst);
                 }
                 return self.decl(f->return_type, f"(*{name})({ps})", subst);
             }
@@ -598,14 +598,17 @@ class CXXSpell {
             ICE_IF(p->pack_type == &null, "CXXSpell: pack parameter with no slice type; CallLowering stamps it");
             return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst);
         }
-        return self._param_type(p->type_, p->mode, p->is_const, subst);
+        return self._param_type(p->type_, p->mode, p->is_const, "", subst);
     }
 
-    /// `type name` for a parameter, name folded into the declarator. The one
-    /// spelling that differs from `param_type(p) + " " + name` is an array:
+    /// `type name` for a parameter, name folded into the declarator for
+    /// EVERY type, never `param_type(p) + " " + name`: a function pointer
+    /// spelled that way is `U(*)(T) f`, which clang reads as a cast-like
+    /// expression ("expected ')'", "undeclared identifier 'f'"); the name
+    /// belongs inside, `U (*f)(T)`. An array is still its own branch:
     /// `[T; N]` is passed by reference (`const T (&xs)[N]` / `T (&xs)[N]`),
-    /// never by value (StmtTyping rejects that), so the name sits inside the
-    /// declarator and `decl()` builds it. Empty \p name is the abstract form.
+    /// never by value (StmtTyping rejects that). Empty \p name is the
+    /// abstract form.
     fn param_decl(self, p: *ParamDecl, name: string, subst: *InstanceEntry = &null) -> string {
         var c = (p->type_->canonical) if (p->type_ != &null) else (&null);
         if (!p->is_pack) && (c != &null) && (canon_unqual(c)->kind == TypeKind::FixedArrayType) {
@@ -614,23 +617,36 @@ class CXXSpell {
             var s = self.decl(canon_unqual(c), "&" + name, subst);
             return (("const " + s) if (p->is_const) else (s));
         }
-        var s = self.param_type(p, subst);
-        if name.size() > 0 { s += " " + name; }
-        return s;
+        if p->is_pack {
+            var s = self.param_type(p, subst);
+            if name.size() > 0 { s += " " + name; }
+            return s;
+        }
+        return self._param_type(p->type_, p->mode, p->is_const, name, subst);
     }
 
-    priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, subst: *InstanceEntry) -> string {
-        if mode == ParamMode::Inout { return self._type(t, subst) + "&"; }
-        if mode == ParamMode::Move  { return self._type(t, subst) + "&&"; }
+    /// The mode's reference and the const marker folded into decl(), so a
+    /// name lands inside the declarator: `@inout` on a function pointer is
+    /// `U (*&f)(T)`, which decl() brackets as it does any `*`/`&` declarator.
+    priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, name: string, subst: *InstanceEntry) -> string {
+        if mode == ParamMode::Inout { return self.decl(t, self._ref_declarator("&", name), subst); }
+        if mode == ParamMode::Move  { return self.decl(t, self._ref_declarator("&&", name), subst); }
         if is_const {
             // `const T&` iff a non-generic record; `const T` otherwise.
             var c = t->canonical;
             if (c != &null) && (c->kind == TypeKind::RecordType) && (!c->is_dependent()) {
-                return "const " + self._type(t, subst) + "&";
+                return "const " + self.decl(t, self._ref_declarator("&", name), subst);
             }
-            return "const " + self._type(t, subst);
+            return "const " + self.decl(t, name, subst);
         }
-        return self._type(t, subst);
+        return self.decl(t, name, subst);
+    }
+
+    /// `& name`, keeping the `T& x` spelling the printed C++ has always had
+    /// (and that tests match); bare `&` for the abstract form.
+    priv fn _ref_declarator(self, sigil: string, name: string) -> string {
+        if name.size() == 0 { return sigil; }
+        return sigil + " " + name;
     }
 
     /// `<a, b>` from an instance's args or a pattern's own params.

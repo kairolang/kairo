@@ -146,10 +146,13 @@ emitters use the same instance; a declaration and a body cannot disagree.
   `signed int*[2]`).
 - `param_type(p)`: modes → `T&` (`@inout`), `T&&` (`@move`), `T`. The
   `const T&` rule for by-value records is DECIDED and not yet applied.
-  This is the name-less form, and the right one for everything that is not
-  an array.
+  This is the name-less (abstract) form: instantiations, fn-pointer
+  parameter lists.
 - `param_decl(p, name)`: the parameter spelling with the name folded into
-  the declarator. Arrays are the case it exists for: a `const [T; N]`
+  the declarator, for every type: the mode's `&`/`&&` and the const marker
+  go through `decl()`, so a function pointer is `U (*f)(T)` and `@inout`
+  on one is `U (*& f)(T)`. Appending the name (`U(*)(T) f`) is a cast-like
+  expression to clang. Arrays keep their own branch: a `const [T; N]`
   parameter is `const T (&name)[N]`, an `@inout` one is `T (&name)[N]`, and
   by value is an ICE (StmtTyping rejects it). Both emitters spell
   parameters through here.
@@ -371,6 +374,22 @@ Piece 1 (root naming by `module X;` declaration; `-I` becomes C++-only);
 `const T&` for by-value records; witnesses/concepts; per-TU header reuse
 across FrontendActions; namespace merging in EmitIR (cosmetic);
 `ReturnStmt` keyword token; `TextSink` binary spacing outside parens.
+
+`const f: fn(T) -> U` spells `const U (*f)(T)`: a pointer to a function
+returning const U, not a const pointer (`U (*const f)(T)`). Top-level
+const on a by-value parameter is not part of the signature, so this is
+cosmetic at the ABI, but the definition body loses the const.
+
+Tier-3 lines (explicit instantiations) are anchored with `_at(primary)`,
+every token on the function's name range, and clang's diagnostics on them
+have been seen rendering over unrelated source bytes (a comment line with
+`test` spliced in). Trace where that range lands for an extension member.
+
+Explicit instantiations parenthesize the declarator-id: `template R
+(::ns::f<A>)(...)`. After a class-template return, `Cell<double> ::ns::`
+otherwise lexes as one nested-name-specifier. An out-of-line DEFINITION
+is safe while its declarator-id does not start with `::`; parenthesize it
+the same way if it ever does.
 
 Emitter consolidation: one `fn_signature` in CXXSpell, one namespace
 helper, one record-members accessor, `is_ctor` as a decl fact rather than a

@@ -660,10 +660,16 @@ class InterfaceEmitter {
         if isa::<FunctionDecl>(d) {
             var f = cast::<FunctionDecl>(d);
             s += self._ret_subst(f, ie);
-            s += " ";
+            // The declarator-id is parenthesized, always: after a
+            // class-template return, `Cell<double> ::test::f<...>` lexes as
+            // ONE nested-name-specifier, so clang looks for a member `test`
+            // inside Cell<double> ("no member named 'test'", "does not refer
+            // to a function template"). `long (::test::get<long>)(...)` is
+            // equally valid, so there is no case to special.
+            s += " (";
             s += self._spell->qual_name(d);
             s += self._spell->args_str(&(ie->args));
-            s += "(";
+            s += ")(";
             // An extension member's receiver is a real first parameter; a
             // method's `self` is `this` and has no slot.
             var ext = decl_extension_of(d);
