@@ -122,7 +122,7 @@ class CXXSpell {
         if dc == &null {
             // A scope owner with no parent link (an ExtensionDecl has no
             // semantic_dc): use its own chain, or fid_of answers u32(-1)
-            // and friend_scope_of finds no same-file scope.
+            // and friend_scopes_of finds no same-file scope.
             var own = CXXSpell::dc_of(d);
             if own != &null { dc = own->dc_parent; }
         }
@@ -408,9 +408,14 @@ class CXXSpell {
     }
 
     /// `__kairo_ext_<X>`: the struct whose static members are \p x's (and
-    /// every other extend of X in the same namespace). X is the target's
-    /// leaf, nested owners joined with `__` (`__kairo_ext_Outer__Inner`), a
-    /// generic record's primary, a builtin's Kairo spelling (`__kairo_ext_i32`).
+    /// every other extend of X in the same namespace N). X is the target's
+    /// leaf when the target is declared in N itself, nested owners joined
+    /// with `__` (`__kairo_ext_Outer__Inner`); otherwise its FULL path joined
+    /// with `__` (`__kairo_ext_a__Point`), because an `impl` extend in an
+    /// interface's file can target two modules' `Point`s, and one struct per
+    /// leaf would hold both or be defined twice. A generic record is named
+    /// by its primary, a builtin by its Kairo spelling (`__kairo_ext_i32`).
+    /// Deterministic, and a function of the source tree alone (invariant 9a).
     fn ext_scope_name(self, x: *ExtensionDecl) -> string {
         ICE_IF((x == &null) || (x->target == &null) || (x->target->canonical == &null),
             "CXXSpell: extension with an unresolved target reached codegen");
@@ -419,9 +424,34 @@ class CXXSpell {
         if isa::<BuiltinType>(c) { return s + builtin_info(cast::<BuiltinType>(c)->builtin)->spelling; }
         ICE_IF(!isa::<RecordType>(c), "CXXSpell: extension of a non-record, non-builtin target; no scope naming rule for it yet");
         var prim = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(c)->decl)));
+        if decl_is_imported(prim) { return s + CXXSpell::_path_ident(decl_cxx_spelling(prim)); }
+        var tns = self.ns_segments(prim);
+        var sns = self.scope_ns(x);
+        var same = tns.size() == sns.size();
+        for var i: usize = 0; same && (i < tns.size()); ++i { if tns[i] != sns[i] { same = false; } }
+        if !same {
+            for var i: usize = 0; i < tns.size(); ++i { s += tns[i]; s += "__"; }
+        }
         var ow = self.owner_types(prim);
         for var i: usize = 0; i < ow.size(); ++i { s += ow[i]; s += "__"; }
         return s + self.leaf(prim);
+    }
+
+    /// `::ns::Point` as `ns__Point`: `::` becomes `__`, the leading one is
+    /// dropped, and anything else that is not an identifier byte is `_`.
+    static fn _path_ident(sp: string) -> string {
+        var out = "";
+        var i: usize = 0;
+        if (sp.size() >= 2) && (sp[0] == ':') && (sp[1] == ':') { i = 2; }
+        while i < sp.size() {
+            var ch = sp[i];
+            if (ch == ':') && ((i + 1) < sp.size()) && (sp[i + 1] == ':') { out += "__"; i += 2; continue; }
+            var ok = ((ch >= 'a') && (ch <= 'z')) || ((ch >= 'A') && (ch <= 'Z'))
+                  || ((ch >= '0') && (ch <= '9')) || (ch == '_');
+            if ok { out += ch; } else { out += "_"; }
+            i += 1;
+        }
+        return out;
     }
 
     /// Enclosing TYPE names for a nested decl, outermost first. An extension

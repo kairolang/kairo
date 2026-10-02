@@ -4,10 +4,11 @@
 ///          is: the receiver is passed as argument zero.
 ///
 ///   \detail
-///     Every extension member is a free function with an explicit receiver
-///     (RESOLUTION.md §2b): `extend Foo { fn m(self, x: i32) }` is
-///     `m(Foo* self, int x)` in the extension's module. X bound `a.m(x)` to
-///     that decl through member lookup; this pass makes the tree say so.
+///     Every extension member is a static member of its extension scope,
+///     `struct N::__kairo_ext_Foo` (RESOLUTION.md §2b), with the receiver
+///     passed explicitly: `extend Foo { fn m(self, x: i32) }` is
+///     `static void m(Foo* self, int x)`. X bound `a.m(x)` to that decl
+///     through member lookup; this pass makes the tree say so.
 ///
 ///       a.m(x)              m(&a, x)                    an object with an address
 ///       p->m(x)             m(p, x)
@@ -19,8 +20,9 @@
 ///       Foo::m(a, x)        m(&a, x)                    `self` positional, same rules
 ///       Foo::make()         make()                      a static member: the callee only
 ///
-///     An extension OPERATOR is a non-member C++ operator taking `X&` /
-///     `const X&` ([over.oper]/7), so its receiver is the OBJECT:
+///     An extension OPERATOR is a static `__kairo_op_<name>` taking `X&` /
+///     `const X&`; the C++ `operator<sym>` beside the scope is a forwarder for
+///     C++ consumers and Kairo never calls it. Its receiver is the OBJECT:
 ///
 ///       a == b              operator==(a, b)
 ///       p->op==(b)          operator==(*p, b)
@@ -43,13 +45,12 @@
 ///     is; a `->` anywhere re-roots it at a dereference.
 ///
 ///   \par No headroom
-///     Every extension member of one module is a free function in one
-///     namespace, so C++ sees them as one overload set. The receiver is
-///     therefore passed as exactly the extension's target type: a receiver
-///     reached through a base is upcast in the tree, and clang has nothing to
-///     choose. A generic extension's arguments are X's
-///     (Deduction::bind_from_extension), registered as the call's instance,
-///     and EmitIR spells them; nothing is deduced by clang.
+///     A qualified call into the scope sees only that scope's members, which
+///     X already resolved, and no ADL. The receiver is still passed as
+///     exactly the extension's target type, so a member found through a base
+///     is called with the upcast written. A generic extension's arguments are
+///     X's (Deduction::bind_from_extension), registered as the call's
+///     instance, and EmitIR spells them; nothing is deduced by clang.
 ///
 ///   \par Postcondition
 ///     No call whose callee is a ChainExpr ending in an extension-member

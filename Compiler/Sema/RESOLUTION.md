@@ -710,8 +710,14 @@ tiebreak and is required before the ambiguity diagnostic can suggest it.
 member of target X declared in namespace N (the file's module path plus
 any enclosing module blocks) is a static member of `struct
 N::__kairo_ext_X`, one struct per (N, X), every extend block in that scope
-contributing. X is the target's leaf (nested owners joined with `__`, a
-generic record's primary, a builtin's Kairo spelling: `__kairo_ext_i32`).
+contributing. X is the target's leaf when the target is declared in N
+itself (nested owners joined with `__`: `__kairo_ext_Outer__Inner`), and
+its FULL path joined with `__` otherwise (`__kairo_ext_a__Point`): an
+`impl` extend in an interface's file can target two modules' `Point`s,
+and one struct per leaf would hold both or be defined twice. A generic
+record is named by its primary, a builtin by its Kairo spelling
+(`__kairo_ext_i32`); the name depends on the source tree alone
+(invariant 9a).
 The struct is always complete -- priv members included, in the preamble
 and the header alike -- and all of it is public in C++: visibility is
 AccessCheck's, and the struct is one text everywhere (invariant 11).
@@ -735,8 +741,10 @@ extension operator C++ can spell gets an inline namespace-scope
 then write `-x`). The postfix `int` dummy is forwarded as is.
 
 **Friend iff the extend is in the type's file** [DECIDED]. The type's
-emitted definition carries one `friend struct ::N::__kairo_ext_X;` for
-the same-file scope, so its members see `priv`; an `impl` extend in the
+emitted definition carries one `friend struct ::N::__kairo_ext_X;` per
+same-file scope -- usually one; `module Geo { extend Point {...} }` beside
+a file-scope extend is two, in two namespaces -- so their members see
+`priv`; an `impl` extend in the
 interface's file gets its own scope in that file's namespace and is not
 a friend, so it is pub-only. The friend line is therefore closed at the
 file, so a class definition is byte-identical in every TU (IMPORTS.md
@@ -858,8 +866,8 @@ A pass that needs one asks that file; it never spells the string itself.
     candidate but never select a different one (lattice §7).
 17. **A generic parameter's regime is its declaration's.** `<T>` opaque,
     `<T impl I>` bounded, `<T: type>` duck. No inference of regime from use.
-18. **A class definition is closed at its file.** Its one friend is the
-    same-file extension scope; nothing in another file changes the
+18. **A class definition is closed at its file.** Its friends are its
+    same-file extension scopes; nothing in another file changes the
     emitted definition.
 19. **An interface bound names every interface argument.**
 

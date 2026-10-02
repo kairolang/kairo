@@ -91,12 +91,17 @@ pointers, signature types Fwd. Refinements decided since:
   that (N, X) in its file, in source order, priv members included -- never
   from the use that touched it, so its text is the same in every TU. Two
   targets that spell one struct name in one N ICE.
-- A scope's Complete deps are its target and every by-value record its
+- Every member's signature is expanded at Fwd, priv included: the struct is
+  emitted whole in every TU that touches it, so a type only a priv member
+  names must still be declared in a preamble that never mentions it.
+- A scope's Complete deps are its target, every by-value record its
   operator forwarders' signatures name (a forwarder is an inline
-  definition).
-- A class at Complete touches its SAME-FILE scope (its friend struct);
-  `friend_scope_of()` returns it, or null. Two same-file scopes for one
-  type (extends in two module blocks) ICE.
+  definition), and the outermost owner of every NESTED type any member's
+  signature names (`Other::Inner` is named only through a complete
+  `Other`).
+- A class at Complete touches its SAME-FILE scopes (its friend structs);
+  `friend_scopes_of()` returns every one, and a class may have several
+  (`module Geo { extend Point {...} }` beside a file-scope extend).
 
 Tiers: 0 forward declarations, and `struct __kairo_ext_X;` for every scope
 the plan touches; 1 definitions, topo-sorted on Complete, each scope's
@@ -169,8 +174,10 @@ emitters use the same instance; a declaration and a body cannot disagree.
   unnamed: `[const ]X*`, or `[const ]X&` for an operator. Both emitters'
   parameter lists and InterfaceEmitter's explicit instantiations use it.
 - `ext_scope_name(x)`: `__kairo_ext_<X>` (`LowerTargets::ext_scope_prefix`):
-  the target's leaf, nested owners joined with `__`, a generic record's
-  primary, a builtin's Kairo spelling. `owner_types` of an extension member
+  the target's leaf when it is declared in the scope's own namespace,
+  nested owners joined with `__`; otherwise its full path joined with `__`
+  (`__kairo_ext_a__Point`), an imported C++ target's from its spelling; a
+  generic record's primary; a builtin's Kairo spelling. `owner_types` of an extension member
   is that one name, so `qual_name` is `::N::__kairo_ext_X::m` unchanged;
   `scope_ns(x)` is N.
 - `ext_op(sym)` (`LowerTargets`): an extension operator's static-member name,
@@ -204,7 +211,7 @@ it. Library roots still wrap by `module_base` (Piece 1 open).
 
 Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields, method DECLARATIONS (never bodies — invariant 12),
-one `friend struct ::N::__kairo_ext_X;` for the same-file scope, nested
+one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
 types. Enums: C-like only. Functions: free only. Extension scopes:
 `struct __kairo_ext_X {` and one `static` declaration per member (merged
 template head, receiver first via `ext_receiver`, the postfix `int` dummy

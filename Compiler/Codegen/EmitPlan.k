@@ -178,7 +178,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _close(self);
     fn _order(self);
     fn _collect_uses(self);
-    fn friend_scope_of(self, d: *Decl) -> *ExtScope;
+    fn friend_scopes_of(self, d: *Decl, out: *vec::<*ExtScope>);
     fn dump(self, path: string);
     fn _tier_name(self, t: PlanTier) -> string;
     fn _need_name(self, n: PlanNeed) -> string;
@@ -189,6 +189,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _fill_scope(self, k: usize, cand: *Decl);
     fn _same_scope(self, k: usize, x: *ExtensionDecl) -> bool;
     fn _scope_dep(self, k: usize, t: *Type);
+    fn _scope_sig_dep(self, k: usize, t: *Type);
+    fn _scope_add_dep(self, k: usize, d: *Decl);
     fn visit_expr(self, e: *Expr) -> bool;
     fn visit_type(self, t: *Type) -> bool;
     fn visit_decl(self, d: *Decl) -> bool;
@@ -308,21 +310,19 @@ fn EmitPlan::run() {
     self._order();
 }
 
-/// The extension scope written in \p d's OWN file, for the definition's one
-/// `friend struct` line, or null. One: a second same-file scope means extend
-/// blocks of d in two module blocks of its file, which no friend rule covers
-/// yet, and that ICEs rather than befriending one of them silently.
-fn EmitPlan::friend_scope_of(d: *Decl) -> *ExtScope {
+/// Every extension scope written in \p d's OWN file, for the definition's
+/// `friend struct` lines, in plan order. Usually one; `module Geo { extend
+/// Point {...} }` beside a file-scope `extend Point` is two scopes in two
+/// namespaces, and both are friends under invariant 18 -- the set is still
+/// closed at the file.
+fn EmitPlan::friend_scopes_of(d: *Decl, out: *vec::<*ExtScope>) {
     var c = self.layout_decl(d);
-    var hit: *ExtScope = &null;
     for var i: usize = 0; i < self._scopes.size(); ++i {
         var s = &(self._scopes[i]);
         if (s->target == &null) || (s->target != c) { continue; }
         if CXXSpell::fid_of(static_cast::<*Decl>(s->anchor)) != CXXSpell::fid_of(c) { continue; }
-        ICE_IF(hit != &null, "EmitPlan: two extension scopes of one type in its own file (extends in different module blocks); one friend struct per type");
-        hit = s;
+        out->push_back(s);
     }
-    return hit;
 }
 
 // --- Dump --------------------------------------------------------------------
@@ -486,11 +486,23 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
 
     // A static member's signature names its types and lays none out; the
     // definition and its forwarders need the deps complete.
+    //
+    // EVERY member is expanded, priv included: the struct is emitted whole
+    // in every TU that touches it, so a type only a priv member names must
+    // be declared in a preamble whose own code never mentions it. A nested
+    // type there is a dep too -- `Other::Inner` cannot be named through
+    // the bare `class Other;` that Fwd gives.
     self._scope_dep(k, x->target);
     var nm = self._scopes[k].members.size();
     for var i: usize = 0; i < nm; ++i {
         var m = self._scopes[k].members[i];
         self._expand_fn(m);
+        self._scope_sig_dep(k, m->return_type);
+        for var j: usize = 0; j < m->params.size(); ++j {
+            var p = m->params[j];
+            if (p == &null) || p->is_self { continue; }
+            self._scope_sig_dep(k, ((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)));
+        }
         if (!m->is_operator) || (self._spell.ext_forwarder_name(m).size() == 0) { continue; }
         self._scope_dep(k, m->return_type);
         for var j: usize = 0; j < m->params.size(); ++j {
@@ -553,8 +565,49 @@ fn EmitPlan::_scope_dep(k: usize, t: *Type) {
     if !isa::<RecordType>(c) { return; }
     var d = self.layout_decl(cast::<RecordType>(c)->decl);
     if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
-    d = self._outermost_type(d);
     self._admit_type(t, PlanNeed::Complete);
+    self._scope_add_dep(k, self._outermost_type(d));
+}
+
+/// A NESTED record anywhere in a member signature \p t -- behind pointers,
+/// references, arrays, as a generic argument -- makes its outermost owner a
+/// Complete dep of scope \p k: a member type is named only through a
+/// complete enclosing class.
+fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
+    if t == &null { return; }
+    var c = t->canonical;
+    if c == &null { c = t; }
+    switch c->kind {
+        case TypeKind::QualifiedType    { self._scope_sig_dep(k, cast::<QualifiedType>(c)->inner); }
+        case TypeKind::PointerType      { self._scope_sig_dep(k, cast::<PointerType>(c)->pointee); }
+        case TypeKind::CXXLValueRefType { self._scope_sig_dep(k, cast::<CXXLValueRefType>(c)->referee); }
+        case TypeKind::CXXRValueRefType { self._scope_sig_dep(k, cast::<CXXRValueRefType>(c)->referee); }
+        case TypeKind::NullableType     { self._scope_sig_dep(k, cast::<NullableType>(c)->inner); }
+        case TypeKind::FixedArrayType   { self._scope_sig_dep(k, cast::<FixedArrayType>(c)->element); }
+        case TypeKind::TupleType {
+            var tp = cast::<TupleType>(c);
+            for var i: usize = 0; i < tp->elements.size(); ++i { self._scope_sig_dep(k, *(tp->elements.get(i))); }
+        }
+        case TypeKind::FunctionPointerType {
+            var fp = cast::<FunctionPointerType>(c);
+            for var i: usize = 0; i < fp->params.size(); ++i { self._scope_sig_dep(k, *(fp->params.get(i))); }
+            self._scope_sig_dep(k, fp->return_type);
+        }
+        case TypeKind::RecordType {
+            var r = cast::<RecordType>(c);
+            for var i: usize = 0; i < r->args.size(); ++i { self._scope_sig_dep(k, *(r->args.get(i))); }
+            var d = self.layout_decl(r->decl);
+            if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
+            var outer = self._outermost_type(d);
+            if outer == d { return; }
+            self._admit(outer, PlanNeed::Complete);
+            self._scope_add_dep(k, outer);
+        }
+        default { break; }
+    }
+}
+
+fn EmitPlan::_scope_add_dep(k: usize, d: *Decl) {
     for var i: usize = 0; i < self._scopes[k].deps.size(); ++i {
         if self._scopes[k].deps[i] == d { return; }
     }

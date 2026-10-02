@@ -369,16 +369,17 @@ class InterfaceEmitter {
             sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
-        // Friend: the same-file extension scope, so an extension member
-        // written beside the type can reach its privates. One line covers
-        // every member, generic or not, and the struct was declared in tier
-        // 0, so the qualified name needs no other prior declaration.
-        var fs = self._plan->friend_scope_of(d);
-        if fs != &null {
-            sink->spell(self._at(static_cast::<*Decl>(fs->anchor)), "friend struct " + self._scope_qual(fs) + ";");
-            if self._cg->opts.extension_member_wrappers {
-                ICE_FAIL("InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
-            }
+        // Friends: every same-file extension scope, so an extension member
+        // written beside the type can reach its privates. One line per scope
+        // covers every member, generic or not, and each struct was declared
+        // in tier 0, so its qualified name needs no other prior declaration.
+        var fs = vec::<*ExtScope>();
+        self._plan->friend_scopes_of(d, &fs);
+        for var i: usize = 0; i < fs.size(); ++i {
+            sink->spell(self._at(static_cast::<*Decl>(fs[i]->anchor)), "friend struct " + self._scope_qual(fs[i]) + ";");
+        }
+        if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
+            ICE_FAIL("InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
         }
 
         sink->spell(at, "};");
