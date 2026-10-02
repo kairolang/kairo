@@ -113,6 +113,16 @@ class LocalTypeFrame {
     fn LocalTypeFrame(self) { }
 }
 
+/// The resolver's lexical state as it was before _enter_decl_scope; handed
+/// back to _leave_decl_scope unchanged.
+class SavedDeclScope {
+    pub var cur_dc: *DeclContext = &null;
+    pub var frames: vec::<GenericFrame>;
+    pub var selfs:  vec::<*Type>;
+    pub var ltypes: vec::<LocalTypeFrame>;
+    fn SavedDeclScope(self) { }
+}
+
 ///
 /// \class TypeResolution
 /// \brief The T pass. One instance per TU per run.
@@ -1240,26 +1250,9 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if self._foreign(primary) { return t->canonical; }
         if self.sc->rstate.type_done(t) { return t->canonical; }
 
-        var saved_dc     = self.cur_dc;
-        var saved_frames = self.frames;
-        var saved_selfs  = self._selfs;
-        var saved_lt     = self.ltypes;
-        if primary->semantic_dc != &null {
-            self.cur_dc = reinterpret_cast::<*DeclContext>(primary->semantic_dc);
-        }
-        
-        self.frames.clear();
-        self.ltypes.clear();
-        self._push_frame(primary, decl_generic_params(primary));
-        self._selfs.clear();
-        self._push_enclosing_selfs(self.cur_dc);
-
+        var saved = self._enter_decl_scope(primary);
         self.dispatch_type(t);
-
-        self.cur_dc = saved_dc;
-        self.frames = saved_frames;
-        self._selfs  = saved_selfs;
-        self.ltypes = saved_lt;
+        self._leave_decl_scope(&saved);
         return t->canonical;
     }
 
@@ -1329,33 +1322,14 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if !self.sc->rstate.begin_decl(td, at) { return &null; }
 
         // Resolve in the ALIAS's scope, not the use site's: `type X = Inner`
-        // inside module M means M::Inner regardless of who wrote `X`.
-        var saved_dc     = self.cur_dc;
-        var saved_frames = self.frames;
-        var saved_selfs  = self._selfs;
-        var saved_lt     = self.ltypes;
-        if td->semantic_dc != &null {
-            self.cur_dc = reinterpret_cast::<*DeclContext>(td->semantic_dc);
-        }
-        self.frames.clear();
-        if td->generic_params.size() > 0 {
-            var fr = GenericFrame{};
-            fr.owner  = static_cast::<*Decl>(td);
-            fr.params = td->generic_params;
-            self.frames.push_back(fr);
-        }
-        // Self inside an alias body is the alias's ENCLOSING type, if any.
-        self._selfs.clear();
-        self._push_enclosing_selfs(self.cur_dc);
-
+        // inside module M means M::Inner regardless of who wrote `X`, and the
+        // `T` in `class <T> Box { type Elem = T }` is Box's whoever demands
+        // Elem first. Self inside an alias body is its ENCLOSING type.
+        var saved = self._enter_decl_scope(static_cast::<*Decl>(td));
         ++(self._alias_depth);
         self.dispatch_type(td->aliased);
         --(self._alias_depth);
-
-        self.cur_dc = saved_dc;
-        self.frames = saved_frames;
-        self._selfs = saved_selfs;
-        self.ltypes = saved_lt;
+        self._leave_decl_scope(&saved);
 
         var ok = !td->aliased->is_poisoned();
         if !ok { td->poison(); }
@@ -1827,20 +1801,90 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if !self.frames.empty() { self.frames.pop_back(); }
     }
 
-    /// Walk outward from \p dc pushing every enclosing type scope's Self,
-    /// outermost first, so the innermost lands at the top.
-    priv fn _push_enclosing_selfs(self, dc: *DeclContext) {
-        var chain = vec::<*Type>();
-        var c = dc;
+    /// Set the resolver's lexical state to \p d's DECLARATION scope, for
+    /// resolving its types outside walk order: cur_dc to its semantic dc, the
+    /// generic frames and selfs of every enclosing type scope and function,
+    /// outermost first, then \p d's own generic params. Pair with
+    /// _leave_decl_scope, which restores exactly what this returns.
+    ///
+    /// The rule (RESOLUTION.md §2.6): demand order may change WHEN a
+    /// declaration's types resolve, never WHAT they resolve to. So the demand
+    /// site's frames are cleared, not kept underneath -- a `T` visible where
+    /// the alias was USED is a different `T`.
+    ///
+    /// The owner walk skips Block and Lambda scopes rather than stopping at
+    /// them: a statement-scope decl sits in a Block, and the function's
+    /// params (`fn <T> f() { type A = *T }`) are past it. A closure's
+    /// generic params are not rebuilt (its frame has no owner decl).
+    ///
+    /// A decl with no semantic dc (a statement-scope alias) keeps the whole
+    /// current state: see the branch below for why that state is its own.
+    ///
+    /// `ltypes` is the one exception to "cleared": it is KEPT for a local
+    /// decl. Local types live on that stack and in no table, so clearing it
+    /// would lose `fn f() { struct S { } type A = S }`; and a local decl can
+    /// only be demanded from inside its own function, where the stack is
+    /// already the right one. For any other decl it is cleared.
+    priv fn _enter_decl_scope(self, d: *Decl) -> SavedDeclScope {
+        var saved = SavedDeclScope{};
+        saved.cur_dc = self.cur_dc;
+        saved.frames = self.frames;
+        saved.selfs  = self._selfs;
+        saved.ltypes = self.ltypes;
+
+        var home = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if home == &null {
+            // No scope home: a statement-scope ALIAS (the parser tables and
+            // links local classes, not local aliases). Its name enters
+            // ltypes only when the walk reaches its DeclStmt, which resolves
+            // it there and then, so every later use is a memo hit. It is
+            // therefore only ever resolved in walk order, where the walk's
+            // state already IS its declaration scope: keep it.
+            var own0 = decl_generic_params(d);
+            if own0.size() > 0 { self._push_frame(NameLookup::representative(d), own0); }
+            return saved;
+        }
+        self.cur_dc = home;
+        self.frames.clear();
+        self._selfs.clear();
+
+        // Innermost first; pushed reversed below.
+        var owners = vec::<*Decl>();
+        var local  = false;
+        var c = home;
         while c != &null {
-            if c->is_type_scope() && (c->owner_decl() != &null) {
-                var t = self._self_of_scope(NameLookup::representative(c->owner_decl()));
-                if t != &null { chain.push_back(t); }
+            if c->is_translation_unit() || (c->dc_kind == DeclContextKind::Module) { break; }
+            var o = c->owner_decl();
+            if c->is_type_scope() || c->is_function() {
+                if o != &null { owners.push_back(o); }
             }
+            if !c->is_type_scope() { local = true; }      // Function, Lambda, Block.
             c = c->dc_parent;
         }
-        var n = chain.size();
-        for var i: usize = 0; i < n; ++i { self._selfs.push_back(chain[(n - 1) - i]); }
+        if !local { self.ltypes.clear(); }
+
+        // The same values the walk's traverse_* push, from the same helpers.
+        var n = owners.size();
+        for var i: usize = 0; i < n; ++i {
+            var o   = owners[(n - 1) - i];
+            var rep = NameLookup::representative(o);
+            self._push_frame(rep, decl_generic_params(o));
+            if !isa::<FunctionDecl>(o) {
+                var st = self._self_of_scope(rep);
+                if st != &null { self._selfs.push_back(st); }
+            }
+        }
+
+        var own = decl_generic_params(d);
+        if own.size() > 0 { self._push_frame(NameLookup::representative(d), own); }
+        return saved;
+    }
+
+    priv fn _leave_decl_scope(self, saved: *SavedDeclScope) {
+        self.cur_dc = saved->cur_dc;
+        self.frames = saved->frames;
+        self._selfs = saved->selfs;
+        self.ltypes = saved->ltypes;
     }
 
     // === Receiver synthesis ===================================================
@@ -2067,16 +2111,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if primary == &null { d->poison(); return; }        // diagnosed inside.
         decl_set_instantiated_from(d, primary);
 
-        var saved_dc     = self.cur_dc;
-        var saved_frames = self.frames;
-        var saved_selfs  = self._selfs;
-        var saved_lt     = self.ltypes;
-        if d->semantic_dc != &null { self.cur_dc = reinterpret_cast::<*DeclContext>(d->semantic_dc); }
-        self.frames.clear();
-        self.ltypes.clear();
-        self._push_frame(NameLookup::representative(d), decl_generic_params(d));
-        self._selfs.clear();
-        self._push_enclosing_selfs(self.cur_dc);
+        var saved = self._enter_decl_scope(d);
 
         var sargs = decl_spec_args(d);
         var args  = vec::<*Type>();
@@ -2091,10 +2126,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             args.push_back(a->canonical);
         }
 
-        self.cur_dc = saved_dc;
-        self.frames = saved_frames;
-        self._selfs  = saved_selfs;
-        self.ltypes = saved_lt;
+        self._leave_decl_scope(&saved);
         if !ok { d->poison(); return; }
 
         if (decl_spec_kind(d) == SpecKind::Partial) || dep {

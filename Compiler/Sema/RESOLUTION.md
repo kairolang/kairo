@@ -176,6 +176,25 @@ survives with both slots null unless poisoned.
 Aliases expand on demand (`_expand_alias`), memoized on ResolutionState;
 `type A = B; type B = A` is one error with every link as a note.
 
+**A declaration's types resolve in the declaration's own lexical scope,
+never in the scope of whoever demanded them.** Demand order may change WHEN
+a type is resolved; it must never change WHAT it resolves to. Every
+out-of-walk entry -- `_expand_alias`, `_demand_default`,
+`_register_type_spec` -- goes through `_enter_decl_scope(d)` /
+`_leave_decl_scope`, which clears the demand site's frames and selfs and
+rebuilds `d`'s: walking `semantic_dc` outward to the first module or TU,
+every type scope contributes its generic frame and its Self (an extension:
+its own params, its target), a function its generic frame, Block and Lambda
+scopes are skipped; then `d`'s own params. So `class <T> Box { type Elem =
+T }` sees Box's `T` however Elem is first reached. Two exceptions, both
+because a local decl can only be demanded from inside its own function:
+`ltypes` is KEPT for a local decl (local types live on no table, only that
+stack); and a statement-scope alias, which the parser leaves with no
+`semantic_dc`, keeps the whole walk state, since it is resolved at its
+DeclStmt before any use can name it. The remaining dispatches are use-site
+by nature (a chain's generic args, a pack's param) or walk-only (an
+extension's target).
+
 **Alias chain depth is its own budget** (`--cmax-type-alias-depth`, default
 64). The resolution stack's cap stays as the backstop and reports a
 different message naming `--cmax-scope-depth`. Both are `R036`.
