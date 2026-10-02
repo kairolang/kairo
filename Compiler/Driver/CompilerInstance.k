@@ -143,6 +143,7 @@ import Interop::Clang::HeaderSet::*;
 import Sema::Foreign::HeaderIndex::*;
 import Sema::Foreign::ForeignRegistry::*;
 import Sema::Foreign::ForeignInstantiate::*;
+import Sema::Foreign::BuiltinImport::*;
 import Diagnostic::ClangDiagLookup::*;
 import Linker::API::Link::*;
 import Linker::API::LinkJob::*;
@@ -277,6 +278,7 @@ class CompilerInstance {
     priv var _hindex:  *HeaderIndex     = &null; ///< header set -> Kairo TUs; owned
     priv var _freg:    *ForeignRegistry = &null; ///< USR -> imported decl, build-wide; owned
     priv var _finst:   *ForeignInstantiate = &null; ///< fills instances of imported templates from clang; owned
+    priv var _builtins: *BuiltinImport     = &null; ///< clang builtins as foreign decls, build-wide; owned
     priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
     priv var _obj_tmp:     bool   = false;///< _obj_dir is a temp dir this run owns and removes
@@ -399,6 +401,8 @@ class CompilerInstance {
             std::destroy(self._headers);
             self._headers = &null;
         }
+        // Borrows _hindex's target, _freg and the backend's oracle: first out.
+        if self._builtins != &null { std::destroy(self._builtins); self._builtins = &null; }
         if self._finst  != &null { std::destroy(self._finst);  self._finst  = &null; }   // borrows _hindex.
         if self._hindex != &null { std::destroy(self._hindex); self._hindex = &null; }
         if self._freg   != &null { std::destroy(self._freg);   self._freg   = &null; }
@@ -450,6 +454,8 @@ class CompilerInstance {
     fn headers(self)      -> *HeaderSetCache          { return self._headers; }
     fn header_index(self) -> *HeaderIndex             { return self._hindex;  }
     fn foreign_instantiate(self) -> *ForeignInstantiate { return self._finst; }
+    fn foreign_registry(self) -> *ForeignRegistry     { return self._freg;    }
+    fn builtins(self)     -> *BuiltinImport           { return self._builtins; }
 
     /// \brief true if \p fid is a C++ header Sema/Foreign imported: a TU whose
     ///        decls came from clang, with no Kairo source behind it.
@@ -989,6 +995,7 @@ class CompilerInstance {
         self._hindex  = std::create::<HeaderIndex>(self._sm, self._tcm, self._diag, self._imp,
                                                    &self.invocation(), self._g_scope, self._freg);
         self._finst   = std::create::<ForeignInstantiate>(self._hindex, self._freg, self._g_scope->instances());
+        self._builtins = std::create::<BuiltinImport>();   // init()ed on the driver, after header indexing.
 
         self._pp = std::create::<PreProcessor>(
             self._sm, self._tcm, self._imp, self._pool,
@@ -2150,6 +2157,28 @@ fn FrontendAction::_sema() -> bool {
         }
     }
 
+    // Clang builtins, the fourth source of unqualified names. Here because
+    // init mints a foreign TU (HeaderIndex writes the SM and the global
+    // table: driver thread only) and must finish before the first
+    // SemaContext. Outside the header block on purpose: a TU that imports
+    // no C++ can still call `__builtin_expect`.
+    //
+    // startup() is idempotent and joins the pool task through the backend's
+    // mutex; it is normally long done by now. Timed apart from init so a
+    // stall reads as what it is.
+    {
+        var be = self._ci->backend();
+        var bi = self._ci->builtins();
+        if (be != &null) && (bi != &null) {
+            {
+                var _tj = TimeRegion("BuiltinStartupJoin");
+                be->startup();
+            }
+            bi->init(be->oracle(), self._ci->sm(), self._ci->header_index(),
+                     self._global_scope, self._ci->foreign_registry());
+        }
+    }
+
     // The PRELUDE, as a real ImportDecl. The PP folded the builtin root into
     // the import GRAPH, so it is parsed, ordered and admitted -- but a graph
     // edge binds no NAMES: phase I builds a TU's overlay from tu->imports and
@@ -2237,7 +2266,8 @@ fn FrontendAction::_sema() -> bool {
         if tu == &null { continue; }
         if tu->is_foreign { continue; }   // decls came from clang, already resolved; nothing to run.
         var sem = Sema(ctx, self._global_scope);
-        sem.sc.foreign = self._ci->foreign_instantiate();   // before any pass captures &sem.sc.
+        sem.sc.foreign  = self._ci->foreign_instantiate();   // before any pass captures &sem.sc.
+        sem.sc.builtins = self._ci->builtins();
         // Through L, not just the checks: OperatorLowering rewrites every user
         // operator into the call it is, and codegen ICEs on any operator node
         // that reaches it. --type-check-only stops here too, so the lowering

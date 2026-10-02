@@ -76,6 +76,7 @@ import Location::SourceManager::*;
 import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagAdapter::*;
 import Interop::Clang::ClangLocMap::*;
+import Interop::Clang::BuiltinsSet::*;
 import Config::Diagnostic::*;
 
 /// ThreadPool group ids used by the driver for backend tasks.
@@ -200,6 +201,7 @@ class ClangBackend {
     priv var _mu:      std::Mutex;   ///< serializes startup against itself
     priv var _started: bool = false;
     priv var _failed:  bool = false;
+    priv var _oracle:  BuiltinsSet;
 
     // --- Construction ------------------------------------------------------
 
@@ -214,6 +216,9 @@ class ClangBackend {
     }
 
     fn op delete (self) {
+        // The oracle's own CI borrows _printer too: it goes first.
+        self._oracle.release();
+
         // CI's engine borrows _printer (ShouldOwnClient=false everywhere):
         // release the CI and the arg-parse engine BEFORE the printer dies.
         if self._ci != &null {
@@ -247,6 +252,12 @@ class ClangBackend {
     fn invocation(self) -> *clang::CompilerInvocation { return self._cinv.get(); }
     fn vfs(self)        -> llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem> { return self._vfs; }
     fn mem_fs(self)     -> *llvm::vfs::InMemoryFileSystem { return self._mem.get(); }
+
+    fn oracle(self) -> *BuiltinsSet {
+        if !self.ready() { return &null; }
+        if !self._oracle.ready() { return &null; }
+        return &(self._oracle);
+    }
 
     /// \brief compiles one C or C++ source file to an object, on the same
     ///        target, roots and VFS as Kairo's own codegen.
@@ -544,6 +555,11 @@ class ClangBackend {
         // meaningful because registration also happened outside the window,
         // and that is exactly what produced the stale-FileID bug.
         self._started = true;
+
+        // Failure is not fatal: every builtin then misses into R020E.
+        if !self._oracle.build(self._cinv.get(), self._vfs, self._printer) {
+            Logger::info(Logger::Stage::Driver, "ClangBackend: builtin oracle unavailable");
+        }
 
         Logger::info(Logger::Stage::Driver,
             f"ClangBackend: started (triple={self._cfg.triple})");

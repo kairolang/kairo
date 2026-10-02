@@ -64,6 +64,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::PrimaryExpressions::*;
@@ -385,6 +386,14 @@ class ExprTyper
                 return self.sc->types->record(NameLookup::representative(ed), &a);
             }
             case DeclKind::FunctionDecl {
+                // A builtin has no address: clang lowers each call in place.
+                // CallTyping's name arm binds a callee without typing it, so
+                // reaching here at all means a use that is not a direct call.
+                if decl_builtin_id(d) != 0 {
+                    self.fail(n, DiagID::SC109E,
+                        f"'{self.sc->ctx->get_spelling(n->name)}' is a clang builtin; it can only be called directly");
+                    return &null;
+                }
                 var f = cast::<FunctionDecl>(d);
                 var ci = self.new_chain_info_for_ident(n);
                 ci->callable_cands.push_back(d);

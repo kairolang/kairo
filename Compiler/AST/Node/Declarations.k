@@ -436,6 +436,8 @@ class FunctionDecl
     pub var transfer:      TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.
     pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
+    pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.
+    pub var ffi_ice_mask:   u32 = 0;              ///< bit i: parameter i takes an integer constant.
 
     fn has_where(self) -> bool { return self.where_clause != &null; }
 

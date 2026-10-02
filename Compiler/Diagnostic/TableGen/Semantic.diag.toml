@@ -2290,3 +2290,59 @@ group = "type-check"
 
     pass every parameter up to the last one you name, writing the default value out explicitly.
     """
+
+[SC108]
+brief = "a clang builtin argument must be an integer constant"
+group = "calls"
+
+    [SC108.E]
+    explain = """
+    # builtin argument is not a constant
+
+    some clang builtins take an integer constant in a given position: the value is folded into the
+    instruction clang emits, so it must be known at compile time. `__builtin_return_address`'s frame
+    level and the `__builtin_ia32_*` immediates are typical.
+
+    Kairo checks this at the argument you wrote. today only a literal counts, possibly under a
+    unary `-`, `+`, `~` or `!`; an `eval` binding is not accepted yet.
+
+    ## example
+
+    ```kairo
+    fn caller(level: u32) -> *void {
+        return __builtin_return_address(level)   // error: argument 1 must be an integer constant
+    }
+    ```
+
+    ## how to fix
+
+    pass the value as a literal: `__builtin_return_address(0)`.
+    """
+
+[SC109]
+brief = "a clang builtin can only be called directly"
+group = "calls"
+
+    [SC109.E]
+    explain = """
+    # clang builtin used as a value
+
+    a clang builtin has no address. clang lowers each call to it in place, so there is no function
+    to point at, store, or pass along. the only thing to do with its name is call it.
+
+    ## example
+
+    ```kairo
+    var f = __builtin_popcount        // error: not a call
+    var g = &__builtin_popcount       // error: no address either
+    ```
+
+    ## how to fix
+
+    call it where the value is needed, or wrap it in a Kairo function and use that:
+
+    ```kairo
+    fn popcount(x: u32) -> i32 { return __builtin_popcount(x) }
+    var f = popcount
+    ```
+    """

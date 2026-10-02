@@ -42,6 +42,7 @@ import Lexer::Immediate::*;
 import Config::Invocation::*;
 import AST::Context::InstantiationRegistry::*;
 import Sema::Foreign::ForeignInstantiate::*;
+import Sema::Foreign::BuiltinImport::*;
 
 /// \enum SemaPhase
 /// \brief Where the TU is in the RESOLUTION.md pipeline. Monotonically
@@ -152,6 +153,10 @@ class SemaContext {
     /// after construction; null when nothing imports C++ -- every reader
     /// treats null as "cannot fill", which leaves lookup on the pattern.
     pub var foreign:   obs::<ForeignInstantiate> = &null;
+    /// The clang builtins, as the fourth source of unqualified names (N(b),
+    /// on a total miss only). Build-wide, owned by CompilerInstance and wired
+    /// like `foreign`; null or unready means every builtin misses into R020E.
+    pub var builtins:  obs::<BuiltinImport> = &null;
 
     /// The build's lang items, OWNED by GlobalDisambigTable and observed here.
     /// Per-TU storage was the bug: every TU re-bound them by unqualified name

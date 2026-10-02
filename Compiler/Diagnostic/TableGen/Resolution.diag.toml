@@ -1355,3 +1355,33 @@ group = "redeclaration"
 
     [R056.N]
     explain = "the in-class declaration, where defaults go."
+
+[R057]
+brief = "clang builtin that Kairo cannot call"
+group = "lookup"
+
+    [R057.E]
+    explain = """
+    # unusable clang builtin
+
+    a name clang knows as a builtin (`__builtin_popcount`, `__builtin_expect`, ...) is a foreign
+    function every TU can call without an import. it is found only when no Kairo declaration, local,
+    import or extend target has the name, so a declaration of your own always wins.
+
+    some builtins have no signature Kairo can take: clang type-checks them per call
+    (`__builtin_shufflevector`), their type names something only a header declares (`FILE`,
+    `jmp_buf`), or a parameter or the result has a type Kairo cannot express. the message says which.
+
+    ## example
+
+    ```kairo
+    fn f(v: i32) -> i32 {
+        return __builtin_shufflevector(v, v, 0)   // clang checks this one per call
+    }
+    ```
+
+    ## how to fix
+
+    write the operation in Kairo, or wrap the builtin in a C++ function with an ordinary signature
+    and import that through `ffi "c++" import`.
+    """

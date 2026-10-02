@@ -478,12 +478,57 @@ class <T> CallTyping {
         }
 
         self.finish_call_args(r.decl, &args, &r);
+        if !self._check_constant_args(r.decl, &args, &r) { dyn()->poison_only(n); return &null; }
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
         var rt = self.call_result_type(r.decl, &r);
         n->instance = reinterpret_cast::<*void>(r.instance);
         if rt == &null { dyn()->mark_unknown(n); return &null; }
         return rt;
+    }
+
+    /// A clang builtin's `I` positions take an integer constant. Checked
+    /// here, at the Kairo argument: left to clang, the error lands on the
+    /// emitted token stream, where the user wrote nothing.
+    ///
+    /// An integer, bool or char literal (possibly under unary `-`, `+`, `~`,
+    /// `!`) is a constant: clang's ICE rules take all three. Nothing else is
+    /// yet: the evaluator is a stub, so an `eval` binding has no value sema
+    /// can read, and accepting one here would only move the error back into
+    /// clang.
+    priv fn _check_constant_args(self, f: *FunctionDecl, args: *vec::<ArgInfo>, r: *OvlResult) -> bool {
+        if f->ffi_ice_mask == 0 { return true; }
+        var ok = true;
+        for var i: usize = 0; i < args->size(); ++i {
+            var pi = (r->arg_to_param[i]) if (i < r->arg_to_param.size()) else (usize(-1));
+            if pi >= 32 { continue; }                       // pack tail / C `...`: no mask bit.
+            if (f->ffi_ice_mask & (u32(1) << u32(pi))) == 0 { continue; }
+            var a = &((*args)[i]);
+            if self._is_constant_arg(a->expr) { continue; }
+            dyn()->fail(a->expr, DiagID::SC108E,
+                f"argument {pi + 1} of '{dyn()->tu.decl_name(static_cast::<*Decl>(f))}' must be an integer constant");
+            ok = false;
+        }
+        return ok;
+    }
+
+    priv fn _is_constant_arg(self, e_in: *Expr) -> bool {
+        var e = dyn()->tu.strip_parens(e_in);
+        if e == &null { return false; }
+        if isa::<UnaryOperatorExpr>(e) {
+            var u = cast::<UnaryOperatorExpr>(e);
+            var k = u->op_token.kind;
+            if (k == TokenKind::OpMinus) || (k == TokenKind::OpPlus)
+            || (k == TokenKind::OpTilde) || (k == TokenKind::OpExclaim) {
+                return self._is_constant_arg(u->operand);
+            }
+            return false;
+        }
+        // Not literal_shape: that is the overload ranker's view, which takes
+        // floats and `null` (not constants here) and refuses a bool, the
+        // very literal `__builtin_coro_promise`'s third slot wants.
+        return isa::<IntegerLiteralExpr>(e) || isa::<BooleanLiteralExpr>(e)
+            || isa::<CharacterLiteralExpr>(e);
     }
 
     /// `CallExpr::arg_map`, written once, at Selected. Parallel to the CALLEE'S

@@ -246,6 +246,12 @@ fn decl_cxx_spelling(d: *Decl) -> string {
     return "";
 }
 
+/// The clang builtin a decl stands for, or 0.
+fn decl_builtin_id(d: *Decl) -> u32 {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) { return 0; }
+    return cast::<FunctionDecl>(d)->ffi_builtin_id;
+}
+
 fn decl_set_imported(d: *Decl, cd: *void, usr: string, sp: string, hs: *void, fid: u32) {
     if d == &null { return; }
     if isa::<ClassDecl>(d)     { cast::<ClassDecl>(d)->set_imported(cd, usr, sp, hs, fid);     return; }

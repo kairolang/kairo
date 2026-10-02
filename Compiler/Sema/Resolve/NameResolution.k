@@ -18,8 +18,8 @@
 ///     Lookup itself lives in sc->lookup (NameLookup, the four
 ///     primitives); this pass owns POLICY only: the lexical local stack
 ///     (locals are excluded from symbol tables -- executable scopes have
-///     no dc_symbols), binding order (locals -> unqualified -> miss),
-///     and diagnostics. Redefinition + unresolved-ident + import-access
+///     no dc_symbols), binding order (locals -> unqualified -> extend
+///     target -> clang builtins -> miss), and diagnostics. Redefinition + unresolved-ident + import-access
 ///     errors live HERE, nowhere else.
 ///
 ///   \par Explicitly NOT done here (see RESOLUTION.md hard invariant #3)
@@ -85,6 +85,7 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
+import Sema::Foreign::BuiltinImport::*;
 import AST::OperatorFacts::*;
 
 __inline_cpp("
@@ -1650,6 +1651,25 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
     // --- binding hooks ----------------------------------------------------
 
+    /// A name clang knows as a builtin: the fourth source of unqualified
+    /// names, consulted only here, after every Kairo source missed, so a
+    /// declaration of the same name always wins. True when the use was
+    /// handled (bound, or diagnosed and poisoned); false leaves it to R020E.
+    priv fn _bind_builtin(self, n: *NamedIdentExpr) -> bool {
+        var bi = self.sc->builtins;
+        if (bi == &null) || (!bi->ready()) { return false; }
+        var e = bi->resolve(self.sc->ctx->get_spelling(n->name));
+        if (e.decl == &null) && (e.why.size() == 0) { return false; }
+
+        if e.decl == &null {
+            self.sc->diag->report(DiagID::R057E, n->range.start, e.why).first(n->range).emit();
+            n->poison();
+            return true;
+        }
+        n->resolved_decl = static_cast::<*Decl>(e.decl);
+        return true;
+    }
+
     /// The heart of N. Every unqualified name use lands here.
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
         if n == &null { return true; }
@@ -1677,6 +1697,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var h = self._resolve_name(imm);
 
         if !h.found {
+            if self._bind_builtin(n) { return true; }
             var nm = self.sc->ctx->get_spelling(n->name);
             self.sc->diag->report(DiagID::R020E, n->range.start,
                 f"use of undeclared identifier '{nm}\x27"

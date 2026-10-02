@@ -75,7 +75,8 @@ as its whole ring (IMPORTS.md §4.3).
 
 (b) Binding: every `NamedIdentExpr` head gets `resolved_decl` or
 `candidate_cell`. Order: lexical locals stack (innermost first) ->
-`sc->lookup.unqualified(cur_dc)` -> miss. Redecl chains collapse to the
+`sc->lookup.unqualified(cur_dc)` -> the extend target (`_ext_target`) ->
+clang builtins -> miss. Redecl chains collapse to the
 representative; specializations never compete for a name; a genuine
 overload set goes through whole.
 
@@ -107,6 +108,7 @@ overload set goes through whole.
     ConstructorPattern heads and bare `case n` (pattern checking);
     named-initializer field names (X); attribute ARGUMENTS.
     [DONE] The explicit-qualifier rule (R049), below.
+    [DONE] Clang builtins, the fourth source of unqualified names, below.
 
 **The explicit-qualifier rule.** Kairo has no implicit `this->`. A name that a
 TYPE scope answers, used from inside a function or closure body, is a MEMBER
@@ -120,6 +122,35 @@ Two mechanisms: N's `_fn_depth` counter plus `_ext_target` (probed AFTER the
 DC chain); T's `_lookup_in_selfs` for type position. Field defaults and enum
 variant values keep the type body's scope (`_fn_depth` resets to 0 on entry
 to every type scope).
+
+**Clang builtins** [DONE]. A name clang knows as a builtin
+(`__builtin_expect`, `__builtin_popcount`, ...) is a foreign function the TU
+did not have to import. `Sema/Foreign/BuiltinImport.k` owns them: one
+build-wide pseudo-header TU (`<kairo-clang-builtins>`, minted through
+`HeaderIndex::ensure_target`) whose decls are made on first use from the
+target's clang `Builtin::Context` (`Interop/Clang/BuiltinsSet.k`, owned by
+`ClangBackend`). Rules:
+
+- Resolved ONLY on a total miss in N(b) (`_bind_builtin`), after every Kairo
+  source, so a declaration of the same name always wins. Nothing binds into
+  the builtin TU's table, so it is never reachable qualified, never through
+  an overlay, and never by T.
+- Library builtins (`printf`, `memcpy`, ...) and header-dependent ones are
+  NOT taken: they miss, and resolve the ordinary way through their header.
+  Their `__builtin_` forms (`__builtin_memcpy`) ARE taken: clang's C++ gate
+  is `isPredefinedLibFunction`, not `isLibFunction`.
+- A builtin Kairo cannot type (per-call clang checking, a type only a header
+  declares, an inexpressible parameter) binds to nothing: R057E at the use,
+  poisoned.
+- X: a builtin is callable and nothing else. CallTyping's name arm binds the
+  callee without typing it, so reaching `_type_ident` with one is a value use:
+  SC109E. Its `I` (integer constant) positions, `FunctionDecl::ffi_ice_mask`,
+  are checked at the Kairo argument: SC108E. Only a literal (under unary
+  `-`/`+`/`~`/`!`) counts until the evaluator lands.
+- Wiring: `CompilerInstance` owns the `BuiltinImport`; the driver calls
+  `be->startup()` (a join; normally long done) then `init` after header
+  indexing and before the first SemaContext; `sc->builtins` is set beside
+  `sc->foreign`. Null or unready means every builtin misses into R020E.
 
 **Lang items are bound by fid + path** [DONE]. The compiler ships a root
 named `builtin` (`Lib/builtin`, installed to `<resource-dir>/builtin`,
@@ -218,8 +249,9 @@ type body"; `Self::X` there is R026E. ChainBinding's ExtensionDecl anchor
 keeps the record decl for lookup but carries the real target as its type, so
 `Self::make()` in a generic extension sees the same `Wrap<Box<T>>`.
 
-Error homes carry real diag-table codes. `R020`-`R050` are the name/type
+Error homes carry real diag-table codes. `R020`-`R057` are the name/type
 domain; `SC003`-`SC016` the Verify passes; `I003E` invariant violations.
+Clang builtins: `R057E` (N), `SC108E`/`SC109E` (X).
 `ImportResolution` still shares `R015E` across three errors.
 
 `R001`/`SC001`/`U001` remain the per-category placeholder codes. The whole
@@ -851,7 +883,9 @@ A pass that needs one asks that file; it never spells the string itself.
    instantiation: T. No member / wrong separator / member ambiguity /
    member of an unconstrained param: ChainBinding. Literal fit, operand
    unification, no viable overload, ambiguous call, bad cast, branch
-   join, return-vs-signature, uninferrable decl: X. Dependent conformance:
+   join, return-vs-signature, uninferrable decl: X. Unusable clang
+   builtin: N(b) (R057E). Non-constant builtin argument, builtin used as
+   a value: X (SC108E, SC109E). Dependent conformance:
    M2. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
 4. **Parallelism boundary.** P parallel. I, T, X DAG-ordered. N, M1 per-TU
    parallel. M2 sync. Store and registry are the shared mutable
@@ -871,7 +905,8 @@ A pass that needs one asks that file; it never spells the string itself.
 8. **Canonical identity is build-wide, and cv-qualified: const i32 and i32
    are two canonicals.**
 9. **T never rewrites nodes.** X never allocates nodes.
-10. **Builtins are not names.**
+10. **Builtins are not names.** (Primitive types. Clang builtins are
+    foreign FUNCTIONS and are names: §2.5, the fourth source.)
 11. **Imports are erased at N/CB.**
 12. **`RecordType::decl` is the record whose body defines the instance.**
 13. **T never dispatches a foreign node.** X reads a foreign decl's slots

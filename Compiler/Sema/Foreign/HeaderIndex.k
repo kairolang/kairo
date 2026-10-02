@@ -85,6 +85,9 @@ class HeaderIndex {
         return it->second;
     }
 
+    /// The one way to mint a foreign TU from outside the index.
+    fn ensure_target(self, fid: u32, path: string) -> *HeaderTarget { return self._target(fid, path); }
+
     /// A DeclImport wired to \p hs and this index's targets. index() builds
     /// one per set; ForeignInstantiate builds one per fill and switches it to
     /// fill mode (DeclImport::fill_target).
