@@ -56,6 +56,7 @@ import Sema::Resolve::GenericArgs::*;
 import Sema::Resolve::ResolutionTrace::*;
 import Sema::Resolve::ResolutionState::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::ArgumentDeduction::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -169,7 +170,10 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         for var i: usize = 0; i < n->steps.size(); ++i {
             var st = n->steps.get(i);
             if st == &null { break; }
-            if st->resolved_decl != &null { a = self._anchor_after(st->resolved_decl, st); continue; }   // idempotent re-run.
+            if st->resolved_decl != &null {   // idempotent re-run.
+                a = self._anchor_after(st->resolved_decl, st, self._receiver_of(a, st));
+                continue;
+            }
             a = self._bind_step(n, st, a);
         }
         if a.kind == AnchorKind::Dependent {
@@ -307,7 +311,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     }
 
     /// The anchor a bound decl provides for the NEXT step.
-    priv fn _anchor_after(self, d: *Decl, st: *ChainExpr::Step) -> Anchor {
+    priv fn _anchor_after(self, d: *Decl, st: *ChainExpr::Step, through: *Type = &null) -> Anchor {
         var a = Anchor{};
         if d == &null { a.kind = AnchorKind::Errored; return a; }
         if d->is_poisoned() { a.kind = AnchorKind::Errored; return a; }
@@ -390,6 +394,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             }
             case DeclKind::FieldDecl {
                 var f = cast::<FieldDecl>(d);
+                var seen = self._seen_through(f->type_, through);
+                if seen != &null { return self._value_anchor_from(d, seen); }
                 return self._value_anchor(d, f->type_);
             }
             case DeclKind::EnumVariantDecl {
@@ -420,7 +426,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                     a.kind = (AnchorKind::Dependent) if (e->target->is_dependent()) else (AnchorKind::Errored);
                     return a;
                 }
-                if isa::<RecordType>(c) { return self._type_anchor(cast::<RecordType>(c)->decl); }
+                if isa::<RecordType>(c) {
+                    var ta = self._type_anchor(cast::<RecordType>(c)->decl);
+                    ta.ty = c;   // `extend <T> Wrap<Box<T>>`: Self is Wrap<Box<T>>, not Wrap<its own T>.
+                    return ta;
+                }
                 a.kind = AnchorKind::Type; a.decl = d; a.ty = c;
                 return a;
             }
@@ -448,6 +458,22 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         }
         a.ty = self.sc->types->record(canon, &args);
         return a;
+    }
+
+    /// A field's declared type as seen through the record it was reached
+    /// through: `inner: T` on a `Wrap<Box<U>>` is `Box<U>`. Null when that
+    /// changes nothing (a non-dependent field, or a receiver whose args are
+    /// the record's own params, as in its own body), so the caller keeps the
+    /// declared-type path. Deduction is built without a Conversion:
+    /// member_through only binds and substitutes, it never ranks.
+    priv fn _seen_through(self, t: *Type, through: *Type) -> *Type {
+        if (t == &null) || t->is_poisoned() || (t->canonical == &null) || (through == &null) { return &null; }
+        if !t->canonical->is_dependent() { return &null; }
+        var r = canon_unqual(through);
+        if (!isa::<RecordType>(r)) || (cast::<RecordType>(r)->args.size() == 0) { return &null; }
+        var ded = Deduction(self.sc, &null);
+        var s = ded.member_through(r, t->canonical);
+        return (s) if (s != t->canonical) else (&null);
     }
 
     /// A value's anchor is its declared type's canonical. No declared type,
@@ -641,46 +667,23 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         }
 
         // Value. Peel the separator's expected wrapper off the canonical.
-        // A C++ reference first, before any separator rule: it is transparent
-        // to `.` and `->` alike, and `vector&` must answer as `vector`.
-        var ty = self.ml.peel_ref(a.ty);
-        var arrow =(st->access_kind == ChainExpr::AccessKind::Arrow)
-                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
-        var maybe = (st->access_kind == ChainExpr::AccessKind::QuestionDot)
-                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
-
-        if maybe {
-            if isa::<NullableType>(ty) {
-                ty = cast::<NullableType>(ty)->inner;
-            } else if isa::<RecordType>(ty) {
-                // `T?` may have been lowered to `Null<T>` (lang item). Peel it.
-                var rt = cast::<RecordType>(ty);
-                var null_decl = self.sc->well_known->get(WellKnownType::Null);
-                if (null_decl != &null) && (rt->decl == null_decl) && (rt->args.size() == 1) {
-                    ty = rt->args[0];
-                }
-            }
-            // `?.` on a non-nullable is a warning's worth, not an error; the
-            // nullable checker owns it. Proceed on the type as-is.
-        }
-        if arrow {
-            if !isa::<PointerType>(ty) {
-                self._err(DiagID::R027E, at, "'->' requires a pointer on its left; use '.' for a value");
-                st->name->poison();
-                self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
-                var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
-            }
-            ty = cast::<PointerType>(ty)->pointee;
-            ty = self.ml.peel_ref(ty);
-        } else {
-            if isa::<PointerType>(ty) {
-                self._err(DiagID::R027E, at, "'.' cannot be applied to a pointer; use '->\x27");
-                st->name->poison();
-                self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
-                var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
-            }
-        }
+        // Null means the separator does not fit the value; re-derive which
+        // way only here, on the error path, so _receiver_of stays silent for
+        // the idempotent re-run that shares it.
+        var ty = self._receiver_of(a, st);
         if ty == &null {
+            var arrow = (st->access_kind == ChainExpr::AccessKind::Arrow)
+                     || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
+            var pre = self._peel_maybe(self.ml.peel_ref(a.ty), st);
+            if arrow && (!isa::<PointerType>(pre)) {
+                self._err(DiagID::R027E, at, "'->' requires a pointer on its left; use '.' for a value");
+            } else if (!arrow) && isa::<PointerType>(pre) {
+                self._err(DiagID::R027E, at, "'.' cannot be applied to a pointer; use '->\x27");
+            } else {
+                var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
+            }
+            st->name->poison();
+            self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
             var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
         }
         // A dependent RECORD still has a known decl, and MemberLookup keys on
@@ -709,7 +712,50 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         }
         var owner: *Decl = &null;
         if isa::<RecordType>(ty) { owner = cast::<RecordType>(ty)->decl; }
-        return self._commit(st, loc, &cands, owner, &null);
+        return self._commit(st, loc, &cands, owner, &null, ty);
+    }
+
+    /// The record a `.`/`->`/`?.`/`?->` step actually reads from: \p a's
+    /// canonical with a C++ reference, the `?` of a maybe-separator and the
+    /// pointer of an arrow peeled off. Null unless \p a is a Value anchor,
+    /// and null when the separator does not fit (an arrow on a non-pointer,
+    /// a dot on a pointer); _bind_step diagnoses those. Shared with the
+    /// idempotent re-run in traverse_chain_expr so the receiver a field is
+    /// read through cannot differ between the first bind and the re-run.
+    priv fn _receiver_of(self, a: Anchor, st: *ChainExpr::Step) -> *Type {
+        if (a.kind != AnchorKind::Value) || (st == &null) { return &null; }
+        if st->access_kind == ChainExpr::AccessKind::ColonColon { return &null; }
+        // A C++ reference first, before any separator rule: it is transparent
+        // to `.` and `->` alike, and `vector&` must answer as `vector`.
+        var ty = self._peel_maybe(self.ml.peel_ref(a.ty), st);
+        if ty == &null { return &null; }
+        var arrow = (st->access_kind == ChainExpr::AccessKind::Arrow)
+                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
+        if arrow {
+            if !isa::<PointerType>(ty) { return &null; }
+            return self.ml.peel_ref(cast::<PointerType>(ty)->pointee);
+        }
+        if isa::<PointerType>(ty) { return &null; }
+        return ty;
+    }
+
+    /// `?.`/`?->` peel the nullable they guard. `T?` may have been lowered to
+    /// `Null<T>` (lang item), so that spelling peels too. `?.` on a
+    /// non-nullable is a warning's worth, not an error; the nullable checker
+    /// owns it, and the type proceeds as-is.
+    priv fn _peel_maybe(self, t: *Type, st: *ChainExpr::Step) -> *Type {
+        var maybe = (st->access_kind == ChainExpr::AccessKind::QuestionDot)
+                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
+        if (!maybe) || (t == &null) { return t; }
+        if isa::<NullableType>(t) { return cast::<NullableType>(t)->inner; }
+        if isa::<RecordType>(t) {
+            var rt = cast::<RecordType>(t);
+            var null_decl = self.sc->well_known->get(WellKnownType::Null);
+            if (null_decl != &null) && (rt->decl == null_decl) && (rt->args.size() == 1) {
+                return rt->args[0];
+            }
+        }
+        return t;
     }
 
     /// Write the step's slots from a candidate set and produce the next anchor.
@@ -720,14 +766,14 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     ///   mixed / >1 non-fn   -> ambiguous: two distinct entities under one
     ///                          name reached through different bases.
     priv fn _commit(self, st: *ChainExpr::Step, loc: u32, cands: *vec::<*Decl>,
-                    owner: *Decl, frozen: *OverloadCell) -> Anchor {
+                    owner: *Decl, frozen: *OverloadCell, through: *Type = &null) -> Anchor {
         var n = cands->size();
         if n == 1 {
             var d = NameLookup::representative((*cands)[0]);
             st->resolved_decl = d;
             self._record(loc, MemberOutcome::Bound, d, 1, self._home_of(d));
             self.n_bound += 1;
-            return self._anchor_after(d, st);
+            return self._anchor_after(d, st, through);
         }
 
         var all_fn = true;
@@ -755,7 +801,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 st->resolved_decl = sole;
                 self._record(loc, MemberOutcome::Bound, sole, 1, self._home_of(sole));
                 self.n_bound += 1;
-                return self._anchor_after(sole, st);
+                return self._anchor_after(sole, st, through);
             }
             // Distinct ModuleDecls are one namespace reopened across TUs --
             // libc++ opens `std` in dozens of headers, each its own decl --

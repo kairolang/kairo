@@ -204,10 +204,19 @@ FFI-imported incomplete array keeps the structural `array(elem, 0)`. A
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
 cast family is undecidable.
 
-**`_selfs` holds a `*Type`, not a `*Decl`** [DECIDED, MISSING]. A record's
-self is `record(canon, args)`; a structural target's self is its canonical.
-Closes residue (f): `Self` inside `extend i32` stops being "outside a type
-body".
+**`_selfs` holds a `*Type`, not a `*Decl`** [DONE]. A record body's self is
+`record(canon, its own params)`; an extension's is its target's canonical,
+pushed after the target resolves and popped with the extension. So inside
+`extend <T> Wrap<Box<T>>`, `self` is `Wrap<Box<T>>` over the EXTENSION's T --
+not `Wrap<T>` over Wrap's, which made `self.inner` read through the wrong
+params (ChainBinding's `_seen_through` got the identity) and put Cell's T and
+the extension's T on opposite sides of a return. Every reader takes the type:
+receiver synthesis (wrapped in `const` for `const self`), `Self` in type
+position, and `_lookup_in_selfs` (the record's decl; a non-record self has no
+scope and is skipped). `Self` inside `extend i32` is i32, no longer "outside a
+type body"; `Self::X` there is R026E. ChainBinding's ExtensionDecl anchor
+keeps the record decl for lookup but carries the real target as its type, so
+`Self::make()` in a generic extension sees the same `Wrap<Box<T>>`.
 
 Error homes carry real diag-table codes. `R020`-`R050` are the name/type
 domain; `SC003`-`SC016` the Verify passes; `I003E` invariant violations.
@@ -906,7 +915,6 @@ Name/type residue:
                                                               the container
                                                               ticket in flight
     e. `_register_specs_in` into executable scopes           small
-    f. `_selfs` as *Type (§2.6)                               small
     g. closure bodies push a null DC                          small
 
 Type domain (each unblocks the next):

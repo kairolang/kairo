@@ -121,8 +121,12 @@ class LocalTypeFrame {
 ///        overrides:
 ///          cur_dc  -- innermost TABLE-owning scope, for unqualified lookup.
 ///          frames  -- generic-param frames, innermost last.
-///          _selfs   -- enclosing TYPE decls (canonical links), innermost last;
-///                     what `Self` and the `self` receiver denote.
+///          _selfs   -- what `Self` and the `self` receiver denote in each
+///                     enclosing type body, innermost last. A TYPE, not a
+///                     decl: a record body is its own record over its own
+///                     params, but `extend <T> Wrap<Box<T>>` is Wrap<Box<T>>
+///                     and `extend i32` is i32, neither of which a decl can
+///                     say.
 ///
 class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     pub var sc: *SemaContext;
@@ -133,7 +137,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// NameResolution::_ool_lexical; read by _lookup_unqualified.
     priv var _ool_lexical: *DeclContext = &null;
     var frames: vec::<GenericFrame>;
-    var _selfs:  vec::<*Decl>;
+    var _selfs:  vec::<*Type>;
     var ltypes: vec::<LocalTypeFrame>;
 
     /// How many alias-through-alias expansions are in flight right now. The
@@ -502,7 +506,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     // === Self =================================================================
 
     priv fn _resolve_self(self, n: *SelfType) {
-        var owner = self._current_self_decl();
+        var owner = self._current_self();
         if owner == &null {
             self.sc->diag->report(DiagID::R030E, n->range.start,
                 "'Self' used outside of a type body"
@@ -510,16 +514,35 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             n->poison();
             return;
         }
-        n->canonical = self._self_record(owner);
-        if n->canonical == &null {
-            // Generic enclosing type: Self is Foo<T...>, dependent.
-            self._mark_dependent(n);
-        }
+        n->canonical = owner;
     }
 
-    priv fn _current_self_decl(self) -> *Decl {
+    priv fn _current_self(self) -> *Type {
         if self._selfs.empty() { return &null; }
         return self._selfs[self._selfs.size() - 1];
+    }
+
+    /// The decl a Self type's members live in: its record's. Null for a
+    /// non-record Self (`extend i32`), which has no scope to look into.
+    priv fn _self_decl_of(self, t: *Type) -> *Decl {
+        if t == &null { return &null; }
+        var u = canon_unqual(t);
+        if (u == &null) || (!isa::<RecordType>(u)) { return &null; }
+        return cast::<RecordType>(u)->decl;
+    }
+
+    /// What Self denotes inside the type scope \p d owns. An extension is
+    /// its TARGET, already resolved (traverse_extension_decl resolves it
+    /// before its body); null while it is not, so the caller pushes nothing
+    /// rather than the extension decl's own params.
+    priv fn _self_of_scope(self, d: *Decl) -> *Type {
+        if d == &null { return &null; }
+        if isa::<ExtensionDecl>(d) {
+            var e = cast::<ExtensionDecl>(d);
+            if (e->target == &null) || e->target->is_poisoned() { return &null; }
+            return e->target->canonical;
+        }
+        return self._self_record(d);
     }
 
     /// The record type a type body denotes for itself: Foo for a non-generic
@@ -734,7 +757,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 ct->poison();
                 return;
             }
-            var owner = self._current_self_decl();
+            var owner = self._current_self();
             if owner == &null {
                 self.sc->diag->report(DiagID::R030E, ct->range.start,
                     f"'{sp}' used as a type outside of a type body"
@@ -742,11 +765,20 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 ct->poison();
                 return;
             }
-            seg0->resolved_decl = owner;
+            var owner_decl = self._self_decl_of(owner);
+            seg0->resolved_decl = owner_decl;
             if n == 1 {
-                ct->canonical = self._self_record(owner);
-                if ct->canonical == &null { self._mark_dependent(ct); }
+                ct->canonical = owner;
                 seg0->resolved_type = ct->canonical;
+                return;
+            }
+            // `Self::X` inside `extend i32`: Self is a type, but one with no
+            // scope of its own to walk.
+            if owner_decl == &null {
+                self.sc->diag->report(DiagID::R026E, seg0->range.start,
+                    f"'{sp}' does not name a scope; '::' can only follow a type, module, or enum"
+                ).first(seg0->range).emit();
+                ct->poison();
                 return;
             }
             // `Self::Inner`: walk from here. Inside `extend Box<i32>` the self
@@ -755,10 +787,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // instance of an IMPORTED template is clang's to fill, and must
             // be filled before that choice: its pattern's `size_type` is the
             // dependent spelling, not clang's `unsigned long`.
-            head = owner;
-            MemberLookup::ensure_filled(self.sc, owner);
-            var pat = decl_instantiated_from(owner);
-            if (pat != &null) && self._is_unfilled_instance(owner) { head = pat; }
+            head = owner_decl;
+            MemberLookup::ensure_filled(self.sc, owner_decl);
+            var pat = decl_instantiated_from(owner_decl);
+            if (pat != &null) && self._is_unfilled_instance(owner_decl) { head = pat; }
         } else {
             // --- 2. head: generic frames, then the DC chain + overlay --------
             var imm = self._name_imm(tok);
@@ -1548,8 +1580,11 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if (n->semantic_dc != &null) && (n->semantic_dc != n->lexical_dc) {
             var home = reinterpret_cast::<*DeclContext>(n->semantic_dc);
             if home->is_type_scope() && (home->owner_decl() != &null) {
-                self._selfs.push_back(NameLookup::representative(home->owner_decl()));
-                pushed_self = true;
+                var hs = self._self_of_scope(NameLookup::representative(home->owner_decl()));
+                if hs != &null {
+                    self._selfs.push_back(hs);
+                    pushed_self = true;
+                }
             }
         }
 
@@ -1607,7 +1642,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n == &null { return n; }
         var saved = self.cur_dc;
         self.cur_dc = static_cast::<*DeclContext>(n);
-        self._selfs.push_back(NameLookup::representative(static_cast::<*Decl>(n)));
+        self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
         var out = RecursiveASTVisitor_TypeResolution::traverse_class_decl(n);
@@ -1630,7 +1665,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n == &null { return n; }
         var saved = self.cur_dc;
         self.cur_dc = static_cast::<*DeclContext>(n);
-        self._selfs.push_back(NameLookup::representative(static_cast::<*Decl>(n)));
+        self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
         var out = RecursiveASTVisitor_TypeResolution::traverse_struct_decl(n);
@@ -1653,7 +1688,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n == &null { return n; }
         var saved = self.cur_dc;
         self.cur_dc = static_cast::<*DeclContext>(n);
-        self._selfs.push_back(NameLookup::representative(static_cast::<*Decl>(n)));
+        self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
         var out = RecursiveASTVisitor_TypeResolution::traverse_union_decl(n);
@@ -1676,7 +1711,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n == &null { return n; }
         var saved = self.cur_dc;
         self.cur_dc = static_cast::<*DeclContext>(n);
-        self._selfs.push_back(NameLookup::representative(static_cast::<*Decl>(n)));
+        self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         var out = RecursiveASTVisitor_TypeResolution::traverse_interface_decl(n);
         self._pop_frame();
@@ -1689,7 +1724,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n == &null { return n; }
         var saved = self.cur_dc;
         self.cur_dc = static_cast::<*DeclContext>(n);
-        self._selfs.push_back(NameLookup::representative(static_cast::<*Decl>(n)));
+        self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         var out = RecursiveASTVisitor_TypeResolution::traverse_enum_decl(n);
         self._check_enum_underlying(n);
@@ -1708,13 +1743,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         if n->target != &null { self.dispatch_type(n->target); }
 
+        // Self is the target as WRITTEN, args and all, after it resolved:
+        // `extend <T> Wrap<Box<T>>` reads `self.inner` as Box<T>, and the T
+        // there is the extension's, the one its signatures name. Any target,
+        // not just a record -- extending primitives and builtins is legal,
+        // and `Self` inside `extend i32` is i32.
+        var self_ty = self._self_of_scope(static_cast::<*Decl>(n));
         var pushed = false;
-        if (n->target != &null) && (n->target->canonical != &null) && isa::<RecordType>(canon_unqual(n->target->canonical)) {
-            self._selfs.push_back(cast::<RecordType>(canon_unqual(n->target->canonical))->decl);
+        if self_ty != &null {
+            self._selfs.push_back(self_ty);
             pushed = true;
         }
-
-        // extending primitives and builtins are legalized, and allowed.
 
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_TypeResolution::traverse_extension_decl(n);
@@ -1788,14 +1827,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if !self.frames.empty() { self.frames.pop_back(); }
     }
 
-    /// Walk outward from \p dc pushing every enclosing type scope's decl,
+    /// Walk outward from \p dc pushing every enclosing type scope's Self,
     /// outermost first, so the innermost lands at the top.
     priv fn _push_enclosing_selfs(self, dc: *DeclContext) {
-        var chain = vec::<*Decl>();
+        var chain = vec::<*Type>();
         var c = dc;
         while c != &null {
             if c->is_type_scope() && (c->owner_decl() != &null) {
-                chain.push_back(NameLookup::representative(c->owner_decl()));
+                var t = self._self_of_scope(NameLookup::representative(c->owner_decl()));
+                if t != &null { chain.push_back(t); }
             }
             c = c->dc_parent;
         }
@@ -1806,7 +1846,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     // === Receiver synthesis ===================================================
 
     priv fn _synthesize_receiver(self, f: *FunctionDecl) {
-        var owner = self._current_self_decl();
+        var owner = self._current_self();
         for var i: usize = 0; i < f->params.size(); ++i {
             var p = f->params[i];
             if p == &null { continue; }
@@ -1815,7 +1855,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if owner == &null { continue; }      // free fn with self: N diagnosed.
 
             var st = SelfType::create(self.sc->ctx, p->range);
-            st->canonical = self._self_record(owner);
+            st->canonical = owner;
             // `const self` is the implicit object parameter of a const method:
             // its object is `const Record`, and that is its canonical, as an
             // imported const method's `this` pointee is. Overload resolution
@@ -1913,8 +1953,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     priv fn _lookup_in_selfs(self, imm: u32, spelling: string) -> SemaLookupResult {
         var n = self._selfs.size();
         for var i: usize = 0; i < n; ++i {
-            var d = self._selfs[(n - 1) - i];
-            if d == &null { continue; }
+            var d = self._self_decl_of(self._selfs[(n - 1) - i]);
+            if d == &null { continue; }   // `extend i32`: no scope to look in.
             MemberLookup::ensure_filled(self.sc, d);
             var pat = decl_instantiated_from(d);
             if (pat != &null) && self._is_unfilled_instance(d) { d = pat; }
