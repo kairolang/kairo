@@ -81,6 +81,9 @@ class TyperFrame {
     pub var inferred: *Type = &null;           ///< join of `return e` seen so far.
     pub var saw_return_value: bool = false;
     pub var saw_bare_return:  bool = false;
+    /// `-> yield T` or `-> Yield<T>`: `declared` is the canonical, which
+    /// carries cv only and drops the qualifier, so the frame keeps it here.
+    pub var is_generator:     bool = false;
     fn TyperFrame(self) { }
 }
 
@@ -97,6 +100,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var fr = TyperFrame{};
         fr.fn_decl  = f;
         fr.declared = declared;
+        fr.is_generator = (f != &null) && dyn()->tu.is_generator_return(f->return_type);
         dyn()->frames.push_back(fr);
     }
 
@@ -104,6 +108,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var fr = TyperFrame{};
         fr.closure  = c;
         fr.declared = declared;
+        fr.is_generator = (c != &null) && dyn()->tu.is_generator_return(c->return_type);
         dyn()->frames.push_back(fr);
     }
 
@@ -358,6 +363,16 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var fr = self.cur_frame();
         if fr == &null {
             if n->value != &null { dyn()->type_of(n->value, &null); }
+            return n;
+        }
+        // A generator's `-> yield T` types what it YIELDS. A bare `return`
+        // ends the sequence early (functions.md); a value has nowhere to go.
+        if fr->is_generator {
+            if n->value == &null { fr->saw_bare_return = true; return n; }
+            dyn()->type_of(n->value, &null);
+            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                "a generator cannot 'return' a value; 'yield' it, or write a bare 'return' to end the sequence"
+            ).first(n->range).emit();
             return n;
         }
         if n->value == &null {

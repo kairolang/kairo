@@ -40,6 +40,11 @@
 ///     control flow this pass cannot see, and a missing-return on top of
 ///     either is noise. Missing a real bug there is the chosen trade.
 ///
+///   \par Generators
+///     `-> yield T`, or its lang record spelled out as `-> Yield<T>`, names
+///     what each `yield` produces; falling off the bottom ends the sequence,
+///     so a generator body is never checked.
+///
 ///   \par What this is NOT
 ///     Unreachable-code warnings (TerminatorCheck, lexical), definite
 ///     initialization, or a general exhaustiveness diagnostic
@@ -122,6 +127,10 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         // No annotation on a block body is `void` (StmtTyping), and a ctor /
         // dtor never carries one.
         if n->return_type == &null { return true; }
+        // `-> yield T` (or `-> Yield<T>`) declares the type of each YIELDED
+        // value, not of a returned one: falling off the bottom ends the
+        // sequence.
+        if self._tu.is_generator_return(n->return_type) { return true; }
         self._check(n->body_block, n->return_type, false, n->return_type->range, n);
         return true;
     }
@@ -137,6 +146,7 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         // Inferred: the returns seen define the type, so there is nothing
         // declared for the bottom of the body to disagree with.
         if n->return_type == &null { return true; }
+        if self._tu.is_generator_return(n->return_type) { return true; }    // see visit_function_decl.
         self._check(n->body_block, n->return_type, false, n->return_type->range, &null);
         return true;
     }

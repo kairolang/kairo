@@ -345,6 +345,17 @@ class TypeUtil {
         return self.pattern_of(rd) == NameLookup::representative(d);
     }
 
+    /// A generator's declared return: `-> yield T`, or the lang record it
+    /// lowers to spelled out, `-> Yield<T>`. Both type each YIELDED value.
+    /// Takes the WRITTEN type: the yield qualifier is not on the canonical.
+    fn is_generator_return(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        if t->is_yield() { return true; }
+        if (self.sc == &null) || (self.sc->well_known == &null) { return false; }
+        if t->canonical == &null { return false; }
+        return self.is_lang(t->canonical, WellKnownType::Yield);
+    }
+
     fn is_vector_like(self, t: *Type) -> bool { return self.is_lang(t, WellKnownType::Vector);  }
     fn is_map_like(self, t: *Type)    -> bool { return self.is_lang(t, WellKnownType::HashMap); }
     fn is_set_like(self, t: *Type)    -> bool { return self.is_lang(t, WellKnownType::HashSet); }

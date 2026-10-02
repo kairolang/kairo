@@ -205,3 +205,38 @@ class V {
     fn op + (self, o: V) -> V { }
 }
 // CHECK: missing_return.k:[[@LINE-2]]:{{[0-9]+}}: error [SC104E]: this operator does not return a value on all control paths
+
+// --- generators ---------------------------------------------------------------
+// `-> yield T` types each yielded value; falling off the bottom ends the
+// sequence, so none of these is a missing return.
+
+fn ok_generator(n: i32) -> yield i32 {
+    for var i: i32 = 0; i < n; ++i {
+        yield i
+    }
+}
+
+fn ok_generator_early_return(n: i32) -> yield i32 {
+    if n < 0 { return; }
+    yield n
+}
+
+fn ok_generator_empty() -> yield i32 { }
+
+// The lang record `yield T` lowers to, spelled out: the same generator.
+fn ok_generator_lang(n: i32) -> Yield<i32> {
+    for var i: i32 = 0; i < n; ++i {
+        yield i
+    }
+}
+
+fn ok_generator_lang_early_return(n: i32) -> Yield<i32> {
+    if n < 0 { return; }
+    yield n
+}
+
+fn bad_generator_return_value() -> yield i32 {
+    yield 1
+    return 2
+}
+// CHECK: missing_return.k:[[@LINE-2]]:5: error [SC001E]: a generator cannot 'return' a value; 'yield' it, or write a bare 'return' to end the sequence
