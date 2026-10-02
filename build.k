@@ -357,8 +357,11 @@ fn optimize(t: ref!(Target)) {
     // stage0 passes -rdynamic, which exports everything and blocks LTO
     // internalization. Hide by default; backtraces symbolize from DWARF.
     t.passthrough("-fvisibility=hidden")
-     .passthrough("-fvisibility-inlines-hidden")
-     .passthrough("-Wl,--no-export-dynamic");
+     .passthrough("-fvisibility-inlines-hidden");
+
+    if platform() == "linux" {
+        t.passthrough("-Wl,--no-export-dynamic");
+    }
 
     if is_debug() {
         // No optimizer, no LTO. stage0's -g -g3 stays.
@@ -371,11 +374,11 @@ fn optimize(t: ref!(Target)) {
     // Single TU, so LTO buys no cross-module visibility; full LTO stays only
     // because --lto-partitions is the one way to parallelize codegen of one
     // module. The optimizer itself stays serial.
-    t.passthrough("-O3")
-     .passthrough("-Wl,--lto-O2")
-     .passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}")
-     .passthrough("-gline-tables-only")
-     .passthrough("-DNDEBUG");
+    t.passthrough("-O3");
+    t.passthrough("-Wl,--lto-O2");
+    // t.passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}");
+    t.passthrough("-gline-tables-only");
+    t.passthrough("-DNDEBUG");
 }
 
 fn require_vendored_llvm(llvm_build: string) {
@@ -391,6 +394,7 @@ fn require_vendored_llvm(llvm_build: string) {
 fn llvm_includes(t: ref!(Target), llvm_src: string, llvm_build: string) {
     t.passthrough("-I" + llvm_build + "/include")
      .passthrough("-I" + llvm_src   + "/llvm/include")
+     .passthrough("-I" + llvm_src   + "/lld/include")
      .passthrough("-I" + llvm_src   + "/clang/include")
      .passthrough("-I" + llvm_build + "/tools/clang/include");
 }
@@ -421,7 +425,8 @@ fn llvm_libs(t: ref!(Target), llvm_build: string, out_lib: string) {
         llvm_static_components(t);
     } else {
         // SHARED, one libLLVM, thin bins (invariant).
-        t.passthrough("-lclang-cpp").passthrough("-lLLVM");
+        t.passthrough("-lclang-cpp").passthrough("-lLLVM")
+         .passthrough("-lzstd").passthrough("-lz");
     }
 }
 
@@ -449,10 +454,8 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
 // Target wiring
 
 fn prebuild_script() -> string {
-    if platform() == "linux"   { return "bash Scripts/prebuild-llvm-linux.sh && python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k"; }
-    if platform() == "macos"   { return "bash Scripts/prebuild-llvm-macos.sh && python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k"; }
-    if platform() == "windows" { return "powershell -ExecutionPolicy Bypass -Command \"& 'Scripts/prebuild-llvm-windows.ps1'; python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k\" "; }
-    return "";
+    if platform() == "windows" { return "powershell -ExecutionPolicy Bypass -Command \"& python3 Scripts/build_llvm.py; python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k\" "; }
+    return "python3 Scripts/build_llvm.py && python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k";
 }
 
 // Every LLVM-linking tool shares this shape. One call site = no drift.

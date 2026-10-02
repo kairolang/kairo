@@ -138,6 +138,7 @@ fn _clang_wargs_from_policy(d: ref!(DiagnosticOptions)) -> vec::<string> {
     if d.Wall     { out.push_back("-Wall");      }
     if d.Wextra   { out.push_back("-Wextra");    }
     if d.Wpedantic { out.push_back("-Wpedantic"); }
+    out.push_back("-fexperimental-max-bitint-width=512");
     for c: string in d.allow_list {
         if _is_clang_c_code(c) {
             var g = clang_diag_group(_diag_code_to_number(c));
