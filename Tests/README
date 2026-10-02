@@ -98,6 +98,7 @@ files it imports) or a documented role (parity/, kairo-only/).
       Operators/        operator declaration / use rules
       Modes/            argument modes; kairo-only/ has no C++ oracle
       FFI/              C++ interop; parity/ is differential against clang
+        Builtins/         clang builtins as unqualified names (RESOLUTION.md 2.5)
       RedeclMerge/      redeclaration merging; parity/ + kairo-only/, see README
       Scenarios/        numbered end-to-end Sema walkthroughs (+ runner script)
     Codegen/            code emission and link-and-run tests
