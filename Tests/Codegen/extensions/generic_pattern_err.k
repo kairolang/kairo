@@ -12,11 +12,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// XFAIL: *
-// Waiting on the same ChainBinding gap as generic_pattern.k: the body's
-// `self.inner.v` is R051E before the call is ever judged. Once that lands,
-// the receiver `Wrap<i32>` does not unify with `Wrap<Box<T>>`, so the call
-// has no viable candidate (bind_from_extension).
+// The body itself is clean (`self.inner.v` reads through `Wrap<Box<T>>`, as
+// in generic_pattern.k), so the only error is the call: the receiver
+// `Wrap<i32>` does not unify with `Wrap<Box<T>>`, leaving no viable
+// candidate (bind_from_extension).
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: R051E
 // CHECK: generic_pattern_err.k:11:{{[0-9]+}}: error [SC063E]:

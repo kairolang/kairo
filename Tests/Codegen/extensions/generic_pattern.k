@@ -12,12 +12,20 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// XFAIL: *
-// Waiting on ChainBinding: a field step anchors on the field's DECLARED
-// type, never on it as seen through the receiver. Through `Wrap<Box<T>>`,
-// `self.inner` is Wrap's bare `T`, so `.v` is R051E ("'T' has no members").
-// When it XPASSes, add: `unbox<int>((& w))`, and one
-// `template <class T> static T unbox(const ::generic_pattern::Wrap<::generic_pattern::Box<T>>* self)`.
+// The extension's target is a PATTERN, `Wrap<Box<T>>`, so `self` is typed
+// with it (not Wrap over Wrap's own T) and the field step `self.inner` reads
+// through the receiver's args: Box<T>, whose `.v` is T. Before, `.v` was
+// R051E ("'T' has no members").
+
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// DIAG-NOT: error
+
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// CXX:      friend struct::generic_pattern::__kairo_ext_Wrap;
+// CXX:      template<class T> static T unbox(const::generic_pattern::Wrap< ::generic_pattern::Box<T>> * self);
+// CXX:      template<class T> T __kairo_ext_Wrap::unbox(const::generic_pattern::Wrap< ::generic_pattern::Box<T>> * self) {
+// CXX:      return::generic_pattern::__kairo_ext_Wrap::unbox<signed int>((& w));
+// CXX:      template signed int({{ *}}::generic_pattern::__kairo_ext_Wrap::unbox<signed int>)(const::generic_pattern::Wrap< ::generic_pattern::Box<signed int>> *);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
