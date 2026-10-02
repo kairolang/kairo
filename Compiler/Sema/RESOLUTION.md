@@ -407,6 +407,15 @@ to). `Lower/` reads them; codegen reads the instance slots and `ctor_decl`.
 owns -- consumers skip checks on it); type/module-denoting (recorded in the
 typer's side tables; only a callee or initializer head may read it).
 
+An expression is unknown only when its type cannot be NAMED. A dependent
+type that can be named is a type: `Cell<T>{ x: v, n: 0 }` in a generic body
+is typed `Cell<T>` (IsInstantiationDependent may stay set -- the type does
+mention T), its fields are looked up on Cell's decl and each value is typed
+against the field read through the head's args (`member_through`), with the
+convertibility check left to the instance when either side is dependent.
+Unknown is reserved for a head with no record behind it: an unbounded
+`T::Inner`, a duck-typed `T`. Codegen ICEs on an untyped initializer.
+
 **Memoized on the node.** `expected` is bidirectional only where a node
 consumes it: literals, `null`, aggregate/named/anonymous initializers,
 closures. A node has one parent, so one expected type, so the memo is

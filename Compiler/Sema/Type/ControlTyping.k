@@ -297,14 +297,22 @@ class <T> ControlTyping {
         return self._init_fields(static_cast::<*Expr>(n), rec, n->fields);
     }
 
+    /// A dependent head that can be NAMED -- `Cell<T>`, `Box<U>`, `Self` in a
+    /// generic body -- is a type, not unknown: the node is typed with that
+    /// dependent canonical and its fields are checked against the record's
+    /// declared fields, read through the head's arguments. MemberLookup keys
+    /// on the decl, so the names resolve exactly as `self.x` does in
+    /// `class <T> Foo`. Only a head with no record to name (an unbounded
+    /// `T::Inner`, a duck-typed `T`) stays unknown; codegen ICEs on an
+    /// untyped initializer, so this is the line between the two.
     priv fn _init_fields(self, n: *Expr, rec: *Type, fields: FrozenList::<InitField>) -> *Type {
         var d = dyn()->tu.record_decl(rec);
-        if d == &null { dyn()->fail(n, DiagID::SC088E, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
-        if rec->is_dependent() {
+        if (d == &null) && rec->is_dependent() {
             for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
             dyn()->mark_unknown(n);
             return &null;
         }
+        if d == &null { dyn()->fail(n, DiagID::SC088E, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
         var body = dyn()->tu.pattern_of(d);
         var dc   = NameLookup::context_of(body);
         var ok   = true;
@@ -329,6 +337,11 @@ class <T> ControlTyping {
             if dyn()->reject_slice_literal(f->value, "stored in a field") { ok = false; continue; }
             // `Full{ buf: self.buf }` reached clang as an array copy.
             if (ft != &null) && dyn()->reject_array_copy(f->value, ft) { ok = false; continue; }
+            // Either side dependent: whether `v: T` converts to `.x: T` is the
+            // instance's question, asked again once T is known.
+            var vt = f->value->type_;
+            if (ft != &null) && ft->is_dependent() { continue; }
+            if (vt != &null) && vt->is_dependent() { continue; }
             if (ft != &null) && (!dyn()->check_convertible(f->value, ft)) { ok = false; }
         }
         if !ok { dyn()->poison_only(n); return &null; }

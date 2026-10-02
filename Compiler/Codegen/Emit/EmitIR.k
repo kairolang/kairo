@@ -1179,6 +1179,11 @@ class EmitIR {
     /// aggregate; a record with a user constructor is a ctor call and is
     /// OperatorLowering/CopyMoveLowering's to rewrite.
     priv fn _init(self, e: *Expr, fields: FrozenList::<InitField>) {
+        // A dependent initializer whose head X could name is typed with the
+        // dependent record (ControlTyping::_init_fields); reaching here
+        // untyped AND dependent means that path fell back to unknown.
+        ICE_IF((e->type_ == &null) && e->is_instantiation_dependent(),
+               "EmitIR: dependent initializer reached codegen untyped; ExprTyper's named-initializer path (ControlTyping::type_named_init / _init_fields) left it unknown instead of typing it with the dependent record");
         ICE_IF(e->type_ == &null, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure");
         var c = canon_unqual(e->type_);
         ICE_IF(c->kind != TypeKind::RecordType, "EmitIR: initializer of a non-record type");
