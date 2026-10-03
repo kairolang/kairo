@@ -35,3 +35,9 @@ fn main() -> i32 {
 // RUN: %kairo %s -c --cache-dir %t.d
 // RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
 // RUN: %t.exe; test $? -eq 45
+
+// With Suspend's methods inline, every coroutine call is visible here and
+// -O3 folds the whole generator: main is `mov $0x2d,%eax; ret`.
+// RUN: rm -rf %t.o3
+// RUN: %kairo %s -c -O3 --cache-dir %t.o3
+// RUN: objdump -dr --no-show-raw-insn %t.o3/upto.o | awk '/<main>:/,/^$/' | { ! grep -q call; }
