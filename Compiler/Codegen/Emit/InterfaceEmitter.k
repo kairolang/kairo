@@ -511,6 +511,7 @@ class InterfaceEmitter {
         s += self._params(m, false, &null);
         s += ")";
         if is_method && m->is_const() { s += " const"; }
+        if m->no_unwind { s += " noexcept"; }
         if m->abi == AbiKind::Override { s += " override"; }
         s += self._body_suffix(m);
         s += ";";
@@ -536,7 +537,9 @@ class InterfaceEmitter {
         s += self._fn_name(f);
         s += "(";
         s += self._params(f, ext != &null, ext);
-        s += ");";
+        s += ")";
+        if f->no_unwind { s += " noexcept"; }
+        s += ";";
         return s;
     }
 
@@ -611,7 +614,9 @@ class InterfaceEmitter {
             if tps[i]->is_pack { targs += "..."; }
         }
         if tps.size() > 0 { targs += ">"; }
-        s += ") { return " + self._scope_qual(sc) + "::" + self._spell->leaf(static_cast::<*Decl>(f)) + targs + "(" + call + "); }";
+        s += ")";
+        if f->no_unwind { s += " noexcept"; }
+        s += " { return " + self._scope_qual(sc) + "::" + self._spell->leaf(static_cast::<*Decl>(f)) + targs + "(" + call + "); }";
         sink->spell(self._at(static_cast::<*Decl>(f)), s);
     }
 

@@ -443,6 +443,12 @@ class FunctionDecl
     /// accepts. EmitIR reads it to give an empty generator the `co_return;`
     /// that makes it a coroutine at all, rather than walking the body itself.
     pub var has_yield:     bool = false;
+    /// `@no_unwind`: the C++ spelling carries `noexcept`, and that is all it
+    /// does. Writer: X (StmtTyping::traverse_function_decl), onto EVERY link
+    /// of the redeclaration chain, because C++ requires each declaration of
+    /// a function to agree on it and the attribute may be written on only
+    /// one of them.
+    pub var no_unwind:     bool = false;
     pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.

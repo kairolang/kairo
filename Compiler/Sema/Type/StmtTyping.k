@@ -279,6 +279,8 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 f"parameter '{dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice"
             ).first(p->range).emit();
         }
+        self._stamp_no_unwind(n);
+
         // The generator fact, before anything reads it: the body's `yield`s
         // and `return`s below, then ReturnPathCheck and EmitIR. The WRITTEN
         // `-> yield T` decides, not the canonical Yield<T> (see
@@ -311,6 +313,21 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         dyn()->unsafe_depth = saved_unsafe;
         self.pop_frame();
         return n;
+    }
+
+    /// `@no_unwind` on any link marks the whole chain (FunctionDecl::no_unwind).
+    /// Probed, never interned: a name this file never spelled is on no decl.
+    priv fn _stamp_no_unwind(self, n: *FunctionDecl) {
+        var k = dyn()->sc->imm_table()->find_ident("no_unwind");
+        if k == u32(-1) { return; }
+        if !n->has_attribute_named(k) { return; }
+        var head = n->first_decl();
+        var cur  = head;
+        while true {
+            cur->no_unwind = true;
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
     }
 
     /// The functions that cannot be generators, each for a reason C++ makes

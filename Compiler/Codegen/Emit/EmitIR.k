@@ -254,13 +254,14 @@ class EmitIR {
         head += "(";
         head += self._params_text(n, ext);
         head += ")";
+        if n->no_unwind { head += " noexcept"; }
         sink->spell(at, head);
 
         self._body(n, ext);
         self._close_ns(n->range, wrap);
     }
 
-    /// `RET Owner::name(params) [const] { body }`, inside the owner's wrapper.
+    /// `RET Owner::name(params) [const|noexcept] { body }`, inside the owner's wrapper.
     priv fn _method(self, m: *FunctionDecl, owner: *Decl) {
         if !m->has_body() { return; }
         if m->body_kind != FnBodyKind::Block { self._unsupported_body(m); return; }
@@ -290,6 +291,7 @@ class EmitIR {
         head += self._params_text(m, &null);
         head += ")";
         if m->is_method() && m->is_const() { head += " const"; }
+        if m->no_unwind { head += " noexcept"; }
         sink->spell(at, head);
 
         self._body(m, &null);
