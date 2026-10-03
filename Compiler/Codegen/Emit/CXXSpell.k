@@ -629,7 +629,12 @@ class CXXSpell {
     /// name lands inside the declarator: `@inout` on a function pointer is
     /// `U (*&f)(T)`, which decl() brackets as it does any `*`/`&` declarator.
     priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, name: string, subst: *InstanceEntry) -> string {
-        if mode == ParamMode::Inout { return self.decl(t, self._ref_declarator("&", name), subst); }
+        // `const T&` only from a stamped `@copy fn X(self, const other: Self)`
+        // (ClassLifecycle); nothing else sets Inout together with `const`.
+        if mode == ParamMode::Inout {
+            var s = self.decl(t, self._ref_declarator("&", name), subst);
+            return ("const " + s) if (is_const) else (s);
+        }
         if mode == ParamMode::Move  { return self.decl(t, self._ref_declarator("&&", name), subst); }
         if is_const {
             // `const T&` iff a non-generic record; `const T` otherwise.

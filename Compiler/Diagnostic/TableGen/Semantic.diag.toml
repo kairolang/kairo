@@ -2346,3 +2346,49 @@ group = "calls"
     var f = popcount
     ```
     """
+
+[SC110]
+brief = "constructor has the shape of a transfer constructor but is not declared as one"
+group = "lifecycle"
+
+    [SC110.E]
+    explain = """
+    # transfer constructor not declared as one
+
+    C++ makes every constructor whose first parameter is the class itself, with every later
+    parameter defaulted, a copy or move constructor, whatever it was meant as. Kairo writes those
+    only one way, with the marker on the constructor and the parameter bare:
+
+    ```kairo
+    @copy fn X(self, const other: Self) { ... }   // C++ X(const X& other)
+    @copy fn X(self, other: Self) { ... }         // C++ X(X& other); no const or temporary source
+    @move fn X(self, other: Self) { ... }         // C++ X(X&& other)
+    ```
+
+    every other constructor of that shape is an error:
+
+    ```kairo
+    fn X(self, other: Self) { }                   // error: no marker
+    fn X(self, @move other: Self) { }             // error: a mode on the parameter is not a marker
+    fn X(self, other: Self, k: i32 = 0) { }       // error: C++ still reads it as a copy constructor
+    @move fn X(self, @move other: Self) { }       // error: the parameter is written bare
+    @move fn X(self, const other: Self) { }       // error: a move leaves its source empty
+    ```
+
+    the marker is what the lifecycle rules key on (one transfer constructor per class, `@move` makes
+    the class move-only, a derived class's category matches its base's), so a second spelling would
+    bypass all of them.
+
+    a constructor that takes `Self` first and then a parameter WITHOUT a default is an ordinary
+    constructor, and is not affected:
+
+    ```kairo
+    fn X(self, other: Self, extra: i32) { }       // fine
+    ```
+
+    ## how to fix
+
+    put `@copy` or `@move` on the constructor and write the parameter as `other: Self`. `@copy`
+    normally takes `const other: Self`.
+    """
+

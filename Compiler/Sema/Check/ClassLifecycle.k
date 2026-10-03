@@ -34,6 +34,25 @@
 ///     `override`, when clang says so on an imported one, or when any base
 ///     has one (C++ makes it virtual implicitly then).
 ///
+///   \par Transfer-constructor shapes
+///     C++ makes every constructor whose first parameter is the class itself
+///     (every later one defaulted) a copy or move constructor, whatever it
+///     was meant as. Kairo admits exactly two spellings of one:
+///
+///       @copy fn X(self, const other: Self)   C++ X(const X& other)
+///       @copy fn X(self, other: Self)         C++ X(X& other)
+///       @move fn X(self, other: Self)         C++ X(X&& other)
+///
+///     with `other` otherwise bare: no mode, no default, nothing after it,
+///     and no `const` under `@move`. Anything else of that shape is an error
+///     at the declaration. The accepted ones are STAMPED: `other` gets the
+///     mode the marker means (`@copy` -> Inout, `@move` -> Move), so CXXSpell
+///     and MoveCheck read an ordinary parameter mode and never the marker.
+///     The stamp lands after ExprTyper on purpose: X ranks a copy's argument
+///     against the by-value view, which is what C++ overload resolution does
+///     for `const X&` too, whereas an Inout parameter in X is a `T&` that
+///     wants the call-site `&` and refuses a temporary.
+///
 ///   Phase: CHECK, after ExprTyper. MoveCheck reads facts_of().
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -56,6 +75,7 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
+import AST::ParamMode::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
@@ -313,6 +333,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         if n->is_poisoned() { return true; }
         // Every class, not only derived ones: rules 1-4 are about the
         // class's own members, so this sits above the no-base early-out.
+        self._check_transfer_shapes(static_cast::<*Decl>(n), self.sc->ctx->get_spelling(n->name));
         self._check_lifecycle_rules(n);
         if n->derives_list.size() == 0 { return true; }
         self.n_checked += 1;
@@ -344,6 +365,114 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             self.n_errored += 1;
         }
         return true;
+    }
+
+    fn visit_struct_decl(self, n: *StructDecl) -> bool {
+        if n == &null { return true; }
+        if n->is_poisoned() { return true; }
+        self._check_transfer_shapes(static_cast::<*Decl>(n), self.sc->ctx->get_spelling(n->name));
+        return true;
+    }
+
+    // === transfer-constructor shapes =========================================
+
+    /// Classify every constructor of \p d, reject the shapes C++ would read
+    /// as a transfer constructor Kairo did not declare as one, and stamp the
+    /// accepted ones (see the file header). The one writer of both: this is
+    /// where the transfer constructor is found, so the rule and the stamp
+    /// cannot disagree about which constructor it is.
+    priv fn _check_transfer_shapes(self, d: *Decl, dn: string) {
+        var methods = self._methods(d);
+        for var i: usize = 0; i < methods.size(); ++i {
+            var m = methods[i];
+            if (m == &null) || m->is_operator || m->is_poisoned() { continue; }
+            if self._tu.decl_name(static_cast::<*Decl>(m)) != dn { continue; }   // not a constructor.
+
+            // `self`, then the first parameter after it.
+            var selfp: *ParamDecl = &null;
+            var at = usize(-1);
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var q = m->params[j];
+                if q == &null { continue; }
+                if q->is_self { selfp = q; continue; }
+                if at == usize(-1) { at = j; }
+            }
+            if (selfp == &null) || (at == usize(-1)) { continue; }
+            var p = m->params[at];
+
+            // `Self`, any cv, any mode. The receiver's own canonical IS Self
+            // (TypeResolution synthesizes it), generic records included, and
+            // canonicals are uniqued, so this is identity, not a structural
+            // compare that `Box<i32>` inside `class <T> Box` could fool.
+            if (p->type_ == &null) || (p->type_->canonical == &null) { continue; }
+            if (selfp->type_ == &null) || (selfp->type_->canonical == &null) { continue; }
+            if canon_unqual(p->type_->canonical) != canon_unqual(selfp->type_->canonical) { continue; }
+
+            // Every later parameter defaulted, or C++ does not read it as a
+            // transfer constructor: `X(self, other: Self, extra: i32)` is an
+            // ordinary constructor that happens to take a Self first. A pack
+            // has no default and makes it a template, never a copy ctor.
+            var tail = false;
+            var tail_defaulted = true;
+            for var j: usize = at + 1; j < m->params.size(); ++j {
+                var q = m->params[j];
+                if q == &null { continue; }
+                tail = true;
+                if q->is_pack || ((q->default_val == &null) && (!q->has_default)) { tail_defaulted = false; }
+            }
+            if !tail_defaulted { continue; }
+
+            if m->transfer == TransferKind::NotTransfer {
+                self._report_unmarked_transfer(m, p, dn);
+                continue;
+            }
+
+            // Marked: `other` is written bare, so the marker is the only
+            // thing that decides the C++ shape.
+            var marker = ("@copy") if (m->transfer == TransferKind::Copy) else ("@move");
+            if (p->mode != ParamMode::Value) || (p->default_val != &null) || tail {
+                var b = self.sc->diag->report(DiagID::SC110E, p->range.start,
+                    f"the parameter of a '{marker}' constructor is written 'other: Self', with no mode, no default and nothing after it"
+                );
+                b.first(p->range);
+                if p->mode != ParamMode::Value {
+                    b.remove(p->mode_range, f"remove the parameter mode; '{marker}' on the constructor already decides how 'other' is passed");
+                }
+                b.emit();
+                self.n_errored += 1;
+                continue;
+            }
+            if (m->transfer == TransferKind::Move) && p->is_const {
+                self.sc->diag->report(DiagID::SC110E, p->range.start,
+                    "a move constructor cannot take a const source; it leaves the source empty"
+                ).first(p->range).emit();
+                self.n_errored += 1;
+                continue;
+            }
+
+            // The stamp. `@copy` keeps `const` as written: `const X&` is the
+            // usual copy, plain `X&` is legal C++ and X reports a const or
+            // temporary source where the copy is made.
+            if m->transfer == TransferKind::Copy { p->mode = ParamMode::Inout; }
+            else                                 { p->mode = ParamMode::Move;  }
+        }
+    }
+
+    /// A constructor of transfer shape with no `@copy` / `@move`. C++ would
+    /// make it a copy or move constructor anyway (or reject it outright as a
+    /// by-value one), so it is an error at the declaration, never a second
+    /// spelling -- that would bypass every rule keyed on the marker.
+    priv fn _report_unmarked_transfer(self, m: *FunctionDecl, p: *ParamDecl, dn: string) {
+        var b = self.sc->diag->report(DiagID::SC110E, m->range.start,
+            f"a constructor taking 'Self' first is a transfer constructor; declare it '@copy fn {dn}(self, const other: Self)' or '@move fn {dn}(self, other: Self)\x27"
+        );
+        b.first(m->range);
+        if p->mode != ParamMode::Value {
+            var mw = ("@move") if (p->mode == ParamMode::Move) else ("@inout");
+            b.note(p->mode_range.start, f"'{mw}' on the parameter is not a transfer constructor").first(p->mode_range);
+        }
+        b.emit();
+        self.n_errored += 1;
     }
 
     /// The doc's rules about the lifecycle itself (Classes: Lifecycle

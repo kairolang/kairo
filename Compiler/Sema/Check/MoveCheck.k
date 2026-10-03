@@ -500,6 +500,12 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         if n->callee != &null { self.dispatch_expr(n->callee); }
 
         var f  = self._callee_decl(n->callee);
+        // A constructor call's callee names the TYPE; the constructor X
+        // selected is on the call. Its parameters are what `@move` (stamped
+        // onto a transfer constructor's `other` by ClassLifecycle) is read
+        // from, so without this `X(h)` through `@move fn X` never moves `h`.
+        var is_ctor = (n->ctor_decl != &null) && isa::<FunctionDecl>(n->ctor_decl);
+        if is_ctor { f = cast::<FunctionDecl>(n->ctor_decl); }
         var fp: *FunctionPointerType = &null;
         if (f == &null) && (n->callee != &null) && (n->callee->type_ != &null) {
             var t = canon_unqual(self._tu.strip_nullable(n->callee->type_));
@@ -510,7 +516,8 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         // params minus a receiver bound through `obj.m(...)`.
         var view = vec::<*ParamDecl>();
         if f != &null {
-            var bound_recv = f->is_method() && self._callee_binds_receiver(n->callee);
+            // A constructor's `self` is the object being built, never an argument.
+            var bound_recv = is_ctor || (f->is_method() && self._callee_binds_receiver(n->callee));
             for var i: usize = 0; i < f->params.size(); ++i {
                 var p = f->params[i];
                 if p == &null { continue; }
