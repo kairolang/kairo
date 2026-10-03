@@ -491,11 +491,13 @@ class <T> CallTyping {
     /// here, at the Kairo argument: left to clang, the error lands on the
     /// emitted token stream, where the user wrote nothing.
     ///
-    /// An integer, bool or char literal (possibly under unary `-`, `+`, `~`,
-    /// `!`) is a constant: clang's ICE rules take all three. Nothing else is
-    /// yet: the evaluator is a stub, so an `eval` binding has no value sema
-    /// can read, and accepting one here would only move the error back into
-    /// clang.
+    /// A constant is an integer, bool or char literal, a `sizeof` or
+    /// `alignof`, either under unary `-`, `+`, `~`, `!`, or cast `as` an
+    /// integer or bool type: all of these are ICEs to clang, and a sizeof /
+    /// alignof of a dependent type is a value-dependent one it folds at
+    /// instantiation. Nothing else is yet: the evaluator is a stub, so an
+    /// `eval` binding has no value sema can read, and accepting one here would
+    /// only move the error back into clang.
     priv fn _check_constant_args(self, f: *FunctionDecl, args: *vec::<ArgInfo>, r: *OvlResult) -> bool {
         if f->ffi_ice_mask == 0 { return true; }
         var ok = true;
@@ -524,6 +526,16 @@ class <T> CallTyping {
             }
             return false;
         }
+        if isa::<TypeCastExpr>(e) {
+            // `alignof(T) as i32`: a cast keeps an ICE an ICE only when it
+            // lands on an integer (or bool); `as f64` does not.
+            var c = cast::<TypeCastExpr>(e);
+            if (c->target == &null) || (c->target->canonical == &null) { return false; }
+            var tt = c->target->canonical;
+            if (!dyn()->tu.is_integer(tt)) && (!dyn()->tu.is_bool(tt)) { return false; }
+            return self._is_constant_arg(c->operand);
+        }
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) { return true; }
         // Not literal_shape: that is the overload ranker's view, which takes
         // floats and `null` (not constants here) and refuses a bool, the
         // very literal `__builtin_coro_promise`'s third slot wants.

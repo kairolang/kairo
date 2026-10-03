@@ -9,6 +9,9 @@ fn main() -> i32 {
     var align: i32 = 8;
     __builtin_coro_promise(p, align, false);      // SC108E: argument 2 must be an integer constant.
     __builtin_coro_promise(p, -8, !true);         // constants under unary operators: accepted.
+    __builtin_coro_promise(p, alignof(i64) as i32, false);   // alignof cast to an integer: a constant.
+    __builtin_coro_promise(p, sizeof(i64) as i32, true);     // sizeof too.
+    __builtin_coro_promise(p, align as i32, false);          // SC108E: casting a non-constant does not make one.
     return 0;
 }
 
@@ -17,4 +20,5 @@ fn main() -> i32 {
 // DIAG:      typing_errors.k:5:13: error [SC109E]: '__builtin_trap' is a clang builtin; it can only be called directly
 // DIAG-NEXT: typing_errors.k:6:14: error [SC109E]: '__builtin_trap' is a clang builtin; it can only be called directly
 // DIAG-NEXT: typing_errors.k:10:31: error [SC108E]: argument 2 of '__builtin_coro_promise' must be an integer constant
+// DIAG-NEXT: typing_errors.k:14:31: error [SC108E]: argument 2 of '__builtin_coro_promise' must be an integer constant
 // DIAG-NOT: error

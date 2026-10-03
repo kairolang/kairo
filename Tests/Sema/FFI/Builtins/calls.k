@@ -17,6 +17,10 @@ fn promise_of(p: unsafe *void) -> unsafe *void {
     return __builtin_coro_promise(p, 8, false);   // COR_LANG builtin; both I-positions are literals.
 }
 
+fn <T> promise_aligned(p: unsafe *void) -> unsafe *void {
+    return __builtin_coro_promise(p, alignof(T) as i32, false);   // a dependent alignof is still a constant.
+}
+
 fn die() -> i32 {
     __builtin_trap();                             // noreturn: no `return` needed, no ReturnPathCheck error.
 }
