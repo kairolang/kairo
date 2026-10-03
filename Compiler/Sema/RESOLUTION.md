@@ -475,6 +475,25 @@ convertibility check left to the instance when either side is dependent.
 Unknown is reserved for a head with no record behind it: an unbounded
 `T::Inner`, a duck-typed `T`. Codegen ICEs on an untyped initializer.
 
+The call form gets the same treatment: `Box<T>(p)` in a generic body is
+typed `Box<T>`, an rvalue. Its constructors are the pattern's, resolved by
+`OverloadResolution::resolve_deferred`: each parameter is read through the
+call's record arguments (`member_through`); one still dependent, or a
+dependent argument, is viable for anything and unranked (`assumed`), and a
+concrete pair ranks -- and errors -- as in any call. An Exact candidate that
+assumed nothing beats an assumed one, which is what keeps every generic
+record's `@move fn R(self, other: Self)` from making its other constructors
+ambiguous. A unique winner writes `ctor_decl` and `arg_map` exactly as a
+concrete call does. Codegen ICEs on an untyped constructor call.
+
+**Known gap: a tie through an assumed candidate.** When the best candidates
+tie only because one was assumed (or a lone assumed winner has a viable
+rival), the outcome is `Deferred`: no diagnostic, the call typed,
+`ctor_decl` null, and EmitIR's `Rec<T>(args)` lets clang pick the
+constructor per instance -- so an ambiguity there surfaces as a clang error
+on the instance, not a Kairo one at the definition. Closes when the bounded
+regime gives each parameter enough to rank.
+
 **Memoized on the node.** `expected` is bidirectional only where a node
 consumes it: literals, `null`, aggregate/named/anonymous initializers,
 closures. A node has one parent, so one expected type, so the memo is

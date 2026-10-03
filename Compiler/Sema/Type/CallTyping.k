@@ -265,6 +265,11 @@ class <T> CallTyping {
                 dyn()->type_of(a->expr, pt);
                 continue;
             }
+            // Either side dependent -- only reachable through a dependent
+            // constructor call -- is the instance's question, as it is for
+            // an initializer field.
+            if (pt != &null) && pt->is_dependent() { continue; }
+            if a->dependent { continue; }
             if pt != &null {
                 dyn()->lint_cast_into_slot(a->expr, pt);
                 dyn()->check_convertible(a->expr, pt);
@@ -594,14 +599,27 @@ class <T> CallTyping {
 
     /// `Foo(args)` on a record type: constructors live in the type's own
     /// table under DeclName::ctor(). No ctor + no args is the default ctor.
+    ///
+    /// A DEPENDENT record that can be named -- `Box<T>(p)` in a generic
+    /// body -- is typed with that record, exactly as ControlTyping's
+    /// _init_fields types `Box<T>{ ... }`: codegen ICEs on an untyped
+    /// constructor call, and the type is right there to name. Its pattern's
+    /// constructors are resolved in defer mode (resolve_deferred): a
+    /// parameter still dependent through the record's arguments is assumed
+    /// viable, a concrete one ranks and errors as in any call. A winner is
+    /// written exactly as for a concrete call; a tie only the instance can
+    /// break leaves ctor_decl null, and the emitted `Box<T>(args)` lets
+    /// clang pick per instance (RESOLUTION.md §2.9). Only a head with no
+    /// record to name -- an unbounded `T::Inner` -- stays unknown.
     priv fn _ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
         var d = dyn()->tu.record_decl(rec);
+        var dep = rec->is_dependent();
+        if (d == &null) && dep { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
         if d == &null {
             // an alias of a builtin, `i32(x)` style: not a call.
             dyn()->fail(n, DiagID::SC037E, f"'{dyn()->tu.str(rec)}' is not constructible with a call; use 'as\x27");
             return &null;
         }
-        if rec->is_dependent() { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
 
         var body = dyn()->tu.pattern_of(d);   // an unfilled instance has an empty table.
         var dc   = NameLookup::context_of(body);
@@ -625,8 +643,19 @@ class <T> CallTyping {
         }
         var args = vec::<ArgInfo>();
         var ok = self.build_args(n->args, &args);
-        var r = dyn()->ovl.resolve(&cands, &args, true, n->range, dyn()->tu.decl_name(d), rec);
+        var r = OvlResult{};
+        if dep {
+            r = dyn()->ovl.resolve_deferred(&cands, &args, true, n->range, dyn()->tu.decl_name(d), rec);
+        } else {
+            r = dyn()->ovl.resolve(&cands, &args, true, n->range, dyn()->tu.decl_name(d), rec);
+        }
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
+        if r.outcome == OvlOutcome::Deferred {
+            if !ok { dyn()->poison_only(n); return &null; }
+            self._finish_args_unselected(&args);
+            n->value_category = Expr::ValueCategory::RValue;
+            return rec;
+        }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
         if !ok { dyn()->poison_only(n); return &null; }
         r.ded.bind_from_record(rec);
@@ -634,7 +663,22 @@ class <T> CallTyping {
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
         n->ctor_decl = static_cast::<*Decl>(r.decl);
+        if dep { n->value_category = Expr::ValueCategory::RValue; }
         return rec;
+    }
+
+    /// finish_call_args with no winner: there is no parameter to type an
+    /// untyped literal against, so it takes its default (what clang will
+    /// see it as), and a `name: value` wrapper takes its value's type.
+    priv fn _finish_args_unselected(self, args: *vec::<ArgInfo>) {
+        for var i: usize = 0; i < args->size(); ++i {
+            var a = &((*args)[i]);
+            if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); }
+            if (a->carrier == &null) || (a->carrier == a->expr) { continue; }
+            if a->expr->is_poisoned() { a->carrier->poison(); }
+            a->carrier->value_category = a->expr->value_category;
+            dyn()->finish(a->carrier, a->expr->type_);
+        }
     }
 
     /// Call through a function-pointer-typed value.

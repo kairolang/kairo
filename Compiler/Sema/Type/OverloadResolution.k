@@ -136,6 +136,10 @@ enum OvlOutcome derives u8 {
     Ambiguous,
     NoViable,
     Dependent,   ///< an argument is dependent: decide at M2, no diagnostic.
+    /// defer mode only: the best candidates tie only because a dependent
+    /// parameter or argument was assumed viable. Undecidable here, so no
+    /// diagnostic and no decl; the instance's C++ picks.
+    Deferred,
     Empty,       ///< nothing callable under that name.
 }
 
@@ -145,6 +149,12 @@ class Candidate {
     pub var rank:         u8    = 0;        ///< 0 Exact, 1 Converted.
     pub var generic:      bool  = false;
     pub var free:         bool  = false;    ///< from resolve_mixed's free list: judged with no receiver.
+    /// Judged in defer mode: a dependent parameter or argument is viable and
+    /// unranked instead of unified. Set before _judge, read by it.
+    pub var defer:        bool  = false;
+    /// defer mode: some argument was ASSUMED viable, not ranked. `rank` is
+    /// then a lower bound -- the instance can only make it worse.
+    pub var assumed:      bool  = false;
     pub var reason:       string = "";
     /// Which placement rule rejected this candidate, or SC001E (never emitted from here; a pure "no specific rule" sentinel) for anything
     /// else. `_report_no_viable` promotes it to the real diagnostic when there
@@ -234,6 +244,23 @@ class OverloadResolution {
         return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver);
     }
 
+    /// resolve() for a call whose callee is DEPENDENT but nameable -- a
+    /// constructor of `Rec<T>` inside a generic body. A parameter still
+    /// dependent after reading it through \p receiver, or a dependent
+    /// argument, is viable for anything and unranked: convertibility is the
+    /// instance's question, as it is for initializer fields. Concrete pairs
+    /// rank normally, so a concrete mismatch is still an error here.
+    ///
+    /// Selection is resolve()'s plus one rule: an Exact candidate that
+    /// assumed nothing beats one that did. Without it every generic record
+    /// is ambiguous at the definition, because they all have a transfer
+    /// constructor taking `Self`. A tie that exists only through an assumed
+    /// candidate is OvlOutcome::Deferred, silently.
+    fn resolve_deferred(self, cands: *vec::<*Decl>, args: *vec::<ArgInfo>, has_receiver: bool,
+                        at: SourceRange, name: string, receiver: *Type) -> OvlResult {
+        return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver, true);
+    }
+
     /// One overload set drawn from two argument shapes. \p members are judged
     /// against \p margs exactly as resolve() judges them; \p frees (free
     /// functions -- an ADL-found `fn op +(a: A, b: B)`) against \p fargs,
@@ -245,21 +272,22 @@ class OverloadResolution {
     /// \p fargs may be null.
     fn resolve_mixed(self, members: *vec::<*Decl>, margs: *vec::<ArgInfo>, has_receiver: bool,
                      frees: *vec::<*Decl>, fargs: *vec::<ArgInfo>,
-                     at: SourceRange, name: string, receiver: *Type = &null) -> OvlResult {
+                     at: SourceRange, name: string, receiver: *Type = &null,
+                     defer: bool = false) -> OvlResult {
         var out = OvlResult{};
         // \p receiver carries the OBJECT's cv (a const object's method call
         // ranks on it, _judge_receiver); everything downstream of the
         // result wants the type the call was made through, unqualified.
         out.receiver = canon_unqual(receiver);
 
-        if self._any_dependent(margs) || self._any_dependent(fargs) {
+        if (!defer) && (self._any_dependent(margs) || self._any_dependent(fargs)) {
             out.outcome = OvlOutcome::Dependent;
             return out;
         }
 
         var cs = vec::<Candidate>();
-        self._collect(&cs, members, margs, has_receiver, receiver, false);
-        if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true); }
+        self._collect(&cs, members, margs, has_receiver, receiver, false, defer);
+        if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true, defer); }
 
         if cs.size() == 0 {
             self.sc->diag->report(DiagID::SC062E, at.start,
@@ -284,6 +312,16 @@ class OverloadResolution {
         for var i: usize = 0; i < cs.size(); ++i {
             if cs[i].viable && (cs[i].rank == best) { winners.push_back(i); }
         }
+        // An assumed candidate's rank is a lower bound, so it can tie an
+        // Exact winner at best -- never beat one. Only at Exact: a firm
+        // Converted winner could still tie an assumed one at the instance.
+        if defer && (winners.size() > 1) && (best == 0) {
+            var firm = vec::<usize>();
+            for var i: usize = 0; i < winners.size(); ++i {
+                if !cs[winners[i]].assumed { firm.push_back(winners[i]); }
+            }
+            if firm.size() > 0 { winners = firm; }
+        }
         // Reference kind, BEFORE the generic tiebreak for the reason C++
         // orders them so ([over.match.best]: better conversion sequences
         // first, templates after): see _ref_better.
@@ -295,6 +333,11 @@ class OverloadResolution {
                 if !cs[winners[i]].generic { nongen.push_back(winners[i]); }
             }
             if nongen.size() > 0 { winners = nongen; }
+        }
+
+        if defer && self._undecided(&cs, &winners) {
+            out.outcome = OvlOutcome::Deferred;
+            return out;
         }
 
         if winners.size() > 1 {
@@ -313,6 +356,24 @@ class OverloadResolution {
         out.inout_unmarked = w->inout_unmarked;
         out.inout_params   = w->inout_params;
         return out;
+    }
+
+    /// defer mode: whether \p winners leave the choice to the instance. A tie
+    /// with an assumed candidate in it is not an ambiguity anyone can see
+    /// yet. A lone assumed winner is a choice only when it is the ONLY viable
+    /// candidate; otherwise the instance may rank it below another.
+    priv fn _undecided(self, cs: *vec::<Candidate>, winners: *vec::<usize>) -> bool {
+        var any_assumed = false;
+        for var i: usize = 0; i < winners->size(); ++i {
+            if (*cs)[(*winners)[i]].assumed { any_assumed = true; }
+        }
+        if !any_assumed { return false; }
+        if winners->size() > 1 { return true; }
+        var viable: usize = 0;
+        for var i: usize = 0; i < cs->size(); ++i {
+            if (*cs)[i].viable { viable += 1; }
+        }
+        return viable > 1;
     }
 
     /// The winners no other winner beats on reference kind.
@@ -396,7 +457,7 @@ class OverloadResolution {
     /// \p cs, skipping one \p cs already holds (fwd + def are one entity,
     /// RedeclMerge; and a decl reached as both member and ADL free is one).
     priv fn _collect(self, cs: *vec::<Candidate>, cands: *vec::<*Decl>, args: *vec::<ArgInfo>,
-                     has_receiver: bool, receiver: *Type, free: bool) {
+                     has_receiver: bool, receiver: *Type, free: bool, defer: bool = false) {
         if cands == &null { return; }
         for var i: usize = 0; i < cands->size(); ++i {
             var f = dyn_cast::<FunctionDecl>((*cands)[i]);
@@ -412,6 +473,7 @@ class OverloadResolution {
             var c = Candidate{};
             c.f       = f;
             c.free    = free;
+            c.defer   = defer;
             c.generic = f->generic_params.size() > 0;
             c.ded     = Deduction(self.sc, self.conv);
             self._judge(&c, args, has_receiver, receiver);
@@ -615,6 +677,22 @@ class OverloadResolution {
             if (p->type_ != &null) && p->type_->is_poisoned() { c->viable = false; c->reason = "parameter type is invalid"; return; }
             pt = c->ded.through_receiver(c->f, canon_unqual(receiver), pt);   // `other: Self` is `other: <receiver>`.
 
+            // Defer mode: read the parameter through the call's record
+            // arguments (`Box<U>`'s `p: T` is `p: U`), then assume what is
+            // still dependent on either side. No unify: the receiver is a
+            // pattern, and binding its parameters from an argument would
+            // decide what only the instance knows.
+            if c->defer {
+                if pt != &null { pt = c->ded.member_through(canon_unqual(receiver), pt); }
+                if (pt == &null) || pt->is_dependent() || a->dependent {
+                    if (pt == &null) && ((p->type_ == &null) || (!(p->type_->is_dependent() || p->type_->is_instantiation_dependent()))) {
+                        c->viable = false; c->reason = "parameter type is unresolved"; return;
+                    }
+                    c->assumed = true;
+                    continue;
+                }
+            }
+
             if pt == &null {
                 // dependent-but-uncanonical parameter (`[T; N]`, alias app):
                 // cannot decide here; accept at Converted and let M2 judge.
@@ -659,7 +737,9 @@ class OverloadResolution {
             }
         }
 
-        // 5. a generic candidate must have deduced every param.
+        // 5. a generic candidate must have deduced every param. In defer mode
+        //    an assumed argument deduced nothing, so a gap is assumed too.
+        if c->generic && c->assumed && (!c->ded.is_complete(static_cast::<*Decl>(f))) { return; }
         if c->generic && (!c->ded.is_complete(static_cast::<*Decl>(f))) {
             c->viable = false;
             c->reason = "could not deduce every generic parameter from the arguments";
