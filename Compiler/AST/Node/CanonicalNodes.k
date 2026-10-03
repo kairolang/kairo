@@ -231,15 +231,19 @@ enum BuiltinKind derives u8 {
     /// which no IEEE interchange format has, it is not "binary80" and
     /// calling it that will eventually mislead someone writing codegen.
     ///
-    /// X86 ONLY. There is no x86_fp80 on ARM, RISC-V or anything else, and
-    /// on those targets C's `long double` is just double. TypeResolution
-    /// emits a HARD ERROR naming the target triple when this is spelled for
-    /// a non-x86 target, rather than silently widening to F128 or narrowing
-    /// to F64, a quiet precision change is worse than a failed build.
+    /// TARGET GATED. f80 lowers to C++ `long double`, so it exists exactly
+    /// where the target ABI's `long double` is x87 extended -- an ABI fact,
+    /// not an ISA one: x86_64-windows-msvc has x87 hardware and a binary64
+    /// `long double`, x86_64-linux-android a binary128 one, and off x86 it
+    /// is binary64, binary128 or IBM double-double depending on the target.
+    /// TypeResolution emits a HARD ERROR naming the target triple and what
+    /// `long double` actually is there, rather than silently widening to
+    /// F128 or narrowing to F64, a quiet precision change is worse than a
+    /// failed build.
     ///
     /// Retained despite being the one non-portable entry because the
     /// compiler's own Immediate::FloatData stores literal values in it.
-    /// C++: long double (x86 only). APFloat: semX87DoubleExtended.
+    /// C++: long double (where x87). APFloat: semX87DoubleExtended.
     F80,
 
     /// `f128`. IEEE binary128 (quadruple): 1/15/112. LLVM has the type
@@ -394,7 +398,7 @@ eval fn BF_INTEGER()      -> u8 { return 1;  }
 eval fn BF_SIGNED()       -> u8 { return 2;  }
 eval fn BF_FLOAT()        -> u8 { return 4;  }
 eval fn BF_TARGET_WIDTH() -> u8 { return 8;  }  ///< bits == 0; store fills from the triple.
-eval fn BF_X86_ONLY()     -> u8 { return 16; }  ///< TypeResolution hard-errors on other targets.
+eval fn BF_TARGET_GATED() -> u8 { return 16; }  ///< availability decided from TargetInfo; TypeResolution hard-errors when absent.
 eval fn BF_TARGET_CXX()   -> u8 { return 32; }  ///< cxx == ""; store fills from the triple.
 
 /// \struct BuiltinInfo
@@ -432,7 +436,7 @@ class BuiltinInfo {
     fn is_integer(self)  -> bool { return (self.flags & BF_INTEGER())  != 0; }
     fn is_signed(self)   -> bool { return (self.flags & BF_SIGNED())   != 0; }
     fn is_float(self)    -> bool { return (self.flags & BF_FLOAT())    != 0; }
-    fn is_x86_only(self) -> bool { return (self.flags & BF_X86_ONLY()) != 0; }
+    fn is_target_gated(self) -> bool { return (self.flags & BF_TARGET_GATED()) != 0; }
 }
 
 // if i had stage1: PORT(non-trivial)
@@ -440,7 +444,7 @@ class BuiltinInfo {
 //     fn is_integer(self)  -> bool { return (self.flags & BF_INTEGER())  != 0; }
 //     fn is_signed(self)   -> bool { return (self.flags & BF_SIGNED())   != 0; }
 //     fn is_float(self)    -> bool { return (self.flags & BF_FLOAT())    != 0; }
-//     fn is_x86_only(self) -> bool { return (self.flags & BF_X86_ONLY()) != 0; }
+//     fn is_target_gated(self) -> bool { return (self.flags & BF_TARGET_GATED()) != 0; }
 // }
 
 /// \var BuiltinTable
@@ -475,9 +479,17 @@ class BuiltinInfo {
 ///      `F256`/`F512` carry exp/mant/bias == 0. A limb representation has no
 ///      single exponent field; those columns are not meaningful for them.
 ///
-///      `F80` is BF_X86_ONLY. On a non-x86 target `long double` is `double`, so
-///      TypeResolution rejects f80 there rather than letting the row silently
-///      mean something else.
+///      `bits` is VALUE width, never storage. F80 is 80 value bits stored in
+///      96 or 128 depending on the triple; CanonicalTypeStore lays it out from
+///      the target's sizeof(long double), never from this column.
+///
+///      `F80` is BF_TARGET_GATED. It exists only where the target's C++
+///      `long double` IS x87 extended, which the driver reads from
+///      TargetInfo::getLongDoubleFormat(). Not "x86": x86_64-windows-msvc
+///      makes long double binary64, x86_64-linux-android makes it binary128,
+///      and -mlong-double-* changes it on any x86. Emitting `long double`
+///      for f80 on those is a silent precision change, so TypeResolution
+///      rejects f80 there instead.
 ///
 /// \par Float layout carries the identity, not the width
 ///      F8E4M3 differs from semFloat8E4M3 only in has_inf == false, and that
@@ -526,7 +538,7 @@ inline "c++" { // PORT(trivial): reason for this inline c++, stage0 does not hav
         BuiltinInfo(BuiltinKind::BF16,   TokenKind::AtBf16,    "bf16",    "__bf16",                16,  BF_FLOAT(),               FloatLayout(FloatSem::BFloat,            FloatImpl::Native,  8,  7,   127,   true,  false)),
         BuiltinInfo(BuiltinKind::F32,    TokenKind::AtF32,     "f32",     "float",                 32,  BF_FLOAT(),               FloatLayout(FloatSem::IEEESingle,        FloatImpl::Native,  8,  23,  127,   true,  false)),
         BuiltinInfo(BuiltinKind::F64,    TokenKind::AtF64,     "f64",     "double",                64,  BF_FLOAT(),               FloatLayout(FloatSem::IEEEDouble,        FloatImpl::Native,  11, 52,  1023,  true,  false)),
-        BuiltinInfo(BuiltinKind::F80,    TokenKind::AtF80,     "f80",     "long double",           80,  BF_FLOAT()|BF_X86_ONLY(), FloatLayout(FloatSem::X87DoubleExtended, FloatImpl::Native,  15, 64,  16383, true,  true)),
+        BuiltinInfo(BuiltinKind::F80,    TokenKind::AtF80,     "f80",     "long double",           80,  BF_FLOAT()|BF_TARGET_GATED(), FloatLayout(FloatSem::X87DoubleExtended, FloatImpl::Native,  15, 64,  16383, true,  true)),
         BuiltinInfo(BuiltinKind::F128,   TokenKind::AtF128,    "f128",    "__float128",            128, BF_FLOAT(),               FloatLayout(FloatSem::IEEEQuad,          FloatImpl::Libcall, 15, 112, 16383, true,  false)),
         BuiltinInfo(BuiltinKind::F256,   TokenKind::AtF256,    "f256",    "::kairo::rt::f256",     256, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble4,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
         BuiltinInfo(BuiltinKind::F512,   TokenKind::AtF512,    "f512",    "::kairo::rt::f512",     512, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble8,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
@@ -626,11 +638,16 @@ eval fn verify_builtin_table() -> bool {
         var is_int    = (row->flags & BF_INTEGER()) != 0;
         var is_target = (row->flags & BF_TARGET_WIDTH()) != 0;
         var is_tcxx   = (row->flags & BF_TARGET_CXX()) != 0;
+        var is_gated  = (row->flags & BF_TARGET_GATED()) != 0;
 
         // cxx == "" must mean "ask the store", and only for the rows that say so.
         if ((!is_tcxx) && (row->cxx == "")) { return false; }
 
         if (is_float && is_int) { return false; }
+
+        // The gate is only implemented for a float whose representation the
+        // target may lack; on any other row it would be a silent no-op.
+        if (is_gated && (!is_float)) { return false; }
 
         if (is_float) {
             if (row->fp.sem == FloatSem::None)   { return false; }

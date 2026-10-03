@@ -162,6 +162,13 @@ ffi "c++" import "llvm/Support/TargetSelect.h";
 ffi "c++" import "llvm/Target/TargetMachine.h";
 ffi "c++" import "llvm/Target/TargetOptions.h";
 ffi "c++" import "llvm/Support/CodeGen.h";
+ffi "c++" import "llvm/ADT/APFloat.h";
+ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h";
+ffi "c++" import "clang/Basic/Diagnostic.h";
+ffi "c++" import "clang/Basic/DiagnosticIDs.h";
+ffi "c++" import "clang/Basic/DiagnosticOptions.h";
+ffi "c++" import "clang/Basic/TargetInfo.h";
+ffi "c++" import "clang/Basic/TargetOptions.h";
 ffi "c++" import "clang/Frontend/FrontendActions.h";
 ffi "c++" import "Native/KTimeReport.hh";
 
@@ -1791,6 +1798,7 @@ class CompilerInstance {
         (t->object_format)    = objfmt;
         (t->is_little_endian) = tt.isLittleEndian();
         (t->is_x86)           = tt.isX86();
+        self._fill_long_double_facts(tt);
         (t->resolved)         = true;
 
         var err: libcxx::string;
@@ -1813,6 +1821,50 @@ class CompilerInstance {
                 return;
             }
         }
+    }
+
+    /// Fill TargetOptions' `long double` block from clang::TargetInfo for
+    /// \p tt, the same post -m32/-m64 Triple the rest of the derived facts
+    /// came from.
+    ///
+    /// Asked of clang, not a triple list: whether `long double` is x87 is an
+    /// ABI decision clang already makes per triple, and every hand-written
+    /// "is x86" approximation of it is wrong on MSVC (binary64) and Android
+    /// (binary128). The TargetInfo is throwaway -- only the answers are kept,
+    /// so Config/ and Sema still never see clang.
+    priv fn _fill_long_double_facts(self, tt: ref!(llvm::Triple)) {
+        var t = &(self.invocation().target);
+
+        var dopts = clang::DiagnosticOptions();
+        var diags = clang::DiagnosticsEngine(clang::DiagnosticIDs::create(), dopts,
+                                             std::create::<clang::IgnoringDiagConsumer>(), true);
+        var topts = libcxx::make_shared::<clang::TargetOptions>();
+        (topts->Triple) = tt.getTriple();
+        var ti = llvm::IntrusiveRefCntPtr::<clang::TargetInfo>(
+            clang::TargetInfo::CreateTargetInfo(diags, *topts));
+
+        // No TargetInfo means clang does not know the triple, and the
+        // lookupTarget check right after this reports P004F and fails the
+        // invocation. Fall back to the ISA so f80 does not add a second,
+        // misleading error on top of that one.
+        if ti.get() == &null {
+            (t->long_double_is_x87) = t->is_x86;
+            return;
+        }
+
+        var fmt    = &(ti->getLongDoubleFormat());
+        var is_x87 = fmt == &(llvm::APFloat::x87DoubleExtended());
+        var name: string = "an unrecognized format";
+        if is_x87                                     { name = "x87 extended"; }
+        if fmt == &(llvm::APFloat::IEEEdouble())      { name = "binary64"; }
+        if fmt == &(llvm::APFloat::IEEEquad())        { name = "binary128"; }
+        if fmt == &(llvm::APFloat::PPCDoubleDouble()) { name = "IBM double-double"; }
+
+        (t->long_double_is_x87)   = is_x87;
+        (t->long_double_fmt_name) = name;
+        (t->long_double_bits)     = static_cast::<usize>(ti->getLongDoubleWidth());
+        (t->long_double_align)    = static_cast::<usize>(ti->getLongDoubleAlign());
+        (t->has_float128)         = ti->hasFloat128Type();
     }
 }
 

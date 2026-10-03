@@ -88,12 +88,40 @@ class TargetOptions {
 
     pub var is_little_endian: bool = true;
 
-    /// x86 or x86_64. The one ISA question the FRONTEND has to answer, because
-    /// `f80` is the x87 80-bit extended format and exists nowhere else. Kept
-    /// as a resolved bool rather than a string compare at each use so a new
-    /// spelling of an x86 triple cannot quietly change the answer at one call
-    /// site and not another.
+    /// x86 or x86_64, i.e. the CPU has an x87 stack. NOT the f80 gate -- that
+    /// is long_double_is_x87 below, because an x86 ABI may still not expose
+    /// x87 as `long double`. Kept so the f80 diagnostic can say which of the
+    /// two it hit. A resolved bool rather than a string compare at each use
+    /// so a new spelling of an x86 triple cannot quietly change the answer at
+    /// one call site and not another.
     pub var is_x86: bool = false;
+
+    // --- C++ `long double`, read from clang::TargetInfo ----------------------
+    //
+    // `f80` lowers to C++ `long double`, so whether f80 exists is an ABI fact,
+    // not an ISA fact: x86_64-windows-msvc has x87 hardware and a binary64
+    // `long double`, x86_64-linux-android has a binary128 one. is_x86 above
+    // answers "does the CPU have x87"; these answer "is the `long double` we
+    // emit x87", which is the question TypeResolution actually has to ask.
+    // Taken from clang rather than a hand-written triple list because clang
+    // already knows every case a list gets wrong.
+
+    /// The target ABI's `long double` IS x87 extended. The f80 gate.
+    pub var long_double_is_x87: bool = false;
+
+    /// What `long double` is here, for diagnostics: "binary64", "binary128",
+    /// "x87 extended", "IBM double-double", or "" when never filled.
+    pub var long_double_fmt_name: string = "";
+
+    /// sizeof(long double) * 8 and its alignment in bits. STORAGE, not value
+    /// width: x87 is 80 value bits stored in 96 (i386) or 128 (x86_64). The
+    /// type store lays f80 out from these. 0 means never filled.
+    pub var long_double_bits:  usize = 0;
+    pub var long_double_align: usize = 0;
+
+    /// TargetInfo::hasFloat128Type(): whether `__float128`, hence `f128`, is
+    /// available. Decides whether a diagnostic may suggest f128.
+    pub var has_float128: bool = false;
 
     /// What a diagnostic should call the target. The effective triple, or an
     /// explicit "not resolved" rather than an empty string, which in an error

@@ -114,6 +114,10 @@ class CanonicalTypeStore {
     /// Pointer width in bits, for usize/isize. Set by init(); 64 until then.
     priv var _ptr_bits: usize = 64;
 
+    /// sizeof / alignof(long double) in bits, for f80's layout. Set by init().
+    priv var _ld_bits:  usize = 128;
+    priv var _ld_align: usize = 128;
+
     priv var _ready: bool = false;
 
     fn CanonicalTypeStore(self) {
@@ -128,15 +132,23 @@ class CanonicalTypeStore {
     ///        has a width fixed by its name.
     /// \param lp64 whether the target's int64_t is `long` (LP64) rather than
     ///        `long long` (LLP64, every 32-bit target). Spells i64/u64.
+    /// \param ld_bits, ld_align sizeof / alignof(long double) in bits on the
+    ///        target. f80's STORAGE: 80 value bits occupy 96 on i386 and 128
+    ///        on x86_64, and the row's `bits` column is the value width.
+    ///        0 means unfilled and keeps the x86_64 128/128.
     ///
     /// \details the i64/u64 spellings are written into BuiltinTable itself,
     ///          not onto the nodes: every emitter reads builtin_info()->cxx,
     ///          and the table is as build-wide as this store. First caller
     ///          wins here, so the table is written exactly once.
-    fn init(self, ptr_bits: usize, lp64: bool) {
+    fn init(self, ptr_bits: usize, lp64: bool, ld_bits: usize, ld_align: usize) {
         var lock = std::LockGuard(self._mu);
         if self._ready { return; }
         self._ptr_bits = ptr_bits;
+        if (ld_bits != 0) && (ld_align != 0) {
+            self._ld_bits  = ld_bits;
+            self._ld_align = ld_align;
+        }
 
         builtin_info(BuiltinKind::I64)->cxx = ("signed long")   if lp64 else ("signed long long");
         builtin_info(BuiltinKind::U64)->cxx = ("unsigned long") if lp64 else ("unsigned long long");
@@ -158,6 +170,14 @@ class CanonicalTypeStore {
             }
             bt->size_bits  = bits;
             bt->align_bits = bits;
+
+            // The one row whose storage is not its value width. Where f80 is
+            // gated off this is never reached by a resolved type, so the
+            // target's non-x87 long double size does no harm here.
+            if b == BuiltinKind::F80 {
+                bt->size_bits  = self._ld_bits;
+                bt->align_bits = self._ld_align;
+            }
 
             // A builtin is its own canonical. Uniform self-canonicality is what
             // lets every identity test read `->canonical` without a special

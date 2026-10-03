@@ -125,9 +125,14 @@ class HeaderIndex {
         // source would give usize two sizes depending on who ran first.
         var pbits: usize = 64;
         var lp64 = true;
-        if self._inv != &null { pbits = self._inv->target.pointer_width; lp64 = self._inv->target.lp64; }
+        var ldb: usize = 0;
+        var lda: usize = 0;
+        if self._inv != &null {
+            pbits = self._inv->target.pointer_width; lp64 = self._inv->target.lp64;
+            ldb = self._inv->target.long_double_bits; lda = self._inv->target.long_double_align;
+        }
         if pbits == 0 { pbits = 64; lp64 = true; }
-        self._g->types()->init(pbits, lp64);
+        self._g->types()->init(pbits, lp64, ldb, lda);
 
         // 1. fids + contexts + TUs, in clang's touch order.
         var fresh = vec::<*HeaderTarget>();

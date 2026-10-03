@@ -55,19 +55,24 @@ group = "portability"
     explain = """
     # non-portable primitive for this target
 
-    a primitive type was spelled whose representation exists only on some architectures, and the
-    target being compiled for is not one of them. the effective target triple - `--target` if given,
-    otherwise the host triple, after `-m32`/`-m64` - is named in the diagnostic.
+    a primitive type was spelled whose representation does not exist on the target being compiled
+    for. the effective target triple - `--target` if given, otherwise the host triple, after
+    `-m32`/`-m64` - is named in the diagnostic.
 
     today `f80` is the only such type. it is the x87 80-bit extended format: 1 sign bit, 15 exponent
     bits and a 64-bit significand with an EXPLICIT integer bit, which no IEEE interchange format has.
-    it is a property of the x87 register stack, so it exists on x86 and x86_64 and nowhere else. on
-    AArch64, RISC-V, PowerPC, WebAssembly and everything else there is no such register, no such
-    instruction, and C's `long double` is simply `double`.
+    `f80` lowers to C++ `long double`, so it exists exactly where the target ABI's `long double` IS
+    x87 extended. that is a property of the ABI, not the CPU: x86_64-windows-msvc has x87 hardware
+    and a binary64 `long double`, and x86_64-linux-android has a binary128 one. off x86, `long double`
+    is binary64 (Apple, MSVC), binary128 (AArch64 and RISC-V Linux, s390x) or IBM double-double
+    (PowerPC64).
 
 ```kairo
     // building with --target=aarch64-unknown-linux-gnu
     var x: f80 = 1.0;   // error: no x87 on aarch64
+
+    // building with --target=x86_64-pc-windows-msvc
+    var y: f80 = 1.0;   // error: x87 exists, but this ABI's long double is binary64
 ```
 
     Kairo does not substitute a nearby float type. `f128` is IEEE binary128, a different format with
@@ -77,14 +82,15 @@ group = "portability"
 
     ## how to fix
 
-    **matching a C `long double` across FFI?** use `f64`. on every target that rejects `f80`,
-    C's `long double` is already `double` - so `f64` is not a compromise, it is the correct mapping.
+    **matching a C `long double` across FFI?** use the type the diagnostic names: `f64` where
+    `long double` is binary64, `f128` where it is binary128. that is not a compromise, it is the
+    correct mapping. IBM double-double has no Kairo builtin; bind it through FFI.
 
     otherwise, pick by what the code needs: `f64` if double precision is enough, `f128` if you need
-    the range and can pay for the libcalls. write the choice down, so the code says which one it
-    meant.
+    the range and can pay for the libcalls (where the target has `__float128` at all). write the
+    choice down, so the code says which one it meant.
 
-    if the code is genuinely x86-only, guard it and build it for an x86 target.
+    if the code genuinely needs x87, guard it and build it for a target whose `long double` is x87.
     """
 [P004]
 brief = "unknown target triple"

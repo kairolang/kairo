@@ -234,9 +234,14 @@ class SemaContext {
             self.well_known = g->well_known();
             var pbits: usize = 64;
             var lp64 = true;
-            if ctx->ci != &null { pbits = ctx->ci->target.pointer_width; lp64 = ctx->ci->target.lp64; }
+            var ldb: usize = 0;
+            var lda: usize = 0;
+            if ctx->ci != &null {
+                pbits = ctx->ci->target.pointer_width; lp64 = ctx->ci->target.lp64;
+                ldb = ctx->ci->target.long_double_bits; lda = ctx->ci->target.long_double_align;
+            }
             if pbits == 0 { pbits = 64; lp64 = true; }
-            self.types->init(pbits, lp64);
+            self.types->init(pbits, lp64, ldb, lda);
         }
 
         if ctx->ci != &null {

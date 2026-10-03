@@ -677,12 +677,16 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
 
     /// Reject a primitive whose REPRESENTATION does not exist on the target.
     ///
-    /// This is the only ISA question the frontend asks, and `f80` is the only
-    /// type that raises it. f80 is the x87 80-bit extended format -- 1/15/64
-    /// with an explicit integer bit, which no IEEE interchange format has --
-    /// and it is a property of the x87 register stack. x86 and x86_64 have it;
-    /// nothing else does, and on those targets C's `long double` is plain
-    /// `double`.
+    /// `f80` is the only type that raises this. f80 is the x87 80-bit extended
+    /// format -- 1/15/64 with an explicit integer bit, which no IEEE
+    /// interchange format has -- and it lowers to C++ `long double`, so it
+    /// exists exactly where the target ABI's `long double` is x87 extended.
+    /// That is an ABI fact, not an ISA fact: x86_64-windows-msvc has x87
+    /// hardware and a binary64 `long double`, x86_64-linux-android has a
+    /// binary128 one, and off x86 it is binary64 (Apple, MSVC), binary128
+    /// (AArch64/RISC-V Linux, s390x) or IBM double-double (PPC64). The answer
+    /// comes from clang::TargetInfo via target.long_double_is_x87; is_x86 is
+    /// only consulted to word the message.
     ///
     /// The alternative to erroring is picking a replacement, and both
     /// available replacements are wrong in a way the user cannot see: f128 is
@@ -695,27 +699,46 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     ///
     /// Gated on `target.resolved`: a hand-built invocation that never reached
     /// CompilerInstance::_apply_invocation has no target facts, and guessing
-    /// "not x86" there would reject f80 on the very host it works on.
+    /// "not x87" there would reject f80 on the very host it works on.
     priv fn _target_supports(self, bk: BuiltinKind, ct: *ChainType) -> bool {
         if bk != BuiltinKind::F80 { return true; }
         if self.sc->ctx == &null      { return true; }
         if self.sc->ctx->ci == &null  { return true; }
         var t = &(self.sc->ctx->ci->target);
-        if !t->resolved { return true; }
-        if t->is_x86    { return true; }
+        if !t->resolved               { return true; }
+        if t->long_double_is_x87      { return true; }
 
         var tri  = t->describe();
         var arch = t->arch_name;
+        var ld   = t->long_double_fmt_name;
 
-        var msg  = f"'f80' requires x87, which {arch} does not have";
+        // Two different failures. The hardware may have x87 and the ABI still
+        // not expose it: f80 lowers to C++ `long double`, so the ABI is the
+        // fact that decides, not the ISA.
+        var msg = "";
+        if t->is_x86 {
+            msg = f"'f80' is unavailable on '{tri}': x87 exists but this ABI's 'long double' is {ld}";
+        } else {
+            msg = f"'f80' requires x87, which {arch} does not have";
+        }
+
         var why  = f"the effective target is '{tri}\x27";
             why += " (--target if given, else the host triple, after -m32/-m64)";
 
-        // Actionable, no reasoning. `f64` first: on every non-x86 target C's
-        // `long double` IS `double`, so it is the correct mapping for the FFI
-        // case, which is most of them.
-        var fix  = "use 'f64' (what C's 'long double' already is on this target)";
-            fix += ", or 'f128' for the wider range; see --explain P003E";
+        // Point at the type that actually equals C's `long double` here, since
+        // FFI is the common reason for spelling f80 at all. Never suggest f128
+        // where the target has no __float128 -- arm64-windows-msvc, for one.
+        var fix = "";
+        if ld == "binary64" {
+            fix = "use 'f64' (what C's 'long double' is on this target)";
+            if t->has_float128 { fix += ", or 'f128' for range beyond f64"; }
+        } else if (ld == "binary128") {
+            fix = "use 'f128' (what C's 'long double' is on this target)";
+        } else {
+            fix = f"C's 'long double' here is {ld}, which has no Kairo builtin; bind it through FFI";
+            if t->has_float128 { fix += ", or use 'f128\x27"; }
+        }
+        fix += "; see --explain P003E";
 
         self.sc->diag->report(DiagID::P003E, ct->range.start, msg)
             .first(ct->range)
