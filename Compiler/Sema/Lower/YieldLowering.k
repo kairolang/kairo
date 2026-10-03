@@ -1,12 +1,17 @@
 /// --- The Kairo Project ------------------- Sema/Lower/YieldLowering.k --- ///
 ///
-///   \brief Lower `Yield<T>` generator bodies to a resumable state machine.
+///   \brief Generator lowering. EMPTY today, deliberately.
 ///
 ///   \detail
-///     Splits the body at each yield point into states, promotes locals
-///     live across a suspension into the coroutine frame, and synthesizes
-///     the `next()` entry returning Option<T>. Frame allocation goes
-///     through the arena unless the generator escapes.
+///     A generator is a C++ coroutine, and clang builds the state machine:
+///     nothing here splits bodies or promotes locals. The marking is X's
+///     (FunctionDecl::is_generator / has_yield, StmtTyping) and the spelling
+///     is EmitIR's (`co_yield (e);`, `co_return;`), so the core path needs
+///     no lowering at all.
+///
+///     What will live here: `yield from` delegation, the panic slot a
+///     generator's promise carries across a suspension, and splicing a
+///     generator's body into the TUs that call it.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

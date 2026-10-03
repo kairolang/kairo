@@ -392,6 +392,11 @@ class EmitIR {
             sink->spell(b->range, pro);
         }
         for var i: usize = 0; i < b->body.size(); ++i { self.emit(b->body[i]); }
+        // A function is a coroutine only when its body holds a coroutine
+        // keyword, and a generator with no `yield` (or only a bare `return`
+        // the emitter already spelled `co_return`) may have none. X's
+        // has_yield says which; EmitIR does not walk the body to find out.
+        if f->is_generator && (!f->has_yield) { sink->spell(b->range, "co_return;"); }
         sink->synth_at_end(b->range, clang::tok::r_brace);
         self._cur_fn  = saved_fn;
         self._cur_ext = saved_ext;
@@ -448,7 +453,7 @@ class EmitIR {
             case StmtKind::TryCatchStmt           { ICE_FAIL("EmitIR: try/catch; PanicLowering owns it"); }
             case StmtKind::FinallyStmt            { ICE_FAIL("EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { ICE_FAIL("EmitIR: panic; PanicLowering owns it"); }
-            case StmtKind::YieldStmt              { ICE_FAIL("EmitIR: yield; YieldLowering owns it"); }
+            case StmtKind::YieldStmt       { self._yield(cast::<YieldStmt>(s)); }
             case StmtKind::RuntimeAssertStmt      { ICE_FAIL("EmitIR: assert; PanicLowering owns it"); }
             case StmtKind::StaticAssertStmt       { ICE_FAIL("EmitIR: static assert; the Evaluator owns it"); }
             case StmtKind::ContextBindingStmt     { ICE_FAIL("EmitIR: context binding; ContextLowering owns it"); }
@@ -523,6 +528,14 @@ class EmitIR {
     /// The `return` keyword borrows the statement's first six bytes; correct
     /// only because Kairo spells it `return` too. TODO(ast): retain the token.
     priv fn _return(self, n: *ReturnStmt) {
+        // A generator's `return` is bare (X rejects a value) and ends the
+        // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
+        if (self._cur_fn != &null) && self._cur_fn->is_generator {
+            ICE_IF(n->value != &null, "EmitIR: generator 'return' with a value; X gate failure");
+            sink->spell(n->range, "co_return");
+            sink->synth_at_end(n->range, clang::tok::semi);
+            return;
+        }
         sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
         if n->value != &null {
             var rt: *Type = &null;
@@ -536,6 +549,31 @@ class EmitIR {
             self._value(n->value, rt);
         }
         sink->synth_at_end(n->range, clang::tok::semi);
+    }
+
+    /// `co_yield (e);`. The operand is emitted bare when its canonical is the
+    /// element's: `co_yield` on an lvalue binds the promise's `T&` overload,
+    /// which is the zero-copy path, and an exactness cast would turn it into
+    /// a prvalue. A differing type is cast to the element and binds the
+    /// prvalue overload.
+    priv fn _yield(self, n: *YieldStmt) {
+        ICE_IF((self._cur_fn == &null) || (!self._cur_fn->is_generator), "EmitIR: yield outside a generator; X gate failure");
+        ICE_IF(n->value == &null, "EmitIR: yield with no value reached codegen");
+        sink->spell(n->range, "co_yield");
+        sink->spell(n->range, "(");
+        self._value(n->value, self._yield_elem(self._cur_fn));
+        sink->spell(n->range, ")");
+        sink->synth_at_end(n->range, clang::tok::semi);
+    }
+
+    /// `T` of a generator's Yield<T> return canonical, or null (nothing to
+    /// cast to; the operand goes bare).
+    priv fn _yield_elem(self, f: *FunctionDecl) -> *Type {
+        if (f->return_type == &null) || (f->return_type->canonical == &null) { return &null; }
+        var rt = canon_unqual(f->return_type->canonical);
+        if (rt == &null) || (!isa::<RecordType>(rt)) { return &null; }
+        var r = cast::<RecordType>(rt);
+        return (r->args[0]) if (r->args.size() > 0) else (&null);
     }
 
     priv fn _if(self, n: *ConditionalStmt) {

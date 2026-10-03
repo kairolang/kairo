@@ -117,6 +117,10 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
     fn visit_function_decl(self, n: *FunctionDecl) -> bool {
         if n == &null { return true; }
         if n->is_poisoned() { return true; }
+        // A generator's `-> yield T` declares each YIELDED value, not a
+        // returned one: falling off the end of a coroutine is how it ends.
+        // X's fact, not a re-read of the return type.
+        if n->is_generator { return true; }
         // An expression body IS its value; there is no bottom to fall off.
         if n->body_kind != FnBodyKind::Block { return true; }
         if n->body_block == &null { return true; }
@@ -128,9 +132,6 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         // No annotation on a block body is `void` (StmtTyping), and a ctor /
         // dtor never carries one.
         if n->return_type == &null { return true; }
-        // `-> yield T` declares the type of each YIELDED value, not of a
-        // returned one: falling off the bottom ends the sequence.
-        if self._tu.is_generator_return(n->return_type) { return true; }
         self._check(n->body_block, n->return_type, false, n->return_type->range, n);
         return true;
     }

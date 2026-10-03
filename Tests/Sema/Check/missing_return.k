@@ -227,4 +227,4 @@ fn bad_generator_return_value() -> yield i32 {
     yield 1
     return 2
 }
-// CHECK: missing_return.k:[[@LINE-2]]:5: error [SC001E]: a generator cannot 'return' a value; 'yield' it, or write a bare 'return' to end the sequence
+// CHECK: missing_return.k:[[@LINE-2]]:5: error [SC001E]: a generator ends with 'return' and yields its values; it has no return value

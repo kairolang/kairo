@@ -434,6 +434,15 @@ class FunctionDecl
     pub var is_variadic:   bool = false;          ///< trailing `...name: T` pack param.
     pub var is_noreturn:   bool = false;          ///< return type is `!`.
     pub var transfer:      TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.
+    /// Written `-> yield T`: a C++ coroutine. Writer: X (StmtTyping::
+    /// traverse_function_decl), before the body is typed. The WRITTEN
+    /// qualifier, never the canonical: a spelled-out `-> Yield<T>` is an
+    /// ordinary record return (`get_return_object` is one).
+    pub var is_generator:  bool = false;
+    /// A generator whose body has a `yield`. Writer: X, at each yield it
+    /// accepts. EmitIR reads it to give an empty generator the `co_return;`
+    /// that makes it a coroutine at all, rather than walking the body itself.
+    pub var has_yield:     bool = false;
     pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.

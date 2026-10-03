@@ -2392,3 +2392,63 @@ group = "lifecycle"
     normally takes `const other: Self`.
     """
 
+[SC111]
+brief = "'yield' where nothing can yield"
+group = "generators"
+
+    [SC111.E]
+    explain = """
+    # yield outside a generator
+
+    a generator is a function declared `-> yield T`. its body may `yield` values of type `T`, and
+    every other place a `yield` can be written is an error:
+
+    ```kairo
+    fn count() -> i32 {
+        yield 1          // error: count does not return 'yield T'
+        return 0
+    }
+
+    var f = fn () { yield 1 }   // error: a closure cannot yield yet
+    ```
+
+    whether a function is a generator is decided by its DECLARED return type, never by its body: a
+    `yield` does not turn a function into one.
+
+    ## how to fix
+
+    declare the function `-> yield T`, or remove the `yield`. closures cannot be generators yet.
+    """
+
+    [SC111.N]
+    explain = """
+    # note: the return type
+
+    points at the function's declared return type, which would have to be `yield T`.
+    """
+
+[SC112]
+brief = "this kind of function cannot be a generator"
+group = "generators"
+
+    [SC112.E]
+    explain = """
+    # function cannot be a generator
+
+    a generator is a C++ coroutine: calling it builds a suspended frame and returns at once. some
+    functions cannot work that way:
+
+    - `main`, which returns the process's exit status;
+    - a constructor, a destructor, or `op delete`;
+    - an `eval` function, which runs at compile time where nothing suspends;
+    - a C-variadic function, whose `...` arguments do not outlive the call;
+    - a function returning `!`.
+
+    ```kairo
+    fn main() -> yield i32 { }   // error
+    ```
+
+    ## how to fix
+
+    move the sequence into a separate `-> yield T` function and call it from here.
+    """

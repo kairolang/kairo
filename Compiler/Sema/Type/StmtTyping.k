@@ -84,6 +84,10 @@ class TyperFrame {
     /// `-> yield T`: `declared` is the canonical, which carries cv only and
     /// drops the qualifier, so the frame keeps it here.
     pub var is_generator:     bool = false;
+    /// A generator's element: `T` of its Yield<T>, what each `yield` is
+    /// typed against. Null otherwise, and null for a closure (which cannot
+    /// yield yet).
+    pub var yield_elem:       *Type = &null;
     fn TyperFrame(self) { }
 }
 
@@ -102,6 +106,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         fr.declared = declared;
         fr.is_generator = (f != &null) && dyn()->tu.is_generator_return(f->return_type);
         if f != &null { fr.declared = self._effect_inner(f->return_type, declared); }
+        if fr.is_generator && (declared != &null) && dyn()->tu.is_lang(declared, WellKnownType::Yield) {
+            var args = dyn()->tu.record_args(declared);
+            if args.size() > 0 { fr.yield_elem = args[0]; }
+        }
         dyn()->frames.push_back(fr);
     }
 
@@ -271,6 +279,14 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 f"parameter '{dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice"
             ).first(p->range).emit();
         }
+        // The generator fact, before anything reads it: the body's `yield`s
+        // and `return`s below, then ReturnPathCheck and EmitIR. The WRITTEN
+        // `-> yield T` decides, not the canonical Yield<T> (see
+        // TypeUtil::is_generator_return).
+        n->is_generator = dyn()->tu.is_generator_return(n->return_type);
+        n->has_yield    = false;
+        if n->is_generator { self._check_generator_kind(n); }
+
         if n->requires_clause != &null { dyn()->type_of(n->requires_clause, dyn()->tu.builtin(BuiltinKind::Bool)); }
         if n->where_clause != &null    { dyn()->require_bool(n->where_clause, "a 'where' clause"); }
 
@@ -295,6 +311,46 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         dyn()->unsafe_depth = saved_unsafe;
         self.pop_frame();
         return n;
+    }
+
+    /// The functions that cannot be generators, each for a reason C++ makes
+    /// fatal or Kairo makes meaningless. One error, at the name.
+    priv fn _check_generator_kind(self, n: *FunctionDecl) {
+        var why = "";
+        if n->is_operator && (n->op_token.size() > 0) && (n->op_token[0].kind == TokenKind::KwDelete) {
+            why = "a destructor cannot be a generator; it runs to completion when the object dies";
+        } else if self._is_ctor(n) {
+            why = "a constructor cannot be a generator; it returns the object it builds, not a sequence";
+        } else if self._is_main(n) {
+            why = "'main' cannot be a generator; it returns the process\x27s exit status";
+        } else if n->is_eval() {
+            why = "an 'eval' function cannot be a generator; it runs at compile time, where nothing suspends";
+        } else if n->ffi_c_variadic {
+            why = "a C-variadic function cannot be a generator; its '...' arguments do not outlive the call";
+        } else if n->is_noreturn {
+            why = "a function returning '!' cannot be a generator; a generator ends";
+        }
+        if why.size() == 0 { return; }
+        var at = (n->range) if (n->is_operator) else (n->name.range);
+        dyn()->sc->diag->report(DiagID::SC112E, at.start, why).first(at).emit();
+    }
+
+    /// A method named after the type it is declared in. Operators have no
+    /// name token to compare.
+    priv fn _is_ctor(self, f: *FunctionDecl) -> bool {
+        if f->is_operator || (!f->is_method()) { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_owner == &null) { return false; }
+        return dyn()->tu.decl_name(static_cast::<*Decl>(f)) == dyn()->tu.decl_name(dc->dc_owner);
+    }
+
+    /// A free function named `main` outside any type. Whether this TU is the
+    /// entry is codegen's question; a generator `main` is wrong in any TU.
+    priv fn _is_main(self, f: *FunctionDecl) -> bool {
+        if f->is_operator || f->is_method() { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc != &null) && dc->is_type_scope() { return false; }
+        return dyn()->tu.decl_name(static_cast::<*Decl>(f)) == "main";
     }
 
     fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
@@ -385,7 +441,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             if n->value == &null { fr->saw_bare_return = true; return n; }
             dyn()->type_of(n->value, &null);
             dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
-                "a generator cannot 'return' a value; 'yield' it, or write a bare 'return' to end the sequence"
+                "a generator ends with 'return' and yields its values; it has no return value"
             ).first(n->range).emit();
             return n;
         }
@@ -642,11 +698,47 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
+    /// `yield e` types against the enclosing generator's element. Every
+    /// other place a `yield` can sit is an error here, so EmitIR only ever
+    /// meets one inside a function it knows is a generator.
     fn traverse_yield_stmt(self, n: *YieldStmt) -> *YieldStmt {
         if n == &null { return n; }
-        // The yielded type is the enclosing fn's `yield T`; that check is
-        // YieldLowering's once the return-type qualifier is modelled.
-        if n->value != &null { dyn()->type_of(n->value, &null); }
+        var fr = self.cur_frame();
+        if (fr == &null) || (fr->closure != &null) || (!fr->is_generator) {
+            if n->value != &null { dyn()->type_of(n->value, &null); }
+            if fr == &null {
+                dyn()->sc->diag->report(DiagID::SC111E, n->range.start, "'yield' outside a function").first(n->range).emit();
+            } else if fr->closure != &null {
+                // Lifts when closures are emitted at all; a closure frame has
+                // no FunctionDecl to carry the generator fact yet.
+                dyn()->sc->diag->report(DiagID::SC111E, n->range.start, "a closure cannot yield yet").first(n->range).emit();
+            } else {
+                var f = fr->fn_decl;
+                var b = dyn()->sc->diag->report(DiagID::SC111E, n->range.start,
+                    "'yield' in a function that does not return 'yield T\x27"
+                );
+                b.first(n->range);
+                if (f != &null) && (f->return_type != &null) && f->return_type->range.is_valid() {
+                    b.note(f->return_type->range.start, "declare the return type 'yield T' to make this a generator").first(f->return_type->range);
+                } else if (f != &null) && (!f->is_operator) {
+                    b.note(f->name.range.start, "this function has no return type; declare '-> yield T' to make it a generator").first(f->name.range);
+                }
+                b.emit();
+            }
+            return n;
+        }
+
+        if fr->fn_decl != &null { fr->fn_decl->has_yield = true; }
+        if n->value == &null { return n; }
+        var elem = fr->yield_elem;
+        dyn()->type_of(n->value, elem);
+        // The backing array of `[1, 2]` as a slice dies at the suspension.
+        if dyn()->reject_slice_literal(n->value, "yielded from a generator") { return n; }
+        if elem == &null { return n; }
+        // Either side dependent is the instance's question.
+        var vt = n->value->type_;
+        if elem->is_dependent() || ((vt != &null) && vt->is_dependent()) { return n; }
+        dyn()->check_convertible(n->value, elem);
         return n;
     }
 }

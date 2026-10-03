@@ -948,6 +948,8 @@ A pass that needs one asks that file; it never spells the string itself.
    `instantiated_from` on implicit nodes: registry (then M2).
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
    `default_thunk` / `pack_type` on ParamDecl: CallLowering.
+   `is_generator` / `has_yield` on FunctionDecl: X. A transfer
+   constructor's `other` mode stamp: ClassLifecycle.
 8. **Canonical identity is build-wide, and cv-qualified: const i32 and i32
    are two canonicals.**
 9. **T never rewrites nodes.** X never allocates nodes.
