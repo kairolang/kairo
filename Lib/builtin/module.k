@@ -17,3 +17,12 @@ pub import containers::*
 pub import string::*
 pub import lang::*
 pub import fmt::*
+pub import __lang::Yield::*
+pub import __lang::Range::*
+pub import __lang::Byte::*
+pub import __lang::Ordering::*
+pub import __lang::Future::*
+pub import __lang::Null::*
+pub import __lang::BigInt::*
+pub import __lang::BigFloat::*
+pub import __lang::AssertFail::*

@@ -31,7 +31,6 @@ pub enum Ordering derives i8 {
 }
 
 pub struct <T> Future  { var state: *void }
-pub struct <T> Yield   { var state: *void }
 pub struct <T> Null    { var value: T; var has: bool }
 pub struct <T> Panic   { var value: T }
 
@@ -62,3 +61,5 @@ priv fn <B, E> pow(base: B, exp: E) -> B {
     }
     return r
 }
+
+
