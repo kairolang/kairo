@@ -101,6 +101,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         fr.fn_decl  = f;
         fr.declared = declared;
         fr.is_generator = (f != &null) && dyn()->tu.is_generator_return(f->return_type);
+        if f != &null { fr.declared = self._effect_inner(f->return_type, declared); }
         dyn()->frames.push_back(fr);
     }
 
@@ -109,7 +110,20 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         fr.closure  = c;
         fr.declared = declared;
         fr.is_generator = (c != &null) && dyn()->tu.is_generator_return(c->return_type);
+        if c != &null { fr.declared = self._effect_inner(c->return_type, declared); }
         dyn()->frames.push_back(fr);
+    }
+
+    /// `-> async T` canonicalizes to Future<T> (TypeResolve), but the body
+    /// `return`s a T: the Future is what the CALLER sees. Unwrap it for the
+    /// frame. A generator keeps Yield<T>; its returns are bare and the
+    /// is_generator branch owns them.
+    priv fn _effect_inner(self, written: *Type, declared: *Type) -> *Type {
+        if (written == &null) || (declared == &null) { return declared; }
+        if !written->is_async() { return declared; }
+        if !dyn()->tu.is_lang(declared, WellKnownType::Future) { return declared; }
+        var args = dyn()->tu.record_args(declared);
+        return (args[0]) if (args.size() > 0) else (declared);
     }
 
     fn pop_frame(self) {

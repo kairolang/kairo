@@ -261,6 +261,21 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             }
         }
 
+        // The written effect qualifiers are sugar for a DECLARED type, as
+        // `[T]` is for Vector: `yield T` is Yield<T>, `async T` is Future<T>.
+        // Without this the canonical was the bare T, so `upto(5)` typed as
+        // i32 and `g.next()` / `g.current()` were R025E on it. Only the
+        // written qualifier lowers; the frame and ReturnPathCheck still read
+        // it off the syntax node (TypeUtil::is_generator_return).
+        if (t->canonical != &null) && (!t->is_poisoned()) {
+            if t->is_yield() || t->is_async() {
+                var ek = (WellKnownType::Yield) if (t->is_yield()) else (WellKnownType::Future);
+                var ea = vec::<*Type>();
+                ea.push_back(t->canonical);
+                t->canonical = self._lang_record(t, ek, &ea);
+            }
+        }
+
         var st = ResolveState::Resolved;
         if t->is_poisoned() {
             st = ResolveState::Errored;

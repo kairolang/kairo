@@ -234,6 +234,14 @@ What T decides:
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 
+**Effect qualifiers on a written type are records too** [DONE]. `yield T`
+canonicalizes to `Yield<T>` and `async T` to `Future<T>`, through the same
+`_lang_record` as the containers, so a generator's value has the members
+its lang class declares (`g.next()`, `g.current()`). The qualifier stays on
+the syntax node: TypeUtil::is_generator_return and the typer frame read it
+there (a spelled-out `Yield<T>` is an ordinary return), and an `async T`
+frame types its `return`s against the inner T.
+
 **Containers are records, not structural kinds** [DECIDED; migration in
 progress]. `[T;]`, `[T]`, `{T}`, `{K: V}` and `string` are sugar for
 `builtin::Slice<T>`, `Vector<T>`, `HashSet<T>`, `HashMap<K, V>`, `string` --
