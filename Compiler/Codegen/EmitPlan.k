@@ -176,6 +176,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
 
     fn run(self);
     fn is_empty(self) -> bool;
+    fn visible_bodies(self) -> vec::<*FunctionDecl>;
+    fn _visible_record_bodies(self, d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>);
+    fn _push_body(self, f: *FunctionDecl, out: *vec::<*FunctionDecl>);
+    fn _walk_body(self, f: *FunctionDecl);
     fn mode(self)  -> PlanMode;
     fn home(self)  -> u32;
     fn spell(self) -> *CXXSpell;
@@ -206,6 +210,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _admit_type(self, t: *Type, need: PlanNeed);
     fn _expand(self, d: *Decl, need: PlanNeed);
     fn _expand_fn(self, n: *FunctionDecl);
+    fn _expand_member_sig(self, n: *FunctionDecl);
     fn _expand_type(self, d: *Decl);
     fn _bases(self, bases: *FrozenList::<InheritEdge>);
     fn _fields(self, fields: *FrozenList::<*FieldDecl>);
@@ -648,6 +653,133 @@ fn EmitPlan::_collect_uses() {
             default { }
         }
     }
+
+    // Every template body visible here is this TU's body too: EmitIR emits
+    // each one into this TU (emit_tu), so what it names has to be in this
+    // preamble -- `alignof(YieldPromise<T>)`, `p->cur`, `return Suspend {}`
+    // -- at the body strengths, exactly as this TU's own bodies are walked.
+    // To a fixed point: a walked body can make another type Complete, and
+    // that type's template bodies become visible in turn.
+    var walked = vec::<*FunctionDecl>();
+    var progressed = true;
+    while progressed {
+        progressed = false;
+        var vis = self.visible_bodies();
+        for var i: usize = 0; i < vis.size(); ++i {
+            var seen = false;
+            for var k: usize = 0; k < walked.size(); ++k { if walked[k] == vis[i] { seen = true; break; } }
+            if seen { continue; }
+            walked.push_back(vis[i]);
+            self._walk_body(vis[i]);
+            progressed = true;
+        }
+    }
+}
+
+/// THE list of foreign bodies this TU emits, beside its own (which EmitIR
+/// walks off the program): every template definition visible here, once
+/// each, as the defining link. EmitIR::emit_tu emits exactly this list and
+/// _collect_uses walks exactly this list, so what is planned and what is
+/// emitted cannot drift. Preamble mode only; empty otherwise.
+///
+/// The rule is C++'s template model: a template's definition must be
+/// visible in every TU that can instantiate it, and Kairo cannot list every
+/// instantiation -- clang makes some on its own (a coroutine promise,
+/// `await_suspend<coroutine_handle<...>>`, std::sort calling a Kairo
+/// comparator). So, wherever the owner is held Complete:
+///
+///   - every member body of a class template (members of its nested
+///     records included -- they are templated by the enclosing one);
+///   - every member TEMPLATE of any class, template or not;
+///   - every free function template the plan declares;
+///   - every generic extension member (its own or its extension's params).
+///
+/// Cheap because of `extern template`: a registry instance is still
+/// compiled once, in its home TU (InterfaceEmitter's tier 3 declares it
+/// `extern` everywhere else, which stops implicit instantiation of its
+/// members there). The bodies emitted everywhere are parsed everywhere but
+/// only instantiated for the instances Kairo never saw. Those `extern
+/// template` lines are NOT redundant with this; removing them would compile
+/// every known instance in every TU that uses it.
+fn EmitPlan::visible_bodies() -> vec::<*FunctionDecl> {
+    var out = vec::<*FunctionDecl>();
+    if self._mode != PlanMode::Preamble { return out; }
+
+    for var i: usize = 0; i < self._set.size(); ++i {
+        var d = self._set[i];
+        if CXXSpell::fid_of(d) == self._home { continue; }     // own bodies: emitted off the program.
+        if self._is_type_decl(d) {
+            if self._need[i] != PlanNeed::Complete { continue; }
+            self._visible_record_bodies(d, false, &out);
+            continue;
+        }
+        if d->kind != DeclKind::FunctionDecl { continue; }
+        if CXXSpell::template_params(d).size() == 0 { continue; }
+        self._push_body(cast::<FunctionDecl>(d), &out);
+    }
+
+    // Extension members are never in _set: their scope declares them, and a
+    // preamble defines every scope it touches.
+    for var i: usize = 0; i < self._scopes.size(); ++i {
+        var sc = &(self._scopes[i]);
+        for var k: usize = 0; k < sc->members.size(); ++k {
+            var m = sc->members[k];
+            if (m == &null) || (CXXSpell::fid_of(static_cast::<*Decl>(m)) == self._home) { continue; }
+            if CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0 { continue; }
+            self._push_body(m, &out);
+        }
+    }
+    return out;
+}
+
+/// \p d's member bodies that are templates: all of them under a class
+/// template (\p in_template), only its member templates otherwise. Nested
+/// records recurse, as EmitIR::_record_bodies does.
+fn EmitPlan::_visible_record_bodies(d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>) {
+    var templ = in_template || (decl_generic_params(d).size() > 0);
+    var methods: *FrozenList::<*FunctionDecl> = &null;
+    if isa::<ClassDecl>(d)       { methods = &(cast::<ClassDecl>(d)->methods);  }
+    else if isa::<StructDecl>(d) { methods = &(cast::<StructDecl>(d)->methods); }
+    else if isa::<UnionDecl>(d)  { methods = &(cast::<UnionDecl>(d)->methods);  }
+    if methods != &null {
+        for var i: usize = 0; i < methods->size(); ++i {
+            var m = (*methods)[i];
+            if m == &null { continue; }
+            if (!templ) && (m->generic_params.size() == 0) { continue; }   // non-template: linked from its own TU.
+            self._push_body(m, out);
+        }
+    }
+    var dc = CXXSpell::dc_of(d);
+    if dc == &null { return; }
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var nd = *(dc->dc_decls.get(i));
+        if nd == &null { continue; }
+        if isa::<ClassDecl>(nd) || isa::<StructDecl>(nd) || isa::<UnionDecl>(nd) { self._visible_record_bodies(nd, templ, out); }
+    }
+}
+
+/// The DEFINING link of \p f -- an in-class declaration whose body is out of
+/// line is in the member list, the body is on the chain -- once. Nothing
+/// without a block body: there is nothing to make visible.
+fn EmitPlan::_push_body(f: *FunctionDecl, out: *vec::<*FunctionDecl>) {
+    var def = f;
+    if !def->has_body() {
+        var d = def->definition();
+        if (d == &null) || d->is_poisoned() { return; }
+        def = d;
+    }
+    if def->is_poisoned() || (def->body_kind != FnBodyKind::Block) { return; }
+    for var i: usize = 0; i < out->size(); ++i { if (*out)[i] == def { return; } }
+    out->push_back(def);
+}
+
+/// One visible body, walked as this TU's own bodies are. An extension
+/// member's receiver is emitted as its first parameter, so the extension's
+/// target is laid out here.
+fn EmitPlan::_walk_body(f: *FunctionDecl) {
+    var x = decl_extension_of(static_cast::<*Decl>(f));
+    if (x != &null) && (x->target != &null) { self._admit_type(x->target, PlanNeed::Complete); }
+    self.dispatch_decl(static_cast::<*Decl>(f));
 }
 
 /// Every expression: its resolved links, and its TYPE. An expression of
@@ -671,6 +803,12 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
                 self._admit_use(s->resolved_decl);
                 self._admit_cell(s->candidate_cell);
             }
+        } case ExprKind::SizeOfExpr {
+            // The operand is laid out, not just named: Complete, whatever
+            // visit_type (Fwd, for a type merely spelled) would say.
+            self._admit_type(cast::<SizeOfExpr>(e)->type_arg, PlanNeed::Complete);
+        } case ExprKind::AlignOfExpr {
+            self._admit_type(cast::<AlignOfExpr>(e)->type_arg, PlanNeed::Complete);
         } case ExprKind::CallExpr {
             // A generic callee's instance: tier 3, homed where it was first
             // named, `extern template` elsewhere. A FUNCTION instance's decl
@@ -870,8 +1008,9 @@ fn EmitPlan::_expand_fn(n: *FunctionDecl) {
 }
 
 /// The whole definition (invariant 11): bases and by-value fields at
-/// Complete, method signatures at Fwd, nested types recursively, and the
-/// same-file extension members that will be named as friends.
+/// Complete, the by-value types of method signatures at Complete too
+/// (_expand_member_sig), nested types recursively, and the same-file
+/// extension members that will be named as friends.
 fn EmitPlan::_expand_type(d: *Decl) {
     switch d->kind {
         case DeclKind::ClassDecl {
@@ -898,12 +1037,21 @@ fn EmitPlan::_expand_type(d: *Decl) {
             self._admit_type(cast::<TypeAliasDecl>(d)->aliased, PlanNeed::Complete);
         } default { break; }
     }
-    // Nested types ride inside this definition.
+    // Nested types ride inside this definition. So do member aliases
+    // (InterfaceEmitter writes them as `using`), and what one names is held
+    // at Complete for the reason _expand_member_sig gives: whoever reads
+    // `R::promise_type` -- <coroutine>'s traits, any C++ user -- gets the
+    // type itself, not a declaration of it.
     var dc = CXXSpell::dc_of(d);
     if dc != &null {
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             var nd = *(dc->dc_decls.get(i));
-            if (nd == &null) || (!self._is_type_decl(nd)) { continue; }
+            if nd == &null { continue; }
+            if isa::<TypeAliasDecl>(nd) {
+                self._admit_type(cast::<TypeAliasDecl>(nd)->aliased, PlanNeed::Complete);
+                continue;
+            }
+            if !self._is_type_decl(nd) { continue; }
             self._expand_type(CXXSpell::rep(nd));
         }
     }
@@ -930,8 +1078,32 @@ fn EmitPlan::_methods(methods: *FrozenList::<*FunctionDecl>) {
     for var i: usize = 0; i < methods->size(); ++i {
         var m = *(methods->get(i));
         if m == &null { continue; }
-        self._expand_fn(m);
+        self._expand_member_sig(m);
     }
+}
+
+/// A method of a record this TU holds COMPLETE: what its signature names by
+/// value is Complete too, shape-weakened as always (a pointer stays Fwd).
+///
+/// A free function's declaration only names its types, and _expand_fn keeps
+/// them Fwd. A complete class is different: anything in this TU may call
+/// any of its members, and a call whose return or parameter is an incomplete
+/// class is ill-formed -- including calls Kairo never sees. clang's
+/// coroutine machinery calls `promise.initial_suspend()` on a YieldPromise<T>
+/// the plan only ever held at Complete for its layout, and Suspend, named in
+/// nothing but those signatures, stayed `class Suspend;` in every TU but its
+/// own. The body-less definition is all that is needed; no bodies follow.
+///
+/// Strength only, never ORDER: _needs_complete reads bases and fields, so a
+/// method returning a type that returns this one is two definitions in
+/// either order, not a tier-1 cycle.
+fn EmitPlan::_expand_member_sig(n: *FunctionDecl) {
+    for var i: usize = 0; i < n->params.size(); ++i {
+        var p = *(n->params.get(i));
+        if (p == &null) || p->is_self { continue; }
+        self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Complete);
+    }
+    self._admit_type(n->return_type, PlanNeed::Complete);
 }
 
 /// Extensions targeting \p d written in d's OWN file: their scope is the

@@ -83,6 +83,14 @@ pointers, signature types Fwd. Refinements decided since:
   memoized, depth-capped).
 - A member call admits the OWNER at Complete (C++ cannot call into an
   incomplete class).
+- A record at Complete admits the by-value types of its METHOD signatures
+  at Complete, and what its member `type` aliases name: any code in the TU
+  may call a member of a complete class or read `R::promise_type`,
+  including code Kairo never sees (clang's coroutine machinery). Strength
+  only -- definition ORDER still follows layout (bases, by-value fields).
+- A `sizeof` / `alignof` operand is Complete.
+- Every body this TU emits is walked at body strengths: its own, and every
+  foreign template body visible here (§7).
 - An extension member is a static member of its EXTENSION SCOPE
   (`ExtScope`: `struct N::__kairo_ext_X`, one per (namespace, target),
   RESOLUTION.md §2b); it never appears twice (a `FunctionDecl` whose
@@ -266,8 +274,9 @@ methods out of line (`RET Owner<T>::name(params) const`), methods defined
 out of line (`fn C::m`), reached through the in-class declaration's chain,
 constructors and destructors, extension members as out-of-line definitions of their scope's
 static members (`RET __kairo_ext_X::m(X* self, ...)` in N, receiver first),
-template member bodies (own TU always; homing TUs via the plan), `int
-main()` at global scope.
+template bodies (own TU always; every other TU where the template is
+visible, by `EmitPlan::visible_bodies`, §7), `int main()` at global
+scope.
 
 The no-headroom rules, each with one home:
 - `_name`: locals bare (params, body vars, binders, generic params);
@@ -328,11 +337,39 @@ record operand and no `resolved_ctor` → OperatorLowering.
 
 ## 7. Templates
 
-No monomorphizer (IMPORTS.md §7). Bodies are emitted as C++ templates in
-the template's own TU and in every TU that homes an instance; `extern
-template` declarations sit in the preamble; explicit instantiation
-DEFINITIONS are emitted after every body, because an explicit
-instantiation only instantiates members defined before it. A `<T impl I>`
+No monomorphizer (IMPORTS.md §7). **A template's definition is visible in
+every TU that can instantiate it**, which is the rule C++'s template model
+already depends on. Wherever its owner is held Complete, a TU emits:
+
+- every member body of a class template (its nested records' too);
+- every member TEMPLATE of any class (`Suspend::await_suspend<H>`);
+- every free function template its plan declares;
+- every generic extension member.
+
+Each in its owner's namespace wrapper, once per TU. `EmitPlan::
+visible_bodies()` is the one list: EmitIR emits exactly it and the plan
+walks exactly it for dependencies, at the body strengths, to a fixed
+point -- that walk is what makes `Suspend` and `YieldPromise<T>` complete
+in a consumer whose own code names neither.
+
+Why, rather than "the template's own TU plus every TU that homes an
+instance": clang instantiates templates Kairo never names -- a coroutine's
+promise (`YieldPromise<int>`, reached through `Yield<int>::promise_type`),
+`await_suspend<std::coroutine_handle<...>>`, std::sort calling a Kairo
+comparator, a C++ consumer of a Kairo template. The registry can never
+list those, so "every instance is enumerated and homed" was never going to
+be complete; visible bodies cover the instances it cannot see. ODR holds
+because the text is identical in every TU (invariant 11).
+
+`extern template` declarations still sit in the preamble for every
+registry instance this TU does not home, and the home still emits the
+explicit instantiation. They are NOT redundant now: `extern template class
+X<A>;` stops clang from implicitly instantiating X<A>'s non-inline members
+in that TU, so a known instance is still compiled once, in its home. That
+is what keeps visible bodies cheap -- parsed everywhere, instantiated only
+in the home TU and for the instances Kairo never saw. Explicit
+instantiation DEFINITIONS are emitted after every body, because an
+explicit instantiation only instantiates members defined before it. A `<T impl I>`
 body's call into the bound goes through the interface's witness
 (`I_witness<T>::m(&x, ...)`), emitted by `EmitWitness` from
 ConformanceChecking's table: the primary forwards structurally

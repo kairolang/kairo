@@ -712,7 +712,12 @@ class InterfaceEmitter {
                 if p->is_self { s += self._spell->ext_receiver(f, ext, ie); continue; }
                 s += self._spell->param_decl(p, "", ie);
             }
-            s += ");";
+            s += ")";
+            // A const member template's instantiation names the const member:
+            // without the qualifier it matches no declaration ("does not refer
+            // to a function template"). An extension member is static.
+            if (ext == &null) && f->is_method() && f->is_const() { s += " const"; }
+            s += ";";
         } else {
             s += ("class ") if (d->kind == DeclKind::ClassDecl) else ("struct ");
             s += self._spell->qual_name(d);

@@ -112,21 +112,14 @@ class EmitIR {
             }
         }
 
-        // Member bodies of FOREIGN templates this TU homes an instance of.
-        // The template's own TU emitted its bodies in the walk above; a
-        // template homed twice here (two instances) gets its bodies once.
-        var emitted = vec::<*Decl>();
-        for var i: usize = 0; i < plan->entries.size(); ++i {
-            var e = &(plan->entries[i]);
-            if e->tier != PlanTier::Instantiations { continue; }
-            if !e->is_home { continue; }
-            if CXXSpell::fid_of(e->decl) == tu->fid { continue; }
-            var done = false;
-            for var k: usize = 0; k < emitted.size(); ++k { if emitted[k] == e->decl { done = true; break; } }
-            if done { continue; }
-            emitted.push_back(e->decl);
-            self._template_bodies(e->decl);
-        }
+        // Every FOREIGN template definition visible here (EmitPlan::
+        // visible_bodies): a template's definition must be visible in every
+        // TU that can instantiate it, and clang instantiates some Kairo
+        // never names. The list is the plan's, the same one it walked for
+        // this preamble's dependencies, so nothing emitted here goes
+        // unplanned, and each body comes once.
+        var vis = plan->visible_bodies();
+        for var i: usize = 0; i < vis.size(); ++i { self._visible_body(vis[i]); }
     }
 
     // ----------------------------------------------------------------- //
@@ -198,13 +191,20 @@ class EmitIR {
         return create_empty_frozen_list::<*FunctionDecl>();
     }
 
-    /// Bodies of a FOREIGN template this TU homes an instance of. The tokens
-    /// live in the template's file; the sink maps every registered fid.
-    priv fn _template_bodies(self, prim: *Decl) {
-        // An extension member homed here still needs its extension: its
-        // receiver parameter and the extension's template parameters.
-        if isa::<FunctionDecl>(prim) { self._free_fn(cast::<FunctionDecl>(prim), decl_extension_of(prim)); return; }
-        self._record_bodies(prim);
+    /// One foreign template body, in its owner's wrapper. The tokens live in
+    /// the template's file; the sink maps every registered fid. A member
+    /// goes out of line on its record (\p f is already the defining link);
+    /// an extension member still needs its extension (the receiver
+    /// parameter and the extension's template parameters).
+    priv fn _visible_body(self, f: *FunctionDecl) {
+        var x = decl_extension_of(static_cast::<*Decl>(f));
+        if x != &null { self._free_fn(f, x); return; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc != &null) && dc->is_type_scope() && (dc->dc_owner != &null) {
+            self._method(f, CXXSpell::rep(dc->dc_owner));
+            return;
+        }
+        self._free_fn(f, &null);
     }
 
     // --- Namespace wrapper ------------------------------------------------------
