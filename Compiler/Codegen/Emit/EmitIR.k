@@ -869,6 +869,9 @@ class EmitIR {
         self._check_arity(n, f, bound);
 
         if self._is_ctor(f) || self._is_type_decl(callee) {
+            self._cg->ctx->diag_sink.report(DiagCode(DiagID::I011W), n->range.start,
+                f"internal: constructor call to '{self._spell.qual_name(callee)}' reached codegen; This is a compiler bug; please report it with the source that triggered it"
+            ).first(n->range).emit();
             ICE_IF(n->type_ == &null, "EmitIR: untyped constructor call; ExprTyper gate failure");
             sink->spell(n->callee->range, self._spell._type(n->type_));
         } else if n->qualifier != &null {
