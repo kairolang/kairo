@@ -506,10 +506,10 @@ class BuiltinInfo {
 ///     *corelib*    `::kairo::rt::*`: no LLVM type, arithmetic in f32/f64.
 ///
 /// \par Non-numeric scalars
-///      `Byte` maps to `::builtin::lang::Byte`, the Byte lang item: a scoped
+///      `Byte` maps to `::builtin::types::Byte`, the Byte lang item: a scoped
 ///      enum over u8, std::byte's shape without <cstddef>, which an emitted
-///      TU has no way to include. BuiltinType::lang_decl carries the decl so
-///      EmitPlan declares it wherever `byte` appears.
+///      TU has no way to include. BuiltinType_decl carries the decl so
+///      EmitPlan declares it wherever `types::byte` appears.
 ///      `Char` maps to `char32_t`, distinct from U32 despite equal width.
 inline "c++" { // PORT(trivial): reason for this inline c++, stage0 does not have any way to reprenst an initlizer list, and here we reuire it.
     static BuiltinInfo BuiltinTable[TOTAL_BUILTINS_COUNT] = {
@@ -542,7 +542,7 @@ inline "c++" { // PORT(trivial): reason for this inline c++, stage0 does not hav
         BuiltinInfo(BuiltinKind::F128,   TokenKind::AtF128,    "f128",    "__float128",            128, BF_FLOAT(),               FloatLayout(FloatSem::IEEEQuad,          FloatImpl::Libcall, 15, 112, 16383, true,  false)),
         BuiltinInfo(BuiltinKind::F256,   TokenKind::AtF256,    "f256",    "::kairo::rt::f256",     256, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble4,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
         BuiltinInfo(BuiltinKind::F512,   TokenKind::AtF512,    "f512",    "::kairo::rt::f512",     512, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble8,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
-        BuiltinInfo(BuiltinKind::Byte,   TokenKind::AtByte,    "byte",    "::builtin::lang::Byte", 8,   0,                        float_layout_none()),
+        BuiltinInfo(BuiltinKind::Byte,   TokenKind::AtByte,    "byte",    "::builtin::types::Byte", 8,   0,                        float_layout_none()),
         BuiltinInfo(BuiltinKind::Char,   TokenKind::AtChar,    "char",    "char32_t",              32,  0,                        float_layout_none()),
     };
 }
