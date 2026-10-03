@@ -158,6 +158,9 @@ class BuiltinImport {
         var fid = self._fid;
         var t = hidx->ensure_target(fid, BuiltinImport::path());
         if t == &null { return false; }
+        // Not Kairo source: the codegen loop must never visit it. _target
+        // marks only a TU it creates, so say it here regardless.
+        t->tu->is_foreign = true;
         // Nothing binds into this TU's table: resolve() is the only way in.
         // It still gets a frozen, empty one, so a probe sees a scope, not a hole.
         if t->tu->dc_symbols == &null {

@@ -245,6 +245,7 @@ class FrontendAction {
     priv fn _attach_ffi_edges(self, tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet);
     priv fn _import_order(self) -> vec::<u32>;
     priv fn _codegen(self)     -> bool;
+    priv fn _tu_is_empty(self, fid: u32) -> bool;
     priv fn _dump_tokens(self);
     priv fn _dump_preprocessed_source(self);
     priv fn _dump_macros(self);
@@ -2396,7 +2397,9 @@ fn FrontendAction::_sema() -> bool {
             if ctx == &null { continue; }
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
             if tu == &null { continue; }
-            if fe.print_cxx {
+            // An empty TU prints nothing, not even its banner: a module that
+            // only re-exports must not change a golden.
+            if fe.print_cxx && (!self._tu_is_empty(fid)) {
                 var ts  = TextSink(self._ci->sm(), self._ci->tcm());
                 var tcg = CodegenContext(ctx, &ts, self._ci->pp()->get_symbol_table(), self._global_scope->instances());
                 var tplan = EmitPlan(&tcg, PlanMode::Preamble);
@@ -2418,6 +2421,18 @@ fn FrontendAction::_sema() -> bool {
 
     // TODO(sema): full pipeline once N/T/checks land: Sema(ctx, gs).run().
     return true;
+}
+
+/// \p fid has nothing to define (EmitPlan::is_empty, on the preamble plan).
+/// A fid with no context or TU is not empty -- it is not a Kairo TU at all,
+/// and the callers already skip those -- so this answers only for real ones.
+fn FrontendAction::_tu_is_empty(fid: u32) -> bool {
+    var ctx = self._global_scope->get_context(fid);
+    if (ctx == &null) || (ctx->tu == &null) { return false; }
+    var cg   = CodegenContext(ctx, &null, self._ci->pp()->get_symbol_table(), self._global_scope->instances());
+    var plan = EmitPlan(&cg, PlanMode::Preamble);
+    plan.run();
+    return plan.is_empty();
 }
 
 /// Every fid of the graph, each after everything it imports.
@@ -2518,19 +2533,26 @@ fn FrontendAction::_codegen() -> bool {
     var psym  = self._ci->pp()->get_symbol_table();
     var insts = self._global_scope->instances();
 
-    // One object per Kairo TU. Foreign fids are C++ headers: clang parsed
-    // them, nothing is emitted for them.
+    // One object per Kairo TU with something to define. Foreign fids are C++
+    // headers: clang parsed them, nothing is emitted for them.
     var own = vec::<u32>();
     var n   = self._fids.size();
+    var any_kairo = false;
     for var i: usize = 0; i < n; ++i {
         var f = self._fids[n - 1 - i];   // reverse tree order: imports before importers.
         if self._ci->is_foreign_fid(f) { continue; }
-        // An empty file has already done all it can (it resolved as an import,
-        // it passed sema); there is nothing to emit, so it gets no object.
-        if self._ci->sm()->get_file_size(f) == 0 { continue; }
+        any_kairo = true;
+        // An empty TU -- zero bytes, comments, only `pub import`s -- has done
+        // all it can (it resolved as an import, it passed sema). Decided on
+        // the PLAN, before any backend or anchor exists for it, so it gets no
+        // CodegenBackend, no clang run and no object.
+        if self._tu_is_empty(f) {
+            Logger::info(Logger::Stage::Driver, f"nothing to define in {self._ci->sm()->get_filename(f)}; no object");
+            continue;
+        }
         own.push_back(f);
     }
-    if own.size() == 0 {
+    if !any_kairo {
         return self._fatal(DiagID::I006F, "codegen: no Kairo translation unit to emit");
     }
 

@@ -165,6 +165,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
 
     pub var entries: vec::<PlanEntry>;
 
+    /// Nothing of this TU's own to define. Written once, at the end of run().
+    priv var _empty: bool = true;
+
     fn EmitPlan(self, cg: *CodegenContext, mode: PlanMode = PlanMode::Preamble) {
         self._cg    = cg;
         self._spell = CXXSpell(cg);
@@ -172,6 +175,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     }
 
     fn run(self);
+    fn is_empty(self) -> bool;
     fn mode(self)  -> PlanMode;
     fn home(self)  -> u32;
     fn spell(self) -> *CXXSpell;
@@ -308,7 +312,23 @@ fn EmitPlan::run() {
     if self._mode == PlanMode::Preamble { self._collect_uses(); }
     self._close();
     self._order();
+
+    // The one writer of is_empty. Foreign entries alone do not count: they
+    // are only here to support this TU's own bodies, and there are none.
+    self._empty = true;
+    for var i: usize = 0; i < self.entries.size(); ++i {
+        var e = &(self.entries[i]);
+        if e->own { self._empty = false; break; }
+        if (e->tier == PlanTier::Instantiations) && e->is_home { self._empty = false; break; }
+    }
 }
+
+/// The TU has nothing to define: no entry of its own at any tier and no
+/// instantiation homed here. A property of the PLAN, not of the file's
+/// bytes -- a file of comments or of `pub import` lines is as empty as a
+/// zero-byte one. An empty TU gets no C++, no clang run, no object and no
+/// header. True before run(), and for a TU with no program.
+fn EmitPlan::is_empty() -> bool { return self._empty; }
 
 /// Every extension scope written in \p d's OWN file, for the definition's
 /// `friend struct` lines, in plan order. Usually one; `module Geo { extend

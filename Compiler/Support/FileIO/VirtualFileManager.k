@@ -348,7 +348,11 @@ class VirtualFileManager {
 
         seg->buffer.attach_raw(const_cast::<*u8>(data), size);
         self._segments.push_back(seg);
-        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, size);
+        // size + 1: the END position (off == size) is a legal location, and
+        // for a zero-byte segment it is the only one. Mapping `size` left an
+        // empty virtual file with no pages at all, so its one location
+        // resolved as a gap. The slot is already reserved (+1 above).
+        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, size + 1);
 
         return seg_fid;
     }

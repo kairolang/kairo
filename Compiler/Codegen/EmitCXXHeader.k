@@ -44,6 +44,16 @@ class EmitCXXHeader {
     fn render(self) -> string {
         var tu = reinterpret_cast::<*TranslationUnit>(self._ctx->tu);
         if (tu == &null) || CXXSpell::is_entry_tu(tu) { return ""; }
+        // An empty TU declares nothing, and header includes follow Complete
+        // dependencies on declarations, so nothing could include its header.
+        // Emptiness is the PREAMBLE plan's fact, the same one the driver
+        // skips codegen on, so the two cannot disagree about a TU.
+        {
+            var pcg = CodegenContext(self._ctx, &null, self._psym, self._instances);
+            var pplan = EmitPlan(&pcg, PlanMode::Preamble);
+            pplan.run();
+            if pplan.is_empty() { return ""; }
+        }
         var ts = TextSink(self._ctx->sm, self._ctx->tcm);
         var cg = CodegenContext(self._ctx, &ts, self._psym, self._instances);
         var plan = EmitPlan(&cg, PlanMode::Header);

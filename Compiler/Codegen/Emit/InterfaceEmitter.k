@@ -255,7 +255,12 @@ class InterfaceEmitter {
     /// Byte 0 of the TU: the anchor for tokens that have no bytes of their
     /// own (a directive, a namespace's closing brace).
     priv fn _tu_at(self) -> SourceRange {
-        return self._cg->ctx->sm->get_range(self._cg->tu->fid, 0, 1);
+        // Unreachable for an empty TU (the driver skips it on EmitPlan::
+        // is_empty), but a zero-byte file has no byte 0: anchor at the end
+        // position instead, which a zero-length range may name.
+        var fid = self._cg->tu->fid;
+        if self._cg->ctx->sm->get_file_size(fid) == 0 { return self._cg->ctx->sm->get_range(fid, 0, 0); }
+        return self._cg->ctx->sm->get_range(fid, 0, 1);
     }
 
     // --- Tier 0 ----------------------------------------------------------------------
