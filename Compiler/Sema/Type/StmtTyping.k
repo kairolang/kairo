@@ -81,8 +81,8 @@ class TyperFrame {
     pub var inferred: *Type = &null;           ///< join of `return e` seen so far.
     pub var saw_return_value: bool = false;
     pub var saw_bare_return:  bool = false;
-    /// `-> yield T` or `-> Yield<T>`: `declared` is the canonical, which
-    /// carries cv only and drops the qualifier, so the frame keeps it here.
+    /// `-> yield T`: `declared` is the canonical, which carries cv only and
+    /// drops the qualifier, so the frame keeps it here.
     pub var is_generator:     bool = false;
     fn TyperFrame(self) { }
 }

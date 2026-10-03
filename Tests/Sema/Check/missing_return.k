@@ -223,18 +223,6 @@ fn ok_generator_early_return(n: i32) -> yield i32 {
 
 fn ok_generator_empty() -> yield i32 { }
 
-// The lang record `yield T` lowers to, spelled out: the same generator.
-fn ok_generator_lang(n: i32) -> Yield<i32> {
-    for var i: i32 = 0; i < n; ++i {
-        yield i
-    }
-}
-
-fn ok_generator_lang_early_return(n: i32) -> Yield<i32> {
-    if n < 0 { return; }
-    yield n
-}
-
 fn bad_generator_return_value() -> yield i32 {
     yield 1
     return 2

@@ -41,9 +41,10 @@
 ///     either is noise. Missing a real bug there is the chosen trade.
 ///
 ///   \par Generators
-///     `-> yield T`, or its lang record spelled out as `-> Yield<T>`, names
-///     what each `yield` produces; falling off the bottom ends the sequence,
-///     so a generator body is never checked.
+///     `-> yield T` names what each `yield` produces; falling off the bottom
+///     ends the sequence, so a generator body is never checked. Only the
+///     written qualifier counts: a spelled-out `-> Yield<T>` is an ordinary
+///     record return and is checked like any other.
 ///
 ///   \par What this is NOT
 ///     Unreachable-code warnings (TerminatorCheck, lexical), definite
@@ -127,9 +128,8 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         // No annotation on a block body is `void` (StmtTyping), and a ctor /
         // dtor never carries one.
         if n->return_type == &null { return true; }
-        // `-> yield T` (or `-> Yield<T>`) declares the type of each YIELDED
-        // value, not of a returned one: falling off the bottom ends the
-        // sequence.
+        // `-> yield T` declares the type of each YIELDED value, not of a
+        // returned one: falling off the bottom ends the sequence.
         if self._tu.is_generator_return(n->return_type) { return true; }
         self._check(n->body_block, n->return_type, false, n->return_type->range, n);
         return true;
