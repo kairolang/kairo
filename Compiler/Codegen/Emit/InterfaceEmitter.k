@@ -349,6 +349,25 @@ class InterfaceEmitter {
                 cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
                 self._type_def(CXXSpell::rep(nd));
             }
+
+            // Member aliases, in declaration order, before any field or
+            // method: an alias is usually named in the record's own
+            // signatures (`promise_type`, which <coroutine>'s primary reads as
+            // `typename R::promise_type`), and a C++ declaration cannot use a
+            // member declared below it -- only a body sees the whole class.
+            // After the nested types, because an alias may name one. An alias
+            // can only refer to what the record itself can name, and Kairo
+            // does not let it name a later field, so hoisting is safe.
+            for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+                var nd = *(dc->dc_decls.get(i));
+                if (nd == &null) || (!isa::<TypeAliasDecl>(nd)) { continue; }
+                var ta = cast::<TypeAliasDecl>(nd);
+                if ta->aliased == &null { continue; }
+                cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
+                var us = self._spell->template_head(nd);
+                us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(ta->aliased) + ";";
+                sink->spell(self._at(nd), us);
+            }
         }
 
         var fields  = (cast::<ClassDecl>(d)->fields)  if (is_class) else (cast::<StructDecl>(d)->fields);
