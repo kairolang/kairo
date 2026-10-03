@@ -150,10 +150,6 @@ This allows attributes to compose `@serializable` can add serialization methods,
 Attributes can be attached to any AST node:
 
 ```kairo
-// On a function
-@inline
-fn hot_path(x: i32) -> i32 { ... }
-
 // On a class
 @packed
 class Header { ... }
