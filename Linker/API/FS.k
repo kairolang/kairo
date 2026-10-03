@@ -19,6 +19,7 @@ ffi "c++" import "llvm/ADT/Twine.h";
 ffi "c++" import "llvm/Support/FileSystem.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
 ffi "c++" import "llvm/Support/Path.h";
+ffi "c++" import "llvm/Support/Process.h";
 ffi "c++" import "llvm/Support/Program.h";
 
 class LinkFS {
@@ -128,5 +129,13 @@ class LinkFS {
         if p.empty() { return; }
         var np = std::string_to_nstring(p);
         llvm::sys::fs::remove_directories(llvm::Twine(np.raw()), true);
+    }
+
+    /// The environment variable \p name; "" when unset.
+    static fn env(name: string) -> string {
+        var nn = std::string_to_nstring(name);
+        var v  = llvm::sys::Process::GetEnv(llvm::StringRef(nn.raw(), nn.size()));
+        if !v { return ""; }
+        return std::nstring_to_string(v.value());
     }
 }

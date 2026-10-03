@@ -2,13 +2,14 @@
 ///
 ///   \brief Where everything a link needs lives, for one target and one
 ///          sysroot: library directories, crt objects, the GCC install,
-///          compiler-rt, libc++, the dynamic linker, the emulation.
+///          compiler-rt, libc++, the dynamic linker, the emulation, and for
+///          Apple targets the SDK, platform and deployment target.
 ///
 ///   This is the part of clang's driver kairo used to borrow through
-///   `clang++ -###`. It reads the filesystem and nothing else. What it
-///   cannot find is reported as a LinkMessage, never guessed.
+///   `clang++ -###`. It reads the filesystem and the environment, nothing
+///   else. What it cannot find is reported as a LinkMessage, never guessed.
 ///
-///   \par Three sysroot shapes
+///   \par Three sysroot shapes (ELF)
 ///     manifest  <sysroot>/SYSROOT.toml exists (ksys). The manifest is the
 ///               authority: lib dirs, crt objects, libc and libc++ link args,
 ///               runtime choice, static-only. lld gets --sysroot.
@@ -19,7 +20,24 @@
 ///               a linker script naming /usr/lib/libc.so.6, and lld re-roots
 ///               absolute script paths under --sysroot: /usr/usr/lib/...
 ///
-///   \par Runtime choice
+///   \par Apple targets
+///     Mach-O targets resolve against an SDK (style "sdk"), or a manifest
+///     sysroot that wraps one. With no --sysroot, or "/", the SDK comes from
+///     SDKROOT when it names the target's platform, then DEVELOPER_DIR, the
+///     xcode-select link (/var/db/xcode_select_link), the Command Line Tools
+///     and Xcode's default location. xcrun is never run: it is a process
+///     spawn per link, and everything it reads is reachable from here.
+///
+///     The runtime is fixed. libSystem carries libc, libm, the unwinder and
+///     its own copy of the builtins, so compiler-rt is linked when present
+///     and its absence is not an error.
+///
+///     Deployment target: <PLATFORM>_DEPLOYMENT_TARGET, then the triple's OS
+///     version, then the SDK version. The environment beats the triple
+///     because the driver's default triple carries the host OS version,
+///     which would make the variable dead for every host build.
+///
+///   \par Runtime choice (ELF)
 ///     --rtlib wins, then the manifest. With neither, a glibc target with a
 ///     GCC install found gets libgcc (what the host's own objects were built
 ///     against); everything else gets compiler-rt. --unwindlib follows the
@@ -53,16 +71,17 @@ import Linker::API::SysrootManifest::*;
 
 class Toolchain {
     pub var ok:             bool = false;
+    pub var format:         string;     ///< ELF | Mach-O
 
     pub var triple:         string;     ///< effective, as the driver resolved it
     pub var arch:           string;     ///< canonical: x86_64 i386 aarch64 arm riscv64 ...
-    pub var os:             string;     ///< as spelled: linux, freebsd14.1, ...
-    pub var env:            string;     ///< gnu, musl, gnueabihf, "" ...
-    pub var libc:           string;     ///< glibc | musl | bsd | ""
+    pub var os:             string;     ///< as spelled: linux, freebsd14.1, macosx14.0, ...
+    pub var env:            string;     ///< gnu, musl, gnueabihf, simulator, "" ...
+    pub var libc:           string;     ///< glibc | musl | bsd | libsystem | ""
     pub var is64:           bool = true;
 
     pub var sysroot:        string;
-    pub var style:          string;     ///< manifest | root | prefix
+    pub var style:          string;     ///< manifest | root | prefix | sdk
     pub var pass_sysroot:   bool = false;
     pub var has_manifest:   bool = false;
     pub var manifest:       SysrootManifest;
@@ -74,13 +93,18 @@ class Toolchain {
     pub var toolchain_lib:  string;         ///< libc++ outside the system dirs, or ""
 
     pub var rtlib:          string;         ///< compiler-rt | libgcc
-    pub var unwindlib:      string;         ///< libunwind | libgcc | none
+    pub var unwindlib:      string;         ///< libunwind | libgcc | none | libsystem
     pub var rt_dir:         string;
     pub var rt_suffix:      string;         ///< "" per-target layout, "-<arch>" old layout
     pub var builtins:       string;
 
-    pub var emulation:      string;
-    pub var dynamic_linker: string;
+    pub var emulation:      string;         ///< ELF
+    pub var dynamic_linker: string;         ///< ELF
+
+    pub var platform:       string;         ///< Mach-O: -platform_version name
+    pub var darwin_arch:    string;         ///< Mach-O: -arch spelling
+    pub var min_version:    string;         ///< Mach-O: deployment target
+    pub var sdk_version:    string;         ///< Mach-O: SDK the image was linked against
 
     priv var _real_dirs:    vec::<string>;  ///< lib_dirs, symlinks resolved, for dedup
 
@@ -95,11 +119,13 @@ class Toolchain {
                 "link: the target was never resolved; the driver fills TargetOptions before linking"));
             return false;
         }
-        if t->object_format != "ELF" {
+        if (t->object_format != "ELF") && (t->object_format != "Mach-O") {
             msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
-                f"linking {t->object_format} output for {t->describe()} is not implemented; only ELF targets link"));
+                f"linking {t->object_format} output for {t->describe()} is not implemented; only ELF and Mach-O targets link"));
             return false;
         }
+        self.format = t->object_format;
+        var darwin  = self.format == "Mach-O";
 
         self.triple = t->effective_triple;
         self.arch   = Toolchain::canon_arch(t->arch_name);
@@ -108,7 +134,26 @@ class Toolchain {
         self.is64   = (t->pointer_width == 0) || (t->pointer_width == 64);
         self.libc   = Toolchain::libc_of(self.os, self.env);
 
+        if darwin {
+            self.libc        = "libsystem";
+            self.platform    = Toolchain::darwin_platform(self.os, self.env);
+            self.darwin_arch = Toolchain::darwin_arch_of(t->arch_name, self.arch);
+            if self.platform.empty() {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
+                    f"{self.triple} is Mach-O but names no Apple platform this linker knows"));
+                return false;
+            }
+        }
+
         var sr = LinkText::strip_slash(t->sysroot);
+        if darwin && (sr.empty() || (sr == "/")) {
+            sr = Toolchain::find_sdk(self.platform);
+            if sr.empty() {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
+                    f"no {self.platform} SDK found: install the Command Line Tools (xcode-select --install), set SDKROOT, or pass --sysroot"));
+                return false;
+            }
+        }
         if sr.empty() { sr = "/"; }
         self.sysroot = sr;
 
@@ -120,21 +165,31 @@ class Toolchain {
             }
             self.has_manifest = true;
             self._layout_manifest(msgs);
+        } else if darwin {
+            self._layout_sdk(msgs);
         } else {
             self._layout_host(t->arch_name);
         }
 
         self._pick_runtimes(o, msgs);
-        if self.rtlib == "compiler-rt" { self._find_compiler_rt(t, msgs); }
+        if darwin {
+            self._find_darwin_rt(t, msgs);
+        } else if self.rtlib == "compiler-rt" {
+            self._find_compiler_rt(t, msgs);
+        }
         self._find_toolchain_lib(t);
 
-        self.emulation = o->emulation;
-        if self.emulation.empty() {
-            self.emulation = Toolchain::emulation_for(self.arch, self.os, self.env);
-        }
-        self.dynamic_linker = o->dynamic_linker;
-        if self.dynamic_linker.empty() {
-            self.dynamic_linker = Toolchain::dynamic_linker_for(self.arch, self.os, self.env, self.libc);
+        if darwin {
+            self._darwin_versions(msgs);
+        } else {
+            self.emulation = o->emulation;
+            if self.emulation.empty() {
+                self.emulation = Toolchain::emulation_for(self.arch, self.os, self.env);
+            }
+            self.dynamic_linker = o->dynamic_linker;
+            if self.dynamic_linker.empty() {
+                self.dynamic_linker = Toolchain::dynamic_linker_for(self.arch, self.os, self.env, self.libc);
+            }
         }
 
         self.ok = LinkDiag::error_count(msgs) == errs0;
@@ -166,6 +221,23 @@ class Toolchain {
             for d: string in self.lib_dirs {
                 if LinkFS::is_file(LinkText::join(d, m->crt_startup[0])) { self.crt_dir = d; break; }
             }
+        }
+    }
+
+    /// An Apple SDK. lld searches <sdk>/usr/lib itself through -syslibroot;
+    /// the directory is recorded so static archive lookups and --print-dirs
+    /// see it.
+    priv fn _layout_sdk(self, msgs: ref!(vec::<LinkMessage>)) {
+        self.style        = "sdk";
+        self.pass_sysroot = false;
+        if !LinkFS::is_dir(self.sysroot) {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error, f"the SDK {self.sysroot} does not exist"));
+            return;
+        }
+        self._add_dir(LinkText::join(self.sysroot, "usr/lib"));
+        if self.lib_dirs.empty() {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"{self.sysroot} is not an SDK: it has no usr/lib"));
         }
     }
 
@@ -209,6 +281,20 @@ class Toolchain {
     }
 
     priv fn _pick_runtimes(self, o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
+        if self.format == "Mach-O" {
+            if (!o->rtlib.empty()) && (o->rtlib != "compiler-rt") {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--rtlib={o->rtlib}: Apple targets only use compiler-rt"));
+            }
+            if (!o->unwindlib.empty()) && (o->unwindlib != "libunwind") && (o->unwindlib != "none") {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--unwindlib={o->unwindlib}: Apple targets unwind through libSystem"));
+            }
+            self.rtlib     = "compiler-rt";
+            self.unwindlib = "libsystem";
+            return;
+        }
+
         var rt = o->rtlib;
         if rt.empty() && self.has_manifest { rt = self.manifest.rtlib; }
         if rt.empty() {
@@ -234,13 +320,17 @@ class Toolchain {
         self.unwindlib = uw;
     }
 
-    priv fn _find_compiler_rt(self, t: *TargetOptions, msgs: ref!(vec::<LinkMessage>)) {
+    priv fn _rt_roots(self, t: *TargetOptions) -> vec::<string> {
         var roots = vec::<string>();
         if self.has_manifest && (!self.manifest.resource_dir.empty()) {
             roots.push_back(LinkText::join(self.sysroot, self.manifest.resource_dir));
         }
         if !t->resource_dir.empty() { roots.push_back(LinkText::strip_slash(t->resource_dir)); }
+        return roots;
+    }
 
+    priv fn _find_compiler_rt(self, t: *TargetOptions, msgs: ref!(vec::<LinkMessage>)) {
+        var roots  = self._rt_roots(t);
         var tris   = self._rt_triples(t);
         var osdir  = Toolchain::os_dir(self.os);
         var rtarch = self.arch;
@@ -267,6 +357,24 @@ class Toolchain {
         }
         msgs.push_back(LinkDiag::make(LinkSeverity::Error,
             f"compiler-rt builtins for {self.triple} not found; looked in:{looked}"));
+    }
+
+    /// <resource>/lib/darwin/libclang_rt.<os>.a, the only layout Apple
+    /// compiler-rt uses. Missing is not an error: libSystem carries the
+    /// builtins.
+    priv fn _find_darwin_rt(self, t: *TargetOptions, msgs: ref!(vec::<LinkMessage>)) {
+        var name = f"libclang_rt.{Toolchain::darwin_rt_os(self.platform)}.a";
+        for root: string in self._rt_roots(t) {
+            var d = LinkText::join(LinkText::join(root, "lib"), "darwin");
+            var a = LinkText::join(d, name);
+            if LinkFS::is_file(a) {
+                self.rt_dir   = d;
+                self.builtins = a;
+                return;
+            }
+        }
+        msgs.push_back(LinkDiag::make(LinkSeverity::Verbose,
+            f"{name} not found under the resource directory; the builtins come from libSystem"));
     }
 
     priv fn _try_rt(self, dir: string, suffix: string) -> bool {
@@ -299,11 +407,65 @@ class Toolchain {
         cands.push_back(base);
 
         for c: string in cands {
-            if LinkFS::is_file(LinkText::join(c, "libc++.so")) || LinkFS::is_file(LinkText::join(c, "libc++.a")) {
+            if LinkFS::is_file(LinkText::join(c, "libc++.so"))
+            || LinkFS::is_file(LinkText::join(c, "libc++.dylib"))
+            || LinkFS::is_file(LinkText::join(c, "libc++.a")) {
                 if !self._has_dir(c) { self.toolchain_lib = c; }
                 return;
             }
         }
+    }
+
+    /// Deployment target and SDK version for -platform_version.
+    priv fn _darwin_versions(self, msgs: ref!(vec::<LinkMessage>)) {
+        self.sdk_version = self._sdk_version();
+
+        var var_name = Toolchain::deployment_env(self.platform);
+        var v = ("") if (var_name.empty()) else (LinkFS::env(var_name));
+        if v.empty() { v = self._triple_version(); }
+        if v.empty() { v = self.sdk_version; }
+        if v.empty() {
+            var how = ("a versioned triple") if (var_name.empty()) else (f"{var_name} or a versioned triple");
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"cannot determine the {self.platform} deployment target; set {how}"));
+            return;
+        }
+        self.min_version = v;
+
+        if self.sdk_version.empty() {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                f"cannot read the SDK version of {self.sysroot}; recording {v}. System frameworks gate behavior on the linked SDK version"));
+            self.sdk_version = v;
+        }
+    }
+
+    priv fn _triple_version(self) -> string {
+        var nt = std::string_to_nstring(self.triple);
+        var tr = llvm::Triple(llvm::StringRef(nt.raw(), nt.size()));
+        if tr.getOSVersion().getMajor() == 0 { return ""; }
+        if self.platform == "macos" {
+            // darwinNN -> macOS version. LLVM owns the mapping.
+            var v: llvm::VersionTuple;
+            if !tr.getMacOSXVersion(v) { return ""; }
+            return std::nstring_to_string(v.getAsString());
+        }
+        return std::nstring_to_string(tr.getOSVersion().getAsString());
+    }
+
+    /// SDKSettings.json's Version; else the version in the SDK's real name
+    /// (MacOSX.sdk is a symlink to MacOSX14.4.sdk). "" when neither.
+    priv fn _sdk_version(self) -> string {
+        var text = "";
+        if LinkFS::read(LinkText::join(self.sysroot, "SDKSettings.json"), text) {
+            var v = Toolchain::json_string(text, "Version");
+            if !v.empty() { return v; }
+        }
+        var name = LinkFS::filename(LinkFS::real(self.sysroot));
+        if !LinkText::ends_with(name, ".sdk") { return ""; }
+        var e = name.size() - 4;
+        var b = e;
+        while (b > 0) && (((name[b - 1] >= '0') && (name[b - 1] <= '9')) || (name[b - 1] == '.')) { b -= 1; }
+        return LinkText::slice(name, b, e);
     }
 
     priv fn _find_gcc(self, bases: ref!(vec::<string>), spelled_arch: string) {
@@ -401,15 +563,23 @@ class Toolchain {
         out.push_back(f"target:          {self.triple}");
         out.push_back(f"sysroot:         {self.sysroot} ({self.style})");
         if self.has_manifest { out.push_back(f"manifest:        {self.manifest.path}"); }
-        out.push_back(f"libc:            {Toolchain::or_none(self.libc)}");
-        out.push_back(f"rtlib:           {self.rtlib}");
-        out.push_back(f"unwindlib:       {self.unwindlib}");
-        out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}");
-        out.push_back(f"gcc install:     {Toolchain::or_none(self.gcc_dir)}");
-        out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}");
-        out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}");
-        out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}");
-        out.push_back(f"dynamic linker:  {Toolchain::or_none(self.dynamic_linker)}");
+        if self.format == "Mach-O" {
+            out.push_back(f"platform:        {self.platform} {self.min_version} (SDK {self.sdk_version})");
+            out.push_back(f"arch:            {self.darwin_arch}");
+            out.push_back(f"rtlib:           {self.rtlib}");
+            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}");
+            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}");
+        } else {
+            out.push_back(f"libc:            {Toolchain::or_none(self.libc)}");
+            out.push_back(f"rtlib:           {self.rtlib}");
+            out.push_back(f"unwindlib:       {self.unwindlib}");
+            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}");
+            out.push_back(f"gcc install:     {Toolchain::or_none(self.gcc_dir)}");
+            out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}");
+            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}");
+            out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}");
+            out.push_back(f"dynamic linker:  {Toolchain::or_none(self.dynamic_linker)}");
+        }
         out.push_back("library search:");
         for d: string in self.lib_dirs { out.push_back(f"  {d}"); }
         return out;
@@ -528,14 +698,130 @@ class Toolchain {
         return out;
     }
 
+    // --- Apple tables -----------------------------------------------------
+
+    /// The -platform_version name, or "" when \p os is not an Apple OS.
+    static fn darwin_platform(os: string, env: string) -> string {
+        if env == "macabi" { return "mac-catalyst"; }
+        var sim = env == "simulator";
+        if LinkText::starts_with(os, "macos") || LinkText::starts_with(os, "darwin") { return "macos"; }
+        if LinkText::starts_with(os, "ios")     { return ("ios-simulator") if (sim) else ("ios"); }
+        if LinkText::starts_with(os, "tvos")    { return ("tvos-simulator") if (sim) else ("tvos"); }
+        if LinkText::starts_with(os, "watchos") { return ("watchos-simulator") if (sim) else ("watchos"); }
+        if LinkText::starts_with(os, "xros") || LinkText::starts_with(os, "visionos") {
+            return ("xros-simulator") if (sim) else ("xros");
+        }
+        if LinkText::starts_with(os, "driverkit") { return "driverkit"; }
+        return "";
+    }
+
+    /// The -arch spelling. Subarchitectures ld64 distinguishes stay as
+    /// spelled; aarch64 is arm64 everywhere on Apple.
+    static fn darwin_arch_of(spelled: string, a: string) -> string {
+        if (spelled == "arm64e") || (spelled == "arm64_32") || (spelled == "x86_64h") { return spelled; }
+        if a == "aarch64" { return "arm64"; }
+        return a;
+    }
+
+    /// The <os> in libclang_rt.<os>.a.
+    static fn darwin_rt_os(platform: string) -> string {
+        if (platform == "macos") || (platform == "mac-catalyst") { return "osx"; }
+        if platform == "ios-simulator"     { return "iossim"; }
+        if platform == "tvos-simulator"    { return "tvossim"; }
+        if platform == "watchos-simulator" { return "watchossim"; }
+        if platform == "xros-simulator"    { return "xrossim"; }
+        return platform;
+    }
+
+    /// The deployment-target variable clang and xcodebuild read.
+    static fn deployment_env(platform: string) -> string {
+        if platform == "macos" { return "MACOSX_DEPLOYMENT_TARGET"; }
+        if LinkText::starts_with(platform, "ios")     { return "IPHONEOS_DEPLOYMENT_TARGET"; }
+        if LinkText::starts_with(platform, "tvos")    { return "TVOS_DEPLOYMENT_TARGET"; }
+        if LinkText::starts_with(platform, "watchos") { return "WATCHOS_DEPLOYMENT_TARGET"; }
+        if LinkText::starts_with(platform, "xros")    { return "XROS_DEPLOYMENT_TARGET"; }
+        if platform == "driverkit" { return "DRIVERKIT_DEPLOYMENT_TARGET"; }
+        return "";
+    }
+
+    /// Xcode's platform directory name: <P>.platform, <P>.sdk.
+    static fn sdk_platform_name(platform: string) -> string {
+        if (platform == "macos") || (platform == "mac-catalyst") { return "MacOSX"; }
+        if platform == "ios"               { return "iPhoneOS"; }
+        if platform == "ios-simulator"     { return "iPhoneSimulator"; }
+        if platform == "tvos"              { return "AppleTVOS"; }
+        if platform == "tvos-simulator"    { return "AppleTVSimulator"; }
+        if platform == "watchos"           { return "WatchOS"; }
+        if platform == "watchos-simulator" { return "WatchSimulator"; }
+        if platform == "xros"              { return "XROS"; }
+        if platform == "xros-simulator"    { return "XRSimulator"; }
+        if platform == "driverkit"         { return "DriverKit"; }
+        return "";
+    }
+
+    /// The SDK for \p platform, or "". SDKROOT counts only when its real
+    /// name is for this platform: a macOS SDKROOT left in the environment
+    /// must not satisfy an iOS link.
+    static fn find_sdk(platform: string) -> string {
+        var pname = Toolchain::sdk_platform_name(platform);
+        if pname.empty() { return ""; }
+
+        var sdkroot = LinkText::strip_slash(LinkFS::env("SDKROOT"));
+        if (!sdkroot.empty()) && LinkFS::is_dir(sdkroot)
+        && LinkText::starts_with(LinkFS::filename(LinkFS::real(sdkroot)), pname) {
+            return sdkroot;
+        }
+
+        var devs = vec::<string>();
+        var dd   = LinkText::strip_slash(LinkFS::env("DEVELOPER_DIR"));
+        if !dd.empty() { devs.push_back(dd); }
+        if LinkFS::exists("/var/db/xcode_select_link") {
+            devs.push_back(LinkFS::real("/var/db/xcode_select_link"));
+        }
+        devs.push_back("/Library/Developer/CommandLineTools");
+        devs.push_back("/Applications/Xcode.app/Contents/Developer");
+
+        for d: string in devs {
+            // Xcode nests SDKs per platform; the Command Line Tools keep a
+            // flat SDKs/ with macOS only.
+            var x = LinkText::join(d, f"Platforms/{pname}.platform/Developer/SDKs/{pname}.sdk");
+            if LinkFS::is_dir(x) { return x; }
+            var c = LinkText::join(d, f"SDKs/{pname}.sdk");
+            if LinkFS::is_dir(c) { return c; }
+        }
+        return "";
+    }
+
+    /// The string value of top-level-looking \p key in \p text. Enough JSON
+    /// for SDKSettings.json, nothing more. "" when absent.
+    static fn json_string(text: string, key: string) -> string {
+        var pat = "\x22" + key + "\x22";
+        var i   = LinkText::find(text, pat, 0);
+        while i < text.size() {
+            var j = Toolchain::_skip_ws(text, i + pat.size());
+            if (j < text.size()) && (text[j] == ':') {
+                j = Toolchain::_skip_ws(text, j + 1);
+                if (j >= text.size()) || (text[j] != '\x22') { return ""; }
+                var e = LinkText::find(text, "\x22", j + 1);
+                return LinkText::slice(text, j + 1, e);
+            }
+            i = LinkText::find(text, pat, i + 1);
+        }
+        return "";
+    }
+
+    // --- Shared helpers ---------------------------------------------------
+
     /// Same arch, OS and environment; vendor and spelling ignored, so
-    /// x86_64-linux-musl matches x86_64-unknown-linux-musl.
+    /// x86_64-linux-musl matches x86_64-unknown-linux-musl, and darwin
+    /// matches macosx.
     static fn same_target(a: string, b: string) -> bool {
         var na = std::string_to_nstring(a);
         var nb = std::string_to_nstring(b);
         var ta = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(na.raw(), na.size())));
         var tb = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nb.raw(), nb.size())));
-        return (ta.getArch() == tb.getArch()) && (ta.getOS() == tb.getOS())
+        var same_os = (ta.getOS() == tb.getOS()) || (ta.isMacOSX() && tb.isMacOSX());
+        return (ta.getArch() == tb.getArch()) && same_os
             && (ta.getEnvironment() == tb.getEnvironment());
     }
 
@@ -563,6 +849,12 @@ class Toolchain {
         while (i < s.size()) && (s[i] != '.') { i += 1; }
         if i < s.size() { i += 1; }
         return v;
+    }
+
+    priv static fn _skip_ws(s: string, i: usize) -> usize {
+        var j = i;
+        while (j < s.size()) && ((s[j] == ' ') || (s[j] == '\t') || (s[j] == '\n') || (s[j] == '\r')) { j += 1; }
+        return j;
     }
 
     priv static fn _push_unique(out: ref!(vec::<string>), s: string) {

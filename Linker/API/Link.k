@@ -25,6 +25,7 @@ import Linker::API::LinkDiag::*;
 import Linker::API::LinkJob::*;
 import Linker::API::Toolchain::*;
 import Linker::API::Flavor::ELF::*;
+import Linker::API::Flavor::MachO::*;
 import Linker::API::LLDRunner::*;
 
 struct LinkResult {
@@ -41,6 +42,7 @@ class Link {
     static fn plan(job: ref!(LinkJob), tc: ref!(Toolchain),
                    argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) -> bool {
         if !tc.resolve(job.target, job.opts, msgs) { return false; }
+        if tc.format == "Mach-O" { return MachOArgs::build(job, tc, argv, msgs); }
         return ELFArgs::build(job, tc, argv, msgs);
     }
 
