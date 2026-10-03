@@ -983,6 +983,13 @@ class CompilerInstance {
         // ClangBackend::_startup_locked), which is the honest answer.
         (bcfg.sysroot)      = tgt.sysroot;
         (bcfg.resource_dir) = tgt.resource_dir;
+        // One optimization level for the whole build: ClangBackend applies
+        // it to the invocation every compile copies.
+        var cgo = self.invocation().codegen;
+        (bcfg.opt_level) = cgo.opt_level;
+        if cgo.opt_size_z    { (bcfg.opt_size) = 2; }
+        else if cgo.opt_size { (bcfg.opt_size) = 1; }
+        (bcfg.vectorize) = cgo.f_vectorize != 0;
 
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 

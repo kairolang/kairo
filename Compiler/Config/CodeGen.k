@@ -124,9 +124,17 @@ class CodeGenOptions {
 
     static fn from_args(args: ref!(ParsedArgs)) -> CodeGenOptions {
         var o = CodeGenOptions();
-        (o.opt_level)            = args.get_i32("opt");
-        (o.opt_size)             = args.get_bool("opt-size");
-        (o.opt_size_z)           = args.get_bool("opt-size-z");
+        // -O's value is one of 0 1 2 3 s z g (FlagRegistry rejects the
+        // rest). s and z are level 2 plus a size goal and g is level 1,
+        // exactly what clang's cc1 makes of them.
+        var o_val = args.get_string("opt");
+        (o.opt_size)             = (o_val == "s") || (o_val == "z");
+        (o.opt_size_z)           = o_val == "z";
+        if o.opt_size                             { (o.opt_level) = 2; }
+        else if (o_val == "1") || (o_val == "g")  { (o.opt_level) = 1; }
+        else if o_val == "2"                      { (o.opt_level) = 2; }
+        else if o_val == "3"                      { (o.opt_level) = 3; }
+        else                                      { (o.opt_level) = 0; }
         (o.lto)                  = args.get_string("lto");
         (o.profile)              = args.get_string("profile");
         (o.debug_info)           = args.get_bool("debug-info");

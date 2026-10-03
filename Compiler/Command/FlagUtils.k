@@ -97,6 +97,14 @@ class FlagDef {
     pub var max_i:      i32  = 0;
     pub var min_f:      f64  = 0.0;
     pub var max_f:      f64  = 0.0;
+    /// String only: the accepted values; empty accepts anything. A value
+    /// outside the set is an error naming the set, not a silent default.
+    pub var choices:    vec::<string>;
+    /// Single-dash only: the value a bare `-X` means (clang's `-O` is `-O1`).
+    /// Without it a bare valued flag takes the NEXT argument as its value,
+    /// which for `-O main.k` would swallow the input file.
+    pub var has_bare:   bool   = false;
+    pub var bare_:      string = "";
 
     static fn bool_(key: string, short_: string, long_: string,
                     help: string, dfl: bool) -> FlagDef {
@@ -124,6 +132,18 @@ class FlagDef {
         d.key = key; d.short_ = short_; d.long_ = long_;
         d.kind = FlagKind::String; d.help = help;
         d.default_ = FlagValue::from_string(dfl);
+        return d;
+    }
+
+    /// string restricted to \p choices, with a default and a bare value
+    static fn str_c(key: string, short_: string, long_: string, help: string,
+                    dfl: string, choices: vec::<string>, bare: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::String; d.help = help;
+        d.default_ = FlagValue::from_string(dfl);
+        d.choices = choices;
+        d.has_bare = true; d.bare_ = bare;
         return d;
     }
 

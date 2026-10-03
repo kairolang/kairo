@@ -498,6 +498,23 @@ class Command {
             }
             case FlagKind::String:
             case FlagKind::Path {
+                if def->choices.size() > 0 {
+                    var found = false;
+                    var set: string = "";
+                    for var c: usize = 0; c < def->choices.size(); ++c {
+                        if def->choices[c] == raw { found = true; }
+                        if c > 0 { set += ", "; }
+                        set += (f"-{def->short_}{def->choices[c]}") if (def->short_.length() > 0) else (def->choices[c]);
+                    }
+                    if def->has_bare && (def->short_.length() > 0) { set += f", -{def->short_}"; }
+                    if !found {
+                        self._diag->report(DiagCode(DiagID::U003E),
+                            f"invalid value '{raw}' for flag '-{def->short_}' / '--{def->key}'; accepted: {set}")
+                            .emit();
+                        result->ok = false;
+                        return;
+                    }
+                }
                 cell->set_string(raw);
             }
             case FlagKind::StringList {
@@ -669,6 +686,8 @@ class Command {
                         self._apply(def, "", &result);
                     } else if joined.length() > 0 { // joined value from prefix split, e.g. -O2
                         self._apply(def, joined, &result);
+                    } else if def->has_bare { // bare '-O' means '-O1', never 'take the next argument'
+                        self._apply(def, def->bare_, &result);
                     } else {
                         pending = def;
                         gstate  = GlobalState::AwaitValue;
@@ -735,6 +754,8 @@ class Command {
                         self._apply(def, "", &result);
                     } else if joined.length() > 0 {
                         self._apply(def, joined, &result);
+                    } else if def->has_bare {
+                        self._apply(def, def->bare_, &result);
                     } else {
                         pending = def;
                         gstate  = GlobalState::AwaitValue;

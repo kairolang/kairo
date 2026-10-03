@@ -175,6 +175,9 @@ struct ClangBackendConfig {
     var includes:     vec::<string>;       ///< -include names (predefines buffer)
     var extra_cc1:    vec::<string>;       ///< platform extras (exception model, PIC, CPU, ...)
     var wargs:        vec::<string>;       ///< diagnostic -W/-Wno-/-Werror= args from user policy, injected pre-CreateFromArgs
+    var opt_level:    i32  = 0;            ///< -O level, 0-3 (s and z are 2)
+    var opt_size:     i32  = 0;            ///< 0 none, 1 -Os, 2 -Oz
+    var vectorize:    bool = true;         ///< loop + SLP vectorizers above -O0 (-f[no-]vectorize)
 }
 
 class ClangBackend {
@@ -462,6 +465,26 @@ class ClangBackend {
 
         for a: string in self._cfg.extra_cc1 {
             self._arg(argv, a);
+        }
+
+        // Optimization level, as cc1 flags rather than CodeGenOpts fields:
+        // cc1's own parsing then sets everything that hangs off the level
+        // (OptimizationLevel, OptimizeSize, the inliner mode, LangOpts
+        // Optimize/OptimizeSize, no optnone above -O0) in step. Here, not per
+        // TU, because every compile copies this invocation: the header-set
+        // PCHs (whose reader rejects an __OPTIMIZE__ mismatch), the native
+        // runtime objects and every TU's codegen run alike -- so builtin,
+        // std and the user's code are always built at one level.
+        if self._cfg.opt_size == 2      { self._arg(argv, "-Oz"); }
+        else if self._cfg.opt_size == 1 { self._arg(argv, "-Os"); }
+        else                            { self._arg(argv, f"-O{self._cfg.opt_level}"); }
+        // cc1 leaves both vectorizers off unless asked; the clang driver
+        // asks from the level, and there is no driver here. Kairo turns
+        // them on at every level above -O0 (Oz included, unlike clang's
+        // shouldEnableVectorizerAtOLevel), and -fno-vectorize turns them off.
+        if (self._cfg.vectorize) && ((self._cfg.opt_level > 0) || (self._cfg.opt_size > 0)) {
+            self._arg(argv, "-vectorize-loops");
+            self._arg(argv, "-vectorize-slp");
         }
 
         // User diagnostic policy for clang-sourced diagnostics: -W<grp> (enable),

@@ -14,6 +14,15 @@
 
 import Command::Command::*;
 
+/// The values -O accepts after the `O`. `g` is clang's -Og, which it treats
+/// as -O1; CodeGenOptions::from_args does the mapping.
+fn _opt_level_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("0"); c.push_back("1"); c.push_back("2"); c.push_back("3");
+    c.push_back("s"); c.push_back("z"); c.push_back("g");
+    return c;
+}
+
 fn register_kairo_flags(cmd: *Command) {
     //  IDENTITY
 
@@ -95,9 +104,11 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  OPTIMISATION
 
-    cmd->define::<FlagKind::I32>  ("opt",             "O", "",               "optimization level: 0 (none), 1 (basic), 2 (standard), 3 (aggressive)",           0, 0, 3);
-    cmd->define::<FlagKind::Bool> ("opt-size",        "",  "Os",             "optimise for binary size",                                                          false);
-    cmd->define::<FlagKind::Bool> ("opt-size-z",      "",  "Oz",             "aggressively optimise for binary size (slower code, smallest output)",             false);
+    // ONE key for every -O spelling, so the last one given wins: -O2 -Os is
+    // -Os, as in clang. -Ofast is rejected, not mapped -- it changes
+    // floating-point semantics and is a separate decision.
+    cmd->define(FlagDef::str_c("opt", "O", "", "optimization level: -O0 (default), -O1, -O2, -O3, -Os, -Oz; -O and -Og are -O1",
+                               "0", _opt_level_choices(), "1"));
     cmd->define::<FlagKind::Bool> ("debug-info",      "g", "",               "emit DWARF debug information",                                                      false);
     cmd->define::<FlagKind::Bool> ("no-debug-info",   "",  "g0",             "explicitly disable debug info emission",                                            false);
     cmd->define::<FlagKind::I32>  ("dwarf-version",   "",  "dwarf-version",  "DWARF version to emit: 2|3|4|5 (default: 5)",                                      5, 2, 5);
@@ -492,9 +503,7 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("mtune",         "",  "mtune",        "tune for CPU",                                    "");
 
     // optimization
-    cmd->define::<FlagKind::I32>("opt",           "O", "",             "optimization level",                              0, 0, 3);
-    cmd->define::<FlagKind::Bool>("opt-size",      "",  "Os",           "optimise for size",                               false);
-    cmd->define::<FlagKind::Bool>("opt-size-z",    "",  "Oz",           "aggressively optimise for size",                  false);
+    cmd->define(FlagDef::str_c("opt", "O", "", "optimization level", "0", _opt_level_choices(), "1"));
     cmd->define::<FlagKind::Bool>("debug",         "g", "",             "emit debug symbols",                              false);
     cmd->define::<FlagKind::Bool>("no-debug",      "",  "g0",           "strip debug symbols",                             false);
 
@@ -621,21 +630,21 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    //  I32 WITH BOUNDS  (-O2, -O3, bounds violation)
+    //  CHOICE  (-O2, -O3, -Os, bare -O, last wins, rejected values)
 
     suite.equal::<string>("-O2 joined value", "pass", fn () -> string {
         var r = cmd.parse_string("-O2 main.k");
-        if r.get_i32("opt") != 2 { return f"expected 2, got {r.get_i32("opt")}"; }
+        if r.get_string("opt") != "2" { return f"expected 2, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("-O3 joined value", "pass", fn () -> string {
         var r = cmd.parse_string("-O3 main.k");
-        if r.get_i32("opt") != 3 { return f"expected 3, got {r.get_i32("opt")}"; }
+        if r.get_string("opt") != "3" { return f"expected 3, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("-O9 out-of-bounds -> error + ok=false", "pass", fn () -> string {
+    suite.equal::<string>("-O9 not a choice -> error + ok=false", "pass", fn () -> string {
         var pair = fresh();
         var d = libcxx::get::<0>(pair);
         var c = libcxx::get::<1>(pair);
@@ -645,9 +654,32 @@ fn Test() -> i32 {
         std::destroy(d); return "pass";
     }, 1000);
 
+    suite.equal::<string>("bare -O is -O1 and keeps the next argument", "pass", fn () -> string {
+        var r = cmd.parse_string("-O main.k");
+        if r.get_string("opt") != "1" { return f"expected 1, got {r.get_string("opt")}"; }
+        if r.files.size() != 1        { return "main.k was swallowed as the value"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("-O2 -Os: last wins", "pass", fn () -> string {
+        var r = cmd.parse_string("-O2 -Os main.k");
+        if r.get_string("opt") != "s" { return f"expected s, got {r.get_string("opt")}"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("-Ofast -> error", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        var r = c.parse_string("-Ofast main.k");
+        if !d->has_errors() { std::destroy(d); return "expected error for -Ofast"; }
+        if r.ok            { std::destroy(d); return "expected ok=false"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
     suite.equal::<string>("--opt=2 long-form", "pass", fn () -> string {
         var r = cmd.parse_string("--opt=2 main.k");
-        if r.get_i32("opt") != 2 { return f"expected 2, got {r.get_i32("opt")}"; }
+        if r.get_string("opt") != "2" { return f"expected 2, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
 
@@ -721,7 +753,7 @@ fn Test() -> i32 {
         var r = cmd.parse_string("main.k ---g -O2 util.k");
         if r.files.size() != 2      { return f"files: {r.files.size()}"; }
         if !r.get_bool("debug")     { return "debug"; }
-        if r.get_i32("opt") != 2    { return "opt"; }
+        if r.get_string("opt") != "2"    { return "opt"; }
         return "pass";
     }, 1000);
 
@@ -752,7 +784,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("release build", "pass", fn () -> string {
         var r = cmd.parse_string("-O3 -Wall -Wextra --output=./app --profile=release main.k util.k");
-        if r.get_i32("opt") != 3             { return "opt"; }
+        if r.get_string("opt") != "3"             { return "opt"; }
         if !r.get_bool("wall")               { return "wall"; }
         if !r.get_bool("wextra")             { return "wextra"; }
         if r.get_string("output") != "./app" { return "output"; }
@@ -764,7 +796,7 @@ fn Test() -> i32 {
         var r = cmd.parse_string("--target=aarch64-linux-gnu --march=armv8-a -O2 -g main.k");
         if r.get_string("target") != "aarch64-linux-gnu" { return "target"; }
         if r.get_string("march")  != "armv8-a"           { return "march"; }
-        if r.get_i32("opt") != 2                          { return "opt"; }
+        if r.get_string("opt") != "2"                          { return "opt"; }
         if !r.get_bool("debug")                           { return "debug"; }
         return "pass";
     }, 1000);
