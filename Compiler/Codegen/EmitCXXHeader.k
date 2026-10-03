@@ -21,6 +21,8 @@ import Codegen::CodegenContext::*;
 import Codegen::EmitPlan::*;
 import Codegen::TextSink::*;
 import Codegen::Emit::InterfaceEmitter::*;
+import Codegen::Emit::EmitIR::*;
+import Interop::Clang::HeaderSet::*;
 import Codegen::Emit::CXXSpell::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
@@ -59,8 +61,37 @@ class EmitCXXHeader {
         var plan = EmitPlan(&cg, PlanMode::Header);
         plan.run();
         cg.advance_phase(CodegenPhase::Planned);
-        InterfaceEmitter(&cg, &plan).run();
+        var ie = InterfaceEmitter(&cg, &plan);
+        ie.set_ffi_lines(self._ffi_lines(tu));
+        ie.run();
+        // The module's inline and template bodies, after every class
+        // definition: C++ consumers need them for the reason Kairo importers
+        // do -- they are part of the interface. Out of line, so the class
+        // definitions stay byte-identical to every TU's (invariant 11).
+        EmitIR(&cg).emit_visible(&plan);
         return ts.out;
+    }
+
+    /// `#include "h"` per ffi header the module imports, as spelled, in
+    /// source order; an `ffi "c"` one inside extern "C" as the module's own
+    /// TU parsed it. Quoted, so a consumer finds them through the same -I
+    /// roots the Kairo build used.
+    priv fn _ffi_lines(self, tu: *TranslationUnit) -> vec::<string> {
+        var out = vec::<string>();
+        if tu->header_set == &null { return out; }
+        var hs = reinterpret_cast::<*HeaderSet>(tu->header_set);
+        for var i: usize = 0; i < hs->headers.size(); ++i {
+            var c = (i < hs->c_linkage.size()) && hs->c_linkage[i];
+            // Two literals where a hex digit follows: Stage 0 copies escapes
+            // into C++ verbatim, where \x is greedy.
+            var line = "#include \x22";
+            line += hs->headers[i];
+            line += "\x22";
+            if c { out.push_back("extern \x22" + "C\x22 {"); }
+            out.push_back(line);
+            if c { out.push_back("}"); }
+        }
+        return out;
     }
 
     /// The path under \p dir this TU's header lands at.

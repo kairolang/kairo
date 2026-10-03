@@ -98,8 +98,8 @@ class EmitIR {
     // Entry
     // ----------------------------------------------------------------- //
 
-    /// Every body this TU defines: its own decls in source order, then the
-    /// member bodies of foreign templates whose instances are homed here.
+    /// Every body this TU defines: its own decls in source order, then every
+    /// foreign template and `inline` body visible here.
     fn emit_tu(self, plan: *EmitPlan) {
         var tu = self._cg->tu;
         ICE_IF(tu == &null, "EmitIR: no TU");
@@ -112,12 +112,17 @@ class EmitIR {
             }
         }
 
-        // Every FOREIGN template definition visible here (EmitPlan::
-        // visible_bodies): a template's definition must be visible in every
-        // TU that can instantiate it, and clang instantiates some Kairo
-        // never names. The list is the plan's, the same one it walked for
-        // this preamble's dependencies, so nothing emitted here goes
-        // unplanned, and each body comes once.
+        self.emit_visible(plan);
+    }
+
+    /// Every template and inline definition visible here (EmitPlan::
+    /// visible_bodies): FOREIGN ones in a preamble, the module's own in a
+    /// header. A template's definition must be visible in every TU that can
+    /// instantiate it, and clang instantiates some Kairo never names; an
+    /// inline body is part of the interface by declaration. The list is the
+    /// plan's, the same one it walked for dependencies, so nothing emitted
+    /// here goes unplanned, and each body comes once.
+    fn emit_visible(self, plan: *EmitPlan) {
         var vis = plan->visible_bodies();
         for var i: usize = 0; i < vis.size(); ++i { self._visible_body(vis[i]); }
     }
@@ -191,7 +196,7 @@ class EmitIR {
         return create_empty_frozen_list::<*FunctionDecl>();
     }
 
-    /// One foreign template body, in its owner's wrapper. The tokens live in
+    /// One foreign template or inline body, in its owner's wrapper. The tokens live in
     /// the template's file; the sink maps every registered fid. A member
     /// goes out of line on its record (\p f is already the defining link);
     /// an extension member still needs its extension (the receiver
@@ -247,6 +252,10 @@ class EmitIR {
 
         // One merged list: the extension's parameters, then the member's.
         var head = self._spell.template_head(static_cast::<*Decl>(n));
+        // `inline` puts the body in the interface (EmitPlan::visible_bodies):
+        // every TU that declares it defines it, its own TU included, with the
+        // same text, and the linker keeps one.
+        if n->is_inline() && (!is_main) { head += "inline "; }
         head += (("int") if (is_main) else (self._ret(n)));
         head += " ";
         if ext != &null { head += self._spell.ext_scope_name(ext) + "::"; }
@@ -271,6 +280,9 @@ class EmitIR {
 
         var head = self._owner_template_head(owner);
         head += self._spell.template_head(static_cast::<*Decl>(m));
+        // Out of line, so the class definition stays the same bytes in every
+        // TU (invariant 11); see _free_fn.
+        if m->is_inline() { head += "inline "; }
         var is_ctor = (self._spell.leaf(m) == self._spell.leaf(owner));
         var nm = self._spell.leaf(m);
         // `op as` spells `operator T`; C++ gives a conversion no return type.
@@ -500,7 +512,7 @@ class EmitIR {
         if (n->type_ != &null) && (n->type_->canonical != &null) { c = canon_unqual(n->type_->canonical); }
         if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
             // `T name[N]`: the name sits inside the declarator.
-            var nm = self._cg->ctx->get_imm_table()->get_ident(n->name.imm);
+            var nm = self._spell.imm_name(n->name.imm, self._owning_fid());
             sink->spell(n->name.range, self._spell.decl(n->type_, nm));
         } else {
             if n->type_ == &null {
@@ -1053,17 +1065,29 @@ class EmitIR {
     /// indexes the table of the file that owns the body being emitted, which
     /// for a foreign template homed here is not this TU's.
     priv fn _name(self, t: Token) {
-        var fid = self._cg->tu->fid;
-        if self._cur_fn != &null { fid = CXXSpell::fid_of(static_cast::<*Decl>(self._cur_fn)); }
-        var spelled = self._spell.imm_name(t.imm, fid);
+        var spelled = self._spell.imm_name(t.imm, self._owning_fid());
         ICE_IF(spelled == "<?>", "EmitIR: identifier token with no spelling in its owning file's table");
         sink->create_ident(t.range, spelled);
     }
 
+    /// The file whose tables the body being emitted indexes: its function's,
+    /// which for a foreign template or inline body is not this TU's.
+    priv fn _owning_fid(self) -> u32 {
+        if self._cur_fn != &null { return CXXSpell::fid_of(static_cast::<*Decl>(self._cur_fn)); }
+        return self._cg->tu->fid;
+    }
+
     /// Same rule for a numeric constant: a minted IntData carries no source
     /// body, so it is spelled from its value instead of borrowed.
+    ///
+    /// The table is the owning file's too. Reading this TU's instead found
+    /// some other IntData (or none) for a foreign inline body's minted
+    /// constant, and the fallback below then borrowed whatever bytes the
+    /// token's range covered -- `"true"` spelled as a numeric constant.
     priv fn _int_lit(self, t: Token) {
-        var d = self._cg->ctx->get_imm_table()->get::<Immediate::IntData>(t.imm);
+        var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
+        ICE_IF(tbl == &null, "EmitIR: no immediate table for the file that owns this body");
+        var d = tbl->get::<Immediate::IntData>(t.imm);
         if (d != &null) && (!d->body.is_valid()) {
             var cxx = std::string_to_nstring(f"{d->value_lo}");
             sink->create_int(t.range, cxx);

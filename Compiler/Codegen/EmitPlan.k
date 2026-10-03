@@ -177,6 +177,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn run(self);
     fn is_empty(self) -> bool;
     fn visible_bodies(self) -> vec::<*FunctionDecl>;
+    fn _walk_visible(self);
     fn _visible_record_bodies(self, d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>);
     fn _push_body(self, f: *FunctionDecl, out: *vec::<*FunctionDecl>);
     fn _walk_body(self, f: *FunctionDecl);
@@ -315,6 +316,7 @@ fn EmitPlan::run() {
 
     self._collect_own(static_cast::<*DeclContext>(tu));
     if self._mode == PlanMode::Preamble { self._collect_uses(); }
+    self._walk_visible();
     self._close();
     self._order();
 
@@ -653,13 +655,19 @@ fn EmitPlan::_collect_uses() {
             default { }
         }
     }
+}
 
-    // Every template body visible here is this TU's body too: EmitIR emits
-    // each one into this TU (emit_tu), so what it names has to be in this
-    // preamble -- `alignof(YieldPromise<T>)`, `p->cur`, `return Suspend {}`
+/// Walk visible_bodies() at body strengths, both modes: a preamble's foreign
+/// template and inline bodies, a header's own.
+fn EmitPlan::_walk_visible() {
+    // Every template and inline body visible here is this TU's body too:
+    // EmitIR emits each one into this TU (emit_tu), so what it names has to
+    // be in this preamble -- `alignof(YieldPromise<T>)`, `p->cur`, `return Suspend {}`
     // -- at the body strengths, exactly as this TU's own bodies are walked.
     // To a fixed point: a walked body can make another type Complete, and
-    // that type's template bodies become visible in turn.
+    // that type's template bodies become visible in turn. In a header the
+    // same walk is what declares the priv helpers and types an own inline
+    // body names: _collect_own left them out, _admit does not.
     var walked = vec::<*FunctionDecl>();
     var progressed = true;
     while progressed {
@@ -677,10 +685,15 @@ fn EmitPlan::_collect_uses() {
 }
 
 /// THE list of foreign bodies this TU emits, beside its own (which EmitIR
-/// walks off the program): every template definition visible here, once
-/// each, as the defining link. EmitIR::emit_tu emits exactly this list and
-/// _collect_uses walks exactly this list, so what is planned and what is
-/// emitted cannot drift. Preamble mode only; empty otherwise.
+/// walks off the program): every template and `inline` definition visible
+/// here, once each, as the defining link. EmitIR emits exactly this list and
+/// _walk_visible walks exactly this list, so what is planned and what is
+/// emitted cannot drift.
+///
+/// In Header mode the same rule picks the OWN bodies instead: a header is
+/// the interface for C++ consumers and for nothing else, so it carries
+/// exactly what an importing Kairo TU would emit from this module (the
+/// foreign ones arrive through the headers it includes).
 ///
 /// The rule is C++'s template model: a template's definition must be
 /// visible in every TU that can instantiate it, and Kairo cannot list every
@@ -694,6 +707,21 @@ fn EmitPlan::_collect_uses() {
 ///   - every free function template the plan declares;
 ///   - every generic extension member (its own or its extension's params).
 ///
+/// And `inline` bodies, by the same rule for a different reason: `inline`
+/// puts a body in the interface, so importers compile it themselves.
+///
+///   - every `inline` member of every record held Complete -- ALL of them,
+///     never pruned by Kairo-visible references, because Kairo never sees
+///     clang's own calls (`await_ready`, `initial_suspend`, ...);
+///   - every `inline` free function or extension member the plan declares,
+///     at any strength.
+///
+/// Read off _set rather than this TU's roots, so it is transitive: a
+/// `priv inline` helper that an inline body calls is admitted by the walk
+/// below and its body joins the list on the next pass. That one matters --
+/// clang emits an inline definition only in objects that use it, so the
+/// helper's own object may well not hold it.
+///
 /// Cheap because of `extern template`: a registry instance is still
 /// compiled once, in its home TU (InterfaceEmitter's tier 3 declares it
 /// `extern` everywhere else, which stops implicit instantiation of its
@@ -703,18 +731,20 @@ fn EmitPlan::_collect_uses() {
 /// every known instance in every TU that uses it.
 fn EmitPlan::visible_bodies() -> vec::<*FunctionDecl> {
     var out = vec::<*FunctionDecl>();
-    if self._mode != PlanMode::Preamble { return out; }
+    // Preamble: foreign only (own bodies are emitted off the program).
+    // Header: own only.
+    var want_own = (self._mode == PlanMode::Header);
 
     for var i: usize = 0; i < self._set.size(); ++i {
         var d = self._set[i];
-        if CXXSpell::fid_of(d) == self._home { continue; }     // own bodies: emitted off the program.
+        if (CXXSpell::fid_of(d) == self._home) != want_own { continue; }
         if self._is_type_decl(d) {
             if self._need[i] != PlanNeed::Complete { continue; }
             self._visible_record_bodies(d, false, &out);
             continue;
         }
         if d->kind != DeclKind::FunctionDecl { continue; }
-        if CXXSpell::template_params(d).size() == 0 { continue; }
+        if (CXXSpell::template_params(d).size() == 0) && (!cast::<FunctionDecl>(d)->is_inline()) { continue; }
         self._push_body(cast::<FunctionDecl>(d), &out);
     }
 
@@ -724,17 +754,18 @@ fn EmitPlan::visible_bodies() -> vec::<*FunctionDecl> {
         var sc = &(self._scopes[i]);
         for var k: usize = 0; k < sc->members.size(); ++k {
             var m = sc->members[k];
-            if (m == &null) || (CXXSpell::fid_of(static_cast::<*Decl>(m)) == self._home) { continue; }
-            if CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0 { continue; }
+            if m == &null { continue; }
+            if (CXXSpell::fid_of(static_cast::<*Decl>(m)) == self._home) != want_own { continue; }
+            if (CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0) && (!m->is_inline()) { continue; }
             self._push_body(m, &out);
         }
     }
     return out;
 }
 
-/// \p d's member bodies that are templates: all of them under a class
-/// template (\p in_template), only its member templates otherwise. Nested
-/// records recurse, as EmitIR::_record_bodies does.
+/// \p d's member bodies that are part of its interface: all of them under a
+/// class template (\p in_template), only its member templates and `inline`
+/// members otherwise. Nested records recurse, as EmitIR::_record_bodies does.
 fn EmitPlan::_visible_record_bodies(d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>) {
     var templ = in_template || (decl_generic_params(d).size() > 0);
     var methods: *FrozenList::<*FunctionDecl> = &null;
@@ -745,7 +776,8 @@ fn EmitPlan::_visible_record_bodies(d: *Decl, in_template: bool, out: *vec::<*Fu
         for var i: usize = 0; i < methods->size(); ++i {
             var m = (*methods)[i];
             if m == &null { continue; }
-            if (!templ) && (m->generic_params.size() == 0) { continue; }   // non-template: linked from its own TU.
+            // Neither template nor inline: linked from its own TU.
+            if (!templ) && (m->generic_params.size() == 0) && (!m->is_inline()) { continue; }
             self._push_body(m, out);
         }
     }

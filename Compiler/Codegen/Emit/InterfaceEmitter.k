@@ -58,6 +58,9 @@ class InterfaceEmitter {
     priv var _cg:    obs::<CodegenContext>;
     priv var _plan:  obs::<EmitPlan>;
     priv var _spell: obs::<CXXSpell>;
+    /// Header mode: the module's own ffi includes, as directive lines, from
+    /// EmitCXXHeader (which may see the HeaderSet; this file may not).
+    priv var _ffi_lines: vec::<string>;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -65,25 +68,31 @@ class InterfaceEmitter {
         self._spell = plan->spell();
     }
 
+    fn set_ffi_lines(self, lines: vec::<string>) { self._ffi_lines = lines; }
+
     // --- Entry point -------------------------------------------------------------
 
     fn run(self) {
         var header = (self._plan->mode() == PlanMode::Header);
-        if header {
-            self._header_prologue();
-        } else {
-            // The array-prvalue alias, once per TU, ahead of every body that
-            // can name it. A header carries no bodies and needs none.
-            sink->spell(self._tu_at(),
-                "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
-            sink->brk();
-            // The materialized-temporary helper: the one place it is spelled.
-            // A forwarding reference binds the prvalue, so the address is the
-            // temporary's, which lives to the end of the full-expression.
-            sink->spell(self._tu_at(),
-                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
-            sink->brk();
-        }
+        if header { self._header_prologue(); }
+        // A header carries the module's inline and template bodies too
+        // (EmitPlan::visible_bodies), so it needs these as much as a
+        // preamble. Guarded there: one C++ TU may include several Kairo
+        // headers, and __kairo_tmp is a DEFINITION.
+        if header { sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
+        if header { sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
+        // The array-prvalue alias, once per TU, ahead of every body that
+        // can name it.
+        sink->spell(self._tu_at(),
+            "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
+        sink->brk();
+        // The materialized-temporary helper: the one place it is spelled.
+        // A forwarding reference binds the prvalue, so the address is the
+        // temporary's, which lives to the end of the full-expression.
+        sink->spell(self._tu_at(),
+            "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
+        sink->brk();
+        if header { sink->directive(self._tu_at(), "#endif"); }
 
         var i: usize = 0;
         var n = self._plan->entries.size();
@@ -162,16 +171,21 @@ class InterfaceEmitter {
     // --- Header prologue -----------------------------------------------------------
 
     /// `#pragma once`, then one `#include` per foreign module reached at
-    /// Complete. Kairo forbids import cycles, so the include graph is a DAG.
+    /// Complete, or whose FUNCTION is declared: only an inline or template
+    /// body names a foreign function, and tier 2 leaves a foreign one to its
+    /// own header. Kairo forbids import cycles, so the include graph is a DAG.
     priv fn _header_prologue(self) {
         var at = self._tu_at();
         sink->directive(at, "#pragma once");
+        // The module's ffi headers first: its declarations and its inline
+        // bodies name what they declare, exactly as the module's own TU did.
+        for var i: usize = 0; i < self._ffi_lines.size(); ++i { sink->directive(at, self._ffi_lines[i]); }
         var seen = vec::<string>();
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
             if e->own { continue; }
-            if e->need != PlanNeed::Complete { continue; }
             if e->tier == PlanTier::Instantiations { continue; }
+            if (e->need != PlanNeed::Complete) && (e->tier != PlanTier::Functions) { continue; }
             var p = self._spell->header_path(CXXSpell::tu_of(e->decl));
             var dup = false;
             for var j: usize = 0; j < seen.size(); ++j { if seen[j] == p { dup = true; break; } }

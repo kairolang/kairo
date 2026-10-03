@@ -319,6 +319,16 @@ method's defaults are its in-class declaration's. The default is cleared
 once diagnosed and the definition still links. Free-function
 redeclarations still accumulate defaults.
 
+`inline` is part of modifier agreement for Kairo-authored links (R039E),
+though C++ lets a later declaration add it: it decides where the body is
+emitted (CODEGEN.md §7), and an importer reads it off the in-class
+declaration while the home TU reads the definition. After both R(a) and
+R(b), R(c) reports every Kairo `inline` function whose chain has no
+definition (R001E, placeholder): it would be declared inline in C++ with a
+definition nowhere. Per TU, so the body has to be in the declaring file --
+which an importer needs anyway. `= default` / `= delete` / `= virtual`
+count as bodies.
+
 ### 2.7 ChainBinding [DONE]
 
 `Sema/Resolve/ChainBinding.k`, after RedeclMerge in the T stage. Walks

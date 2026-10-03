@@ -2393,8 +2393,10 @@ fn FrontendAction::_sema() -> bool {
     }
 
     // The interface text needs no clang either, so it is produced here and
-    // works under --type-check-only. Behind a full codegen run it would sit
-    // behind EmitIR, which ICEs on any body the M2 prototype cannot emit.
+    // works under --type-check-only. A header now carries the module's
+    // inline and template bodies (EmitCXXHeader), so --emit-headers runs
+    // EmitIR over them and ICEs on any such body EmitIR cannot emit yet, as a
+    // full codegen run would.
     // A sibling loop, not the plan loop: that one skips the entry TU before
     // its header dump, and the entry TU still has a preamble.
     if fe.print_cxx || (!fe.emit_headers.empty()) {
@@ -2417,7 +2419,9 @@ fn FrontendAction::_sema() -> bool {
                 std::print(ts.out);
             }
             // EmitCXXHeader skips the entry TU and writes nothing for it.
-            if !fe.emit_headers.empty() {
+            // Nor after an error: the bodies it emits need a lowered tree,
+            // and sema stops short of lowering once anything fails.
+            if (!fe.emit_headers.empty()) && (!self._ci->diag()->has_errors()) {
                 var h = EmitCXXHeader(ctx, self._ci->pp()->get_symbol_table(), self._global_scope->instances());
                 if h.write(fe.emit_headers) {
                     Logger::info(Logger::Stage::Driver, f"emitted header {h.path_under(fe.emit_headers)}");

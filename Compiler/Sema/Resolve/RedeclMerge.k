@@ -23,6 +23,9 @@
 ///            decl's chain. N(a) attached these to their home scope
 ///            (semantic_dc) and left the link undone for the same reason.
 ///
+///       R(c) inline bodies   -- once every chain is linked, an `inline`
+///            function with no definition on its chain is an error.
+///
 ///   \par What a SIGNATURE is
 ///     Arity, canonical parameter types in order, and generic-parameter
 ///     arity. Two decls agreeing on all of it are ONE ENTITY; anything else
@@ -206,6 +209,9 @@ class RedeclMerge {
 
         self._merge_in(static_cast::<*DeclContext>(tu));
         self._merge_out_of_line(tu);
+        // After both merges: an in-class declaration's body may be an
+        // out-of-line definition, and only the linked chain knows.
+        self._check_inline_defined_in(static_cast::<*DeclContext>(tu));
     }
 
     // === R(a): in-scope chains ============================================
@@ -823,9 +829,15 @@ class RedeclMerge {
     }
 
     /// Modifiers that change what the function MEANS must agree across a
-    /// chain. `inline` and `final` are excluded: neither changes the
-    /// contract, and C++ explicitly permits adding `inline` on a later
-    /// declaration.
+    /// chain. `final` is excluded: it does not change the contract.
+    ///
+    /// `inline` is in, though C++ permits adding it on a later declaration,
+    /// because in Kairo it decides where the body is EMITTED: an importer
+    /// reads it off the in-class declaration (the member list), the home TU
+    /// off the definition. Disagreeing, the importer skips the body while
+    /// the home object holds a definition only if it happened to use it --
+    /// an undefined reference, or not, by accident. Only Kairo links are
+    /// held to it; a C++ declaration's inline is clang's business.
     ///
     /// `const` is here rather than in _same_signature because Kairo does
     /// not permit const overloading -- see the header. Two links
@@ -844,6 +856,7 @@ class RedeclMerge {
         else if prev->is_eval()    != cur->is_eval()    { what = "eval";     }
         else if prev->is_panic()   != cur->is_panic()   { what = "panic";    }
         else if prev->is_noreturn  != cur->is_noreturn  { what = "noreturn"; }
+        else if (!self._cxx_owned(prev)) && (!self._cxx_owned(cur)) && (prev->is_inline() != cur->is_inline()) { what = "inline"; }
         if what.size() == 0 { return; }
 
         self.sc->diag->report(DiagID::R039E, cur->range.start,
@@ -927,6 +940,76 @@ class RedeclMerge {
         // link (which retarget_canonical leaves as-is via first_decl).
         var def = prev->definition();
         prev->retarget_canonical((def) if (def != &null) else (prev->first_decl()));
+    }
+
+    // === inline needs a body ==============================================
+
+    /// `inline` puts the body in the interface: every TU that declares the
+    /// function defines it. One with no definition on its chain is declared
+    /// `inline` in C++ with a definition nowhere, so every call is an
+    /// undefined reference. Run per TU after the merges, so the definition
+    /// has to be in the declaring file -- which it must anyway: an importer
+    /// of that file is exactly who compiles the body, and it never sees a
+    /// definition written in some other file that imports the class.
+    ///
+    /// `= default` / `= delete` / `= virtual` are definitions as far as C++
+    /// is concerned (or need none), so only a missing body is reported.
+    priv fn _check_inline_defined_in(self, dc: *DeclContext) {
+        if dc == &null { return; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            self._check_inline_defined(*(dc->dc_decls.get(i)));
+        }
+    }
+
+    priv fn _check_inline_defined(self, d: *Decl) {
+        if (d == &null) || d->is_poisoned() { return; }
+        if isa::<VisibilityGroupDecl>(d) {
+            var g = cast::<VisibilityGroupDecl>(d);
+            for var i: usize = 0; i < g->members.count; ++i { self._check_inline_defined(g->members[i]); }
+            return;
+        }
+        if isa::<ModuleDecl>(d) {
+            self._check_inline_defined_in(static_cast::<*DeclContext>(cast::<ModuleDecl>(d)));
+            return;
+        }
+        if isa::<ExtensionDecl>(d) {
+            var x = cast::<ExtensionDecl>(d);
+            for var i: usize = 0; i < x->methods.size(); ++i { self._check_inline_fn(x->methods[i]); }
+            return;
+        }
+        if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) {
+            var methods: *FrozenList::<*FunctionDecl> = &null;
+            if isa::<ClassDecl>(d)       { methods = &(cast::<ClassDecl>(d)->methods);  }
+            else if isa::<StructDecl>(d) { methods = &(cast::<StructDecl>(d)->methods); }
+            else                         { methods = &(cast::<UnionDecl>(d)->methods);  }
+            for var i: usize = 0; i < methods->size(); ++i { self._check_inline_fn((*methods)[i]); }
+            // Nested records only: the methods were just checked off the list.
+            var inner = NameLookup::context_of(d);
+            if inner == &null { return; }
+            for var i: usize = 0; i < inner->dc_decls.size(); ++i {
+                var nd = *(inner->dc_decls.get(i));
+                if nd == &null { continue; }
+                if isa::<FunctionDecl>(nd) { continue; }
+                self._check_inline_defined(nd);
+            }
+            return;
+        }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f != &null { self._check_inline_fn(f); }
+    }
+
+    priv fn _check_inline_fn(self, f: *FunctionDecl) {
+        if (f == &null) || f->is_poisoned() { return; }
+        if (!f->is_inline()) || f->has_body() { return; }
+        if self._cxx_owned(f) { return; }          // the body is on clang's side.
+        // A poisoned definition still counts: it was diagnosed already (an
+        // inline mismatch poisons the out-of-line def), and this would be a
+        // second error for the same mistake.
+        if f->definition() != &null { return; }
+        var nm = self.sc->ctx->get_spelling(f->name);
+        self.sc->diag->report(DiagID::R001E, f->range.start,
+            f"'{nm}' is declared inline but has no body; inline puts the body in the interface, so it must be defined in this file"
+        ).first(f->range).emit();
     }
 
     // === helpers ==========================================================

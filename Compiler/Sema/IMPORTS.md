@@ -317,9 +317,15 @@ every body. One object per non-foreign TU.
     interface. C++ consumers see canonical names only.
 11. **Class granularity.** A class enters a TU's emitted interface whole
     (every member declared) or not at all. Never a subset.
-12. **Bodies are out-of-line, home TU only.** A class body contains no
-    function bodies anywhere, including in its home TU. This is what makes
-    the class definition byte-identical across TUs (C++ ODR).
+12. **Bodies are out-of-line.** A class body contains no function bodies
+    anywhere, including in its home TU. This is what makes the class
+    definition byte-identical across TUs (C++ ODR). A body is emitted in
+    its home TU only, EXCEPT the bodies that are part of the interface:
+    templates (CODEGEN.md §7) and `inline` functions, which every TU and
+    header that can see the declaration also emits, out of line, as C++
+    `inline`, with the same text. They are interface because an importer
+    has to compile them: clang instantiates templates Kairo never lists,
+    and `inline` is the author saying the importer should.
 13. **Clang never instantiates.** Every generic instantiation is
     enumerated by Kairo sema, checked by Kairo sema, and emitted explicitly.
     Emitted templates carry no `requires`.

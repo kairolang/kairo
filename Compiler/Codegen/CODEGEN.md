@@ -90,7 +90,10 @@ pointers, signature types Fwd. Refinements decided since:
   only -- definition ORDER still follows layout (bases, by-value fields).
 - A `sizeof` / `alignof` operand is Complete.
 - Every body this TU emits is walked at body strengths: its own, and every
-  foreign template body visible here (§7).
+  foreign template and `inline` body visible here (§7). Anything such a
+  body names is declared in the preamble, priv helpers included: a
+  library's priv function has external linkage, so the call links, and an
+  entry TU's internal ones are never reached (nothing imports an entry TU).
 - An extension member is a static member of its EXTENSION SCOPE
   (`ExtScope`: `struct N::__kairo_ext_X`, one per (namespace, target),
   RESOLUTION.md §2b); it never appears twice (a `FunctionDecl` whose
@@ -200,7 +203,7 @@ emitters use the same instance; a declaration and a body cannot disagree.
 
 ## 5. InterfaceEmitter
 
-Every Preamble — never a Header, which carries no bodies — opens with
+Every Preamble and every Header opens with
 
     template <class T, decltype(sizeof(0)) N> using __kairo_array = T[N];
     template <class T> auto* __kairo_tmp(T&& t) { return __builtin_addressof(t); }
@@ -209,7 +212,10 @@ Every Preamble — never a Header, which carries no bodies — opens with
 instantiated. `__kairo_tmp` is the address of a prvalue's materialized
 temporary, valid to the end of the full-expression: ExtensionLowering's
 `materialize` `&` on a prvalue receiver, which EmitIR spells as
-`::__kairo_tmp(e)`. The preamble is the one place it is spelled.
+`::__kairo_tmp(e)`. The preamble is the one place it is spelled. A header
+needs them for its bodies and wraps them in `#ifndef __KAIRO_LOWER_HELPERS`,
+because one C++ TU may include several Kairo headers and `__kairo_tmp` is a
+definition.
 
 Namespace wrapping: an entry-TU decl lives in `namespace <file stem>`, the
 stem sanitized to an identifier, with a trailing `_` when it is a C++
@@ -221,7 +227,8 @@ C++'s implicit using-directive — so `qual_name` knows nothing about any of
 it. Library roots still wrap by `module_base` (Piece 1 open).
 
 Walks plan entries by tier. Records: `class`/`struct` with access
-specifiers, fields, method DECLARATIONS (never bodies — invariant 12),
+specifiers, fields, method DECLARATIONS (never bodies in the class —
+invariant 12),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
 types. Enums: C-like only. Functions: free only. Extension scopes:
 `struct __kairo_ext_X {` and one `static` declaration per member (merged
@@ -232,11 +239,23 @@ then, per operator member C++ can spell, an inline forwarder
 ::N::__kairo_ext_X::__kairo_op_<m>(__kairo_a0, ...); }`, each operand
 forwarded as `static_cast<decltype(a)&&>(a)` and the postfix dummy as is.
 Tier 3: `extern template class X<A>;` /
-`template class X<A>;`. Header mode adds `#pragma once` and `#include`s of
-the Complete dependencies' headers.
+`template class X<A>;`. Header mode adds `#pragma once`, the module's own
+ffi headers (`#include "h"` as spelled, `ffi "c"` ones inside `extern "C"`),
+and `#include`s of the headers of its Complete dependencies and of every
+foreign function it declares (only an inline or template body names one).
+
+Headers carry BODIES too, revising "headers carry no bodies": after the
+declarations, EmitCXXHeader runs EmitIR over the plan's `visible_bodies()`,
+which in Header mode is the module's OWN inline and template bodies. C++
+consumers of a Kairo library need them for the reason Kairo importers do:
+those bodies are part of the interface. The header plan walks them at body
+strengths, so the priv helpers and types they name are declared there too.
+The class definitions stay byte-identical, because the bodies are emitted
+outside the class. `--emit-headers` therefore runs EmitIR, needs a lowered
+tree, and writes nothing after an error.
 
 V1 refusals (each an ICE naming its owner): ADT enums, unions, interfaces,
-field initializers, method bodies in headers. A pack is spelled as its
+field initializers. A pack is spelled as its
 `Slice<E>` (`ParamDecl::pack_type`).
 
 ## 6. EmitIR — the core
@@ -345,6 +364,26 @@ already depends on. Wherever its owner is held Complete, a TU emits:
 - every member TEMPLATE of any class (`Suspend::await_suspend<H>`);
 - every free function template its plan declares;
 - every generic extension member.
+
+And, by the same mechanism, every `inline` body: `inline` puts the body
+in the interface, so importers compile it themselves.
+
+- every `inline` method of a non-template record, in every TU whose plan
+  holds the owner at Complete -- all of them, never pruned by Kairo-visible
+  references, because Kairo never sees clang's own calls (`await_ready`,
+  `initial_suspend`, ...). clang generates nothing for an unused inline
+  definition, so the cost is parse time, and only for what people marked;
+- every `inline` free function and extension member, in every TU whose
+  plan declares it, at any strength.
+
+The list is read off the plan's working set, not its roots, so it is
+transitive: a `priv inline` helper an inline body calls is admitted by the
+walk and its body joins on the next pass. That matters because clang emits
+an inline definition only in an object that uses it -- the helper's home
+object may not hold one. Each body is emitted as C++ `inline`, its own TU's
+copy included, so the definition is the same text everywhere and the linker
+keeps one. Template members and member templates were already visible;
+marking them `inline` only says so.
 
 Each in its owner's namespace wrapper, once per TU. `EmitPlan::
 visible_bodies()` is the one list: EmitIR emits exactly it and the plan
