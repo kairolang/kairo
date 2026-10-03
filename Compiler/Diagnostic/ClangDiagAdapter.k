@@ -258,39 +258,62 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
             }
         }
 
+        // A clang fix-it is an edit to the EMITTED C++, and most emitted
+        // tokens have no Kairo token of their own: `const`, `&`, a cast, a
+        // qualifier all carry the location of whatever Kairo token they were
+        // generated from. Applied to the Kairo source such an edit is
+        // nonsense -- `const &` inserted into the middle of `other`. So a
+        // hint survives only where the C++ edit IS a Kairo edit: it removes
+        // or replaces exactly one token that the emitted C++ spells the same
+        // as the Kairo source does. Never an insertion: an insertion point
+        // between emitted tokens names no Kairo position. All-or-nothing
+        // over the diagnostic's hints, because clang's multi-hint fixes are
+        // one edit and half of one is worse than none. The message stays.
         var nf = info.getNumFixItHints();
-
+        if nf == 0 { return; }
         for var i: u32 = 0; i < nf; ++i {
-            var h = info.getFixItHint(i);
-            if h.InsertFromRange.isValid() { return; }
-            if !self._range_in_kfid(h.RemoveRange, info).is_valid() { return; }
+            if !self._kairo_fixit(info.getFixItHint(i), info) { return; }
         }
 
         for var i: u32 = 0; i < nf; ++i {
-            var h = info.getFixItHint(i);
-
-            // insert-from-range hints reference OTHER source; not expressible
-            // in the Kairo fix-it model. Skip.
-            if h.InsertFromRange.isValid() {
-                continue;
-            }
-
+            var h    = info.getFixItHint(i);
             var rr   = self._range_in_kfid(h.RemoveRange, info);
             var text = std::nstring_to_string(h.CodeToInsert);
-            if rr.is_valid() {
-                var msg = "apply the change suggested by the backend";
-                // Map clang's (RemoveRange, CodeToInsert) onto the three Kairo
-                // fix-it shapes: empty remove-range => pure insertion (Add);
-                // empty insertion text => pure deletion (Remove); both => Replace.
-                if rr.is_empty() {
-                    b->insert(rr.start, text, msg);
-                } else if text.length() == 0 {
-                    b->remove(rr, msg);
-                } else {
-                    b->fix(rr, text, msg);
-                }
+            var msg  = "apply the change suggested by the backend";
+            if text.length() == 0 {
+                b->remove(rr, msg);
+            } else {
+                b->fix(rr, text, msg);
             }
         }
+    }
+
+    /// \p h is a removal or a replacement of ONE token whose spelling in the
+    /// emitted C++ equals the Kairo text at the position it maps to. The C++
+    /// spelling is read at the SPELLING location: a token the emitter
+    /// synthesized is spelled in a scratch buffer and only EXPANDS into the
+    /// Kairo file, so its text there differs from the Kairo token it borrowed
+    /// a location from, and that difference is exactly what rejects it.
+    priv fn _kairo_fixit(self, h: cref::<clang::FixItHint>, info: cref::<clang::Diagnostic>) -> bool {
+        if h.InsertFromRange.isValid() { return false; }
+        if self._lo == &null { return false; }     // no LangOptions: no token measure, no proof.
+        var cr = h.RemoveRange;
+        if (!cr.isValid()) || (!cr.isTokenRange()) { return false; }
+        if cr.getBegin() != cr.getEnd() { return false; }   // a token range of exactly one token.
+
+        var rr = self._range_in_kfid(cr, info);
+        if (!rr.is_valid()) || rr.is_empty() { return false; }
+
+        var sm  = &(info.getSourceManager());
+        var sp  = sm->getSpellingLoc(cr.getBegin());
+        var len = clang::Lexer::MeasureTokenLength(sp, *sm, *self._lo);
+        if len == 0 { return false; }
+        var bad  = false;
+        var data = sm->getCharacterData(sp, &bad);
+        if bad || (data == &null) { return false; }
+
+        var cxx = string(data, static_cast::<usize>(len));
+        return cxx == self.ksm->get_text(rr);
     }
 
     priv fn _attach_child_note(self, kloc: SourceRange, msg: string) {
