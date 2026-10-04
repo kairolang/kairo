@@ -70,6 +70,9 @@ enum WellKnownType derives u8 {
     FmtBuf,     ///< f-string: the builder every f-string lowers onto.
     Byte,       ///< `byte`'s C++ spelling: `enum class Byte : unsigned char`.
 
+    RangeFrom,  ///< `a..` / `..` as a subscript index: RangeFrom<T>{ begin }.
+    RangeTo,    ///< `..b` / `..=b` as a subscript index: RangeTo<T>{ end, inclusive }.
+
     COUNT,      ///< keep last.
 }
 
@@ -99,6 +102,8 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::Pow        { return "pow"; }
         case WellKnownType::FmtBuf     { return "FmtBuf";     }
         case WellKnownType::Byte       { return "Byte";       }
+        case WellKnownType::RangeFrom  { return "RangeFrom";  }
+        case WellKnownType::RangeTo    { return "RangeTo";    }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";

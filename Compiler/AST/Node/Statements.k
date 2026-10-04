@@ -643,19 +643,40 @@ class LoopStmt derives Stmt {
 }
 
 ///
+///  How IterLowering walks an iterable. Written by X (StmtTyping) when it
+///  types the loop; IterLowering renders the shape and decides nothing.
+///
+enum IterKind derives u8 {
+    None = 0,     ///< untyped, poisoned, or dependent: not lowered.
+    RangeLit,     ///< `a..b` / `a..=b` written as the iterable.
+    RangeValue,   ///< a Range-typed value (`var r = 0..3; for i in r`).
+    Array,        ///< `[T; N]`.
+    Slice,        ///< `[T;]`.
+    Vector,       ///< `[T]`.
+    Set,          ///< `{T}`.
+    Map,          ///< `{K: V}`.
+    String,       ///< `string`, by `char`.
+    User,         ///< a record's `fn op in (self) -> yield T`.
+}
+
+///
 ///  RangedForStmt
 ///  Grammar:  'eval'? 'for' binding_spec 'in' expr block
 ///    binding_spec := ('var'|'const')? (binding | '(' binding (',' binding)* ')')
 ///
 ///  `bindings` holds the loop bindings (1 for `for var x in`, N for a tuple
 ///  destructure `for var (k, const v) in`). `is_eval` marks the compile-time
-///  unroll form. `iterable` must implement `fn op in (self) -> yield T`.
+///  unroll form. `iterable` is a range, a container, or a record with
+///  `fn op in (self) -> yield T`; X records which in `iter_kind`.
 ///
 class RangedForStmt derives Stmt {
     pub var bindings: FrozenList::<Binding>;
     pub var iterable: *Expr;
     pub var body:     *CompoundStmt;
     pub var is_eval:  bool;
+    pub var iter_kind: IterKind = IterKind::None;
+    pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`.
+    pub var iter_elem: *Type    = &null;   ///< the element type, canonical and unqualified.
 
     static fn create(
         ctx:      *ASTContext,
@@ -671,6 +692,9 @@ class RangedForStmt derives Stmt {
         node->iterable = iterable;
         node->body     = body;
         node->is_eval  = is_eval;
+        node->iter_kind = IterKind::None;
+        node->iter_op   = &null;
+        node->iter_elem = &null;
         return node;
     }
 
@@ -680,6 +704,9 @@ class RangedForStmt derives Stmt {
         node->recovery_kind = StmtKind::RangedForStmt;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
+        node->iter_kind     = IterKind::None;
+        node->iter_op       = &null;
+        node->iter_elem     = &null;
         return node;
     }
 

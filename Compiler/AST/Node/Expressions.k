@@ -1065,6 +1065,7 @@ class RangeExpr derives Expr {
     pub var begin:        *Expr; ///< null for `..y` or `..`
     pub var end:          *Expr; ///< null for `x..` or `..`
     pub var is_inclusive: bool;  ///< true for `..=`
+    pub var as_index: bool = false;   ///< the index of a subscript (`a[i..j]`); written by X (MemberTyping).
 
     static fn create(
         ctx:          *ASTContext,
@@ -1079,6 +1080,7 @@ class RangeExpr derives Expr {
         node->begin       = begin;
         node->end         = end;
         node->is_inclusive = is_inclusive;
+        node->as_index    = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1088,6 +1090,7 @@ class RangeExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::RangeExpr;
         node->range         = range;
+        node->as_index      = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
