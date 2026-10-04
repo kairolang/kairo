@@ -81,7 +81,7 @@ Extended functions can be `pub`, `prot`, or `priv` without warning.
 
 ---
 
-## `const` and `mutable` Members
+## Const and `mutable` Members
 
 `const` members must be initialized at the declaration site or in the aggregate initializer. Unlike class
 `const` members, there is no constructor body to provide a one-shot assignment:
@@ -128,7 +128,7 @@ a.x   // still 1.0
 
 This is a hard guarantee. Extending a destructor (`fn op delete`), copy assignment (`fn op =`), or
 move assignment onto a struct is a compile error. If you need custom lifecycle management, use a
-[class](/docs/language/classes#the-rule-of-five).
+[class](/docs/language/classes#the-rule-of-three).
 
 ---
 
@@ -144,7 +144,7 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    fn length(self) const -> f64 {
+    fn length(const self) -> f64 {
         return std::sqrt(self.x * self.x + self.y * self.y)
     }
 
@@ -152,7 +152,7 @@ extend Vec2 {
         return Vec2 { x: self.x + other.x, y: self.y + other.y }
     }
 
-    fn op ==(self, other: Vec2) const -> bool {
+    fn op ==(const  self, other: Vec2) -> bool {
         return self.x == other.x && self.y == other.y
     }
 }
@@ -225,7 +225,7 @@ struct <T impl Comparable> Range {
 }
 ```
 
-See [Bounds](/docs/language/bounds) for the full constraint system.
+See [Requires Clauses](/docs/language/requires) for the full constraint system.
 
 ---
 
@@ -318,14 +318,14 @@ struct Aligned {
 ```
 
 Structs are always value types. A plain `var` declaration allocates on the stack. Heap allocation uses
-`std::create<T>()`:
+`@create T()`:
 
 ```kairo
 var local = Point { x: 1.0, y: 2.0 }           // stack
-var *heap = std::create<Point>(Point { x: 1.0, y: 2.0 })  // heap
+var *heap = @create Point{ x: 1.0, y: 2.0 }    // heap
 ```
 
-See [Pointers](/docs/language/pointers) and [AMT](/docs/language/amt) for allocation and pointer semantics.
+See [Pointers](/docs/language/pointers) and [Tether](/docs/language/tether) for allocation and pointer semantics.
 
 ---
 
@@ -357,7 +357,7 @@ struct Node {
 | Methods in body | No (use [extends](/docs/language/extends)) | Yes |
 | Constructors | No (aggregate init only) | Yes |
 | Destructors | No | Yes |
-| Copy semantics | `memcpy` (trivial) | Rule of five |
+| Copy semantics | `memcpy` (trivial) | Rule of Three |
 | Inheritance | No | `derives` |
 | Virtual dispatch | No | Yes |
 | Aggregate initialization | Yes | No |
@@ -386,7 +386,7 @@ struct <T> Pair {
 
 // Extend with methods and operators
 extend Point {
-    fn length(self) const -> f64 {
+    fn length(const self) -> f64 {
         return std::sqrt(self.x * self.x + self.y * self.y)
     }
 

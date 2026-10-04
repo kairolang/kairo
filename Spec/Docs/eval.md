@@ -106,7 +106,7 @@ Eval bodies must be deterministic and free of side effects. The following are no
 
 | Not allowed | Reason |
 |---|---|
-| Heap allocation (`std::create`, `[T]` growth) | No runtime allocator at compile time |
+| Heap allocation (`@create`, `[T]` growth) | No runtime allocator at compile time |
 | IO operations (file, network, console) | Side effects |
 | Pointer operations (`*T`, `unsafe *T`) | No addressable memory at compile time |
 | `async` / `await` / `spawn` | No runtime scheduler at compile time |
@@ -151,7 +151,7 @@ eval if platform == "linux" {
 
 ```kairo
 fn <T> process(x: T) -> T {
-    eval if sizeof(T) <= 8 {
+    eval if sizeof T <= 8 {
         return fast_path(x)
     } else {
         return slow_path(x)
@@ -190,23 +190,22 @@ of control flow.
 evaluable:
 
 ```kairo
-eval fn build_lookup_table() -> [i32; 16] {
-    var table: [i32; 16]
+eval fn fill_squares(@inout table: [i32; 16]) {
     eval for i in 0..16 {
         table[i] = i * i
     }
-    return table
 }
 
-eval SQUARES = build_lookup_table()
+var squares: [i32; 16]
+fill_squares(&squares)
 ```
 
 If the loop body or bounds depend on runtime values, the compiler emits an error.
 
+An `eval for` in a `eval` function is not allowed.
+
 > [!NOTE]
-> `eval for` fully computes the loop at compile time and embeds the result. For large iteration
-> counts, this increases binary size (the unrolled result is stored as data). Use regular `for`
-> loops for runtime iteration.
+> `eval for` fully computes the loop at compile time and embeds the result. Or if the loop is too large, the compiler will try to unroll the loop without evaluation, and emit a optimization remark. If and only if neither is possible, the compiler will emit an error.
 
 ---
 
@@ -223,7 +222,9 @@ eval X = 42
 eval PI = 3.14159
 eval FLAG = true
 eval INITIAL = 'K'
-eval NAME = "Kairo"
+eval NAME = "Kairo" // one thing on strings specifically,
+    // if a string is used in an eval context, it must be
+    // a compile-time constant or it will cause a compile error
 ```
 
 ### Fixed-size arrays
@@ -245,7 +246,7 @@ eval ORIGIN = Point { x: 0.0, y: 0.0 }
 eval UNIT_X = Point { x: 1.0, y: 0.0 }
 ```
 
-### Enums (plain)
+### Enums (plain and ADT)
 
 ```kairo
 enum Mode { Debug, Release, Test }
@@ -254,8 +255,7 @@ eval BUILD_MODE = Mode::Release
 
 ### Types that are NOT eval-compatible
 
-Classes with constructors, types with destructors, heap-allocated types (`[T]`, `{K: V}`, `{T}`),
-and any type involving pointers cannot be used in `eval` context.
+Classes with constructors that are not marked `eval`, classes and function who leak allocations across the function boundary, can not be used in `eval` context.
 
 ---
 
@@ -276,27 +276,61 @@ that are fixed after initialization but may depend on runtime computation. Use `
 that must be known at compile time.
 
 ```kairo
-const config = load_config()          // runtime: reads a file
-eval MAX_CONNECTIONS = 1024           // compile time: baked into binary
+const config = load_config("config.toml") // runtime: reads a file
+eval MAX_CONNECTIONS = 1024               // compile time: baked into binary
 ```
 
 ---
 
-## Eval and Where Clauses
+## Eval and Requires Clauses
 
-`eval` expressions are valid in `where` clauses. When a `where` clause contains only `eval`-compatible
+`eval` expressions are valid in `requires` clauses. When a `requires` clause contains only `eval`-compatible
 expressions, it is checked at compile time:
 
 ```kairo
 fn <T> stack_alloc() -> T
-  where sizeof(T) <= 4096 {
+  requires sizeof T <= 4096 {
     // guaranteed at compile time: T fits on the stack
 }
 ```
 
-See [Where Clauses](/docs/language/bounds) for the full constraint system.
+> [!WARNING]
+> Using `eval` and `where` will cause a compile error. Only `requires` based bounding is allowed in a `eval` context.
+
+See [Requires Clauses](/docs/language/requires) for the full constraint system.
 
 ---
+
+## Eval in Classes
+
+Eval can be used within class definitions to create compile-time computed values, adding eval to class fields, methods, and constructors are valid.
+If the class contains a non-trivial destructor, it cannot be used in an `eval` context.
+Classes can mix eval functions with regular functions.
+
+```kairo
+class HashState {
+    eval seed: u64    = FNV_OFFSET_BASIS;
+    eval data: string = "";
+
+    eval fn HashState(self, input: string) {
+        self.data = input;
+    }
+
+    eval fn hash(self) -> u64 {
+        // Simple hash function
+        var hash = self.seed;
+        for c in self.data {
+            hash = (hash * 16777619) ^ c as u64;
+        }
+        return hash;
+    }
+}
+
+eval state = HashState("hello")
+eval hash  = state.hash()
+
+std::println(hash); // Prints the hash of "hello"
+```
 
 ## Summary
 

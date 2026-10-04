@@ -4,7 +4,7 @@ The `unsafe` keyword appears in three distinct contexts in Kairo, each serving a
 
 | Context | Meaning |
 |---|---|
-| `unsafe { ... }` | Block that suspends AMT tracking |
+| `unsafe { ... }` | Block that suspends Tether tracking |
 | `unsafe *T` | Raw pointer type with no compiler tracking |
 | `fn foo() unsafe -> T` | Separate function overload namespace |
 
@@ -15,23 +15,23 @@ raw, and a raw pointer does not require an `unsafe` block to use.
 
 ## Unsafe Blocks
 
-An `unsafe { ... }` block suspends [AMT](/docs/language/amt) for all operations within its scope.
+An `unsafe { ... }` block suspends [Tether](/docs/language/tether) for all operations within its scope.
 Inside an unsafe block:
 
-- AMT does not track pointer lifetimes or provenance
-- AMT does not insert automatic destructors or smart pointer promotions
-- `forget!()` is available to permanently drop pointers from AMT tracking
+- Tether does not track pointer lifetimes or provenance
+- Tether does not insert automatic destructors or smart pointer promotions
+- `forget!()` is available to permanently drop pointers from Tether tracking
 - `unsafe &x` can create raw pointers from safe bindings
 
 ```kairo
-var x = std::create<i32>(42)   // AMT-tracked safe pointer
+var x = @create i32(42)   // Tether-tracked safe pointer
 
 unsafe {
-    forget!(x)                  // drop x from AMT tracking
+    forget!(x)                  // drop x from Tether tracking
     c_function(x as unsafe *i32)  // pass to C++ which will free it
 }
 
-// x is no longer tracked AMT will not auto-free it
+// x is no longer tracked Tether will not auto-free it
 ```
 
 ### When unsafe blocks are required
@@ -42,7 +42,7 @@ An `unsafe` block is required when calling a C/C++ function that takes or return
 ffi "c++" import "native.hh";
 
 fn main() {
-    var data = std::create<i32>(100)
+    var data = @create i32(100)
 
     unsafe {
         forget!(data)
@@ -66,29 +66,29 @@ Calling C/C++ functions that use safe parameter types does not require an `unsaf
 | Raw pointers (`T*`, `void*`) | Yes |
 
 The FFI layer reads C++ declaration signatures and maps C++ smart pointers to Kairo's
-AMT-tracked equivalents automatically. `std::unique_ptr<T>` maps to `std::Unique<*T>`,
-`std::shared_ptr<T>` maps to `std::Shared<*T>`, `std::weak_ptr<T>` maps to `std::Weak<*T>`.
-A mismatch between AMT's promotion and the C++ function's expected smart pointer type is a
+Tether-tracked equivalents automatically. `std::unique_ptr<T>` maps to `std::Unique<T>`,
+`std::shared_ptr<T>` maps to `std::Shared<T>`, `std::weak_ptr<T>` maps to `std::Weak<*T>`.
+A mismatch between Tether's promotion and the C++ function's expected smart pointer type is a
 compile error.
 
-See [C/C++ Interop](/docs/language/c-c++) for the full FFI model.
+See [C/C++ Interop](/docs/language/c-cpp) for the full FFI model.
 
 ---
 
-## `forget!()`
+## Forget
 
-`forget!()` is a compiler intrinsic that permanently removes a pointer from AMT tracking. It is
+`forget!()` is a compiler intrinsic that permanently removes a pointer from Tether tracking. It is
 only valid inside an `unsafe` block:
 
 ```kairo
-var ptr = std::create<Config>(8080)
+var ptr = @create Config(8080)
 
 unsafe {
-    forget!(ptr)   // AMT stops tracking ptr
+    forget!(ptr)   // Tether stops tracking ptr
     // ptr is now the caller's responsibility
 }
 
-// AMT will not auto-free ptr if nothing else frees it, this is a memory leak
+// Tether will not auto-free ptr if nothing else frees it, this is a memory leak
 ```
 
 The primary use case is transferring ownership to C++ code that will manage the pointer's lifetime:
@@ -97,7 +97,7 @@ The primary use case is transferring ownership to C++ code that will manage the 
 ffi "c++" import "engine.hh";
 
 fn init_engine() {
-    var cfg = std::create<EngineConfig>(defaults())
+    var cfg = @create EngineConfig(defaults())
 
     unsafe {
         forget!(cfg)
@@ -108,7 +108,7 @@ fn init_engine() {
 ```
 
 > [!CAUTION]
-> `forget!()` does not free memory it tells AMT to stop tracking the pointer. If the pointer is
+> `forget!()` does not free memory it tells Tether to stop tracking the pointer. If the pointer is
 > not freed by other means (C++ code, manual `std::free()`, etc.), the memory leaks. Use `forget!()`
 > only when transferring ownership across the FFI boundary.
 
@@ -116,7 +116,7 @@ fn init_engine() {
 
 ## Raw Pointers (`unsafe *T`)
 
-`unsafe *T` declares a pointer with no AMT tracking, no null checks, and no bounds checks. It is
+`unsafe *T` declares a pointer with no Tether tracking, no null checks, and no bounds checks. It is
 the Kairo equivalent of a raw C/C++ pointer:
 
 ```kairo
@@ -161,7 +161,7 @@ var b = unsafe sort(my_data)    // calls the unsafe version
 
 ### What `unsafe` means on a function
 
-`unsafe` on a function does **not** mean "unsafe memory." AMT still guarantees memory safety in
+`unsafe` on a function does **not** mean "unsafe memory." Tether still guarantees memory safety in
 both safe and unsafe overloads. The `unsafe` qualifier signals that the function may not uphold
 semantic invariants that the safe version does stability, ordering, precision, idempotency,
 or any other contract beyond memory safety.
@@ -206,25 +206,25 @@ table.
 
 Kairo's safety model has a clear boundary:
 
-**Inside normal code:** AMT tracks all pointer lifetimes, inserts null checks on safe pointer
+**Inside normal code:** Tether tracks all pointer lifetimes, inserts null checks on safe pointer
 dereference, auto-promotes to smart pointers, and emits compile errors when safety cannot be
 guaranteed. Memory safety is the compiler's responsibility.
 
-**Inside `unsafe { }` blocks:** AMT is suspended. The programmer is responsible for pointer
+**Inside `unsafe { }` blocks:** Tether is suspended. The programmer is responsible for pointer
 lifetimes, null safety, and deallocation. The compiler trusts the programmer.
 
 **With `unsafe *T` pointers:** No tracking regardless of whether the code is inside an `unsafe`
 block. The pointer is permanently untracked by its type.
 
-**With `unsafe` function overloads:** Memory safety is still guaranteed by AMT. Only semantic
+**With `unsafe` function overloads:** Memory safety is still guaranteed by Tether. Only semantic
 invariants beyond memory safety are relaxed.
 
 ```
-                    Memory safe?    AMT tracked?    Who manages lifetime?
-Normal code         Yes             Yes             Compiler (AMT)
+                    Memory safe?    Tether tracked?    Who manages lifetime?
+Normal code         Yes             Yes             Compiler (Tether)
 unsafe { }          Programmer      No              Programmer
 unsafe *T           Programmer      No              Programmer
-fn foo() unsafe     Yes             Yes             Compiler (AMT)
+fn foo() unsafe     Yes             Yes             Compiler (Tether)
 ```
 
 ---
@@ -237,7 +237,7 @@ fn foo() unsafe     Yes             Yes             Compiler (AMT)
 ffi "c++" import "lib.hh";
 
 fn send_to_native(data: Config) {
-    var ptr = std::create<Config>(data)
+    var ptr = @create Config(data)
 
     unsafe {
         forget!(ptr)
@@ -268,7 +268,7 @@ fn write_register(addr: usize, value: u32) {
 
 ```kairo
 fn bounds_check(arr: [i32], index: i32) -> i32 {
-    assert index >= 0 && index < arr.len(), "out of bounds"
+    assert index >= 0 && index < arr.length(), "out of bounds"
     return arr[index]
 }
 
@@ -283,8 +283,8 @@ fn bounds_check(arr: [i32], index: i32) unsafe -> i32 {
 ## Summary
 
 ```kairo
-// Unsafe block suspends AMT
-var ptr = std::create<i32>(42)
+// Unsafe block suspends Tether
+var ptr = @create i32(42)
 unsafe {
     forget!(ptr)
     c_function(ptr as unsafe *i32)
@@ -301,8 +301,8 @@ fn compute(x: f64) unsafe -> f64 { /* fast approximation */ }
 var precise = compute(3.14)
 var fast = unsafe compute(3.14)
 
-// forget!() drop pointer from AMT
-var data = std::create<Buffer>(1024)
+// forget!() drop pointer from Tether
+var data = @create Buffer(1024)
 unsafe {
     forget!(data)
     // data is no longer tracked manual management required

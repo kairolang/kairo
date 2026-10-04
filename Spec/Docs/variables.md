@@ -57,8 +57,8 @@ When the type is fully determined by the initializer, the `*` or `unsafe *` qual
 variable name instead of writing out the full type annotation:
 
 ```kairo
-var *ptr = std::create<i32>(10)
-// equivalent to: var ptr: *i32 = std::create<i32>(10)
+var *ptr = @create i32(10)
+// equivalent to: var ptr: *i32 = @create i32(10)
 
 var unsafe *raw = unsafe std::alloc<i32>(sizeof i32 * 1)
 // equivalent to: var raw: unsafe *i32 = unsafe std::alloc<i32>(sizeof i32 * 1)
@@ -96,7 +96,7 @@ class Token {
     fn Token() = delete
 }
 
-var t: Token   // ⚠ warning: t is uninitialized (suppress with @no_warn(UNINIT))
+var t: Token   // warning: t is uninitialized (suppress with @no_warn(UNINIT))
 ```
 
 ---
@@ -293,7 +293,7 @@ var x = unwrap!(maybe_value)   // panics if null
 a `try` block or in a function with the `panic` specifier. See [Panic](/docs/language/panic) for the
 panic model.
 
-### `const` interaction
+### Const interaction
 
 `const` on a nullable binding works the same as on any other type the binding cannot be reassigned
 after initialization:
@@ -345,58 +345,93 @@ if raw != &null {
 ```
 
 See [Pointers](/docs/language/pointers) for the full pointer model and how
-[AMT](/docs/language/amt) tracks pointer provenance.
+[Tether](/docs/language/tether) tracks pointer provenance.
 
 ---
 
 ## The `const` Binding Rule
 
-`const` in Kairo follows a strict **left-to-right binding rule**: one `const` applies to the thing immediately
-to its right. This eliminates the ambiguity that plagues C/C++ `const` placement.
+Every `const` in Kairo answers one yes-or-no question about one thing: *can this be changed?*
+
+A plain value is one thing, so it has one question. A pointer is two things, the pointer and the
+value it points at, so it has two:
+
+1. **Can I change the pointer?** That is, can it be made to point somewhere else.
+2. **Can I change the pointee?** That is, can the value it points at be written through it.
+
+The two answers are independent, and each one is written in its own place:
+
+| Question | Where it is written | Yes | No |
+|---|---|---|---|
+| Can I change the pointer? | The declaration keyword | `var ptr` | `const ptr` |
+| Can I change the pointee? | Directly after the `*` | `*T` | `*const T` |
+
+Those are the only places a `const` can go, and a `const` always applies to the thing immediately
+to its right. You read a declaration left to right and each `const` you meet answers one question.
+There is never a puzzle about which part of the type a `const` belongs to, the way there is with
+`const int*` and `int* const` in C and C++.
 
 ### On simple variables
 
-```kairo
+A plain value has only the first question:
+
+```kairo hints
 const x: i32 = 42
-//    ^ x cannot be reassigned
-//       ^^^ i32 is the type immediately right of const the value is immutable
+x = 10    // compile error: x is const
 ```
 
 ### On pointers
 
-`const` on the binding and `const` on the pointed-to type are independent axes:
+Two questions with two answers each gives four combinations:
 
-```kairo
-var ptr: *i32 = &x
-// ptr is mutable, *ptr is mutable can reassign ptr and modify the target
+| Declaration | Change the pointer? | Change the pointee? |
+|---|---|---|
+| `var ptr: *i32` | Yes | Yes |
+| `const ptr: *i32` | No | Yes |
+| `var ptr: *const i32` | Yes | No |
+| `const ptr: *const i32` | No | No |
 
-const ptr: *i32 = &x
-// ptr is const cannot reassign ptr to point elsewhere
-// *ptr is mutable can still modify the target value
-*ptr = 10    // ok: allowed
-ptr = &y     // compile error:
+```kairo hints
+var a: *i32 = &x
+a = &y       // ok
+*a = 10      // ok
 
-const ptr: *const i32 = &x
-// ptr is const cannot reassign
-// *ptr is const cannot modify the target
-*ptr = 10    // compile error:
-ptr = &y     // compile error:
+const b: *i32 = &x
+b = &y       // compile error: b is const, it cannot point anywhere else
+*b = 10      // ok: the pointee is still writable
+
+var c: *const i32 = &x
+c = &y       // ok: c can point somewhere else
+*c = 10      // compile error: cannot write through a *const pointer
+
+const d: *const i32 = &x
+d = &y       // compile error
+*d = 10      // compile error
 ```
 
-The rule scales to any depth:
+> [!TIP]
+> `var ptr: *const T` is the one you will reach for most: a read-only view of something that you
+> can still re-point. Add `const` on the binding only when the pointer itself must never move.
 
-```kairo
+The rule scales to any depth. Every `*` adds one more thing that can be pointed at, and so one more
+place a `const` can go:
+
+```kairo hints
 const ptr: *const *i32 = &ptr2
-ptr = &ptr3    // ptr is: const
-*ptr = &x      // *ptr is: const
+ptr = &ptr3    // compile error: ptr is const
+*ptr = &x      // compile error: the inner pointer is const
 **ptr = 10     // ok: the i32 at the end is not const
 ```
+
+`*const T` answers "can I write through *this* pointer?". It does not answer "can anyone change
+this value?". Another pointer to the same value may still be writable. See
+[Ownership](/docs/language/ownership#pointer-aliasing).
 
 ### A practical example
 
 Consider a configuration object that should be readable through a pointer but never modified:
 
-```kairo
+```kairo hints
 class Config {
     pub var host: string
     pub var port: i32
@@ -417,30 +452,29 @@ class Config {
 
 var config = Config("localhost", 8080)
 
-const ptr: *const Config = &config
+var ptr: *const Config = &config
 ptr->address()       // ok: address() is a const method
 ptr->set_port(9090)  // compile error: set_port() mutates, ptr points to const Config
-
-// in most cases tho you would only want this:
-var ptr: *const Config = &config
-// cause you would have a const type but still be able to reassign the pointer if needed.
 ```
 
-### On types
+### On objects and methods
 
-`const` applied to a type restricts the instance to const methods only methods not marked `const` cannot be
-called.
+`const self` is the pointee question asked about the receiver: can this method change the object it
+is called on? A `const` object, or one reached through a `*const T`, only allows methods that
+answer no.
 
-```kairo
+```kairo hints
 const server = Config("localhost", 8080)
 server.address()       // ok: const method
 server.set_port(9090)  // compile error: set_port() is not const
 ```
 
 > [!WARNING]
-> `var x: const i32 = 42` is a compile error. The `const` binding rule is strictly left-to-right from the
-> declaration keyword position. Use `const x: i32 = 42` instead. This avoids the `const int* x` vs
-> `int* const x` confusion that C++ is notorious for.
+> `var x: const i32 = 42` is a compile error. A plain value has one question, and the declaration
+> keyword already answers it, so write `const x: i32 = 42`. For the same reason
+> `var ptr: const *const i32` is rejected: the pointer question belongs to the keyword, so write
+> `const ptr: *const i32`. This avoids the `const int* x` vs `int* const x` confusion that C++ is
+> notorious for.
 
 ---
 
@@ -456,8 +490,8 @@ Variables are block-scoped and destroyed at the end of their enclosing block.
 // x is no longer accessible
 ```
 
-[AMT](/docs/language/amt) performs full-program analysis to track lifetimes automatically no lifetime
-annotations are required. If AMT determines that a pointer outlives its referent and cannot automatically
+[Tether](/docs/language/tether) performs full-program analysis to track lifetimes automatically no lifetime
+annotations are required. If Tether determines that a pointer outlives its referent and cannot automatically
 promote the pointer (to a shared, weak, or unique smart pointer), it emits a compile error.
 
 ```kairo
@@ -466,10 +500,10 @@ var y = &x
 {
     *y = 15    // ok: x is still alive, y is valid
 }
-std::println(*y)      // AMT error: y's safety cannot be guaranteed at this point
+std::println(*y)      // Tether error: y's safety cannot be guaranteed at this point
 ```
 
-See [AMT](/docs/language/amt) and [Ownership](/docs/language/ownership) for the full lifetime and borrowing
+See [Tether](/docs/language/tether) and [Ownership](/docs/language/ownership) for the full lifetime and borrowing
 model.
 
 ---

@@ -15,7 +15,7 @@ struct Point {
 }
 
 extend Point {
-    fn length(self) const -> f64 {
+    fn length(const self) -> f64 {
         return std::sqrt(self.x * self.x + self.y * self.y)
     }
 
@@ -35,6 +35,23 @@ Point::origin()  // Point { x: 0.0, y: 0.0 }
 
 Methods added via `extend` are called the same way as methods defined in a class body there is no
 syntactic distinction at the call site.
+
+An `extend` body is the extended type's scope. Members still need an explicit qualifier `self.x` or `Self::x`, exactly as in a class body (see [Members always need a qualifier](/docs/language/classes#members-always-need-a-qualifier)) and the same one exception applies: the target's nested types and type aliases are visible unqualified.
+
+```kairo
+class Tree {
+    struct Node { var value: i32 }
+    var count: i32
+}
+
+extend Tree {
+    fn add(self) {
+        var n = Node { value: 0 }   // ok: `Node` means `Self::Node`
+        self.count += 1             // ok
+        // count += 1               // error: needs `self.`
+    }
+}
+```
 
 ---
 
@@ -61,8 +78,7 @@ The rules differ by type:
 | Methods | Constructors |
 | Static functions | Destructors (`fn op delete`) |
 | Arithmetic / comparison operators | Copy / move assignment (`fn op =`) |
-| `fn op as` (type conversion) | |
-| `fn op in` (iteration) | |
+| `fn op in` (iteration) | Member-only operators (`as`, `[]`, `->`) |
 
 Structs are trivially copyable. Extending lifecycle operations (destructors, copy/move) would break
 that guarantee. See [Structures](/docs/language/structures#copy-semantics).
@@ -74,7 +90,7 @@ that guarantee. See [Structures](/docs/language/structures#copy-semantics).
 | Methods | Constructors |
 | Static functions | Destructors |
 | Comparison / arithmetic operators | Copy / move assignment |
-| `fn op as` (type conversion) | |
+| | Member-only operators (`as`, `[]`, `->`) |
 
 ### Classes
 
@@ -82,14 +98,16 @@ that guarantee. See [Structures](/docs/language/structures#copy-semantics).
 |---|---|
 | Methods | Constructors |
 | Static functions | Destructors |
-| All operators | Copy / move assignment |
+| Operators other than the member-only ones | Copy / move assignment |
+| | Member-only operators (`as`, `[]`, `->`, `delete`) |
 
 Classes already support methods and operators in their body. `extend` on a class is useful for
 separating interface conformance or adding functionality in a different section of the codebase
 (within the same file).
 
 > [!NOTE]
-> Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type.
+> Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type. Neither
+> can the member-only operators `as`, `[]`, `->`, and `delete`; declare them in the type's own body.
 > If you need construction logic on a struct, extend a static factory function instead. If you need
 > a destructor, use a [class](/docs/language/classes).
 
@@ -101,11 +119,11 @@ separating interface conformance or adding functionality in a different section 
 
 ```kairo
 interface Drawable {
-    fn draw(self) const -> string
+    fn draw(const self) -> string
 }
 
 extend Point impl Drawable {
-    fn draw(self) const -> string {
+    fn draw(const self) -> string {
         return f"({self.x}, {self.y})"
     }
 }
@@ -114,16 +132,19 @@ extend Point impl Drawable {
 The compiler verifies at the `extend` declaration that all interface requirements are satisfied.
 Missing methods are a compile error.
 
+> [!NOTE]
+> The current compiler does not report missing methods at the `extend` declaration yet. See [Implementation Status](/docs/status#not-diagnosed).
+
 A type can conform to multiple interfaces through separate `extend` blocks:
 
 ```kairo
 extend Point impl Drawable {
-    fn draw(self) const -> string { ... }
+    fn draw(const self) -> string { ... }
 }
 
 extend Point impl Serializable {
-    fn serialize(self) const -> [byte] { ... }
-    fn byte_size(self) const -> i32 { ... }
+    fn serialize(const self) -> [byte] { ... }
+    fn byte_size(const self) -> i32 { ... }
 }
 ```
 
@@ -133,7 +154,7 @@ See [Interfaces](/docs/language/interfaces) for interface declarations and struc
 
 ## Generic Extends
 
-When extending a generic type, redeclare the type parameters:
+A generic `extend` declares its own type parameters:
 
 ```kairo
 struct <T> Pair {
@@ -148,38 +169,62 @@ extend <T> Pair<T> {
 }
 ```
 
-The type parameters in the `extend` block must match the original declaration. Constraints can be
-added via `impl`, `derives`, or `where` clauses:
+The parameters belong to the `extend` block, not to the type. Its target can be any instance pattern of
+the type, so an extension can apply to only some instantiations:
+
+```kairo
+struct <T> Box {
+    var value: T
+}
+
+struct <T> Wrap {
+    var inner: T
+}
+
+extend <T> Wrap<Box<T>> {
+    fn unbox(const self) -> T {   // only on Wrap<Box<X>>
+        return self.inner.value
+    }
+}
+```
+
+`Wrap<Box<i32>>` has `unbox`; `Wrap<i32>` does not.
+
+Constraints on an extension's parameters are written with `impl`, `derives`, or a
+[`requires` clause](/docs/language/requires):
 
 ```kairo
 extend <T impl Comparable> Pair<T> {
-    fn max(self) const -> T {
+    fn max(const self) -> T {
         return if self.first > self.second { self.first } else { self.second }
     }
 }
 ```
 
 This `max` method is only available on `Pair<T>` when `T` satisfies `Comparable`. Calling
-`Pair<SomeNonComparable>.max()` is a compile error.
+`pair_of_noncomparable.max()` (or `Pair<SomeNonComparable>::max(p)`) is a compile error.
+
+> [!NOTE]
+> The current compiler does not check an extension's bounds at the call site yet. See [Implementation Status](/docs/status#not-diagnosed).
 
 ### Generic interface conformance
 
 ```kairo
 interface <T> Container {
-    fn size(self) const -> i32
-    fn get(self, index: i32) const -> T
+    fn size(const self) -> i32
+    fn get(const self, index: i32) -> T
 }
 
 extend <T> Pair<T> impl Container<T> {
-    fn size(self) const -> i32 { return 2 }
+    fn size(const self) -> i32 { return 2 }
 
-    fn get(self, index: i32) const -> T {
+    fn get(const self, index: i32) -> T {
         return if index == 0 { self.first } else { self.second }
     }
 }
 ```
 
-See [Bounds](/docs/language/bounds) for the full constraint system.
+See [Requires Clauses](/docs/language/requires) for the full constraint system.
 
 ---
 
@@ -189,18 +234,19 @@ Extended methods can have `pub`, `prot`, or `priv` visibility:
 
 ```kairo
 extend Point {
-    pub fn distance(self, other: Point) const -> f64 {
+    pub fn distance(const self, other: Point) -> f64 {
         return (self - other).length()
     }
 
-    priv fn validate(self) const -> bool {
+    priv fn validate(const self) -> bool {
         return self.x >= 0.0 && self.y >= 0.0
     }
 }
 ```
 
-The default visibility for extended methods matches the type's convention `pub` for struct and
-enum extensions, `pub` for class method extensions.
+An extension member with no modifier is `pub`. A `priv` extension member is visible only inside the
+file that contains the `extend` block, not everywhere the type is visible. `prot` has its usual
+library-internal meaning.
 
 ---
 
@@ -210,7 +256,7 @@ enum extensions, `pub` for class method extensions.
 
 ```kairo
 extend <T> Pair<T> {
-    fn duplicate(self) const -> Self {
+    fn duplicate(const self) -> Self {
         // Self resolves to Pair<T>
         return Pair<T> { first: self.first, second: self.second }
     }
@@ -228,7 +274,7 @@ A plain `extend` block must be in the same file as the type definition:
 struct Point { var x: f64; var y: f64 }
 
 extend Point {
-    fn length(self) const -> f64 { ... }   // ok: same file as Point
+    fn length(const self) -> f64 { ... }   // ok: same file as Point
 }
 ```
 
@@ -247,13 +293,13 @@ interface must be defined in the same file as the `extend` block:
 import point::Point
 
 interface Drawable {
-    fn draw(self) const -> string
+    fn draw(const self) -> string
 }
 
 // This is legal even though Point is defined in point.k,
 // because Drawable is defined here:
 extend Point impl Drawable {
-    fn draw(self) const -> string {
+    fn draw(const self) -> string {
         return f"({self.x}, {self.y})"
     }
 }
@@ -261,6 +307,9 @@ extend Point impl Drawable {
 
 This prevents conflicts between extensions in different files while still allowing interface
 conformance to be declared where the interface is defined.
+
+> [!NOTE]
+> The current compiler does not reject an `extend` in the wrong file yet. See [Implementation Status](/docs/status#not-diagnosed).
 
 ---
 
@@ -289,13 +338,13 @@ extend Color {
 
 // Serialization
 extend Color impl Serializable {
-    fn serialize(self) const -> [byte] { ... }
-    fn byte_size(self) const -> i32 { return 3 }
+    fn serialize(const self) -> [byte] { ... }
+    fn byte_size(const self) -> i32 { return 3 }
 }
 
 // Display
 extend Color impl Drawable {
-    fn draw(self) const -> string {
+    fn draw(const self) -> string {
         return f"rgb({self.r}, {self.g}, {self.b})"
     }
 }
@@ -305,8 +354,18 @@ extend Color impl Drawable {
 
 ## Extend vs Class Methods
 
-For classes, there is no semantic difference between a method in the class body and a method in an
-`extend` block both produce the same compiled output. The choice is organizational:
+A method in the class body and a method in an `extend` block are called the same way, but they are
+different entities:
+
+- An extension member is not virtual, cannot override, and cannot be a constructor, destructor, or
+  assignment operator.
+- A same-file `extend` can read the type's private members. An `extend ... impl` placed in the
+  interface's file cannot.
+- C++ code calling a Kairo type sees body methods as member functions, and extension members as static
+  functions of a companion scope.
+
+Put anything that needs dynamic dispatch, overriding, or lifecycle behavior in the body. Use `extend`
+for the rest, such as interface conformance kept apart from the core type:
 
 ```kairo
 class Server {
@@ -321,7 +380,7 @@ class Server {
 
 // Interface conformance separated
 extend Server impl Loggable {
-    fn to_log_string(self) const -> string {
+    fn to_log_string(const self) -> string {
         return f"Server(:{self.port})"
     }
 }
@@ -336,7 +395,7 @@ extend Server impl Loggable {
 struct Vec2 { var x: f64; var y: f64 }
 
 extend Vec2 {
-    fn length(self) const -> f64 = std::sqrt(self.x * self.x + self.y * self.y)
+    fn length(const self) -> f64 = std::sqrt(self.x * self.x + self.y * self.y)
     fn op +(self, other: Vec2) -> Vec2 = Vec2 { x: self.x + other.x, y: self.y + other.y }
     static fn zero() -> Vec2 = Vec2 { x: 0.0, y: 0.0 }
 }
@@ -355,11 +414,11 @@ extend Direction {
 
 // Interface conformance
 extend Vec2 impl Drawable {
-    fn draw(self) const -> string = f"({self.x}, {self.y})"
+    fn draw(const self) -> string = f"({self.x}, {self.y})"
 }
 
 // Generic extend with constraints
 extend <T impl Comparable> Pair<T> {
-    fn max(self) const -> T = if self.first > self.second { self.first } else { self.second }
+    fn max(const self) -> T = if self.first > self.second { self.first } else { self.second }
 }
 ```

@@ -25,8 +25,8 @@ integers or pointers.
 
 ### `if` as an expression (ternary equivalent)
 
-Kairo has no ternary `? :` operator. Use `if`/`else` as an expression instead, the expression in each
-branch is the result:
+Kairo has no ternary `? :` operator. Use `if`/`else` as an expression instead. Each branch holds a single
+expression, which is the result:
 
 ```kairo
 var x = if condition { 10 } else { 20 }
@@ -39,7 +39,7 @@ branches are not permitted in expression form.
 
 > [!TIP]
 > The compiler warns if `else if` nesting exceeds 3 levels. Consider restructuring deeply nested conditionals
-> into a `switch` or separate function.
+> into a `match` or separate function.
 
 ### Empty branches
 
@@ -204,8 +204,8 @@ match http_status {
 
 ### `match` as an expression
 
-Like `if`, `match` can be used as an expression. The last expression in each branch is the result value.
-All branches must produce the same type:
+Like `if`, `match` can be used as an expression. Each branch holds a single expression, which is the result
+value. All branches must produce the same type:
 
 ```kairo
 var label = match level {
@@ -390,8 +390,8 @@ target the innermost enclosing loop.
 | `continue` | Skips to the next iteration of the innermost loop |
 | `continue label` | Skips to the next iteration of the loop identified by `label` |
 
-`break` and `continue` are statements, not expressions they do not produce values. Inside a `switch`
-nested within a loop, `break` exits the **loop**, not the switch (switch cases are already isolated blocks
+`break` and `continue` are statements, not expressions they do not produce values. Inside a `match`
+nested within a loop, `break` exits the **loop**, not the match (match cases are already isolated blocks
 with no fall-through by default).
 
 ---
@@ -430,7 +430,7 @@ A bare `catch` (no type) acts as a catch-all and satisfies exhaustiveness for an
 
 ### `try`/`catch` as an expression
 
-Like `if`, `try`/`catch` can be used as an expression. The last expression in each block is the result value:
+Like `if`, `try`/`catch` can be used as an expression. Each block holds a single expression, which is the result value:
 
 ```kairo
 var result = try {
@@ -462,8 +462,8 @@ try {
 
 ### Standalone `finally` (scope exit)
 
-`finally` can also appear inside any function body without a preceding `try`. In this form, it acts as a
-scope exit block the body executes when the enclosing function returns, regardless of how it exits:
+`finally` can also appear without a preceding `try`. In this form it is a scope-exit block: its body runs
+when control leaves the enclosing scope, however it leaves:
 
 ```kairo
 fn process_file(path: string) panic -> void {
@@ -480,34 +480,64 @@ fn process_file(path: string) panic -> void {
 }
 ```
 
-This is equivalent to Go's `defer` the body executes when the enclosing function exits, regardless of
-how it exits (normal return, panic, or early return). Multiple `finally` blocks in the same function
-execute in reverse declaration order (LIFO), matching destructor semantics.
+A standalone `finally` behaves like the destructor of a local declared at the same point:
+
+- **It is tied to the enclosing block, not the function.** A `finally` inside an `if` body or a loop body
+  runs when that block ends. In a loop it runs at the end of every iteration that reached it.
+- **It only runs if execution reached it.** A `return` or panic before the `finally` statement skips it, just
+  as a local that was never declared is never destroyed.
+- **It runs on every exit from the scope.** That includes falling off the end, `return`, `break`,
+  `continue`, and a panic leaving the scope.
+- **It runs in reverse order with everything else in the scope.** Multiple `finally` blocks and local
+  destructors run in reverse declaration order (LIFO), so a `finally` written after a local runs before
+  that local is destroyed.
+
+```kairo
+fn copy_all(paths: [string]) {
+    for path in paths {
+        var fd = open(path)
+        finally {
+            close(fd)   // runs at the end of each iteration, not when copy_all returns
+        }
+        copy(fd)
+    }
+}
+```
+
+This differs from Go's `defer`, which always waits for the function to return.
 
 ---
 
 ## `assert`
 
-`assert` evaluates a condition and panics if it is false. It takes an expression and an optional diagnostic
-message:
+`assert` checks a condition. It takes an expression and an optional diagnostic message:
 
 ```kairo
 assert index < len, "index out of bounds"
-assert ptr != null
+assert count > 0
 ```
 
-Assert behavior is globally configurable via the `-fassert-mode` compiler flag:
+What an assert does depends on the build:
+
+| Build | Behavior |
+|---|---|
+| Debug | The condition is evaluated. If it is false, the program aborts with the message or a generated diagnostic |
+| Release | Asserts are removed. The condition is not evaluated |
+
+Because a release build drops the condition entirely, don't put side effects the program depends on inside
+an `assert`.
+
+The `-fassert-mode` compiler flag replaces the default failure behavior:
 
 | Mode | Behavior |
 |---|---|
 | `panic`  | Panics with the provided message or a generated diagnostic |
 | `return` | Returns a default-constructed value of the function's return type |
-| `log` (default) | Logs the assertion failure and continues execution |
+| `log` | Logs the assertion failure and continues execution |
 
 > [!WARNING]
 > `return` mode silently swallows assertion failures and produces a default-constructed value. This can
-> mask bugs and produce incorrect results downstream. Use with caution `panic` mode is the default for
-> a reason.
+> mask bugs and produce incorrect results downstream.
 
 Asserts cannot appear at file scope they are only valid inside function bodies.
 
@@ -558,15 +588,17 @@ order.
 // x and y are destroyed and no longer accessible
 ```
 
-Blocks are expressions when used as the right-hand side of a binding. The last expression in the block is
-the result value:
+A plain block does not produce a value. To compute a value with statements, use a
+[statement expression](/docs/language/operators#statement-expressions), whose value is its last expression:
 
 ```kairo
-var result = {
+var result = ({
     var tmp = expensive_computation()
     tmp * 2   // result = tmp * 2
-}
+})
 ```
+
+A branch of an `if` or `match` expression that needs statements can use one too.
 
 Anonymous blocks are useful for limiting the lifetime of temporary resources without introducing a function:
 
@@ -585,10 +617,10 @@ fn process() {
 }
 ```
 
-All control flow constructs (`if`, `switch`, `for`, `while`, `loop`, `try`) create implicit blocks
+All control flow constructs (`if`, `match`, `for`, `while`, `loop`, `try`) create implicit blocks
 their bodies follow the same scoping and destruction rules.
 
-See [Variables](/docs/language/variables#scope-and-lifetime) and [AMT](/docs/language/amt) for full lifetime semantics.
+See [Variables](/docs/language/variables#scope-and-lifetime) and [Tether](/docs/language/tether) for full lifetime semantics.
 
 ---
 
@@ -668,7 +700,7 @@ reaches an `@unreachable` branch at runtime, the behavior is undefined the compi
 eliminate the branch entirely and may miscompile surrounding code under that assumption.
 
 ```kairo
-switch direction {
+match direction {
     case .North { /* ... */ }
     case .South { /* ... */ }
     case .East  { /* ... */ }

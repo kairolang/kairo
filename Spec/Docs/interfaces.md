@@ -4,14 +4,18 @@ Interfaces define a set of method signatures that a type must satisfy. They are 
 contracts no vtable, no runtime dispatch, no storage overhead. A type conforms to an interface if it
 has all the required methods with matching signatures, whether or not it explicitly declares conformance.
 
+Interfaces are a compile-time mechanism. For runtime polymorphism, use a base
+[class](/docs/language/classes) with `virtual` methods and dispatch through a base pointer. Interfaces
+and virtual dispatch solve different problems and can be used together on the same type.
+
 ---
 
 ## Declaration
 
 ```kairo
 interface Serializable {
-    fn serialize(self) const -> [byte]
-    fn byte_size(self) const -> i32
+    fn serialize(const self) -> [byte]
+    fn byte_size(const self) -> i32
 }
 ```
 
@@ -36,12 +40,12 @@ class Document impl Serializable {
         self.content = content
     }
 
-    fn serialize(self) const -> [byte] {
+    fn serialize(const self) -> [byte] {
         return self.content.to_bytes()
     }
 
-    fn byte_size(self) const -> i32 {
-        return self.content.len()
+    fn byte_size(const self) -> i32 {
+        return self.content.length()
     }
 }
 ```
@@ -58,11 +62,11 @@ struct Point {
 }
 
 extend Point impl Serializable {
-    fn serialize(self) const -> [byte] {
+    fn serialize(const self) -> [byte] {
         // serialization logic
     }
 
-    fn byte_size(self) const -> i32 {
+    fn byte_size(const self) -> i32 {
         return 16   // two f64s
     }
 }
@@ -77,8 +81,8 @@ satisfies the interface implicitly. The check happens at the point of use:
 
 ```kairo
 class Logger {
-    fn serialize(self) const -> [byte] { ... }
-    fn byte_size(self) const -> i32 { ... }
+    fn serialize(const self) -> [byte] { ... }
+    fn byte_size(const self) -> i32 { ... }
 }
 
 // Logger never mentions Serializable, but satisfies it structurally
@@ -100,8 +104,8 @@ Interfaces can declare type parameters:
 ```kairo
 interface <T> Container {
     fn add(self, item: T)
-    fn get(self, index: i32) const -> T
-    fn size(self) const -> i32
+    fn get(const self, index: i32) -> T
+    fn size(const self) -> i32
 }
 
 class IntBuffer impl Container<i32> {
@@ -113,12 +117,12 @@ class IntBuffer impl Container<i32> {
         self.data.push(item)
     }
 
-    fn get(self, index: i32) const -> i32 {
+    fn get(const self, index: i32) -> i32 {
         return self.data[index]
     }
 
-    fn size(self) const -> i32 {
-        return self.data.len()
+    fn size(const self) -> i32 {
+        return self.data.length()
     }
 }
 ```
@@ -127,14 +131,14 @@ Type parameters on interfaces can have constraints:
 
 ```kairo
 interface <T impl Comparable, U derives Base> Registry {
-    fn lookup(self, key: T) const -> U
+    fn lookup(const self, key: T) -> U
     fn store(self, key: T, value: U)
 }
 ```
 
 Generic defaults are not permitted on interface type parameters.
 
-See [Bounds](/docs/language/bounds) for the full constraint system.
+See [Requires Clauses](/docs/language/requires) for the full constraint system.
 
 ---
 
@@ -144,7 +148,7 @@ Interfaces can require operator overloads:
 
 ```kairo
 interface Equatable {
-    fn op ==(self, other: Self) const -> bool
+    fn op ==(const self, other: Self) -> bool
 }
 
 interface Convertible {
@@ -153,7 +157,7 @@ interface Convertible {
 ```
 
 `Self` in an interface signature refers to the conforming type. A class that `impl Equatable` must
-provide `fn op ==(self, other: Self) const -> bool` where `Self` resolves to that class.
+provide `fn op ==(const self, other: Self) -> bool` where `Self` resolves to that class.
 
 See [Operators](/docs/language/operators#operator-overloading) for the full list of overloadable
 operators.
@@ -186,6 +190,32 @@ class Config impl Defaultable {
     }
 }
 ```
+
+### Lifecycle attributes on constructor requirements
+
+Constructor requirements can carry `@copy` or `@move` attributes to require a specific lifecycle
+category. This is how you express "T must be copyable" or "T must be movable" as an interface bound:
+
+```kairo
+interface Copyable {
+    fn Copyable(self)               // default ctor
+
+    @copy
+    fn Copyable(self, const other: Self)
+}
+
+interface Moveable {
+    fn Moveable(self)
+
+    @move
+    fn Moveable(self, other: Self)
+}
+
+fn <T impl Copyable> store(item: T) -> T { ... }
+fn <T impl Moveable> consume(item: T)    { ... }
+```
+
+The standard library will provide canonical lifecycle interfaces; these are just examples. See [Lifecycle Categories](/docs/language/classes#lifecycle-categories) for the underlying model.
 
 ---
 
@@ -222,8 +252,8 @@ class Timestamp impl Parseable<Timestamp> {
 
 ## Return Types with `Self`
 
-Interface methods can use `Self` as a return type. `Self` always refers to a reference to the
-conforming type:
+Interface methods can use `Self` as a return type. `Self` resolves to the conforming type a class
+that `impl Chainable` and returns `Self` returns its own type:
 
 ```kairo
 interface Chainable {
@@ -232,17 +262,25 @@ interface Chainable {
 
 class Pipeline impl Chainable {
     fn then(self, next: Self) -> Self {
-        // Self resolves to Pipeline here
-        // returns a reference to Pipeline
+        // Self resolves to Pipeline
+        return self
     }
 }
 ```
 
-For returning a copy or a pointer, use the interface name or a pointer to it:
+Kairo has no user-visible reference types [Tether](/docs/language/tether) infers reference semantics where
+needed. In practice this means `Self` returns enable fluent chaining without `->` or explicit
+dereferencing:
 
 ```kairo
-interface <T> Factory {
-    static fn create() -> *T    // returns a pointer to the conforming type
+Pipeline().then(other).then(another).run()
+```
+
+To return a pointer to the conforming type, use `*Self`:
+
+```kairo
+interface Cloneable {
+    fn clone(self) -> *Self
 }
 ```
 
@@ -260,7 +298,7 @@ interface Readable {
 
 interface Seekable {
     fn seek(self, position: i64)
-    fn tell(self) const -> i64
+    fn tell(const self) -> i64
 }
 
 interface Stream derives Readable, Seekable {
@@ -279,7 +317,7 @@ class FileStream impl Stream {
 
     fn read(self, buffer: [byte], count: i32) -> i32 { ... }
     fn seek(self, position: i64) { ... }
-    fn tell(self) const -> i64 { ... }
+    fn tell(const self) -> i64 { ... }
     fn close(self) { ... }
     fn flush(self) { ... }
 }
@@ -293,7 +331,7 @@ Multiple inheritance is permitted:
 
 ```kairo
 interface Loggable derives Serializable, Printable {
-    fn log_level(self) const -> i32
+    fn log_level(const self) -> i32
 }
 ```
 
@@ -311,30 +349,32 @@ fn <T impl Serializable> save(data: T, path: string) {
 ```
 
 `impl` checks structural conformance the type satisfies the interface's required method signatures.
-This is distinct from `derives`, which checks class inheritance. See [Bounds](/docs/language/bounds)
+This is distinct from `derives`, which checks class inheritance. See [Requires Clauses](/docs/language/requires)
 for the full constraint system.
 
 ```kairo
 fn <T impl Serializable> save(data: T) { ... }   // T has serialize() and byte_size()
-fn <T derives Base> process(data: T) { ... }       // T is a subclass of Base
+fn <T derives Base> process(data: T) { ... }     // T is a subclass of Base
 ```
 
 ---
 
-## Top-Level Only
+## Declaration Scope
 
-Interfaces must be declared at the top level of a file. They cannot be nested inside classes, structs,
-enums, or other interfaces:
+Interfaces must be declared at module scope. They cannot be nested inside classes, structs, enums, or
+other interfaces:
 
 ```kairo
 interface Valid {
-    fn check(self) const -> bool
+    fn check(const self) -> bool
 }
 
 class Outer {
     // interface Invalid { ... }   // compile error: interfaces cannot be nested
 }
 ```
+
+See [Modules](/docs/language/modules) for module organization.
 
 ---
 
@@ -344,8 +384,8 @@ Interface methods have no bodies. Every method is a requirement that the conform
 
 ```kairo
 interface Hashable {
-    fn hash(self) const -> u64
-    // fn hash(self) const -> u64 { return 0 }   // compile error: no default implementations
+    fn hash(const self) -> u64
+    // fn hash(const self) -> u64 { return 0 }   // compile error: no default implementations
 }
 ```
 
@@ -361,10 +401,10 @@ Interfaces cannot declare variables, constants, static variables, or eval bindin
 
 ```kairo
 interface Invalid {
-    // var x: i32              // compile error
+    // var x: i32             // compile error
     // const Y: i32 = 10      // compile error
     // static z: i32 = 0      // compile error
-    fn valid_method(self)      // ok
+    fn valid_method(self)     // ok
 }
 ```
 
@@ -375,22 +415,22 @@ interface Invalid {
 ```kairo
 // Basic interface
 interface Drawable {
-    fn draw(self) const -> string
-    fn bounds(self) const -> (f64, f64, f64, f64)
+    fn draw(const self) -> string
+    fn bounds(const self) -> (f64, f64, f64, f64)
 }
 
 // Generic interface with constraints
 interface <T impl Comparable> SortedContainer {
     fn insert(self, item: T)
-    fn min(self) const -> T
-    fn max(self) const -> T
+    fn min(const self) -> T
+    fn max(const self) -> T
 }
 
 // Interface with operators
 interface Arithmetic {
     fn op +(self, other: Self) -> Self
     fn op -(self, other: Self) -> Self
-    fn op ==(self, other: Self) const -> bool
+    fn op ==(const self, other: Self) -> bool
 }
 
 // Interface inheritance
@@ -400,19 +440,19 @@ interface Flushable {
 
 interface BufferedWriter derives Flushable {
     fn write(self, data: [byte])
-    fn buffer_size(self) const -> i32
+    fn buffer_size(const self) -> i32
 }
 
 // Class conformance
 class Renderer impl Drawable {
-    fn draw(self) const -> string { return "rendering" }
-    fn bounds(self) const -> (f64, f64, f64, f64) { return (0.0, 0.0, 100.0, 100.0) }
+    fn draw(const self) -> string { return "rendering" }
+    fn bounds(const self) -> (f64, f64, f64, f64) { return (0.0, 0.0, 100.0, 100.0) }
 }
 
 // Struct conformance via extend
 extend Point impl Drawable {
-    fn draw(self) const -> string { return f"({self.x}, {self.y})" }
-    fn bounds(self) const -> (f64, f64, f64, f64) { return (self.x, self.y, self.x, self.y) }
+    fn draw(const self) -> string { return f"({self.x}, {self.y})" }
+    fn bounds(const self) -> (f64, f64, f64, f64) { return (self.x, self.y, self.x, self.y) }
 }
 
 // Generic bound

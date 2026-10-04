@@ -9,7 +9,7 @@ hold a memory address.
 ## Safe Pointers (`*T`)
 
 `*T` is the default pointer type. The compiler tracks its provenance via
-[AMT](/docs/language/amt) and inserts null checks on dereference:
+[Tether](/docs/language/tether) and inserts null checks on dereference:
 
 ```kairo
 var x = 42
@@ -68,7 +68,7 @@ ptr->port   // 8080
 
 ## Raw Pointers (`unsafe *T`)
 
-`unsafe *T` is an untracked pointer with no null checks, no bounds checks, and no AMT provenance
+`unsafe *T` is an untracked pointer with no null checks, no bounds checks, and no Tether provenance
 tracking. It is equivalent to a raw C/C++ pointer:
 
 ```kairo
@@ -79,8 +79,8 @@ var p: unsafe *i32 = unsafe &x   // create raw pointer from safe binding
 
 Dereferencing a null `unsafe *T` is undefined behavior. The compiler will not insert a check.
 
-Raw pointers are required for [C/C++ interop](/docs/language/c-c++), custom allocators, hardware
-register access, and any scenario where AMT tracking is not possible or not desired.
+Raw pointers are required for [C/C++ interop](/docs/language/c-cpp), custom allocators, hardware
+register access, and any scenario where Tether tracking is not possible or not desired.
 
 ### Creating raw pointers
 
@@ -92,8 +92,10 @@ var raw: unsafe *i32 = unsafe &x
 // From heap allocation
 var raw: unsafe *i32 = unsafe std::alloc<i32>(sizeof i32)
 
-// From an integer address
-var raw = 0x7FFE_0000_1000 as unsafe *i32
+// From an integer address (requires an unsafe block: fabricates provenance)
+unsafe {
+    var raw = 0x7FFE_0000_1000 as unsafe *i32
+}
 
 // Null
 var raw: unsafe *i32 = &null
@@ -101,30 +103,41 @@ var raw: unsafe *i32 = &null
 
 ---
 
-## `const` Pointers
+## Const Pointers
 
-The `const` binding rule applies to pointers left-to-right. `const` on the binding prevents
-reassigning the pointer. `*const T` prevents modifying the pointed-to value:
+A pointer declaration makes two independent properties visible:
 
-```kairo
-var ptr: *i32 = &x
-// ptr is mutable, *ptr is mutable
+1. **Can I change the pointer?** Answered by the declaration keyword: `var ptr` or `const ptr`.
+2. **Can I change the pointee?** Answered directly after the `*`: `*T` or `*const T`.
 
-const ptr: *i32 = &x
-// ptr is const (cannot reassign), *ptr is mutable
-*ptr = 10    // ok
-ptr = &y     // compile error
+| Declaration | Change the pointer? | Change the pointee? |
+|---|---|---|
+| `var ptr: *i32` | Yes | Yes |
+| `const ptr: *i32` | No | Yes |
+| `var ptr: *const i32` | Yes | No |
+| `const ptr: *const i32` | No | No |
 
-var ptr: *const i32 = &x
-// ptr is mutable (can reassign), *ptr is const
-*ptr = 10    // compile error
-ptr = &y     // ok
+```kairo hints
+var a: *i32 = &x
+a = &y       // ok
+*a = 10      // ok
 
-const ptr: *const i32 = &x
-// both const
-*ptr = 10    // compile error
-ptr = &y     // compile error
+const b: *i32 = &x
+b = &y       // compile error: the pointer is const
+*b = 10      // ok
+
+var c: *const i32 = &x
+c = &y       // ok
+*c = 10      // compile error: the pointee is const
+
+const d: *const i32 = &x
+d = &y       // compile error
+*d = 10      // compile error
 ```
+
+Each question has exactly one place it can be answered. `var ptr: const *const i32` would mean the
+same thing as `const ptr: *const i32`, but it is rejected, because the pointer question belongs to
+the declaration keyword.
 
 See [Variables](/docs/language/variables#the-const-binding-rule) for the full `const` model.
 
@@ -149,8 +162,8 @@ Pointer-to-pointer arithmetic (`p1 - p2`) is not permitted on safe pointers use 
 that.
 
 > [!CAUTION]
-> Safe pointer arithmetic is bounds-checked by AMT only when provenance is trackable. If the pointer
-> originates from a context where AMT cannot determine the allocation bounds, the arithmetic compiles
+> Safe pointer arithmetic is bounds-checked by Tether only when provenance is trackable. If the pointer
+> originates from a context where Tether cannot determine the allocation bounds, the arithmetic compiles
 > but bounds safety is not guaranteed. Prefer array/vector indexing over pointer arithmetic when
 > possible.
 
@@ -179,7 +192,7 @@ p[0]    // same as *(p + 0)
 p[2]    // same as *(p + 2)
 ```
 
-Bounds checking follows the same rules as pointer arithmetic AMT checks when provenance is
+Bounds checking follows the same rules as pointer arithmetic Tether checks when provenance is
 trackable, no checks on `unsafe *T`.
 
 ---
@@ -214,9 +227,9 @@ var pp: **i32 = &p
 **pp = 100   // x is now 100
 ```
 
-`const` applies at each level independently:
+`const` applies at each level independently, one question per level:
 
-```kairo
+```kairo hints
 const pp: *const *i32 = &p
 // pp cannot be reassigned
 // *pp (the inner pointer) cannot be reassigned
@@ -227,52 +240,52 @@ const pp: *const *i32 = &p
 
 ## Smart Pointer Promotion
 
-[AMT](/docs/language/amt) analyzes pointer usage and automatically promotes safe pointers to smart
+[Tether](/docs/language/tether) analyzes pointer usage and automatically promotes safe pointers to smart
 pointers when needed. The smart pointer types are compiler intrinsics exposed through the standard
 library:
 
 | Type | Description |
 |---|---|
-| `std::Unique<*T>` | Single-owner, exclusive access, freed on drop |
-| `std::Shared<*T>` | Reference-counted, multiple owners, freed when count reaches zero |
+| `std::Unique<T>` | Single-owner, exclusive access, freed on drop |
+| `std::Shared<T>` | Reference-counted, multiple owners, freed when count reaches zero |
 | `std::Weak<*T>` | Non-owning reference to a `Shared` allocation, does not prevent deallocation |
 
-AMT decides which smart pointer type to use based on how the pointer is used across the program. The
-programmer does not need to annotate or choose AMT handles it automatically:
+Tether decides which smart pointer type to use based on how the pointer is used across the program. The
+programmer does not need to annotate or choose Tether handles it automatically:
 
 ```kairo
 fn make_config() -> *Config {
-    var cfg = std::create<Config>(8080)
-    return cfg   // AMT determines ownership: likely Unique or Shared
+    var cfg = @create Config(8080)
+    return cfg   // Tether determines ownership: likely Unique or Shared
 }
 ```
 
-If AMT cannot determine a safe promotion path (e.g., the pointer escapes in a way that prevents
+If Tether cannot determine a safe promotion path (e.g., the pointer escapes in a way that prevents
 tracking), it emits a compile error rather than allowing unsafe behavior.
 
-Smart pointer types can be used explicitly to override AMT's decision or to validate compiler
+Smart pointer types can be used explicitly to override Tether's decision or to validate compiler
 behavior:
 
 ```kairo
-var ptr: std::Unique<*Config> = std::create<Config>(8080)
-var shared: std::Shared<*Config> = std::create<Config>(8080)
+var ptr: std::Unique<Config> = @create Config(8080)
+var shared: std::Shared<Config> = @create Config(8080)
 ```
 
-See [AMT](/docs/language/amt) for the full lifetime and promotion model, and
+See [Tether](/docs/language/tether) for the full lifetime and promotion model, and
 [Ownership](/docs/language/ownership) for borrowing semantics.
 
 ---
 
 ## Heap Allocation
 
-Stack allocation is the default. Heap allocation uses `std::create<T>()`:
+Stack allocation is the default. Heap allocation uses `@create T()`:
 
 ```kairo
 var stack_val = Config(8080)                    // stack-allocated
-var heap_ptr = std::create<Config>(8080)        // heap-allocated, AMT chooses pointer type
+var heap_ptr = @create Config(8080)        // heap-allocated, Tether chooses pointer type
 ```
 
-For raw heap allocation without AMT tracking:
+For raw heap allocation without Tether tracking:
 
 ```kairo
 var raw = unsafe std::alloc<i32>(sizeof i32 * 10)   // raw allocation, 10 i32s
@@ -280,7 +293,7 @@ var raw = unsafe std::alloc<i32>(sizeof i32 * 10)   // raw allocation, 10 i32s
 unsafe std::free(raw)
 ```
 
-See [AMT](/docs/language/amt) for how allocation interacts with lifetime tracking.
+See [Tether](/docs/language/tether) for how allocation interacts with lifetime tracking.
 
 ---
 
@@ -290,23 +303,24 @@ See [AMT](/docs/language/amt) for how allocation interacts with lifetime trackin
 |---|---|
 | `==` | Compares addresses do both pointers point to the same location? |
 | `!=` | Negation of `==` |
-| `===` | Deep equality dereferences both pointers and compares the values |
+| `===` | Null-aware equality on nullable pointers (`*T?`): true when both are non-null and the values they point to are equal |
 
 ```kairo
 var a = 42
 var b = 42
-var p = &a
-var q = &b
+var p: *i32? = &a
+var q: *i32? = &b
 
 p == q    // false: different addresses
 p === q   // true: both point to 42
 
-var r = &a
+var r: *i32? = &a
 p == r    // true: same address
 ```
 
-`===` performs a null check before dereferencing. If either pointer is null, `===` returns `false`
-(two null pointers are not deeply equal there is no value to compare).
+`===` needs at least one nullable operand; on two `*T` it is an error. To compare what two `*T` point to,
+dereference them: `*x == *y`. For raw pointers (`unsafe *T`), use `==` for address comparison and
+dereference manually after a null check.
 
 See [Operators](/docs/language/operators#comparison) for the full comparison model.
 
@@ -339,7 +353,7 @@ wraps the pointer in the standard `Nullable<T>` system:
 | Can be null | No | Yes | Yes |
 | Null check mechanism | N/A | `?.`, `??`, `unwrap!()`, `val?` | `ptr != &null` (manual) |
 | Dereference null | Cannot happen | Compile error (must check first) | Undefined behavior |
-| AMT tracked | Yes | Yes | No |
+| Tether tracked | Yes | Yes | No |
 
 `*T?` supports the same null-handling operators as any other nullable type. `unsafe *T` uses
 manual null comparison, it does not participate in the `Nullable<T>` system.
@@ -372,15 +386,15 @@ var p: *i32 = &x
 // Raw pointer
 var raw: unsafe *i32 = unsafe &x
 
-// Null
-var null_ptr: *i32 = &null
-if null_ptr != &null {
-    std::println(*null_ptr)
+// Nullable pointer (*T itself is never null)
+var maybe: *i32? = null
+if maybe? {
+    std::println(*maybe)
 }
 
 // Const pointer
-var ptr: *const i32 = &x    // mutable pointer to const value
-const ptr: *i32 = &x        // const pointer to mutable value
+var ptr: *const i32 = &x    // can change the pointer, cannot change the pointee
+const ptr: *i32 = &x        // cannot change the pointer, can change the pointee
 
 // Pointer arithmetic
 var arr: [i32; 4] = [10, 20, 30, 40]
@@ -388,10 +402,10 @@ var p: *i32 = &arr[0]
 *(p + 2)   // 30
 
 // Heap allocation
-var heap = std::create<Config>(8080)
+var heap = @create Config(8080)
 
 // Smart pointer (explicit)
-var unique: std::Unique<*Config> = std::create<Config>(8080)
+var unique: std::Unique<Config> = @create Config(8080)
 
 // Void pointer
 var opaque: unsafe *void = get_handle()
@@ -403,5 +417,6 @@ var pp: **i32 = &p
 
 // Comparison
 p == q     // address comparison
-p === q    // deep value comparison
+*p == *q   // value comparison
+maybe === other   // deep value comparison on nullable pointers
 ```

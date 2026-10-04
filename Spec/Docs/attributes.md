@@ -59,7 +59,7 @@ Attributes must preserve the node type. An attribute attached to a function decl
 class or a variable. This ensures the expansion process is deterministic and the AST remains
 structurally consistent.
 
-To add new nodes, create them with `std::create<AST::NodeType>()` and attach them to the existing
+To add new nodes, create them with `@create AST::NodeType()` and attach them to the existing
 node (e.g., appending statements to a function body, adding members to a class).
 
 ---
@@ -71,7 +71,7 @@ Attributes can take additional arguments beyond the implicit node parameter:
 ```kairo
 macro @repeat(block: *AST::Block, times: i32) {
     var original = block->clone()
-    var expanded = std::create<AST::Block>()
+    var expanded = @create AST::Block()
 
     for i in 0..times {
         expanded->body.append(original.clone())
@@ -150,6 +150,10 @@ This allows attributes to compose `@serializable` can add serialization methods,
 Attributes can be attached to any AST node:
 
 ```kairo
+// On a function
+@no_unwind
+fn checksum(data: [u8;]) -> u32 { ... }
+
 // On a class
 @packed
 class Header { ... }
@@ -180,7 +184,7 @@ Kairo provides built-in attributes that are handled directly by the compiler:
 | `@packed` | Remove padding between members | Classes, structs, unions |
 | `@align(N)` | Set minimum alignment to N bytes | Classes, structs, unions |
 
-See [Classes](/docs/language/classes#memory-layout) and
+See [Classes](/docs/language/classes#memory-layout-and-allocation) and
 [Structures](/docs/language/structures#memory-layout) for layout details.
 
 ### Branch hints
@@ -200,13 +204,42 @@ See [Control Flow](/docs/language/control-flow#branch-hints) for branch predicti
 | `@no_warn(CODE)` | Suppress a specific compiler warning | Any declaration |
 | `@deprecated(msg)` | Mark a declaration as deprecated | Any declaration |
 
+### Unwinding
+
+| Attribute | Description | Applies to |
+|---|---|---|
+| `@no_unwind` | Promise that the function never unwinds | Functions |
+
+`@no_unwind` marks the function's generated C++ declaration and definition `noexcept`. That is all it
+does: nothing checks the promise. If a `@no_unwind` function does unwind, for example because a C++
+exception passes through it, the program terminates (`std::terminate`).
+
+```kairo
+@no_unwind
+fn add(a: i32, b: i32) -> i32 { return a + b }   // C++: int add(int a, int b) noexcept
+```
+
+Writing `@no_unwind` on any one declaration of a function covers all of them: a forward declaration, the
+declaration inside a class, or the out-of-line definition.
+
+```kairo
+class Counter {
+    var n: i32
+    @no_unwind fn get(const self) -> i32     // declared here...
+}
+
+fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition is noexcept too
+```
+
+See [Exceptions](/docs/language/c-cpp#exceptions) for how C++ exceptions move through Kairo code.
+
 ### Other
 
 | Attribute | Description | Applies to |
 |---|---|---|
 | `@core::where_handler` | Custom handler for where-clause failures | Functions |
 
-See [Where Clauses](/docs/language/bounds) for the where handler system.
+See [Where Clauses](/docs/language/where) for the where handler system.
 
 ---
 
@@ -231,7 +264,7 @@ Key operations available on AST nodes:
 | `node->body.prepend(stmt)` | Add a statement to the beginning |
 | `node->clone()` | Deep-copy the node |
 | `AST::parse!(code)` | Parse a code fragment into an AST node |
-| `std::create<AST::T>()` | Create a new AST node of type T |
+| `@create AST::T()` | Create a new AST node of type T |
 
 ---
 

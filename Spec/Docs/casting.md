@@ -101,12 +101,12 @@ fn process(animal: *Animal) panic {
 }
 ```
 
-**Checked downcast** returns a nullable pointer. `&null` if the runtime type does not match:
+**Checked downcast** returns a nullable pointer `*Derived?`, which is null if the runtime type does not match:
 
 ```kairo
 fn process(animal: *Animal) {
     var dog = animal as *Dog?   // null if animal is not a Dog
-    if dog != &null {
+    if dog? {
         dog->fetch()
     }
 }
@@ -118,69 +118,98 @@ Both forms perform a runtime type check using the vtable (the class must have at
 ### Raw pointer cast
 
 Casting to `unsafe *T` reinterprets the pointer with no type checking equivalent to C++'s
-`reinterpret_cast`. The compiler performs no validation:
+`reinterpret_cast`. The compiler performs no validation.
+
+Casting a safe pointer to a raw pointer `*T as unsafe *U` requires an
+[`unsafe` block](/docs/language/unsafe#unsafe-blocks). This is the point where Tether loses provenance:
+after the cast the compiler can no longer relate the pointer to the allocation it came from, so the
+loss is made visible at the source:
 
 ```kairo
 var ptr: *i32 = &some_value
-var raw = ptr as unsafe *void    // type erasure
-var back = raw as unsafe *i32    // reinterpret caller must ensure correctness
+
+unsafe {
+    var raw = ptr as unsafe *void    // provenance loss: safe pointer to raw
+    var back = raw as unsafe *i32    // reinterpret caller must ensure correctness
+}
 ```
 
-Casting between `unsafe *T` types is always permitted. The result is the same pointer value with a
-different type no runtime check, no adjustment.
+Casting between `unsafe *T` types needs no `unsafe` block there is no provenance left to lose. The
+result is the same pointer value with a different type no runtime check, no adjustment.
 
 > [!CAUTION]
-> Raw pointer casts bypass AMT's safety guarantees. Casting to `unsafe *void` erases type information
+> Raw pointer casts bypass Tether's safety guarantees. Casting to `unsafe *void` erases type information
 > permanently the compiler cannot verify the correctness of a subsequent cast back. Use only for
 > C/C++ interop, custom allocators, and other low-level scenarios.
 
-### Raw pointer to safe pointer
-
-The way back from `unsafe *T` is `as *T`, and only inside an `unsafe` block. The block is the
-programmer's claim that the pointer is valid; the cast is what the claim is about. This is how memory
-that is born raw (every C/C++ allocation, every pointer an FFI call returns) becomes a safe pointer:
-
-```kairo
-// C: unsigned char *make_buffer(size_t n);
-unsafe {
-    var buf = make_buffer(64) as *u8                    // raw from C, safe from here on
-    var mem = malloc(64) as unsafe *u8 as *u8           // void *: retype first, then adopt
-}
-// var p = make_buffer(64) as *u8                       // compile error: requires an unsafe context
-```
-
-The pointee must be the same type, and `const` may be added but not dropped. Retyping the pointee, or
-removing a qualifier, is a reinterpret: go through `as unsafe *T` first.
-
-This is the spelling of what the compiler treats as a checked construction. Today nothing is checked:
-the pointer is trusted. When AMT can adopt a pointer, the adoption hooks this same cast: same
-source, different lowering.
-
 ### Pointer to integer
 
-Casting a pointer to an integer extracts the numeric address. No `unsafe` block is required:
+Casting a pointer to an integer extracts the numeric address. This is safe and requires no `unsafe`
+block reading an address cannot violate memory safety on its own, and the resulting integer carries
+no provenance:
 
 ```kairo
 var ptr: *i32 = &some_value
 var addr = ptr as usize    // ok: numeric address
-
-var truncated = ptr as u8  // warning: truncation of pointer value
 ```
 
-`usize` is the natural target type since it matches pointer width. Casting to a narrower integer
-produces a truncation warning.
+`usize` is the only permitted target it is the one integer type guaranteed to hold a full address.
+Casting a pointer directly to a narrower integer is a compile error, not a warning: silently
+discarding the high bits of an address is never what the programmer meant.
+
+```kairo
+// var truncated = ptr as u8       // compile error: cannot cast pointer to u8
+
+var low = ptr as usize as u8       // ok: address, then explicit truncation
+```
+
+If you genuinely want the low byte of an address (tag bits, alignment checks), spell it as two casts.
+The second cast is an ordinary [numeric narrowing](#narrowing-truncation) and reads as deliberate.
 
 ### Integer to pointer
 
 Casting an integer to a pointer fabricates a pointer from a numeric address. The result must be an
-`unsafe` pointer safe pointers require provenance tracking that an integer cannot provide:
+`unsafe` pointer safe pointers require provenance tracking that an integer cannot provide and the
+cast requires an [`unsafe` block](/docs/language/unsafe#unsafe-blocks). The integer carries no
+provenance, so the cast invents one that Tether has no way to verify:
 
 ```kairo
 var addr: usize = 0x7FFE_0000_1000
-var ptr = addr as unsafe *i32   // ok: fabricating an unsafe pointer
 
-// var bad = addr as *i32       // compile error: cannot create safe pointer from integer
+unsafe {
+    var ptr = addr as unsafe *i32   // ok: fabricating provenance
+}
+
+// var bad = addr as *i32           // compile error: cannot create safe pointer from integer
 ```
+
+This is the inverse of `ptr as usize`, and the asymmetry is deliberate: discarding provenance is
+harmless, inventing it is not.
+
+### Pointer cast rules
+
+Every pointer cast is classified by what it does to *provenance* the compiler's knowledge of which
+allocation a pointer belongs to. Casts that discard provenance are safe; casts that create or
+fabricate it are not:
+
+| Cast | Status | Provenance | Why |
+|---|---|---|---|
+| `ptr as usize` | Allowed, no `unsafe` | Discarded | Reading an address cannot cause UB on its own |
+| `ptr as u8` (any narrower int) | **Compile error** | | Narrowing an address is never intended write `ptr as usize as u8` |
+| `n as unsafe *T` | Allowed, requires `unsafe` block | Fabricated | Tether cannot verify an address that came from an integer |
+| `n as *T` | **Compile error** | | Safe pointers require provenance an integer cannot supply |
+| `*T as unsafe *U` | Allowed, requires `unsafe` block | Lost | The provenance-loss point keep it visible |
+| `unsafe *T as unsafe *U` | Allowed, no `unsafe` | Already absent | Nothing left to lose |
+| `*Derived as *Base` | Implicit | Preserved | Same allocation, adjusted offset |
+| `*Base as *Derived` | Allowed, runtime check | Preserved | Vtable check, panics or yields null |
+
+The two error rows are deliberate refusals rather than warnings. `ptr as u8` has an honest spelling
+(`ptr as usize as u8`) that says the same thing in two steps, and `n as *T` has no honest spelling at
+all a safe pointer's guarantees cannot be reconstructed from a number.
+
+`unsafe` blocks appear on exactly the rows where Tether stops being able to reason about the pointer.
+See [Unsafe](/docs/language/unsafe#the-safety-boundary) for the boundary model and
+[Tether](/docs/language/tether) for what provenance tracking buys.
 
 ---
 
@@ -223,7 +252,7 @@ enum <T> ParseResult {
 // ParseResult::Success { ... } as u32   // compile error: ADT enums cannot be cast to integers
 
 extend <T> ParseResult<T> {
-    fn tag(self) const -> u32 {
+    fn tag(const self) -> u32 {
         match self {
             case .Success { 0 }
             case .Error   { 1 }
@@ -235,42 +264,38 @@ extend <T> ParseResult<T> {
 
 ---
 
-## Nullable Collapsing Cast
+## Nullable to Non-Nullable
 
-Casting a nullable value `T?` to its underlying type `T` produces a non-null value. If the source is
-null, a default-constructed value of `T` is used instead:
+Casting a nullable value `T?` to its underlying type `T` is a compile error:
 
 ```kairo
 var x: i32? = null
-var y = x as i32     // 0 (default-constructed i32)
-
-var s: string? = "hello"
-var t = s as string  // "hello"
+// var y = x as i32    // compile error: cannot cast i32? to i32
+//                     // use `x ?? <default>` or `unwrap!(x)`
 ```
 
-The target type `T` must be trivially default-constructible. If the type has a deleted default
-constructor, the collapsing cast is a compile error:
+There is no collapsing cast in Kairo. A cast that quietly produced a default-constructed value on
+null would fabricate a value the program never computed which is precisely what the nullable system
+exists to prevent. The null case has to be answered, not erased, and the two honest answers already
+have syntax:
+
+| Intent | Write | On null |
+|---|---|---|
+| Supply a fallback | `x ?? 0` | Yields the fallback |
+| Assert non-null | `unwrap!(x)` | Panics (requires `panic` / `try`) |
+
+Both read at the call site as a decision about null. `x as i32` reads as a type conversion and hides
+one.
 
 ```kairo
-class NoDefault {
-    fn NoDefault(self) = delete
-}
+var count: i32? = lookup_count()
 
-var obj: NoDefault? = null
-// var x = obj as NoDefault   // compile error: NoDefault has no default constructor
+var n = count ?? 0            // explicit: absent means zero
+var m = unwrap!(count)        // explicit: absent is a bug, panic
 ```
 
-This differs from `unwrap!()`, which panics on null instead of default-constructing:
-
-| | `x as T` | `unwrap!(x)` |
-|---|---|---|
-| Source is non-null | Returns the value | Returns the value |
-| Source is null | Returns `T()` (default) | Panics |
-| Requires default constructor | Yes | No |
-| Requires `panic` / `try` | No | Yes |
-
-See [Variables](/docs/language/variables#nullable-types) for other nullable operations (`?.`, `??`,
-null checking).
+See [Variables](/docs/language/variables#nullable-types) for the rest of the nullable operations
+(`?.`, `??`, `unwrap!()`, null checking).
 
 ---
 
@@ -305,6 +330,31 @@ the target type.
 See [Operators](/docs/language/operators#special-operators) for the full operator overloading
 reference.
 
+## Conversion Through a Constructor
+
+`x as T` is also a conversion when `T` declares a constructor with one parameter that accepts `x`'s type. The
+cast calls that constructor:
+
+```kairo
+class Celsius {
+    var value: f64
+
+    fn Celsius(self, v: f64) { self.value = v }
+}
+
+var c = 21.5 as Celsius     // calls Celsius(21.5)
+```
+
+The standing example is slice to vector. A vector has a constructor that takes a slice, so the cast copies the
+elements into a new vector:
+
+```kairo
+var s: [i32;] = [1, 2, 3]
+var v = s as [i32]          // allocates and copies
+```
+
+If the source type declares `op as` for `T` and `T` also has a matching constructor, `op as` wins.
+
 ---
 
 ## Cast Summary
@@ -317,18 +367,20 @@ reference.
 | Int to float | `x as f64` | May lose precision | Rounded |
 | Derived-to-base ptr | Implicit | Safe | N/A |
 | Base-to-derived ptr (asserting) | `ptr as *Derived` | Runtime check | Panics |
-| Base-to-derived ptr (checked) | `ptr as *Derived?` | Runtime check | Returns `&null` |
-| Raw pointer cast | `ptr as unsafe *T` | No check | Reinterpret |
-| Raw to safe pointer | `raw as *T` (in `unsafe`) | Trusted | Same address |
-| Pointer to integer | `ptr as usize` | Safe | Address value |
-| Integer to pointer | `n as unsafe *T` | Unsafe | Fabricated pointer |
+| Base-to-derived ptr (checked) | `ptr as *Derived?` | Runtime check | Returns null |
+| Safe to raw pointer | `ptr as unsafe *T` | Requires `unsafe` block | Provenance loss |
+| Raw to raw pointer | `raw as unsafe *T` | No check | Reinterpret |
+| Pointer to `usize` | `ptr as usize` | Safe | Address value |
+| Pointer to narrower int | `ptr as u8` | Compile error | Use `ptr as usize as u8` |
+| Integer to pointer | `n as unsafe *T` | Requires `unsafe` block | Fabricated provenance |
 | Plain enum to int | `e as u8` | Safe | Discriminant value |
 | Int to plain enum | `n as Direction` | UB if no match | No runtime check |
 | ADT enum to int | N/A | Compile error | Use `extend` method |
-| Nullable collapse | `x as T` | Safe | Default-constructs on null |
 | User-defined | `x as TargetType` | Depends on `op as` | Calls user code |
+| Through a constructor | `x as T` | Depends on the constructor | Calls `T`'s one-parameter constructor |
+| Slice to vector | `s as [T]` | Safe | Allocates and copies |
 | `T` to `T?` | Implicit | Safe | N/A |
-| `T?` to `T` | `x as T` | Collapsing cast | Default on null |
+| `T?` to `T` | Not a cast | Compile error | Use `??` or `unwrap!()` |
 
 ---
 

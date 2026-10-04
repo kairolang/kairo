@@ -44,6 +44,84 @@ macro clamp!(value, lo, hi) {
 var x = clamp!(temperature, 0, 100)
 ```
 
+#### Default values
+
+A parameter may declare a default token run with `=`. When the caller omits the argument, the
+default tokens substitute instead. Defaulted parameters must come after required ones:
+
+```kairo
+macro log!(msg, level = "info") {
+    std::println(f"[{level}] {msg}")
+}
+
+log!("started")            // level defaults to "info"
+log!("failed", "error")
+```
+
+#### Ignoring extra arguments
+
+A bare `...` (no name) as the last parameter accepts any number of extra arguments and discards
+them. Useful for macros that mirror a wider signature:
+
+```kairo
+macro trace!(msg, ...) { std::println(msg) }
+
+trace!("hit", state, depth)   // state, depth are consumed and dropped
+```
+
+A `...` parameter (named or bare) must be last, and cannot follow defaulted parameters.
+
+### Variadic macros and pack expansion
+
+The `...` prefix on the last parameter declares a token pack: it captures any number of
+comma-separated arguments. Inside the body, the pack expands with a **postfix** `...` — the same
+declaration-prefix / expansion-postfix split used by variadic functions and pack expansion
+expressions:
+
+```kairo
+macro list!(...xs) { [ xs... ] }
+
+list!()          // [ ]
+list!(1)         // [ 1 ]
+list!(1, 2, 3)   // [ 1, 2, 3 ]
+```
+
+A bare splat `xs...` emits the pack's elements joined by commas. An empty pack consumes the splat
+and emits nothing.
+
+#### Pattern expansion
+
+A parenthesized token run followed by `...` replicates the whole pattern once per pack element,
+substituting the pack name with that element each time. Instances are comma-joined:
+
+```kairo
+macro wrap_all!(...xs) { [ (box(xs))... ] }
+
+wrap_all!(1, 2, 3)   // [ box(1), box(2), box(3) ]
+```
+
+Ordinary parameters substitute inside patterns as usual:
+
+```kairo
+macro call_each!(f, ...xs) { (f(xs))... }
+
+call_each!(log, a, b)   // log(a), log(b)
+```
+
+The outer parentheses are grouping syntax and are not emitted. To emit parentheses around each
+instance, double them:
+
+```kairo
+macro pairs!(k, ...xs) { [ ((k, xs))... ] }
+
+pairs!(id, 7, 8)   // [ (id, 7), (id, 8) ]
+```
+
+Two rules keep macro expansion from colliding with expression-level pack expansion in the output:
+a postfix `...` after an identifier that is not the macro's pack, or after a parenthesized run
+that never mentions the pack, passes through verbatim as target-language code. Expansion is
+single-level — a nested `...` inside a pattern is emitted verbatim.
+
 ### Macros as arguments
 
 Macros can be passed to other macros. The inner macro is expanded at the final substitution site:
@@ -61,18 +139,25 @@ var labels = repeat!(tag)   // becomes: "debug" "debug" "debug"
 
 Kairo provides a set of compiler-intrinsic macros for common tasks.
 
+Builtin names are reserved: defining a macro with a builtin's name (`macro first!(...)`,
+`macro paste!(...)`) is a compile error. Qualified macros (`mymod::first!`) do not collide —
+builtins only claim the unqualified names.
+
 ### Token manipulation
 
 | Macro | Description |
 |---|---|
-| `concat!(a, b)` | Join tokens into a single token |
+| `paste!(a, b)` | Paste identifier tokens into a single identifier |
 | `stringify!(a)` | Convert a token to a string literal |
 | `unstringify!(s)` | Convert a string literal back to tokens |
 
 ```kairo
-var name = concat!(my, _var)       // becomes: my_var
+var name = paste!(my, _var)        // becomes: my_var
 var s = stringify!(some_ident)     // becomes: "some_ident"
 ```
+
+`paste!` joins the spelling of every argument token and produces one identifier; the result must
+be a valid identifier.
 
 > [!WARNING]
 > `unstringify!` converts a string into raw tokens that are injected into the source. This is a
@@ -86,15 +171,26 @@ var s = stringify!(some_ident)     // becomes: "some_ident"
 | `first!(...args)` | First argument |
 | `last!(...args)` | Last argument |
 | `rest!(...args)` | All arguments except the first |
-| `init!(...args)` | All arguments except the last |
+| `butlast!(...args)` | All arguments except the last |
 
 ```kairo
 count!(a, b, c)     // 3
 first!(a, b, c)     // a
 last!(a, b, c)      // c
 rest!(a, b, c)      // b, c
-init!(a, b, c)      // a, b
+butlast!(a, b, c)   // a, b
 ```
+
+These builtins expand macro invocations in their arguments first, then split on top-level commas,
+so they compose:
+
+```kairo
+count!(rest!(a, b, c))   // 2
+first!(rest!(a, b, c))   // b
+```
+
+`stringify!` and `defined!` are the exceptions: they operate on their arguments' raw tokens
+(quoting and name-probing would be destroyed by expansion).
 
 ### Source location
 
@@ -113,36 +209,34 @@ std::println(f"logged from {file!}:{line!}")
 
 | Macro | Description |
 |---|---|
-| `error!(msg)` | Emit a compile error with the given message |
-| `warning!(msg)` | Emit a compile warning |
-| `note!(msg)` | Emit a compile note |
+| `compile_error!(msg)` | Emit a compile error with the given message |
+| `compile_warn!(msg)` | Emit a compile warning |
+| `compile_note!(msg)` | Emit a compile note |
 
 ```kairo
 eval if platform == "wasm" {
-    error!("WebAssembly is not supported yet")
+    compile_error!("WebAssembly is not supported yet")
 }
 ```
 
-An optional error code can be passed as a second argument:
-
-```kairo
-warning!("deprecated API", "W0042")
-```
+The `compile_` prefix keeps these distinct from runtime logging: `compile_error!` aborts the
+build, it does not log.
 
 ### Code generation
 
 | Macro | Description |
 |---|---|
 | `include!(path)` | Paste file contents as tokens |
-| `include_str!(path)` | File contents as a string literal |
+| `embed_str!(path)` | File contents as a string literal |
 | `embed!(path)` | File contents as a byte array (`[byte]`) |
-| `unique_id!` | Generate a unique identifier |
+| `unique_id!` / `unique_id!(tag)` | Generate a unique identifier |
 | `todo!(msg)` | Runtime panic placeholder with optional message |
-| `unreachable!(msg)` | Assert a code path is unreachable |
+| `unreachable!(msg)` | Assert a code path is unreachable (panics if reached) |
+| `unreachable_unchecked!` | Optimizer hint: path is dead (UB if reached) |
 
 ```kairo
 // Embed a shader as a string
-eval VERTEX_SHADER = include_str!("shaders/vertex.glsl")
+eval VERTEX_SHADER = embed_str!("shaders/vertex.glsl")
 
 // Embed a binary resource
 eval ICON_DATA = embed!("assets/icon.png")
@@ -153,8 +247,17 @@ fn process() -> Config {
 }
 ```
 
-`todo!()` panics at runtime with the given message. `unreachable!()` is undefined behavior if
-reached the optimizer assumes the code path is dead.
+`todo!()` and `unreachable!()` are SAFE: both panic at runtime if reached, with `unreachable!()`
+signaling a logic error rather than missing code. `unreachable_unchecked!()` is the unsafe
+variant: it is a hard assertion to the optimizer that the path is dead, and reaching it at
+runtime is undefined behavior. Reach for `unreachable_unchecked!` only when the panic branch of
+`unreachable!` shows up in a profile.
+
+Untagged, `unique_id!` produces a fresh identifier on every invocation. The tagged form
+`unique_id!(tag)` is stable within one dynamic macro expansion: every `unique_id!(guard)` inside
+the same expansion instance yields the SAME identifier, letting a macro body refer to one
+generated name in several places, while separate invocations of the macro still get distinct
+names.
 
 ### Conditional
 
@@ -170,19 +273,6 @@ eval if defined!(DEBUG_MODE) {
 }
 ```
 
-### Hygiene
-
-| Macro | Description |
-|---|---|
-| `undef!(name)` | Remove a macro definition |
-
-```kairo
-macro TEMP! { 42 }
-var x = TEMP!        // 42
-undef!(TEMP)
-// var y = TEMP!     // compile error: TEMP is not defined
-```
-
 ---
 
 ## Compiler Intrinsic Macros
@@ -193,9 +283,9 @@ Some macros are compiler intrinsics that perform operations beyond token substit
 |---|---|---|
 | `label!(name)` | Declare a jump target | [Control Flow](/docs/language/control-flow#jumps) |
 | `jump!(name)` | Unconditional jump to a label | [Control Flow](/docs/language/control-flow#jumps) |
-| `forget!(ptr)` | Drop a pointer from AMT tracking | [Unsafe](/docs/language/unsafe#forget) |
+| `forget!(ptr)` | Drop a pointer from Tether tracking | [Unsafe](/docs/language/unsafe#forget) |
 | `unwrap!(expr)` | Force-unwrap a nullable, panic on null | [Variables](/docs/language/variables#force-unwrap) |
-| `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Classes](/docs/language/classes#the-rule-of-five) |
+| `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Library](/docs/library/core/functions/move_refrence) |
 
 These use macro syntax (`name!`) to make their usage explicit and searchable in a codebase, but
 they are not user-definable they are built into the compiler.
@@ -256,15 +346,15 @@ std::println(f"version: {VERSION!}")
 
 // Built-in macros
 std::println(f"file: {file!}, line: {line!}")
-eval SHADER = include_str!("shader.glsl")
+eval SHADER = embed_str!("shader.glsl")
 eval ICON = embed!("icon.png")
 
 // Variadic helpers
 var n = count!(a, b, c, d)   // 4
 
 // Diagnostics
-eval if sizeof(usize) < 8 {
-    error!("64-bit platform required")
+eval if sizeof usize < 8 {
+    compile_error!("64-bit platform required")
 }
 
 // Conditional compilation

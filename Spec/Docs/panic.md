@@ -16,7 +16,7 @@ Add `panic` after the parameter list to indicate a function may produce an error
 
 ```kairo
 fn parse_port(input: string) panic -> i32 {
-    if input.len() == 0 {
+    if input.length() == 0 {
         panic std::Error::Runtime("empty input")
     }
 
@@ -144,7 +144,7 @@ fn process(path: string) panic -> Data {
 
     var content = read_file(path)
 
-    if content.len() == 0 {
+    if content.length() == 0 {
         panic std::Error::Runtime("empty file")
     }
 
@@ -161,18 +161,14 @@ Callers of `process` must handle `std::Error::IO`, `std::Error::Runtime`, and
 
 ---
 
-## `try`/`catch` as an Expression
+## Try/Catch as an Expression
 
 `try`/`catch` can produce a value. Each branch must return the same type:
 
 ```kairo
-var port = try {
-    parse_port(input)
-} catch e: std::Error::Runtime {
-    8080
-} catch {
-    3000
-}
+var port = try parse_port(input)
+           catch e: std::Error::Runtime { 8080 }
+           catch { 3000 }
 ```
 
 `finally` is not permitted in expression form. See
@@ -180,7 +176,7 @@ var port = try {
 
 ---
 
-## `finally`
+## Finally
 
 `finally` defines cleanup code that runs regardless of whether the `try` body succeeds or panics:
 
@@ -190,15 +186,17 @@ try {
     do_work()
 } catch e: std::Error::Runtime {
     handle_error(e)
-} finally {
+}
+
+finally { // identical to standalone `finally`
     release_lock()   // always runs
 }
 ```
 
 ### Standalone `finally` (scope exit)
 
-`finally` can appear without a preceding `try`. In this form it runs when the enclosing function
-exits, regardless of how normal return, panic, or early return:
+`finally` can appear without a preceding `try`. In this form it runs when control leaves the
+enclosing scope, however it leaves: normal exit, `return`, `break`, `continue`, or a panic:
 
 ```kairo
 fn process_file(path: string) panic {
@@ -217,7 +215,9 @@ fn process_file(path: string) panic {
 }
 ```
 
-Multiple `finally` blocks in the same function execute in reverse declaration order (LIFO).
+A standalone `finally` behaves like the destructor of a local declared at the same point. It belongs to
+its enclosing block rather than the function, runs only if execution reached it, and runs in reverse
+declaration order (LIFO) together with the scope's destructors.
 
 See [Control Flow](/docs/language/control-flow#finally) for full `finally` semantics.
 
@@ -232,14 +232,19 @@ implies an alternative return path (the error), while `!` guarantees no return a
 ```kairo
 fn fatal(msg: string) panic -> ! {
     // compile error: panic and ! are contradictory
+    panic std::Error::Runtime("fatal error") // invalid, panic implies an error return, but ! means no return at all
 }
 
 fn fatal(msg: string) -> ! {
-    loop { }   // ok: never returns
+    loop {
+        crash!(msg) // valid
+    }
+    
+    // ok: never returns
 }
 ```
 
-See [Functions](/docs/language/functions#no-return) and
+See [Functions](/docs/language/functions#no-return-) and
 [Type System](/docs/language/type-system#the-never-type-) for `!` semantics.
 
 ---
@@ -250,16 +255,21 @@ Panics compile to zero-cost tagged return values. There are no unwinding tables,
 exception handler, and no stack unwinding. A function marked `panic` returns a tagged union
 containing either the success value or an error with source location metadata.
 
-At the call site, `try`/`catch` compiles to a branch on the tag. If the tag indicates an error,
-the catch block executes. If it indicates success, the value is extracted and execution continues.
+At the call site, the compiler lowers `try`/`catch` to a `match` on the tagged union. If the tag
+indicates an error, the matching catch block executes. If it indicates success, the value is
+extracted and execution continues.
 
 This means:
 
 - No runtime overhead on the success path beyond a single branch (which the branch predictor
   handles efficiently)
 - No stack unwinding errors propagate via normal return values
-- No unwinding tables in the binary smaller executables
-- All functions in Kairo are trivially `noexcept` at the ABI level
+- No unwinding tables for panics smaller executables
+- No Kairo function throws; only a C++ exception can unwind through Kairo code
+
+> [!NOTE]
+> The same `try`/`catch` syntax can also catch an exception thrown by C++ code. That path does use
+> the platform unwinder. See [Exceptions](/docs/language/c-cpp#exceptions) in C/C++ Interop.
 
 > [!NOTE]
 > The `panic` statement inside a function body (`panic SomeError(...)`) does not halt the program.
@@ -298,7 +308,7 @@ class ParseError {
 }
 
 fn parse(input: string) panic -> Ast {
-    if input.len() == 0 {
+    if input.length() == 0 {
         panic ParseError("unexpected end of input", 0)
     }
     // ...
@@ -336,11 +346,8 @@ fn safe_divide(a: i32, b: i32) -> i32 {
 
 // Partial handling propagates unhandled types
 fn partial(a: i32, b: i32) panic -> i32 {
-    try {
-        return complex_operation(a, b)
-    } catch e: std::Error::Runtime {
-        return -1
-    }
+    return try complex_operation(a, b)
+           catch e: std::Error::Runtime { -1 }
     // other error types propagate
 }
 

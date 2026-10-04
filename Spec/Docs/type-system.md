@@ -41,6 +41,45 @@ var b: MyString = MyString(a) // explicit construction required
 b = a                         // compile error: type mismatch
 ```
 
+### Aliases cannot widen visibility
+
+An alias introduces a second *name* for a type, not a second type. It may not be more visible than
+the type it names an alias that published a `priv` type under a `pub` name would hand callers a
+type its author never exported:
+
+```kairo
+priv struct Base1 {
+    var x: i32
+}
+
+pub type Base2 = Base1      // compile error: pub alias names a priv type
+pub type Base3 = *Base1     // so does this
+priv type Base4 = Base1     // ok: no wider than its target
+```
+
+Every name the alias mentions counts, not only the outermost one. A pointer, nullable, vector, slice, set,
+tuple, array, map, function-pointer parameter or return, and a generic argument all publish their
+target just as directly, and so does a private module used as a path segment:
+
+```kairo
+priv module M {
+    pub struct T { var a: i32 }
+}
+
+pub type Leak = M::T        // compile error: reaches T through a priv module
+```
+
+The rule applies through chains, since an alias of an alias is still a name for the same type:
+
+```kairo
+priv type Inner = Config
+pub  type Outer = Inner     // compile error: Inner is priv
+```
+
+The error is reported at the alias, not at each use of it. To expose a restricted view of a private
+type rather than the type itself, declare a wrapper with the members you mean to publish an alias
+cannot narrow what it names.
+
 ### Restrictions
 
 Type aliases must reference existing named types. Inline anonymous type definitions are not permitted:
@@ -52,6 +91,9 @@ type Pair = (i32, i32)                // ok: aliases a tuple type
 
 If you need a named struct, declare a struct. Type aliases are for giving new names to existing types,
 not for defining new ones.
+
+A chain of aliases may be at most 64 links deep before the compiler stops following it. Raise the
+limit with `--cmax-type-alias-depth=<n>` if a generated or re-exported chain legitimately needs more.
 
 ---
 
@@ -101,9 +143,24 @@ var s = Stack<i32>()   // no arguments to infer from, must specify
 
 ### Return type inference
 
-Return types are not inferred for regular functions they must be declared explicitly or default to
-`void`. Expression-bodied functions (`fn foo() -> T = expr`) infer the return type from the expression
-if the annotation is omitted. See [Functions](/docs/language/functions#expression-bodied-functions).
+Return types are never inferred for block-bodied functions or forward declarations. They must be declared
+explicitly, or they default to `void`:
+
+```kairo
+fn add(a: i32, b: i32) -> i32 { return a + b }   // explicit
+fn log(msg: string) { std::println(msg) }        // defaults to void
+```
+
+Expression-bodied functions (`fn foo() = expr`) are the one exception: if the return
+type annotation is omitted, it is inferred from the expression.
+
+```kairo
+fn square(x: i32) = x * x          // inferred as i32
+fn name() = "Kairo"                // inferred as string
+fn typed(x: i32) -> i64 = x as i64 // explicit still allowed
+```
+
+See [Functions](/docs/language/functions#expression-bodied-functions)
 
 ---
 
@@ -125,7 +182,7 @@ var y: f64 = x       // ok: f32 to f64
 
 Narrowing conversions require an explicit `as` cast. See [Casting](/docs/language/casting).
 
-### `T` to `T?`
+### `T` to `T?` - Non-nullable to Nullable
 
 A non-nullable value is implicitly convertible to its nullable counterpart:
 
@@ -156,6 +213,20 @@ feed(&dog)   // *Dog implicitly converts to *Animal
 This is always safe the base subobject is at a known offset. The reverse (base-to-derived) requires
 an explicit cast because it can fail at runtime. See [Casting](/docs/language/casting).
 
+### List literal to a container
+
+A list literal takes the type its target asks for: an array `[T; N]` with a matching element count, a slice
+`[T;]`, or a vector `[T]`. With no target it is an array.
+
+```kairo
+fn total(xs: [i32;]) -> i32 { ... }
+
+total([1, 2, 3])               // the literal becomes a slice for this call
+var v: [i32] = [1, 2, 3]       // the literal becomes a vector
+```
+
+This applies to the literal only. A slice or array *variable* does not convert to anything implicitly.
+
 ### No other implicit conversions
 
 The following conversions are all explicit (require `as`):
@@ -165,6 +236,9 @@ The following conversions are all explicit (require `as`):
 - Base-to-derived pointer (downcast)
 - Any pointer to a different pointer type
 - Integer narrowing or float-to-integer
+- Slice to vector (`s as [T]`; it allocates)
+
+An array variable does not convert to a slice implicitly yet; build the slice explicitly.
 
 ---
 
@@ -207,24 +281,23 @@ or in any other type position:
 // var y: Foo<!>     // compile error
 ```
 
-See [Functions](/docs/language/functions#no-return) for no-return function semantics.
+See [Functions](/docs/language/functions#no-return-) for no-return function semantics.
 
 ---
 
-## `void`
+## Void - The Absence of a Value - Unit Types
 
 `void` represents the absence of a value. It is the default return type for functions with no explicit
 return type.
 
-`void` cannot be used as a variable type or type parameter. It can appear in pointer types for
-opaque, untyped pointers:
+`void` can be used as a type parameter, but can not be used as a variable type:
 
 ```kairo
 var handle: unsafe *void = get_opaque_handle()
-var safe_handle: *void = get_tracked_handle()
+var safe_handle:   *void = get_tracked_handle()
 
-// var x: void       // compile error
-// var y: Foo<void>  // compile error
+var y: Foo<void>  // valid - ok
+var x: void       // compile error
 ```
 
 See [Primitives](/docs/language/primitives#void) for details.
@@ -275,7 +348,7 @@ var x: (i32) = 42   // same as var x: i32 = 42
 
 There is no unit type or empty tuple `()`. Functions that return nothing use `void`.
 
-See [Primitives](/docs/language/primitives#tuples) for tuple syntax and
+See [Primitives](/docs/language/primitives#tuples-t1-t2-) for tuple syntax and
 [Variables](/docs/language/variables#destructuring) for tuple destructuring.
 
 ---
@@ -318,8 +391,9 @@ Collection literal syntax maps to built-in types:
 
 | Syntax | Type | Description |
 |---|---|---|
-| `[T]` | Vector | Growable contiguous array (ptr + len + cap) |
-| `[T; N]` | Array | Fixed-size, stack-allocated, `N` must be compile-time |
+| `[T]` | Vector | Growable contiguous array that owns a heap copy of its elements (ptr + len + cap) |
+| `[T;]` | Slice | Non-owning view over contiguous elements (ptr + len) |
+| `[T; N]` | Array | Fixed-size, stored inline, `N` must be compile-time; not copyable or assignable |
 | `{K: V}` | Map | Hash map |
 | `{T}` | Set | Hash set |
 
@@ -336,6 +410,11 @@ type <T> HashSet = {T}
 
 The literal syntax and the aliased names are interchangeable.
 
+A list literal `[a, b, c]` is an array `[T; 3]` unless its target is a slice or a vector. Arrays are not
+value types: they cannot be copied, assigned, passed by value, or returned. See
+[Primitives](/docs/language/primitives#collections) for the full rules on arrays, slices, vectors, and list
+literals.
+
 `N` in `[T; N]` must be a compile-time evaluable expression. Runtime-dependent array sizes are not
 supported use `[T]` (vector) for dynamically sized collections:
 
@@ -350,7 +429,7 @@ See [Eval](/docs/language/eval) for compile-time evaluation rules.
 
 ---
 
-## `typeof`
+## Typeof Identity Semantics
 
 `typeof` has dual behavior depending on whether it appears in a type position or an expression position:
 
@@ -375,18 +454,18 @@ info.get_size()          // 4
 info.get_align()         // 4
 ```
 
-### `TypeInfo`
+### TypeInfo
 
 `TypeInfo` is a built-in class that describes a type at runtime:
 
 ```kairo
 class TypeInfo {
-    fn get_name(self) const -> string        // mangled ABI name
-    fn get_pretty_name(self) const -> string  // human-readable (e.g. "HashMap<string, i32>")
-    fn get_size(self) const -> usize
-    fn get_align(self) const -> usize
-    fn get_abi_format(self) const -> string   // ABI format string for interop
-    fn get_kind(self) const -> TypeKind
+    fn get_name(const self) -> string        // mangled ABI name
+    fn get_pretty_name(const self) -> string  // human-readable (e.g. "HashMap<string, i32>")
+    fn get_size(const self) -> usize
+    fn get_align(const self) -> usize
+    fn get_abi_format(const self) -> string   // ABI format string for interop
+    fn get_kind(const self) -> TypeKind
 }
 
 enum TypeKind {
@@ -427,7 +506,7 @@ See [Eval](/docs/language/eval) for compile-time evaluation and
 
 ---
 
-## `Self`
+## Self
 
 `Self` is a type alias that resolves to the enclosing type. It is available in:
 
@@ -510,6 +589,7 @@ var g: fn(i32) panic -> i32 = risky_fn
 
 // Collections
 var vec: [i32] = [1, 2, 3]
+var view: [i32;] = [1, 2, 3]
 var arr: [u8; 4] = [0, 0, 0, 0]
 var map: {string: i32} = {"a": 1}
 var set: {i32} = {1, 2, 3}

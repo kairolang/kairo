@@ -14,9 +14,9 @@ See [Functions](/docs/language/functions#function-modifiers) for the `async` mod
 
 ### Coroutines (`yield`)
 
-Functions with a `yield T` return type produce values cooperatively. The `yield` keyword suspends
-the function and produces a value to the caller. See
-[Functions](/docs/language/functions#special-return-types) for yield return types.
+Functions with a `yield T` return type are generators: they produce values cooperatively. The `yield`
+keyword suspends the function and produces a value to the caller. See
+[Generators](/docs/language/functions#generators) for the rules.
 
 ### `spawn`
 

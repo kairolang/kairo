@@ -219,7 +219,7 @@ enum <T impl Serializable> CacheEntry {
 }
 ```
 
-See [Bounds](/docs/language/bounds) for the full constraint system.
+See [Requires Clauses](/docs/language/requires) for the full constraint system.
 
 ---
 
@@ -282,11 +282,11 @@ enum LogLevel {
 }
 
 extend LogLevel {
-    fn is_severe(self) const -> bool {
+    fn is_severe(const self) -> bool {
         return self == .Error || self == .Fatal
     }
 
-    fn prefix(self) const -> string {
+    fn prefix(const self) -> string {
         match self {
             case .Debug   { return "[DEBUG]" }
             case .Info    { return "[INFO]" }
@@ -324,11 +324,11 @@ Enums can implement interfaces through `extend ... impl`:
 
 ```kairo
 interface Loggable {
-    fn to_log_string(self) const -> string
+    fn to_log_string(const self) -> string
 }
 
 extend LogLevel impl Loggable {
-    fn to_log_string(self) const -> string {
+    fn to_log_string(const self) -> string {
         return self.prefix()
     }
 }
