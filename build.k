@@ -375,10 +375,15 @@ fn optimize(t: ref!(Target)) {
     // because --lto-partitions is the one way to parallelize codegen of one
     // module. The optimizer itself stays serial.
     t.passthrough("-O3");
+    t.passthrough("-Xclang -vectorize-loops");
+    t.passthrough("-Xclang -vectorize-slp");
     t.passthrough("-Wl,--lto-O2");
-    // t.passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}");
     t.passthrough("-gline-tables-only");
     t.passthrough("-DNDEBUG");
+    
+    if platform() == "linux" {
+        t.passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}");
+    }
 }
 
 fn require_vendored_llvm(llvm_build: string) {
