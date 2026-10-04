@@ -100,6 +100,14 @@ class LowerSynth {
         return static_cast::<*Expr>(lit);
     }
 
+    /// `true` / `false`, typed bool.
+    fn bool_literal(self, range: SourceRange, value: bool) -> *Expr {
+        var b = BooleanLiteralExpr::create(self.sc->ctx, range, value);
+        b->type_          = self.sc->builtin(BuiltinKind::Bool);
+        b->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(b);
+    }
+
     /// A string literal over BYTES this pass minted -- a decoded body -- typed
     /// \p ty (a pointer type; EmitIR spells it as a C++ literal from the
     /// bytes). The token carries a fresh StringData slot whose owned text is
