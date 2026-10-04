@@ -39,6 +39,17 @@ class FrontendOptions {
     pub var output:              string = "";
     pub var entry:               string = "main";
     pub var emit:                string = "obj";
+    /// --emit, split. Backend outputs codegen writes per TU, each beside the
+    /// others under the object dir (`<module>.o/.s/.ll/.bc`).
+    pub var emit_obj:            bool   = true;
+    pub var emit_asm:            bool   = false;
+    pub var emit_llvm_ir:        bool   = false;
+    pub var emit_llvm_bc:        bool   = false;
+    /// --emit items the driver rejects: not a kind at all, or a kind that is
+    /// accepted by the flag but not produced yet. Diagnosed in _plan_outputs,
+    /// where there is a diag engine.
+    pub var emit_unknown:        vec::<string>;
+    pub var emit_unsupported:    vec::<string>;
     // verbosity / timing
     pub var time_trace:          string = "";
     pub var stats_file:          string = "";
@@ -148,6 +159,7 @@ class FrontendOptions {
         (o.output)          = args.get_string("output");
         (o.entry)           = args.get_string("entry");
         (o.emit)            = args.get_string("emit");
+        FrontendOptions::_parse_emit(&o, args);
         (o.shared)          = args.get_bool("shared");
         (o.static_)         = args.get_bool("static");
         (o.no_entry)        = args.get_bool("no-entry");
@@ -228,15 +240,46 @@ class FrontendOptions {
             o.action = FrontendActionKind::EmitObjOnly;
         } else if args.get_bool("emit-asm") {
             o.action = FrontendActionKind::EmitAsm;
+        } else if (!o.emit_obj) && o.emit_asm && (!o.emit_llvm_ir) && (!o.emit_llvm_bc) {
+            o.action = FrontendActionKind::EmitAsm;
+        } else if (!o.emit_obj) && (!o.emit_asm) && o.emit_llvm_ir && (!o.emit_llvm_bc) {
+            o.action = FrontendActionKind::EmitLLVMIR;
+        } else if (!o.emit_obj) && (!o.emit_asm) && (!o.emit_llvm_ir) && o.emit_llvm_bc {
+            o.action = FrontendActionKind::EmitLLVMBC;
         } else {
-            var emit_str = args.get_string("emit");
-
-            if      (emit_str == "llvm-ir") { o.action = FrontendActionKind::EmitLLVMIR; }
-            else if (emit_str == "llvm-bc") { o.action = FrontendActionKind::EmitLLVMBC; }
-            else if (emit_str == "asm"    ) { o.action = FrontendActionKind::EmitAsm;    }
-            else                            { o.action = FrontendActionKind::EmitObj;    }
+            o.action = FrontendActionKind::EmitObj;
         }
 
         return o;
+    }
+
+    /// Split --emit on commas into the emit_* set. -S is `--emit asm`: alone
+    /// it replaces the default obj, beside an explicit --emit it adds asm.
+    priv static fn _parse_emit(o: *FrontendOptions, args: ref!(ParsedArgs)) {
+        (o->emit_obj) = false;
+        var raw = args.get_string("emit");
+        var items = vec::<string>();
+        var cur = "";
+        for var i: usize = 0; i < raw.size(); ++i {
+            if raw[i] == ',' { items.push_back(cur); cur = ""; continue; }
+            cur += raw[i];
+        }
+        items.push_back(cur);
+        for it: string in items {
+            if it.size() == 0 { continue; }
+            if it == "obj"          { (o->emit_obj)     = true; }
+            else if it == "asm"     { (o->emit_asm)     = true; }
+            else if it == "llvm-ir" { (o->emit_llvm_ir) = true; }
+            else if it == "llvm-bc" { (o->emit_llvm_bc) = true; }
+            else if (it == "tokens") || (it == "ast") || (it == "sema") || (it == "bcir") || (it == "cxx") || (it == "dep-info") {
+                o->emit_unsupported.push_back(it);
+            } else {
+                o->emit_unknown.push_back(it);
+            }
+        }
+        if args.get_bool("emit-asm") {
+            (o->emit_asm) = true;
+            if !args.is_set("emit") { (o->emit_obj) = false; }
+        }
     }
 }

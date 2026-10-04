@@ -163,7 +163,7 @@ class CodegenBackend derives TokenFiller {
     /// The diag adapter is NOT passed here anymore. It holds the ClangLocMap
     /// and asks it per diagnostic, so there is no fid to fix up after
     /// registration   which is what the old adapter argument was for.
-    fn run(self, out_obj: string) -> bool {
+    fn run(self, out_obj: string, kind: EmitKind = EmitKind::Obj) -> bool {
         ICE_IF(!self._be->ready(), "CodegenBackend::run before backend ready");
 
         var ci = self._be->ci();
@@ -174,7 +174,12 @@ class CodegenBackend derives TokenFiller {
         cfe->Inputs.clear();
         cfe->Inputs.push_back(clang::FrontendInputFile(
             empty->getMemBufferRef(), clang::InputKind(clang::Language::CXX)));
-        cfe->ProgramAction = clang::frontend::EmitObj;
+        switch kind {
+            case EmitKind::Asm    { cfe->ProgramAction = clang::frontend::EmitAssembly; }
+            case EmitKind::LLVMIR { cfe->ProgramAction = clang::frontend::EmitLLVM;     }
+            case EmitKind::LLVMBC { cfe->ProgramAction = clang::frontend::EmitBC;       }
+            default               { cfe->ProgramAction = clang::frontend::EmitObj;      }
+        }
         cfe->OutputFile    = std::string_to_nstring(out_obj).raw_string();
 
         // Phase B: the headers were parsed once already (HeaderSet). Mount
@@ -241,19 +246,45 @@ class CodegenBackend derives TokenFiller {
             }
         }
 
-        var act = KairoEmitAction();
-        act.filler = &self;
-        act.locmap = self._be->locmap();
-        act.kfid   = self._kfid;
-        act.ksize  = self._ksize;
-        act.arena  = self._arena;
-
         // Clang's phases (parse/sema, IRGen, optimizer, machine code) are
         // timed by clang itself; this folds them into --time-passes under the
         // caller's open region. A no-op unless timing is on.
+        //
+        // One action class per kind: clang picks the backend output by which
+        // CodeGenAction subclass runs (CodegenAction.k).
+        var ok = false;
         var clang_time = kairo::ktime_clang_begin();
-        var ok = ci->ExecuteAction(act);
+        switch kind {
+            case EmitKind::Asm {
+                var act = KairoEmitAsm();
+                self._wire(&(act.inj));
+                ok = ci->ExecuteAction(act);
+            }
+            case EmitKind::LLVMIR {
+                var act = KairoEmitLLVMIR();
+                self._wire(&(act.inj));
+                ok = ci->ExecuteAction(act);
+            }
+            case EmitKind::LLVMBC {
+                var act = KairoEmitLLVMBC();
+                self._wire(&(act.inj));
+                ok = ci->ExecuteAction(act);
+            }
+            default {
+                var act = KairoEmitObj();
+                self._wire(&(act.inj));
+                ok = ci->ExecuteAction(act);
+            }
+        }
         kairo::ktime_clang_end(clang_time);
         return ok;
+    }
+
+    priv fn _wire(self, inj: *KairoInject) {
+        inj->filler = &self;
+        inj->locmap = self._be->locmap();
+        inj->kfid   = self._kfid;
+        inj->ksize  = self._ksize;
+        inj->arena  = self._arena;
     }
 }

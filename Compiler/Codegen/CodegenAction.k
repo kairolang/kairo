@@ -1,7 +1,8 @@
 /// --- The Kairo Project ------------------- Codegen/CodegenAction.k ------ ///
 ///
-///   \brief The clang FrontendAction subclass that injects the token
-///          stream. Owns the phase-2 sequence, in order:
+///   \brief The clang FrontendAction subclasses that inject the token
+///          stream, one per backend output (EmitKind). Owns the phase-2
+///          sequence, in order:
 ///
 ///            1. base BeginSourceFileAction (sets up PP, sema plumbing)
 ///            2. locmap->rebind               EVERY Kairo fid registered as
@@ -52,10 +53,24 @@ class TokenFiller {
     }
 }
 
-/// \class KairoEmitAction
-/// \brief EmitObjAction that swaps clang's lexer output for our injected
-///        stream. One instance per TU run, stack-scoped in Backend.
-class KairoEmitAction derives clang::EmitObjAction {
+/// What one codegen run writes: clang's backend action, picked by which
+/// CodeGenAction subclass runs. `--emit` asks for any set of these; each is
+/// one ExecuteAction over the same injected stream.
+enum EmitKind derives u8 {
+    Obj = 0,   ///< `.o`  (EmitObjAction)
+    Asm,       ///< `.s`  (EmitAssemblyAction)
+    LLVMIR,    ///< `.ll` (EmitLLVMAction)
+    LLVMBC,    ///< `.bc` (EmitBCAction)
+}
+
+/// \class KairoInject
+/// \brief The token injection every Kairo codegen action runs after its
+///        base BeginSourceFileAction (steps 2-6 above). Separate from the
+///        actions because clang picks the backend output by SUBCLASS
+///        (CodeGenAction's constructor takes it, and Kairo cannot pass a base
+///        constructor argument), so there is one action per EmitKind and
+///        this is what they share.
+class KairoInject {
     pub var filler: obs::<TokenFiller>;          ///< wired by Backend pre-ExecuteAction
     pub var locmap: obs::<ClangLocMap>;          ///< rebound in-action; THE registration point
     pub var kfid:   FileID;                      ///< Kairo fid of the TU being emitted
@@ -64,11 +79,7 @@ class KairoEmitAction derives clang::EmitObjAction {
     pub var sink:   opt::<TokenSink> = &null;    ///< owned; alive past ExecuteAction (arena text!)
     pub var filled: bool = false;                ///< fill() result, readable post-run
 
-    override fn BeginSourceFileAction(self, ci: ref!(clang::CompilerInstance)) -> bool {
-        if !clang::EmitObjAction::BeginSourceFileAction(ci) {
-            return false;
-        }
-
+    fn begin(self, ci: ref!(clang::CompilerInstance)) -> bool {
         var pp  = &(ci.getPreprocessor());
         var csm = &(ci.getSourceManager());
 
@@ -90,7 +101,7 @@ class KairoEmitAction derives clang::EmitObjAction {
         // ClangLocMap's Test block, where the adversarial cases (clearIDTables
         // mid-flight, post-block FileIDs, virtual fids) can actually be
         // constructed   a user's source files will never produce them.
-        ICE_IF(self.locmap == &null, "KairoEmitAction: no ClangLocMap wired");
+        ICE_IF(self.locmap == &null, "KairoInject: no ClangLocMap wired");
         if !self.locmap->rebind(&ci) { return false; }
 
         // This TU's fid is the block base plus its Kairo fid. Nothing here
@@ -121,5 +132,40 @@ class KairoEmitAction derives clang::EmitObjAction {
             std::destroy(self.sink);
             self.sink = &null;
         }
+    }
+}
+
+/// One action per EmitKind, each a clang CodeGenAction subclass that swaps
+/// clang's lexer output for the injected stream. One instance per TU run,
+/// stack-scoped in Backend.
+class KairoEmitObj derives clang::EmitObjAction {
+    pub var inj: KairoInject;
+    override fn BeginSourceFileAction(self, ci: ref!(clang::CompilerInstance)) -> bool {
+        if !clang::EmitObjAction::BeginSourceFileAction(ci) { return false; }
+        return self.inj.begin(ci);
+    }
+}
+
+class KairoEmitAsm derives clang::EmitAssemblyAction {
+    pub var inj: KairoInject;
+    override fn BeginSourceFileAction(self, ci: ref!(clang::CompilerInstance)) -> bool {
+        if !clang::EmitAssemblyAction::BeginSourceFileAction(ci) { return false; }
+        return self.inj.begin(ci);
+    }
+}
+
+class KairoEmitLLVMIR derives clang::EmitLLVMAction {
+    pub var inj: KairoInject;
+    override fn BeginSourceFileAction(self, ci: ref!(clang::CompilerInstance)) -> bool {
+        if !clang::EmitLLVMAction::BeginSourceFileAction(ci) { return false; }
+        return self.inj.begin(ci);
+    }
+}
+
+class KairoEmitLLVMBC derives clang::EmitBCAction {
+    pub var inj: KairoInject;
+    override fn BeginSourceFileAction(self, ci: ref!(clang::CompilerInstance)) -> bool {
+        if !clang::EmitBCAction::BeginSourceFileAction(ci) { return false; }
+        return self.inj.begin(ci);
     }
 }

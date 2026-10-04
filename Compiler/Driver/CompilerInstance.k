@@ -112,6 +112,7 @@ import Token::TokenKind::*;
 import Command::Command::*;
 import Command::FlagRegistry::*;
 import Codegen::Backend::*;
+import Codegen::CodegenAction::*;
 import Codegen::EmitPlan::*;
 import Codegen::EmitCXXHeader::*;
 import Codegen::Emit::CXXSpell::*;
@@ -1172,6 +1173,20 @@ class CompilerInstance {
             return false;
         }
 
+        // --emit: an item that is no kind at all is an error naming the set;
+        // one the flag accepts but codegen does not produce yet is an error
+        // too, rather than a run that silently writes nothing for it.
+        var fe = &(self.invocation().frontend);
+        for it: string in fe->emit_unknown {
+            self._diag->report(DiagID::U003E,
+                f"invalid --emit value '{it}'; accepted: obj, asm, llvm-ir, llvm-bc").emit();
+        }
+        for it: string in fe->emit_unsupported {
+            self._diag->report(DiagID::U003E,
+                f"--emit={it} is not implemented yet; implemented: obj, asm, llvm-ir, llvm-bc").emit();
+        }
+        if (fe->emit_unknown.size() > 0) || (fe->emit_unsupported.size() > 0) { return false; }
+
         var links = (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen());
         if !links {
             if self._obj_dir.empty() { self._obj_dir = "."; }
@@ -1375,8 +1390,10 @@ class CompilerInstance {
             result.tu_results.push_back(action->result);
         }
 
+        // Native and runtime sources compile to objects only: an --emit
+        // without obj asks for none.
         if (!result.aborted) && (self._diag->error_count() == 0)
-        && (!self.invocation().frontend.stops_before_codegen()) {
+        && (!self.invocation().frontend.stops_before_codegen()) && self.invocation().frontend.emit_obj {
             var _t = TimeRegion("NativeCompile");
             if !self._compile_native_inputs(natives, kairo_inputs > 0) { result.aborted = true; }
         }
@@ -2570,10 +2587,22 @@ fn FrontendAction::_codegen() -> bool {
     // -o under -c names the one object; a graph emits several, and they go
     // to --cache-dir. A linking run never has a single object here: -o is
     // the executable then.
+    // What each TU writes (--emit), all under the object dir, one
+    // ExecuteAction each. The extension is the kind's.
+    var kinds = vec::<EmitKind>();
+    var exts  = vec::<string>();
+    if fe.emit_obj     { kinds.push_back(EmitKind::Obj);    exts.push_back(".o");  }
+    if fe.emit_asm     { kinds.push_back(EmitKind::Asm);    exts.push_back(".s");  }
+    if fe.emit_llvm_ir { kinds.push_back(EmitKind::LLVMIR); exts.push_back(".ll"); }
+    if fe.emit_llvm_bc { kinds.push_back(EmitKind::LLVMBC); exts.push_back(".bc"); }
+    if kinds.size() == 0 {
+        return self._fatal(DiagID::I004F, "--emit names no output to write");
+    }
+
     var single_obj = self._ci->single_object();
-    if (!single_obj.empty()) && (own.size() > 1) {
+    if (!single_obj.empty()) && ((own.size() * kinds.size()) > 1) {
         return self._fatal(DiagID::I004F,
-            f"-o {single_obj} names one object, but this build emits {own.size()}; use --cache-dir <dir> for the objects");
+            f"-o {single_obj} names one output, but this build emits {own.size() * kinds.size()}; use --cache-dir <dir> for them");
     }
     var obj_dir = self._ci->object_dir();
 
@@ -2584,10 +2613,10 @@ fn FrontendAction::_codegen() -> bool {
         }
         var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(fid));
 
-        // The object path mirrors the module path, so two modules of the
+        // The output path mirrors the module path, so two modules of the
         // same leaf name do not collide. The entry TU has no module path.
-        var out = single_obj;
-        if out.empty() {
+        var stem = "";
+        if single_obj.empty() {
             var ocg  = CodegenContext(ctx, &null, psym, insts);
             var sp   = CXXSpell(&ocg);
             var segs = sp.module_segments(reinterpret_cast::<*TranslationUnit>(ctx->tu));
@@ -2597,7 +2626,7 @@ fn FrontendAction::_codegen() -> bool {
                 rel += segs[i];
             }
             if rel.size() == 0 { rel = self.path.stem(); }
-            out = obj_dir + "/" + rel + ".o";
+            stem = obj_dir + "/" + rel;
         }
 
         var sink    = BufferedDiagSink{};
@@ -2629,11 +2658,18 @@ fn FrontendAction::_codegen() -> bool {
         }
         cg.set_header_sets(sets);
 
-        var ok = false;
+        var ok = true;
+        var outs = vec::<string>();
         {
             var _tr = TimeRegion("Backend");
-            self._ensure_parent_dir(out);
-            ok = cg.run(out);
+            for var k: usize = 0; k < kinds.size(); ++k {
+                var out = (single_obj) if (!single_obj.empty()) else (stem + exts[k]);
+                self._ensure_parent_dir(out);
+                // Every run re-fills the same stream; print it once.
+                if k > 0 { cg.set_print_cg(0, self._ci->sm()->get_filename(fid)); }
+                if !cg.run(out, kinds[k]) { ok = false; break; }
+                outs.push_back(out);
+            }
         }
 
         // end_tu FIRST: it flushes any builder still open in the adapter, so
@@ -2649,8 +2685,11 @@ fn FrontendAction::_codegen() -> bool {
             self._stage = TUStage::Failed;
             return false;
         }
-        Logger::info(Logger::Stage::Driver, f"emitted object {out}");
-        self.result.objects.push_back(out);
+        // Only objects are link inputs; the rest are outputs in their own right.
+        for var k: usize = 0; k < outs.size(); ++k {
+            Logger::info(Logger::Stage::Driver, f"emitted {outs[k]}");
+            if kinds[k] == EmitKind::Obj { self.result.objects.push_back(outs[k]); }
+        }
     }
 
     self._stage = TUStage::Done;
