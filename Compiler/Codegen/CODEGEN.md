@@ -343,7 +343,9 @@ The no-headroom rules, each with one home:
   only diagnostic codegen emits.
 
 ICE map (node → owner): match/MatchExpr → MatchLowering; try/finally/
-panic/assert → PanicLowering; ranged for/ranges/slices → IterLowering;
+panic/assert → PanicLowering; ranged for → IterLowering, only for the
+kinds RESOLUTION.md §2.10 lists as not yet lowered and for a dependent
+iterable; ranges → RangeLowering;
 `?.`/`??`/`T?` → the nullable trio; f-strings → FStringLowering; yield →
 YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
 → async lowering; `ListLiteralExpr` / set / map literals →

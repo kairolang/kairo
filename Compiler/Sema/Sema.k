@@ -55,6 +55,8 @@ import Sema::Type::ExprTyper::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
+import Sema::Lower::IterLowering::*;
+import Sema::Lower::RangeLowering::*;
 import Sema::Lower::ExtensionLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
 import Sema::Lower::SequenceLowering::*;
@@ -347,6 +349,16 @@ class Sema {
         // parameter order. Before SequenceLowering: a default thunk's call is
         // an impure argument, and it is ordered with the rest there.
         { var _p = TimeRegion("CallLowering"); CallLowering(&self.sc).run(); }
+        // `for x in xs` becomes a `while` over a once-evaluated iterable.
+        // Before ExtensionLowering: a user `op in` declared in an extension is
+        // called here through a chain, and that pass makes it the free call.
+        // Before SequenceLowering and ListLiteralLowering, which order and
+        // render what this pass binds.
+        { var _p = TimeRegion("IterLowering"); IterLowering(&self.sc).run(); }
+        // A range used as a value becomes its Range record. After IterLowering,
+        // which consumed the ranges written as a loop's iterable; a subscript's
+        // range index is a slice and is left for SliceLowering.
+        { var _p = TimeRegion("RangeLowering"); RangeLowering(&self.sc).run(); }
         // An extension member call becomes the free call: the receiver goes in
         // front of the placed arguments. Before SequenceLowering, which orders it.
         { var _p = TimeRegion("ExtensionLowering"); ExtensionLowering(&self.sc).run(); }

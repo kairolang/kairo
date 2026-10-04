@@ -674,7 +674,7 @@ class EmitIR {
             case ExprKind::NamedArgExpr         { ICE_FAIL("EmitIR: named argument; CallLowering owns it"); }
             case ExprKind::MatchExpr            { ICE_FAIL("EmitIR: match expression; MatchLowering owns it"); }
             case ExprKind::TryCatchExpr         { ICE_FAIL("EmitIR: try expression; PanicLowering owns it"); }
-            case ExprKind::RangeExpr            { ICE_FAIL("EmitIR: range; IterLowering owns it"); }
+            case ExprKind::RangeExpr            { ICE_FAIL("EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
             case ExprKind::ClosureExpr          { ICE_FAIL("EmitIR: closure; lambda emission is not written yet"); }
             case ExprKind::AwaitExpr            { ICE_FAIL("EmitIR: await; the async lowering owns it"); }
             case ExprKind::SpawnExpr            { ICE_FAIL("EmitIR: spawn; the async lowering owns it"); }
@@ -1180,7 +1180,6 @@ class EmitIR {
 
     priv fn _subscript(self, n: *SubscriptExpr) {
         ICE_IF(self._record_operand(n->base), "EmitIR: `[]` on a record; OperatorLowering owns it");
-        ICE_IF(isa::<RangeExpr>(n->index), "EmitIR: slice; IterLowering owns it");
         self.emit(n->base);
         sink->spell(n->range, "[");
         self.emit(n->index);
@@ -1265,7 +1264,7 @@ class EmitIR {
             var fname = self._spell.leaf(static_cast::<*Decl>(fd));
             for var i: usize = 0; i < fields.size(); ++i {
                 var f = fields.get(i);
-                if self._cg->ctx->get_spelling(f->name) != fname { continue; }
+                if self._spell.imm_name(f->name.imm, self._owning_fid()) != fname { continue; }
                 if !first { sink->spell(f->range, ","); }
                 first = false;
                 sink->spell(f->range, "." + fname + " =");

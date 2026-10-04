@@ -733,10 +733,11 @@ dependent as failed, and that is the first bug to fix).
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
 §6). Order, fixed: ExprBodyDesugar -> OperatorLowering -> FStringLowering
--> CallLowering -> ExtensionLowering -> SequenceLowering ->
-ListLiteralLowering -> StringLowering (the passes `Sema.k` runs today), then
+-> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
+SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
+`Sema.k` runs today), then
 EnumLayoutLowering -> NullableTypeLowering -> NullTestLowering ->
-CoalesceLowering -> IterLowering -> MatchLowering/PatternCompilation ->
+CoalesceLowering -> MatchLowering/PatternCompilation ->
 PanicLowering/FinallyLowering -> YieldLowering ->
 TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
 CopyMoveLowering -> DestructorInsertion. Sugar first, control flow second,
@@ -756,6 +757,22 @@ value (`ParamDecl::pack_type`) over a backing array alive for the call's
 full-expression. A call with an lvalue or record result keeps C++ order
 (the documented SequenceLowering hole). Dependent calls are left as written
 until M2.
+
+IterLowering [PARTIAL]. X records each ranged `for`'s `iter_kind`,
+`iter_elem` and, for a user `op in`, `iter_op`. The pass renders a block of
+hidden locals and a `while` that advances before its body (so `continue`
+needs no step). Done: `a..b`, `a..=b` (never computes past `hi`), Range
+values (`inclusive` read at run time, never computes past `last`),
+`[T; N]`, `[T;]`, user `op in (self) -> yield T`. Binders: plain `x` copies, `*x`
+points at the element (at a per-iteration copy over a range). Not yet:
+Vector, set, map, string, destructuring binders, nullable binders.
+
+RangeLowering. A range value is `Range<T>{.begin, .end, .inclusive}`; open
+ranges are valid only as a subscript index (X), where `a..` and `..` are
+`RangeFrom<T>{.begin}` (`..` is `RangeFrom<usize>{.begin = 0}`) and `..b` /
+`..=b` are `RangeTo<T>{.end, .inclusive}`. A subscript's range reaches the
+pass as an ordinary `op[]` argument (OperatorLowering ran first), so it is
+lowered like any other range.
 
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
