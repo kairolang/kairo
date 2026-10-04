@@ -1,7 +1,21 @@
 import string::*
 
+/// `a..b` / `a..=b`. Field order is evaluation order: RangeLowering builds a
+/// range as a designated initializer, and C++ evaluates those in declaration
+/// order. Keep `begin` before `end`.
 pub struct <T> Range {
     var begin:     T
+    var end:       T
+    var inclusive: bool
+}
+
+/// `a..`, and `..` as `begin: 0`. Only valid as a subscript index.
+pub struct <T> RangeFrom {
+    var begin: T
+}
+
+/// `..b` / `..=b`. Only valid as a subscript index.
+pub struct <T> RangeTo {
     var end:       T
     var inclusive: bool
 }
