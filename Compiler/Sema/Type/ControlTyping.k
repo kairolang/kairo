@@ -35,6 +35,7 @@ import Sema::Type::OverloadResolution::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::LangItems::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -161,6 +162,10 @@ class <T> ControlTyping {
     // === ranges, async ======================================================
 
     fn type_range(self, n: *RangeExpr, expected: *Type) -> *Type {
+        if ((n->begin == &null) || (n->end == &null)) && (!n->as_index) {
+            dyn()->fail(n, DiagID::SC085E, "an open range is only valid as a slice index; give it both bounds");
+            return &null;
+        }
         var bt: *Type = &null; var et: *Type = &null;
         var b_lit = (n->begin != &null) && dyn()->is_untyped_literal(n->begin);
         var e_lit = (n->end   != &null) && dyn()->is_untyped_literal(n->end);
@@ -180,14 +185,20 @@ class <T> ControlTyping {
                 return &null;
             }
         }
-        if elem == &null { elem = dyn()->tu.builtin(BuiltinKind::I32); }   // `..`: unbounded, integer by convention.
+        if elem == &null { elem = dyn()->tu.builtin(BuiltinKind::USize); }   // `..`: the whole index space.
         if !dyn()->tu.is_integer(elem) {
             dyn()->fail(n, DiagID::SC085E, f"range bounds must be integers, not '{dyn()->tu.str(elem)}\x27");
             return &null;
         }
+        // An open range (only reachable as an index, gated above) is the
+        // record of the bound it has: `a..` and `..` start somewhere and run
+        // to the end, `..b` / `..=b` run from the start.
+        var k = WellKnownType::Range;
+        if n->end == &null        { k = WellKnownType::RangeFrom; }
+        else if n->begin == &null { k = WellKnownType::RangeTo; }
         var a = vec::<*Type>(); a.push_back(elem);
-        var r = dyn()->tu.lang_record(WellKnownType::Range, &a);
-        if r == &null { dyn()->missing_lang_item(n, "Range"); return &null; }
+        var r = dyn()->tu.lang_record(k, &a);
+        if r == &null { dyn()->missing_lang_item(n, to_string(k)); return &null; }
         return r;
     }
 

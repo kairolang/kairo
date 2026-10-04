@@ -527,37 +527,76 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
-    /// The element type an iterable yields, or null (diagnosed).
-    fn iter_elem_type(self, at: *Expr, t: *Type) -> *Type {
+    /// The element type an iterable yields, or null (diagnosed). With \p rf,
+    /// also records on the loop how IterLowering walks it.
+    fn iter_elem_type(self, at: *Expr, t: *Type, rf: *RangedForStmt = &null) -> *Type {
         if t == &null { return &null; }
-        var elem = dyn()->tu.container_elem(t);
-        if elem != &null { return elem; }
+        var kind = IterKind::None;
+        var _op: *Decl = &null;
+        var elem = self._iter_classify(at, t, &kind, &_op);
+        if (rf != &null) && (elem != &null) {
+            rf->iter_kind = kind;
+            rf->iter_op   = _op;
+            rf->iter_elem = canon_unqual(elem);
+        }
+        return elem;
+    }
+
+    priv fn _iter_classify(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl)) -> *Type {
+        var arr = dyn()->tu.element_of(t);
+        if arr != &null { (*kind) = IterKind::Array; return arr; }
+
+        if dyn()->tu.is_slice(t)       { (*kind) = IterKind::Slice;  return dyn()->tu.container_elem(t); }
+        if dyn()->tu.is_vector_like(t) { (*kind) = IterKind::Vector; return dyn()->tu.container_elem(t); }
+        if dyn()->tu.is_set_like(t)    { (*kind) = IterKind::Set;    return dyn()->tu.container_elem(t); }
+
         var k: *Type = &null; var v: *Type = &null;
         if dyn()->tu.map_key_value(t, &k, &v) {
+            (*kind) = IterKind::Map;
             var e = vec::<*Type>(); e.push_back(k); e.push_back(v);
             return dyn()->sc->types->tuple(&e);
         }
-        if dyn()->tu.is_string(t) { return dyn()->tu.builtin(BuiltinKind::Char); }
+
+        if dyn()->tu.is_string(t) { (*kind) = IterKind::String; return dyn()->tu.builtin(BuiltinKind::Char); }
+
         if dyn()->tu.is_lang(t, WellKnownType::Range) {
+            var r = dyn_cast::<RangeExpr>(dyn()->tu.strip_parens(at));
+            if r != &null {
+                if (r->begin == &null) || (r->end == &null) {
+                    dyn()->fail(at, DiagID::SC095E, "an open range cannot be iterated; give it both bounds");
+                    return &null;
+                }
+                (*kind) = IterKind::RangeLit;
+            } else {
+                (*kind) = IterKind::RangeValue;
+            }
             var args = dyn()->tu.record_args(t);
             return (args[0]) if (args.size() > 0) else (dyn()->tu.builtin(BuiltinKind::I32));
         }
-        // `fn op in (self) -> yield T` on a record
+
+        // `fn op in (self) -> yield T`: the iteration form takes `self` only;
+        // `op in (self, x)` is containment and is never picked here.
         var cands = vec::<*Decl>();
         dyn()->ml.lookup(dyn()->tu.strip_nullable(t), DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown), &cands);
         for var i: usize = 0; i < cands.size(); ++i {
             var f = dyn_cast::<FunctionDecl>(cands[i]);
             if f == &null { continue; }
+            var extra: usize = 0;
+            for var p: usize = 0; p < f->params.size(); ++p {
+                if (f->params[p] != &null) && (!f->params[p]->is_self) { extra += 1; }
+            }
+            if extra != 0 { continue; }
             var rt = self.fn_return_type(f);
             if rt == &null { continue; }
             rt = dyn()->ded_scratch()->member_through(t, rt);
-            if dyn()->tu.is_lang(rt, WellKnownType::Yield) {
-                var args = dyn()->tu.record_args(rt);
-                if args.size() > 0 { return args[0]; }
-            }
-            return rt;
+            if !dyn()->tu.is_lang(rt, WellKnownType::Yield) { continue; }
+            var args = dyn()->tu.record_args(rt);
+            if args.size() == 0 { continue; }
+            (*kind) = IterKind::User;
+            (*_op)   = cands[i];
+            return args[0];
         }
-        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in\x27");
+        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in (self) -> yield T\x27");
         return &null;
     }
 
@@ -608,7 +647,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     fn traverse_ranged_for_stmt(self, n: *RangedForStmt) -> *RangedForStmt {
         if n == &null { return n; }
         var it = dyn()->type_of(n->iterable, &null);
-        var elem = (self.iter_elem_type(n->iterable, it)) if (it != &null) else (&null);
+        var elem = (self.iter_elem_type(n->iterable, it, n)) if (it != &null) else (&null);
         self._bind_list(&(n->bindings), elem, n->iterable);
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
         return n;

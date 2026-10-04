@@ -333,6 +333,8 @@ class <T> MemberTyping {
         if bt == &null { return &null; }
         bt = canon_unqual(bt);
 
+        var ri = dyn_cast::<RangeExpr>(dyn()->tu.strip_parens(n->index));
+        if ri != &null { ri->as_index = true; }
         var is_range = (n->index != &null) && isa::<RangeExpr>(dyn()->tu.strip_parens(n->index));
         var usize_t  = dyn()->tu.builtin(BuiltinKind::USize);
 
