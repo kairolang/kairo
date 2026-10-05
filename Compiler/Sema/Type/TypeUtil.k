@@ -319,6 +319,16 @@ class TypeUtil {
         return self.lang_record(WellKnownType::Slice, &a);
     }
 
+    /// The slice an array is viewed as: `[T; N]` -> `[T;]`, and a const
+    /// array -> `[const T;]` so the view keeps the qualifier. Null for
+    /// anything that is not an array, or with no Slice lang item.
+    fn array_view(self, t: *Type) -> *Type {
+        var elem = self.element_of(t);
+        if elem == &null { return &null; }
+        if canon_has_const(t) && (!canon_has_const(elem)) { elem = self.sc->types->qualified(elem, QUAL_CONST()); }
+        return self.slice_of(elem);
+    }
+
     fn set_of(self, elem: *Type) -> *Type {
         if elem == &null { return &null; }
         var a = vec::<*Type>(); a.push_back(elem);

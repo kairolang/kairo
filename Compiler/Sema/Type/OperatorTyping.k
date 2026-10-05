@@ -142,8 +142,10 @@ class <T> OperatorTyping {
         var a = dyn()->tu.as_value(a_in);
         var b = dyn()->tu.as_value(b_in);
         if a == b { return a; }
-        var ab = dyn()->conv.implicit(a, b);
-        var ba = dyn()->conv.implicit(b, a);
+        // implicit_builtin: operands unify on the lattice, never through a
+        // user's `@implicit op as` (see Conversion::join).
+        var ab = dyn()->conv.implicit_builtin(a, b);
+        var ba = dyn()->conv.implicit_builtin(b, a);
         if (ab != ImplicitRank::None) && (ba == ImplicitRank::None) { return b; }
         if (ba != ImplicitRank::None) && (ab == ImplicitRank::None) { return a; }
         return &null;

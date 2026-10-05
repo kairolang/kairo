@@ -45,6 +45,7 @@ import Sema::Type::ArgumentDeduction::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::OperatorFacts::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -338,13 +339,24 @@ class <T> MemberTyping {
         var is_range = (n->index != &null) && isa::<RangeExpr>(dyn()->tu.strip_parens(n->index));
         var usize_t  = dyn()->tu.builtin(BuiltinKind::USize);
 
+        // `a[i..j]` on an array is the slice's: the array is viewed as
+        // `[T;]` (the conversion an argument would take) and Slice's range
+        // `op []` does the rest. OperatorLowering wraps the base in the view.
+        var recv = dyn()->tu.strip_nullable(bt);
+        var array_range = is_range && (dyn()->tu.element_of(bt) != &null);
+        if array_range {
+            var view = dyn()->tu.array_view(n->base->type_);
+            if view == &null { dyn()->missing_lang_item(n, "Slice"); return &null; }
+            recv = view;
+        }
+
         // user `op []`
         if dyn()->tu.kind_of(bt) == BuiltinKind::COUNT {
             var is_container = dyn()->tu.is_vector_like(bt) || dyn()->tu.is_map_like(bt) || dyn()->tu.is_string(bt)
                             || (dyn()->tu.element_of(bt) != &null) || isa::<TupleType>(bt) || (dyn()->tu.pointee(bt) != &null);
-            if !is_container {
+            if (!is_container) || array_range {
                 var cands = vec::<*Decl>();
-                dyn()->ml.lookup(dyn()->tu.strip_nullable(bt), DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &cands);
+                dyn()->ml.lookup(recv, DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &cands);
                 if cands.size() == 0 {
                     dyn()->type_of(n->index, &null);
                     dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' has no subscript operator");
@@ -352,17 +364,18 @@ class <T> MemberTyping {
                 }
                 var args = vec::<ArgInfo>();
                 args.push_back(dyn()->arg_info(n->index));
-                var r = dyn()->ovl.resolve(&cands, &args, true, n->range, "op []",
-                                           dyn()->tu.strip_nullable(bt));
+                var r = dyn()->ovl.resolve(&cands, &args, true, n->range, "op []", recv);
                 if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
                 if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
                 // Member-only resolution, so via_free is false here by
                 // construction; assigned from r anyway so the two never drift.
                 n->resolved_op = r.decl;
                 n->op_via_free = r.via_free;
-                r.ded.bind_from_record(dyn()->tu.strip_nullable(bt));
+                r.ded.bind_from_record(recv);
                 dyn()->finish_call_args(r.decl, &args, &r);
-                n->value_category = Expr::ValueCategory::LValue;
+                // Already through the receiver's generic args: bind_from_record
+                // seeded r.ded, and call_result_type substitutes a dependent
+                // result through it.
                 var rt = dyn()->call_result_type(r.decl, &r);
                 if rt == &null { return &null; }
                 // A C++ `operator[]` (std::unordered_map, ...) already returns
@@ -371,13 +384,24 @@ class <T> MemberTyping {
                 // declaring TU, not by the result's shape, for that reason.
                 var oc  = NameLookup::ctx_of(r.decl);
                 var otu = (reinterpret_cast::<*TranslationUnit>(oc->tu)) if (oc != &null) else (&null);
-                if (otu != &null) && otu->is_foreign { return rt; }
-                // A Kairo place: the operator returns `*T` / `*const T` and the
-                // subscript IS the T it points to, an lvalue, const if the
-                // pointer was. OperatorSignatureCheck guaranteed the pointer.
-                var place = dyn()->tu.pointee(rt);
-                ICE_IF(place == &null, "MemberTyping: user `op []` without a pointer result; OperatorSignatureCheck gate failure");
-                return place;
+                if (otu != &null) && otu->is_foreign {
+                    n->value_category = Expr::ValueCategory::LValue;
+                    return rt;
+                }
+                // A Kairo place returns `*T` / `*const T` and the subscript IS
+                // the T it points to, an lvalue, const if the pointer was. Any
+                // other result is a value operator: the subscript is that
+                // value, an rvalue, so `&b[0..1]` is the ordinary
+                // address-of-rvalue error.
+                var fd = cast::<FunctionDecl>(r.decl);
+                if OperatorFacts::is_place(fd) {
+                    n->value_category = Expr::ValueCategory::LValue;
+                    var place = dyn()->tu.pointee(rt);
+                    ICE_IF(place == &null, "MemberTyping: place `op []` without a pointee; OperatorFacts::is_place disagrees");
+                    return place;
+                }
+                n->value_category = Expr::ValueCategory::RValue;
+                return rt;
             }
         }
 
