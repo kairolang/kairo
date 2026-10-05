@@ -64,6 +64,11 @@ pub struct <T> Vector {
 
     fn Vector(self)
     fn Vector(self, const items: [T;])
+
+    /// A vector passes where a slice is wanted: a view, nothing copied.
+    @implicit pub inline fn op as (self) -> [T;] {
+        return Slice<T>(self.data, self.len)
+    }
 }
 
 pub struct <T> HashSet {
