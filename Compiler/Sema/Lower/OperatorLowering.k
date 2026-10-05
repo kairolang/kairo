@@ -52,6 +52,7 @@ import Sema::SemaContext::*;
 import AST::OperatorFacts::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Type::TypeUtil::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
@@ -124,7 +125,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
             return u->operand;   // already an lvalue of T.
         }
         var pt = canon_unqual(v->type_);
-        ICE_IF((pt == &null) || (!isa::<PointerType>(pt)), "OperatorLowering: place operator returns a non-pointer; OperatorSignatureCheck gate failure");
+        ICE_IF((pt == &null) || (!isa::<PointerType>(pt)), "OperatorLowering: is_place accepted a non-pointer return");
         var d = UnaryOperatorExpr::create(self.ctx, v->range, v, self.synth.punct(v->range, TokenKind::OpStar),
                                           UnaryOperatorExpr::Fix::Prefix);
         d->type_          = cast::<PointerType>(pt)->pointee;
@@ -192,7 +193,19 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         // `op []` is two tokens; the receiver's own range anchors the step.
         var args = vec::<*Expr>();
         args.push_back(n->index);
-        return self._call_tokens(static_cast::<*Expr>(n), n->base, self._bracket_tokens(n), n->resolved_op, n->op_via_free, &args, &null);
+        // `a[i..j]` on an array resolved to Slice's `op []` (MemberTyping):
+        // the receiver is the array's view, not the array, and an array has
+        // no members to call. EmitIR spells the cast as the Slice over it.
+        var recv = n->base;
+        var tu   = TypeUtil(self.sc);
+        var view = tu.array_view(recv->type_);
+        if view != &null {
+            var c = ImplicitBoundaryCastExpr::create(self.ctx, recv->range, recv, recv->type_, view);
+            c->type_          = view;
+            c->value_category = Expr::ValueCategory::RValue;
+            recv = static_cast::<*Expr>(c);
+        }
+        return self._call_tokens(static_cast::<*Expr>(n), recv, self._bracket_tokens(n), n->resolved_op, n->op_via_free, &args, &null);
     }
 
     fn transform_type_cast_expr(self, n: *TypeCastExpr) -> *Expr {

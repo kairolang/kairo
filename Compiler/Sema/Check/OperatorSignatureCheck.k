@@ -16,6 +16,10 @@
 ///       A free operator's first parameter is the receiver.
 ///     - Results: comparisons and `in` containment return bool, `<=>` returns
 ///       Ordering, a compound assignment returns nothing (it is a statement).
+///       `[]`, `.*`, `->*` returning a safe `*T` / `*const T` are places
+///       (C++ gets `T&`); any other result makes them value operators, so a
+///       pointer returned BY VALUE from one is not expressible. `unsafe *T`
+///       is neither and is rejected. `->` returns a safe pointer, always.
 ///     - One definition per pair: a type declares `op +` OR `op +=`; the
 ///       other is derived (OperatorTyping). Both in one type is an error.
 ///     - Extension operators are free functions taking `Self*`, which C++
@@ -23,6 +27,8 @@
 ///       `->`, `.*`, `->*`, `delete` must be members and are declared in
 ///       the type's body.
 ///     - `++`/`--` without `l`/`r`: prefix, with a warning.
+///     - `@implicit` goes on a member `op as` and nowhere else; it opens the
+///       conversion to Conversion::implicit's user rung.
 ///
 ///   Phase: CHECK, after T (canonical return types), before X.
 ///
@@ -81,7 +87,14 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
     // === one declaration ====================================================
 
     fn visit_function_decl(self, f: *FunctionDecl) -> bool {
-        if (f == &null) || (!f->is_operator) || f->is_poisoned() { return true; }
+        if (f == &null) || f->is_poisoned() { return true; }
+        // `@implicit` means one thing: this `op as` may be applied without
+        // being written. On anything else it would be silently ignored.
+        if OperatorFacts::has_implicit_attr(f) && (!OperatorFacts::is_implicit_conv(f)) {
+            self._err_id(f, DiagID::SC115E, "'@implicit' applies only to a conversion operator: 'fn op as (self) -> T' in a type's body");
+            return true;
+        }
+        if !f->is_operator { return true; }
         if decl_is_imported(static_cast::<*Decl>(f)) { return true; }   // C++'s own rules applied already.
 
         var sym   = OperatorFacts::symbol(f);
@@ -169,10 +182,21 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         if f->return_type != &null { rt = f->return_type->canonical; }
         if (f->return_type != &null) && ((rt == &null) || rt->is_dependent()) { return; }
 
-        if (sym == "[]") || (sym == ".*") || (sym == "->*") || (sym == "->") {
+        if sym == "->" {
             var p = (self._tu.pointee(rt)) if (rt != &null) else (&null);
             if (p == &null) || self._tu.is_unsafe_ptr(rt) {
-                self._err(f, f"'op {sym}' must return a place into 'self': '*T' or '*const T\x27");
+                self._err_id(f, DiagID::SC113E, "'op ->' must return a pointer: '*T' or '*const T\x27");
+            }
+            return;
+        }
+        // The return decides place vs value (OperatorFacts::is_place); only
+        // the two results that are neither are errors here.
+        if (sym == "[]") || (sym == ".*") || (sym == "->*") {
+            if rt == &null {
+                self._err(f, f"'op {sym}' must return a value or a place ('*T' / '*const T')");
+            } else if self._tu.is_unsafe_ptr(rt) {
+                self._err_id(f, DiagID::SC114E,
+                    f"'op {sym}' cannot return 'unsafe *T'; a place is '*T' or '*const T', and an unsafe pointer is neither a place nor a value");
             }
             return;
         }
@@ -247,8 +271,10 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         }
     }
 
-    priv fn _err(self, f: *FunctionDecl, msg: string) {
-        self.sc->diag->report(DiagID::SC055E, f->range.start, msg).first(f->range).emit();
+    priv fn _err(self, f: *FunctionDecl, msg: string) { self._err_id(f, DiagID::SC055E, msg); }
+
+    priv fn _err_id(self, f: *FunctionDecl, id: DiagID, msg: string) {
+        self.sc->diag->report(id, f->range.start, msg).first(f->range).emit();
         f->poison();
     }
 }

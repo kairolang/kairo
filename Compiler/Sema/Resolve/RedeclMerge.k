@@ -58,12 +58,16 @@
 ///                            IN the signature and the STL depends on it, so
 ///                            an extracted header's const/non-const pairs
 ///                            stay two entities; the gate is _foreign, the
-///                            same predicate TypeResolution uses. A place
-///                            operator (`[]`, `.*`, `->*`;
-///                            OperatorFacts::is_place) is the one exception
-///                            to the restriction: `-> *T` beside
+///                            same predicate TypeResolution uses. The
+///                            `[]`, `.*`, `->*` operators
+///                            (OperatorFacts::is_place_kind) are the one
+///                            exception to the restriction: `-> *T` beside
 ///                            `-> *const T` is the pair a const receiver
-///                            needs, and X ranks the two by receiver.
+///                            needs, and X ranks the two by receiver. Keyed
+///                            on operator KIND, not on is_place: a value
+///                            `op [] -> [T;]` beside its `-> [const T;]`
+///                            pair is two entities too, and the exception
+///                            takes no part in the place/value decision.
 ///
 ///     Fixity is INCLUDED: `op l++` and `op r++` share a name cell
 ///     (OperatorFacts::key) and X picks between them by is_postfix, so the
@@ -498,14 +502,16 @@ class RedeclMerge {
         var fa = self._foreign(a);
         var fb = self._foreign(b);
         // Const-ness participates in signature identity for FOREIGN decls
-        // and PLACE OPERATORS only. Kairo source may not declare const
+        // and `[]` / `.*` / `->*` only. Kairo source may not declare const
         // overloads otherwise (see header), so for any other Kairo-authored
         // decl a const mismatch is one entity with two contracts and
         // _check_modifiers_agree reports it. C++ has no such rule and the
         // STL leans on it hard -- begin()/begin() const, the operator[]
         // pairs -- so an extracted header's pairs are two entities and must
-        // not merge; a Kairo place operator is the same pair by design.
-        var const_is_identity = fa || fb || OperatorFacts::is_place(a) || OperatorFacts::is_place(b);
+        // not merge; a Kairo `op []` is the same pair by design. By KIND
+        // (is_place_kind), whatever the return: a value `op []` returning
+        // `[T;]` and `[const T;]` is a const pair as much as a place is.
+        var const_is_identity = fa || fb || OperatorFacts::is_place_kind(a) || OperatorFacts::is_place_kind(b);
         if const_is_identity {
             if a->is_const() != b->is_const() { return false; }
         }
@@ -841,8 +847,9 @@ class RedeclMerge {
     ///
     /// `const` is here rather than in _same_signature because Kairo does
     /// not permit const overloading -- see the header. Two links
-    /// disagreeing about const are one entity with two contracts. A place
-    /// operator's pair never reaches here: const is its identity.
+    /// disagreeing about const are one entity with two contracts. An
+    /// `[]` / `.*` / `->*` pair never reaches here: const is its identity,
+    /// keyed on operator kind (is_place_kind), place or value alike.
     ///
     /// FIXME(where): a `where` guard on one link and not another is either
     /// this same kind of conflict or a third dispatch axis;
