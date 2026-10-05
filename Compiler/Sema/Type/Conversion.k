@@ -38,12 +38,18 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
+import AST::OperatorFacts::*;
+import AST::Context::SymbolTable::*;
+import AST::ASTSupport::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
+import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::TypeKind::*;
+import Token::TokenKind::*;
 
 /// \enum ConvClass
 /// \brief Lattice §1. The class of an ordered primitive pair.
@@ -105,11 +111,16 @@ fn literal_fits_int(lo: u64, hi: u64, big: bool, negative: bool, bk: BuiltinKind
 class Conversion {
     pub var sc: *SemaContext;
     pub var tu: TypeUtil;
+    /// For the user rung's `op as` lookup only. Its extension index is
+    /// never built: `op as` is member-only (OperatorSignatureCheck), so the
+    /// record's own table and its bases are the whole search.
+    priv var _ml: MemberLookup;
 
     fn Conversion(self) { self.sc = &null; }
     fn Conversion(self, sc: *SemaContext) {
-        self.sc = sc;
-        self.tu = TypeUtil(sc);
+        self.sc  = sc;
+        self.tu  = TypeUtil(sc);
+        self._ml = MemberLookup(sc);
     }
 
     fn implicit_enabled(self) -> bool {
@@ -191,7 +202,18 @@ class Conversion {
     // === the implicit sequence ==============================================
 
     /// Rank of \p from -> \p to as an implicit conversion. Both canonical.
-    fn implicit(self, from: *Type, to: *Type) -> ImplicitRank {
+    fn implicit(self, from: *Type, to: *Type) -> ImplicitRank { return self._seq(from, to, true); }
+
+    /// implicit() without the user rung (`@implicit op as`, array -> slice):
+    /// the language's own lattice only. What a JOIN asks -- an if/match arm
+    /// or a binary operand must not be converted by a user function nobody
+    /// wrote a target for.
+    fn implicit_builtin(self, from: *Type, to: *Type) -> ImplicitRank { return self._seq(from, to, false); }
+
+    /// \p user: the view and `@implicit` rungs are open. At most ONE of
+    /// them applies per sequence: the nullable rung below recurses with it
+    /// closed, so `T -> U?` never hides a user conversion under the wrap.
+    priv fn _seq(self, from: *Type, to: *Type, user: bool) -> ImplicitRank {
         if (from == &null) || (to == &null) { return ImplicitRank::None; }
         if from == to { return ImplicitRank::Exact; }
         if self.tu.is_never(from) { return ImplicitRank::Converted; }
@@ -202,8 +224,8 @@ class Conversion {
         if isa::<CXXLValueRefType>(to) || isa::<CXXRValueRefType>(to) { return self._bind_ref(from, to); }
         // A reference READ as a value is its referee (lvalue-to-rvalue): a
         // `const T&` return converts wherever a T would.
-        if isa::<CXXLValueRefType>(from) { return self.implicit(cast::<CXXLValueRefType>(from)->referee, to); }
-        if isa::<CXXRValueRefType>(from) { return self.implicit(cast::<CXXRValueRefType>(from)->referee, to); }
+        if isa::<CXXLValueRefType>(from) { return self._seq(cast::<CXXLValueRefType>(from)->referee, to, user); }
+        if isa::<CXXRValueRefType>(from) { return self._seq(cast::<CXXRValueRefType>(from)->referee, to, user); }
 
         // Top-level cv is not part of a VALUE: the read strips it and
         // copy-initialization ignores it on the target. `const i32 -> i32`
@@ -228,10 +250,10 @@ class Conversion {
             var from_inner = self.tu.nullable_inner(fu);
             if from_inner != &null {
                 // T? -> U?: only when the inners relate; never Exact (different type).
-                return (ImplicitRank::Converted) if (self.implicit(from_inner, to_inner) != ImplicitRank::None)
+                return (ImplicitRank::Converted) if (self._seq(from_inner, to_inner, false) != ImplicitRank::None)
                        else (ImplicitRank::None);
             }
-            return (ImplicitRank::Converted) if (self.implicit(fu, to_inner) != ImplicitRank::None)
+            return (ImplicitRank::Converted) if (self._seq(fu, to_inner, false) != ImplicitRank::None)
                    else (ImplicitRank::None);
         }
 
@@ -261,7 +283,98 @@ class Conversion {
             return ImplicitRank::None;
         }
 
+        if !user { return ImplicitRank::None; }
+
+        // `[T; N]` -> `[T;]`: a view of the array, nothing copied. The one
+        // container conversion the compiler owns, because an array has no
+        // body to declare an `op as` in. EmitIR builds the Slice.
+        if self.array_views_as(from, tq) { return ImplicitRank::Converted; }
+
+        // `@implicit fn op as (self) -> T` on the source.
+        if self.implicit_op(from, tq) != &null { return ImplicitRank::Converted; }
+
         return ImplicitRank::None;
+    }
+
+    /// `[T; N]` seen as the slice \p to: `[T;]`, or `[const T;]`. A const
+    /// array views only as `[const T;]` -- the view must not launder the
+    /// qualifier away. Type-level only: a `const` BINDING's constness is not
+    /// in its type, and clang rejects the `const T*` -> `T*` that leaks.
+    fn array_views_as(self, from: *Type, to: *Type) -> bool {
+        var elem = self.tu.element_of(from);
+        if (elem == &null) || (!self.tu.is_slice(to)) { return false; }
+        var args = self.tu.record_args(to);
+        if args.size() != 1 { return false; }
+        var want = args[0];
+        if canon_unqual(want) != canon_unqual(elem) { return false; }
+        if canon_has_const(want) { return true; }
+        return (!canon_has_const(from)) && (!canon_has_const(elem));
+    }
+
+    /// The `@implicit op as` on \p from whose result is exactly \p to, or
+    /// null. EXACT: no second conversion rides on the result, so `A -> B`
+    /// and `B -> C` never chain into `A -> C`. A const source needs a
+    /// `const self` operator. Two matches (an own and an inherited one) is
+    /// the first: own members come first in the walk and hide the base's.
+    fn implicit_op(self, from: *Type, to: *Type) -> *FunctionDecl {
+        var fu = canon_unqual(from);
+        var tq = canon_unqual(to);
+        if (fu == &null) || (tq == &null) || (!isa::<RecordType>(fu)) { return &null; }
+        var cands = vec::<*Decl>();
+        self._ml.lookup(fu, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
+        if cands.size() == 0 { return &null; }
+        var pat  = NameLookup::representative(self.tu.pattern_of(self.tu.record_decl(fu)));
+        var args = self.tu.record_args(fu);
+        for var i: usize = 0; i < cands.size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cands[i]);
+            if (f == &null) || f->is_poisoned() || (!OperatorFacts::is_implicit_conv(f)) { continue; }
+            if (f->return_type == &null) || (f->return_type->canonical == &null) { continue; }
+            if canon_has_const(from) && (!f->is_const()) { continue; }
+            if self._same_through(canon_unqual(f->return_type->canonical), tq, pat, &args) { return f; }
+        }
+        return &null;
+    }
+
+    /// \p pattern, a type written inside the generic record \p owner, IS
+    /// \p concrete once \p owner's parameters read as \p args: `Vector<T>`'s
+    /// `-> [T;]` against `[i32;]` through `Vector<i32>`. A structural
+    /// match rather than Deduction::substitute, which lives above this file
+    /// (it holds a Conversion) and would build types only to compare them.
+    priv fn _same_through(self, pattern: *Type, concrete: *Type, owner: *Decl, args: *FrozenList::<*Type>) -> bool {
+        if (pattern == &null) || (concrete == &null) { return false; }
+        if pattern == concrete { return true; }
+        if !pattern->is_dependent() { return false; }
+        if isa::<GenericParamType>(pattern) {
+            var g = cast::<GenericParamType>(pattern);
+            if (g->owner != owner) || (static_cast::<usize>(g->param_index) >= args->size()) { return false; }
+            return (*args)[static_cast::<usize>(g->param_index)] == concrete;
+        }
+        if isa::<QualifiedType>(pattern) {
+            if canon_quals(pattern) != canon_quals(concrete) { return false; }
+            return self._same_through(canon_unqual(pattern), canon_unqual(concrete), owner, args);
+        }
+        if isa::<PointerType>(pattern) {
+            if (!isa::<PointerType>(concrete)) || (self.tu.is_unsafe_ptr(pattern) != self.tu.is_unsafe_ptr(concrete)) { return false; }
+            return self._same_through(cast::<PointerType>(pattern)->pointee, cast::<PointerType>(concrete)->pointee, owner, args);
+        }
+        if isa::<NullableType>(pattern) {
+            if !isa::<NullableType>(concrete) { return false; }
+            return self._same_through(cast::<NullableType>(pattern)->inner, cast::<NullableType>(concrete)->inner, owner, args);
+        }
+        if isa::<RecordType>(pattern) {
+            if !isa::<RecordType>(concrete) { return false; }
+            var pd = NameLookup::representative(self.tu.pattern_of(self.tu.record_decl(pattern)));
+            var cd = NameLookup::representative(self.tu.pattern_of(self.tu.record_decl(concrete)));
+            if pd != cd { return false; }
+            var pa = self.tu.record_args(pattern);
+            var ca = self.tu.record_args(concrete);
+            if pa.size() != ca.size() { return false; }
+            for var i: usize = 0; i < pa.size(); ++i {
+                if !self._same_through(pa[i], ca[i], owner, args) { return false; }
+            }
+            return true;
+        }
+        return false;
     }
 
     /// \p to's pointee carries every qualifier \p from's does.
@@ -436,8 +549,10 @@ class Conversion {
         if au == bu { return au; }
         if self.tu.is_never(au) { return bu; }
         if self.tu.is_never(bu) { return au; }
-        var ab = self.implicit(au, bu);
-        var ba = self.implicit(bu, au);
+        // The language's lattice only: an arm is not converted by a user's
+        // `@implicit op as` toward a type nobody wrote.
+        var ab = self.implicit_builtin(au, bu);
+        var ba = self.implicit_builtin(bu, au);
         if (ab != ImplicitRank::None) && (ba == ImplicitRank::None) { return bu; }
         if (ba != ImplicitRank::None) && (ab == ImplicitRank::None) { return au; }
         return &null;   // neither or both: the caller errors (both = a W-cycle, invariant 2).

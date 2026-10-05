@@ -169,12 +169,24 @@ class <T> ControlTyping {
         var bt: *Type = &null; var et: *Type = &null;
         var b_lit = (n->begin != &null) && dyn()->is_untyped_literal(n->begin);
         var e_lit = (n->end   != &null) && dyn()->is_untyped_literal(n->end);
+        // An index range's literal bounds are usize, not i32: every `op []`
+        // taking a range takes `Range<usize>` (and the open forms), and a
+        // `Range<i32>` from `s[1..3]` would match none of them. Only a
+        // literal takes the hint; a typed bound keeps its own type.
+        var lit_t: *Type = &null;
+        if n->as_index { lit_t = dyn()->tu.builtin(BuiltinKind::USize); }
         if b_lit && (!e_lit) {
             if n->end != &null { et = dyn()->type_of(n->end, &null); }
-            bt = dyn()->type_of(n->begin, et);
+            var b_hint = et;
+            if b_hint == &null { b_hint = lit_t; }
+            bt = dyn()->type_of(n->begin, b_hint);
         } else {
-            if n->begin != &null { bt = dyn()->type_of(n->begin, &null); }
-            if n->end   != &null { et = dyn()->type_of(n->end, bt); }
+            var b_hint: *Type = &null;
+            if b_lit { b_hint = lit_t; }
+            if n->begin != &null { bt = dyn()->type_of(n->begin, b_hint); }
+            var e_hint = bt;
+            if (e_hint == &null) && e_lit { e_hint = lit_t; }
+            if n->end   != &null { et = dyn()->type_of(n->end, e_hint); }
         }
         if ((n->begin != &null) && dyn()->propagate(n, n->begin)) || ((n->end != &null) && dyn()->propagate(n, n->end)) { return &null; }
         var elem = (bt) if (bt != &null) else (et);

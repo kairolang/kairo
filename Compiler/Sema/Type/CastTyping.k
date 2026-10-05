@@ -286,6 +286,9 @@ class <T> CastTyping {
             return target;
         }
 
+        // 5b'. `[T; N] as [T;]`: the view an implicit site takes, written out.
+        if dyn()->conv.array_views_as(src, canon_unqual(target)) { return target; }
+
         // 5c. `fn op as (self) -> T` on the source
         var cands = vec::<*Decl>();
         dyn()->ml.lookup(dyn()->tu.strip_nullable(src), DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
