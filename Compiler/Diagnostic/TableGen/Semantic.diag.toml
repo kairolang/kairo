@@ -1165,8 +1165,8 @@ group = "operators"
     an `op` declaration breaks one of the operator rules: the operator is not overloadable (`=`,
     `===`, ...), it has the wrong number of operands, it takes default arguments or a pack, it is
     declared in an extension when it must be a member, or its return type is wrong for the
-    operator (comparisons return `bool`, `<=>` returns `Ordering`, subscripts return a place into
-    `self`, compound assignments return nothing). the message names the rule.
+    operator (comparisons return `bool`, `<=>` returns `Ordering`, a subscript returns something,
+    compound assignments return nothing). the message names the rule.
 
     ```kairo
     fn op ==(self, o: Self) -> int { ... }    // must return bool
@@ -2451,4 +2451,85 @@ group = "generators"
     ## how to fix
 
     move the sequence into a separate `-> yield T` function and call it from here.
+    """
+
+[SC113]
+brief = "'op ->' does not return a pointer"
+group = "operators"
+
+    [SC113.E]
+    explain = """
+    # `op ->` must return a pointer
+
+    `a->m` on a type with `op ->` calls the operator and applies `->` again to its result, the
+    same as C++'s `operator->`. the result therefore has to be a safe pointer, `*T` or
+    `*const T`. a value, nothing, or an `unsafe *T` is rejected.
+
+    ```kairo
+    fn op ->(self) -> T { ... }           // error: a value
+    fn op ->(self) -> unsafe *T { ... }   // error: unsafe
+    fn op ->(self) -> *T { ... }          // ok
+    ```
+
+    ## how to fix
+
+    return `*T` or `*const T` pointing at the object `->` should reach.
+    """
+
+[SC114]
+brief = "a place operator returns 'unsafe *T' "
+group = "operators"
+
+    [SC114.E]
+    explain = """
+    # `op []`, `op .*`, `op ->*` cannot return `unsafe *T`
+
+    these operators are places or values, decided by the declared return type:
+
+    - `*T` / `*const T` makes the operator a PLACE: `a[i]` is the `T` the pointer points at, an
+      lvalue, and C++ sees `T&` / `const T&`.
+    - any other type makes it a VALUE operator: `a[i]` is the returned value, an rvalue.
+
+    an `unsafe *T` is neither. it cannot be a place, because a place is the safe reference C++
+    receives as `T&`, and it is not read as a value either, since every pointer return already
+    means a place. returning a pointer by value from these operators is not expressible.
+
+    ```kairo
+    fn op [](self, i: usize) -> unsafe *T { ... }   // error
+    fn op [](self, i: usize) -> *T { ... }          // a place
+    fn op [](self, r: Range<usize>) -> [T;] { ... } // a value
+    ```
+
+    ## how to fix
+
+    return `*T` / `*const T` for a place, or a non-pointer type for a value. to hand out a raw
+    pointer, use a named method.
+    """
+
+[SC115]
+brief = "'@implicit' on something that is not a conversion operator"
+group = "operators"
+
+    [SC115.E]
+    explain = """
+    # `@implicit` applies only to `op as`
+
+    `@implicit` marks a conversion operator the compiler may apply without an `as`: where a value
+    of the operator's result type is wanted and the source type declares the operator, the call is
+    inserted. it has no meaning on any other declaration.
+
+    ```kairo
+    struct Meters {
+        var v: f64
+        @implicit fn op as (const self) -> f64 { return self.v }   // ok
+        @implicit fn value(const self) -> f64 { return self.v }    // error: not 'op as'
+    }
+    ```
+
+    the conversion applies only when the result type is exactly the type wanted, one conversion at
+    a time: two `@implicit` operators never chain, and an if/match arm is never converted by one.
+
+    ## how to fix
+
+    remove `@implicit`, or move the conversion into a `fn op as (self) -> T` in the type's body.
     """

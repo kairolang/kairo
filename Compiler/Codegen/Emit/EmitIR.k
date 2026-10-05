@@ -657,7 +657,9 @@ class EmitIR {
             case ExprKind::TypeCastExpr         { self._cast(cast::<TypeCastExpr>(e)); }
             case ExprKind::ImplicitBoundaryCastExpr {
                 var n = cast::<ImplicitBoundaryCastExpr>(e);
-                self._cast_to(n->target_type, n->original, "static_cast");
+                if !self._array_view(n->original, n->target_type, &null) {
+                    self._cast_to(n->target_type, n->original, "static_cast");
+                }
             }
             case ExprKind::NamedInitializerExpr { self._init(e, cast::<NamedInitializerExpr>(e)->fields); }
             case ExprKind::AnonInitializerExpr  { self._init(e, cast::<AnonInitializerExpr>(e)->fields); }
@@ -706,6 +708,7 @@ class EmitIR {
     /// if the canonicals differ. Initializers, returns and arguments all go
     /// through here.
     priv fn _value(self, e: *Expr, want: *Type, subst: *InstanceEntry = &null) {
+        if self._array_view(e, want, subst) { return; }
         if self._needs_cast(e, want, subst) {
             self._cast_to(want, e, "static_cast", subst);
             return;
@@ -733,6 +736,24 @@ class EmitIR {
         // temporary and changes value category. Records go as they are.
         if canon_unqual(w)->kind == TypeKind::RecordType { return false; }
         return canon_unqual(have) != canon_unqual(w);
+    }
+
+    /// `[T; N]` where a record is wanted: Sema's array -> slice view
+    /// (Conversion::array_views_as), the only way an array meets a record.
+    /// Spelled as the record's `(data, len)` construction over the array's
+    /// own storage; `&(a)[0]` is the first element whichever way the array
+    /// was declared. True when it emitted.
+    priv fn _array_view(self, e: *Expr, want: *Type, subst: *InstanceEntry) -> bool {
+        if (e == &null) || (want == &null) || (e->type_ == &null) || (want->canonical == &null) { return false; }
+        var have = canon_unqual(e->type_);
+        var w    = canon_unqual(want->canonical);
+        if (have == &null) || (w == &null) { return false; }
+        if (have->kind != TypeKind::FixedArrayType) || (w->kind != TypeKind::RecordType) { return false; }
+        if have->is_dependent() || w->is_dependent() { return false; }
+        sink->spell(e->range, self._spell._type(want, subst) + "(&(");
+        self.emit(e);
+        sink->spell(e->range, ")[0], " + f"{have->size_bits}" + ")");
+        return true;
     }
 
     priv fn _cast_to(self, t: *Type, e: *Expr, kind: string, subst: *InstanceEntry = &null) {
@@ -1170,6 +1191,8 @@ class EmitIR {
             self._cast_to(n->target, n->operand, "static_cast");
             return;
         }
+        // `a as [T;]` on an array: the same view an implicit site gets.
+        if self._array_view(n->operand, n->target, &null) { return; }
         var src_rec = self._record_operand(n->operand);
         ICE_IF(src_rec && (!self._type_is_pointer(n->operand->type_)), "EmitIR: `as` on a record value; OperatorLowering owns op as / ctor casts");
         var kind = "static_cast";

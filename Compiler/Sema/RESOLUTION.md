@@ -296,8 +296,9 @@ still on a placeholder must not ship in a stable release.
 Merges FUNCTION redeclarations by signature (arity, canonical param types
 in order, generic arity; return type EXCLUDED so a mismatch is a conflict;
 const excluded for Kairo-authored decls, included for foreign ones and
-for place operators (`[]`, `.*`, `->*`: the one exception to the
-const-overload restriction); fixity included, so `op l++` beside `op r++`
+for `[]`, `.*`, `->*` (keyed on operator kind, `is_place_kind`, so place
+and value forms alike: the one exception to the const-overload
+restriction); fixity included, so `op l++` beside `op r++`
 is two functions; top-level
 parameter cv excluded as in C++ ([dcl.fct]/5), both the binding's `const`
 and a `const` written at the top of the type, so `f(x: const *i32)` and
@@ -404,12 +405,18 @@ when exhaustive (default, catch-all, every enum variant by name, or
 operators and compound-assignment pairing assume the shapes it rejects:
 `===` and `=` declared at all (neither is overloadable), both halves of a
 compound pair (`op +=` AND `op +`), a default argument on an operator, a
-comparison not returning `bool`, a compound assignment with a result, a
-place operator (`[]`, `.*`, `->*`, and `->`) not returning a safe `*T` /
-`*const T`, and a member-only operator (`op as`, ...) in an extension.
-X relies on the place rule: `type_subscript` on a user `op []` yields the
-POINTEE of the operator's result as an lvalue (const if the pointer was),
-not the pointer; `&a[i]` takes the pointer back.
+comparison not returning `bool`, a compound assignment with a result,
+`op ->` not returning a safe `*T` / `*const T` (SC113E), `[]` / `.*` /
+`->*` returning nothing or `unsafe *T` (SC114E), and a member-only
+operator (`op as`, ...) in an extension.
+The place/value rule (`OperatorFacts::is_place`): `[]`, `.*`, `->*`
+returning a safe `*T` / `*const T` are PLACES; any other result makes them
+VALUE operators, and a pointer returned by value is not expressible.
+`type_subscript` on a Kairo place `op []` yields the POINTEE of the result
+as an lvalue (const if the pointer was), not the pointer, and `&a[i]`
+takes the pointer back; on a value `op []` it yields the result as an
+rvalue, so `&a[0..1]` is the ordinary address-of-rvalue error. A foreign
+`operator[]` is taken as declared, an lvalue.
 
 `ConstraintExtraction` partitions each decl's canonical `requires` into
 conformance constraints vs value predicates and writes the result to
@@ -518,6 +525,31 @@ else. The primitive relation is rule-based (R1-R5, §4); the table-generated
 `classify` with property tests is a tooling follow-up and these rules are
 its oracle. bf16 -> f32/f64 is W (exact by construction; the doc table
 omits bf16).
+
+Two USER rungs sit after the lattice, both Converted, both closed to
+`join` and `unify_operands` (`implicit_builtin`) and to the recursion
+under `T -> U?`, so at most one applies per sequence and an arm or operand
+is never converted by one:
+
+- `[T; N] -> [T;]` (`array_views_as`): a view, nothing copied; a const
+  array views only as `[const T;]`. The one container conversion the
+  compiler owns, because an array has no body to declare an `op as` in.
+  EmitIR spells it as `Slice<T>(&(a)[0], N)` wherever a value is emitted
+  against a record (`_array_view`). `a[i..j]` on an array is the same view:
+  MemberTyping resolves Slice's range `op []` on it and OperatorLowering
+  wraps the base in an `ImplicitBoundaryCastExpr`. HOLE: a `const`
+  binding's constness is not in its type, so a const array bound to
+  `[T;]` is caught by clang, not here; and a view of a local that escapes
+  (returned, stored) is not diagnosed -- AMT's escape clause, as for a
+  retained slice argument.
+- `@implicit fn op as (self) -> T` (`implicit_op`): a member `op as`
+  carrying the attribute (`OperatorFacts::is_implicit_conv`, probed in the
+  decl's own imm table) whose result is EXACTLY the target, read through
+  the receiver's generic arguments (`_same_through`). No chaining. Nothing
+  is inserted into the tree: `op as` is emitted as a non-explicit C++
+  `operator T`, so clang applies what Sema allowed. OperatorSignatureCheck
+  rejects `@implicit` anywhere else (SC115E). `Vector`'s `-> [T;]` in
+  Lib/builtin is one: `[T] -> [T;]` is library, not compiler.
 
 **Literals** (§5). Untyped until assigned. Expected type first, fit checked
 AT the literal; default i32 -> i64 -> i128, then "too large without a

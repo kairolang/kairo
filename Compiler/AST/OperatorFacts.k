@@ -3,9 +3,9 @@
 ///   \brief What an operator declaration IS, read off its tokens: the
 ///          operator with the fixity marker removed, its table key, whether
 ///          it is postfix, and the compound/base pairing. Every sema reader
-///          of `FunctionDecl::op_token` goes through here. CXXSpell keeps its
-///          own three-line copy on the codegen side of the import boundary,
-///          on purpose.
+///          of `FunctionDecl::op_token` goes through here. CXXSpell's
+///          is_place_operator mirrors is_place, return-type test included,
+///          on the codegen side of the import boundary, on purpose.
 ///
 ///   Spelled through the DECL'S OWN context: `op_token` carries per-fid imm
 ///   indices, and reading it against another TU's context gives the
@@ -26,6 +26,9 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
+import AST::Node::Casting::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 
@@ -111,13 +114,47 @@ class OperatorFacts {
         return s;
     }
 
-    /// `[]`, `.*`, `->*`: a place into `self`, declared `-> *T` /
-    /// `-> *const T`, which C++ receives as `T&` / `const T&`. `->` is not
-    /// one: C++'s `operator->` returns a pointer, and so does Kairo's.
-    static fn is_place(f: *FunctionDecl) -> bool {
+    /// `[]`, `.*`, `->*`: the operators that MAY be a place, whatever they
+    /// return. `->` is not one: C++'s `operator->` returns a pointer, and so
+    /// does Kairo's. Signature identity keys on this (RedeclMerge); the
+    /// place/value decision is is_place's.
+    static fn is_place_kind(f: *FunctionDecl) -> bool {
         if (f == &null) || (!f->is_operator) || (!f->is_method()) { return false; }
         var s = OperatorFacts::symbol(f);
         return (s == "[]") || (s == ".*") || (s == "->*");
+    }
+
+    /// `[]`, `.*`, `->*` returning a safe `*T` / `*const T`: a place into `self`,
+    /// which C++ receives as `T&` / `const T&`. The kind alone does not decide:
+    /// `op [] -> [T;]` (slicing) is a value operator. `->` is never a place.
+    /// A null canonical (no return type, or unresolved) is not a place.
+    static fn is_place(f: *FunctionDecl) -> bool {
+        if !OperatorFacts::is_place_kind(f) { return false; }
+        if (f->return_type == &null) || (f->return_type->canonical == &null) { return false; }
+        var c = canon_unqual(f->return_type->canonical);
+        return (c != &null) && isa::<PointerType>(c) && (!cast::<PointerType>(c)->is_unsafe);
+    }
+
+    /// `@implicit fn op as (self) -> T`: a conversion the compiler may apply
+    /// without an `as` (Conversion::implicit's user rung). Probed in the
+    /// DECL'S OWN imm table: attribute names are per-fid imms, and the
+    /// operator is usually declared in another TU (Lib/builtin). Never
+    /// interned: a name its file never spelled is on no decl there.
+    static fn is_implicit_conv(f: *FunctionDecl) -> bool {
+        if (f == &null) || (!f->is_operator) || (!f->is_method()) { return false; }
+        if OperatorFacts::op_kind(f) != TokenKind::KwAs { return false; }
+        return OperatorFacts::has_implicit_attr(f);
+    }
+
+    /// `@implicit` written on \p f, whatever \p f is. OperatorSignatureCheck
+    /// rejects it everywhere but on a member `op as`.
+    static fn has_implicit_attr(f: *FunctionDecl) -> bool {
+        if f == &null { return false; }
+        var c = OperatorFacts::_ctx(f);
+        if (c == &null) || (c->get_imm_table() == &null) { return false; }
+        var k = c->get_imm_table()->find_ident("implicit");
+        if k == u32(-1) { return false; }
+        return f->has_attribute_named(k);
     }
 
     /// Parameters after `self`.

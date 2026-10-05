@@ -168,10 +168,12 @@ emitters use the same instance; a declaration and a body cannot disagree.
   by value is an ICE (StmtTyping rejects it). Both emitters spell
   parameters through here.
 - `return_spelling(f)`: a method's C++ return type; `_ret` in both
-  emitters goes through it. Place operators (`[]`, `.*`, `->*`) are
-  declared `-> *T` / `-> *const T` and spelled `T&` / `const T&`, so an
-  imported `T&` and a Kairo place are one ABI; `->` stays a pointer (C++'s
-  `operator->` returns one). OperatorLowering rewrites the body's `return`
+  emitters goes through it. Place operators (`[]`, `.*`, `->*` declared
+  `-> *T` / `-> *const T`; `is_place_operator`, which mirrors
+  `OperatorFacts::is_place`) are spelled `T&` / `const T&`, so an imported
+  `T&` and a Kairo place are one ABI. The same operators returning any
+  other type are value operators and are spelled as declared. `->` stays
+  a pointer (C++'s `operator->` returns one). OperatorLowering rewrites the body's `return`
   (`return &x` -> `return x`, `return p` -> `return *p`), and EmitIR's
   `_return` checks the value against the pointee, not the pointer.
 - `template_params(d)`: `d`'s C++ template parameters as one list: an
