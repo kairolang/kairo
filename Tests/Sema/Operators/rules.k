@@ -17,7 +17,7 @@ struct V {
 struct U {
     var x: i32
     fn op -=(self, o: U) -> U { return o }                      // a compound assignment with a result
-    fn op [](self, i: usize) -> u8 { return 0 }                 // a place operator returning a value
+    fn op [](self, i: usize) -> unsafe *i32 { return unsafe &self.x }   // a subscript returning an unsafe pointer
 }
 
 struct W {
@@ -44,7 +44,7 @@ fn t(v: V, w: W, p: *i32, q: *i32, n: i32) {
 // DIAG: error [SC055E]: 'op -' takes no default arguments
 // DIAG: error [SC055E]: 'op <' must return 'bool'
 // DIAG: error [SC055E]: 'op -=' returns nothing
-// DIAG: error [SC055E]: 'op []' must return a place into 'self': '*T' or '*const T'
+// DIAG: error [SC114E]: 'op []' cannot return 'unsafe *T'
 // DIAG: error [SC055E]: 'op as' cannot be declared in an extension
 // DIAG: error [SC066E]: no 'op ==' on 'W'
 // DIAG: error [SC034E]: '===' needs a nullable operand; 'i32' and 'i32' are not nullable
