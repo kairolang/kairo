@@ -93,7 +93,7 @@ class TokenStreamPrinter {
     /// after `;`, blocks indent, `};` stays on one line. Not a formatter:
     /// good enough to read, never fed back to a compiler.
     static fn print(sink: *TokenSink, path: string) {
-        std::print(f"============== CODEGEN C++: {path} ==============");
+        std::print(f"// ============== CODEGEN C++: {path} ==============");
 
         var out    = "";
         var line   = "";
@@ -157,7 +157,7 @@ class TokenStreamPrinter {
         }
         if line.size() > 0 { out += line + "\n"; }
         std::print(out);
-        std::print("=========================================================");
+        std::print("// =========================================================");
     }
 
     priv static fn _pad(indent: usize) -> string {
