@@ -76,6 +76,9 @@ class BasicDiagConsumer derives DiagConsumer {
     }
 
     fn finalize_to_stderr(self) {
+        // stdout is block-buffered when piped and stderr is not: without
+        // this a diagnostic lands in the middle of a dump line under 2>&1.
+        libcxx::fflush(stdout);
         for var i: usize = 0; i < self._diags.size(); ++i {
             self.emit_diag(self._diags[i]);
         }
