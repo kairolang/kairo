@@ -386,20 +386,17 @@ class <T> ExprParse {
         return base;
     }
 
-    /// \brief parses a range expression: lhs .. rhs | lhs ..= rhs
-    ///        also handles prefix ranges: ..rhs | ..=rhs
-    ///        range has its own precedence level and is non-associative.
-    priv fn _parse_range_expr(self, lhs: *Expr, stop: ExprStopKind) -> *Expr {
-        var op_range = dyn()->current_ptr()->range;
-        var is_inclusive = dyn()->check(TokenKind::OpRangeEqual);
-        dyn()->advance(T::SkipNL::After); // consume .. or ..=
+    /// \brief after `..` / `..=`: does an upper bound follow?
+    ///
+    /// \details the bound is optional (`a[i..]`), so what follows decides. A
+    ///          closer, `,`, `;` or a newline ends the range in every
+    ///          context, and so does a keyword that can only begin a
+    ///          statement. `{` ends it where a brace cannot open a literal
+    ///          (an `if`/`while` condition, a `for` header): there it is the
+    ///          body, and reading it as a bound took the body for an operand.
+    priv fn _range_has_upper(self, stop: ExprStopKind) -> bool {
+        if dyn()->is_eof() || self._should_stop(stop) { return false; }
 
-        // check if there's a RHS or if this is an open-ended range (lhs..)
-        if self._should_stop(stop) || dyn()->is_eof() {
-            return RangeExpr::create(dyn()->ctx, lhs->range | op_range, lhs, &null, is_inclusive);
-        }
-
-        // check if next token can start an expression
         var k = dyn()->ig_kind();
         if k == TokenKind::OpRParen
         || k == TokenKind::OpRSquare
@@ -407,7 +404,51 @@ class <T> ExprParse {
         || k == TokenKind::OpComma
         || k == TokenKind::OpSemicolon
         || k == TokenKind::TkNewLine {
+            return false;
+        }
+
+        if (k == TokenKind::OpLBrace)
+        && ((static_cast::<u8>(stop) & static_cast::<u8>(ExprStopKind::NoStructLiteral)) != 0) {
+            return false;
+        }
+
+        if k == TokenKind::KwVar
+        || k == TokenKind::KwConst
+        || k == TokenKind::KwReturn
+        || k == TokenKind::KwBreak
+        || k == TokenKind::KwContinue
+        || k == TokenKind::KwFor
+        || k == TokenKind::KwWhile
+        || k == TokenKind::KwElse
+        || k == TokenKind::KwCase
+        || k == TokenKind::KwDefault {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// `a..=` has no meaning: inclusive of a bound that is not there.
+    priv fn _inclusive_needs_upper(self, op_tok: *Token) {
+        dyn()->report_tok(DiagID::S052E, op_tok,
+            "expected an upper bound after '..='; an open range is written with '..' alone"
+        );
+    }
+
+    /// \brief parses a range expression: lhs .. rhs | lhs ..= rhs
+    ///        also handles prefix ranges: ..rhs | ..=rhs
+    ///        range has its own precedence level and is non-associative.
+    priv fn _parse_range_expr(self, lhs: *Expr, stop: ExprStopKind) -> *Expr {
+        var op_tok   = dyn()->current_ptr();
+        var op_range = op_tok->range;
+        var is_inclusive = dyn()->check(TokenKind::OpRangeEqual);
+        // Newlines stay significant: a line ending in `..` is an open range,
+        // not the left half of one whose bound is the next statement.
+        dyn()->advance(); // consume .. or ..=
+
+        if !self._range_has_upper(stop) {
             // open-ended range: lhs..
+            if is_inclusive { self._inclusive_needs_upper(op_tok); }
             return RangeExpr::create(dyn()->ctx, lhs->range | op_range, lhs, &null, is_inclusive);
         }
 
@@ -1946,21 +1987,13 @@ class <T> ExprParse {
         }
 
         if dyn()->check(TokenKind::OpRange) || dyn()->check(TokenKind::OpRangeEqual) {
-            var op_range = dyn()->current_ptr()->range;
+            var op_tok   = dyn()->current_ptr();
+            var op_range = op_tok->range;
             var is_inclusive = dyn()->check(TokenKind::OpRangeEqual);
-            dyn()->advance(T::SkipNL::After);
+            dyn()->advance(); // newlines stay significant, as in _parse_range_expr
 
-            if (dyn()->is_eof()) || (self._should_stop(stop)) {
-                return RangeExpr::create(dyn()->ctx, op_range, &null, &null, is_inclusive);
-            }
-
-            var k = dyn()->ig_kind();
-            if k == TokenKind::OpRParen
-            || k == TokenKind::OpRSquare
-            || k == TokenKind::OpRBrace
-            || k == TokenKind::OpComma
-            || k == TokenKind::OpSemicolon
-            || k == TokenKind::TkNewLine {
+            if !self._range_has_upper(stop) {
+                if is_inclusive { self._inclusive_needs_upper(op_tok); }
                 return RangeExpr::create(dyn()->ctx, op_range, &null, &null, is_inclusive);
             }
 
