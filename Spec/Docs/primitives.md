@@ -328,6 +328,13 @@ sum(a)       // 6
 zero(&a)     // a is now [0, 0, 0]
 ```
 
+Indexing an array with a range, `a[i..j]`, gives a slice over those elements:
+
+```kairo
+var a = [1, 2, 3, 4]
+var mid = a[1..3]    // [i32;] viewing a[1] and a[2]
+```
+
 ### Slices `[T;]`
 
 A view over contiguous elements: a pointer and a length. A slice does not own the storage it points into and
@@ -338,7 +345,15 @@ var s: [i32;] = [1, 2, 3]      // the storage lives as long as s
 s[0]                           // 1
 ```
 
-An array variable does not convert to a slice implicitly yet. Build the slice explicitly from the array.
+An array converts to a slice implicitly. The slice is a view of the array, so nothing is copied. A `const`
+array converts only to `[const T;]`. A vector also converts to a slice implicitly.
+
+```kairo
+fn total(xs: [i32;]) -> i32 { ... }
+
+var a = [1, 2, 3]
+total(a)                       // a viewed as [i32;]
+```
 
 ### Vectors `[T]`
 
@@ -435,7 +450,8 @@ struct Packet {
 |---|---|---|
 | list literal | `[T; N]`, `[T;]`, `[T]` | implicit, when the target asks for it |
 | slice `[T;]` | vector `[T]` | explicit only: `s as [T]` (allocates) |
-| array variable `[T; N]` | slice `[T;]` | not implicit yet; build the slice explicitly |
+| array `[T; N]` | slice `[T;]` | implicit, a view (no copy); a `const` array only to `[const T;]` |
+| vector `[T]` | slice `[T;]` | implicit, a view (no copy) |
 | array `[T; N]` | array `[T; N]` | never: arrays are not copyable |
 
 ### Maps `{K: V}`

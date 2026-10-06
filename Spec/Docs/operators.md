@@ -473,6 +473,39 @@ for x in s {                 // calls the yield variant
 }
 ```
 
+#### Implicit `op as`
+
+An `@implicit fn op as (self) -> T` is applied automatically where a `T` is wanted, so the caller does not
+write `as`:
+
+- The result type must match exactly. A `T` produced this way is not converted any further, so it does not
+  fill a `T?` or a wider numeric type.
+- Conversions never chain: at most one `@implicit` operator applies, and never on top of another implicit
+  conversion.
+- `if`/`match` arms and operator operands are never converted this way.
+
+```kairo
+struct Name {
+    var first: string
+    var last: string
+
+    @implicit fn op as (const self) -> string {
+        return f"{self.first} {self.last}"
+    }
+}
+
+fn greet(who: string) { ... }
+fn maybe_greet(who: string?) { ... }
+
+var n = Name { first: "Ada", last: "Lovelace" }
+greet(n)                 // n as string, applied implicitly
+var s: string = n        // also implicit
+maybe_greet(n)           // error: string? is not an exact match
+var t = n + "!"          // error: operands are not converted; write (n as string) + "!"
+```
+
+Without `@implicit`, `op as` only runs on an explicit `as`.
+
 ### Places and values: `[]`, `.*`, `->*`, `->`
 
 `op []`, `op .*` and `op ->*` are either **place** or **value** operators. The declared return type

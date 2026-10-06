@@ -233,6 +233,14 @@ fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition 
 
 See [Exceptions](/docs/language/c-cpp#exceptions) for how C++ exceptions move through Kairo code.
 
+### Conversions
+
+| Attribute | Description | Applies to |
+|---|---|---|
+| `@implicit` | Lets a conversion operator apply without `as` | `fn op as` in a type's body |
+
+See [Implicit `op as`](/docs/language/operators#implicit-op-as) for the rules.
+
 ### Other
 
 | Attribute | Description | Applies to |

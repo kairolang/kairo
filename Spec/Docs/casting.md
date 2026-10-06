@@ -327,6 +327,9 @@ var s = temp as string   // "100.0C"
 the target type in the `as` expression. `op as` must take only `self` as a parameter and return
 the target type.
 
+Marking an `op as` with `@implicit` lets it apply without `as` where its exact result type is wanted. See
+[Implicit `op as`](/docs/language/operators#implicit-op-as).
+
 See [Operators](/docs/language/operators#special-operators) for the full operator overloading
 reference.
 

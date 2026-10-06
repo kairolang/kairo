@@ -225,7 +225,28 @@ total([1, 2, 3])               // the literal becomes a slice for this call
 var v: [i32] = [1, 2, 3]       // the literal becomes a vector
 ```
 
-This applies to the literal only. A slice or array *variable* does not convert to anything implicitly.
+This applies to the literal only. Array and vector variables convert only to a slice, below.
+
+### Array or vector to slice
+
+An array `[T; N]` converts to a slice `[T;]` implicitly. The slice is a view of the array; nothing is copied.
+A `const` array converts only to `[const T;]`. A vector `[T]` also converts to a slice implicitly.
+
+```kairo
+fn total(xs: [i32;]) -> i32 { ... }
+
+var a = [1, 2, 3]
+total(a)                       // a viewed as [i32;]
+var v: [i32] = [4, 5]
+total(v)                       // v viewed as [i32;]
+```
+
+The other direction, `[T;]` to `[T]`, stays explicit because it allocates.
+
+### `@implicit` conversion operators
+
+A type's `op as` marked `@implicit` applies without `as` where its exact result type is wanted. See
+[Implicit `op as`](/docs/language/operators#implicit-op-as).
 
 ### No other implicit conversions
 
@@ -237,8 +258,6 @@ The following conversions are all explicit (require `as`):
 - Any pointer to a different pointer type
 - Integer narrowing or float-to-integer
 - Slice to vector (`s as [T]`; it allocates)
-
-An array variable does not convert to a slice implicitly yet; build the slice explicitly.
 
 ---
 
