@@ -51,6 +51,7 @@ import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
+import Sema::Check::FeatureGateCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
@@ -321,6 +322,11 @@ class Sema {
 
         // TODO(sema): ConformanceChecking(&self.sc).run();
         // TODO(sema): ConstChecking(&self.sc).run();
+
+        // Last: well-typed constructs the lowerings cannot render yet. An
+        // error here keeps the schedule out of the lowerings, which ICE on
+        // them, and that matters under --type-check-only too.
+        { var _p = TimeRegion("FeatureGate"); FeatureGateCheck(&self.sc).run(); }
         self.sc.advance_phase(SemaPhase::Checked);
         return true;
     }

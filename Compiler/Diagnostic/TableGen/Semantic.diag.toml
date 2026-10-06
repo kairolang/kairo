@@ -2533,3 +2533,31 @@ group = "operators"
 
     remove `@implicit`, or move the conversion into a `fn op as (self) -> T` in the type's body.
     """
+
+[SC116]
+brief = "construct is not yet supported"
+group = "unimplemented"
+
+    [SC116.E]
+    explain = """
+    # not yet supported
+
+    the code is valid Kairo and type-checks, but the compiler cannot generate code for the named
+    construct yet. this is a gap in the compiler, not a mistake in the program.
+
+    ```kairo
+    fn total(xs: [i32]) -> i32 {
+        var n: i32 = 0
+        for x in xs { n += x }      // error: iterating a vector is not yet supported
+        return n
+    }
+    ```
+
+    currently reported for a `for ... in` loop over a vector `[T]`, a set `{T}`, a map `{K: V}` or
+    a `string`. arrays, slices, ranges and types with `fn op in (self) -> yield T` are supported.
+
+    ## how to fix
+
+    use a supported form until the feature lands. for the loops above, iterate a slice of the
+    data or an index range instead.
+    """

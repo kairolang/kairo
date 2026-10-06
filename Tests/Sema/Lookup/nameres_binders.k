@@ -13,14 +13,14 @@
 var shadow: i32 = 1;
 
 // Ranged for: `x` is visible in the body only.
-fn f_for(xs: [i32]) -> i32 {
+fn f_for(xs: [i32;]) -> i32 {
     var total: i32 = 0;
     for x in xs { total = total + x; }
     return total
 }
 
 // A binder shadows a file-scope name of the same spelling.
-fn f_shadow(xs: [i32]) -> i32 {
+fn f_shadow(xs: [i32;]) -> i32 {
     for shadow in xs { return shadow }
     return 0
 }

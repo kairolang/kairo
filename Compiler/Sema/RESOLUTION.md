@@ -391,8 +391,17 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 
 In order: `ConstraintExtraction`, `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
-`ReturnPathCheck`. `ConformanceChecking`, `ConstChecking`, `AccessCheck`,
+`ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`, `FeatureGateCheck`.
+`ConformanceChecking`, `ConstChecking`, `AccessCheck`,
 `ExtensionOrphanCheck` are stubs / missing.
+
+`FeatureGateCheck` [DONE] runs last and reports well-typed constructs that
+have no lowering yet, one SC116E each ("<construct> is not yet supported").
+Lowerings carry no diagnostics, and they run under `--type-check-only`, so
+an unfinished feature is said HERE; the error stops the schedule before L
+and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
+`iter_kind` is Vector, Set, Map or String. A gate is removed in the commit
+that lands its lowering.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
 value-returning body can reach its closing brace, SC105 for `-> !`. After X

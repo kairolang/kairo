@@ -48,7 +48,7 @@
 ///     `{ locals; label: while ... }`.
 ///
 ///   \par Not lowered here
-///     Vector, set, map and string ICE naming what they wait on. A dependent iterable (iter_kind None, no type) is left for M2;
+///     Vector, set, map and string ICE naming what they wait on; FeatureGateCheck (SC116E) rejects them first, so the ICE is an invariant. A dependent iterable (iter_kind None, no type) is left for M2;
 ///     reaching codegen it ICEs in EmitIR.
 ///
 ///   Phase: LOWER, after CallLowering and before ExtensionLowering: a user
