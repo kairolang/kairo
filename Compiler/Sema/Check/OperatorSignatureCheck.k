@@ -16,15 +16,15 @@
 ///       A free operator's first parameter is the receiver.
 ///     - Results: comparisons and `in` containment return bool, `<=>` returns
 ///       Ordering, a compound assignment returns nothing (it is a statement).
-///       `[]`, `.*`, `->*` returning a safe `*T` / `*const T` are places
-///       (C++ gets `T&`); any other result makes them value operators, so a
+///       `[]` returning a safe `*T` / `*const T` is a place
+///       (C++ gets `T&`); any other result makes it a value operator, so a
 ///       pointer returned BY VALUE from one is not expressible. `unsafe *T`
 ///       is neither and is rejected. `->` returns a safe pointer, always.
 ///     - One definition per pair: a type declares `op +` OR `op +=`; the
 ///       other is derived (OperatorTyping). Both in one type is an error.
 ///     - Extension operators are free functions taking `Self*`, which C++
 ///       accepts for every operator that can be a non-member; `as`, `[]`,
-///       `->`, `.*`, `->*`, `delete` must be members and are declared in
+///       `->`, `delete` must be members and are declared in
 ///       the type's body.
 ///     - `++`/`--` without `l`/`r`: prefix, with a warning.
 ///     - `@implicit` goes on a member `op as` and nowhere else; it opens the
@@ -140,7 +140,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
             nargs -= 1;
         }
 
-        if in_ext && ((sym == "as") || (sym == "[]") || (sym == "->") || (sym == ".*") || (sym == "->*") || (sym == "delete")) {
+        if in_ext && ((sym == "as") || (sym == "[]") || (sym == "->") || (sym == "delete")) {
             self._err(f, f"'op {sym}' cannot be declared in an extension; it must be a member, so declare it in the type's body");
             return true;
         }
@@ -191,7 +191,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         }
         // The return decides place vs value (OperatorFacts::is_place); only
         // the two results that are neither are errors here.
-        if (sym == "[]") || (sym == ".*") || (sym == "->*") {
+        if sym == "[]" {
             if rt == &null {
                 self._err(f, f"'op {sym}' must return a value or a place ('*T' / '*const T')");
             } else if self._tu.is_unsafe_ptr(rt) {

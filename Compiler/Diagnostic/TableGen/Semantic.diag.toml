@@ -2482,9 +2482,9 @@ group = "operators"
 
     [SC114.E]
     explain = """
-    # `op []`, `op .*`, `op ->*` cannot return `unsafe *T`
+    # `op []` cannot return `unsafe *T`
 
-    these operators are places or values, decided by the declared return type:
+    a subscript operator is a place or a value, decided by the declared return type:
 
     - `*T` / `*const T` makes the operator a PLACE: `a[i]` is the `T` the pointer points at, an
       lvalue, and C++ sees `T&` / `const T&`.

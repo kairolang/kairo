@@ -5,8 +5,6 @@ struct A {
 struct B {
     var x: i32
     pub fn op [] (self, i: usize) -> unsafe *i32 { return unsafe &self.x }   // expect: error place-unsafe-pointer
-    pub fn op .* (self, i: usize) { }                                   // expect: error no-result
-    pub fn op ->* (self, i: usize) -> i32 { return self.x }             // a value operator, accepted
 }
 fn main() -> i32 {
     var a: [i32;] = [1, 2]
@@ -25,7 +23,6 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG:     subscript_value_err.k:3:{{[0-9]+}}: error [SC113E]: 'op ->' must return a pointer
 // DIAG:     subscript_value_err.k:7:{{[0-9]+}}: error [SC114E]: 'op []' cannot return 'unsafe *T'
-// DIAG:     subscript_value_err.k:8:{{[0-9]+}}: error [SC055E]: 'op .*' must return a value or a place
-// DIAG:     subscript_value_err.k:13:{{[0-9]+}}: error [SC069E]: cannot take the address of a temporary
-// DIAG:     subscript_value_err.k:14:{{[0-9]+}}: error [SC071E]: left side of assignment is not assignable
+// DIAG:     subscript_value_err.k:11:{{[0-9]+}}: error [SC069E]: cannot take the address of a temporary
+// DIAG:     subscript_value_err.k:12:{{[0-9]+}}: error [SC071E]: left side of assignment is not assignable
 // DIAG-NOT: {{error|warning}} [

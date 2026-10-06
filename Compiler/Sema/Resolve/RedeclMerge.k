@@ -59,8 +59,8 @@
 ///                            an extracted header's const/non-const pairs
 ///                            stay two entities; the gate is _foreign, the
 ///                            same predicate TypeResolution uses. The
-///                            `[]`, `.*`, `->*` operators
-///                            (OperatorFacts::is_place_kind) are the one
+///                            `[]` operator
+///                            (OperatorFacts::is_place_kind) is the one
 ///                            exception to the restriction: `-> *T` beside
 ///                            `-> *const T` is the pair a const receiver
 ///                            needs, and X ranks the two by receiver. Keyed
@@ -502,7 +502,7 @@ class RedeclMerge {
         var fa = self._foreign(a);
         var fb = self._foreign(b);
         // Const-ness participates in signature identity for FOREIGN decls
-        // and `[]` / `.*` / `->*` only. Kairo source may not declare const
+        // and `[]` only. Kairo source may not declare const
         // overloads otherwise (see header), so for any other Kairo-authored
         // decl a const mismatch is one entity with two contracts and
         // _check_modifiers_agree reports it. C++ has no such rule and the
@@ -848,7 +848,7 @@ class RedeclMerge {
     /// `const` is here rather than in _same_signature because Kairo does
     /// not permit const overloading -- see the header. Two links
     /// disagreeing about const are one entity with two contracts. An
-    /// `[]` / `.*` / `->*` pair never reaches here: const is its identity,
+    /// `[]` pair never reaches here: const is its identity,
     /// keyed on operator kind (is_place_kind), place or value alike.
     ///
     /// FIXME(where): a `where` guard on one link and not another is either

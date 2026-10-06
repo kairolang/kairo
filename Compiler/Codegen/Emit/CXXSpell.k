@@ -218,7 +218,6 @@ class CXXSpell {
     static fn named_operator(sym: string, f: *FunctionDecl) -> string {
         if sym == "in"    { return (LowerTargets::op_contains()) if (f->params.size() > 1) else (LowerTargets::op_iter()); }
         if sym == "^^"    { return LowerTargets::op_pow(); }
-        if sym == ".*"    { return LowerTargets::op_dotstar(); }
         if sym == "await"  { return LowerTargets::op_await(); }
         if sym == "spawn"  { return LowerTargets::op_spawn(); }
         if sym == "thread" { return LowerTargets::op_thread(); }
@@ -237,22 +236,14 @@ class CXXSpell {
         return (s.size() > 0) && (s[0] == 'r');
     }
 
-    /// `[]`, `.*`, `->*` returning a safe `*T` / `*const T`: a place.
+    /// `[]` returning a safe `*T` / `*const T`: a place.
     /// Codegen's copy of OperatorFacts::is_place, return-type test included,
     /// on this side of the import boundary. Any other return is a value
-    /// operator and is spelled as declared. `[]` is two tokens; `.*` and
-    /// `->*` are one each.
+    /// operator and is spelled as declared. `[]` is two tokens.
     static fn is_place_operator(f: *FunctionDecl) -> bool {
         if (f == &null) || (!f->is_operator) || (!f->is_method()) { return false; }
-        var n = f->op_token.size();
-        var kind = false;
-        if n == 2 {
-            kind = (f->op_token[0].kind == TokenKind::OpLSquare) && (f->op_token[1].kind == TokenKind::OpRSquare);
-        } else if n == 1 {
-            var k = f->op_token[0].kind;
-            kind = (k == TokenKind::OpDotStar) || (k == TokenKind::OpArrowStar);
-        }
-        if !kind { return false; }
+        if f->op_token.size() != 2 { return false; }
+        if (f->op_token[0].kind != TokenKind::OpLSquare) || (f->op_token[1].kind != TokenKind::OpRSquare) { return false; }
         if (f->return_type == &null) || (f->return_type->canonical == &null) { return false; }
         var c = canon_unqual(f->return_type->canonical);
         return (c != &null) && isa::<PointerType>(c) && (!cast::<PointerType>(c)->is_unsafe);

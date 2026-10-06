@@ -292,8 +292,6 @@ class LowerTargets {
     static fn op_iter()     -> string { return "__kairo_iter"; }
     /// `fn op ^^` -- exponentiation; not overloadable in C++.
     static fn op_pow()      -> string { return "__kairo_pow"; }
-    /// `fn op .*` -- member-pointer access; not overloadable in C++.
-    static fn op_dotstar()  -> string { return "__kairo_dotstar"; }
     /// `fn op await`.
     static fn op_await()    -> string { return "__kairo_await"; }
     /// `fn op spawn`.

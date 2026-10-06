@@ -168,7 +168,7 @@ emitters use the same instance; a declaration and a body cannot disagree.
   by value is an ICE (StmtTyping rejects it). Both emitters spell
   parameters through here.
 - `return_spelling(f)`: a method's C++ return type; `_ret` in both
-  emitters goes through it. Place operators (`[]`, `.*`, `->*` declared
+  emitters goes through it. Place operators (`[]` declared
   `-> *T` / `-> *const T`; `is_place_operator`, which mirrors
   `OperatorFacts::is_place`) are spelled `T&` / `const T&`, so an imported
   `T&` and a Kairo place are one ABI. The same operators returning any

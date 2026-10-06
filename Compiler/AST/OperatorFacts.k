@@ -114,17 +114,18 @@ class OperatorFacts {
         return s;
     }
 
-    /// `[]`, `.*`, `->*`: the operators that MAY be a place, whatever they
-    /// return. `->` is not one: C++'s `operator->` returns a pointer, and so
-    /// does Kairo's. Signature identity keys on this (RedeclMerge); the
-    /// place/value decision is is_place's.
+    /// `[]`: the one operator that MAY be a place, whatever it returns. `->`
+    /// is not one: C++'s `operator->` returns a pointer, and so does Kairo's.
+    /// `.*` and `->*` are not overloadable at all (the parser rejects the
+    /// declaration), so they never reach here. Signature identity keys on
+    /// this (RedeclMerge); the place/value decision is is_place's.
     static fn is_place_kind(f: *FunctionDecl) -> bool {
         if (f == &null) || (!f->is_operator) || (!f->is_method()) { return false; }
         var s = OperatorFacts::symbol(f);
-        return (s == "[]") || (s == ".*") || (s == "->*");
+        return s == "[]";
     }
 
-    /// `[]`, `.*`, `->*` returning a safe `*T` / `*const T`: a place into `self`,
+    /// `[]` returning a safe `*T` / `*const T`: a place into `self`,
     /// which C++ receives as `T&` / `const T&`. The kind alone does not decide:
     /// `op [] -> [T;]` (slicing) is a value operator. `->` is never a place.
     /// A null canonical (no return type, or unresolved) is not a place.

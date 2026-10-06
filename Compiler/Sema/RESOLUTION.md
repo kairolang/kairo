@@ -296,7 +296,7 @@ still on a placeholder must not ship in a stable release.
 Merges FUNCTION redeclarations by signature (arity, canonical param types
 in order, generic arity; return type EXCLUDED so a mismatch is a conflict;
 const excluded for Kairo-authored decls, included for foreign ones and
-for `[]`, `.*`, `->*` (keyed on operator kind, `is_place_kind`, so place
+for `[]` (keyed on operator kind, `is_place_kind`, so place
 and value forms alike: the one exception to the const-overload
 restriction); fixity included, so `op l++` beside `op r++`
 is two functions; top-level
@@ -406,12 +406,13 @@ operators and compound-assignment pairing assume the shapes it rejects:
 `===` and `=` declared at all (neither is overloadable), both halves of a
 compound pair (`op +=` AND `op +`), a default argument on an operator, a
 comparison not returning `bool`, a compound assignment with a result,
-`op ->` not returning a safe `*T` / `*const T` (SC113E), `[]` / `.*` /
-`->*` returning nothing or `unsafe *T` (SC114E), and a member-only
+`op ->` not returning a safe `*T` / `*const T` (SC113E), `[]`
+returning nothing or `unsafe *T` (SC114E), and a member-only
 operator (`op as`, ...) in an extension.
-The place/value rule (`OperatorFacts::is_place`): `[]`, `.*`, `->*`
-returning a safe `*T` / `*const T` are PLACES; any other result makes them
-VALUE operators, and a pointer returned by value is not expressible.
+The place/value rule (`OperatorFacts::is_place`): `[]`
+returning a safe `*T` / `*const T` is a PLACE; any other result makes it a
+VALUE operator (`.*` and `->*` are not overloadable; the parser rejects
+the declaration), and a pointer returned by value is not expressible.
 `type_subscript` on a Kairo place `op []` yields the POINTEE of the result
 as an lvalue (const if the pointer was), not the pointer, and `&a[i]`
 takes the pointer back; on a value `op []` it yields the result as an
