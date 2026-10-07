@@ -565,7 +565,10 @@ class TypeExport {
             var bits = builtin_info(k)->bits;
             if bits == 0 { bits = bt->size_bits; }       // usize/isize: the store's target width.
             var sgn: u32 = (1) if (builtin_info(k)->is_signed()) else (0);
-            return self.cctx->getIntTypeForBitwidth(static_cast::<u32>(bits), sgn);   // null past 128.
+            // Past 128 there is no fundamental type to find; i256/u512 are
+            // _BitInt, exactly as BuiltinTable spells them.
+            if bits > 128 { return self.cctx->getBitIntType(sgn == 0, static_cast::<u32>(bits)); }
+            return self.cctx->getIntTypeForBitwidth(static_cast::<u32>(bits), sgn);
         }
         switch k {
             case BuiltinKind::Void { return clang::QualType(self.cctx->VoidTy); }

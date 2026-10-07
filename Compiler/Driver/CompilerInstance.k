@@ -152,6 +152,7 @@ import Linker::API::LinkDiag::*;
 import Linker::API::Toolchain::*;
 import Linker::API::FS::*;
 import Linker::API::Text::*;
+import Linker::API::SysrootManifest::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -545,6 +546,51 @@ class CompilerInstance {
         var r = TermRenderer(true, 80);
         std::print(r.render(explain));
         return 0;
+    }
+
+    /// Header roots for --sysroot, resolved the way the linker resolves the
+    /// same flag (Toolchain::resolve), so the two halves cannot disagree.
+    ///
+    ///   SYSROOT.toml  its include_dirs under <dir>/<sysroot>; that root is
+    ///                 also -isysroot.
+    ///   Apple SDK     <sdk>/usr/include{/c++/v1}: --sysroot is the SDK root,
+    ///                 as for ld's -syslibroot and SDKSettings.json.
+    ///   otherwise     nothing here; ClangBackend keeps the prefix model.
+    ///
+    /// Apple roots of either kind also get System/Library/Frameworks. A
+    /// manifest that fails to load is left to the linker to report.
+    priv fn _sysroot_header_roots(self, bcfg: ref!(ClangBackendConfig)) {
+        var sr = LinkText::strip_slash(bcfg.sysroot);
+        if sr.empty() || (sr == "/") { return; }
+
+        var nt     = std::string_to_nstring(bcfg.triple);
+        var tri    = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        var darwin = tri.isOSDarwin();
+
+        var root = sr;
+        var dirs = vec::<string>();
+        var mpath = LinkText::join(sr, "SYSROOT.toml");
+        if LinkFS::is_file(mpath) {
+            var m = SysrootManifest();
+            if !SysrootManifest::load(mpath, m) { return; }
+            if (!m.sysroot.empty()) && (m.sysroot != ".") { root = LinkText::join(sr, m.sysroot); }
+            for d: string in m.include_dirs { dirs.push_back(LinkText::join(root, d)); }
+        } else if darwin {
+            dirs.push_back(LinkText::join(sr, "usr/include/c++/v1"));
+            dirs.push_back(LinkText::join(sr, "usr/include"));
+        } else {
+            return;
+        }
+
+        (bcfg.sysroot) = root;
+        for d: string in dirs {
+            if LinkText::contains(d, "/c++/") { bcfg.cxx_include_dirs.push_back(d); }
+            else                              { bcfg.include_dirs.push_back(d); }
+        }
+        if darwin {
+            var fw = LinkText::join(root, "System/Library/Frameworks");
+            if LinkFS::is_dir(fw) { bcfg.framework_dirs.push_back(fw); }
+        }
     }
 
     /// Returns the effective target triple: --target if given, else host triple.
@@ -984,6 +1030,7 @@ class CompilerInstance {
         // ClangBackend::_startup_locked), which is the honest answer.
         (bcfg.sysroot)      = tgt.sysroot;
         (bcfg.resource_dir) = tgt.resource_dir;
+        self._sysroot_header_roots(bcfg);
         // One optimization level for the whole build: ClangBackend applies
         // it to the invocation every compile copies.
         var cgo = self.invocation().codegen;
@@ -1735,6 +1782,16 @@ class CompilerInstance {
     priv fn _apply_invocation(self) {
         var d  = self.invocation().diag;
         var fe = self.invocation().frontend;
+
+        // Both roots absolute from here on. Headers resolved under a relative
+        // --sysroot come back as relative paths, and the header set re-includes
+        // them from /kairo/pch/<id>.h, where a relative path resolves against
+        // the PCH's directory, not the cwd. The linker gets the same strings.
+        // real() leaves a path that does not exist unchanged; the resolvers
+        // report it.
+        var tg = &(self.invocation().target);
+        if !tg->sysroot.empty()      { (tg->sysroot)      = LinkFS::real(tg->sysroot); }
+        if !tg->resource_dir.empty() { (tg->resource_dir) = LinkFS::real(tg->resource_dir); }
 
         if d.format == "basic" {
             self._diag->remove_consumer(self._pretty);

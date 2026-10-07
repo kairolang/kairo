@@ -170,7 +170,14 @@ fn _clang_wargs_from_policy(d: ref!(DiagnosticOptions)) -> vec::<string> {
 struct ClangBackendConfig {
     var triple:       string;              ///< effective target triple
     var resource_dir: string;              ///< clang resource dir ("" = skip)
-    var sysroot:      string;              ///< sysroot dir ("" = host headers)
+    var sysroot:      string;              ///< sysroot dir ("" = host headers): -isysroot
+    /// Header roots a SYSROOT.toml declares (or an Apple SDK implies), already
+    /// absolute. libc++ dirs are split out because they go BEFORE the clang
+    /// builtin headers and are skipped for C. Both empty = the prefix model:
+    /// <sysroot>/include/c++/v1 and <sysroot>/include.
+    var cxx_include_dirs: vec::<string>;
+    var include_dirs:     vec::<string>;
+    var framework_dirs:   vec::<string>;   ///< -iframework (Apple: System/Library/Frameworks)
     var cxx_std:      string = "c++26";
     var includes:     vec::<string>;       ///< -include names (predefines buffer)
     var extra_cc1:    vec::<string>;       ///< platform extras (exception model, PIC, CPU, ...)
@@ -449,15 +456,23 @@ class ClangBackend {
         // resolver has already logged which one and why.
         var sr = self._cfg.sysroot;
         var rd = self._cfg.resource_dir;
+        var declared = (!self._cfg.include_dirs.empty()) || (!self._cfg.cxx_include_dirs.empty());
         self._arg(argv, "-nostdsysteminc");   // cc1 spelling of -nostdlibinc
         self._arg(argv, "-nostdinc++");
         if !rd.empty() { self._arg(argv, "-resource-dir"); self._arg(argv, rd); }
-        if (!sr.empty()) && (!is_c) { self._arg(argv, "-isystem"); self._arg(argv, f"{sr}/include/c++/v1"); }
-        if !rd.empty() { self._arg(argv, "-isystem");      self._arg(argv, f"{rd}/include"); }
-        if !sr.empty() {
-            self._arg(argv, "-isystem");  self._arg(argv, f"{sr}/include");
-            self._arg(argv, "-isysroot"); self._arg(argv, sr);
+        if declared {
+            if !is_c {
+                for d: string in self._cfg.cxx_include_dirs { self._arg(argv, "-isystem"); self._arg(argv, d); }
+            }
+            if !rd.empty() { self._arg(argv, "-isystem"); self._arg(argv, f"{rd}/include"); }
+            for d: string in self._cfg.include_dirs { self._arg(argv, "-isystem"); self._arg(argv, d); }
+        } else {
+            if (!sr.empty()) && (!is_c) { self._arg(argv, "-isystem"); self._arg(argv, f"{sr}/include/c++/v1"); }
+            if !rd.empty() { self._arg(argv, "-isystem");      self._arg(argv, f"{rd}/include"); }
+            if !sr.empty() { self._arg(argv, "-isystem");      self._arg(argv, f"{sr}/include"); }
         }
+        for d: string in self._cfg.framework_dirs { self._arg(argv, "-iframework"); self._arg(argv, d); }
+        if !sr.empty() { self._arg(argv, "-isysroot"); self._arg(argv, sr); }
         if !rd.empty() {
             self._arg(argv, "-internal-isystem");   // builtin <stdint.h> -> uintptr_t
             self._arg(argv, f"{rd}/include");
