@@ -299,9 +299,28 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             declared = dyn()->tu.builtin(BuiltinKind::Void);
         }
 
+        // An expression body abbreviates `{ return e }` (ExprBodyDesugar), so a
+        // written return type types it exactly as that `return` would. Only
+        // an unwritten one goes through the demand path, which owns the
+        // inference slot; routing a declared one there too would make a
+        // recursive call in the body read its own InProgress state (SC043E).
         if n->body_kind == FnBodyKind::Expr {
-            self.fn_return_type(n);   // demand path owns the frame + slot write.
-            if n->return_type != &null { self._reject_array_return(n, n->return_type->canonical); }
+            if declared == &null {
+                self.fn_return_type(n);
+                if n->return_type != &null { self._reject_array_return(n, n->return_type->canonical); }
+                return n;
+            }
+            self._reject_array_return(n, declared);
+            if n->body_expr == &null { return n; }
+            self.push_fn_frame(n, declared);
+            var saved_unsafe_e = dyn()->unsafe_depth;
+            dyn()->unsafe_depth = 0;
+            var want = self.cur_frame()->declared;
+            dyn()->type_of(n->body_expr, want);
+            dyn()->reject_slice_literal(n->body_expr, "returned from a function");
+            if (want != &null) && (!dyn()->tu.is_void(want)) { dyn()->check_convertible(n->body_expr, want); }
+            dyn()->unsafe_depth = saved_unsafe_e;
+            self.pop_frame();
             return n;
         }
         self._reject_array_return(n, declared);
