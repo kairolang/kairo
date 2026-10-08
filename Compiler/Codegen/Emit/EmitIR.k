@@ -110,7 +110,18 @@ class EmitIR {
             var item = *(items->get(i));
             switch item.kind {
                 case TopLevelKind::Decl { self.emit(item.as_decl()); }
-                default { ICE_FAIL("EmitIR: top-level statements are not emittable C++"); }
+                case TopLevelKind::Stmt {
+                    // File-scope `var`/`const`/`static`/`eval` parse as a
+                    // DeclStmt (ASTParse::_build_symbols); the decl is the
+                    // namespace-scope variable. Nothing else at file scope
+                    // has a C++ form.
+                    var s = item.as_stmt();
+                    var ds = dyn_cast::<DeclStmt>(s);
+                    ICE_IF((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl)),
+                        f"EmitIR: top-level {to_string(s->kind)} is not emittable C++ (only variable declarations are)");
+                    self.emit(ds->decl);
+                }
+                default { ICE_FAIL("EmitIR: top-level expressions are not emittable C++"); }
             }
         }
 
@@ -161,9 +172,7 @@ class EmitIR {
                     if m != &null { self._free_fn(m, x); }
                 }
             }
-            case DeclKind::VariableDecl {
-                ICE_FAIL("EmitIR: namespace-scope variables are not emitted yet (storage/linkage rules pending)");
-            }
+            case DeclKind::VariableDecl { self._global_var(cast::<VariableDecl>(d)); }
             default { ICE_FAIL(f"EmitIR: decl kind {to_string(d->kind)} has no body to emit"); }
         }
     }
@@ -254,6 +263,9 @@ class EmitIR {
 
         // One merged list: the extension's parameters, then the member's.
         var head = self._spell.template_head(static_cast::<*Decl>(n));
+        // Spelled on the definition too, not left to the interface's
+        // declaration: the definition alone must say what symbol it is.
+        if (ext == &null) && (!is_main) { head += CXXSpell::c_linkage(n); }
         // `inline` puts the body in the interface (EmitPlan::visible_bodies):
         // every TU that declares it defines it, its own TU included, with the
         // same text, and the linker keeps one.
@@ -530,15 +542,40 @@ class EmitIR {
             }
             self._name(n->name);
         }
-        if n->init != &null {
-            sink->synth_at_end(n->name.range, clang::tok::equal);
-            var il = dyn_cast::<InitListExpr>(n->init);
-            if (il != &null) && (c != &null) && (c->kind == TypeKind::FixedArrayType) {
-                self._init_list(il, true);     // a declarator's initializer: the one place bare braces are legal.
-            } else {
-                self._value(n->init, n->type_);
-            }
+        self._var_init(n, c);
+    }
+
+    /// `= init` for a variable whose declarator is already out; \p c is its
+    /// unqualified canonical, or null.
+    priv fn _var_init(self, n: *VariableDecl, c: *Type) {
+        if n->init == &null { return; }
+        sink->synth_at_end(n->name.range, clang::tok::equal);
+        var il = dyn_cast::<InitListExpr>(n->init);
+        if (il != &null) && (c != &null) && (c->kind == TypeKind::FixedArrayType) {
+            self._init_list(il, true);     // a declarator's initializer: the one place bare braces are legal.
+        } else {
+            self._value(n->init, n->type_);
         }
+    }
+
+    /// A namespace-scope variable's definition, in its module's wrapper:
+    /// `[constexpr] T const x = init;`. The declarator is CXXSpell::global_var,
+    /// the same text the interface's `extern` declaration used, so the two
+    /// agree and a `const` keeps the external linkage that prior `extern`
+    /// gave it. Definitions come in source order, which is C++'s dynamic
+    /// initialization order within a TU: `B = A + 1` after `A` sees it set.
+    priv fn _global_var(self, n: *VariableDecl) {
+        ICE_IF(n->type_ == &null, "EmitIR: namespace-scope variable with no type reached codegen; X gate failure");
+        var d = static_cast::<*Decl>(n);
+        var at = CXXSpell::at(d);
+        var wrap = self._open_ns(d, at);
+        var head = ("constexpr ") if (n->is_eval()) else ("");
+        sink->spell(at, head + self._spell.global_var(n));
+        var c: *Type = &null;
+        if n->type_->canonical != &null { c = canon_unqual(n->type_->canonical); }
+        self._var_init(n, c);
+        sink->synth_at_end(n->range, clang::tok::semi);
+        self._close_ns(n->range, wrap);
     }
 
     /// The `return` keyword borrows the statement's first six bytes; correct

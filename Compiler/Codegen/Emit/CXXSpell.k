@@ -511,6 +511,36 @@ class CXXSpell {
         return s;
     }
 
+    /// `extern "C" ` for a Kairo-authored `ffi "c"` free function, else "".
+    /// It leads the declaration AND the definition: the symbol must be the
+    /// bare name (a linker script's `Reset_Handler`, a C caller's), never
+    /// the namespace-mangled one. Either redecl may carry the prefix, so the
+    /// chain's canonical is asked too.
+    static fn c_linkage(f: *FunctionDecl) -> string {
+        if f == &null { return ""; }
+        var c = f->canonical_decl();
+        if f->is_ffi_c() || ((c != &null) && c->is_ffi_c()) { return "extern \x22" + "C\x22 "; }   // split: Stage 0 reads `\x22C` as one escape.
+        return "";
+    }
+
+    /// `[thread_local] T const name` for a namespace-scope variable: the one
+    /// spelling the interface's `extern` declaration and EmitIR's definition
+    /// both use, because C++ rejects a redeclaration whose type differs.
+    /// Never `static` -- at namespace scope that is internal linkage, and
+    /// every object there already has static storage duration. The binding's
+    /// `const` goes in the declarator so it qualifies the variable itself:
+    /// `int *const p`, not `const int *p`. `eval` is `const` here too; the
+    /// definition adds `constexpr` (`extern constexpr` is ill-formed).
+    fn global_var(self, v: *VariableDecl) -> string {
+        var nm = self.leaf(static_cast::<*Decl>(v));
+        var c = (v->type_->canonical) if (v->type_ != &null) else (&null);
+        var already = (c != &null) && (c->kind == TypeKind::QualifiedType)
+                   && ((cast::<QualifiedType>(c)->quals & QUAL_CONST()) != 0);
+        if (v->is_const() || v->is_eval()) && (!already) { nm = "const " + nm; }
+        var s = ("thread_local ") if (v->is_thread) else ("");
+        return s + self.decl(v->type_, nm);
+    }
+
     // --- Types -------------------------------------------------------------------
 
     /// C++ spelling of a canonical type. \p subst substitutes the primary's

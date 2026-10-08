@@ -575,6 +575,7 @@ class CompilerInstance {
             if !SysrootManifest::load(mpath, m) { return; }
             if (!m.sysroot.empty()) && (m.sysroot != ".") { root = LinkText::join(sr, m.sysroot); }
             for d: string in m.include_dirs { dirs.push_back(LinkText::join(root, d)); }
+            for d: string in m.cc_defines   { bcfg.defines.push_back(d); }
         } else if darwin {
             dirs.push_back(LinkText::join(sr, "usr/include/c++/v1"));
             dirs.push_back(LinkText::join(sr, "usr/include"));
@@ -601,8 +602,10 @@ class CompilerInstance {
     priv fn _effective_triple(self) -> string {
         var t = self.invocation().target.triple;
 
+        // Canonicalized here so clang, codegen and the linker all see the
+        // same float ABI (see Toolchain::canonical_triple).
         if !t.empty() {
-            return t;
+            return Toolchain::canonical_triple(t);
         }
 
         return self.get_target_triple();
@@ -1038,6 +1041,14 @@ class CompilerInstance {
         if cgo.opt_size_z    { (bcfg.opt_size) = 2; }
         else if cgo.opt_size { (bcfg.opt_size) = 1; }
         (bcfg.vectorize) = cgo.f_vectorize != 0;
+        // -g0 wins over -g wherever it sits. --dwarf-version always has a
+        // value (default 5), so it cannot say whether DWARF was asked for;
+        // on MSVC it is left out and the driver emits CodeView, which is
+        // what link.exe-style PDBs need.
+        (bcfg.debug_info)   = (cgo.debug_info) && (!cgo.no_debug_info);
+        (bcfg.debug_macros) = cgo.debug_macros;
+        (bcfg.embed_source) = cgo.embed_source;
+        if !Toolchain::is_msvc(bcfg.triple) { (bcfg.dwarf_version) = cgo.dwarf_version; }
 
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 

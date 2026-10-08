@@ -179,6 +179,9 @@ struct ClangBackendConfig {
     var cxx_include_dirs: vec::<string>;
     var include_dirs:     vec::<string>;
     var framework_dirs:   vec::<string>;   ///< -iframework (Apple: System/Library/Frameworks)
+    /// Macros a SYSROOT.toml's cc_defines requires (-D<name>): the ones its
+    /// prebuilt libc++ was compiled with, which the TU must match to link.
+    var defines:          vec::<string>;
     var cxx_std:      string = "c++26";
     var includes:     vec::<string>;       ///< -include names (predefines buffer)
     var extra_cc1:    vec::<string>;       ///< platform extras (exception model, PIC, CPU, ...)
@@ -186,6 +189,13 @@ struct ClangBackendConfig {
     var opt_level:    i32  = 0;            ///< -O level, 0-3 (s and z are 2)
     var opt_size:     i32  = 0;            ///< 0 none, 1 -Os, 2 -Oz
     var vectorize:    bool = true;         ///< loop + SLP vectorizers above -O0 (-f[no-]vectorize)
+    /// -g and its modifiers. Handed to the driver probe, never spelled as
+    /// cc1 flags here: the driver picks CodeView or DWARF, the debugger
+    /// tuning and the info kind per target (see _driver_target_args).
+    var debug_info:    bool = false;
+    var dwarf_version: i32  = 0;           ///< 0 = the target's default (MSVC: CodeView)
+    var debug_macros:  bool = false;       ///< -fdebug-macro
+    var embed_source:  bool = false;       ///< -gembed-source
 }
 
 class ClangBackend {
@@ -442,10 +452,20 @@ class ClangBackend {
     ///          that decide the target -- never a table here, which would
     ///          drift from clang.
     ///
-    ///          The language-mode flags the driver adds for MSVC
-    ///          (-fms-compatibility and friends) are left out: they change
-    ///          how C++ parses, not the ABI. --mcpu still wins: extra_cc1
-    ///          comes later and cc1 takes the last -target-cpu.
+    ///          The MSVC language-mode flags (-fms-extensions,
+    ///          -fms-compatibility[-version=], -fms-volatile) are taken too:
+    ///          the CRT and SDK headers do not parse without them. They are
+    ///          LangOpts, so Kairo's own lowered C++ parses in that mode as
+    ///          well, as it would under clang-cl. -fgnuc-version comes from
+    ///          the driver for the same reason: it omits it for MSVC, and a
+    ///          __GNUC__ beside _MSC_VER sends those headers down GCC paths.
+    ///          The probe carries -std so standard-dependent defaults
+    ///          (-fdelayed-template-parsing before C++20) match the TU's,
+    ///          and -g with its modifiers so the debug format is the
+    ///          driver's call: CodeView on MSVC, DWARF tuned for gdb or
+    ///          lldb elsewhere, standalone info kind on Darwin.
+    ///          --mcpu still wins: extra_cc1 comes later and cc1 takes the
+    ///          last -target-cpu.
     priv fn _driver_target_args(self) -> vec::<string> {
         if self._target_known { return self._target_args; }
         self._target_known = true;
@@ -455,6 +475,13 @@ class ClangBackend {
         var words = vec::<string>();
         words.push_back("clang");
         words.push_back(f"--target={self._cfg.triple}");
+        words.push_back(f"-std={self._cfg.cxx_std}");
+        if self._cfg.debug_info {
+            words.push_back("-g");
+            if self._cfg.dwarf_version > 0 { words.push_back(f"-gdwarf-{self._cfg.dwarf_version}"); }
+            if self._cfg.debug_macros      { words.push_back("-fdebug-macro"); }
+            if self._cfg.embed_source      { words.push_back("-gembed-source"); }
+        }
         words.push_back("-fsyntax-only");
         words.push_back("-x");
         words.push_back("c++");
@@ -486,10 +513,23 @@ class ClangBackend {
         exact.push_back("-fno-signed-char");
         exact.push_back("-fno-use-cxa-atexit");
         exact.push_back("-fno-use-init-array");
+        exact.push_back("-fms-extensions");
+        exact.push_back("-fms-compatibility");
+        exact.push_back("-fms-volatile");
+        exact.push_back("-fdelayed-template-parsing");
+        exact.push_back("-gcodeview");
+        exact.push_back("-debug-info-macro");
+        exact.push_back("-gembed-source");
         // Flags with their value joined by `=`.
         var joined = vec::<string>();
         joined.push_back("-exception-model=");
         joined.push_back("-funwind-tables=");
+        joined.push_back("-fms-compatibility-version=");
+        joined.push_back("-fgnuc-version=");
+        joined.push_back("-debug-info-kind=");
+        joined.push_back("-dwarf-version=");
+        joined.push_back("-debugger-tuning=");
+        joined.push_back("-fdebug-compilation-dir=");
 
         for var i: usize = 0; i < cc1.size(); ++i {
             var a = std::nstring_to_string(cc1[i]);
@@ -532,8 +572,11 @@ class ClangBackend {
         // only at 64-bit pointer width unless told; the backend expands it
         // (and compiler-rt's tf routines need it) on 32-bit targets too.
         self._arg(argv, "-fforce-enable-int128");
+        // C++ lets the optimizer assume a side-effect-free loop terminates
+        // and delete it; Kairo makes no such promise. `loop {}` as a
+        // firmware idle or a spin on a register must stay a loop.
+        self._arg(argv, "-fno-finite-loops");
         self._arg(argv, "-emit-obj");
-        self._arg(argv, "-fgnuc-version=4.2.1");
 
         // Header search: ONE explicit model for every target, the host
         // included. cc1 is told exactly which roots to search and never falls
@@ -572,6 +615,10 @@ class ClangBackend {
             self._arg(argv, "-internal-isystem");   // builtin <stdint.h> -> uintptr_t
             self._arg(argv, f"{rd}/include");
         }
+
+        // Here, not per TU: every compile copies this invocation, and the
+        // header-set PCH reader rejects a predefines mismatch.
+        for d: string in self._cfg.defines { self._arg(argv, f"-D{d}"); }
 
         for a: string in self._cfg.extra_cc1 {
             self._arg(argv, a);

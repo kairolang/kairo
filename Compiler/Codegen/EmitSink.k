@@ -109,7 +109,7 @@ class EmitSink {
     // --- spell(): C++ text -> tokens -------------------------------------------
 
     /// Tokenize \p text and emit every token anchored at \p at. Accepts
-    /// identifiers/keywords, integer literals, and the punctuators a
+    /// identifiers/keywords, integer and string literals, and the punctuators a
     /// declaration can contain. Anything else is an emitter bug.
     ///
     /// Punctuators are matched longest-first. `<<`, `>>`, `<<=` and `>>=`
@@ -144,6 +144,23 @@ class EmitSink {
                 after_operator = false;
                 any = true;
                 i = j;
+                continue;
+            }
+
+            // A string literal, quotes and escapes kept verbatim: the
+            // language-linkage `extern "C"` is the one a declaration needs.
+            if c == '\x22' {
+                var j = i + 1;
+                while (j < n) && (text[j] != '\x22') {
+                    if text[j] == '\\' { j += 1; }
+                    j += 1;
+                }
+                ICE_IF(j >= n, f"EmitSink::spell: unterminated string literal in C++ fragment: {text}");
+                var lit = std::string_to_nstring(string(text.raw_string().substr(i, j + 1 - i)));
+                self.create_str(at, lit);
+                after_operator = false;
+                any = true;
+                i = j + 1;
                 continue;
             }
 

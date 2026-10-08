@@ -145,6 +145,10 @@ class InterfaceEmitter {
             // declaration buys nothing, and inside the file's namespace it
             // would declare a different function.
             if self._is_entry_main(e->decl) { continue; }
+            if e->decl->kind == DeclKind::VariableDecl {
+                self._wrapped(e->decl, fn () { self._global_var_decl(cast::<VariableDecl>(e->decl)); });
+                continue;
+            }
             self._wrapped(e->decl, fn () { self._free_fn_decl(cast::<FunctionDecl>(e->decl), &null); });
         }
 
@@ -532,6 +536,14 @@ class InterfaceEmitter {
         return s;
     }
 
+    /// `extern T const x;`. Always `extern`, own globals included: a
+    /// namespace-scope `const` has external linkage in C++ only when an
+    /// `extern` declaration precedes its definition, and a `pub const` has to
+    /// be reachable from every module that imports it.
+    priv fn _global_var_decl(self, v: *VariableDecl) {
+        sink->spell(self._at(static_cast::<*Decl>(v)), "extern " + self._spell->global_var(v) + ";");
+    }
+
     priv fn _free_fn_decl(self, f: *FunctionDecl, ext: *ExtensionDecl) {
         sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
     }
@@ -542,6 +554,9 @@ class InterfaceEmitter {
     /// extension's, then its own).
     priv fn _free_fn_text(self, f: *FunctionDecl, ext: *ExtensionDecl) -> string {
         var s = self._spell->template_head(static_cast::<*Decl>(f));
+        // An extension member is a static member of its scope struct, and a
+        // class member cannot have a language linkage.
+        if ext == &null { s += CXXSpell::c_linkage(f); }
         // The attribute leads the decl-specifiers; between `static` and the
         // type it is ill-formed.
         if f->is_noreturn { s += "[[noreturn]] "; }

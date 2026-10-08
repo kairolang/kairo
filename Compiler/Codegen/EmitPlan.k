@@ -18,8 +18,9 @@
 ///          extension scope (`struct __kairo_ext_X;`) the plan touches
 ///       1  type definitions, topologically sorted on Complete edges only;
 ///          an extension scope's definition after its target's
-///       2  function declarations, any order (extension members are not
-///          here: they are static members of their scope)
+///       2  function and namespace-scope variable declarations (`extern`),
+///          any order (extension members are not here: they are static
+///          members of their scope)
 ///       3  explicit instantiations: `template class X<A>;` in the instance's
 ///          home TU, `extern template ...` everywhere else
 ///
@@ -64,6 +65,7 @@ import AST::Node::Program::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Expressions::*;
+import AST::Node::Statements::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
@@ -194,6 +196,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _kind_name(self, d: *Decl) -> string;
     fn _collect_own(self, dc: *DeclContext);
     fn _collect_own_decl(self, d: *Decl);
+    fn _collect_own_globals(self);
     fn _scope_for(self, x: *ExtensionDecl, reach: bool) -> usize;
     fn _fill_scope(self, k: usize, cand: *Decl);
     fn _same_scope(self, k: usize, x: *ExtensionDecl) -> bool;
@@ -233,6 +236,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
+    fn _is_global_var(self, d: *Decl) -> bool;
     fn _is_type_decl(self, d: *Decl) -> bool;
     fn _outermost_type(self, d: *Decl) -> *Decl;
     fn _index_of(self, d: *Decl) -> usize;
@@ -315,6 +319,7 @@ fn EmitPlan::run() {
     ICE_IF(self._cg->instances == &null, "EmitPlan: no InstantiationRegistry on the CodegenContext");
 
     self._collect_own(static_cast::<*DeclContext>(tu));
+    self._collect_own_globals();
     if self._mode == PlanMode::Preamble { self._collect_uses(); }
     self._walk_visible();
     self._close();
@@ -406,6 +411,7 @@ fn EmitPlan::_kind_name(d: *Decl) -> string {
         case DeclKind::UnionDecl    { return "union";  }
         case DeclKind::EnumDecl     { return "enum";   }
         case DeclKind::FunctionDecl { return "fn";     }
+        case DeclKind::VariableDecl { return "var";    }
         default { return "decl"; }
     }
     return "decl";
@@ -459,6 +465,23 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
         self._admit(d, PlanNeed::Complete);
     } else {
         self._admit(d, PlanNeed::Fwd);
+    }
+}
+
+/// File-scope `var`/`const`/`static`/`eval`. They parse as DeclStmts in
+/// program->items and never enter tu->dc_decls (ASTParse::_build_symbols),
+/// so the dc walk above cannot see them; without this a TU whose only
+/// definitions are globals is is_empty, and a function naming one finds no
+/// prior `extern`, which for a `const` is the difference between external
+/// and internal linkage.
+fn EmitPlan::_collect_own_globals() {
+    var prog = self._cg->tu->program;
+    for var i: usize = 0; i < prog->items.size(); ++i {
+        var item = *(prog->items.get(i));
+        if item.kind != TopLevelKind::Stmt { continue; }
+        var ds = dyn_cast::<DeclStmt>(item.as_stmt());
+        if (ds == &null) || (ds->decl == &null) { continue; }
+        self._collect_own_decl(ds->decl);
     }
 }
 
@@ -1025,6 +1048,9 @@ fn EmitPlan::_close() {
 
 fn EmitPlan::_expand(d: *Decl, need: PlanNeed) {
     if isa::<FunctionDecl>(d) { self._expand_fn(cast::<FunctionDecl>(d)); return; }
+    // `extern T x;` only names T; the defining TU's own walk (visit_decl)
+    // asks for Complete where the definition lays it out.
+    if isa::<VariableDecl>(d) { self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Fwd); return; }
     if need != PlanNeed::Complete { return; }
     self._expand_type(d);
 }
@@ -1321,12 +1347,12 @@ fn EmitPlan::_order() {
     self._toposort(&t1);
     for var i: usize = 0; i < t1.size(); ++i { self.entries.push_back(t1[i]); }
 
-    // Tier 2: functions. Extension members are declared by their scope's
-    // definition and never listed here.
+    // Tier 2: functions and globals. Extension members are declared by
+    // their scope's definition and never listed here.
     var t2: vec::<PlanEntry>;
     for var i: usize = 0; i < self._set.size(); ++i {
         var d = self._set[i];
-        if d->kind != DeclKind::FunctionDecl { continue; }
+        if (d->kind != DeclKind::FunctionDecl) && (d->kind != DeclKind::VariableDecl) { continue; }
         t2.push_back(self._entry(d, PlanNeed::Fwd, PlanTier::Functions));
     }
     self._sort(&t2);
@@ -1466,7 +1492,18 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
 // --- Predicates ----------------------------------------------------------------------
 
 fn EmitPlan::_plannable(d: *Decl) -> bool {
-    return self._is_type_decl(d) || (d->kind == DeclKind::FunctionDecl);
+    return self._is_type_decl(d) || (d->kind == DeclKind::FunctionDecl) || self._is_global_var(d);
+}
+
+/// A variable with namespace scope: its home is the TU or a module. Every
+/// local reaches _admit too (_admit_use on each NamedIdentExpr) and must
+/// stay out; a static data member never gets here (_member_owner
+/// redirects it to its owner). Same predicate as EmitIR::_is_local.
+fn EmitPlan::_is_global_var(d: *Decl) -> bool {
+    if d->kind != DeclKind::VariableDecl { return false; }
+    var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+    if dc == &null { return false; }
+    return (dc->dc_kind == DeclContextKind::TranslationUnit) || (dc->dc_kind == DeclContextKind::Module);
 }
 
 /// The kinds with a C++ type. Interfaces are excluded on purpose.
