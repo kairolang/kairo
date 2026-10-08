@@ -187,6 +187,7 @@ class SysrootManifest {
     pub var libc_link:    vec::<string>;
     pub var libcxx_link:  vec::<string>;
     pub var cc_isolation: vec::<string>;
+    pub var cc_defines:   vec::<string>;   ///< -D names the prebuilt libc++ was built with
 
     static fn load(path: string, out: ref!(SysrootManifest)) -> bool {
         out      = SysrootManifest();
@@ -234,6 +235,7 @@ class SysrootManifest {
         if key == "libc_link"    { return self._list(key, v, self.libc_link);    }
         if key == "libcxx_link"  { return self._list(key, v, self.libcxx_link);  }
         if key == "cc_isolation" { return self._list(key, v, self.cc_isolation); }
+        if key == "cc_defines"   { return self._list(key, v, self.cc_defines);   }
         return true;
     }
 

@@ -676,7 +676,15 @@ class Toolchain {
         var out = vec::<string>();
         var env = ("") if (t->env_name.empty()) else (f"-{t->env_name}");
         Toolchain::_push_unique(out, self.triple);
-        if self.has_manifest { Toolchain::_push_unique(out, self.manifest.triple); }
+        if self.has_manifest {
+            // Spelled and normalized: a manifest saying armv7-linux-musl
+            // ships compiler-rt under armv7-unknown-linux-musl, and the
+            // target (now musleabihf) names neither.
+            Toolchain::_push_unique(out, self.manifest.triple);
+            var nm = std::string_to_nstring(self.manifest.triple);
+            var norm: libcxx::string = llvm::Triple::normalize(llvm::StringRef(nm.raw(), nm.size()));
+            Toolchain::_push_unique(out, string(norm.c_str(), norm.size()));
+        }
         Toolchain::_push_unique(out, f"{t->arch_name}-unknown-{t->os_name}{env}");
         Toolchain::_push_unique(out, f"{t->arch_name}-{t->os_name}{env}");
         Toolchain::_push_unique(out, f"{t->arch_name}-pc-{t->os_name}{env}");
@@ -1193,12 +1201,36 @@ class Toolchain {
 
     // --- Shared helpers ---------------------------------------------------
 
+    /// \brief \p triple with the float ABI the sysroots are built for made
+    ///        explicit: 32-bit ARM Linux spelled with a bare gnu or musl
+    ///        environment becomes gnueabihf / musleabihf.
+    ///
+    /// \details clang reads the float ABI off the environment alone, and a
+    ///          bare gnu/musl on ARM means soft-float. That is an ABI break
+    ///          against every armv7 sysroot (all hard-float, as Debian armhf
+    ///          and Alpine are), and soft-float also turns __bf16 off, so
+    ///          builtin's bf16 does not compile. An explicit gnueabi /
+    ///          musleabi is left alone: that is a deliberate soft-float ask.
+    ///          Anything else is returned exactly as spelled.
+    static fn canonical_triple(triple: string) -> string {
+        var nt = std::string_to_nstring(triple);
+        var tt = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        if ((!tt.isARM()) && (!tt.isThumb())) || (!tt.isOSLinux()) { return triple; }
+        var env = tt.getEnvironment();
+        if env == llvm::Triple::GNU       { tt.setEnvironment(llvm::Triple::GNUEABIHF);  }
+        else if env == llvm::Triple::Musl { tt.setEnvironment(llvm::Triple::MuslEABIHF); }
+        else                              { return triple; }
+        var full: libcxx::string = tt.getTriple();
+        return string(full.c_str(), full.size());
+    }
+
     /// Same arch, OS and environment; vendor and spelling ignored, so
     /// x86_64-linux-musl matches x86_64-unknown-linux-musl, and darwin
-    /// matches macosx.
+    /// matches macosx. Both sides are canonical_triple'd first, so an
+    /// armv7-linux-musl sysroot matches the musleabihf target it is for.
     static fn same_target(a: string, b: string) -> bool {
-        var na = std::string_to_nstring(a);
-        var nb = std::string_to_nstring(b);
+        var na = std::string_to_nstring(Toolchain::canonical_triple(a));
+        var nb = std::string_to_nstring(Toolchain::canonical_triple(b));
         var ta = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(na.raw(), na.size())));
         var tb = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nb.raw(), nb.size())));
         var same_os = (ta.getOS() == tb.getOS()) || (ta.isMacOSX() && tb.isMacOSX());
