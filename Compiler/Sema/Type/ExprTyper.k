@@ -212,7 +212,15 @@ class ExprTyper
                 if (self._typeexp.find(k) == self._typeexp.end()) && (self._modexp.find(k) == self._modexp.end()) {
                     var ci = self._chains.find(k);
                     var callable = (ci != self._chains.end()) && (ci->second.callable_cands.size() > 0);
-                    if !callable { self.n_unknown += 1; }
+                    if !callable {
+                        // Every arm ends typed, poisoned (with its diagnostic) or
+                        // mark_unknown'd. A node in none of those reaches EmitIR
+                        // untyped, where the ICE names EmitIR, not the source.
+                        self.sc->diag->report(DiagID::I011W, e->range.start,
+                            f"internal: {to_string(e->kind)} left untyped, unpoisoned and non-dependent; typer bug"
+                        ).first(e->range).emit();
+                        ICE_FAIL(f"ExprTyper: {to_string(e->kind)} reached finish() in no terminal state");
+                    }
                 }
             } else {
                 self.n_unknown += 1;
