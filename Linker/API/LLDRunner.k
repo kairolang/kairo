@@ -184,7 +184,9 @@ class LLDRunner {
             args.push_back(kld_path);
             args.push_back("-flavor");
             args.push_back(flavor);
-            if (flavor == "gnu") || (flavor == "wasm") { args.push_back("--rsp-quoting=posix"); }
+            // quote_rsp escapes backslashes GNU-style. lld-link defaults to
+            // Windows tokenization, which would keep both of them.
+            if (flavor == "gnu") || (flavor == "wasm") || (flavor == "link") { args.push_back("--rsp-quoting=posix"); }
             args.push_back(f"@{rsp_path}");
         }
 

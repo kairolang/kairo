@@ -37,6 +37,36 @@
 ///     because the driver's default triple carries the host OS version,
 ///     which would make the variable dead for every host build.
 ///
+///   \par Windows (COFF)
+///     MinGW-w64 (<arch>-windows-gnu) links through lld's mingw driver,
+///     MSVC (<arch>-windows-msvc) through lld-link. Any other Windows
+///     environment is rejected. With a manifest the manifest is the
+///     authority. Without one:
+///       MinGW  the sysroot is searched for a mingw-w64 tree
+///              (<sr>/<arch>-w64-mingw32, <sr>/usr/<arch>-w64-mingw32,
+///              <sr>); a directory counts only if it holds crt2.o or
+///              libmingw32.a, so --sysroot=/ never pulls in host ELF
+///              libraries. GCC is looked for beside the tree.
+///       MSVC   with no --sysroot, LIB (as vcvars sets it) is the search
+///              path. With one, an xwin splat (crt/lib/<a>, sdk/lib/um/<a>,
+///              sdk/lib/ucrt/<a>) or a Visual Studio / msvc-wine tree
+///              (VC/Tools/MSVC/<v>/lib/<a>, Windows Kits/10/Lib/<v>/{ucrt,um}/<a>),
+///              newest version first. The SDK's mixed-case file names
+///              (Kernel32.Lib) do not resolve on a case-sensitive file
+///              system; xwin and msvc-wine lower-case them, a raw copy does
+///              not. The runtime is vcruntime; --rtlib=compiler-rt adds
+///              clang_rt.builtins on top.
+///     compiler-rt is also searched in the sysroot's own library
+///     directories, where llvm-mingw and ksys keep it.
+///
+///   \par WebAssembly
+///     WASI preview 1 (wasm32-wasip1, wasm32-wasi) and bare
+///     (wasm32-unknown-unknown). Preview 2 is a component built around a
+///     core module by wasm-component-ld, and emscripten owns its own link;
+///     both are rejected. A wasi-sdk sysroot keeps wasi-libc and libc++ in
+///     <sr>/lib/<arch>-<os>[-<env>]; the builtins come from the resource
+///     directory (lib/wasi or lib/<triple>) or the sysroot's library dirs.
+///
 ///   \par Runtime choice (ELF)
 ///     --rtlib wins, then the manifest. With neither, a glibc target with a
 ///     GCC install found gets libgcc (what the host's own objects were built
@@ -71,17 +101,17 @@ import Linker::API::SysrootManifest::*;
 
 class Toolchain {
     pub var ok:             bool = false;
-    pub var format:         string;     ///< ELF | Mach-O
+    pub var format:         string;     ///< ELF | Mach-O | COFF | Wasm
 
     pub var triple:         string;     ///< effective, as the driver resolved it
     pub var arch:           string;     ///< canonical: x86_64 i386 aarch64 arm riscv64 ...
     pub var os:             string;     ///< as spelled: linux, freebsd14.1, macosx14.0, ...
     pub var env:            string;     ///< gnu, musl, gnueabihf, simulator, "" ...
-    pub var libc:           string;     ///< glibc | musl | bsd | libsystem | ""
+    pub var libc:           string;     ///< glibc | musl | bsd | libsystem | mingw | msvc | wasi | ""
     pub var is64:           bool = true;
 
     pub var sysroot:        string;
-    pub var style:          string;     ///< manifest | root | prefix | sdk
+    pub var style:          string;     ///< manifest | root | prefix | sdk | msvc
     pub var pass_sysroot:   bool = false;
     pub var has_manifest:   bool = false;
     pub var manifest:       SysrootManifest;
@@ -92,13 +122,13 @@ class Toolchain {
     pub var gcc_dir:        string;
     pub var toolchain_lib:  string;         ///< libc++ outside the system dirs, or ""
 
-    pub var rtlib:          string;         ///< compiler-rt | libgcc
-    pub var unwindlib:      string;         ///< libunwind | libgcc | none | libsystem
+    pub var rtlib:          string;         ///< compiler-rt | libgcc | vcruntime
+    pub var unwindlib:      string;         ///< libunwind | libgcc | none | libsystem | seh
     pub var rt_dir:         string;
     pub var rt_suffix:      string;         ///< "" per-target layout, "-<arch>" old layout
     pub var builtins:       string;
 
-    pub var emulation:      string;         ///< ELF
+    pub var emulation:      string;         ///< ELF, MinGW (i386pep ...), Wasm (wasm32 | wasm64)
     pub var dynamic_linker: string;         ///< ELF
 
     pub var platform:       string;         ///< Mach-O: -platform_version name
@@ -119,13 +149,18 @@ class Toolchain {
                 "link: the target was never resolved; the driver fills TargetOptions before linking"));
             return false;
         }
-        if (t->object_format != "ELF") && (t->object_format != "Mach-O") {
+
+        var fmt = t->object_format;
+        if (fmt == "wasm") || (fmt == "WASM") { fmt = "Wasm"; }
+        if (fmt != "ELF") && (fmt != "Mach-O") && (fmt != "COFF") && (fmt != "Wasm") {
             msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
-                f"linking {t->object_format} output for {t->describe()} is not implemented; only ELF and Mach-O targets link"));
+                f"linking {t->object_format} output for {t->describe()} is not implemented; only ELF, Mach-O, COFF and Wasm targets link"));
             return false;
         }
-        self.format = t->object_format;
-        var darwin  = self.format == "Mach-O";
+        self.format = fmt;
+        var darwin  = fmt == "Mach-O";
+        var coff    = fmt == "COFF";
+        var wasm    = fmt == "Wasm";
 
         self.triple = t->effective_triple;
         self.arch   = Toolchain::canon_arch(t->arch_name);
@@ -143,6 +178,28 @@ class Toolchain {
                     f"{self.triple} is Mach-O but names no Apple platform this linker knows"));
                 return false;
             }
+        }
+        if coff {
+            if Toolchain::is_mingw(self.triple)     { self.libc = "mingw"; }
+            else if Toolchain::is_msvc(self.triple) { self.libc = "msvc";  }
+            else {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
+                    f"{self.triple}: Windows targets link as MinGW-w64 (<arch>-windows-gnu) or MSVC (<arch>-windows-msvc), and this environment is neither"));
+                return false;
+            }
+        }
+        if wasm {
+            if self.os == "wasip2" {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
+                    f"{self.triple}: WASI preview 2 output is a component, which wasm-component-ld builds around a core module; link for wasm32-wasip1 and componentize the result"));
+                return false;
+            }
+            if LinkText::starts_with(self.os, "emscripten") {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Fatal,
+                    "emscripten links through emcc, which owns its JS glue and system libraries; target wasm32-wasip1 or wasm32-unknown-unknown"));
+                return false;
+            }
+            self.libc = ("wasi") if (LinkText::starts_with(self.os, "wasi")) else ("");
         }
 
         var sr = LinkText::strip_slash(t->sysroot);
@@ -167,6 +224,12 @@ class Toolchain {
             self._layout_manifest(msgs);
         } else if darwin {
             self._layout_sdk(msgs);
+        } else if coff && (self.libc == "mingw") {
+            self._layout_mingw(t->arch_name, msgs);
+        } else if coff {
+            self._layout_msvc(msgs);
+        } else if wasm {
+            self._layout_wasm(msgs);
         } else {
             self._layout_host(t->arch_name);
         }
@@ -174,6 +237,8 @@ class Toolchain {
         self._pick_runtimes(o, msgs);
         if darwin {
             self._find_darwin_rt(t, msgs);
+        } else if self.libc == "msvc" {
+            if self.rtlib == "compiler-rt" { self._find_msvc_rt(t, msgs); }
         } else if self.rtlib == "compiler-rt" {
             self._find_compiler_rt(t, msgs);
         }
@@ -184,11 +249,23 @@ class Toolchain {
         } else {
             self.emulation = o->emulation;
             if self.emulation.empty() {
-                self.emulation = Toolchain::emulation_for(self.arch, self.os, self.env);
+                if coff {
+                    self.emulation = (Toolchain::pe_emulation_for(self.arch)) if (self.libc == "mingw") else ("");
+                } else if wasm {
+                    self.emulation = self.arch;
+                } else {
+                    self.emulation = Toolchain::emulation_for(self.arch, self.os, self.env);
+                }
             }
-            self.dynamic_linker = o->dynamic_linker;
-            if self.dynamic_linker.empty() {
-                self.dynamic_linker = Toolchain::dynamic_linker_for(self.arch, self.os, self.env, self.libc);
+            if coff && (self.libc == "mingw") && self.emulation.empty() {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"no PE emulation for {self.arch}; pass --emulation"));
+            }
+            if (!coff) && (!wasm) {
+                self.dynamic_linker = o->dynamic_linker;
+                if self.dynamic_linker.empty() {
+                    self.dynamic_linker = Toolchain::dynamic_linker_for(self.arch, self.os, self.env, self.libc);
+                }
             }
         }
 
@@ -280,6 +357,145 @@ class Toolchain {
         self._find_gcc(bases, spelled_arch);
     }
 
+    /// A mingw-w64 install without a manifest: a distro's
+    /// /usr/<arch>-w64-mingw32, or an llvm-mingw / MSYS2 root that keeps
+    /// <arch>-w64-mingw32/ inside. A lib dir counts only if it holds the
+    /// mingw runtime.
+    priv fn _layout_mingw(self, spelled_arch: string, msgs: ref!(vec::<LinkMessage>)) {
+        self.style        = "prefix";
+        self.pass_sysroot = false;
+
+        var tris  = Toolchain::mingw_triples(spelled_arch, self.arch);
+        var usr   = LinkText::join(self.sysroot, "usr");
+        var bases = vec::<string>();
+        for tr: string in tris {
+            bases.push_back(LinkText::join(self.sysroot, tr));
+            bases.push_back(LinkText::join(usr, tr));
+        }
+        bases.push_back(self.sysroot);
+
+        for b: string in bases {
+            var lib = LinkText::join(b, "lib");
+            if LinkFS::is_file(LinkText::join(lib, "crt2.o"))
+            || LinkFS::is_file(LinkText::join(lib, "libmingw32.a")) {
+                self._add_dir(lib);
+            }
+        }
+        if self.lib_dirs.empty() {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"no mingw-w64 runtime (crt2.o, libmingw32.a) under {self.sysroot}; pass --sysroot naming a mingw-w64 install or a ksys sysroot"));
+            return;
+        }
+        for d: string in self.lib_dirs {
+            if LinkFS::is_file(LinkText::join(d, "crt2.o")) { self.crt_dir = d; break; }
+        }
+
+        // GCC sits beside the mingw tree, not in it:
+        // /usr/lib/gcc/x86_64-w64-mingw32/<v> for --sysroot=/usr/x86_64-w64-mingw32.
+        var groots = vec::<string>();
+        groots.push_back(LinkText::join(LinkText::join(self.sysroot, "lib"), "gcc"));
+        groots.push_back(LinkText::join(LinkText::join(usr, "lib"), "gcc"));
+        var up = LinkFS::parent(self.sysroot);
+        if !up.empty() { groots.push_back(LinkText::join(LinkText::join(up, "lib"), "gcc")); }
+
+        var best   = "";
+        var best_v = "";
+        for g: string in groots {
+            if LinkFS::is_dir(g) { self._scan_gcc(g, tris, "", best, best_v); }
+        }
+        self.gcc_dir = best;
+    }
+
+    /// MSVC without a manifest. LIB first when no --sysroot was given
+    /// (vcvars sets it); otherwise an xwin splat or a VS / msvc-wine tree
+    /// under the sysroot.
+    priv fn _layout_msvc(self, msgs: ref!(vec::<LinkMessage>)) {
+        self.style        = "msvc";
+        self.pass_sysroot = false;
+
+        if self.sysroot == "/" {
+            for d: string in Toolchain::_split(LinkFS::env("LIB"), ';') {
+                if !d.empty() { self._add_dir(LinkText::strip_slash(d)); }
+            }
+        }
+
+        if self.lib_dirs.empty() {
+            var sr = self.sysroot;
+            var xw = Toolchain::xwin_arch_dir(self.arch);
+            var vs = Toolchain::msvc_arch_dir(self.arch);
+
+            self._add_dir(LinkText::join(sr, f"crt/lib/{xw}"));
+            self._add_dir(LinkText::join(sr, f"sdk/lib/um/{xw}"));
+            self._add_dir(LinkText::join(sr, f"sdk/lib/ucrt/{xw}"));
+
+            var vcs = vec::<string>();
+            vcs.push_back("VC/Tools/MSVC");
+            vcs.push_back("vc/tools/msvc");
+            for vc: string in vcs {
+                var root = LinkText::join(sr, vc);
+                var v    = Toolchain::newest_version(root);
+                if !v.empty() { self._add_dir(LinkText::join(root, f"{v}/lib/{vs}")); }
+            }
+
+            var kits = vec::<string>();
+            kits.push_back("Windows Kits/10/Lib");
+            kits.push_back("kits/10/Lib");
+            kits.push_back("kits/10/lib");
+            for k: string in kits {
+                var root = LinkText::join(sr, k);
+                var v    = Toolchain::newest_version(root);
+                if v.empty() { continue; }
+                self._add_dir(LinkText::join(root, f"{v}/ucrt/{vs}"));
+                self._add_dir(LinkText::join(root, f"{v}/um/{vs}"));
+            }
+        }
+
+        var missing = "";
+        if self.find_lib_file("libcmt.lib").empty() && self.find_lib_file("msvcrt.lib").empty() {
+            missing += " the MSVC CRT (libcmt.lib),";
+        }
+        if self.find_lib_file("libucrt.lib").empty() && self.find_lib_file("ucrt.lib").empty() {
+            missing += " the UCRT (libucrt.lib),";
+        }
+        if self.find_lib_file("kernel32.lib").empty() {
+            missing += " the Windows SDK (kernel32.lib),";
+        }
+        if !missing.empty() {
+            var _where = ("LIB and ") if (self.sysroot == "/") else ("");
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"MSVC libraries not found:{LinkText::slice(missing, 0, missing.size() - 1)}; searched {_where}{self.sysroot}. Pass --sysroot naming an xwin splat, a msvc-wine install, or a ksys sysroot"));
+        }
+    }
+
+    /// wasi-sdk layout: <sr>/lib/<arch>-<os>[-<env>]. wasip1 and the older
+    /// wasi spelling find each other. A bare target has nothing to search.
+    priv fn _layout_wasm(self, msgs: ref!(vec::<LinkMessage>)) {
+        self.style        = "prefix";
+        self.pass_sysroot = false;
+        if self.libc.empty() { return; }
+
+        var env = ("") if (self.env.empty()) else (f"-{self.env}");
+        var lib = LinkText::join(self.sysroot, "lib");
+        self._add_dir(LinkText::join(lib, f"{self.arch}-{self.os}{env}"));
+        if self.os == "wasip1" { self._add_dir(LinkText::join(lib, f"{self.arch}-wasi{env}")); }
+        if self.os == "wasi"   { self._add_dir(LinkText::join(lib, f"{self.arch}-wasip1{env}")); }
+        if LinkFS::is_file(LinkText::join(lib, "crt1.o")) || LinkFS::is_file(LinkText::join(lib, "crt1-command.o")) {
+            self._add_dir(lib);
+        }
+
+        if self.lib_dirs.empty() {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"no wasi-libc under {lib}/{self.arch}-{self.os}{env}; pass --sysroot naming a wasi-sdk sysroot (share/wasi-sysroot) or a ksys sysroot"));
+            return;
+        }
+        for d: string in self.lib_dirs {
+            if LinkFS::is_file(LinkText::join(d, "crt1-command.o")) || LinkFS::is_file(LinkText::join(d, "crt1.o")) {
+                self.crt_dir = d;
+                break;
+            }
+        }
+    }
+
     priv fn _pick_runtimes(self, o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
         if self.format == "Mach-O" {
             if (!o->rtlib.empty()) && (o->rtlib != "compiler-rt") {
@@ -295,10 +511,47 @@ class Toolchain {
             return;
         }
 
+        if self.libc == "msvc" {
+            var rt = o->rtlib;
+            if rt.empty() && self.has_manifest { rt = self.manifest.rtlib; }
+            if rt.empty() { rt = "vcruntime"; }
+            if (rt != "vcruntime") && (rt != "compiler-rt") {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--rtlib={rt}: MSVC targets use vcruntime, optionally with compiler-rt on top"));
+            }
+            if (!o->unwindlib.empty()) && (o->unwindlib != "none") {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--unwindlib={o->unwindlib}: MSVC targets unwind through SEH and vcruntime"));
+            }
+            self.rtlib     = rt;
+            self.unwindlib = "seh";
+            return;
+        }
+
+        if self.format == "Wasm" {
+            var rt = o->rtlib;
+            if rt.empty() && self.has_manifest { rt = self.manifest.rtlib; }
+            if rt.empty() { rt = "compiler-rt"; }
+            if rt != "compiler-rt" {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--rtlib={rt}: wasm targets only use compiler-rt"));
+            }
+            var uw = o->unwindlib;
+            if uw.empty() && self.has_manifest { uw = self.manifest.unwindlib; }
+            if uw.empty() { uw = "none"; }
+            if (uw != "none") && (uw != "libunwind") {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--unwindlib={uw}: wasm targets take libunwind (for -fwasm-exceptions) or none"));
+            }
+            self.rtlib     = rt;
+            self.unwindlib = uw;
+            return;
+        }
+
         var rt = o->rtlib;
         if rt.empty() && self.has_manifest { rt = self.manifest.rtlib; }
         if rt.empty() {
-            rt = ("libgcc") if ((self.libc == "glibc") && (!self.gcc_dir.empty())) else ("compiler-rt");
+            rt = ("libgcc") if (((self.libc == "glibc") || (self.libc == "mingw")) && (!self.gcc_dir.empty())) else ("compiler-rt");
         }
         if (rt != "libgcc") && (rt != "compiler-rt") {
             msgs.push_back(LinkDiag::make(LinkSeverity::Error,
@@ -352,7 +605,15 @@ class Toolchain {
             if self._try_rt(lib, "") { return; }
             looked += f"\n  {lib}";
         }
-        if roots.empty() {
+        // llvm-mingw and ksys keep the builtins beside the CRT, old -<arch> layout.
+        if (self.format == "COFF") || (self.format == "Wasm") {
+            for d: string in self.lib_dirs {
+                if self._try_rt(d, f"-{rtarch}") { return; }
+                if self._try_rt(d, "") { return; }
+                looked += f"\n  {d}";
+            }
+        }
+        if looked.empty() {
             looked = "\n  (nowhere: pass --resource-dir, or give the sysroot manifest a resource_dir)";
         }
         msgs.push_back(LinkDiag::make(LinkSeverity::Error,
@@ -377,6 +638,31 @@ class Toolchain {
             f"{name} not found under the resource directory; the builtins come from libSystem"));
     }
 
+    /// clang_rt.builtins for MSVC: <resource>/lib/<triple>/clang_rt.builtins.lib,
+    /// then the old <resource>/lib/windows/clang_rt.builtins-<arch>.lib.
+    priv fn _find_msvc_rt(self, t: *TargetOptions, msgs: ref!(vec::<LinkMessage>)) {
+        var looked = "";
+        for root: string in self._rt_roots(t) {
+            var lib = LinkText::join(root, "lib");
+            for tr: string in self._rt_triples(t) {
+                var a = LinkText::join(LinkText::join(lib, tr), "clang_rt.builtins.lib");
+                if LinkFS::is_file(a) { self.rt_dir = LinkFS::parent(a); self.builtins = a; return; }
+                looked += f"\n  {a}";
+            }
+            var w = LinkText::join(LinkText::join(lib, "windows"), f"clang_rt.builtins-{self.arch}.lib");
+            if LinkFS::is_file(w) { self.rt_dir = LinkFS::parent(w); self.rt_suffix = f"-{self.arch}"; self.builtins = w; return; }
+            looked += f"\n  {w}";
+        }
+        for d: string in self.lib_dirs {
+            var a = LinkText::join(d, f"clang_rt.builtins-{self.arch}.lib");
+            if LinkFS::is_file(a) { self.rt_dir = d; self.rt_suffix = f"-{self.arch}"; self.builtins = a; return; }
+            looked += f"\n  {a}";
+        }
+        if looked.empty() { looked = "\n  (nowhere: pass --resource-dir)"; }
+        msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+            f"--rtlib=compiler-rt: clang_rt.builtins for {self.triple} not found; looked for:{looked}"));
+    }
+
     priv fn _try_rt(self, dir: string, suffix: string) -> bool {
         var a = LinkText::join(dir, f"libclang_rt.builtins{suffix}.a");
         if !LinkFS::is_file(a) { return false; }
@@ -394,6 +680,10 @@ class Toolchain {
         Toolchain::_push_unique(out, f"{t->arch_name}-unknown-{t->os_name}{env}");
         Toolchain::_push_unique(out, f"{t->arch_name}-{t->os_name}{env}");
         Toolchain::_push_unique(out, f"{t->arch_name}-pc-{t->os_name}{env}");
+        if self.format == "COFF" {
+            Toolchain::_push_unique(out, f"{t->arch_name}-w64-windows-gnu");
+            Toolchain::_push_unique(out, f"{t->arch_name}-w64-mingw32");
+        }
         return out;
     }
 
@@ -404,12 +694,15 @@ class Toolchain {
 
         var cands = vec::<string>();
         for tr: string in self._rt_triples(t) { cands.push_back(LinkText::join(base, tr)); }
-        cands.push_back(base);
+        // base is the host's own libc++; only a host-format link may take it.
+        if (self.format == "ELF") || (self.format == "Mach-O") { cands.push_back(base); }
 
         for c: string in cands {
             if LinkFS::is_file(LinkText::join(c, "libc++.so"))
             || LinkFS::is_file(LinkText::join(c, "libc++.dylib"))
-            || LinkFS::is_file(LinkText::join(c, "libc++.a")) {
+            || LinkFS::is_file(LinkText::join(c, "libc++.a"))
+            || LinkFS::is_file(LinkText::join(c, "libc++.lib"))
+            || LinkFS::is_file(LinkText::join(c, "c++.lib")) {
                 if !self._has_dir(c) { self.toolchain_lib = c; }
                 return;
             }
@@ -569,6 +862,23 @@ class Toolchain {
             out.push_back(f"rtlib:           {self.rtlib}");
             out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}");
             out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}");
+        } else if self.format == "COFF" {
+            out.push_back(f"libc:            {self.libc}");
+            out.push_back(f"rtlib:           {self.rtlib}");
+            out.push_back(f"unwindlib:       {self.unwindlib}");
+            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}");
+            out.push_back(f"gcc install:     {Toolchain::or_none(self.gcc_dir)}");
+            out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}");
+            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}");
+            if self.libc == "mingw" { out.push_back(f"emulation:       {Toolchain::or_none(self.emulation)}"); }
+        } else if self.format == "Wasm" {
+            out.push_back(f"libc:            {Toolchain::or_none(self.libc)}");
+            out.push_back(f"rtlib:           {self.rtlib}");
+            out.push_back(f"unwindlib:       {self.unwindlib}");
+            out.push_back(f"builtins:        {Toolchain::or_none(self.builtins)}");
+            out.push_back(f"crt dir:         {Toolchain::or_none(self.crt_dir)}");
+            out.push_back(f"toolchain lib:   {Toolchain::or_none(self.toolchain_lib)}");
+            out.push_back(f"emulation:       {self.emulation}");
         } else {
             out.push_back(f"libc:            {Toolchain::or_none(self.libc)}");
             out.push_back(f"rtlib:           {self.rtlib}");
@@ -610,6 +920,8 @@ class Toolchain {
         if LinkText::starts_with(os, "freebsd") { return "freebsd"; }
         if LinkText::starts_with(os, "netbsd")  { return "netbsd";  }
         if LinkText::starts_with(os, "openbsd") { return "openbsd"; }
+        if LinkText::starts_with(os, "windows") || LinkText::starts_with(os, "mingw") { return "windows"; }
+        if LinkText::starts_with(os, "wasi") { return "wasi"; }
         return "";
     }
 
@@ -668,6 +980,75 @@ class Toolchain {
         if a == "s390x"       { return "/lib/ld64.so.1"; }
         if a == "loongarch64" { return "/lib64/ld-linux-loongarch-lp64d.so.1"; }
         return "";
+    }
+
+    static fn is_mingw(triple: string) -> bool {
+        var nt = std::string_to_nstring(triple);
+        var tr = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        return tr.isWindowsGNUEnvironment();
+    }
+
+    /// The -m that routes a GNU-flavor lld link to its MinGW driver.
+    static fn pe_emulation_for(a: string) -> string {
+        if a == "x86_64"  { return "i386pep";  }
+        if a == "i386"    { return "i386pe";   }
+        if a == "aarch64" { return "arm64pe";  }
+        if a == "arm"     { return "thumb2pe"; }
+        return "";
+    }
+
+    static fn is_msvc(triple: string) -> bool {
+        var nt = std::string_to_nstring(triple);
+        var tr = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        return tr.isWindowsMSVCEnvironment();
+    }
+
+    /// lld-link -machine.
+    static fn msvc_machine(a: string) -> string {
+        if a == "x86_64"  { return "x64";   }
+        if a == "i386"    { return "x86";   }
+        if a == "aarch64" { return "arm64"; }
+        if a == "arm"     { return "arm";   }
+        return "";
+    }
+
+    /// Visual Studio and Windows Kits library subdirectory.
+    static fn msvc_arch_dir(a: string) -> string {
+        if a == "x86_64"  { return "x64";   }
+        if a == "i386"    { return "x86";   }
+        if a == "aarch64" { return "arm64"; }
+        return a;
+    }
+
+    /// xwin splat library subdirectory.
+    static fn xwin_arch_dir(a: string) -> string {
+        if a == "i386" { return "x86";   }
+        if a == "arm"  { return "aarch"; }
+        return a;
+    }
+
+    /// The highest dotted-numeric entry in \p dir, or "".
+    static fn newest_version(dir: string) -> string {
+        if !LinkFS::is_dir(dir) { return ""; }
+        var best = "";
+        for v: string in LinkFS::list_dir(dir) {
+            if v.empty() || (v[0] < '0') || (v[0] > '9') { continue; }
+            if best.empty() || Toolchain::version_less(best, v) { best = v; }
+        }
+        return best;
+    }
+
+    /// Directory names a mingw-w64 tree and its GCC go under.
+    static fn mingw_triples(spelled: string, a: string) -> vec::<string> {
+        var out = vec::<string>();
+        if a == "i386" {
+            Toolchain::_push_unique(out, "i686-w64-mingw32");
+            Toolchain::_push_unique(out, "i586-w64-mingw32");
+        } else {
+            Toolchain::_push_unique(out, f"{a}-w64-mingw32");
+        }
+        Toolchain::_push_unique(out, f"{spelled}-w64-mingw32");
+        return out;
     }
 
     /// Directory names distros put a GCC install under, most specific first.
@@ -860,5 +1241,18 @@ class Toolchain {
     priv static fn _push_unique(out: ref!(vec::<string>), s: string) {
         for x: string in out { if x == s { return; } }
         out.push_back(s);
+    }
+
+    priv static fn _split(s: string, sep: char) -> vec::<string> {
+        var out = vec::<string>();
+        var b: usize = 0;
+        for var i: usize = 0; i < s.size(); ++i {
+            if s[i] == sep {
+                out.push_back(LinkText::slice(s, b, i));
+                b = i + 1;
+            }
+        }
+        out.push_back(LinkText::slice(s, b, s.size()));
+        return out;
     }
 }

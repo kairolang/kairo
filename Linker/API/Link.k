@@ -26,6 +26,9 @@ import Linker::API::LinkJob::*;
 import Linker::API::Toolchain::*;
 import Linker::API::Flavor::ELF::*;
 import Linker::API::Flavor::MachO::*;
+import Linker::API::Flavor::MinGW::*;
+import Linker::API::Flavor::COFF::*;
+import Linker::API::Flavor::Wasm::*;
 import Linker::API::LLDRunner::*;
 
 struct LinkResult {
@@ -43,6 +46,11 @@ class Link {
                    argv: ref!(vec::<string>), msgs: ref!(vec::<LinkMessage>)) -> bool {
         if !tc.resolve(job.target, job.opts, msgs) { return false; }
         if tc.format == "Mach-O" { return MachOArgs::build(job, tc, argv, msgs); }
+        if tc.format == "COFF" {
+            if tc.libc == "msvc" { return COFFArgs::build(job, tc, argv, msgs); }
+            return MinGWArgs::build(job, tc, argv, msgs);
+        }
+        if tc.format == "Wasm"   { return WasmArgs::build(job, tc, argv, msgs); }
         return ELFArgs::build(job, tc, argv, msgs);
     }
 
