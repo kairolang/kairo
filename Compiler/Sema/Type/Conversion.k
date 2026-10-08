@@ -199,6 +199,63 @@ class Conversion {
         return ConvClass::E;
     }
 
+    // === the ABI boundary rung ==============================================
+
+    /// Integer widening INTO a C/C++ signature. Asked only for an argument
+    /// to an imported callee, after implicit() said None.
+    ///
+    /// §4 keeps the pointer-sized integers out of W because `usize -> u64`
+    /// would compile on x86_64 and fail on wasm32. This rung keeps that
+    /// property across 32- and 64-bit targets: a pointer-sized integer is the
+    /// RANGE of widths it has over them, [32, 64], a fixed-width one is
+    /// [N, N], and S -> D widens only when the widest S fits the narrowest D.
+    /// What one of those triples accepts, all of them accept. A 16-bit
+    /// target lowers the floor to its own width (_min_width): `u32 -> usize`
+    /// would narrow there, so it is refused there, and only there.
+    ///
+    /// Never narrowing: same signedness needs max(S) <= min(D), unsigned to
+    /// signed needs it strict, signed to unsigned never. Pairs of
+    /// fixed-width types are the lattice's alone, and wide (R5), float and
+    /// non-numeric types never take this rung.
+    ///
+    /// `size_t`/`ptrdiff_t` already arrive as usize/isize (the importer
+    /// reads the typedef off the sugar); a bare `unsigned long` stays u64 by
+    /// design and is judged as one.
+    fn abi_widen(self, from: *Type, to: *Type) -> ImplicitRank {
+        if (from == &null) || (to == &null) { return ImplicitRank::None; }
+        var fk = self.tu.kind_of(canon_unqual(self.tu.as_value(from)));
+        var tk = self.tu.kind_of(canon_unqual(self.tu.as_value(to)));
+        if (fk == BuiltinKind::COUNT) || (tk == BuiltinKind::COUNT) { return ImplicitRank::None; }
+        if (!builtin_info(fk)->is_integer()) || (!builtin_info(tk)->is_integer()) { return ImplicitRank::None; }
+        if (!self._is_ptr_int(fk)) && (!self._is_ptr_int(tk)) { return ImplicitRank::None; }
+        if !self.implicit_enabled() { return ImplicitRank::None; }
+
+        var s_max = self._max_width(fk);
+        var d_min = self._min_width(tk);
+        if (s_max > 64) || (self._max_width(tk) > 64) { return ImplicitRank::None; }   // R5
+
+        var ss = builtin_info(fk)->is_signed();
+        var ts = builtin_info(tk)->is_signed();
+        if ss == ts    { return (ImplicitRank::Converted) if (s_max <= d_min) else (ImplicitRank::None); }
+        if (!ss) && ts { return (ImplicitRank::Converted) if (s_max < d_min) else (ImplicitRank::None); }
+        return ImplicitRank::None;                                               // iN -> uM never
+    }
+
+    /// The narrowest a builtin integer is taken to be: its own width when
+    /// fixed. Pointer-sized, 32 -- the narrowest 32/64-bit target, so those
+    /// all agree -- unless THIS target is narrower still, which is the one
+    /// place the width is read: a 16-bit `usize` must not take a `u32`.
+    priv fn _min_width(self, b: BuiltinKind) -> usize {
+        if !self._is_ptr_int(b) { return builtin_info(b)->bits; }
+        var pb = self.tu.builtin(BuiltinKind::USize)->size_bits;
+        return (pb) if ((pb != 0) && (pb < 32)) else (32);
+    }
+
+    /// The widest a builtin integer is on any supported target.
+    priv fn _max_width(self, b: BuiltinKind) -> usize {
+        return (64) if (self._is_ptr_int(b)) else (builtin_info(b)->bits);
+    }
+
     // === the implicit sequence ==============================================
 
     /// Rank of \p from -> \p to as an implicit conversion. Both canonical.

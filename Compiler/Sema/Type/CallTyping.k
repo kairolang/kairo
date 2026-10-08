@@ -272,6 +272,11 @@ class <T> CallTyping {
             if a->dependent { continue; }
             if pt != &null {
                 dyn()->lint_cast_into_slot(a->expr, pt);
+                // The resolver admitted this argument by the boundary rung;
+                // check_convertible asks the plain lattice and would refuse
+                // the very widening that picked the winner.
+                if f->is_imported() && (a->expr->type_ != &null)
+                && (dyn()->conv.abi_widen(a->expr->type_, pt) != ImplicitRank::None) { continue; }
                 dyn()->check_convertible(a->expr, pt);
             }
         }

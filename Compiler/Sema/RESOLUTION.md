@@ -536,6 +536,19 @@ else. The primitive relation is rule-based (R1-R5, §4); the table-generated
 its oracle. bf16 -> f32/f64 is W (exact by construction; the doc table
 omits bf16).
 
+One BOUNDARY rung (`abi_widen`), Converted, asked only for an argument to
+an imported callee after the lattice said None (`_rank_arg`, and
+CallTyping's post-selection re-check): integer widening where
+`usize`/`isize` are the width RANGE [32, 64] over every supported target
+and a fixed-width integer is [N, N]. S -> D is accepted iff max(S) <=
+min(D) (strict for uN -> iM; iN -> uM never), so `u32` reaches a `size_t`
+parameter without `as` and `usize -> u64` holds, but `u32 -> isize` and
+`u64 -> usize` do not. The floor is 32 unless the target's pointer width
+is narrower (a 16-bit target refuses `u32 -> usize`); otherwise the target
+is never read, so §4's portability holds across every 32/64-bit triple.
+Fixed-width pairs stay the lattice's alone. Off under `-fno-implicit-conv`.
+Kairo signatures, assignments and joins never see it.
+
 Two USER rungs sit after the lattice, both Converted, both closed to
 `join` and `unify_operands` (`implicit_builtin`) and to the recursion
 under `T -> U?`, so at most one applies per sequence and an arm or operand

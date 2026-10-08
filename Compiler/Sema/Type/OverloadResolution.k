@@ -846,7 +846,13 @@ class OverloadResolution {
 
         if a->ty == &null { return ImplicitRank::None; }
         if pt->is_dependent() { return c->ded.unify(pt, a->ty, true); }
-        return self.conv->implicit_arg(a->ty, pt, a->cat, a->is_const);
+        var r = self.conv->implicit_arg(a->ty, pt, a->cat, a->is_const);
+        // A C/C++ signature reads `size_t` at the target's width: `u32` into
+        // `write(int, const void*, size_t)` widens there (Conversion::abi_widen).
+        if (r == ImplicitRank::None) && (c->f != &null) && c->f->is_imported() {
+            r = self.conv->abi_widen(a->ty, pt);
+        }
+        return r;
     }
 
     /// A literal is a PRVALUE of whatever type it takes. Against a reference
