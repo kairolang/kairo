@@ -81,11 +81,85 @@ import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
+import Location::SourceManager::*;
+import Location::FullSourceLocation::*;
 import AST::ParamMode::*;
 
 __inline_cpp("
 #define RecursiveASTVisitor_ExprTyper RecursiveASTVisitor<ExprTyper>
 ");
+
+/// `path:line:col` for an ICE message. The I011W reported just before an
+/// ICE is buffered and dies with the abort; this is what reaches the user.
+fn ice_source_loc(sc: *SemaContext, loc: SourceLocation) -> string {
+    if (sc == &null) || (sc->ctx == &null) || (sc->ctx->sm == &null) { return "<unknown location>"; }
+    var sm = sc->ctx->sm;
+    var full: FullSourceLocation = sm->get_line_col(loc);
+    return f"{full.path.full_path()}:{full.line}:{full.column}";
+}
+
+__inline_cpp("
+#define RecursiveASTVisitor_ExprBodyVerifier RecursiveASTVisitor<ExprBodyVerifier>
+");
+
+///
+/// \class ExprBodyVerifier
+/// \brief ExprTyper's exit test for expression bodies: every expr-bodied
+///        FunctionDecl in the TU, extension and nested record methods
+///        included, ends with its body typed, poisoned or dependent.
+///
+///        A body the typer never visited never passes through finish(),
+///        so finish()'s own gate cannot see it. ExprBodyDesugar would then
+///        move it untyped into a `return`, and EmitIR would ICE naming
+///        itself. Report I011W at the function, and put the same location
+///        in the ICE text, which is what survives the abort.
+///
+///        Runs in every build: the walk is one visit per function, and
+///        `kbld --debug` still passes -DNDEBUG (see NameBindingVerifier).
+///
+class ExprBodyVerifier derives RecursiveASTVisitor::<ExprBodyVerifier> {
+    pub var sc: *SemaContext;
+    pub var tu: *TypeUtil;
+
+    fn ExprBodyVerifier(self, sc: *SemaContext, tu: *TypeUtil) {
+        self.sc = sc;
+        self.tu = tu;
+    }
+
+    fn run(self) {
+        var tu = self.sc->tu;
+        if tu == &null { return; }
+        if tu->program == &null { return; }
+
+        var items = &(tu->program->items);
+        for var i: usize = 0; i < items->size(); ++i {
+            var item = *(items->get(i));
+            switch item.get_kind() {
+                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
+                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
+                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            }
+        }
+    }
+
+    fn visit_function_decl(self, n: *FunctionDecl) -> bool {
+        if n == &null { return true; }
+        if n->body_kind != FnBodyKind::Expr { return true; }
+        if n->is_poisoned() { return true; }   // traverse_function_decl skips it.
+        var e = n->body_expr;
+        if e == &null { return true; }
+        // its own TU typed it; null there was reported there (fn_return_type).
+        if self.tu->is_foreign(static_cast::<*Decl>(n)) { return true; }
+        if (e->type_ != &null) || e->is_poisoned() || e->is_instantiation_dependent() { return true; }
+
+        var nm = self.tu->decl_name(static_cast::<*Decl>(n));
+        self.sc->diag->report(DiagID::I011W, n->range.start,
+            f"internal: the body of '{nm}' left ExprTyper untyped, unpoisoned and non-dependent; typer bug"
+        ).first(e->range).emit();
+        ICE_FAIL(f"ExprTyper: expression body of '{nm}' ({to_string(e->kind)}) was never typed, at {ice_source_loc(self.sc, n->range.start)}");
+        return true;
+    }
+}
 
 /// Memo states, keyed by node address.
 enum TyperState derives u8 {
@@ -161,6 +235,10 @@ class ExprTyper
                 case TopLevelKind::Expr { self.type_of(item.as_expr(), &null); }
             }
         }
+        if self.stop { return; }
+
+        var v = ExprBodyVerifier(self.sc, &(self.tu));
+        v.run();
     }
 
     fn panic_sites(self) -> *vec::<*Expr> { return &(self._panics); }
@@ -219,7 +297,7 @@ class ExprTyper
                         self.sc->diag->report(DiagID::I011W, e->range.start,
                             f"internal: {to_string(e->kind)} left untyped, unpoisoned and non-dependent; typer bug"
                         ).first(e->range).emit();
-                        ICE_FAIL(f"ExprTyper: {to_string(e->kind)} reached finish() in no terminal state");
+                        ICE_FAIL(f"ExprTyper: {to_string(e->kind)} reached finish() in no terminal state, at {ice_source_loc(self.sc, e->range.start)}");
                     }
                 }
             } else {
