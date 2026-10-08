@@ -316,9 +316,19 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             var saved_unsafe_e = dyn()->unsafe_depth;
             dyn()->unsafe_depth = 0;
             var want = self.cur_frame()->declared;
-            dyn()->type_of(n->body_expr, want);
+            var bt = dyn()->type_of(n->body_expr, want);
             dyn()->reject_slice_literal(n->body_expr, "returned from a function");
-            if (want != &null) && (!dyn()->tu.is_void(want)) { dyn()->check_convertible(n->body_expr, want); }
+            if (want != &null) && dyn()->tu.is_void(want) {
+                // desugars to `return e;` in a void function: legal C++ only
+                // for a void (or never-returning) `e`.
+                if (bt != &null) && (!dyn()->tu.is_void(bt)) && (!dyn()->tu.is_never(bt)) {
+                    dyn()->sc->diag->report(DiagID::SC050E, n->body_expr->range.start,
+                        f"an expression body of type '{dyn()->tu.str(bt)}' in a function returning 'void\x27"
+                    ).first(n->body_expr->range).emit();
+                }
+            } else if want != &null {
+                dyn()->check_convertible(n->body_expr, want);
+            }
             dyn()->unsafe_depth = saved_unsafe_e;
             self.pop_frame();
             return n;

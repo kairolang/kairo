@@ -33,4 +33,14 @@ fn <T: type> ident(x: T) -> T = x
 fn fact(n: u32) -> u32 = n * fact(n - 1)
 fn ok() -> R = R { a: fact(3) }
 
+// `-> !` and `-> void` read the body as `return e` would: a never-returning
+// call fits both, a value fits neither.
+fn stop() -> ! { loop {} }
+fn halt() -> ! = stop()
+fn halt_bad() -> ! = 5
+// DIAG: expr_body_typed.k:[[@LINE-1]]:22: error [SC028E]: cannot convert 'i32' to '!'
+fn idle() -> void = stop()
+fn idle_bad() -> void = fact(1)
+// DIAG: expr_body_typed.k:[[@LINE-1]]:25: error [SC050E]: an expression body of type 'u32' in a function returning 'void'
+
 // DIAG-NOT: error
