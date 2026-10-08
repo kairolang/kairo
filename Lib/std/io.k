@@ -12,7 +12,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c" import "unistd.h"
+ffi "c" import "write.h"   // unistd.h, or io.h on Windows
 
 import string::*
 
