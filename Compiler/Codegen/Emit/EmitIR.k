@@ -75,6 +75,8 @@ import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
 import Location::SourceRange::*;
+import Location::SourceManager::*;
+import Location::FullSourceLocation::*;
 import Token::TokenKind::*;
 import Lexer::Immediate::*;
 
@@ -942,7 +944,7 @@ class EmitIR {
         self._check_arity(n, f, bound);
 
         if self._is_ctor(f) || self._is_type_decl(callee) {
-            ICE_IF(n->type_ == &null, "EmitIR: untyped constructor call; ExprTyper gate failure");
+            if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
             sink->spell(n->callee->range, self._spell._type(n->type_));
         } else if n->qualifier != &null {
             // A default thunk of a generic type's method: a static member of a
@@ -1089,6 +1091,23 @@ class EmitIR {
         var spelled = self._spell.imm_name(t.imm, self._owning_fid());
         ICE_IF(spelled == "<?>", "EmitIR: identifier token with no spelling in its owning file's table");
         sink->create_ident(t.range, spelled);
+    }
+
+    /// I011W at the Kairo source of an untyped \p e, then the ICE. The
+    /// diagnostic is buffered and dies with the abort, so the ICE text
+    /// carries the same path:line:col; without it the report names only
+    /// this file.
+    priv fn _ice_untyped(self, e: *Expr, msg: string) {
+        self._cg->ctx->diag_sink.report(DiagCode(DiagID::I011W), e->range.start,
+            f"internal: {to_string(e->kind)} reached codegen with no type; This is a compiler bug; please report it with the source that triggered it"
+        ).first(e->range).emit();
+        var sm = self._cg->ctx->sm;
+        var at = "<unknown location>";
+        if sm != &null {
+            var full: FullSourceLocation = sm->get_line_col(e->range.start);
+            at = f"{full.path.full_path()}:{full.line}:{full.column}";
+        }
+        ICE_FAIL(f"{msg}, at {at}");
     }
 
     /// The file whose tables the body being emitted indexes: its function's,
@@ -1268,9 +1287,10 @@ class EmitIR {
         // A dependent initializer whose head X could name is typed with the
         // dependent record (ControlTyping::_init_fields); reaching here
         // untyped AND dependent means that path fell back to unknown.
-        ICE_IF((e->type_ == &null) && e->is_instantiation_dependent(),
-               "EmitIR: dependent initializer reached codegen untyped; ExprTyper's named-initializer path (ControlTyping::type_named_init / _init_fields) left it unknown instead of typing it with the dependent record");
-        ICE_IF(e->type_ == &null, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure");
+        if (e->type_ == &null) && e->is_instantiation_dependent() {
+            self._ice_untyped(e, "EmitIR: dependent initializer reached codegen untyped; ExprTyper's named-initializer path (ControlTyping::type_named_init / _init_fields) left it unknown instead of typing it with the dependent record");
+        }
+        if e->type_ == &null { self._ice_untyped(e, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure"); }
         var c = canon_unqual(e->type_);
         ICE_IF(c->kind != TypeKind::RecordType, "EmitIR: initializer of a non-record type");
         var rd = CXXSpell::rep(cast::<RecordType>(c)->decl);
