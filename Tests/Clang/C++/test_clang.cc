@@ -139,7 +139,7 @@ private:
 };
 
 // Sysroot + resource dirs for x86_64-linux-musl (mirrors spike 1 / emit_object).
-std::string sysroot  = "build/x86_64-linux-gnu/release/sys/x86_64-linux-musl";
+std::string sysroot  = "build/x86_64-linux-gnu/release/sysroots/x86_64-linux-musl";
 std::string resource = "build/llvm/lib/clang/22";   // adjust: ls build/llvm/lib/clang/
 std::string triple   = "x86_64-linux-musl";
 

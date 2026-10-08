@@ -197,7 +197,7 @@ using TokenBuilder = std::function<void(TokenBuildCtx &)>;
 class KairoDriver {
 public:
     struct Config {
-        std::string sysroot   = "build/x86_64-linux-gnu/release/sys/x86_64-linux-musl";
+        std::string sysroot   = "build/x86_64-linux-gnu/release/sysroots/x86_64-linux-musl";
         std::string resource  = "build/llvm/lib/clang/22";
         std::string triple    = "x86_64-linux-musl";
         std::vector<std::string> includes = {"iostream"};
