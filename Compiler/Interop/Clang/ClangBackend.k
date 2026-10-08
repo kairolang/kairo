@@ -61,6 +61,7 @@ ffi "c++" import "clang/Basic/TargetInfo.h";
 ffi "c++" import "clang/Frontend/CompilerInstance.h";
 ffi "c++" import "clang/Frontend/CompilerInvocation.h";
 ffi "c++" import "clang/Frontend/TextDiagnosticPrinter.h";
+ffi "c++" import "clang/Driver/CreateInvocationFromArgs.h";
 ffi "c++" import "clang/CodeGen/CodeGenAction.h";
 ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h";
@@ -207,6 +208,9 @@ class ClangBackend {
     /// clang keeps no references past CreateFromArgs but c_str()s must
     /// stay valid for the duration of the call.
     priv var _owned: libcxx::deque::<libcxx::string>;
+
+    priv var _target_args:  vec::<string>;  ///< see _driver_target_args
+    priv var _target_known: bool = false;
 
     priv var _mu:      std::Mutex;   ///< serializes startup against itself
     priv var _started: bool = false;
@@ -425,6 +429,92 @@ class ClangBackend {
         argv->push_back(self._owned.back().c_str());
     }
 
+    /// \brief the cc1 arguments clang's own driver derives from the triple
+    ///        alone: CPU, features, ABI, float ABI, char signedness,
+    ///        exception model, init/atexit and unwind-table defaults.
+    ///
+    /// \details cc1 has no defaults of its own for any of these, and there is
+    ///          no driver here: without them armhf compiled as soft-float,
+    ///          riscv64 as lp64, i686 without SSE2 (so no _Float16 or __bf16),
+    ///          and char was signed on ARM and RISC-V. Each is an ABI break
+    ///          against the sysroot's C libraries. So the driver is run once,
+    ///          for this triple, and its cc1 line is filtered to the flags
+    ///          that decide the target -- never a table here, which would
+    ///          drift from clang.
+    ///
+    ///          The language-mode flags the driver adds for MSVC
+    ///          (-fms-compatibility and friends) are left out: they change
+    ///          how C++ parses, not the ABI. --mcpu still wins: extra_cc1
+    ///          comes later and cc1 takes the last -target-cpu.
+    priv fn _driver_target_args(self) -> vec::<string> {
+        if self._target_known { return self._target_args; }
+        self._target_known = true;
+
+        var owned: libcxx::deque::<libcxx::string>;
+        var dargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
+        var words = vec::<string>();
+        words.push_back("clang");
+        words.push_back(f"--target={self._cfg.triple}");
+        words.push_back("-fsyntax-only");
+        words.push_back("-x");
+        words.push_back("c++");
+        words.push_back("-");
+        for w: string in words {
+            owned.push_back(libcxx::string(std::string_to_nstring(w).raw_string()));
+            dargv.push_back(owned.back().c_str());
+        }
+
+        var cc1: libcxx::vector::<libcxx::string>;
+        var opts: clang::CreateInvocationOptions;
+        opts.CC1Args = &cc1;
+        var inv = clang::createInvocation(dargv, opts);
+        if cc1.empty() {
+            Logger::error(Logger::Stage::Driver,
+                f"ClangBackend: clang\x27s driver gave no cc1 line for {self._cfg.triple}; compiling without target defaults");
+            return self._target_args;
+        }
+
+        // Flags taking their value as the next word.
+        var paired = vec::<string>();
+        paired.push_back("-target-cpu");
+        paired.push_back("-tune-cpu");
+        paired.push_back("-target-feature");
+        paired.push_back("-target-abi");
+        paired.push_back("-mfloat-abi");
+        var exact = vec::<string>();
+        exact.push_back("-msoft-float");
+        exact.push_back("-fno-signed-char");
+        exact.push_back("-fno-use-cxa-atexit");
+        exact.push_back("-fno-use-init-array");
+        // Flags with their value joined by `=`.
+        var joined = vec::<string>();
+        joined.push_back("-exception-model=");
+        joined.push_back("-funwind-tables=");
+
+        for var i: usize = 0; i < cc1.size(); ++i {
+            var a = std::nstring_to_string(cc1[i]);
+            var took = false;
+            for p: string in paired {
+                if (a == p) && (i + 1 < cc1.size()) {
+                    self._target_args.push_back(a);
+                    self._target_args.push_back(std::nstring_to_string(cc1[i + 1]));
+                    i += 1;
+                    took = true;
+                    break;
+                }
+            }
+            if took { continue; }
+            for p: string in exact {
+                if a == p { self._target_args.push_back(a); took = true; break; }
+            }
+            if took { continue; }
+            for p: string in joined {
+                if a.starts_with(p) { self._target_args.push_back(a); break; }
+            }
+        }
+        return self._target_args;
+    }
+
     /// \brief the cc1 arguments every clang compile in this build shares:
     ///        target, object emission, the explicit header-search model,
     ///        platform extras and the user's -W policy. The Kairo backend and
@@ -437,6 +527,11 @@ class ClangBackend {
     priv fn _cc1_common(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, is_c: bool) {
         self._arg(argv, "-triple");
         self._arg(argv, self._cfg.triple);
+        for a: string in self._driver_target_args() { self._arg(argv, a); }
+        // Kairo's i128 and f128 exist on every target. clang offers __int128
+        // only at 64-bit pointer width unless told; the backend expands it
+        // (and compiler-rt's tf routines need it) on 32-bit targets too.
+        self._arg(argv, "-fforce-enable-int128");
         self._arg(argv, "-emit-obj");
         self._arg(argv, "-fgnuc-version=4.2.1");
 
