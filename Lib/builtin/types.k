@@ -41,10 +41,6 @@ pub enum Byte derives u8 {}
 pub struct BigInt   { var limbs: *u64; var len: usize; var neg: bool }
 pub struct BigFloat { var mant: BigInt; var exp: i64 }
 pub struct AssertFail { var message: string }
-// // coroutine.k -- exit 45
-// // The whole coroutine protocol in Kairo: the two names clang looks up in
-// // ::std, the awaiter, the promise, and a generator driven by the clang
-// // builtins. No C++ beyond what codegen emits.
 
 ffi "c++" import "coroutine"
 
