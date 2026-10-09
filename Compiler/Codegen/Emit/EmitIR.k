@@ -75,8 +75,7 @@ import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
 import Location::SourceRange::*;
-import Location::SourceManager::*;
-import Location::FullSourceLocation::*;
+import Codegen::CodegenICE::*;
 import Token::TokenKind::*;
 import Lexer::Immediate::*;
 
@@ -117,11 +116,10 @@ class EmitIR {
                     // has a C++ form.
                     var s = item.as_stmt();
                     var ds = dyn_cast::<DeclStmt>(s);
-                    ICE_IF((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl)),
-                        f"EmitIR: top-level {to_string(s->kind)} is not emittable C++ (only variable declarations are)");
+                    if ((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl))) { self._ice(s->range, f"EmitIR: top-level {to_string(s->kind)} is not emittable C++ (only variable declarations are)"); }
                     self.emit(ds->decl);
                 }
-                default { ICE_FAIL("EmitIR: top-level expressions are not emittable C++"); }
+                default { self._ice(item.as_expr()->range, "EmitIR: top-level expressions are not emittable C++"); }
             }
         }
 
@@ -146,7 +144,7 @@ class EmitIR {
 
     fn emit(self, d: *Decl) {
         ICE_IF(d == &null, "EmitIR: null decl reached codegen");
-        ICE_IF(d->kind == DeclKind::RecoveryDecl, "EmitIR: poisoned decl reached codegen; sema gate failure");
+        if (d->kind == DeclKind::RecoveryDecl) { self._ice(d->range, "EmitIR: poisoned decl reached codegen; sema gate failure"); }
         if d->is_poisoned() { return; }
 
         switch d->kind {
@@ -173,7 +171,7 @@ class EmitIR {
                 }
             }
             case DeclKind::VariableDecl { self._global_var(cast::<VariableDecl>(d)); }
-            default { ICE_FAIL(f"EmitIR: decl kind {to_string(d->kind)} has no body to emit"); }
+            default { self._ice(d->range, f"EmitIR: decl kind {to_string(d->kind)} has no body to emit"); }
         }
     }
 
@@ -412,7 +410,7 @@ class EmitIR {
         // -- `self->v`, the receiver passed on -- is the pointer form every
         // other extension member uses, and the body emits unchanged.
         var b = f->body_block;
-        ICE_IF(b == &null, "EmitIR: null block reached codegen");
+        if (b == &null) { self._ice(f->range, "EmitIR: null block reached codegen"); }
         sink->synth_at_start(b->range, clang::tok::l_brace);
         if (ext != &null) && f->is_operator {
             var pro = ("const ") if (f->is_const()) else ("");
@@ -432,7 +430,7 @@ class EmitIR {
 
     priv fn _unsupported_body(self, f: *FunctionDecl) {
         switch f->body_kind {
-            case FnBodyKind::Expr    { ICE_FAIL("EmitIR: expression-bodied function; Lower/ must wrap it in a return block"); }
+            case FnBodyKind::Expr    { self._ice(f->range, "EmitIR: expression-bodied function; Lower/ must wrap it in a return block"); }
             case FnBodyKind::Default { return; }   // declared `= default`; nothing to define.
             case FnBodyKind::Delete  { return; }
             case FnBodyKind::Virtual { return; }
@@ -446,7 +444,7 @@ class EmitIR {
 
     fn emit(self, s: *Stmt) {
         ICE_IF(s == &null, "EmitIR: null stmt reached codegen");
-        ICE_IF(s->kind == StmtKind::RecoveryStmt, "EmitIR: poisoned stmt reached codegen; sema gate failure");
+        if (s->kind == StmtKind::RecoveryStmt) { self._ice(s->range, "EmitIR: poisoned stmt reached codegen; sema gate failure"); }
 
         switch s->kind {
             case StmtKind::CompoundStmt    { self.emit_block(cast::<CompoundStmt>(s)); }
@@ -467,31 +465,31 @@ class EmitIR {
             case StmtKind::IndexedForStmt  { self._for(cast::<IndexedForStmt>(s)); }
             case StmtKind::BreakStmt {
                 var n = cast::<BreakStmt>(s);
-                ICE_IF(n->has_label, "EmitIR: labeled break; needs the label lowering (JumpLabelCheck's successor)");
+                if (n->has_label) { self._ice(s->range, "EmitIR: labeled break; needs the label lowering (JumpLabelCheck's successor)"); }
                 sink->spell(n->range, "break;");
             }
             case StmtKind::ContinueStmt {
                 var n = cast::<ContinueStmt>(s);
-                ICE_IF(n->has_label, "EmitIR: labeled continue; needs the label lowering");
+                if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; needs the label lowering"); }
                 sink->spell(n->range, "continue;");
             }
             case StmtKind::UnsafeBlockStmt { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
-            case StmtKind::RangedForStmt          { ICE_FAIL("EmitIR: ranged for; IterLowering owns it"); }
-            case StmtKind::MatchStmt              { ICE_FAIL("EmitIR: match; MatchLowering / PatternCompilation own it"); }
-            case StmtKind::TryCatchStmt           { ICE_FAIL("EmitIR: try/catch; PanicLowering owns it"); }
-            case StmtKind::FinallyStmt            { ICE_FAIL("EmitIR: finally; FinallyLowering owns it"); }
-            case StmtKind::PanicStmt              { ICE_FAIL("EmitIR: panic; PanicLowering owns it"); }
+            case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
+            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match; MatchLowering / PatternCompilation own it"); }
+            case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
+            case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
+            case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
             case StmtKind::YieldStmt       { self._yield(cast::<YieldStmt>(s)); }
-            case StmtKind::RuntimeAssertStmt      { ICE_FAIL("EmitIR: assert; PanicLowering owns it"); }
-            case StmtKind::StaticAssertStmt       { ICE_FAIL("EmitIR: static assert; the Evaluator owns it"); }
-            case StmtKind::ContextBindingStmt     { ICE_FAIL("EmitIR: context binding; ContextLowering owns it"); }
-            case StmtKind::DestructuringDeclStmt  { ICE_FAIL("EmitIR: destructuring; its lowering owns it"); }
-            case StmtKind::LabeledStmt            { ICE_FAIL("EmitIR: labeled loop; the label lowering owns it"); }
-            case StmtKind::LabelIntrinsicStmt     { ICE_FAIL("EmitIR: label!; the label lowering owns it"); }
-            case StmtKind::JumpIntrinsicStmt      { ICE_FAIL("EmitIR: jump!; the label lowering owns it"); }
-            case StmtKind::InlineBlockStmt        { ICE_FAIL("EmitIR: inline foreign block; not emitted yet"); }
-            case StmtKind::EvalBlockStmt          { ICE_FAIL("EmitIR: eval block; EvalLowering owns it"); }
-            default { ICE_FAIL(f"EmitIR: statement kind {to_string(s->kind)} is not in the core"); }
+            case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; PanicLowering owns it"); }
+            case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
+            case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
+            case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; its lowering owns it"); }
+            case StmtKind::LabeledStmt            { self._ice(s->range, "EmitIR: labeled loop; the label lowering owns it"); }
+            case StmtKind::LabelIntrinsicStmt     { self._ice(s->range, "EmitIR: label!; the label lowering owns it"); }
+            case StmtKind::JumpIntrinsicStmt      { self._ice(s->range, "EmitIR: jump!; the label lowering owns it"); }
+            case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }
+            case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: eval block; EvalLowering owns it"); }
+            default { self._ice(s->range, f"EmitIR: statement kind {to_string(s->kind)} is not in the core"); }
         }
     }
 
@@ -503,10 +501,10 @@ class EmitIR {
     }
 
     priv fn _decl(self, n: *DeclStmt) {
-        ICE_IF(n->decl == &null, "EmitIR: DeclStmt with no decl");
+        if (n->decl == &null) { self._ice(n->range, "EmitIR: DeclStmt with no decl"); }
         switch n->decl->kind {
             case DeclKind::VariableDecl { self._var_decl(cast::<VariableDecl>(n->decl)); }
-            default { ICE_FAIL("EmitIR: statement-scope named decls (local fn/class/type) are not emitted yet"); }
+            default { self._ice(n->range, "EmitIR: statement-scope named decls (local fn/class/type) are not emitted yet"); }
         }
         sink->synth_at_end(n->range, clang::tok::semi);
     }
@@ -515,7 +513,7 @@ class EmitIR {
     /// After X `type_` is never null on a checked tree; `auto` is the
     /// pre-X fallback and is a bug if it ever prints for real code.
     priv fn _var_decl(self, n: *VariableDecl) {
-        ICE_IF(n->kind == DeclKind::RecoveryDecl, "EmitIR: poisoned VariableDecl reached codegen");
+        if (n->kind == DeclKind::RecoveryDecl) { self._ice(n->range, "EmitIR: poisoned VariableDecl reached codegen"); }
         switch n->storage {
             case StorageClass::Const  { sink->kw_const(n->name);     }
             case StorageClass::Static { sink->kw_static(n->name);    }
@@ -565,7 +563,7 @@ class EmitIR {
     /// gave it. Definitions come in source order, which is C++'s dynamic
     /// initialization order within a TU: `B = A + 1` after `A` sees it set.
     priv fn _global_var(self, n: *VariableDecl) {
-        ICE_IF(n->type_ == &null, "EmitIR: namespace-scope variable with no type reached codegen; X gate failure");
+        if (n->type_ == &null) { self._ice(n->range, "EmitIR: namespace-scope variable with no type reached codegen; X gate failure"); }
         var d = static_cast::<*Decl>(n);
         var at = CXXSpell::at(d);
         var wrap = self._open_ns(d, at);
@@ -584,7 +582,7 @@ class EmitIR {
         // A generator's `return` is bare (X rejects a value) and ends the
         // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
         if (self._cur_fn != &null) && self._cur_fn->is_generator {
-            ICE_IF(n->value != &null, "EmitIR: generator 'return' with a value; X gate failure");
+            if (n->value != &null) { self._ice(n->range, "EmitIR: generator 'return' with a value; X gate failure"); }
             sink->spell(n->range, "co_return");
             sink->synth_at_end(n->range, clang::tok::semi);
             return;
@@ -610,8 +608,8 @@ class EmitIR {
     /// a prvalue. A differing type is cast to the element and binds the
     /// prvalue overload.
     priv fn _yield(self, n: *YieldStmt) {
-        ICE_IF((self._cur_fn == &null) || (!self._cur_fn->is_generator), "EmitIR: yield outside a generator; X gate failure");
-        ICE_IF(n->value == &null, "EmitIR: yield with no value reached codegen");
+        if ((self._cur_fn == &null) || (!self._cur_fn->is_generator)) { self._ice(n->range, "EmitIR: yield outside a generator; X gate failure"); }
+        if (n->value == &null) { self._ice(n->range, "EmitIR: yield with no value reached codegen"); }
         sink->spell(n->range, "co_yield");
         sink->spell(n->range, "(");
         self._value(n->value, self._yield_elem(self._cur_fn));
@@ -650,12 +648,12 @@ class EmitIR {
     }
 
     priv fn _for(self, n: *IndexedForStmt) {
-        ICE_IF(n->is_eval, "EmitIR: eval for; EvalLowering owns it");
+        if (n->is_eval) { self._ice(n->range, "EmitIR: eval for; EvalLowering owns it"); }
         sink->spell(SourceRange::from_bounds(n->range.start, u32(3)), "for (");
         if n->init != &null {
             var ds = dyn_cast::<DeclStmt>(n->init);
-            ICE_IF(ds == &null, "EmitIR: for-init is not a DeclStmt");
-            ICE_IF(!isa::<VariableDecl>(ds->decl), "EmitIR: for-init is not a variable");
+            if (ds == &null) { self._ice(n->range, "EmitIR: for-init is not a DeclStmt"); }
+            if (!isa::<VariableDecl>(ds->decl)) { self._ice(n->range, "EmitIR: for-init is not a variable"); }
             self._var_decl(cast::<VariableDecl>(ds->decl));
         }
         sink->spell(n->range, ";");
@@ -672,8 +670,8 @@ class EmitIR {
 
     fn emit(self, e: *Expr) {
         ICE_IF(e == &null, "EmitIR: null expr reached codegen");
-        ICE_IF(e->kind == ExprKind::RecoveryExpr, "EmitIR: poisoned expr reached codegen; sema gate failure");
-        ICE_IF(e->is_poisoned(), "EmitIR: poisoned expr reached codegen; sema gate failure");
+        if (e->kind == ExprKind::RecoveryExpr) { self._ice(e->range, "EmitIR: poisoned expr reached codegen; sema gate failure"); }
+        if (e->is_poisoned()) { self._ice(e->range, "EmitIR: poisoned expr reached codegen; sema gate failure"); }
 
         switch e->kind {
             case ExprKind::IntegerLiteralExpr   { self._int_lit(cast::<IntegerLiteralExpr>(e)->token); }
@@ -712,17 +710,17 @@ class EmitIR {
             }
             case ExprKind::UnsafeExpr           { self.emit(cast::<UnsafeExpr>(e)->operand); }
             case ExprKind::SubscriptExpr        { self._subscript(cast::<SubscriptExpr>(e)); }
-            case ExprKind::NamedArgExpr         { ICE_FAIL("EmitIR: named argument; CallLowering owns it"); }
-            case ExprKind::MatchExpr            { ICE_FAIL("EmitIR: match expression; MatchLowering owns it"); }
-            case ExprKind::TryCatchExpr         { ICE_FAIL("EmitIR: try expression; PanicLowering owns it"); }
-            case ExprKind::RangeExpr            { ICE_FAIL("EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
-            case ExprKind::ClosureExpr          { ICE_FAIL("EmitIR: closure; lambda emission is not written yet"); }
-            case ExprKind::AwaitExpr            { ICE_FAIL("EmitIR: await; the async lowering owns it"); }
-            case ExprKind::SpawnExpr            { ICE_FAIL("EmitIR: spawn; the async lowering owns it"); }
-            case ExprKind::ThreadExpr           { ICE_FAIL("EmitIR: thread; the async lowering owns it"); }
-            case ExprKind::EvalExpr             { ICE_FAIL("EmitIR: eval; EvalLowering owns it"); }
-            case ExprKind::PackExpansionExpr    { ICE_FAIL("EmitIR: pack expansion; not emitted yet"); }
-            case ExprKind::ListLiteralExpr      { ICE_FAIL("EmitIR: list literal; ListLiteralLowering owns it"); }
+            case ExprKind::NamedArgExpr         { self._ice(e->range, "EmitIR: named argument; CallLowering owns it"); }
+            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match expression; MatchLowering owns it"); }
+            case ExprKind::TryCatchExpr         { self._ice(e->range, "EmitIR: try expression; PanicLowering owns it"); }
+            case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
+            case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }
+            case ExprKind::AwaitExpr            { self._ice(e->range, "EmitIR: await; the async lowering owns it"); }
+            case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
+            case ExprKind::ThreadExpr           { self._ice(e->range, "EmitIR: thread; the async lowering owns it"); }
+            case ExprKind::EvalExpr             { self._ice(e->range, "EmitIR: eval; EvalLowering owns it"); }
+            case ExprKind::PackExpansionExpr    { self._ice(e->range, "EmitIR: pack expansion; not emitted yet"); }
+            case ExprKind::ListLiteralExpr      { self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
             case ExprKind::StmtExpr {
                 // `({ ... })`: clang's statement expression. The block is
@@ -731,15 +729,15 @@ class EmitIR {
                 self.emit_block(cast::<StmtExpr>(e)->body);
                 sink->spell(e->range, ")");
             }
-            case ExprKind::SetLiteralExpr       { ICE_FAIL("EmitIR: set literal; the container migration owns it"); }
-            case ExprKind::MapLiteralExpr       { ICE_FAIL("EmitIR: map literal; the container migration owns it"); }
-            case ExprKind::TupleLiteralExpr     { ICE_FAIL("EmitIR: tuple literal; no lowering yet"); }
-            case ExprKind::TypeOfExpr           { ICE_FAIL("EmitIR: typeof; TypeQueryLowering owns it"); }
-            case ExprKind::ImplConformanceExpr  { ICE_FAIL("EmitIR: impl test; TypeQueryLowering owns it"); }
-            case ExprKind::DerivesRelationExpr  { ICE_FAIL("EmitIR: derives test; TypeQueryLowering owns it"); }
-            case ExprKind::ConstraintExpr       { ICE_FAIL("EmitIR: constraint in expression position; RequiresDesugar owns it"); }
-            case ExprKind::VerbatimExpr         { ICE_FAIL("EmitIR: verbatim span; tooling-only node"); }
-            default { ICE_FAIL(f"EmitIR: expression kind {to_string(e->kind)} is not in the core"); }
+            case ExprKind::SetLiteralExpr       { self._ice(e->range, "EmitIR: set literal; the container migration owns it"); }
+            case ExprKind::MapLiteralExpr       { self._ice(e->range, "EmitIR: map literal; the container migration owns it"); }
+            case ExprKind::TupleLiteralExpr     { self._ice(e->range, "EmitIR: tuple literal; no lowering yet"); }
+            case ExprKind::TypeOfExpr           { self._ice(e->range, "EmitIR: typeof; TypeQueryLowering owns it"); }
+            case ExprKind::ImplConformanceExpr  { self._ice(e->range, "EmitIR: impl test; TypeQueryLowering owns it"); }
+            case ExprKind::DerivesRelationExpr  { self._ice(e->range, "EmitIR: derives test; TypeQueryLowering owns it"); }
+            case ExprKind::ConstraintExpr       { self._ice(e->range, "EmitIR: constraint in expression position; RequiresDesugar owns it"); }
+            case ExprKind::VerbatimExpr         { self._ice(e->range, "EmitIR: verbatim span; tooling-only node"); }
+            default { self._ice(e->range, f"EmitIR: expression kind {to_string(e->kind)} is not in the core"); }
         }
     }
 
@@ -805,11 +803,11 @@ class EmitIR {
     /// minted, typed as a pointer, spelled from its decoded bytes. Octal for
     /// every byte outside printable ASCII: C++'s `\x` is greedy, octal is not.
     priv fn _string(self, n: *StringLiteralExpr) {
-        ICE_IF(n->is_format(), "EmitIR: f-string; FStringLowering owns it");
-        ICE_IF(n->has_next(), "EmitIR: multi-part string literal; StringLowering owns it");
+        if (n->is_format()) { self._ice(n->range, "EmitIR: f-string; FStringLowering owns it"); }
+        if (n->has_next()) { self._ice(n->range, "EmitIR: multi-part string literal; StringLowering owns it"); }
         var c = canon_unqual(n->type_);
-        ICE_IF((c == &null) || (c->kind != TypeKind::PointerType), "EmitIR: string literal typed `string`; StringLowering owns it");
-        ICE_IF((n->imm == &null) || (!n->imm->has_owned_text()), "EmitIR: byte literal with no minted bytes; LowerSynth::bytes_literal owns it");
+        if ((c == &null) || (c->kind != TypeKind::PointerType)) { self._ice(n->range, "EmitIR: string literal typed `string`; StringLowering owns it"); }
+        if ((n->imm == &null) || (!n->imm->has_owned_text())) { self._ice(n->range, "EmitIR: byte literal with no minted bytes; LowerSynth::bytes_literal owns it"); }
         var p = n->imm->owned_ptr;
         var len = static_cast::<usize>(n->imm->owned_len);
         var s = "\"";
@@ -841,8 +839,8 @@ class EmitIR {
     /// an X gate failure.
     priv fn _name(self, n: *NamedIdentExpr) {
         var d = n->resolved_decl;
-        ICE_IF((d == &null) && (n->candidate_cell != &null), "EmitIR: unpromoted overload set reached codegen; ExprTyper gate failure");
-        ICE_IF(d == &null, "EmitIR: unbound name reached codegen; NameResolution gate failure");
+        if ((d == &null) && (n->candidate_cell != &null)) { self._ice(n->range, "EmitIR: unpromoted overload set reached codegen; ExprTyper gate failure"); }
+        if (d == &null) { self._ice(n->range, "EmitIR: unbound name reached codegen; NameResolution gate failure"); }
 
         if self._is_self_decl(d) {
             if self._is_pointer(static_cast::<*Expr>(n)) { self._self_ptr(n); return; }
@@ -897,12 +895,12 @@ class EmitIR {
         var is_ptr = false;
         if k != usize(-1) {
             var st = n->steps.get(k);
-            ICE_IF(st->resolved_decl == &null, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure");
+            if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure"); }
             sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
             is_ptr = self._type_is_pointer(st->resolved_type);
             i = k + 1;
         } else {
-            ICE_IF(n->base == &null, "EmitIR: global-root chain with no `::` step");
+            if (n->base == &null) { self._ice(n->range, "EmitIR: global-root chain with no `::` step"); }
             // `self.x` is `this->x`: the base is the pointer, not _name's
             // value form `(*this)`.
             if self._base_is_self(n->base) {
@@ -914,17 +912,16 @@ class EmitIR {
         }
         for var j: usize = i; j < upto; ++j {
             var st = n->steps.get(j);
-            ICE_IF(st->access_kind == ChainExpr::AccessKind::ColonColon, "EmitIR: `::` after a value step");
-            ICE_IF((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow),
-                "EmitIR: optional chaining; NullTestLowering owns it");
+            if (st->access_kind == ChainExpr::AccessKind::ColonColon) { self._ice(st->range, "EmitIR: `::` after a value step"); }
+            if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; NullTestLowering owns it"); }
             if st->is_operator() {
                 sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
                 is_ptr = false;
                 continue;
             }
-            ICE_IF(st->is_tuple_index(), "EmitIR: tuple index; no lowering yet");
-            ICE_IF(self._is_extension_member(st->resolved_decl), "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form");
-            ICE_IF(st->resolved_decl == &null, "EmitIR: unbound member step reached codegen; gate failure");
+            if (st->is_tuple_index()) { self._ice(st->range, "EmitIR: tuple index; no lowering yet"); }
+            if (self._is_extension_member(st->resolved_decl)) { self._ice(st->range, "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form"); }
+            if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
             sink->spell(st->range, (("->") if (is_ptr) else (".")));
             self._name(st->name->name);
             is_ptr = self._type_is_pointer(st->resolved_type);
@@ -963,13 +960,12 @@ class EmitIR {
 
     priv fn _call(self, n: *CallExpr) {
         var callee = self._callee_decl(n->callee);
-        ICE_IF(callee == &null, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");
+        if (callee == &null) { self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure"); }
 
         var ch = dyn_cast::<ChainExpr>(n->callee);
         var last: *ChainExpr::Step = &null;
         if (ch != &null) && (ch->steps.size() > 0) { last = ch->steps.get(ch->steps.size() - 1); }
-        ICE_IF((last != &null) && self._is_extension_member(last->resolved_decl),
-            "EmitIR: an extension member called through a chain reached codegen; ExtensionLowering rewrites it to a free call");
+        if ((last != &null) && self._is_extension_member(last->resolved_decl)) { self._ice(n->range, "EmitIR: an extension member called through a chain reached codegen; ExtensionLowering rewrites it to a free call"); }
 
         // The constructor, not the type the callee names: its parameters are
         // what the arguments are cast to.
@@ -1026,8 +1022,8 @@ class EmitIR {
         // declared by no Kairo parameter (CXXSpell::op_is_postfix).
         if CXXSpell::op_is_postfix(f) { want += 1; }
         var have = n->args.size();
-        ICE_IF(have + tail < want, "EmitIR: a call short of arguments reached codegen; CallLowering owns defaults");
-        ICE_IF((have > want) && (!f->ffi_c_variadic), "EmitIR: a call with more arguments than parameters reached codegen");
+        if (have + tail < want) { self._ice(n->range, "EmitIR: a call short of arguments reached codegen; CallLowering owns defaults"); }
+        if ((have > want) && (!f->ffi_c_variadic)) { self._ice(n->range, "EmitIR: a call with more arguments than parameters reached codegen"); }
     }
 
     /// A callee whose name is spelled whole: a bare name or a `::` path. A
@@ -1063,7 +1059,7 @@ class EmitIR {
         if p == &null { self.emit(a); return; }
         var pt = p->type_;
         if p->is_pack {
-            ICE_IF(p->pack_type == &null, "EmitIR: pack parameter with no slice type; CallLowering stamps it");
+            if (p->pack_type == &null) { self._ice(a->range, "EmitIR: pack parameter with no slice type; CallLowering stamps it"); }
             pt = p->pack_type;
         }
         if p->mode == ParamMode::Move {
@@ -1098,13 +1094,13 @@ class EmitIR {
     priv fn _callee_decl(self, c: *Expr) -> *Decl {
         var ni = dyn_cast::<NamedIdentExpr>(c);
         if ni != &null {
-            ICE_IF((ni->resolved_decl == &null) && (ni->candidate_cell != &null), "EmitIR: unpromoted callee; ExprTyper gate failure");
+            if ((ni->resolved_decl == &null) && (ni->candidate_cell != &null)) { self._ice(ni->range, "EmitIR: unpromoted callee; ExprTyper gate failure"); }
             return ni->resolved_decl;
         }
         var ch = dyn_cast::<ChainExpr>(c);
         if (ch != &null) && (ch->steps.size() > 0) {
             var last = ch->steps.get(ch->steps.size() - 1);
-            ICE_IF((last->resolved_decl == &null) && (last->candidate_cell != &null), "EmitIR: unpromoted callee step; ExprTyper gate failure");
+            if ((last->resolved_decl == &null) && (last->candidate_cell != &null)) { self._ice(c->range, "EmitIR: unpromoted callee step; ExprTyper gate failure"); }
             return last->resolved_decl;
         }
         return &null;   // a fn-pointer expression; no decl to consult.
@@ -1126,25 +1122,18 @@ class EmitIR {
     /// for a foreign template homed here is not this TU's.
     priv fn _name(self, t: Token) {
         var spelled = self._spell.imm_name(t.imm, self._owning_fid());
-        ICE_IF(spelled == "<?>", "EmitIR: identifier token with no spelling in its owning file's table");
+        if (spelled == "<?>") { self._ice(t.range, "EmitIR: identifier token with no spelling in its owning file's table"); }
         sink->create_ident(t.range, spelled);
     }
 
-    /// I011W at the Kairo source of an untyped \p e, then the ICE. The
-    /// diagnostic is buffered and dies with the abort, so the ICE text
-    /// carries the same path:line:col; without it the report names only
-    /// this file.
+    /// An untyped \p e reached codegen: I011W at its source (CodegenICE).
     priv fn _ice_untyped(self, e: *Expr, msg: string) {
-        self._cg->ctx->diag_sink.report(DiagCode(DiagID::I011W), e->range.start,
-            f"internal: {to_string(e->kind)} reached codegen with no type; This is a compiler bug; please report it with the source that triggered it"
-        ).first(e->range).emit();
-        var sm = self._cg->ctx->sm;
-        var at = "<unknown location>";
-        if sm != &null {
-            var full: FullSourceLocation = sm->get_line_col(e->range.start);
-            at = f"{full.path.full_path()}:{full.line}:{full.column}";
-        }
-        ICE_FAIL(f"{msg}, at {at}");
+        codegen_ice(self._cg->ctx, DiagID::I011W, e->range, f"{msg} ({to_string(e->kind)})");
+    }
+
+    /// ICE naming the Kairo source at \p at (CodegenICE).
+    priv fn _ice(self, at: SourceRange, msg: string) {
+        codegen_ice(self._cg->ctx, at, msg);
     }
 
     /// The file whose tables the body being emitted indexes: its function's,
@@ -1163,7 +1152,7 @@ class EmitIR {
     /// token's range covered -- `"true"` spelled as a numeric constant.
     priv fn _int_lit(self, t: Token) {
         var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
-        ICE_IF(tbl == &null, "EmitIR: no immediate table for the file that owns this body");
+        if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
         var d = tbl->get::<Immediate::IntData>(t.imm);
         if (d != &null) && (!d->body.is_valid()) {
             var cxx = std::string_to_nstring(f"{d->value_lo}");
@@ -1205,7 +1194,7 @@ class EmitIR {
         }
         var k = n->op_token.kind;
         var addr_or_deref = (k == TokenKind::OpAmp) || (k == TokenKind::OpStar);
-        ICE_IF(self._record_operand(n->operand) && (!addr_or_deref), "EmitIR: user operator; OperatorLowering must rewrite it into a call");
+        if (self._record_operand(n->operand) && (!addr_or_deref)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         sink->spell(n->range, "(");
         if n->is_prefix() { sink->create(n->op_token); }
         self.emit(n->operand);
@@ -1214,8 +1203,8 @@ class EmitIR {
     }
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
-        ICE_IF(n->op_token.kind == TokenKind::OpEqualEqualEqual, "EmitIR: `===`; NullTestLowering owns it");
-        ICE_IF(self._record_operand(n->lhs) || self._record_operand(n->rhs), "EmitIR: user operator; OperatorLowering must rewrite it into a call");
+        if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; NullTestLowering owns it"); }
+        if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         sink->spell(n->range, "(");
         self.emit(n->lhs);
         sink->create(n->op_token);
@@ -1227,7 +1216,7 @@ class EmitIR {
         // Plain `=` on records is copy/move assignment; CopyMoveLowering
         // decides which. Compound assignment on a record is a user operator.
         if (n->op_token.kind != TokenKind::OpEqual) {
-            ICE_IF(self._record_operand(n->lhs) || self._record_operand(n->rhs), "EmitIR: compound assignment on a record; OperatorLowering owns it");
+            if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: compound assignment on a record; OperatorLowering owns it"); }
         }
         sink->spell(n->range, "(");
         self.emit(n->lhs);
@@ -1250,7 +1239,7 @@ class EmitIR {
         // `a as [T;]` on an array: the same view an implicit site gets.
         if self._array_view(n->operand, n->target, &null) { return; }
         var src_rec = self._record_operand(n->operand);
-        ICE_IF(src_rec && (!self._type_is_pointer(n->operand->type_)), "EmitIR: `as` on a record value; OperatorLowering owns op as / ctor casts");
+        if (src_rec && (!self._type_is_pointer(n->operand->type_))) { self._ice(n->range, "EmitIR: `as` on a record value; OperatorLowering owns op as / ctor casts"); }
         var kind = "static_cast";
         if n->mode == CastMode::Const  { kind = "const_cast"; }
         if n->mode == CastMode::Unsafe { kind = "reinterpret_cast"; }
@@ -1258,7 +1247,7 @@ class EmitIR {
     }
 
     priv fn _subscript(self, n: *SubscriptExpr) {
-        ICE_IF(self._record_operand(n->base), "EmitIR: `[]` on a record; OperatorLowering owns it");
+        if (self._record_operand(n->base)) { self._ice(n->range, "EmitIR: `[]` on a record; OperatorLowering owns it"); }
         self.emit(n->base);
         sink->spell(n->range, "[");
         self.emit(n->index);
@@ -1296,10 +1285,9 @@ class EmitIR {
     /// decay of one ("taking address of temporary array"), clang does not, and
     /// bodies only ever go through clang.
     priv fn _init_list(self, n: *InitListExpr, bare: bool) {
-        ICE_IF(n->type_ == &null, "EmitIR: untyped init list reached codegen; ListLiteralLowering must type it");
+        if (n->type_ == &null) { self._ice(n->range, "EmitIR: untyped init list reached codegen; ListLiteralLowering must type it"); }
         var c = canon_unqual(n->type_);
-        ICE_IF((c == &null) || (c->kind != TypeKind::FixedArrayType),
-            "EmitIR: init list that is not an array; the initializer_list constructor form is not written yet");
+        if ((c == &null) || (c->kind != TypeKind::FixedArrayType)) { self._ice(n->range, "EmitIR: init list that is not an array; the initializer_list constructor form is not written yet"); }
         var at   = cast::<FixedArrayType>(c);
         var elem = at->element;
 
@@ -1329,10 +1317,10 @@ class EmitIR {
         }
         if e->type_ == &null { self._ice_untyped(e, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure"); }
         var c = canon_unqual(e->type_);
-        ICE_IF(c->kind != TypeKind::RecordType, "EmitIR: initializer of a non-record type");
+        if (c->kind != TypeKind::RecordType) { self._ice(e->range, "EmitIR: initializer of a non-record type"); }
         var rd = CXXSpell::rep(cast::<RecordType>(c)->decl);
         var layout = self._layout_of(rd);
-        ICE_IF(self._has_user_ctor(layout), "EmitIR: initializer on a record with a constructor; must be lowered to a ctor call");
+        if (self._has_user_ctor(layout)) { self._ice(e->range, "EmitIR: initializer on a record with a constructor; must be lowered to a ctor call"); }
 
         sink->spell(e->range, self._spell._type(e->type_) + "{");
         // Declaration order: C++ designated initializers may not reorder.
@@ -1392,7 +1380,7 @@ class EmitIR {
 
     fn emit(self, t: *Type) {
         ICE_IF(t == &null, "EmitIR: null type reached codegen");
-        ICE_IF(t->canonical == &null, "EmitIR: unresolved type reached codegen; sema gate failure");
+        if (t->canonical == &null) { self._ice(t->range, "EmitIR: unresolved type reached codegen; sema gate failure"); }
         sink->spell(t->range, self._spell._type(t));
     }
 }

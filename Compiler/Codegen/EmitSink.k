@@ -52,26 +52,26 @@ class EmitSink {
     // --- Primitives: every sink implements these ------------------------------
 
     /// Kind AND spelling from a Kairo token (identifiers, punctuators).
-    virtual fn create(self, t: Token) -> bool { ICE_FAIL("EmitSink::create: abstract"); return false; }
+    virtual fn create(self, t: Token) -> bool { self.ice_at(t.range, "EmitSink::create: abstract"); return false; }
 
     /// An identifier whose spelling comes from elsewhere (a foreign TU's imm
     /// table, a builtin's C++ name). TokenSink interns it; a C++ keyword
     /// spelling resolves to its keyword kind through the IdentifierInfo.
-    virtual fn create_ident(self, at: SourceRange, spelling: string) -> bool { ICE_FAIL("EmitSink::create_ident: abstract"); return false; }
+    virtual fn create_ident(self, at: SourceRange, spelling: string) -> bool { self.ice_at(at, "EmitSink::create_ident: abstract"); return false; }
 
-    virtual fn punct(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { ICE_FAIL("EmitSink::punct: abstract"); return false; }
-    virtual fn keyword(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { ICE_FAIL("EmitSink::keyword: abstract"); return false; }
+    virtual fn punct(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { self.ice_at(at, "EmitSink::punct: abstract"); return false; }
+    virtual fn keyword(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { self.ice_at(at, "EmitSink::keyword: abstract"); return false; }
 
     /// A BORROWED literal: the range's bytes ARE the spelling.
-    virtual fn literal(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { ICE_FAIL("EmitSink::literal: abstract"); return false; }
+    virtual fn literal(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { self.ice_at(at, "EmitSink::literal: abstract"); return false; }
 
     /// DIVERGENT literals: the C++ spelling differs from the Kairo bytes.
-    virtual fn create_int(self, at: SourceRange, cxx: ref!(nstring)) -> bool { ICE_FAIL("EmitSink::create_int: abstract"); return false; }
-    virtual fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool { ICE_FAIL("EmitSink::create_str: abstract"); return false; }
+    virtual fn create_int(self, at: SourceRange, cxx: ref!(nstring)) -> bool { self.ice_at(at, "EmitSink::create_int: abstract"); return false; }
+    virtual fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool { self.ice_at(at, "EmitSink::create_str: abstract"); return false; }
 
     /// A preprocessor line (`#pragma once`, `#include "..."`). Text sinks
     /// only; a token stream has no line to put it on.
-    virtual fn directive(self, at: SourceRange, text: string) -> bool { ICE_FAIL("EmitSink::directive: this sink is a token stream and cannot carry a preprocessor line"); return false; }
+    virtual fn directive(self, at: SourceRange, text: string) -> bool { self.ice_at(at, "EmitSink::directive: this sink is a token stream and cannot carry a preprocessor line"); return false; }
 
     /// Layout hint. TextSink breaks the line; TokenSink ignores it.
     virtual fn brk(self) { }
@@ -167,7 +167,7 @@ class EmitSink {
                     if text[j] == '\\' { j += 1; }
                     j += 1;
                 }
-                ICE_IF(j >= n, f"EmitSink::spell: unterminated string literal in C++ fragment: {text}");
+                if (j >= n) { self.ice_at(at, f"EmitSink::spell: unterminated string literal in C++ fragment: {text}"); }
                 var lit = std::string_to_nstring(string(text.raw_string().substr(i, j + 1 - i)));
                 self.create_str(at, lit);
                 after_operator = false;
@@ -219,8 +219,7 @@ class EmitSink {
             else if (c == '^') && (c1 == '=')           { k = clang::tok::caretequal;   len = 2; }
             else { k = self._punct_kind(c); }
 
-            ICE_IF(k == clang::tok::unknown,
-                f"EmitSink::spell: unexpected character in C++ fragment: {text}");
+            if (k == clang::tok::unknown) { self.ice_at(at, f"EmitSink::spell: unexpected character in C++ fragment: {text}"); }
             self.punct(at, k);
             after_operator = false;
             any = true;

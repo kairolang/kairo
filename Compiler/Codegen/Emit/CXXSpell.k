@@ -26,6 +26,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Codegen::CodegenContext::*;
+import Codegen::CodegenICE::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -61,6 +62,12 @@ class CXXSpell {
 
     fn CXXSpell(self) { self._cg = &null; }
     fn CXXSpell(self, cg: *CodegenContext) { self._cg = cg; }
+
+    /// ICE naming the Kairo source at \p at (CodegenICE). A canonical type
+    /// carries no range; pass the written node or the owning decl's.
+    priv fn _ice(self, at: SourceRange, msg: string) {
+        codegen_ice(self._cg->ctx, at, msg);
+    }
 
     // --- Decl facts ------------------------------------------------------------
 
@@ -174,7 +181,7 @@ class CXXSpell {
         var sym = self._op_symbol(f);
         if sym == "delete" { return "~" + self.leaf(self.operator_owner(f)); }
         if sym == "as" {
-            ICE_IF(f->return_type == &null, "CXXSpell: `op as` with no target type");
+            if (f->return_type == &null) { self._ice(f->range, "CXXSpell: `op as` with no target type"); }
             return "operator " + self._type(f->return_type);
         }
         var named = CXXSpell::named_operator(sym, f);
@@ -188,7 +195,7 @@ class CXXSpell {
             var key = sym;
             if (sym == "++") || (sym == "--") { key = (("r") if (CXXSpell::op_is_postfix(f)) else ("l")) + sym; }
             var m = LowerTargets::ext_op(key);
-            ICE_IF(m.size() == 0, f"CXXSpell: extension 'op {sym}' has no C++ non-member form; OperatorSignatureCheck should reject it");
+            if (m.size() == 0) { self._ice(f->range, f"CXXSpell: extension 'op {sym}' has no C++ non-member form; OperatorSignatureCheck should reject it"); }
             return m;
         }
         return "operator" + sym;
@@ -258,7 +265,7 @@ class CXXSpell {
         if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst); }
         if !CXXSpell::is_place_operator(f) { return self._type(f->return_type, subst); }
         var c = canon_unqual(f->return_type->canonical);
-        ICE_IF((c == &null) || (!isa::<PointerType>(c)), "CXXSpell: is_place_operator accepted a non-pointer result");
+        if ((c == &null) || (!isa::<PointerType>(c))) { self._ice(f->range, "CXXSpell: is_place_operator accepted a non-pointer result"); }
         return self._type(cast::<PointerType>(c)->pointee, subst) + "&";
     }
 
@@ -268,11 +275,11 @@ class CXXSpell {
         if (lex != &null) && (lex->dc_kind == DeclContextKind::Extension) {
             var x = cast::<ExtensionDecl>(lex->dc_owner);
             var c = x->target->canonical;
-            ICE_IF((c == &null) || (c->kind != TypeKind::RecordType), "CXXSpell: extension operator on a non-record target");
+            if ((c == &null) || (c->kind != TypeKind::RecordType)) { self._ice(f->range, "CXXSpell: extension operator on a non-record target"); }
             return CXXSpell::rep(cast::<RecordType>(c)->decl);
         }
         var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
-        ICE_IF((dc == &null) || (!dc->is_type_scope()), "CXXSpell: operator with no owning type");
+        if ((dc == &null) || (!dc->is_type_scope())) { self._ice(f->range, "CXXSpell: operator with no owning type"); }
         return CXXSpell::rep(dc->dc_owner);
     }
 
@@ -418,7 +425,7 @@ class CXXSpell {
         var c = canon_unqual(x->target->canonical);
         var s = LowerTargets::ext_scope_prefix();
         if isa::<BuiltinType>(c) { return s + builtin_info(cast::<BuiltinType>(c)->builtin)->spelling; }
-        ICE_IF(!isa::<RecordType>(c), "CXXSpell: extension of a non-record, non-builtin target; no scope naming rule for it yet");
+        if (!isa::<RecordType>(c)) { self._ice(x->range, "CXXSpell: extension of a non-record, non-builtin target; no scope naming rule for it yet"); }
         var prim = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(c)->decl)));
         if decl_is_imported(prim) { return s + CXXSpell::_path_ident(decl_cxx_spelling(prim)); }
         var tns = self.ns_segments(prim);
@@ -555,7 +562,7 @@ class CXXSpell {
     fn decl(self, t_in: *Type, name: string, subst: *InstanceEntry = &null) -> string {
         if t_in == &null { return self._join("void", name); }
         var t = t_in->canonical;
-        ICE_IF(t == &null, "CXXSpell: type with no canonical reached codegen (sema gate failure)");
+        if (t == &null) { self._ice(t_in->range, "CXXSpell: type with no canonical reached codegen (sema gate failure)"); }
 
         switch t->kind {
             case TypeKind::QualifiedType {
@@ -608,10 +615,11 @@ class CXXSpell {
                 var o = cast::<OpaqueFFIType>(t);
                 return self._join(self.imm_name(o->name, self._cg->tu->fid), name);
             }
-            case TypeKind::NullableType { ICE_FAIL("CXXSpell: T? reached codegen; NullableTypeLowering must reduce it first"); }
-            case TypeKind::TupleType  { ICE_FAIL("CXXSpell: tuple type reached codegen; no lowering exists yet"); }
+            case TypeKind::NullableType { self._ice(t_in->range, "CXXSpell: T? reached codegen; NullableTypeLowering must reduce it first"); return ""; }
+            case TypeKind::TupleType  { self._ice(t_in->range, "CXXSpell: tuple type reached codegen; no lowering exists yet"); return ""; }
             default {
-                ICE_FAIL(f"CXXSpell: {to_string(t->kind)} is not a canonical kind");
+                self._ice(t_in->range, f"CXXSpell: {to_string(t->kind)} is not a canonical kind");
+                return "";
             }
         }
         return "";
@@ -621,7 +629,7 @@ class CXXSpell {
     /// EmitIR documents them). \p is_const is the `const x: T` marker.
     fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null) -> string {
         if p->is_pack {
-            ICE_IF(p->pack_type == &null, "CXXSpell: pack parameter with no slice type; CallLowering stamps it");
+            if (p->pack_type == &null) { self._ice(p->range, "CXXSpell: pack parameter with no slice type; CallLowering stamps it"); }
             return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst);
         }
         return self._param_type(p->type_, p->mode, p->is_const, "", subst);
@@ -638,8 +646,7 @@ class CXXSpell {
     fn param_decl(self, p: *ParamDecl, name: string, subst: *InstanceEntry = &null) -> string {
         var c = (p->type_->canonical) if (p->type_ != &null) else (&null);
         if (!p->is_pack) && (c != &null) && (canon_unqual(c)->kind == TypeKind::FixedArrayType) {
-            ICE_IF((p->mode == ParamMode::Value) && (!p->is_const),
-                "CXXSpell: array parameter by value; StmtTyping must reject it");
+            if ((p->mode == ParamMode::Value) && (!p->is_const)) { self._ice(p->range, "CXXSpell: array parameter by value; StmtTyping must reject it"); }
             var s = self.decl(canon_unqual(c), "&" + name, subst);
             return (("const " + s) if (p->is_const) else (s));
         }
@@ -768,13 +775,13 @@ class CXXSpell {
     priv fn _record(self, r: *RecordType, subst: *InstanceEntry) -> string {
         var d = r->decl;
         ICE_IF(d == &null, "CXXSpell: RecordType with no decl");
-        ICE_IF(isa::<InterfaceDecl>(d), "CXXSpell: an interface has no C++ type; witnesses are not emitted yet");
+        if (isa::<InterfaceDecl>(d)) { self._ice(d->range, "CXXSpell: an interface has no C++ type; witnesses are not emitted yet"); }
         if decl_is_imported(d) { return decl_cxx_spelling(d); }
 
         // An instance shell names its PRIMARY plus the registry's args.
         if decl_is_instance(d) {
             var e = self._cg->instances->entry_of(d);
-            ICE_IF(e == &null, "CXXSpell: instance shell with no registry entry");
+            if (e == &null) { self._ice(d->range, "CXXSpell: instance shell with no registry entry"); }
             return self.qual_name(e->primary) + self.args_str(&(e->args), subst);
         }
         var s = self.qual_name(d);
@@ -791,9 +798,9 @@ class CXXSpell {
         var owner = CXXSpell::rep(g->owner);
         var t = self.subst_for(g, subst);
         if t != &null { return self._type(t, &null); }
-        ICE_IF(g->is_pack, "CXXSpell: pack parameter in a non-expansion position");
+        if (g->is_pack) { self._ice(owner->range, "CXXSpell: pack parameter in a non-expansion position"); }
         var gps = decl_generic_params(owner);
-        ICE_IF(static_cast::<usize>(g->param_index) >= gps.size(), "CXXSpell: generic param index out of range");
+        if (static_cast::<usize>(g->param_index) >= gps.size()) { self._ice(owner->range, "CXXSpell: generic param index out of range"); }
         return self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
     }
 }

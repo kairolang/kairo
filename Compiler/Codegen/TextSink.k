@@ -59,7 +59,7 @@ class TextSink derives EmitSink {
     /// ODR diff compares. `}` defers its line break so `};` stays one line.
     override fn punct(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
         var p = clang::tok::getPunctuatorSpelling(k);
-        ICE_IF(p == &null, "TextSink::punct: kind has no punctuator spelling");
+        if (p == &null) { self.ice_at(at, "TextSink::punct: kind has no punctuator spelling"); }
         var s = string(p);
 
         var tight_before = (k == clang::tok::semi) || (k == clang::tok::comma) || (k == clang::tok::r_paren)
@@ -90,7 +90,7 @@ class TextSink derives EmitSink {
 
     override fn keyword(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
         var kw = clang::tok::getKeywordSpelling(k);
-        ICE_IF(kw == &null, "TextSink::keyword: kind is not a keyword");
+        if (kw == &null) { self.ice_at(at, "TextSink::keyword: kind is not a keyword"); }
         self._word(string(kw), false);
         if k == clang::tok::kw_operator { self._after_op_kw = true; }
         return true;

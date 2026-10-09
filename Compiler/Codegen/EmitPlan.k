@@ -51,6 +51,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Codegen::CodegenContext::*;
+import Codegen::CodegenICE::*;
 import Codegen::Emit::CXXSpell::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -174,6 +175,11 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
         self._cg    = cg;
         self._spell = CXXSpell(cg);
         self._mode  = mode;
+    }
+
+    /// ICE naming the Kairo source at \p at (CodegenICE).
+    priv fn _ice(self, at: SourceRange, msg: string) {
+        codegen_ice(self._cg->ctx, at, msg);
     }
 
     fn run(self);
@@ -503,8 +509,7 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
         if (s->name != name) || (!self._same_ns_vec(&(s->ns), &ns)) { continue; }
         // Same N, same struct name: it must be the same target, or two
         // targets (`a::Point`, `b::Point`) would share one struct.
-        ICE_IF(!self._same_scope(i, x),
-            f"EmitPlan: two extension targets in one namespace both spell '{name}'; the scope naming rule needs a disambiguator");
+        if (!self._same_scope(i, x)) { self._ice(x->range, f"EmitPlan: two extension targets in one namespace both spell '{name}'; the scope naming rule needs a disambiguator"); }
         if reach { s->reachable = true; }
         return i;
     }
@@ -525,14 +530,14 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
     // Every block of this (N, X) lives in x's file: N is that file's
     // module path plus its module blocks.
     var tu = CXXSpell::tu_of(static_cast::<*Decl>(x));
-    ICE_IF((tu == &null) || (tu->program == &null), "EmitPlan: extension with no owning TU");
+    if ((tu == &null) || (tu->program == &null)) { self._ice(x->range, "EmitPlan: extension with no owning TU"); }
     var items = &(tu->program->items);
     for var i: usize = 0; i < items->size(); ++i {
         var item = *(items->get(i));
         if item.kind != TopLevelKind::Decl { continue; }
         self._fill_scope(k, item.as_decl());
     }
-    ICE_IF(self._scopes[k].anchor == &null, "EmitPlan: an extension's own file does not contain it");
+    if (self._scopes[k].anchor == &null) { self._ice(x->range, "EmitPlan: an extension's own file does not contain it"); }
 
     // A static member's signature names its types and lays none out; the
     // definition and its forwarders need the deps complete.
@@ -946,7 +951,7 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
 
     if decl_is_instance(c) {
         var e = self._cg->instances->entry_of(c);
-        ICE_IF(e == &null, "EmitPlan: instance shell with no registry entry");
+        if (e == &null) { self._ice(c->range, "EmitPlan: instance shell with no registry entry"); }
         self._admit_instance(e, need);
         return;
     }

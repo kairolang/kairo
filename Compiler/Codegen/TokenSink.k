@@ -157,7 +157,7 @@ class TokenSink derives EmitSink {
     priv fn _loc(self, loc: SourceLocation) -> clang::SourceLocation {
         ICE_IF(!loc.is_valid(), "TokenSink: invalid Kairo location; a synthesized node must carry its lowered-from range");
         var c = self._locmap->to_clang(loc);
-        ICE_IF(c.isInvalid(), f"TokenSink: Kairo loc {loc.raw()} maps to no clang location (fid loaded after rebind?)");
+        if (c.isInvalid()) { self.ice_at(SourceRange::from_bounds(loc, u32(1)), f"TokenSink: Kairo loc {loc.raw()} maps to no clang location (fid loaded after rebind?)"); }
         return c;
     }
 
@@ -166,8 +166,7 @@ class TokenSink derives EmitSink {
         var cloc = self._loc(loc);
         var dec  = self._csm->getDecomposedLoc(cloc);
         var buf  = self._csm->getBufferData(dec.first);
-        ICE_IF(static_cast::<usize>(dec.second) + static_cast::<usize>(len) > buf.size(),
-            "TokenSink: span runs past the end of its buffer");
+        if (static_cast::<usize>(dec.second) + static_cast::<usize>(len) > buf.size()) { self.ice_at(SourceRange::from_bounds(loc, len), "TokenSink: span runs past the end of its buffer"); }
         return buf.substr(static_cast::<usize>(dec.second), static_cast::<usize>(len));
     }
 
@@ -178,13 +177,10 @@ class TokenSink derives EmitSink {
         if t.kind == TokenKind::LitIdentifier {
             return self._ident_from_bytes(t.range.start, len);
         }
-        ICE_IF(is_keyword(t.kind),
-            "TokenSink::create on a keyword token; emit it deliberately (kw_*) or let Lower/ rewrite it into a name");
-        ICE_IF((!is_punctuator(t.kind)) && (!is_operator(t.kind)) && (t.kind != TokenKind::AtVoid),
-            "TokenSink::create accepts identifiers, punctuators and operators only");
+        if (is_keyword(t.kind)) { self.ice_at(t.range, "TokenSink::create on a keyword token; emit it deliberately (kw_*) or let Lower/ rewrite it into a name"); }
+        if ((!is_punctuator(t.kind)) && (!is_operator(t.kind)) && (t.kind != TokenKind::AtVoid)) { self.ice_at(t.range, "TokenSink::create accepts identifiers, punctuators and operators only"); }
         var k = self.conv_kind(t.kind);
-        ICE_IF(k == clang::tok::unknown,
-            "TokenSink::create: no clang punctuator for this Kairo token kind; a Lower/ pass left an unlowered Kairo-only operator in the tree");
+        if (k == clang::tok::unknown) { self.ice_at(t.range, "TokenSink::create: no clang punctuator for this Kairo token kind; a Lower/ pass left an unlowered Kairo-only operator in the tree"); }
         return self._punct(k, t.range.start, len);
     }
 
@@ -201,7 +197,7 @@ class TokenSink derives EmitSink {
     /// on a keyword would get null with the kind alone.
     override fn keyword(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
         var kws = clang::tok::getKeywordSpelling(k);
-        ICE_IF(kws == &null, "TokenSink::keyword: kind is not a keyword");
+        if (kws == &null) { self.ice_at(at, "TokenSink::keyword: kind is not a keyword"); }
         return self._ident_lit(llvm::StringRef(kws, libcxx::strlen(kws)), at.start, at.size());
     }
 
@@ -311,7 +307,7 @@ class TokenSink derives EmitSink {
         var at = self._claim(loc, len);
         if !at.is_valid() {
             var p  = clang::tok::getPunctuatorSpelling(k);
-            ICE_IF(p == &null, "TokenSink::_punct: kind has no punctuator spelling");
+            if (p == &null) { self.ice_at(SourceRange::from_bounds(loc, len), "TokenSink::_punct: kind has no punctuator spelling"); }
             var ns = nstring(p, libcxx::strlen(p));
             return self._arena_tok(k, SourceRange::from_bounds(loc, len), ns);
         }

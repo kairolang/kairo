@@ -29,6 +29,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Codegen::CodegenContext::*;
+import Codegen::CodegenICE::*;
 import Codegen::EmitPlan::*;
 import Codegen::Emit::CXXSpell::*;
 import AST::Context::DeclContext::*;
@@ -69,6 +70,11 @@ class InterfaceEmitter {
     }
 
     fn set_ffi_lines(self, lines: vec::<string>) { self._ffi_lines = lines; }
+
+    /// ICE naming the Kairo source at \p at (CodegenICE).
+    priv fn _ice(self, at: SourceRange, msg: string) {
+        codegen_ice(self._cg->ctx, at, msg);
+    }
 
     // --- Entry point -------------------------------------------------------------
 
@@ -288,10 +294,10 @@ class InterfaceEmitter {
         switch d->kind {
             case DeclKind::ClassDecl  { s += "class ";  }
             case DeclKind::StructDecl { s += "struct "; }
-            case DeclKind::UnionDecl  { ICE_FAIL("InterfaceEmitter: union emission is not implemented yet"); }
+            case DeclKind::UnionDecl  { self._ice(self._at(d), "InterfaceEmitter: union emission is not implemented yet"); }
             case DeclKind::EnumDecl {
                 var en = cast::<EnumDecl>(d);
-                ICE_IF(en->is_adt, "InterfaceEmitter: ADT enum reached codegen; EnumLayoutLowering must reduce it to a record first");
+                if (en->is_adt) { self._ice(self._at(d), "InterfaceEmitter: ADT enum reached codegen; EnumLayoutLowering must reduce it to a record first"); }
                 s += "enum class ";
                 s += self._spell->leaf(d);
                 s += " : ";
@@ -300,7 +306,7 @@ class InterfaceEmitter {
                 sink->spell(self._at(d), s);
                 return;
             }
-            default { ICE_FAIL("InterfaceEmitter: not a type decl"); }
+            default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
         s += self._spell->leaf(d);
         s += ";";
@@ -319,8 +325,8 @@ class InterfaceEmitter {
             case DeclKind::ClassDecl  { self._record_def(d, "class");  }
             case DeclKind::StructDecl { self._record_def(d, "struct"); }
             case DeclKind::EnumDecl   { self._enum_def(cast::<EnumDecl>(d)); }
-            case DeclKind::UnionDecl  { ICE_FAIL("InterfaceEmitter: union emission is not implemented yet"); }
-            default { ICE_FAIL("InterfaceEmitter: not a type decl"); }
+            case DeclKind::UnionDecl  { self._ice(self._at(d), "InterfaceEmitter: union emission is not implemented yet"); }
+            default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
     }
 
@@ -421,7 +427,7 @@ class InterfaceEmitter {
             sink->spell(self._at(static_cast::<*Decl>(fs[i]->anchor)), "friend struct " + self._scope_qual(fs[i]) + ";");
         }
         if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
-            ICE_FAIL("InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
+            self._ice(self._at(d), "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
         }
 
         sink->spell(at, "};");
@@ -455,7 +461,7 @@ class InterfaceEmitter {
     }
 
     priv fn _enum_def(self, en: *EnumDecl) {
-        ICE_IF(en->is_adt, "InterfaceEmitter: ADT enum reached codegen; EnumLayoutLowering must reduce it to a record first");
+        if (en->is_adt) { self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: ADT enum reached codegen; EnumLayoutLowering must reduce it to a record first"); }
         var at = self._at(static_cast::<*Decl>(en));
         var s = "enum class ";
         s += self._spell->leaf(static_cast::<*Decl>(en));
@@ -482,7 +488,7 @@ class InterfaceEmitter {
                     }
                 }
                 var lit = dyn_cast::<IntegerLiteralExpr>(dexpr);
-                ICE_IF(lit == &null, "InterfaceEmitter: non-literal enum discriminant; needs the constant evaluator");
+                if (lit == &null) { self._ice(dexpr->range, "InterfaceEmitter: non-literal enum discriminant; needs the constant evaluator"); }
                 vs += " = " + sign;
                 sink->spell(v->name.range, vs);
                 sink->literal(lit->token.range, clang::tok::numeric_constant);
@@ -657,7 +663,7 @@ class InterfaceEmitter {
             if p == &null { continue; }
             if p->is_self {
                 if !with_self { continue; }
-                ICE_IF(ext == &null, "InterfaceEmitter: `self` outside a type or extension");
+                if (ext == &null) { self._ice(p->range, "InterfaceEmitter: `self` outside a type or extension"); }
                 if !first { s += ", "; }
                 first = false;
                 // An extension operator is a real non-member C++ operator, and
