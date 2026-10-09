@@ -34,9 +34,21 @@
 ffi "c++" import "clang/Basic/TokenKinds.h";
 
 import Location::SourceRange::*;
+import AST::Context::ASTContext::*;
+import Codegen::CodegenICE::*;
 import Token::Token::*;
 
 class EmitSink {
+    /// The context an ICE reports through (CodegenICE). Bound by the
+    /// CodegenContext that adopts the sink; null before that, which only
+    /// costs the ICE its source location.
+    pub var ice_ctx: obs::<ASTContext> = &null;
+
+    /// ICE naming the Kairo source at \p at (CodegenICE).
+    fn ice_at(self, at: SourceRange, msg: string) {
+        codegen_ice(self.ice_ctx, at, msg);
+    }
+
     // --- Primitives: every sink implements these ------------------------------
 
     /// Kind AND spelling from a Kairo token (identifiers, punctuators).

@@ -632,6 +632,20 @@ class DiagEngine derives DiagEngineVBase {
         }
     }
 
+    /// \brief renders everything the consumers hold to stderr, now.
+    ///
+    /// \details For the ICE path only: the process aborts next, so the
+    ///          driver's own end-of-run flush (CompilerInstance::flush_errors)
+    ///          never happens, and a diagnostic naming the source that
+    ///          triggered the ICE would die in the buffer. The driver keeps
+    ///          exactly one console consumer attached, so this prints once.
+    fn flush_consumers_for_ice(self) {
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = 0; i < self._consumers.size(); ++i {
+            self._consumers[i]->finalize_to_stderr();
+        }
+    }
+
     // --- Report --------------------------------------------------------------
 
     /// Creates a \c DiagBuilder for a diagnostic at \p loc.

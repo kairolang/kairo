@@ -78,6 +78,7 @@ class CodegenContext {
         self.psym      = psym;
         self.instances = instances;
         self.phase     = CodegenPhase::Ready;
+        if sink != &null { sink->ice_ctx = ctx; }
     }
 
     fn require_phase(self, min: CodegenPhase) {
