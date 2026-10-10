@@ -674,7 +674,7 @@ class EmitIR {
         if (e->is_poisoned()) { self._ice(e->range, "EmitIR: poisoned expr reached codegen; sema gate failure"); }
 
         switch e->kind {
-            case ExprKind::IntegerLiteralExpr   { self._int_lit(cast::<IntegerLiteralExpr>(e)->token); }
+            case ExprKind::IntegerLiteralExpr   { self._int_lit(cast::<IntegerLiteralExpr>(e)); }
             case ExprKind::FloatingLiteralExpr  { sink->synth(cast::<FloatingLiteralExpr>(e)->token, clang::tok::numeric_constant); }
             case ExprKind::CharacterLiteralExpr { sink->synth(cast::<CharacterLiteralExpr>(e)->token, clang::tok::char_constant); }
             case ExprKind::BooleanLiteralExpr   { sink->spell(e->range, (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false"))); }
@@ -1150,7 +1150,26 @@ class EmitIR {
     /// some other IntData (or none) for a foreign inline body's minted
     /// constant, and the fallback below then borrowed whatever bytes the
     /// token's range covered -- `"true"` spelled as a numeric constant.
-    priv fn _int_lit(self, t: Token) {
+    ///
+    /// A value of 2^64 or more is never borrowed either: C++ has no integer
+    /// literal wider than unsigned long long, so clang rejects the bytes
+    /// whatever the target type. It is built from its two halves in
+    /// `unsigned __int128` and cast to the literal's type. Multiplication,
+    /// not `<<`: spell() fuses `<<` only after `operator`.
+    priv fn _int_lit(self, n: *IntegerLiteralExpr) {
+        var t = n->token;
+        if n->is_big() { self._ice(t.range, "EmitIR: integer literal wider than 128 bits; limb composition is not emitted yet"); }
+
+        var hi = n->get_value_hi();
+        if hi != 0 {
+            if (n->type_ == &null) { self._ice(t.range, "EmitIR: untyped wide integer literal reached codegen; ExprTyper gate failure"); }
+            var lo = n->get_value_lo();
+            sink->spell(t.range,
+                f"(static_cast<{self._spell._type(n->type_)}>("
+                + f"static_cast<unsigned __int128>({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL))");
+            return;
+        }
+
         var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
         if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
         var d = tbl->get::<Immediate::IntData>(t.imm);
