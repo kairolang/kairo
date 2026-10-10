@@ -26,10 +26,12 @@
 ///
 /// ------------------------------------------------------------------------- ///
 
+import AST::ASTSupport::*;                 // FrozenList in MatchCore
 import AST::Node::Base::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;   // VariableDecl for binder decls (Binding::decl)
 import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;      // MatchExpr / IfExpr for value-form statements
 import AST::Node::Casting::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
@@ -39,6 +41,32 @@ import Location::SourceRange::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Parser::LexicalScope::*;
+
+/// \brief the body form of one match arm; parser-local. The AST records it
+///        only as which of MatchCase::body / MatchCase::expression is set.
+enum ArmForm derives u8 {
+    Block, ///< `{ ... }`: a statement arm.
+    Value, ///< `=> value`: a value arm.
+}
+
+/// \brief the arm forms of a whole match.
+enum MatchForm derives u8 {
+    AllBlock, ///< every arm is a block (or there are none): a statement.
+    AllValue, ///< every arm is a value: a value, even in statement position.
+    Mixed,    ///< both kinds; an error in statement position.
+}
+
+/// \brief what _parse_match_core hands back to the statement and the
+///        expression parser, which each build their own node from it.
+struct MatchCore {
+    var ok:          bool;                    ///< false after a reported structural failure.
+    var scrutinee:   *Expr;
+    var cases:       FrozenList::<MatchCase>;
+    var form:        MatchForm;
+    var range:       SourceRange;             ///< `match` through `}`, or what was consumed.
+    var first_block: SourceRange;             ///< first `{ }` arm; invalid when none.
+    var first_value: SourceRange;             ///< first `=>` arm; invalid when none.
+}
 
 class <T> StmtParse {
     /// \enum StmtSyncCtx
@@ -275,8 +303,13 @@ class <T> StmtParse {
             }
 
             // -- exception / scope ----------------------------------------
+            // `try {` is the statement form. Anything else is a value-form
+            // `try` (`try f() catch => g()`) used as an expression statement.
             case TokenKind::KwTry     {
-                return self._parse_try_catch();
+                if dyn()->_peek_kind_past_nl(1) == TokenKind::OpLBrace {
+                    return self._parse_try_catch();
+                }
+                return self._parse_expr_or_context();
             } case TokenKind::KwFinally {
                 return self._parse_finally();
             }
@@ -859,13 +892,22 @@ class <T> StmtParse {
 
     /// \brief parses an if statement with else-if chaining.
     ///  Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
+    ///          | 'if' expr NL* '=>' ...                   (value form, see below)
     ///
     /// \details precondition: current token is `if`. The condition is parsed
     ///          with struct-literal suppression so `if Foo { }` is not misread
     ///          as a named initializer (NoStructLiteral stop bit). `else_` is a
     ///          *Stmt: either the next ConditionalStmt (an `else if`) or a
     ///          CompoundStmt (the final `else`).
-    priv fn _parse_conditional(self) -> *Stmt {
+    ///
+    ///          A `=>` after the condition makes it a value-form `if` used as a
+    ///          statement (`if c => f() else => g()`): the rest is the
+    ///          expression parser's _finish_if_expr, reusing the condition
+    ///          already parsed, wrapped in an ExpressionStmt. Nothing is
+    ///          re-lexed or backtracked. `in_chain` is set for the `else if`
+    ///          of a statement chain, where a `=>` cannot start a value form:
+    ///          the chain is already a statement (S056E).
+    priv fn _parse_conditional(self, in_chain: bool = false) -> *Stmt {
         var start_range = dyn()->current_ptr()->range;
 
         if !dyn()->enter_depth() {
@@ -879,6 +921,23 @@ class <T> StmtParse {
             self._sync_stmt(StmtSyncCtx::Block, 0);
             dyn()->exit_depth();
             return static_cast::<*Stmt>(ConditionalStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+        dyn()->_require_parens(cond);
+
+        if dyn()->_skip_nl_if_next(TokenKind::OpFatArrow) {
+            if in_chain {
+                var arrow = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S056E, arrow.start,
+                    "expected '{' after 'else if' condition; a statement 'if' chain cannot continue with '=>' arms"
+                ).first(arrow).emit();
+                // still consume the value-form arms, so they cannot cascade.
+                dyn()->_finish_if_expr(start_range, cond, T::ExprStopKind::Default);
+                dyn()->exit_depth();
+                return static_cast::<*Stmt>(ConditionalStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            }
+            var value = dyn()->_finish_if_expr(start_range, cond, T::ExprStopKind::Default);
+            dyn()->exit_depth();
+            return static_cast::<*Stmt>(ExpressionStmt::create(dyn()->ctx, value->range, value));
         }
 
         if !dyn()->check(TokenKind::OpLBrace) {
@@ -908,7 +967,7 @@ class <T> StmtParse {
 
             if dyn()->check(TokenKind::KwIf) {
                 // else-if: recurse, store the ConditionalStmt directly as else_
-                else_ = self._parse_conditional();
+                else_ = self._parse_conditional(true);
             } else if dyn()->check(TokenKind::OpLBrace) {
                 // final else: a block
                 else_ = static_cast::<*Stmt>(self.parse_compound());
@@ -1113,19 +1172,70 @@ class <T> StmtParse {
 
     //  Match
 
-    /// \brief parses a match statement.
-    ///  Grammar:  'match' expr '{' match_case* '}'
-    ///    match_case := 'case' pattern (',' pattern)* ('where' expr)? block
-    ///                | 'default' block
+    /// \brief parses a match in statement position.
+    ///  Grammar:  'match' expr '{' arm* '}'           (see _parse_match_core)
     ///
-    /// \details precondition: current token is `match`. The scrutinee is parsed
-    ///          with struct-literal suppression. Cases are collected until `}`.
-    ///          Pattern parsing delegates to _parse_pattern (currently a stub).
+    /// \details the arms decide what the statement is. All `{ }` blocks: a
+    ///          MatchStmt, as before. All `=> value`: still a value, so it
+    ///          becomes ExpressionStmt(MatchExpr) and the expression-form rules
+    ///          (mandatory exhaustiveness included) apply to it in sema. Both:
+    ///          S075E, with a note at the first arm of the other form.
     pub fn _parse_match(self) -> *Stmt {
         var start_range = dyn()->current_ptr()->range;
 
+        var core = self._parse_match_core(start_range);
+        if !core.ok {
+            return static_cast::<*Stmt>(MatchStmt::create_error(dyn()->ctx, core.range));
+        }
+
+        if core.form == MatchForm::AllValue {
+            var me   = MatchExpr::create(dyn()->ctx, core.range, core.scrutinee);
+            me->cases = core.cases;
+            return static_cast::<*Stmt>(
+                ExpressionStmt::create(dyn()->ctx, core.range, static_cast::<*Expr>(me)));
+        }
+
+        if core.form == MatchForm::Mixed {
+            // the first arm sets the form; the note goes to the first arm
+            // that broke it.
+            var other = (core.first_value) if (core.first_block < core.first_value) else (core.first_block);
+            var b = dyn()->diag->report(DiagID::S075E, start_range.start,
+                "match arms mix '=>' and '{ }' forms");
+            b.first(start_range);
+            b.note(other.start, "this arm uses the other form; every arm of one 'match' uses the same form");
+            b.emit();
+            return static_cast::<*Stmt>(MatchStmt::create_error(dyn()->ctx, core.range));
+        }
+
+        var node = MatchStmt::create(dyn()->ctx, core.range, core.scrutinee);
+        node->cases = core.cases;
+        return static_cast::<*Stmt>(node);
+    }
+
+    /// \brief the part of `match` shared by both positions: scrutinee, braces
+    ///        and arms.
+    ///  Grammar:  'match' expr(NoStructLiteral) '{' arm* '}'
+    ///    arm      := 'case' pattern (',' pattern)* ('where' expr(NoStructLiteral))? NL* arm_body
+    ///              | 'default' NL* arm_body
+    ///    arm_body := block                       // statement arm
+    ///              | '=>' NL* value              // value arm, value stop = StopBrace
+    ///
+    /// \details precondition: current token is `match`. The caller turns the
+    ///          result into a MatchStmt or a MatchExpr by `form`. `ok` is false
+    ///          on a structural failure (already reported), with `range`
+    ///          covering what was consumed. A `,` after an arm is the Rust
+    ///          spelling: S076E, removed by the fix-it, and parsing continues.
+    pub fn _parse_match_core(self, start_range: SourceRange) -> MatchCore {
+        var core = MatchCore{};
+        core.ok          = false;
+        core.scrutinee   = &null;
+        core.form        = MatchForm::AllBlock;
+        core.range       = start_range;
+        core.first_block = SourceRange::invalid();
+        core.first_value = SourceRange::invalid();
+
         if !dyn()->enter_depth() {
-            return self._error_stmt(start_range);
+            return core;
         }
 
         dyn()->advance(T::SkipNL::After); // consume `match`
@@ -1134,20 +1244,25 @@ class <T> StmtParse {
         if (scrutinee == &null) || is_recovery(scrutinee) {
             self._sync_stmt(StmtSyncCtx::Block, 0);
             dyn()->exit_depth();
-            return static_cast::<*Stmt>(MatchStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            core.range = start_range | dyn()->prev().range;
+            return core;
         }
+        dyn()->_require_parens(scrutinee);
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S056E, start_range.start,
                 "expected '{' after 'match' scrutinee"
             ).first(start_range).emit();
             dyn()->exit_depth();
-            return static_cast::<*Stmt>(MatchStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            core.range = start_range | dyn()->prev().range;
+            return core;
         }
         var lbrace_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `{`
 
         var cases: std::StackBuf::<MatchCase, 8>;
+        var has_block = false;
+        var has_value = false;
 
         while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
             if dyn()->check(TokenKind::TkNewLine) {
@@ -1155,108 +1270,136 @@ class <T> StmtParse {
                 continue;
             }
 
-            var mc = self._parse_match_case();
-            // a case with a null body indicates a failed parse; recover.
-            if mc.body == &null {
+            var form = ArmForm::Block;
+            var mc   = self._parse_match_case(&form);
+            // an arm with neither a body nor a value failed to parse; recover.
+            if (mc.body == &null) && (mc.expression == &null) {
                 self._sync_stmt_progress(StmtSyncCtx::Block, 0);
                 if dyn()->check(TokenKind::OpRBrace) { break; }
                 continue;
             }
+
+            if form == ArmForm::Value {
+                if !has_value { core.first_value = mc.range; }
+                has_value = true;
+            } else {
+                if !has_block { core.first_block = mc.range; }
+                has_block = true;
+            }
             cases.push_back(mc);
+
+            if dyn()->check(TokenKind::OpComma) {
+                var comma = dyn()->current_ptr()->range;
+                var b = dyn()->diag->report(DiagID::S076E, comma.start,
+                    "match arms are not separated by \x27,\x27");
+                b.first(comma);
+                b.remove(comma, "remove ',\x27");
+                b.emit();
+                dyn()->advance(); // consume `,`
+            }
         }
 
-        var full_range = start_range;
         if dyn()->check(TokenKind::OpRBrace) {
-            full_range = start_range | dyn()->current_ptr()->range;
+            core.range = start_range | dyn()->current_ptr()->range;
             dyn()->advance(T::SkipNL::Before); // consume `}`
         } else {
             dyn()->diag->report(DiagID::S057E, lbrace_range.start,
                 "expected '}' to close match statement"
             ).first(lbrace_range).emit();
-            full_range = start_range | dyn()->prev().range;
+            core.range = start_range | dyn()->prev().range;
         }
 
-        var node = MatchStmt::create(dyn()->ctx, full_range, scrutinee);
-        node->cases.from_buf(cases.data(), cases.size(), dyn()->ctx);
+        core.scrutinee = scrutinee;
+        core.cases.from_buf(cases.data(), cases.size(), dyn()->ctx);
+        if has_block && has_value { core.form = MatchForm::Mixed; }
+        else if has_value         { core.form = MatchForm::AllValue; }
+        core.ok = true;
 
         dyn()->exit_depth();
-        return static_cast::<*Stmt>(node);
+        return core;
     }
 
     /// \brief parses a single match case or default arm.
-    ///  Grammar:  'case' pattern (',' pattern)* ('where' expr)? block
-    ///          | 'default' block
+    ///  Grammar:  'case' pattern (',' pattern)* ('where' expr)? NL* arm_body
+    ///          | 'default' NL* arm_body
+    ///    arm_body := block | '=>' NL* value
     ///
-    /// \details returns a MatchCase whose `body` is null on a structural parse
-    ///          failure (caller recovers). Pattern alternatives share one body;
+    /// \details `{` makes a statement arm (`body`), `=>` a value arm
+    ///          (`expression`), and `form` says which. On success exactly one
+    ///          of the two is non-null; both null is a structural parse
+    ///          failure (caller recovers). Pattern alternatives share one arm;
     ///          the `where` guard, if present, applies to the whole arm.
-    priv fn _parse_match_case(self) -> MatchCase {
+    priv fn _parse_match_case(self, form: *ArmForm) -> MatchCase {
         var result = MatchCase{};
         result.guard      = &null;
         result.body       = &null;
+        result.expression = &null;
         result.is_default = false;
 
         var start_range = dyn()->current_ptr()->range;
+        var pats: std::StackBuf::<*Pattern, 4>;
+        var after: string = "pattern";
 
-        // default arm
         if dyn()->check(TokenKind::KwDefault) {
+            // default arm: patterns left empty
             dyn()->advance(T::SkipNL::After); // consume `default`
             result.is_default = true;
-
-            if !dyn()->check(TokenKind::OpLBrace) {
-                dyn()->diag->report(DiagID::S056E, start_range.start,
-                    "expected '{' after 'default' in match"
+            after = "\x27default\x27";
+        } else {
+            // case arm
+            if !dyn()->check(TokenKind::KwCase) {
+                dyn()->diag->report(DiagID::S059E, start_range.start,
+                    "expected 'case' or 'default' in match body"
                 ).first(start_range).emit();
                 return result; // body stays null
             }
+            dyn()->advance(T::SkipNL::After); // consume `case`
+
+            while !dyn()->is_eof() {
+                var p = self._parse_pattern();
+                pats.push_back(p);
+                if dyn()->check(TokenKind::OpComma) {
+                    dyn()->advance(T::SkipNL::After);
+                    continue;
+                }
+                break;
+            }
+
+            // optional `where` guard
+            if dyn()->check(TokenKind::KwWhere) {
+                dyn()->advance(T::SkipNL::After); // consume `where`
+                var guard = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+                if (guard == &null) || (is_recovery(guard)) {
+                    self._sync_stmt(StmtSyncCtx::Block, 0);
+                    return result; // body stays null
+                }
+                dyn()->_require_parens(guard);
+                result.guard = guard;
+            }
+        }
+        result.patterns.from_buf(pats.data(), pats.size(), dyn()->ctx);
+
+        // statement arm
+        if dyn()->_skip_nl_if_next(TokenKind::OpLBrace) {
+            (*form)      = ArmForm::Block;
             result.body  = self.parse_compound();
             result.range = start_range | result.body->range;
-            // patterns left empty; caller must from_buf it.
-            result.patterns.from_buf(static_cast::<*(*Pattern)>(&null), 0, dyn()->ctx);
             return result;
         }
 
-        // case arm
-        if !dyn()->check(TokenKind::KwCase) {
-            dyn()->diag->report(DiagID::S059E, start_range.start,
-                "expected 'case' or 'default' in match body"
-            ).first(start_range).emit();
-            return result; // body stays null
+        // value arm; the next `case`, `default` or the closing `}` ends it.
+        var value: *Expr = &null;
+        if dyn()->_skip_nl_if_next(TokenKind::OpFatArrow) {
+            value = dyn()->_parse_arm_value(T::ExprStopKind::StopBrace);
+        } else {
+            value = dyn()->_expect_arrow_recover(after, T::ExprStopKind::StopBrace);
         }
-        dyn()->advance(T::SkipNL::After); // consume `case`
-
-        var pats: std::StackBuf::<*Pattern, 4>;
-
-        while !dyn()->is_eof() {
-            var p = self._parse_pattern();
-            pats.push_back(p);
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->advance(T::SkipNL::After);
-                continue;
-            }
-            break;
+        if value == &null {
+            return result; // both stay null
         }
-
-        // optional `where` guard
-        if dyn()->check(TokenKind::KwWhere) {
-            dyn()->advance(T::SkipNL::After); // consume `where`
-            var guard = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
-            if (guard == &null) || (is_recovery(guard)) {
-                self._sync_stmt(StmtSyncCtx::Block, 0);
-                return result; // body stays null
-            }
-            result.guard = guard;
-        }
-
-        if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S056E, start_range.start,
-                "expected '{' after match case pattern"
-            ).first(start_range).emit();
-            return result; // body stays null
-        }
-        result.body  = self.parse_compound();
-        result.range = start_range | result.body->range;
-        result.patterns.from_buf(pats.data(), pats.size(), dyn()->ctx);
+        (*form)           = ArmForm::Value;
+        result.expression = value;
+        result.range      = start_range | value->range;
         return result;
     }
 

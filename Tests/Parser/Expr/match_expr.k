@@ -14,8 +14,8 @@
 // AST-NEXT:         `-UnaryOperatorExpr prefix -
 // AST-NEXT:           `-IntegerLiteralExpr 1
 x = match named {
-    case .Point { 0 }
-    case .Circle(var r) where r > 1.0 { 1 }
-    case .Rect(var w, var h) { 2 }
-    default { -1 }
+    case .Point => 0
+    case .Circle(var r) where r > 1.0 => 1
+    case .Rect(var w, var h) => 2
+    default => -1
 }

@@ -19,7 +19,7 @@ fn quals(c: bool) {
     var y = *p
     var a = &(*p)
     var s = *p + 1
-    var j = if c { *p } else { x }
+    var j = if c => *p else => x
     var t: T = &x
     *p = 2
     const k: i32 = 1

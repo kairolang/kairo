@@ -394,14 +394,18 @@ class <T> PatternParse {
     }
 
     /// the upper bound of a range: a full runtime expression. Stop at the case
-    /// boundary so we don't eat the next alternation arm (`,`) or the case body
-    /// (`{`). `where` ends the expr naturally (not an infix continuation).
+    /// boundary so we don't eat the next alternation arm (`,`) or the arm body
+    /// (`{` or `=>`). `where` and `=>` end the expr naturally (neither is an
+    /// infix continuation). NoStructLiteral keeps `case 0..N { }` from reading
+    /// `N { }` as a named initializer: the brace is the arm's block.
     priv fn _parse_range_hi(self) -> *Expr {
         if dyn()->is_eof() { return &null; }
-        // an open-upper range `lo..` is followed by the case body `{`, a guard
-        // `where`, the next arm `,`, or end. None can start the upper bound.
+        // an open-upper range `lo..` is followed by the arm body `{` / `=>`, a
+        // guard `where`, the next alternative `,`, or end. None can start the
+        // upper bound.
         var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
         if k == TokenKind::OpLBrace
+        || k == TokenKind::OpFatArrow
         || k == TokenKind::OpComma
         || k == TokenKind::KwWhere
         || k == TokenKind::TkNewLine {
@@ -409,7 +413,8 @@ class <T> PatternParse {
         }
         var hi = dyn()->parse_expr(static_cast::<T::ExprStopKind>(
             static_cast::<u8>(T::ExprStopKind::StopComma)
-          | static_cast::<u8>(T::ExprStopKind::StopBrace)));
+          | static_cast::<u8>(T::ExprStopKind::StopBrace)
+          | static_cast::<u8>(T::ExprStopKind::NoStructLiteral)));
         if (hi == &null) || is_recovery(hi) { return &null; }
         return hi;
     }

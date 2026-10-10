@@ -50,10 +50,10 @@ fn main() -> i32 {
     var sum    = a + b                              // { 4, 6 }
     var scaled = 2.0 * sum                          // { 8, 12 }      -> 20
     var neg    = -sum                               // { -4, -6 }     -> -10
-    var ne: i32  = if sum != a { 1 } else { 0 }     // derived !=     -> 1
-    var lt: i32  = if a < b { 1 } else { 0 }        // derived <      -> 1
-    var ge: i32  = if a >= b { 1 } else { 0 }       // derived >=     -> 0
-    var has: i32 = if 4.0 in sum { 1 } else { 0 }   // op in          -> 1
+    var ne: i32  = if sum != a => 1 else => 0       // derived !=     -> 1
+    var lt: i32  = if a < b => 1 else => 0          // derived <      -> 1
+    var ge: i32  = if a >= b => 1 else => 0         // derived >=     -> 0
+    var has: i32 = if 4.0 in sum => 1 else => 0     // op in          -> 1
     sum += a                                        // sum = sum + a  -> { 5, 8 }
     var old = sum++                                 // old { 5, 8 } -> 13, sum { 6, 8 } -> 14
 

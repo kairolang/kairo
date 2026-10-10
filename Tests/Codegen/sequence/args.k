@@ -8,7 +8,7 @@ fn one(a: i32) -> i32 { return a }
 fn main() -> i32 {
     var n = 0;
     var c = false;
-    var skipped = if c { f(g(&n), g(&n)) } else { 0 }; // inside the branch: never runs, n stays 0
+    var skipped = if c => f(g(&n), g(&n)) else => 0; // inside the branch: never runs, n stays 0
     var seq = f(g(&n), g(&n));                         // 10 * 100 + 20
     var untouched = one(g(&n));                        // one impure arg: no rewrite, 30
     return seq - 1000 + untouched + skipped            // 20 + 30 == 50

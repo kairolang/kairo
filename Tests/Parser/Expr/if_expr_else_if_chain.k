@@ -23,4 +23,4 @@
 // AST: {{.*}}: error [R020E]:
 // END-GENERATED-CHECKS
 
-fn Test() { var x = if a { 1 } else if b { 2 } else { 3 }; }
+fn Test() { var x = if a => 1 else if b => 2 else => 3; }

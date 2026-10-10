@@ -22,7 +22,7 @@ fn t(a: A, b: B, k: C, c: bool, s: [i32;]) {
     var e1 = want_bool(k)                                        // expect: error not marked implicit
     var e2 = want_i32(b)                                         // expect: error no chain B -> A -> i32
     var e3 = want_i64(a)                                         // expect: error result is not exactly i64
-    var e4 = if c { a } else { 1 }                               // expect: error an arm is not converted
+    var e4 = if c => a else => 1                                 // expect: error an arm is not converted
     want_vec(s)                                                  // expect: error slice to vector allocates
 }
 // expect: no other diagnostics

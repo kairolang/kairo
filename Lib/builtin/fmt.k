@@ -67,7 +67,7 @@ pub class FmtBuf {
         }
         if (FmtBuf::flags_(spec) & 16) != 0 { self.quoted_(s.data, take_n, take_cp, spec); return }
         var width = FmtBuf::width_(spec)
-        var pad: usize = if width > take_cp { width - take_cp } else { 0 }
+        var pad: usize = if width > take_cp => width - take_cp else => 0
         var right = self.pad_open_(pad, spec, 1)
         self.text(s.data, take_n, take_cp)
         self.pad_(right, FmtBuf::fill_(spec))
@@ -90,7 +90,7 @@ pub class FmtBuf {
             return
         }
         var width = FmtBuf::width_(spec)
-        var pad: usize = if width > 1 { width - 1 } else { 0 }
+        var pad: usize = if width > 1 => width - 1 else => 0
         var right = self.pad_open_(pad, spec, 1)
         self.text(&tmp[0], n, 1)
         self.pad_(right, FmtBuf::fill_(spec))
@@ -220,7 +220,7 @@ pub class FmtBuf {
     /// 'g', 'e' or 'E' for the runtime, from the spec's base and upper bits.
     priv static fn conv_(spec: u64) -> u8 {
         if FmtBuf::base_(spec) != 1 { return 103 }                          // g
-        var e: u8 = if (FmtBuf::flags_(spec) & 8) != 0 { 69 } else { 101 }  // E e
+        var e: u8 = if (FmtBuf::flags_(spec) & 8) != 0 => 69 else => 101    // E e
         return e
     }
 
@@ -228,7 +228,7 @@ pub class FmtBuf {
     /// and `inf` / `nan` headroom.
     priv static fn float_cap_(spec: u64) -> usize {
         var prec = FmtBuf::prec_(spec)
-        var p: usize = if prec >= 0 { prec as usize } else { 0 }
+        var p: usize = if prec >= 0 => prec as usize else => 0
         return p + 48
     }
 
@@ -307,7 +307,7 @@ pub class FmtBuf {
 
     priv static fn width_(spec: u64) -> usize { return (spec & 0xFFFF) as usize }
     priv static fn prec_(spec: u64)  -> isize { return (((spec >> 16) & 0xFFFF) as isize) - 1 }
-    priv static fn fill_(spec: u64)  -> u32   { var f = ((spec >> 32) & 0x1FFFFF) as u32; return if f != 0 { f } else { 32 } }
+    priv static fn fill_(spec: u64)  -> u32   { var f = ((spec >> 32) & 0x1FFFFF) as u32; return if f != 0 => f else => 32 }
     priv static fn align_(spec: u64) -> u64   { return (spec >> 53) & 3 }
     priv static fn base_(spec: u64)  -> u64   { return (spec >> 55) & 3 }
     priv static fn flags_(spec: u64) -> u64   { return (spec >> 57) & 31 }
@@ -341,7 +341,7 @@ pub class FmtBuf {
     /// ASCII text of a known length with width and alignment applied.
     priv fn ascii_(self, p: *const u8, n: usize, spec: u64, dflt: u64) {
         var width = FmtBuf::width_(spec)
-        var pad: usize = if width > n { width - n } else { 0 }
+        var pad: usize = if width > n => width - n else => 0
         var right = self.pad_open_(pad, spec, dflt)
         self.text(p, n, n)
         self.pad_(right, FmtBuf::fill_(spec))
@@ -351,7 +351,7 @@ pub class FmtBuf {
 
     priv static fn digit_(d: u8, upper: bool) -> u8 {
         if d < 10 { return 48 + d }
-        return (if upper { 55 } else { 87 }) + d          // 'A' - 10 / 'a' - 10
+        return (if upper => 55 else => 87) + d            // 'A' - 10 / 'a' - 10
     }
 
     /// Sign, `0x`/`0o`/`0b`, zero-padding after them, fill-padding around
@@ -362,10 +362,10 @@ pub class FmtBuf {
         var base  = FmtBuf::base_(spec)
         var sign: u8 = 0
         if neg { sign = 45 } else if (flags & 1) != 0 { sign = 43 }          // '-' '+'
-        var pfx: usize = if (flags & 2) != 0 { if base != 0 { 2 } else { 0 } } else { 0 }
-        var body  = n + pfx + (if sign != 0 { 1 } else { 0 })
+        var pfx: usize = if (flags & 2) != 0 => (if base != 0 => 2 else => 0) else => 0
+        var body  = n + pfx + (if sign != 0 => 1 else => 0)
         var width = FmtBuf::width_(spec)
-        var pad: usize = if width > body { width - body } else { 0 }
+        var pad: usize = if width > body => width - body else => 0
         var right: usize = 0
 
         if (flags & 4) != 0 {
@@ -387,7 +387,7 @@ pub class FmtBuf {
         self.byte_(48)
         // Bound first: an argument is typed before the parameter is known, so
         // the literals in an inline `if` would settle as i32.
-        var x: u8 = if (flags & 8) != 0 { 88 } else { 120 }                    // X x
+        var x: u8 = if (flags & 8) != 0 => 88 else => 120                      // X x
         if base == 1      { self.byte_(x) }
         else if base == 2 { self.byte_(111) }                                     // o
         else              { self.byte_(98)  }                                     // b

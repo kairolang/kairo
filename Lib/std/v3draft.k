@@ -445,11 +445,10 @@ module core {
         }
 
         fn try_alloc(self, size: usize, align: usize) -> unsafe *u8? {
-            return if align <= __builtin_max_align() {
+            return if align <= __builtin_max_align() =>
                 __builtin_alloc(size)
-            } else {
+            else =>
                 __builtin_alloc_align(size, align)
-            }
         }
 
         fn realloc(self, ptr: unsafe *u8, old_size: usize, new_size: usize,

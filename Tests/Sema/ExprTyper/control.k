@@ -16,12 +16,12 @@
 fn diverge() -> ! { panic 1 }
 
 fn joins(c: bool, i: i32) {
-    var same     = if c { 1 } else { 2 };
-    var one_side = if c { 1 } else { diverge() };  // the live arm decides
-    var to_float = if c { 1 } else { 1.5 };        // the literal takes f64
+    var same     = if c => 1 else => 2;
+    var one_side = if c => 1 else => diverge();    // the live arm decides
+    var to_float = if c => 1 else => 1.5;          // the literal takes f64
     var matched  = match i {
-        case 1 { 10 }
-        default { 20 }
+        case 1 => 10
+        default => 20
     };
 }
 

@@ -11,4 +11,4 @@
 // AST-NEXT:       `-catch
 // AST-NEXT:         `-UnaryOperatorExpr prefix -
 // AST-NEXT:           `-IntegerLiteralExpr 2
-x = try { risky() } catch e: Io::Error { -1 } catch { -2 }
+x = try risky() catch e: Io::Error => -1 catch => -2

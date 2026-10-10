@@ -81,11 +81,10 @@ module core {
 
     class LibcAllocator impl Allocator, ScopedAllocator /* we satisfy both interfaces */ {
         fn alloc(self, size: usize, align: usize) -> *void {
-            var ptr: *void = if align <= __builtin_max_align() {
+            var ptr: *void = if align <= __builtin_max_align() =>
                 __builtin_alloc(size)
-            } else {
+            else =>
                 __builtin_alloc_align(size, align)
-            }
             if ptr == &null {
                 __builtin_crash("LibcAllocator: out of memory", 1)
             }
@@ -93,11 +92,10 @@ module core {
         }
 
         fn try_alloc(self, size: usize, align: usize) -> *void? {
-            return if align <= __builtin_max_align() {
+            return if align <= __builtin_max_align() =>
                 __builtin_alloc(size)
-            } else {
+            else =>
                 __builtin_alloc_align(size, align)
-            }
         }
 
         fn realloc(self, ptr: *void, old_size: usize, new_size: usize, align: usize) -> bool {

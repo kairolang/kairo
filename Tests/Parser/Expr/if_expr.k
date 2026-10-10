@@ -13,4 +13,4 @@
 // AST-NEXT:       | `-IntegerLiteralExpr 10
 // AST-NEXT:       `-else
 // AST-NEXT:         `-IntegerLiteralExpr 20
-x = if a || b || c { 10 } else { 20 }
+x = if a || b || c => 10 else => 20

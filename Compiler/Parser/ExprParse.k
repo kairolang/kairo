@@ -55,6 +55,15 @@ class <T> ExprParse {
         TokenKind::BiModule
     };
 
+    /// `if`/`try` expressions written inside grouping `( )`; see
+    /// _was_parenthesized.
+    priv var _parened_open: vec::<*Expr>;
+
+    /// 1 + the token index at which a `try` would be the bare operand or
+    /// catch-arm value of an enclosing `try`; 0 when there is none. See
+    /// _parse_try_catch_expr.
+    priv var _bare_try_at: usize = 0;
+
     enum ExprSyncCtx derives u8 {
         TopLevel,   ///< sync to newline, ;, EOF
         Paren,      ///< sync to ) at depth 0
@@ -277,6 +286,7 @@ class <T> ExprParse {
 
                 // right-associative: recurse at prec - 1
                 rhs = self._parse_expr_prec(rhs, static_cast::<Precedence>(static_cast::<u8>(prec) - 1), stop);
+                self._warn_open_operand(rhs);
 
                 lhs = BinaryOperatorExpr::create(
                     dyn()->ctx,
@@ -299,6 +309,7 @@ class <T> ExprParse {
                 }
                 // right-associative: recurse at prec - 1
                 rhs = self._parse_expr_prec(rhs, static_cast::<Precedence>(static_cast::<u8>(prec) - 1), stop);
+                self._warn_open_operand(rhs);
                 lhs = BinaryOperatorExpr::create(
                     dyn()->ctx,
                     lhs->range | rhs->range,
@@ -346,6 +357,7 @@ class <T> ExprParse {
 
             // left-associative: recurse at current precedence (strictly greater binds tighter)
             rhs = self._parse_expr_prec(rhs, prec, stop);
+            self._warn_open_operand(rhs);
 
             lhs = BinaryOperatorExpr::create(
                 dyn()->ctx,
@@ -394,6 +406,8 @@ class <T> ExprParse {
     ///          statement. `{` ends it where a brace cannot open a literal
     ///          (an `if`/`while` condition, a `for` header): there it is the
     ///          body, and reading it as a bound took the body for an operand.
+    ///          `=>` ends it as well: it introduces an arm's value and can
+    ///          never begin one (`case 5.. => 1`, `if x in 0.. => a ...`).
     priv fn _range_has_upper(self, stop: ExprStopKind) -> bool {
         if dyn()->is_eof() || self._should_stop(stop) { return false; }
 
@@ -421,7 +435,8 @@ class <T> ExprParse {
         || k == TokenKind::KwWhile
         || k == TokenKind::KwElse
         || k == TokenKind::KwCase
-        || k == TokenKind::KwDefault {
+        || k == TokenKind::KwDefault
+        || k == TokenKind::OpFatArrow {
             return false;
         }
 
@@ -457,6 +472,7 @@ class <T> ExprParse {
             // don't recurse range is non-associative (a..b..c is illegal)
             // but do parse higher-precedence ops on the rhs
             rhs = self._parse_expr_prec(rhs, Precedence::Range, stop);
+            self._warn_open_operand(rhs);
         }
 
         var end_range = (rhs->range) if (rhs != &null) else op_range;
@@ -754,6 +770,7 @@ class <T> ExprParse {
                 ).first(cur_range).emit();
                 return self._error_expr(cur_range);
             }
+            self._warn_open_operand(operand);
 
             return UnaryOperatorExpr::create(
                 dyn()->ctx,
@@ -1966,12 +1983,12 @@ class <T> ExprParse {
 
         // -- keyword prefix: if --------------------------------------
         if dyn()->check(TokenKind::KwIf)  {
-            return self._parse_if_expr();
+            return self._parse_if_expr(stop);
         }
 
         // -- keyword prefix: try -------------------------------------
         if dyn()->check(TokenKind::KwTry) {
-            return self._parse_try_catch_expr();
+            return self._parse_try_catch_expr(stop);
         }
 
         // -- keyword prefix: match -----------------------------------
@@ -2255,6 +2272,10 @@ class <T> ExprParse {
         dyn()->nl_pop();
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance_raw(); // consume `)` keep trailing NL significant
+            // the parens leave no node; remember them for _is_open_form.
+            if isa::<IfExpr>(first) || isa::<TryCatchExpr>(first) {
+                self._parened_open.push_back(first);
+            }
             return first;
         }
 
@@ -2989,66 +3010,316 @@ class <T> ExprParse {
         }
     }
 
-    // Expression-form branches
+    // Value arms
+    //
+    // The expression forms of `if`, `try` and `match` give each arm its value
+    // with `=>`, which introduces exactly one value expression. A `{ }` after a
+    // control keyword is always a statement block; the braced value arm is the
+    // removed spelling and only survives as recovery (_recover_braced_branch).
 
-    /// \brief parses a single braced expression branch: '{' expr '}'
-    /// \details shared by IfExpr and TryCatchExpr (and MatchExpr later). Exactly
-    ///          one expression per branch; a statement or a second expression
-    ///          inside the braces is a hard error. Returns null on any failure
-    ///          so the caller can recover.
-    priv fn _parse_expr_branch(self) -> *Expr {
-        if !dyn()->check(TokenKind::OpLBrace) {
-            var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S054E, r.start,
-                "expected '{' to begin an expression branch"
-            ).first(r).emit();
-            return &null;
+    /// \brief what a braced arm stood for, which decides the S073E fix-it.
+    enum BraceArm derives u8 {
+        Value,      ///< an arm value: `{ v }` becomes `=> v`.
+        TryOperand, ///< a `try` operand: `{ v }` becomes `v`.
+    }
+
+    /// \brief the kind of the next token that is not a newline, `skip` real
+    ///        tokens ahead of the cursor. Consumes nothing. Comments are
+    ///        stepped over too: the cursor never rests on one, so neither may
+    ///        the lookahead.
+    pub fn _peek_kind_past_nl(self, skip: usize = 0) -> TokenKind {
+        var i    = dyn()->c_idx;
+        var left = skip;
+        while i < dyn()->span.size() {
+            var k = dyn()->resolve_kind_deep(dyn()->span.get(i));
+            if (k != TokenKind::TkNewLine) && (k != TokenKind::AtComment) {
+                if left == 0 { return k; }
+                --left;
+            }
+            ++i;
         }
-        var lbrace = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `{`
+        return TokenKind::TkEof;
+    }
 
-        // empty branch `{ }` has no value.
-        if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S054E, lbrace.start,
-                "expression branch must contain a value expression"
-            ).first(lbrace).emit();
-            return &null;
-        }
-
-        var value = dyn()->parse_expr(T::ExprStopKind::StopBrace);
-        if (value == &null) || is_recovery(value) {
-            return &null;
-        }
-
-        // The branch value may be written on its own line:
-        //     if c {
-        //         expr
-        //     } else { ... }
-        // `parse_expr` stops at the newline that ends `expr`, so the closer is
-        // not the current token yet. Drop the trailing newlines before testing
-        // for `}`; a second *expression* still fails the check below, which is
-        // the rule we actually want to enforce.
+    /// \brief if the next non-newline token is `k`, consume the newlines in
+    ///        front of it and return true; otherwise consume nothing.
+    /// \details only ever asked for `=>`, `else` and `catch`. None of them can
+    ///          begin a statement, and the value forms require their `else`,
+    ///          so looking past a newline for one can never take the start of
+    ///          the next statement.
+    pub fn _skip_nl_if_next(self, k: TokenKind) -> bool {
+        if self._peek_kind_past_nl() != k { return false; }
         dyn()->advance(T::SkipNL::Only);
+        return true;
+    }
 
-        if !dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S054E, lbrace.start,
-                "expression-form branch allows exactly one expression; "
-                "use a statement form for multi-statement bodies"
-            ).first(lbrace).emit();
-            return &null;
+    /// \brief '=>' NL* value.
+    /// \details precondition: current token is `=>`. The value runs as far
+    ///          right as `stop` lets it, so callers pass the flags of the
+    ///          context the whole construct sits in: without them the last arm
+    ///          of `f(if c => 1 else => 2, 3)` swallows `, 3`. Newlines inside
+    ///          the value follow the ordinary expression rules. `bare_try`
+    ///          marks the value as a slot where a nested `try` takes the arms
+    ///          that follow it (see _parse_try_catch_expr). Returns null, after
+    ///          reporting, when no value follows.
+    pub fn _parse_arm_value(self, stop: ExprStopKind, bare_try: bool = false) -> *Expr {
+        var arrow = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `=>`
+
+        if bare_try { self._bare_try_at = dyn()->c_idx + 1; }
+        var value = self.parse_expr(stop);
+        if bare_try { self._bare_try_at = 0; }
+
+        if value == &null {
+            dyn()->diag->report(DiagID::S052E, arrow.start,
+                "expected a value expression after '=>\x27"
+            ).first(arrow).emit();
         }
-        dyn()->advance(T::SkipNL::Before); // consume `}`
         return value;
     }
 
+    /// \brief S074E: the arm's `=>` is missing. Fix-it inserts it at the
+    ///        cursor; then the value is parsed as if it were there, so a lone
+    ///        forgotten `=>` costs one diagnostic and no cascade.
+    pub fn _expect_arrow_recover(self, after: string, stop: ExprStopKind) -> *Expr {
+        var at = dyn()->current_ptr()->range;
+        var b  = dyn()->diag->report(DiagID::S074E, at.start, f"expected '=>' after {after}");
+        b.first(at);
+        b.insert(at.start, "=> ", "insert '=>\x27");
+        b.emit();
+
+        var k = dyn()->ig_kind();
+        if (k == TokenKind::TkNewLine) || (k == TokenKind::KwElse) || (k == TokenKind::KwCatch)
+        || (k == TokenKind::KwCase) || (k == TokenKind::KwDefault) {
+            return &null;
+        }
+        return self.parse_expr(stop);
+    }
+
+    /// \brief a token that can only begin a statement, never a value, so a
+    ///        braced arm starting with it is a statement body.
+    priv fn _starts_statement_only(self, k: TokenKind) -> bool {
+        return (k == TokenKind::KwVar)
+            || (k == TokenKind::KwConst)
+            || (k == TokenKind::KwPanic)
+            || (k == TokenKind::KwYield)
+            || (k == TokenKind::KwAssert)
+            || self._is_decl_keyword(k);
+    }
+
+    /// \brief line of a location, for fix-its that must not join lines.
+    priv fn _line_of(self, loc: SourceLocation) -> u32 {
+        return dyn()->ctx->sm->get_line_col(loc).line;
+    }
+
+    /// \brief RECOVERY ONLY: a braced value arm `{ expr }`, the removed
+    ///        spelling of a value arm (or of a `try` operand).
+    ///
+    /// \details precondition: current token is `{`. Reports S073E, then
+    ///          parses the braces so the enclosing node is still built and
+    ///          later diagnostics still fire. When the braces hold exactly one
+    ///          expression the fix-it rewrites the arm to `=> expr` (`expr`
+    ///          for a `try` operand); anything else is skipped to the matching
+    ///          `}`, gets no fix-it, and yields a recovery node. Never returns
+    ///          null.
+    ///
+    ///          Every brace is parsed ONCE. A body that opens with a
+    ///          statement-only token is skipped unparsed; otherwise its first
+    ///          expression is parsed for real, and when `}` does not follow it
+    ///          the rest of the block is skipped. A speculative parse to decide
+    ///          first, then the real one, would double the work at every
+    ///          nesting level -- 2^depth for braced arms inside braced arms.
+    pub fn _recover_braced_branch(self, kind: BraceArm) -> *Expr {
+        var lbrace = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `{`
+
+        var value: *Expr = &null;
+        var last_end      = lbrace.end;    // end of the value's last token
+        if (!dyn()->check(TokenKind::OpRBrace)) && (!self._starts_statement_only(dyn()->ig_kind())) {
+            value = self.parse_expr(ExprStopKind::StopBrace);
+            if (value == &null) || is_recovery(value) {
+                value = &null;
+            } else {
+                last_end = dyn()->prev().range.end;
+                // the value may sit on its own line inside the braces; a
+                // second statement after it makes the body a statement block.
+                if !self._skip_nl_if_next(TokenKind::OpRBrace) { value = &null; }
+            }
+        }
+
+        var rbrace = SourceRange::invalid();
+        if value != &null {
+            rbrace = dyn()->current_ptr()->range;
+            dyn()->advance(); // consume `}`, keep the trailing newline
+        } else {
+            rbrace = self._skip_to_matching_brace();
+        }
+
+        var b = dyn()->diag->report(DiagID::S073E, lbrace.start,
+            "value arms are written '=> expr'; '{ }' arms are statement-only");
+        b.first(lbrace);
+
+        if value != &null {
+            var same_open = self._line_of(lbrace.start) == self._line_of(value->range.start);
+
+            // `{` and the space after it become `=> `. A value on the next
+            // line keeps its line: only the brace is replaced.
+            var open_end = (value->range.start) if (same_open) else (lbrace.end);
+            var open     = SourceRange(lbrace.start, open_end);
+            if kind == BraceArm::Value {
+                var arrow = ("=> ") if (same_open) else ("=>");
+                b.fix(open, arrow, "replace '{' with '=>\x27");
+            } else {
+                b.remove(open, "remove '{\x27");
+            }
+
+            // `}` goes with the space in front of it when it shares the
+            // value's line (`{ 1 } else` -> `1 else`). A `}` on its own line
+            // in front of more code takes the space after it instead
+            // (`} else {` -> `else {`); one that ends its line joins it.
+            // Measured from the value's last TOKEN, not its range: a braced
+            // arm nested in this one ends at its own `}`, which its own
+            // fix-it removes, and the two edits must not overlap.
+            var close = SourceRange(last_end, rbrace.end);
+            if self._line_of(rbrace.start) != self._line_of(last_end) {
+                var nxt = dyn()->current_ptr();
+                if (nxt != &null) && (nxt->kind != TokenKind::TkNewLine)
+                && (self._line_of(nxt->range.start) == self._line_of(rbrace.start)) {
+                    close = SourceRange(rbrace.start, nxt->range.start);
+                }
+            }
+            b.remove(close, "remove '}\x27");
+        } else {
+            b.note(lbrace.start,
+                "multi-statement arms are statement-only; use a statement form or a '({ ... })' statement expression");
+        }
+
+        if kind == BraceArm::TryOperand {
+            b.note(lbrace.start,
+                "to 'try' a brace expression (a set literal or an anonymous initializer), parenthesize it: 'try ({ ... })\x27");
+        }
+        b.emit();
+
+        if value != &null { return value; }
+        return self._error_expr(lbrace | rbrace);
+    }
+
+    /// \brief recovery: skip to the `}` matching an already-consumed `{`,
+    ///        consume it, and return its range. Delimiter-aware.
+    priv fn _skip_to_matching_brace(self) -> SourceRange {
+        var depth: i32 = 0;
+        while !dyn()->is_eof() {
+            var k = dyn()->ig_kind();
+            if (k == TokenKind::OpLBrace) || (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
+                ++depth;
+            } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
+                --depth;
+            } else if k == TokenKind::OpRBrace {
+                if depth == 0 {
+                    var r = dyn()->current_ptr()->range;
+                    dyn()->advance(); // consume `}`
+                    return r;
+                }
+                --depth;
+            }
+            dyn()->advance();
+        }
+        return dyn()->prev().range;
+    }
+
+    //  Readability rules for the open-ended forms
+    //
+    //  The last arm of an `if` or `try` expression runs to the end of the
+    //  surrounding expression (a `match` closes with `}` and never does). Where
+    //  such an expression sits in front of more of an enclosing construct, which
+    //  construct the next `else` / `=>` / `catch` belongs to is a guess for the
+    //  reader, so S077E requires parentheses; as an operator's operand the parse
+    //  is merely easy to misread, so S078W only warns.
+
+    /// \brief an `if` or `try` expression that is not wrapped in `( )`.
+    pub fn _is_open_form(self, e: *Expr) -> bool {
+        if (e == &null) || is_recovery(e) { return false; }
+        if (!isa::<IfExpr>(e)) && (!isa::<TryCatchExpr>(e)) { return false; }
+        return !self._was_parenthesized(e);
+    }
+
+    /// \brief grouping parens leave no node behind (_parse_paren_expr returns
+    ///        the inner expression), so the open forms written inside them are
+    ///        recorded by identity as they are unwrapped.
+    /// \details no parse mode builds ParenExpr today (Verbatim fidelity is
+    ///          unimplemented). If one does, the node at every check site is
+    ///          then the ParenExpr itself, which _is_open_form already rejects,
+    ///          so S077E / S078W / S079W come out the same either way.
+    priv fn _was_parenthesized(self, e: *Expr) -> bool {
+        var i = self._parened_open.size();
+        while i > 0 {
+            --i;
+            if self._parened_open[i] == e { return true; }
+        }
+        return false;
+    }
+
+    priv fn _open_form_name(self, e: *Expr) -> string {
+        return ("a 'try\x27") if (isa::<TryCatchExpr>(e)) else ("an 'if\x27");
+    }
+
+    /// \brief the two zero-width insertions that wrap `e` in parentheses.
+    priv fn _paren_fixits(self, b: *DiagBuilder, e: *Expr) {
+        b->insert(e->range.start, "(", "insert '(\x27");
+        b->insert(e->range.end, ")", "insert ')\x27");
+    }
+
+    /// \brief S077E when `e` is an unparenthesized `if`/`try` in a position
+    ///        that must not hold one (an `if` arm or condition, a `where`
+    ///        guard, a `try` operand or non-final catch arm, a scrutinee).
+    pub fn _require_parens(self, e: *Expr) {
+        if !self._is_open_form(e) { return; }
+        var b = dyn()->diag->report(DiagID::S077E, e->range.start,
+            f"{self._open_form_name(e)} expression here must be parenthesized");
+        b.first(e->range);
+        self._paren_fixits(&b, e);
+        b.emit();
+    }
+
+    /// \brief S077E for a `try` nested bare inside another `try`. It took
+    ///        every `catch` after it, so the split the user meant cannot be
+    ///        recovered and there is no fix-it.
+    priv fn _report_try_in_try(self, inner: *Expr) {
+        var b = dyn()->diag->report(DiagID::S077E, inner->range.start,
+            "a 'try' expression here must be parenthesized");
+        b.first(inner->range);
+        b.note(inner->range.start,
+            "the inner 'try' took every following 'catch' arm; parenthesize the inner 'try' and its own arms");
+        b.emit();
+    }
+
+    /// \brief S078W when an operator's operand is an unparenthesized `if`/`try`.
+    /// \details assignment operators and initializers never come here: their
+    ///          right side runs to the end of the expression anyway.
+    priv fn _warn_open_operand(self, e: *Expr) {
+        if !self._is_open_form(e) { return; }
+        var what = ("try") if (isa::<TryCatchExpr>(e)) else ("if");
+        var b    = dyn()->diag->report(DiagID::S078W, e->range.start,
+            f"this '{what}' expression extends to the end of the expression");
+        b.first(e->range);
+        self._paren_fixits(&b, e);
+        b.emit();
+    }
+
     /// \brief parses an expression-form if.
-    ///  Grammar:  'if' expr '{' expr '}' ('else' 'if' expr '{' expr '}')* 'else' '{' expr '}'
+    ///  Grammar:  'if' cond NL* '=>' NL* value
+    ///            (NL* 'else' NL* 'if' cond NL* '=>' NL* value)*
+    ///            NL* 'else' NL* '=>' NL* value
+    ///    cond  := expr (NoStructLiteral)
+    ///    value := expr (the stop flags of the surrounding context)
     ///
     /// \details called from _parse_primary_expr on KwIf. Conditions parse with
-    ///          NoStructLiteral so `if Foo { }` is not read as a named init.
-    ///          Each body is a single expression. The final `else` is mandatory
-    ///          and parser-enforced.
-    priv fn _parse_if_expr(self) -> *Expr {
+    ///          NoStructLiteral so `if Foo => ...` is not read as a named init.
+    ///          The final `else` is mandatory and parser-enforced. The rest of
+    ///          the construct is _finish_if_expr, shared with the statement
+    ///          parser, which only learns it holds a value form once it sees
+    ///          the `=>` after the condition.
+    priv fn _parse_if_expr(self, stop: ExprStopKind) -> *Expr {
         var start_range = dyn()->current_ptr()->range;
 
         if !dyn()->enter_depth() {
@@ -3063,19 +3334,43 @@ class <T> ExprParse {
             dyn()->exit_depth();
             return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
+        self._require_parens(condition);
 
-        // primary then-branch
-        var then_expr = self._parse_expr_branch();
+        var node = self._finish_if_expr(start_range, condition, stop);
+        dyn()->exit_depth();
+        return node;
+    }
+
+    /// \brief one arm of an `if` expression after its condition (or `else`):
+    ///        `=> value`, the removed `{ value }`, or S074E.
+    priv fn _parse_if_arm(self, stop: ExprStopKind, after: string) -> *Expr {
+        if self._skip_nl_if_next(TokenKind::OpFatArrow) {
+            return self._parse_arm_value(stop);
+        }
+        if dyn()->check(TokenKind::OpLBrace) {
+            return self._recover_braced_branch(BraceArm::Value);
+        }
+        return self._expect_arrow_recover(after, stop);
+    }
+
+    /// \brief the `if` expression after its primary condition: the then-arm,
+    ///        the else-if arms and the mandatory final else.
+    /// \details precondition: the condition is parsed and checked; the caller
+    ///          owns enter_depth/exit_depth. `stop` is the context's flags,
+    ///          used for every arm value.
+    pub fn _finish_if_expr(self, start_range: SourceRange, condition: *Expr, stop: ExprStopKind) -> *Expr {
+        // primary then-arm
+        var then_expr = self._parse_if_arm(stop, "condition");
         if then_expr == &null {
-            dyn()->exit_depth();
             return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
+        self._require_parens(then_expr);
 
         var else_ifs:  std::StackBuf::<IfExpr::ElseIf, 4>;
         var else_expr: *Expr = &null;
 
         // else / else-if chain
-        while dyn()->check(TokenKind::KwElse) {
+        while self._skip_nl_if_next(TokenKind::KwElse) {
             dyn()->advance(T::SkipNL::After); // consume `else`
 
             if dyn()->check(TokenKind::KwIf) {
@@ -3085,15 +3380,15 @@ class <T> ExprParse {
 
                 var ei_cond = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
                 if (ei_cond == &null) || is_recovery(ei_cond) {
-                    dyn()->exit_depth();
                     return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
                 }
+                self._require_parens(ei_cond);
 
-                var ei_body = self._parse_expr_branch();
+                var ei_body = self._parse_if_arm(stop, "condition");
                 if ei_body == &null {
-                    dyn()->exit_depth();
                     return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
                 }
+                self._require_parens(ei_body);
 
                 var arm = IfExpr::ElseIf{};
                 arm.condition = ei_cond;
@@ -3103,10 +3398,25 @@ class <T> ExprParse {
                 continue;
             }
 
-            // final `else` branch
-            else_expr = self._parse_expr_branch();
+            // final `else` arm
+            if dyn()->check(TokenKind::OpFatArrow) {
+                var arrow = dyn()->current_ptr()->range;
+                else_expr = self._parse_arm_value(stop);
+
+                // `else => if` is `else if` spelled the long way round.
+                if (else_expr != &null) && isa::<IfExpr>(else_expr) && self._is_open_form(else_expr) {
+                    var b = dyn()->diag->report(DiagID::S079W, arrow.start, "write 'else if\x27");
+                    b.first(arrow);
+                    b.remove(SourceRange(arrow.start, else_expr->range.start), "remove '=>\x27");
+                    b.emit();
+                }
+            } else if dyn()->check(TokenKind::OpLBrace) {
+                else_expr = self._recover_braced_branch(BraceArm::Value);
+            } else {
+                else_expr = self._expect_arrow_recover("'else\x27", stop);
+            }
+
             if else_expr == &null {
-                dyn()->exit_depth();
                 return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
             }
             break; // else is terminal
@@ -3117,28 +3427,38 @@ class <T> ExprParse {
             dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expression-form 'if' requires a final 'else' (every branch must yield a value)"
             ).first(start_range).emit();
-            dyn()->exit_depth();
             return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
 
         var node = IfExpr::create(dyn()->ctx, start_range | else_expr->range, condition, then_expr, else_expr);
         node->else_ifs.from_buf(else_ifs.data(), else_ifs.size(), dyn()->ctx);
-
-        dyn()->exit_depth();
         return static_cast::<*Expr>(node);
     }
 
     /// \brief parses an expression-form try/catch.
-    ///  Grammar:  'try' '{' expr '}'
-    ///            ('catch' ('var'|'const')? ident ':' type '{' expr '}')*
-    ///            ('catch' ('var'|'const')? ident? '{' expr '}')?
+    ///  Grammar:  'try' NL* operand catch_arm+
+    ///    operand   := expr (the stop flags of the surrounding context)
+    ///    catch_arm := NL* 'catch' ('var'|'const')? ident? (':' type)? NL* '=>' NL* value
     ///
-    /// \details at least one catch arm is required (parser-enforced). A default
+    /// \details there is no `=>` after the operand: it ends at `catch`, which
+    ///          is a keyword, not an operator. A bare `try {` here is always
+    ///          the removed braced form (S073E); a brace expression is tried by
+    ///          parenthesizing it. At least one catch arm is required. A default
     ///          arm (filter == null) is terminal: anything after it is an error
-    ///          (this also rejects multiple defaults). Bodies are single
-    ///          expressions.
-    priv fn _parse_try_catch_expr(self) -> *Expr {
+    ///          (this also rejects multiple defaults).
+    ///
+    ///          A `try` that is itself the bare operand or catch-arm value of an
+    ///          enclosing `try` takes every `catch` that follows, since arms are
+    ///          not terminal, so the outer one is left with none. That inner
+    ///          `try` keeps taking arms past its default instead of erroring,
+    ///          and the outer one reports the nesting (S077E, no fix-it) in
+    ///          place of its own "requires at least one 'catch' arm". The slot
+    ///          is identified by token index (`_bare_try_at`), so a `try`
+    ///          inside parentheses, a call or a match body is never mistaken
+    ///          for one.
+    priv fn _parse_try_catch_expr(self, stop: ExprStopKind) -> *Expr {
         var start_range = dyn()->current_ptr()->range;
+        var nested_bare = (dyn()->c_idx + 1) == self._bare_try_at;
 
         if !dyn()->enter_depth() {
             return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range));
@@ -3146,18 +3466,37 @@ class <T> ExprParse {
 
         dyn()->advance(T::SkipNL::After); // consume `try`
 
-        var try_expr = self._parse_expr_branch();
-        if try_expr == &null {
-            dyn()->exit_depth();
-            return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        var try_expr: *Expr = &null;
+        if dyn()->check(TokenKind::OpLBrace) {
+            try_expr = self._recover_braced_branch(BraceArm::TryOperand);
+        } else {
+            self._bare_try_at = dyn()->c_idx + 1;
+            try_expr = self.parse_expr(stop);
+            self._bare_try_at = 0;
+
+            if try_expr == &null {
+                dyn()->diag->report(DiagID::S052E, start_range.start,
+                    "expected an expression after 'try\x27"
+                ).first(start_range).emit();
+                dyn()->exit_depth();
+                return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            }
+        }
+
+        // a bare inner `try` has already taken every arm; see \details.
+        var try_in_try = self._is_open_form(try_expr) && isa::<TryCatchExpr>(try_expr);
+        if try_in_try {
+            self._report_try_in_try(try_expr);
+        } else {
+            self._require_parens(try_expr);
         }
 
         var arms:        std::StackBuf::<TryCatchExpr::CatchArm, 4>;
         var seen_default = false;
 
-        while dyn()->check(TokenKind::KwCatch) {
+        while self._skip_nl_if_next(TokenKind::KwCatch) {
             // a default arm is terminal; another arm after it is an error.
-            if seen_default {
+            if seen_default && (!nested_bare) {
                 var r = dyn()->current_ptr()->range;
                 dyn()->diag->report(DiagID::S054E, r.start,
                     "no catch arm may follow a default 'catch' (the default is terminal)"
@@ -3167,7 +3506,7 @@ class <T> ExprParse {
                 return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
             }
 
-            var arm = self._parse_catch_arm_expr();
+            var arm = self._parse_catch_arm_expr(stop);
             if arm.body == &null {
                 self._sync_to_brace_or_catch();
                 dyn()->exit_depth();
@@ -3180,11 +3519,26 @@ class <T> ExprParse {
         }
 
         if arms.size() == 0 {
-            dyn()->diag->report(DiagID::S054E, start_range.start,
-                "'try' expression requires at least one 'catch' arm"
-            ).first(start_range).emit();
+            if !try_in_try {
+                dyn()->diag->report(DiagID::S054E, start_range.start,
+                    "'try' expression requires at least one 'catch' arm"
+                ).first(start_range).emit();
+            }
             dyn()->exit_depth();
             return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+
+        // every arm but the last sits in front of another `catch`. The last
+        // may hold a bare `try`, unless that one ran past its own default: then
+        // it took arms meant for this one.
+        for var i: usize = 0; i < arms.size(); ++i {
+            var body = arms[i].body;
+            if (i + 1) < arms.size() {
+                self._require_parens(body);
+            } else if self._is_open_form(body) && isa::<TryCatchExpr>(body)
+                   && self._overran_default(cast::<TryCatchExpr>(body)) {
+                self._report_try_in_try(body);
+            }
         }
 
         var node = TryCatchExpr::create(dyn()->ctx, start_range | dyn()->prev().range, try_expr);
@@ -3194,52 +3548,60 @@ class <T> ExprParse {
         return static_cast::<*Expr>(node);
     }
 
+    /// \brief a nested-bare `try` that kept taking arms past its default.
+    priv fn _overran_default(self, t: *TryCatchExpr) -> bool {
+        var n = t->catch_arms.size();
+        for var i: usize = 0; (i + 1) < n; ++i {
+            if (t->catch_arms.get(i))->filter == &null { return true; }
+        }
+        return false;
+    }
+
     /// \brief parses an expression-form match.
-    ///  Grammar:  'match' expr '{' (case|default)+ '}'
+    ///  Grammar:  'match' expr(NoStructLiteral) '{' arm* '}'
+    ///    arm      := 'case' pattern (',' pattern)* ('where' expr)? NL* '=>' NL* value
+    ///              | 'default' NL* '=>' NL* value
+    ///    value    := expr (stop = StopBrace)
     ///
-    /// \details reuses the statement-form match parser, then lifts each case's
-    ///          body into expression position: every branch must be a single
-    ///          ExpressionStmt, whose inner expr becomes the case value. A branch
-    ///          that is empty, multi-statement, a non-expression statement, or a
-    ///          recovery node is an error (the case is dropped to recovery).
-    ///          Exhaustiveness is NOT checked here; sema owns coverage.
+    /// \details the scrutinee, braces, patterns and guards are shared with the
+    ///          statement form through _parse_match_core. Every block arm here
+    ///          is the removed braced spelling and reports S073E; its value is
+    ///          recovered by _recover_case_to_expr. Mixed arms are covered by
+    ///          those per-arm errors, so S075E is never added on top. A match
+    ///          value is closed by its `}` and never extends past it, so no
+    ///          readability rule applies to it. Exhaustiveness is NOT checked
+    ///          here; sema owns coverage.
     priv fn _parse_match_expr(self) -> *Expr {
         var start_range = dyn()->current_ptr()->range;
 
-        // parse via the statement form: scrutinee, braces, cases, patterns,
-        // guards, and block bodies are all handled there and stay in sync.
-        var ms_stmt = dyn()->_parse_match();
-        if (ms_stmt == &null) || is_recovery(ms_stmt) {
+        var core = dyn()->_parse_match_core(start_range);
+        if !core.ok {
             return static_cast::<*Expr>(
-                MatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+                MatchExpr::create_error(dyn()->ctx, core.range));
         }
-        if !isa::<MatchStmt>(ms_stmt) {
-            // defensive: _parse_match should always yield a MatchStmt on success.
-            return static_cast::<*Expr>(
-                MatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
-        }
-        var ms = cast::<MatchStmt>(ms_stmt);
 
-        // lift each case body (a CompoundStmt) into a single expression.
         var cases: std::StackBuf::<MatchCase, 8>;
-
-        for var i: usize = 0; i < ms->cases.size(); ++i {
-            var src = *(ms->cases.get(i));
-            var lifted = self._lift_case_to_expr(&src);
-            cases.push_back(lifted);
+        for var i: usize = 0; i < core.cases.size(); ++i {
+            var src = *(core.cases.get(i));
+            if src.body != &null {
+                cases.push_back(self._recover_case_to_expr(&src));
+            } else {
+                cases.push_back(src);
+            }
         }
 
-        var node = MatchExpr::create(dyn()->ctx, ms->range, ms->scrutinee);
+        var node = MatchExpr::create(dyn()->ctx, core.range, core.scrutinee);
         node->cases.from_buf(cases.data(), cases.size(), dyn()->ctx);
         return static_cast::<*Expr>(node);
     }
 
-    /// \brief lifts a single block-form MatchCase into expression form.
-    /// \details copies patterns/guard/default flag, then resolves the body: the
-    ///          CompoundStmt must hold exactly one non-error ExpressionStmt whose
-    ///          expr is non-recovery. On any violation, emits a diagnostic and
-    ///          returns the case with both body and expression null (recovery).
-    priv fn _lift_case_to_expr(self, src: *MatchCase) -> MatchCase {
+    /// \brief RECOVERY ONLY: a block arm in an expression-form match.
+    /// \details reports S073E on the arm's block. When the block holds exactly
+    ///          one ExpressionStmt, the fix-it rewrites `{ e }` to `=> e` and
+    ///          that expression becomes the case value, so the MatchExpr is
+    ///          still well-formed. Otherwise the note points at the statement
+    ///          forms and the case keeps both body and expression null.
+    priv fn _recover_case_to_expr(self, src: *MatchCase) -> MatchCase {
         var out = MatchCase{};
         out.patterns   = src->patterns;     // FrozenList copy; same arena nodes.
         out.guard      = src->guard;
@@ -3249,59 +3611,52 @@ class <T> ExprParse {
         out.expression = &null;
 
         var cb = src->body;
-        if cb == &null {
-            dyn()->diag->report(DiagID::S054E, src->range.start,
-                "match expression branch must yield a value"
-            ).first(src->range).emit();
-            return out;
+        var lbrace = SourceRange(cb->range.start, cb->range.start.with_offset(1));
+        var rbrace = SourceRange(cb->range.end.with_offset(-1), cb->range.end);
+
+        var value: *Expr = &null;
+        if (cb->body.size() == 1) && (!is_recovery(static_cast::<*Stmt>(cb))) {
+            var only = *(cb->body.get(0));
+            if (only != &null) && (!only->is_error()) && isa::<ExpressionStmt>(only) {
+                var es = cast::<ExpressionStmt>(only);
+                if (es->expr != &null) && (!is_recovery(es->expr)) {
+                    value = es->expr;
+                }
+            }
         }
 
-        // exactly one statement
-        if cb->body.size() == 0 {
-            dyn()->diag->report(DiagID::S054E, cb->range.start,
-                "match expression branch must contain a value expression"
-            ).first(cb->range).emit();
-            return out;
-        }
-        if cb->body.size() > 1 {
-            dyn()->diag->report(DiagID::S054E, cb->range.start,
-                "match expression branch allows exactly one expression; "
-                "use a statement-form match for multi-statement bodies"
-            ).first(cb->range).emit();
-            return out;
-        }
+        var b = dyn()->diag->report(DiagID::S073E, lbrace.start,
+            "value arms are written '=> expr'; '{ }' arms are statement-only");
+        b.first(lbrace);
+        if value != &null {
+            var same_open = self._line_of(lbrace.start) == self._line_of(value->range.start);
+            var open_end  = (value->range.start) if (same_open) else (lbrace.end);
+            var arrow     = ("=> ") if (same_open) else ("=>");
+            b.fix(SourceRange(lbrace.start, open_end), arrow, "replace '{' with '=>\x27");
 
-        // the single statement must be a non-error ExpressionStmt
-        var only = *(cb->body.get(0));
-        if (only == &null) || only->is_error() || (!isa::<ExpressionStmt>(only)) {
-            dyn()->diag->report(DiagID::S054E, cb->range.start,
-                "match expression branch must be a single value expression"
-            ).first(cb->range).emit();
-            return out;
+            // the arm list is newline-separated, so `}` always takes the space
+            // in front of it: on its own line it joins the value's line.
+            b.remove(SourceRange(value->range.end, rbrace.end), "remove '}\x27");
+        } else {
+            b.note(lbrace.start,
+                "multi-statement arms are statement-only; use a statement-form match or a '({ ... })' statement expression");
         }
+        b.emit();
 
-        // and its inner expression must be non-recovery
-        var es = cast::<ExpressionStmt>(only);
-        if (es->expr == &null) || is_recovery(es->expr) {
-            dyn()->diag->report(DiagID::S054E, cb->range.start,
-                "match expression branch contains an invalid expression"
-            ).first(cb->range).emit();
-            return out;
-        }
-
-        out.expression = es->expr;   // body stays null: expression path is live.
+        out.expression = value;   // body stays null: expression path is live.
         return out;
     }
 
     /// \brief parses one catch arm of a try expression.
-    ///  Grammar:  'catch' ('var'|'const')? ident? (':' type)? '{' expr '}'
+    ///  Grammar:  NL* 'catch' ('var'|'const')? ident? (':' type)? NL* '=>' NL* value
     ///
-    /// \details forms: `catch { v }` (bare default), `catch e { v }` /
-    ///          `catch var e { v }` / `catch const e { v }` (untyped default,
-    ///          mutable unless const), `catch e: T { v }` (typed). Mutability
-    ///          defaults to mutable; `const` overrides. Returns an arm with a
-    ///          null body on failure.
-    priv fn _parse_catch_arm_expr(self) -> TryCatchExpr::CatchArm {
+    /// \details forms: `catch => v` (bare default), `catch e => v` /
+    ///          `catch var e => v` / `catch const e => v` (untyped default,
+    ///          mutable unless const), `catch e: T => v` (typed). Mutability
+    ///          defaults to mutable; `const` overrides. The value takes the
+    ///          context's stop flags and ends at the next `catch`. Returns an
+    ///          arm with a null body on failure.
+    priv fn _parse_catch_arm_expr(self, stop: ExprStopKind) -> TryCatchExpr::CatchArm {
         var result = TryCatchExpr::CatchArm{};
         result.has_binding = false;
         result.is_const    = false;
@@ -3357,8 +3712,15 @@ class <T> ExprParse {
             }
         }
 
-        // body
-        var body = self._parse_expr_branch();
+        // value
+        var body: *Expr = &null;
+        if self._skip_nl_if_next(TokenKind::OpFatArrow) {
+            body = self._parse_arm_value(stop, true);
+        } else if dyn()->check(TokenKind::OpLBrace) {
+            body = self._recover_braced_branch(BraceArm::Value);
+        } else {
+            body = self._expect_arrow_recover("catch arm", stop);
+        }
         if body == &null {
             return result; // body stays null
         }

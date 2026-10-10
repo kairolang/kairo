@@ -13,7 +13,7 @@ fn extended() -> i32 {
 }
 
 fn conditional(c: bool) -> i32 {
-    return if c { head_plus_len([20, 1]) } else { 0 }
+    return if c => head_plus_len([20, 1]) else => 0
 }
 
 fn main() -> i32 {
