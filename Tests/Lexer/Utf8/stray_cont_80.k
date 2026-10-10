@@ -7,3 +7,8 @@
 // €
 var s = "€"
 var a€ = 1
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ONLY --allow-empty
+// ONLY-NOT: error [{{(S0([^7].|7[^2])|[^S]|S[^0])}}
+// RUN: { %kairo %s --syntax-only --print-ast=tree 2>/dev/null || true; } | %FileCheck %s --check-prefix=AST
+// AST:      VariableDecl var a{{.+}}
+// AST-NEXT: `-IntegerLiteralExpr 1

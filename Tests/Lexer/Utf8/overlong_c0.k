@@ -7,3 +7,5 @@
 // À€
 var s = "À€"
 var aÀ€ = 1
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ONLY --allow-empty
+// ONLY-NOT: error [{{(S0([^7].|7[^2])|[^S]|S[^0])}}

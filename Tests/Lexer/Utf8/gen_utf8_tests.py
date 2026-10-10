@@ -29,9 +29,26 @@ def diag(line, col, byte):
     return (f"// CHECK: {{{{.*}}}}.k:{line}:{col}: error [S072E]: "
             f"invalid UTF-8 byte 0x{byte:02X} in source\n").encode()
 
-def write(name, body_lines, checks):
+# Appended after the body, so the absolute line numbers above stay put. An
+# invalid byte costs exactly its S072E: no other error follows from it. Inside
+# an identifier it is an identifier character (the class every non-ASCII
+# character has), so `var a<bad> = 1` stays one declaration with its
+# initializer. That class used to come from an out-of-bounds read of the
+# 128-entry ASCII table, and so changed with the binary's layout.
+ONLY = (
+    b"// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ONLY --allow-empty\n"
+    b"// ONLY-NOT: error [{{(S0([^7].|7[^2])|[^S]|S[^0])}}\n"
+)
+IDENT_AST = (
+    b"// RUN: { %kairo %s --syntax-only --print-ast=tree 2>/dev/null || true; } | %FileCheck %s --check-prefix=AST\n"
+    b"// AST:      VariableDecl var a{{.+}}\n"
+    b"// AST-NEXT: `-IntegerLiteralExpr 1\n"
+)
+
+def write(name, body_lines, checks, trailer=b""):
     # Header (2) + checks + NOT line, then the body; line numbers are absolute.
-    out = HEADER + b"".join(checks) + b"// CHECK-NOT: S072E\n" + b"".join(body_lines)
+    out = (HEADER + b"".join(checks) + b"// CHECK-NOT: S072E\n" + b"".join(body_lines)
+           + trailer)
     with open(os.path.join(HERE, name + ".k"), "wb") as f:
         f.write(out)
 
@@ -43,14 +60,19 @@ for name, bad in CASES.items():
     cols = [4, 10, 6]
     first = 2 + 3 + 1 + 1      # header + 3 checks + CHECK-NOT, 1-based
     checks = [diag(first + i, cols[i], bad[0]) for i in range(3)]
-    write(name, body, checks)
+    # C0 80 is an overlong NUL, and the tree printer stops at a name holding
+    # one (the rest of that TU's dump is lost), so that case checks the
+    # diagnostics only.
+    write(name, body, checks, ONLY + (IDENT_AST if name != "overlong_c0" else b""))
 
 # A sequence cut off by EOF can only sit once per file, at the very end.
 for where, prefix, col in (("comment", b"// ", 4), ("string", b"var s = \"", 10),
                            ("ident", b"var a", 6)):
     bad = b"\xe2\x82"
     first = 2 + 1 + 1 + 1
-    write(f"eof_truncated_{where}", [prefix + bad], [diag(first, col, bad[0])])
+    # An unterminated string is its own error; only the other two are clean.
+    trailer = (b"\n" + ONLY) if where != "string" else b""
+    write(f"eof_truncated_{where}", [prefix + bad], [diag(first, col, bad[0])], trailer)
 
 # Positive: a 4-byte sequence and a LITERAL U+FFFD (EF BF BD) must lex
 # cleanly. The second is the case a `chr == 0xFFFD` validity test gets wrong;

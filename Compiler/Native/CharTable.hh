@@ -167,8 +167,13 @@ inline u8 name_char_kind(char32_t c, u8 len) noexcept {
         return 0;
     }
 
-    // len == 1 means the codepoint came from a single byte, so it is ASCII.
-    if (len > 1 || c == U'#') {
+    // len == 1 means the codepoint came from a single byte: ASCII, or an
+    // invalid byte the decoder replaced with U+FFFD. The replacement must not
+    // index the 128-entry table (an out-of-bounds read, whose answer depended
+    // on whatever the binary placed after it). It gets the class every
+    // non-ASCII character gets: S072E already reported the byte, and ending
+    // the identifier at it would only add a parse error on top.
+    if (len > 1 || c == U'#' || c > 127) {
         return 2;
     }
 

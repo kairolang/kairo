@@ -3,3 +3,5 @@
 // CHECK: {{.*}}.k:5:6: error [S072E]: invalid UTF-8 byte 0xE2 in source
 // CHECK-NOT: S072E
 var aâ‚
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ONLY --allow-empty
+// ONLY-NOT: error [{{(S0([^7].|7[^2])|[^S]|S[^0])}}
