@@ -626,6 +626,7 @@ def main() -> None:
         tools[t] = which(t, env)
         if not tools[t]:
             die(f"'{t}' not found.\n{TOOL_HINTS[HOST]}")
+    cmake_args.append(f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}")
     if HOST == "Darwin":
         for t in ("otool", "install_name_tool", "codesign"):
             if not which(t, env):

@@ -205,12 +205,12 @@ class HeaderSet {
     /// Hold this around any clang::Sema call from sema (M2's RequireCompleteType).
     fn sema_lock(self) -> *std::RecursiveMutex { return &(self._sema_mu); }
 
-    fn pch_path(self) -> string { return f"/kairo/pch/{self.id}.pch"; }
+    fn pch_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.pch"; }
 
     /// Phase B's textual include of this set when it has a C header: one
     /// in-memory header replaying the direct includes, the C ones inside
     /// extern "C". Preprocessor `Includes` cannot wrap a path themselves.
-    fn wrap_path(self) -> string { return f"/kairo/pch/{self.id}.h"; }
+    fn wrap_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.h"; }
 
     fn has_c_linkage(self) -> bool {
         for var i: usize = 0; i < self.c_linkage.size(); ++i { if self.c_linkage[i] { return true; } }
@@ -414,6 +414,17 @@ class HeaderSet {
     /// thread, after the build joined. Idempotent: the buffer drains empty.
     fn drain_diags(self, engine: *DiagEngine, sm: *SourceManager) {
         self.diag_buf.drain_into(engine, sm);
+    }
+
+    /// Root of the in-memory VFS mount. Must be absolute on the HOST: on
+    /// Windows a path with no drive letter is drive-relative, and the overlay
+    /// resolves it against the cwd, so registration and lookup never agree.
+    /// The drive is fake; the overlay serves it and nothing touches disk.
+    static fn vfs_root() -> string {
+        const eval if defined(_WIN32) {
+            return "C:/kairo";
+        }
+        return "/kairo";
     }
 
     // --- release (driver thread) -------------------------------------------

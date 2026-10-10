@@ -140,11 +140,20 @@ class ASTContext {
     fn <T> alloc(self) -> *T {
         var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
         libcxx::memset(mem, 0, sizeof(T));
+        inline "c++" {
+            static_assert(libcxx::is_default_constructible_v<T>,
+                "ASTContext::alloc<T>: T must be default-constructible");
+            ::new (mem) T();
+        }
         return static_cast::<*T>(mem);
 
-        // NOTE: we deliberately do NOT construct, its the parsers job to fill
-        //       all the fields. If T has non-trivial members that must be
-        //       initialized, use alloc_init<T>() instead.
+        // Zeroed, THEN constructed. Zero alone is not a valid object for every
+        // member type: an all-zero MSVC wstring has capacity 0, which its own
+        // assign() turns into a heap pointer stored under an inline capacity.
+        // libc++ happens to accept zeros, so this only broke on Windows. The
+        // memset stays so trivial members with no initializer keep reading 0.
+        // Destructors are never run; heap-spilled members leak until exit, by
+        // design for the AST's lifetime.
     }
 
     inline "c++" { // PORT(trivial)

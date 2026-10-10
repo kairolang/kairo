@@ -204,6 +204,9 @@ fn llvm_static_components(t: ref!(Target)) {
      .passthrough("-lws2_32")
      .passthrough("-lpsapi")
      .passthrough("-lzstd")
+     .passthrough("-lpsapi")
+     .passthrough("-lonecore")
+     .passthrough("-lzstd")
      .passthrough("-lzlib");
 }
 
@@ -280,7 +283,7 @@ fn windows_sdk_paths(t: ref!(Target)) {
               reinterpret_cast::<LPBYTE>(buf), &sz) == ERROR_SUCCESS {
                 sdk_lib_root = (
                     kairo::std::nstring_to_string(
-                        inline "c++" { reinterpret_cast<unsigned char*>(buf) }
+                        inline "c++" { reinterpret_cast<const char*>(buf) }
                     )
                 ) + kairo::std::nstring_to_string(r"Lib");
             }
@@ -312,7 +315,7 @@ fn windows_sdk_paths(t: ref!(Target)) {
         t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + sdk_base + "/ucrt/x64\\\x22");
         t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + sdk_base + "/um/x64\\\x22");
 
-        var vswhere = "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe";
+        var vswhere = "\"C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe\" ";
         if path_exists(vswhere) {
             var vs_path = run([vswhere, "-latest", "-products", "*",
                 "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
@@ -368,6 +371,9 @@ fn optimize(t: ref!(Target)) {
         t.passthrough("-O0")
          .passthrough("-fno-lto")
          .passthrough("-DDEBUG");
+        if platform() == "windows" {
+            t.passthrough("-fno-sanitize=all");
+        }
         return;
     }
 
@@ -377,12 +383,17 @@ fn optimize(t: ref!(Target)) {
     t.passthrough("-O3");
     t.passthrough("-Xclang -vectorize-loops");
     t.passthrough("-Xclang -vectorize-slp");
-    t.passthrough("-Wl,--lto-O2");
     t.passthrough("-gline-tables-only");
     t.passthrough("-DNDEBUG");
-    
-    if platform() == "linux" {
-        t.passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}");
+
+    if platform() == "windows" {
+        t.passthrough("-Wl,/opt:lldlto=2")
+         .passthrough("-Wl,/opt:lldltopartitions=" + f"{num_jobs()}");
+    } else {
+        t.passthrough("-Wl,--lto-O2");
+        if platform() == "linux" {
+            t.passthrough("-Wl,--lto-partitions=" + f"{num_jobs()}");
+        }
     }
 }
 
@@ -425,7 +436,9 @@ fn llvm_libs(t: ref!(Target), llvm_build: string, out_lib: string) {
 
     if platform() == "windows" {
         // STATIC, libLLVM.dll is unsupported on Windows (invariant).
-        t.passthrough("-DNOMINMAX");
+        t.passthrough("-DNOMINMAX")
+         .passthrough("-DCLANG_BUILD_STATIC")
+         .passthrough("-DLLVM_BUILD_STATIC");
         clang_static_components(t);
         llvm_static_components(t);
     } else {
@@ -526,5 +539,6 @@ fn main() -> i32 {
 __inline_cpp("
 #if defined(_WIN32) || defined(_WIN64)
 #   pragma comment(lib, \"advapi32.lib\")
+#   pragma comment(lib, \"onecore.lib\")
 #endif
 ");

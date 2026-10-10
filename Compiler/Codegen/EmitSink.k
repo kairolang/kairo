@@ -219,13 +219,27 @@ class EmitSink {
             else if (c == '^') && (c1 == '=')           { k = clang::tok::caretequal;   len = 2; }
             else { k = self._punct_kind(c); }
 
-            if (k == clang::tok::unknown) { self.ice_at(at, f"EmitSink::spell: unexpected character in C++ fragment: {text}"); }
+            if (k == clang::tok::unknown) {
+                self.ice_at(at, f"EmitSink::spell: unexpected byte {self._byte(c)} at offset {i} in C++ fragment ({n} bytes): [{self._bytes(text)}]");
+            }
+
             self.punct(at, k);
             after_operator = false;
             any = true;
             i += len;
         }
         return any;
+    }
+
+       priv fn _byte(self, c: char) -> u32 { return static_cast::<u32>(c); }
+
+    priv fn _bytes(self, text: string) -> string {
+        var out: string = "";
+        for var i: usize = 0; i < text.size(); ++i {
+            if i != 0 { out = out + " "; }
+            out = out + f"{self._byte(text[i])}";
+        }
+        return out;
     }
 
     priv fn _punct_kind(self, c: char) -> clang::tok::TokenKind {
