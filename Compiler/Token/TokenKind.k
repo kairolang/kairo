@@ -100,6 +100,7 @@ enum TokenKind derives u32 {
 
     OpArrow             = compute_hash::<r"->">(),   // "->"
     OpArrowStar         = compute_hash::<r"->*">(),  // "->*"
+    OpFatArrow          = compute_hash::<r"=>">(),   // "=>"    NOT (clang-comp)
     OpQuestionArrow     = compute_hash::<r"?->">(),  // "?->"   NOT (clang-comp)
     OpQuestionArrowStar = compute_hash::<r"?->*">(), // "?->*   NOT (clang-comp)
     OpComma             = compute_hash::<r",">(),    // ","
@@ -322,6 +323,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::OpExclaim:          case TokenKind::OpAt:
         case TokenKind::OpPlusPlus:         case TokenKind::OpMinusMinus:
         case TokenKind::OpArrowStar:        case TokenKind::OpQuestionArrow:
+        case TokenKind::OpFatArrow:
         case TokenKind::OpSemicolon:        case TokenKind::OpComma:
         case TokenKind::OpDotStar:          case TokenKind::OpColonColon:
         case TokenKind::OpQuestionDotStar:  case TokenKind::KwMutable:
@@ -459,6 +461,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::OpMinusMinus {          return "op-minus-minus"; }
         case TokenKind::OpArrow {               return "op-arrow"; }
         case TokenKind::OpArrowStar {           return "op-arrow-star"; }
+        case TokenKind::OpFatArrow {            return "op-fat-arrow"; }
         case TokenKind::OpQuestionArrow {       return "op-question-arrow"; }
         case TokenKind::OpQuestionArrowStar {   return "op-question-arrow-star"; }
         case TokenKind::OpColon {               return "op-colon"; }
@@ -651,6 +654,7 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::OpMinusMinus          { return "--";  }
         case TokenKind::OpArrow               { return "->";  }
         case TokenKind::OpArrowStar           { return "->*"; }
+        case TokenKind::OpFatArrow            { return "=>";  }
         case TokenKind::OpQuestionArrow       { return "?->"; }
         case TokenKind::OpQuestionArrowStar   { return "?->*"; }
         case TokenKind::OpColon               { return ":"; }

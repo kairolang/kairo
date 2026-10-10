@@ -263,6 +263,8 @@ class TokenText {
                 return create("->");
             } case TokenKind::OpArrowStar {
                 return create("->*");
+            } case TokenKind::OpFatArrow {
+                return create("=>");
             } case TokenKind::OpQuestionArrow {
                 return create("?->");
             } case TokenKind::OpQuestionArrowStar {

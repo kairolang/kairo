@@ -1581,6 +1581,20 @@ class Lexer {
             }
         }
 
+        // `>=` / `>>=` directly followed by `>` hands its `=` to a `=>`: a
+        // generic close before a value arm (`case Box<i32>=> 1`) would
+        // otherwise lex as `>=` `>`. No prefix `>` exists, so `>=>` and
+        // `>>=>` are never valid input as `>=` `>` / `>>=` `>`, and the split
+        // cannot change the meaning of a program that lexed before. The type
+        // parser already splits the `>>` this leaves behind.
+        if (best_hash == compute_hash::<r">=">()) && (C3.len == 1) && (C3.chr == '>') {
+            best_hash = compute_hash::<r">">();
+            best_len  = 1;
+        } else if (best_hash == compute_hash::<r">>=">()) && (C4.len == 1) && (C4.chr == '>') {
+            best_hash = compute_hash::<r">>">();
+            best_len  = 2;
+        }
+
         // -- git conflict marker detection ------------------------------
         // check for 7+ repeated '<', '=', '>'
         if (C1.chr == '<') || (C1.chr == '>') || (C1.chr == '=') {
@@ -2940,7 +2954,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex multi-char operators", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("++ -- -> :: .. ... == != <= >= && || << >> += -= *= /= <=>", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("++ -- -> :: .. ... == != <= >= && || << >> += -= *= /= <=> =>", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2969,6 +2983,7 @@ fn Test() -> i32 {
         expected.push_back(TokenKind::OpStarEqual);
         expected.push_back(TokenKind::OpSlashEqual);
         expected.push_back(TokenKind::OpLessEqualGreater);
+        expected.push_back(TokenKind::OpFatArrow);
         
         if content_count(tokens) != expected.size() {
             return dump_tokens(tokens, expected.size());
