@@ -1,3 +1,53 @@
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -c %s -o %t.os.ll --emit llvm-ir
+// RUN: FileCheck %s --input-file=%t.os.ll
+// RUN: FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Oz -c %s -o %t.oz.ll --emit llvm-ir
+// RUN: FileCheck %s --input-file=%t.oz.ll
+// RUN: FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -ffunction-sections -c %s -o %t.o
+// RUN: llvm-objdump -h %t.o | FileCheck %s --check-prefix=SECT
+// RUN: llvm-nm --undefined-only %t.o | count 0
+
+// CHECK: target triple = "thumbv6m-unknown-none-eabi"
+// CHECK: @{{.*}}IO_AND_PADSE = {{.*}}constant i32 288
+
+// delay() must keep its counter volatile, or the busy-wait is deleted.
+// CHECK-LABEL: define {{.*}}5delayEj(
+// CHECK: load volatile i32, ptr %count
+// CHECK: store volatile i32 {{.*}}, ptr %count
+
+// make_outputs: FUNCSEL_SIO into GPIO_CTRL (0x40014004 + 8p), then SIO_OE_SET.
+// Blocks print out of source order, so DAG.
+// CHECK-LABEL: define {{.*}}12make_outputs{{.*}}(
+// CHECK-DAG: 1073823748
+// CHECK-DAG: store volatile i32 5, ptr
+// CHECK-DAG: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306332 to ptr)
+
+// Display::show: all off (seg SET, digit CLR), then segment CLR, then digit SET.
+// CHECK-LABEL: define {{.*}}Display4showEjj(
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
+// CHECK: ret void
+
+// RgbLed::set: clear all three, then raise one.
+// CHECK-LABEL: define {{.*}}RgbLed3setE{{.*}}(
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306344 to ptr)
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 -805306348 to ptr)
+
+// Reset_Handler: release IO_BANK0|PADS_BANK0 via RESETS atomic-clear, spin on RESET_DONE.
+// CHECK-LABEL: define {{.*}}void @Reset_Handler()
+// CHECK: store volatile i32 288, ptr inttoptr (i32 1073803264 to ptr)
+// CHECK: load volatile i32, ptr inttoptr (i32 1073790984 to ptr)
+// CHECK: attributes {{.*}}noreturn
+
+// NOCTOR-NOT: llvm.global_ctors
+
+// SECT: Sections:
+// SECT-NOT: init_array
+// SECT-NOT: fini_array
+
 /// Wiring test: each segment on digit 1, then "8." on each digit, then each RGB color.
 
 // --- registers -------------------------------------------------------------

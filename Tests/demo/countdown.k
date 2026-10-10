@@ -1,3 +1,62 @@
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -c %s -o %t.os.ll --emit llvm-ir
+// RUN: FileCheck %s --input-file=%t.os.ll
+// RUN: FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Oz -c %s -o %t.oz.ll --emit llvm-ir
+// RUN: FileCheck %s --input-file=%t.oz.ll
+// RUN: FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
+// RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -ffunction-sections -c %s -o %t.o
+// RUN: llvm-objdump -h %t.o | FileCheck %s --check-prefix=SECT
+// RUN: llvm-nm --undefined-only %t.o | FileCheck %s --check-prefix=UNDEF --implicit-check-not="U "
+
+// CHECK: target triple = "thumbv6m-unknown-none-eabi"
+
+// Constants fold to static data, never runtime init.
+// CHECK-DAG: @{{.*}}RESET_BITSE = {{.*}}constant i32 2113825
+// CHECK-DAG: @{{.*}}fontEj.table = {{.*}}constant [10 x i32] [i32 63, i32 6, i32 91, i32 79, i32 102, i32 109, i32 125, i32 7, i32 127, i32 111]
+
+// Clock bring-up: XOSC on, wait STABLE, then switch CLK_REF.
+// CHECK-LABEL: define {{.*}}clock_initEv(
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 1073889280 to ptr)
+// CHECK: load volatile i32, ptr inttoptr (i32 1073889284 to ptr)
+// CHECK: store volatile i32 2, ptr inttoptr (i32 1073774640 to ptr)
+
+// ADC bring-up: pads analog, enable, wait READY.
+// CHECK-LABEL: define {{.*}}adc_initEv(
+// CHECK: store volatile i32 128, ptr inttoptr (i32 1073856620 to ptr)
+// CHECK: store volatile i32 128, ptr inttoptr (i32 1073856624 to ptr)
+// CHECK: store volatile i32 1, ptr inttoptr (i32 1074053120 to ptr)
+// CHECK: load volatile i32, ptr inttoptr (i32 1074053120 to ptr)
+
+// ADC read: start, poll READY (bit 8), read 12-bit result.
+// CHECK-LABEL: define {{.*}}adc_readEj(
+// CHECK: store volatile i32 {{.*}}, ptr inttoptr (i32 1074053120 to ptr)
+// CHECK: and i32 {{.*}}, 256
+// CHECK: load volatile i32, ptr inttoptr (i32 1074053124 to ptr)
+// CHECK: and i32 {{.*}}, 4095
+
+// WAV playback reads the linked samples and writes PWM CC (slice 3).
+// CHECK-LABEL: define {{.*}}WavPlayer4pollEj(
+// CHECK-DAG: getelementptr {{.*}}@sound_start
+// CHECK-DAG: store volatile i32 {{.*}}, ptr inttoptr (i32 1074069576 to ptr)
+
+// Entry order: clocks, then resets, then ADC. Each step matches either the
+// call or its inlined first register write, so -Os and -Oz both pass.
+// CHECK-LABEL: define {{.*}}void @Reset_Handler()
+// CHECK: {{clock_initEv\(\)|i32 1073889280 to ptr}}
+// CHECK: store volatile i32 2113825, ptr inttoptr (i32 1073803264 to ptr)
+// CHECK: load volatile i32, ptr inttoptr (i32 1073790984 to ptr)
+// CHECK: {{adc_initEv\(\)|store volatile i32 1, ptr inttoptr \(i32 1074053120 to ptr\)}}
+// CHECK: attributes {{.*}}noreturn
+
+// NOCTOR-NOT: llvm.global_ctors
+
+// SECT: Sections:
+// SECT-NOT: init_array
+
+// Only the objcopy-provided audio bounds may be undefined; any other U line fails.
+// UNDEF-DAG: U sound_end
+// UNDEF-DAG: U sound_start
+
 /// Countdown with joystick: up/down sets the time, left/right picks the LED color,
 /// click starts / stops-and-resets. Beeps the last 3 seconds and plays sound.wav at zero.
 

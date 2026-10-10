@@ -25,3 +25,5 @@ SECTIONS {
 
     /DISCARD/ : { *(.init_array*) *(.fini_array*) }
 }
+
+

@@ -1,13 +1,13 @@
 #!/usr/bin/env fish
 # Build and flash a .k program to a Raspberry Pi Pico. Run from anywhere.
-# usage: fish blink/build.fish [name]    (builds blink/<name>.k, default: blink)
+# usage: fish Tests/demo/build.fish [name]    (builds Tests/demo/<name>.k, default: Tests/demo)
 set -l D    (realpath (status dirname))
 set -l B    $D/build
 set -l ROOT /mnt/linux-dev/projects/kairo-lang
 set -l K    $ROOT/build/x86_64-linux-gnu/debug/bin/kairo
 set -l MNT  /run/media/$USER/RPI-RP2
 
-set -l NAME blink
+set -l NAME demo
 test (count $argv) -gt 0; and set NAME (string replace -r '\.k$' '' -- $argv[1])
 set -l SRC $D/$NAME.k
 
@@ -42,7 +42,7 @@ if llvm-objdump -h $B/$NAME.o | grep -q init_array
     die "$NAME.o has .init_array: a const was dynamically initialized"
 end
 
-# optional: convert blink/sound.wav into a linkable object
+# optional: convert Tests/demo/sound.wav into a linkable object
 set -l extra
 if test -f $D/sound.wav
     ffmpeg -loglevel error -y -i $D/sound.wav -ac 1 -ar 8000 \
