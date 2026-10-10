@@ -50,6 +50,17 @@ import Location::SourceManager::*;
 ///      > note [SC021N]: child message
 ///         --> file.k:8:1
 /// \endcode
+///
+/// \par Fix-its
+/// Every fix-it that carries a range is printed on its own line directly after
+/// its diagnostic and before the diagnostic's notes (a note's own fix-its follow
+/// that note), in clang's
+/// `-fdiagnostics-parseable-fixits` form (1-based columns, end exclusive),
+/// so tests can pin the exact edit and scripts can apply it:
+/// \code
+///   fix-it:"file.k":{3:14-3:16}:"=> "
+/// \endcode
+/// A fix that carries only a message prints nothing extra.
 class BasicDiagConsumer derives DiagConsumer {
     priv var _diags: vec::<obs::<Diagnostic>>;
     priv var _sm:    opt::<SourceManager>;
@@ -132,6 +143,39 @@ class BasicDiagConsumer derives DiagConsumer {
         }
     }
 
+    /// `"` and `\` escaped, and the control characters an edit can carry,
+    /// so every fix-it stays one line.
+    priv fn escape_fixit_text(self, s: string) -> string {
+        var out = "";
+        for var i: usize = 0; i < s.size(); ++i {
+            var c = s[i];
+            if c == 0x5C      { out += "\\\\"; }
+            else if c == 0x22 { out += "\\\x22"; }
+            else if c == 0x0A { out += "\\n"; }
+            else if c == 0x09 { out += "\\t"; }
+            else if c == 0x0D { out += "\\r"; }
+            else              { out += c; }
+        }
+        return out;
+    }
+
+    /// One `fix-it:` line per ranged edit of \p diag; see the class comment.
+    priv fn render_fixits(self, diag: *Diagnostic) -> string {
+        if self._sm == &null { return ""; }
+        var sm  = self._sm;
+        var out = "";
+        for var i: usize = 0; i < diag->fixits.size(); ++i {
+            var fi = diag->fixits[i];
+            if !fi.range.is_valid() { continue; }
+            var b    = sm->get_line_col(fi.range.start);
+            var e    = sm->get_line_col(fi.range.end);
+            var file = sm->get_filename(fi.range.start);
+            var text = self.escape_fixit_text(fi.replacement);
+            out += f"fix-it:\x22{file}\x22:\x7B{b.line}:{b.column}-{e.line}:{e.column}\x7D:\x22{text}\x22\n";
+        }
+        return out;
+    }
+
     priv fn render_one(self, diag: *Diagnostic) -> string {
         var loc_prefix = (self.format_loc(diag->loc)) if diag->has_loc else "";
         var sev        = self.severity_string(diag->code.severity());
@@ -141,17 +185,17 @@ class BasicDiagConsumer derives DiagConsumer {
 
     /// Renders a diagnostic and all its children, one line each.
     priv fn render_diag(self, diag: *Diagnostic) -> string {
-        var out = self.render_one(diag);
+        var out = self.render_one(diag) + self.render_fixits(diag);
         for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_one(diag->children[i]);
+            out += self.render_one(diag->children[i]) + self.render_fixits(diag->children[i]);
         }
         return out;
     }
 
     priv fn emit_diag(self, diag: *Diagnostic) {
-        std::eprint(self.render_one(diag));
+        std::eprint(self.render_one(diag) + self.render_fixits(diag));
         for var i: usize = 0; i < diag->children.size(); ++i {
-            std::eprint(self.render_one(diag->children[i]));
+            std::eprint(self.render_one(diag->children[i]) + self.render_fixits(diag->children[i]));
         }
     }
 }

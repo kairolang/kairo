@@ -17,8 +17,16 @@ fn locals() {
 }
 
 // CHECK:      const_binding_type.k:10:14: warning [S071W]: 'const' on the type of a parameter is hard to read; declare the parameter 'const' instead
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{10:11-10:11}:"const "
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{10:14-10:19}:""
 // CHECK-NEXT: const_binding_type.k:10:34: error [S071E]: the parameter is already 'const'; a second 'const' on its type is not allowed
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{10:34-10:39}:""
 // CHECK-NEXT: const_binding_type.k:13:12: warning [S071W]: 'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{13:5-13:8}:"const"
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{13:12-13:17}:""
 // CHECK-NEXT: const_binding_type.k:14:14: error [S071E]: the binding is already 'const'; a second 'const' on its type is not allowed
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{14:14-14:19}:""
 // CHECK-NEXT: const_binding_type.k:15:12: warning [S071W]: 'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{15:5-15:8}:"const"
+// CHECK-NEXT: fix-it:"{{.*}}const_binding_type.k":{15:12-15:17}:""
 // CHECK-NOT:  {{warning|error}}
