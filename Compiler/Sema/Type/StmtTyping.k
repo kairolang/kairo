@@ -41,6 +41,7 @@ import Sema::Lower::LowerSynth::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -634,7 +635,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if cxx_ok { (*kind) = IterKind::Cxx; return ce; }
         if (ce == &null) && at->is_poisoned() { return &null; }   // the protocol applied and failed: reported.
 
-        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in (self) -> yield T' and no 'begin()'/'end()\x27");
+        // A Kairo type has one iteration protocol, so its message names one.
+        var how = "no 'op in (self) -> yield T\x27";
+        if self._is_cxx_record(t) { how = "no 'op in (self) -> yield T' and no 'begin()'/'end()\x27"; }
+        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has {how}");
         return &null;
     }
 
@@ -650,9 +654,16 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// way any expression's is. The element is `*__it` read as a value; `*x`
     /// binds its address.
     ///
-    /// \p ok: the protocol applied and every piece typed. Not applying (no
-    /// begin or end anywhere) reports nothing, so the caller's SC095E names
-    /// both protocols; applying and failing reports, and poisons \p at.
+    /// Imported C++ records only. A Kairo type has exactly one way to be
+    /// iterable, `op in (self) -> yield T`: a second protocol would need a
+    /// precedence rule when a class has both, would silently reroute a class
+    /// that defines begin()/end() only for its C++ callers, and would put
+    /// iterator records and pointer steps outside `op in` where Tether does
+    /// not follow them. A Kairo class's begin()/end() are ordinary methods.
+    ///
+    /// \p ok: the protocol applied and every piece typed. Not applying (a
+    /// Kairo type, or no begin or end anywhere) reports nothing, so the
+    /// caller's SC095E speaks; applying and failing reports, and poisons \p at.
     priv fn _cxx_range(self, at: *Expr, t: *Type, rf: *RangedForStmt, ok: *bool) -> *Type {
         (*ok) = false;
         // The object, cv kept: a const range must pick `begin() const`, so
@@ -660,7 +671,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var obj = t;
         if isa::<CXXLValueRefType>(obj)      { obj = cast::<CXXLValueRefType>(obj)->referee; }
         else if isa::<CXXRValueRefType>(obj) { obj = cast::<CXXRValueRefType>(obj)->referee; }
-        if dyn()->tu.record_decl(obj) == &null { return &null; }
+        if !self._is_cxx_record(obj) { return &null; }
 
         var mb = vec::<*Decl>();
         var me = vec::<*Decl>();
@@ -771,6 +782,18 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         }
         (*ok) = true;
         return dyn()->tu.as_value(elem);
+    }
+
+    /// A record imported from a C++ header, or an instance of an imported
+    /// template (only its primary carries the import stamp).
+    priv fn _is_cxx_record(self, t: *Type) -> bool {
+        var c = t;
+        if (c != &null) && isa::<CXXLValueRefType>(c)      { c = cast::<CXXLValueRefType>(c)->referee; }
+        else if (c != &null) && isa::<CXXRValueRefType>(c) { c = cast::<CXXRValueRefType>(c)->referee; }
+        var d = dyn()->tu.record_decl(c);
+        if d == &null { return false; }
+        if decl_is_imported(d) { return true; }
+        return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d));
     }
 
     /// Move the non-methods member lookup found (hidden friends) to \p frees.

@@ -2011,11 +2011,15 @@ group = "type-check"
     explain = """
     # `for` over a non-iterable type
 
-    a `for ... in` loop iterates a range, an array or slice, a type with an
-    `op in (self) -> yield T`, or a C++ class the way C++ ranges over it: through
-    member `begin()` and `end()`, or, when the class has neither member, free
-    `begin(r)` and `end(r)` found by argument-dependent lookup. a class with only
-    one of the two members is an error, as in C++.
+    a `for ... in` loop iterates a range, an array or slice, a Kairo type with an
+    `op in (self) -> yield T`, or an imported C++ class the way C++ ranges over it:
+    through member `begin()` and `end()`, or, when the class has neither member,
+    free `begin(r)` and `end(r)` found by argument-dependent lookup. a C++ class
+    with only one of the two members is an error, as in C++.
+
+    `op in` is the only way to make a Kairo type iterable: `begin()` and `end()`
+    on a Kairo class are ordinary methods, often written for C++ callers, and a
+    `for` never goes through them.
 
     ```kairo
     for x in 3 { }   // error

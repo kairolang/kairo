@@ -818,8 +818,10 @@ IterLowering [PARTIAL]. X records each ranged `for`'s `iter_kind`,
 hidden locals and a `while` that advances before its body (so `continue`
 needs no step). Done: `a..b`, `a..=b` (never computes past `hi`), Range
 values (`inclusive` read at run time, never computes past `last`),
-`[T; N]`, `[T;]`, user `op in (self) -> yield T`, and C++ ranges
-([stmt.ranged]: member `begin()`/`end()`, else free ones by ADL). For a C++
+`[T; N]`, `[T;]`, user `op in (self) -> yield T`, and imported C++ ranges
+([stmt.ranged]: member `begin()`/`end()`, else free ones by ADL). Only an
+imported record takes the C++ protocol: `op in` is a Kairo type's one way to
+be iterable, so a Kairo class's `begin()`/`end()` never route a `for`. For a C++
 range X resolves both calls on the range's cv and types `__it != __end`,
 `*__it`, `++__it` over two hidden locals it mints (RangedForStmt::cxx_*), so
 the loop's operators are chosen like any expression's; IterLowering places

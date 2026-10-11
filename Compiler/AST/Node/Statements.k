@@ -657,7 +657,7 @@ enum IterKind derives u8 {
     Map,          ///< `{K: V}`.
     String,       ///< `string`, by `char`.
     User,         ///< a record's `fn op in (self) -> yield T`.
-    Cxx,          ///< C++'s range protocol ([stmt.ranged]): `begin()`/`end()`.
+    Cxx,          ///< an imported C++ class, by C++'s range protocol ([stmt.ranged]).
 }
 
 ///
@@ -668,8 +668,9 @@ enum IterKind derives u8 {
 ///  `bindings` holds the loop bindings (1 for `for var x in`, N for a tuple
 ///  destructure `for var (k, const v) in`). `is_eval` marks the compile-time
 ///  unroll form. `iterable` is a range, a container, a record with
-///  `fn op in (self) -> yield T`, or one C++ can range over (member or free
-///  `begin`/`end`); X records which in `iter_kind`.
+///  `fn op in (self) -> yield T`, or an imported C++ class C++ can range over
+///  (member or free `begin`/`end`; a Kairo class's begin/end never count,
+///  `op in` is its one protocol); X records which in `iter_kind`.
 ///
 ///  For Cxx, X also mints the two hidden iterator locals and types the three
 ///  loop operations over them, so overload resolution -- const `begin()`,
