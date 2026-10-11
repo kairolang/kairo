@@ -517,7 +517,11 @@ class DeclImport {
         if llvm::isa::<clang::ClassTemplatePartialSpecializationDecl>(nd) { return; }
         var dc = self.scope_for(t, nd->getDeclContext());
         if dc == &null { return; }
-        var fn_ = llvm::dyn_cast::<clang::FunctionDecl>(nd);
+        // getAsFunction, not a FunctionDecl cast: a FunctionTemplateDecl is
+        // not one, and took the ident path below, so every operator template
+        // was bound under its display name `operator!=` and no `!=` ever
+        // found it -- libc++ declares its iterator comparisons that way.
+        var fn_ = nd->getAsFunction();
         if fn_ != &null {
             if llvm::isa::<clang::CXXConstructorDecl>(fn_) { self.bind(t, dc, DeclName::ctor(), kd); return; }
             if llvm::isa::<clang::CXXDestructorDecl>(fn_) {
