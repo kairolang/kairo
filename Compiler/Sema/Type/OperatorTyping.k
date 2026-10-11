@@ -314,9 +314,14 @@ class <T> OperatorTyping {
     /// type declared nothing. On Selected: records the winner on \p n and
     /// returns the call's result type; on failure the node is poisoned or
     /// marked unknown and null comes back.
+    ///
+    /// \p viable_only: a candidate set none of which takes these operands
+    /// counts as not found, silently -- C++20's rule for the operators it
+    /// rewrites (`!=` from `==`, `<` from `<=>`), where a viable rewritten
+    /// candidate wins over a non-viable direct one.
     fn resolve_user_op(self, n: *Expr, k0: TokenKind, k1: TokenKind, recv: *Expr, recv_ty: *Type,
                        other: *Type, args: *vec::<*Expr>, want_postfix: i32, label: string,
-                       found: *bool) -> *Type {
+                       found: *bool, viable_only: bool = false) -> *Type {
         (*found) = false;
         if recv_ty == &null { return &null; }
         var name  = DeclName::op_name(k0, k1);
@@ -332,6 +337,11 @@ class <T> OperatorTyping {
         var fargs = vec::<ArgInfo>();
         fargs.push_back(dyn()->arg_info(recv));
         for var i: usize = 0; i < margs.size(); ++i { fargs.push_back(margs[i]); }
+
+        if viable_only && (!dyn()->ovl.any_viable(&cands, &margs, true, &frees, &fargs, self._receiver_of(recv))) {
+            (*found) = false;
+            return &null;
+        }
 
         var r = dyn()->ovl.resolve_mixed(&cands, &margs, true, &frees, &fargs, n->range, label,
                                          self._receiver_of(recv));
@@ -433,8 +443,13 @@ class <T> OperatorTyping {
             var found = false;
             var args  = vec::<*Expr>();
             args.push_back(n->rhs);
+            // C++ operands get C++20's rewrite rule: a `!=` / `<` that cannot
+            // take them yields to a derived one. Kairo's own rule derives only
+            // when the type declares no `!=` at all.
+            var cxx_rewrite = (self._is_inequality(k) || self._is_relational(k))
+                           && (self._is_imported_record(lt) || self._is_imported_record(rt));
             var ut = self.resolve_user_op(static_cast::<*Expr>(n), k, TokenKind::TkUnknown, n->lhs, lt, rt,
-                                          &args, -1, self._label(n->op_token), &found);
+                                          &args, -1, self._label(n->op_token), &found, cxx_rewrite);
             if found { return ut; }
 
             // Derived: `!=` from `op ==`.

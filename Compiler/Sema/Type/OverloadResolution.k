@@ -275,6 +275,21 @@ class OverloadResolution {
     /// ordinary ambiguity (the C++ rule for operators). The winner's
     /// arg_to_param indexes \p fargs iff OvlResult::via_free. \p frees and
     /// \p fargs may be null.
+    /// Whether any candidate is viable for these arguments, reporting
+    /// nothing. For a caller that has a fallback when none is: C++20's
+    /// `a != b` is `!(a == b)` whenever no `operator!=` takes the operands,
+    /// even with `!=` overloads in scope -- libc++ declares only `==` on its
+    /// iterators, beside a std full of `!=` for optional, variant, pair.
+    fn any_viable(self, members: *vec::<*Decl>, margs: *vec::<ArgInfo>, has_receiver: bool,
+                  frees: *vec::<*Decl>, fargs: *vec::<ArgInfo>, receiver: *Type = &null) -> bool {
+        if self._any_dependent(margs) || self._any_dependent(fargs) { return true; }
+        var cs = vec::<Candidate>();
+        self._collect(&cs, members, margs, has_receiver, receiver, false, false);
+        if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true, false); }
+        for var i: usize = 0; i < cs.size(); ++i { if cs[i].viable { return true; } }
+        return false;
+    }
+
     fn resolve_mixed(self, members: *vec::<*Decl>, margs: *vec::<ArgInfo>, has_receiver: bool,
                      frees: *vec::<*Decl>, fargs: *vec::<ArgInfo>,
                      at: SourceRange, name: string, receiver: *Type = &null,
