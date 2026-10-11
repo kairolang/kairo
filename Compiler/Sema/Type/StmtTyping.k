@@ -36,6 +36,8 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::ResolutionState::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
+import Sema::Type::OverloadResolution::*;
+import Sema::Lower::LowerSynth::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -51,6 +53,7 @@ import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::StmtKind::*;
 import Token::TokenKind::*;
+import Location::SourceRange::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
@@ -562,7 +565,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if t == &null { return &null; }
         var kind = IterKind::None;
         var _op: *Decl = &null;
-        var elem = self._iter_classify(at, t, &kind, &_op);
+        var elem = self._iter_classify(at, t, &kind, &_op, rf);
         if (rf != &null) && (elem != &null) {
             rf->iter_kind = kind;
             rf->iter_op   = _op;
@@ -571,7 +574,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return elem;
     }
 
-    priv fn _iter_classify(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl)) -> *Type {
+    priv fn _iter_classify(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl), rf: *RangedForStmt) -> *Type {
         var arr = dyn()->tu.element_of(t);
         if arr != &null { (*kind) = IterKind::Array; return arr; }
 
@@ -625,8 +628,195 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             (*_op)   = cands[i];
             return args[0];
         }
-        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in (self) -> yield T\x27");
+
+        var cxx_ok = false;
+        var ce = self._cxx_range(at, t, rf, &cxx_ok);
+        if cxx_ok { (*kind) = IterKind::Cxx; return ce; }
+        if (ce == &null) && at->is_poisoned() { return &null; }   // the protocol applied and failed: reported.
+
+        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in (self) -> yield T' and no 'begin()'/'end()\x27");
         return &null;
+    }
+
+    // --- C++'s range protocol -------------------------------------------------
+
+    /// [stmt.ranged]/1 for a class: a member named `begin` or `end` makes the
+    /// loop `r.begin()` / `r.end()`; with neither, `begin(r)` / `end(r)` by
+    /// argument-dependent lookup. X does what a C++ compiler does there:
+    /// resolves both calls on the range's own cv (a const vector's `begin()
+    /// const` returns a const_iterator), mints `__it` / `__end`, and types
+    /// `__it != __end`, `*__it` and `++__it` over them, so every overload --
+    /// a free operator template, C++20's `!=` from `==` -- is resolved the
+    /// way any expression's is. The element is `*__it` read as a value; `*x`
+    /// binds its address.
+    ///
+    /// \p ok: the protocol applied and every piece typed. Not applying (no
+    /// begin or end anywhere) reports nothing, so the caller's SC095E names
+    /// both protocols; applying and failing reports, and poisons \p at.
+    priv fn _cxx_range(self, at: *Expr, t: *Type, rf: *RangedForStmt, ok: *bool) -> *Type {
+        (*ok) = false;
+        // The object, cv kept: a const range must pick `begin() const`, so
+        // only a reference is looked through (peel_ref would drop the const).
+        var obj = t;
+        if isa::<CXXLValueRefType>(obj)      { obj = cast::<CXXLValueRefType>(obj)->referee; }
+        else if isa::<CXXRValueRefType>(obj) { obj = cast::<CXXRValueRefType>(obj)->referee; }
+        if dyn()->tu.record_decl(obj) == &null { return &null; }
+
+        var mb = vec::<*Decl>();
+        var me = vec::<*Decl>();
+        var nb = self._cxx_name("begin");
+        var ne = self._cxx_name("end");
+        dyn()->ml.lookup(obj, nb, &mb);
+        dyn()->ml.lookup(obj, ne, &me);
+        // A hidden friend `friend It begin(R&)` sits in the class's table but
+        // is no member ([stmt.ranged] asks for a MEMBER named begin): it is
+        // one of the free candidates, which ADL alone would never reach.
+        var hb = vec::<*Decl>();
+        var he = vec::<*Decl>();
+        self._split_friends(&mb, &hb);
+        self._split_friends(&me, &he);
+
+        var bt: *Type = &null;
+        var et: *Type = &null;
+        var bf: *FunctionDecl = &null;
+        var ef: *FunctionDecl = &null;
+        var bi: *void = &null;
+        var ei: *void = &null;
+        var free = false;
+        if (mb.size() > 0) || (me.size() > 0) {
+            // Members, both or neither: one alone is not a fallback to the
+            // free pair ([stmt.ranged]/1.2), it is an error.
+            if (mb.size() == 0) || (me.size() == 0) {
+                var have = "begin";
+                var miss = "end";
+                if mb.size() == 0 { have = "end"; miss = "begin"; }
+                dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' has a member '{have}' but no '{miss}'; a C++ range needs both");
+                return &null;
+            }
+            bf = self._cxx_member(at, obj, &mb, "begin", &bt, &bi);
+            ef = self._cxx_member(at, obj, &me, "end",   &et, &ei);
+        } else {
+            var scopes = vec::<*DeclContext>();
+            dyn()->ml.associated_scopes(obj, &scopes);
+            var fb = hb;
+            var fe = he;
+            dyn()->ml.adl_candidates(&scopes, nb, "begin", &hb, &fb);
+            dyn()->ml.adl_candidates(&scopes, ne, "end",   &he, &fe);
+            if (fb.size() == 0) && (fe.size() == 0) { return &null; }
+            // A `begin` that cannot take this range is some other type's:
+            // ADL reaches every free `begin` in the namespace. Not iterable,
+            // not a failed call.
+            var probe = vec::<ArgInfo>();
+            probe.push_back(dyn()->arg_info(at));
+            var nofree = vec::<*Decl>();
+            if !dyn()->ovl.any_viable(&nofree, &probe, false, &fb, &probe) { return &null; }
+            if (fb.size() == 0) || (fe.size() == 0) {
+                var have = "begin";
+                var miss = "end";
+                if fb.size() == 0 { have = "end"; miss = "begin"; }
+                dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' has a free '{have}' but no '{miss}'; a C++ range needs both");
+                return &null;
+            }
+            free = true;
+            bf = self._cxx_free(at, &fb, "begin", &bt, &bi);
+            ef = self._cxx_free(at, &fe, "end",   &et, &ei);
+        }
+        if (bf == &null) || (ef == &null) { dyn()->poison_only(at); return &null; }
+
+        var synth = LowerSynth(dyn()->sc);
+        var r     = at->range;
+        var it    = synth.local(r, "it",  bt, &null);
+        var end   = synth.local(r, "end", et, &null);
+
+        var ctx  = dyn()->sc->ctx;
+        var cond = static_cast::<*Expr>(BinaryOperatorExpr::create(ctx, r,
+                       synth.use_of(it, r, Expr::ValueCategory::LValue),
+                       synth.use_of(end, r, Expr::ValueCategory::LValue),
+                       synth.punct(r, TokenKind::OpExclaimEqual)));
+        var deref = static_cast::<*Expr>(UnaryOperatorExpr::create(ctx, r,
+                       synth.use_of(it, r, Expr::ValueCategory::LValue),
+                       synth.punct(r, TokenKind::OpStar), UnaryOperatorExpr::Fix::Prefix));
+        var next = static_cast::<*Expr>(UnaryOperatorExpr::create(ctx, r,
+                       synth.use_of(it, r, Expr::ValueCategory::LValue),
+                       synth.punct(r, TokenKind::OpPlusPlus), UnaryOperatorExpr::Fix::Prefix));
+
+        dyn()->require_bool(cond, "a C++ range\x27s 'begin() != end()\x27");
+        var elem = dyn()->type_of(deref, &null);
+        // A pointer iterator (std::array, span, a C array member) steps by
+        // C++'s builtin `++`. Kairo has no `++` on pointers for user code, and
+        // this one is the loop's own step over [begin, end), so it is minted
+        // typed rather than offered to the operator table.
+        if isa::<PointerType>(canon_unqual(bt)) {
+            next->type_          = bt;
+            next->value_category = Expr::ValueCategory::LValue;
+        } else {
+            dyn()->type_of(next, &null);
+        }
+        if cond->is_poisoned() || deref->is_poisoned() || next->is_poisoned() || (elem == &null) {
+            dyn()->poison_only(at);
+            return &null;
+        }
+
+        if rf != &null {
+            rf->cxx_begin_fn   = static_cast::<*Decl>(bf);
+            rf->cxx_end_fn     = static_cast::<*Decl>(ef);
+            rf->cxx_free       = free;
+            rf->cxx_begin_inst = bi;
+            rf->cxx_end_inst   = ei;
+            rf->cxx_it         = static_cast::<*Decl>(it);
+            rf->cxx_end        = static_cast::<*Decl>(end);
+            rf->cxx_cond       = cond;
+            rf->cxx_deref      = deref;
+            rf->cxx_next       = next;
+        }
+        (*ok) = true;
+        return dyn()->tu.as_value(elem);
+    }
+
+    /// Move the non-methods member lookup found (hidden friends) to \p frees.
+    priv fn _split_friends(self, found: *vec::<*Decl>, frees: *vec::<*Decl>) {
+        var keep = vec::<*Decl>();
+        for var i: usize = 0; i < found->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>((*found)[i]);
+            if (f != &null) && (!f->is_method()) { frees->push_back((*found)[i]); continue; }
+            keep.push_back((*found)[i]);
+        }
+        (*found) = keep;
+    }
+
+    /// This TU's DeclName for the identifier \p s.
+    priv fn _cxx_name(self, s: string) -> DeclName {
+        return DeclName::ident(dyn()->sc->imm_table()->intern_ident_copy(s));
+    }
+
+    /// `obj.<name>()` resolved on \p obj's cv: the method, its result type
+    /// read as the value the hidden local holds, and the instance.
+    priv fn _cxx_member(self, at: *Expr, obj: *Type, cands: *vec::<*Decl>, name: string,
+                        ty: *(*Type), inst: *(*void)) -> *FunctionDecl {
+        var args = vec::<ArgInfo>();
+        var r = dyn()->ovl.resolve(cands, &args, true, at->range, name, obj);
+        if r.outcome != OvlOutcome::Selected { return &null; }
+        r.ded.bind_from_record(canon_unqual(obj));
+        var rt = dyn()->call_result_type(r.decl, &r);
+        if rt == &null { return &null; }
+        (*ty)   = canon_unqual(dyn()->tu.as_value(rt));
+        (*inst) = reinterpret_cast::<*void>(r.instance);
+        return r.decl;
+    }
+
+    /// `<name>(r)` among the ADL candidates \p cands, the range as its one
+    /// argument.
+    priv fn _cxx_free(self, at: *Expr, cands: *vec::<*Decl>, name: string,
+                      ty: *(*Type), inst: *(*void)) -> *FunctionDecl {
+        var args = vec::<ArgInfo>();
+        args.push_back(dyn()->arg_info(at));
+        var r = dyn()->ovl.resolve(cands, &args, false, at->range, name);
+        if r.outcome != OvlOutcome::Selected { return &null; }
+        var rt = dyn()->call_result_type(r.decl, &r);
+        if rt == &null { return &null; }
+        (*ty)   = canon_unqual(dyn()->tu.as_value(rt));
+        (*inst) = reinterpret_cast::<*void>(r.instance);
+        return r.decl;
     }
 
     /// Apply binding shorthands and write the binder's type.

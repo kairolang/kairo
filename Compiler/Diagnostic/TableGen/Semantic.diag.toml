@@ -2011,7 +2011,11 @@ group = "type-check"
     explain = """
     # `for` over a non-iterable type
 
-    a `for ... in` loop needs a type with an `op in`.
+    a `for ... in` loop iterates a range, an array or slice, a type with an
+    `op in (self) -> yield T`, or a C++ class the way C++ ranges over it: through
+    member `begin()` and `end()`, or, when the class has neither member, free
+    `begin(r)` and `end(r)` found by argument-dependent lookup. a class with only
+    one of the two members is an error, as in C++.
 
     ```kairo
     for x in 3 { }   // error
@@ -2019,7 +2023,8 @@ group = "type-check"
 
     ## how to fix
 
-    iterate a range or a container, or give the type an `op in`.
+    iterate a range or a container, give a Kairo type an `op in`, or give a C++
+    class both `begin()` and `end()`.
     """
 
 [SC096]

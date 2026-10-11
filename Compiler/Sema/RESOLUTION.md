@@ -818,9 +818,16 @@ IterLowering [PARTIAL]. X records each ranged `for`'s `iter_kind`,
 hidden locals and a `while` that advances before its body (so `continue`
 needs no step). Done: `a..b`, `a..=b` (never computes past `hi`), Range
 values (`inclusive` read at run time, never computes past `last`),
-`[T; N]`, `[T;]`, user `op in (self) -> yield T`. Binders: plain `x` copies, `*x`
-points at the element (at a per-iteration copy over a range). Not yet:
-Vector, set, map, string, destructuring binders, nullable binders.
+`[T; N]`, `[T;]`, user `op in (self) -> yield T`, and C++ ranges
+([stmt.ranged]: member `begin()`/`end()`, else free ones by ADL). For a C++
+range X resolves both calls on the range's cv and types `__it != __end`,
+`*__it`, `++__it` over two hidden locals it mints (RangedForStmt::cxx_*), so
+the loop's operators are chosen like any expression's; IterLowering places
+them and runs OperatorLowering over them, since they enter the tree after that
+pass. A pointer iterator's `++` is minted typed (Kairo has no user `++` on
+pointers). Binders: plain `x` copies, `*x` points at the element (at a
+per-iteration copy over a range or a prvalue `*__it`). Not yet: Vector, set,
+map, string, destructuring binders, nullable binders.
 
 RangeLowering. A range value is `Range<T>{.begin, .end, .inclusive}`; open
 ranges are valid only as a subscript index (X), where `a..` and `..` are

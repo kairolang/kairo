@@ -24,6 +24,13 @@
 ///       op in   { Yield<T> it = xs.__kairo_iter();
 ///                 while (it.next()) { T x = *it.current(); BODY } }
 ///
+///       C++     { R* rng = &xs; B it = (*rng).begin(); E end = (*rng).end();
+///                 while (it != end) { T x = *it; ++it; BODY } }
+///               ([stmt.ranged]; `begin(*rng)` / `end(*rng)` when ADL found
+///               free ones). X resolved both calls and typed the three
+///               operations; this pass places them, lowering the operators
+///               itself: they enter the tree after OperatorLowering ran.
+///
 ///     Every loop advances BEFORE the body, so `continue`, which jumps to the
 ///     loop test, needs no step clause. The inclusive range never computes a
 ///     value past `hi`, so `lo..=T::MAX` cannot overflow; the exclusive one
@@ -36,7 +43,10 @@
 ///     is bound to a local. A Slice is copied: it is a view, the copy is two
 ///     words, and the copy drops a `const` the binding may carry. A prvalue
 ///     receiver of `op in` is bound to a local first: the generator holds its
-///     address for the whole loop.
+///     address for the whole loop. A C++ range is reached through its
+///     address when it is an lvalue, keeping its cv so `begin()` is the one
+///     X chose, and is bound to a local when it is a prvalue -- C++'s
+///     `auto&& __range`, which extends a temporary to the end of the loop.
 ///
 ///   \par Binders
 ///     One binder. Plain `x` is a copy of the element; `*x` is its address,
@@ -69,6 +79,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Lower::OperatorLowering::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
@@ -154,6 +165,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
             case IterKind::Array      { return self._array(n, pre); }
             case IterKind::Slice      { return self._slice(n, pre); }
             case IterKind::User       { return self._user(n, pre); }
+            case IterKind::Cxx        { return self._cxx(n, pre); }
             case IterKind::RangeValue { return self._range_value(n, pre); }
             case IterKind::Vector     { ICE_FAIL("IterLowering: iterating a Vector waits on Vector's constructor bodies and a by-reference view of an lvalue Vector"); }
             case IterKind::Set        { ICE_FAIL("IterLowering: iterating a set; the container migration owns it"); }
@@ -325,6 +337,81 @@ class IterLowering derives ASTWriter::<IterLowering> {
 
         var no_next = self.list_builder::<*Expr>();
         return self._while(at, self.synth.member_call(at, self._use(it, at), next_d, &no_next, self._bool()), &body);
+    }
+
+    priv fn _cxx(self, n: *RangedForStmt, pre: *ListBuilder::<*Stmt>) -> *Stmt {
+        var at = n->range;
+        ICE_IF((n->cxx_it == &null) || (n->cxx_end == &null) || (n->cxx_cond == &null)
+            || (n->cxx_deref == &null) || (n->cxx_next == &null),
+               "IterLowering: a C++ range with no protocol pieces; StmtTyping::_cxx_range gate failure");
+        var itv  = cast::<VariableDecl>(n->cxx_it);
+        var endv = cast::<VariableDecl>(n->cxx_end);
+
+        var rng: *VariableDecl = &null;
+        var obj = self._referee(n->iterable->type_);
+        if n->iterable->is_lvalue() {
+            var addr = UnaryOperatorExpr::create(self.ctx, n->iterable->range, n->iterable,
+                                                 self.synth.punct(n->iterable->range, TokenKind::OpAmp),
+                                                 UnaryOperatorExpr::Fix::Prefix);
+            addr->type_          = self.sc->types->pointer(obj, false);
+            addr->value_category = Expr::ValueCategory::RValue;
+            rng = self._local(pre, at, "rng", addr->type_, static_cast::<*Expr>(addr));
+        } else {
+            rng = self._local(pre, at, "seq", canon_unqual(obj), n->iterable);
+        }
+
+        itv->init  = self._cxx_call(n, at, rng, obj, n->cxx_begin_fn, n->cxx_begin_inst, itv->type_);
+        endv->init = self._cxx_call(n, at, rng, obj, n->cxx_end_fn,   n->cxx_end_inst,   endv->type_);
+        pre->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(itv))));
+        pre->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, at, static_cast::<*Decl>(endv))));
+
+        var ops   = OperatorLowering(self.sc);
+        var cond  = ops.transform_expr(n->cxx_cond);
+        var place = ops.transform_expr(n->cxx_deref);
+        var next  = ops.transform_expr(n->cxx_next);
+
+        var body = self.list_builder::<*Stmt>();
+        self._bind(n, &body, at, place, n->cxx_deref->is_lvalue());
+        body.push(self._expr_stmt(next));
+        body.push(static_cast::<*Stmt>(n->body));
+        return self._while(at, cond, &body);
+    }
+
+    /// The range object, read through \p rng: `*rng` for an lvalue's
+    /// address, the local itself for a prvalue's copy.
+    priv fn _cxx_range_obj(self, at: SourceRange, rng: *VariableDecl, obj: *Type) -> *Expr {
+        var use = self._use(rng, at);
+        if isa::<PointerType>(canon_unqual(rng->type_)) { return self._deref(use, obj); }
+        return use;
+    }
+
+    /// `(*rng).f()` for a member, `f(*rng)` for a free function ADL found.
+    priv fn _cxx_call(self, n: *RangedForStmt, at: SourceRange, rng: *VariableDecl, obj: *Type,
+                      f: *Decl, inst: *void, ty: *Type) -> *Expr {
+        var recv = self._cxx_range_obj(at, rng, obj);
+        if !n->cxx_free {
+            var none = self.list_builder::<*Expr>();
+            var call = self.synth.member_call(at, recv, f, &none, ty);
+            cast::<CallExpr>(call)->instance = inst;
+            return call;
+        }
+        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, self.tu.decl_name(f)));
+        callee->resolved_decl = f;
+        var c = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
+        var args = self.list_builder::<*Expr>();
+        args.push(recv);
+        args.freeze_into(&(c->args));
+        c->instance       = inst;
+        c->type_          = ty;
+        c->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(c);
+    }
+
+    /// A C++ reference names its referee; the range object is the referee.
+    priv fn _referee(self, t: *Type) -> *Type {
+        if (t != &null) && isa::<CXXLValueRefType>(t) { return cast::<CXXLValueRefType>(t)->referee; }
+        if (t != &null) && isa::<CXXRValueRefType>(t) { return cast::<CXXRValueRefType>(t)->referee; }
+        return t;
     }
 
     // --- the binder ---------------------------------------------------------------

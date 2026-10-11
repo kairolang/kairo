@@ -157,9 +157,14 @@ class LowerSynth {
         return static_cast::<*Expr>(c);
     }
 
-    /// `&e`, typed `*T` for an \p e of T.
+    /// `&e`, typed `*T` for an \p e of T. A C++ `T&` (an `operator*` result)
+    /// names its referee, as OperatorTyping's `&` reads it: `*T`, never a
+    /// pointer to a reference.
     fn addr_of(self, e: *Expr) -> *Expr {
-        var pt = self.sc->types->pointer(canon_unqual(e->type_));
+        var t = e->type_;
+        if (t != &null) && isa::<CXXLValueRefType>(t)      { t = cast::<CXXLValueRefType>(t)->referee; }
+        else if (t != &null) && isa::<CXXRValueRefType>(t) { t = cast::<CXXRValueRefType>(t)->referee; }
+        var pt = self.sc->types->pointer(canon_unqual(t));
         var u  = UnaryOperatorExpr::create(self.sc->ctx, e->range, e, self.punct(e->range, TokenKind::OpAmp),
                                            UnaryOperatorExpr::Fix::Prefix);
         u->type_          = pt;

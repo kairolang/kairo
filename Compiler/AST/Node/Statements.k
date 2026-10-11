@@ -657,6 +657,7 @@ enum IterKind derives u8 {
     Map,          ///< `{K: V}`.
     String,       ///< `string`, by `char`.
     User,         ///< a record's `fn op in (self) -> yield T`.
+    Cxx,          ///< C++'s range protocol ([stmt.ranged]): `begin()`/`end()`.
 }
 
 ///
@@ -666,8 +667,15 @@ enum IterKind derives u8 {
 ///
 ///  `bindings` holds the loop bindings (1 for `for var x in`, N for a tuple
 ///  destructure `for var (k, const v) in`). `is_eval` marks the compile-time
-///  unroll form. `iterable` is a range, a container, or a record with
-///  `fn op in (self) -> yield T`; X records which in `iter_kind`.
+///  unroll form. `iterable` is a range, a container, a record with
+///  `fn op in (self) -> yield T`, or one C++ can range over (member or free
+///  `begin`/`end`); X records which in `iter_kind`.
+///
+///  For Cxx, X also mints the two hidden iterator locals and types the three
+///  loop operations over them, so overload resolution -- const `begin()`,
+///  ADL, C++20's `!=` from `==` -- happens in X like any other expression;
+///  IterLowering only places them. The `cxx_*` fields are not children: no
+///  walker visits them before IterLowering puts them in the tree.
 ///
 class RangedForStmt derives Stmt {
     pub var bindings: FrozenList::<Binding>;
@@ -677,6 +685,18 @@ class RangedForStmt derives Stmt {
     pub var iter_kind: IterKind = IterKind::None;
     pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`.
     pub var iter_elem: *Type    = &null;   ///< the element type, canonical and unqualified.
+    // Cxx only. Locals are *Decl (always a VariableDecl), the import-cycle
+    // dodge Binding uses.
+    pub var cxx_begin_fn:  *Decl  = &null;   ///< `begin`, a member or (cxx_free) a free function.
+    pub var cxx_end_fn:    *Decl  = &null;
+    pub var cxx_free:      bool   = false;   ///< begin/end are free functions found by ADL: `begin(r)`.
+    pub var cxx_begin_inst: *void = &null;   ///< a generic free begin's instance, as CallExpr::instance.
+    pub var cxx_end_inst:   *void = &null;
+    pub var cxx_it:        *Decl  = &null;   ///< `__it`, of begin's type; init left to IterLowering.
+    pub var cxx_end:       *Decl  = &null;   ///< `__end`, of end's type (a sentinel may differ).
+    pub var cxx_cond:      *Expr  = &null;   ///< `__it != __end`, typed.
+    pub var cxx_deref:     *Expr  = &null;   ///< `*__it`, typed: the element place.
+    pub var cxx_next:      *Expr  = &null;   ///< `++__it`, typed.
 
     static fn create(
         ctx:      *ASTContext,
