@@ -211,6 +211,20 @@ class <T> OperatorTyping {
     priv fn _gather(self, name: DeclName, recv_ty: *Type, other: *Type, want_postfix: i32,
                     cands: *vec::<*Decl>, frees: *vec::<*Decl>) {
         if recv_ty != &null { dyn()->ml.lookup(dyn()->tu.strip_nullable(recv_ty), name, cands); }
+        // A C++ hidden friend sits in its class's table but is no member: it
+        // takes every operand as an argument, and ADL reaches it through
+        // EITHER operand's class (DeclImport::declare_friend).
+        self._move_friends(cands, frees);
+        if (other != &null) && (dyn()->tu.record_decl(other) != &null) {
+            var theirs = vec::<*Decl>();
+            dyn()->ml.lookup(dyn()->tu.strip_nullable(other), name, &theirs);
+            for var i: usize = 0; i < theirs.size(); ++i {
+                var f = dyn_cast::<FunctionDecl>(theirs[i]);
+                if (f == &null) || f->is_method() { continue; }
+                if self._has(frees, theirs[i]) { continue; }
+                frees->push_back(theirs[i]);
+            }
+        }
 
         var scopes = vec::<*DeclContext>();
         if recv_ty != &null {
@@ -242,6 +256,20 @@ class <T> OperatorTyping {
         if want_postfix < 0 { return; }
         self._filter_fixity(cands, want_postfix == 1);
         self._filter_fixity(frees, want_postfix == 1);
+    }
+
+    /// Move the non-methods member lookup found (hidden friends) to \p frees.
+    priv fn _move_friends(self, cands: *vec::<*Decl>, frees: *vec::<*Decl>) {
+        var keep = vec::<*Decl>();
+        for var i: usize = 0; i < cands->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>((*cands)[i]);
+            if (f != &null) && (!f->is_method()) && decl_is_imported((*cands)[i]) {
+                if !self._has(frees, (*cands)[i]) { frees->push_back((*cands)[i]); }
+                continue;
+            }
+            keep.push_back((*cands)[i]);
+        }
+        (*cands) = keep;
     }
 
     /// Drop the free operators that cannot take these operands at all. A

@@ -991,6 +991,16 @@ class EmitIR {
                 s += self._spell.leaf(callee);
             }
             sink->spell(n->callee->range, s);
+        } else if (f != &null) && f->is_operator && (!f->is_method()) && decl_is_imported(callee) && self._plain_callee(n->callee) {
+            // A free imported operator is spelled as C++ looks `a == b` up:
+            // unqualified, so ADL finds it, and with no template arguments.
+            // Qualified, `std::operator==` misses a hidden friend (found only
+            // by ADL); and an operator's arguments are always deduced, so
+            // clang deduces them again from the operands' real types --
+            // spelling Kairo's would round-trip them, and C++ `char` comes
+            // back as `i8`'s `signed char`: a std::string iterator's `==`
+            // named `operator==<signed char*>`.
+            sink->spell(n->callee->range, self._spell.leaf(callee));
         } else if (inst != &null) && (CXXSpell::template_params(callee).size() > 0) && self._plain_callee(n->callee) {
             // A generic extension member's instance is `<ext args..., member args...>`.
             sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));

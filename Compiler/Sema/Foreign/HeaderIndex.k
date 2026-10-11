@@ -33,6 +33,7 @@ ffi "c++" import "clang/AST/Decl.h";
 ffi "c++" import "clang/AST/DeclBase.h";
 ffi "c++" import "clang/AST/DeclCXX.h";
 ffi "c++" import "clang/AST/DeclTemplate.h";
+ffi "c++" import "clang/AST/DeclFriend.h";
 
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -283,6 +284,20 @@ class HeaderIndex {
                             self.walk_declare(parts[i], di, out);
                         }
                     }
+                }
+                continue;
+            }
+
+            // A friend FUNCTION of a class (the hidden friend operators of
+            // every node-based libc++ iterator): declared, bound in the class.
+            // Not in a template's PATTERN, whose friend is dependent on the
+            // class's parameters; a fill walks each specialization, where
+            // clang has instantiated the friend's declaration concretely.
+            if kind == clang::Decl::Friend {
+                var fr = llvm::cast::<clang::FriendDecl>(d)->getFriendDecl();
+                if (fr != &null) && llvm::isa::<clang::FunctionDecl>(fr) && (!fr->isTemplated()) {
+                    var kf = di->declare_friend(fr, dc);
+                    if kf != &null { out.push_back((reinterpret_cast::<*void>(fr), kf)); }
                 }
                 continue;
             }

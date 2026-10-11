@@ -20,7 +20,8 @@
 ///     table. Nothing after N knows the decl was not parsed.
 ///
 ///   \par What is NOT imported (skipped, by design, for this shot)
-///     friend decls, using-directives, static_assert, deduction guides,
+///     friend classes and friend function templates (a friend FUNCTION is
+///     imported, declare_friend), using-directives, static_assert, deduction guides,
 ///     variable templates, bit-field widths, default-argument EXPRESSIONS
 ///     (presence is recorded), implicit instantiations found in the header
 ///     (the registry mints them on demand), non-type template arguments.
@@ -110,6 +111,8 @@ class DeclImport {
     pub var fill_scope:  *DeclContext  = &null;   ///< the instance shell.
     pub var fill_spec:   *clang::Decl  = &null;   ///< the ClassTemplateSpecializationDecl it stands for.
     pub var fill_scopes: vec::<*DeclContext>;     ///< every table the fill created; the fill freezes them.
+    /// declare_friend only: the class whose table the friend's NAME goes in.
+    priv var _friend_scope: *clang::DeclContext = &null;
 
     pub var n_declared: usize = 0;
     pub var n_defined:  usize = 0;
@@ -348,6 +351,20 @@ class DeclImport {
         return kd;
     }
 
+    /// A friend function declared in the class \p cls -- the hidden friend
+    /// `friend bool operator==(const It&, const It&) { ... }` every libc++
+    /// node-based iterator compares through. Its entity belongs to the
+    /// enclosing namespace, but C++ finds it ONLY by argument-dependent lookup
+    /// through \p cls, so its name is bound in the class's table and nowhere
+    /// else. It is not a member (no `self`); operator lookup takes such a
+    /// function from a class table as a free candidate (OperatorTyping::_gather).
+    fn declare_friend(self, fn_: *clang::Decl, cls: *clang::DeclContext) -> *Decl {
+        self._friend_scope = cls;
+        var kd = self.declare(fn_);
+        self._friend_scope = &null;
+        return kd;
+    }
+
     priv fn _anon_with_typedef(self, nd: const_obs::<clang::NamedDecl>) -> bool {
         var tag = llvm::dyn_cast::<clang::TagDecl>(nd);
         if tag == &null { return false; }
@@ -501,6 +518,9 @@ class DeclImport {
     /// no per-decl foreign facts sema needs.
     priv fn _stamp(self, kd: *Decl, d: *clang::Decl, nd: *clang::NamedDecl, usr: libcxx::string, t: *HeaderTarget) {
         var sp   = self._qual(nd);
+        // A hidden friend has no qualified spelling: qualified lookup never
+        // finds it, only ADL does. Its bare name is what C++ calls it by.
+        if self._friend_scope != &null { sp = self._display_name(nd); }
         var us   = std::nstring_to_string(usr);
         var vset = reinterpret_cast::<*void>(self._set);
         var vd   = reinterpret_cast::<*void>(d);
@@ -517,7 +537,9 @@ class DeclImport {
         // `std::vector` step saw two entities (R028E). The same rule as a
         // Kairo `class <> Box<[T]>`, which _stmt_decl_imm declines to declare.
         if llvm::isa::<clang::ClassTemplatePartialSpecializationDecl>(nd) { return; }
-        var dc = self.scope_for(t, nd->getDeclContext());
+        var dc: *DeclContext = &null;
+        if self._friend_scope != &null { dc = self.scope_for(t, self._friend_scope); }
+        else                           { dc = self.scope_for(t, nd->getDeclContext()); }
         if dc == &null { return; }
         // getAsFunction, not a FunctionDecl cast: a FunctionTemplateDecl is
         // not one, and took the ident path below, so every operator template
