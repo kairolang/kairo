@@ -131,6 +131,16 @@ class <T> OperatorTyping {
         return isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d);
     }
 
+    /// A record imported from a C++ header (not a Kairo one), or an instance
+    /// of an imported template: `__wrap_iter<const int*>` is clang's
+    /// instantiation, and only its primary carries the import stamp.
+    priv fn _is_imported_record(self, t: *Type) -> bool {
+        var d = dyn()->tu.record_decl(t);
+        if d == &null { return false; }
+        if decl_is_imported(d) { return true; }
+        return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d));
+    }
+
     priv fn _label(self, tok: Token) -> string {
         return "op " + dyn()->sc->ctx->get_spelling(tok);
     }
@@ -677,6 +687,20 @@ class <T> OperatorTyping {
             var args  = vec::<*Expr>();
             var ut = self.resolve_user_op(static_cast::<*Expr>(n), k, TokenKind::TkUnknown, n->operand, ot, &null,
                                           &args, fix, self._label(n->op_token), &found);
+            if found { return ut; }
+        }
+
+        // Unary `*` is the pointer dereference and not overloadable in Kairo,
+        // but a C++ class's `operator*` is how every C++ iterator and smart
+        // pointer is read, so on an imported record it is looked up like any
+        // other operator. Only there: a Kairo record's `op *` is the binary
+        // one, and offering it to `*x` would turn "not a pointer" into a
+        // misleading overload failure.
+        if (k == TokenKind::OpStar) && (dyn()->tu.pointee(ot) == &null) && self._is_imported_record(ot) {
+            var found = false;
+            var args  = vec::<*Expr>();
+            var ut = self.resolve_user_op(static_cast::<*Expr>(n), k, TokenKind::TkUnknown, n->operand, ot, &null,
+                                          &args, -1, "operator*", &found);
             if found { return ut; }
         }
 
