@@ -47,15 +47,17 @@ class TargetOptions {
     ///          than computing it here.
     pub var pointer_width: usize = 0;
 
-    /// \brief Whether int64_t is `long`: LP64, i.e. a 64-bit pointer on
-    ///        anything but Windows. LLP64 and every 32-bit target spell it
-    ///        `long long`. DERIVED beside pointer_width, off the same Triple.
+    /// \brief Whether int64_t is `long` rather than `long long`. Not the
+    ///        same question as LP64: Darwin and OpenBSD are LP64 and still
+    ///        spell it `long long`, as do LLP64 (Windows) and every 32-bit
+    ///        target. DERIVED from clang::TargetInfo for the same Triple as
+    ///        pointer_width.
     ///
     /// \details true by default to agree with the unfilled pointer_width's
     ///          "treat 0 as 64": a hand-built invocation is a 64-bit host
     ///          build, and a default that disagreed with its own width would
     ///          spell i64 as a type of the wrong size.
-    pub var lp64: bool = true;
+    pub var int64_is_long: bool = true;
 
     // --- Derived target facts -------------------------------------------------
     //

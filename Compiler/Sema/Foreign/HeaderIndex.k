@@ -124,15 +124,15 @@ class HeaderIndex {
         // the width comes from exactly where SemaContext takes it; a second
         // source would give usize two sizes depending on who ran first.
         var pbits: usize = 64;
-        var lp64 = true;
+        var i64_long = true;
         var ldb: usize = 0;
         var lda: usize = 0;
         if self._inv != &null {
-            pbits = self._inv->target.pointer_width; lp64 = self._inv->target.lp64;
+            pbits = self._inv->target.pointer_width; i64_long = self._inv->target.int64_is_long;
             ldb = self._inv->target.long_double_bits; lda = self._inv->target.long_double_align;
         }
-        if pbits == 0 { pbits = 64; lp64 = true; }
-        self._g->types()->init(pbits, lp64, ldb, lda);
+        if pbits == 0 { pbits = 64; i64_long = true; }
+        self._g->types()->init(pbits, i64_long, ldb, lda);
 
         // 1. fids + contexts + TUs, in clang's touch order.
         var fresh = vec::<*HeaderTarget>();

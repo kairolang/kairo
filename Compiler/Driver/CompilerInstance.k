@@ -1854,9 +1854,6 @@ class CompilerInstance {
         }
         
         (self.invocation().target.pointer_width) = width;
-        // int64_t is `long` only on LP64; LLP64 (Windows) and 32-bit targets
-        // make it `long long`. BuiltinTable spells i64/u64 from this.
-        (self.invocation().target.lp64) = (width == 64) && (!tt.isOSWindows());
 
         // The rest of the derived target facts, off the SAME Triple, so
         // pointer width and ISA can never disagree about which target this
@@ -1891,7 +1888,7 @@ class CompilerInstance {
         (t->object_format)    = objfmt;
         (t->is_little_endian) = tt.isLittleEndian();
         (t->is_x86)           = tt.isX86();
-        self._fill_long_double_facts(tt);
+        self._fill_clang_type_facts(tt);
         (t->resolved)         = true;
 
         var err: libcxx::string;
@@ -1916,16 +1913,18 @@ class CompilerInstance {
         }
     }
 
-    /// Fill TargetOptions' `long double` block from clang::TargetInfo for
-    /// \p tt, the same post -m32/-m64 Triple the rest of the derived facts
-    /// came from.
+    /// Fill TargetOptions' `long double` block and int64_t spelling from
+    /// clang::TargetInfo for \p tt, the same post -m32/-m64 Triple the rest
+    /// of the derived facts came from.
     ///
-    /// Asked of clang, not a triple list: whether `long double` is x87 is an
-    /// ABI decision clang already makes per triple, and every hand-written
-    /// "is x86" approximation of it is wrong on MSVC (binary64) and Android
-    /// (binary128). The TargetInfo is throwaway -- only the answers are kept,
-    /// so Config/ and Sema still never see clang.
-    priv fn _fill_long_double_facts(self, tt: ref!(llvm::Triple)) {
+    /// Asked of clang, not a triple list: both are ABI decisions clang already
+    /// makes per triple, and every hand-written approximation has been wrong
+    /// somewhere -- "is x86" for x87 on MSVC (binary64) and Android
+    /// (binary128), "64-bit and not Windows" for `long` int64_t on Darwin,
+    /// which is LP64 and still spells it `long long`. The TargetInfo is
+    /// throwaway -- only the answers are kept, so Config/ and Sema still
+    /// never see clang.
+    priv fn _fill_clang_type_facts(self, tt: ref!(llvm::Triple)) {
         var t = &(self.invocation().target);
 
         var dopts = clang::DiagnosticOptions();
@@ -1942,8 +1941,13 @@ class CompilerInstance {
         // misleading error on top of that one.
         if ti.get() == &null {
             (t->long_double_is_x87) = t->is_x86;
+            (t->int64_is_long)      = (t->pointer_width == 64) && (!tt.isOSWindows());
             return;
         }
+
+        // CanonicalTypes spells i64/u64 from this. Any other answer than
+        // `long` is `long long`: no target clang knows makes int64_t an `int`.
+        (t->int64_is_long) = ti->getInt64Type() == clang::TargetInfo::SignedLong;
 
         var fmt    = &(ti->getLongDoubleFormat());
         var is_x87 = fmt == &(llvm::APFloat::x87DoubleExtended());

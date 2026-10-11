@@ -469,11 +469,12 @@ class BuiltinInfo {
 ///      the literal 0 as a width.
 ///
 ///      `I64`/`U64` carry cxx == "" with BF_TARGET_CXX. `int64_t` is `long`
-///      only on LP64; on LLP64 (Windows) and every 32-bit target `long` is 32
-///      bits and `int64_t` is `long long`. A hardcoded `long` there makes every
-///      i64 a 32-bit type and every i64 parameter disagree with every header's
-///      int64_t, so the store writes the spelling from the triple, as it does
-///      the width of the pair above. `signed int` / `signed short` are
+///      only on some LP64 targets; on LLP64 (Windows) and every 32-bit target
+///      `long` is 32 bits, and Darwin is LP64 but still says `long long`. A
+///      hardcoded `long` makes every i64 a 32-bit type on the first two and
+///      mangles every i64 parameter differently from the header's int64_t on
+///      Darwin, so the store writes the spelling clang gives for the target,
+///      as it does the width of the pair above. `signed int` / `signed short` are
 ///      int32_t / int16_t on every target Kairo sees, so those rows stay fixed.
 ///
 ///      `F256`/`F512` carry exp/mant/bias == 0. A limb representation has no
