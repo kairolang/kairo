@@ -108,6 +108,11 @@ filecheck_bin = _find_filecheck()
 # --param resource_dir=/path.
 def _clang_roots():
     sysroot = lit_config.params.get("sysroot", "/usr")
+    # A sysroot that does not exist is not an error to kairo (no system
+    # headers, as with no --sysroot), so a stale path fails every ffi test
+    # with a missing-header cascade instead of saying what is wrong.
+    if not os.path.isdir(sysroot):
+        lit_config.fatal("--param sysroot=%s is not a directory" % sysroot)
     res = lit_config.params.get("resource_dir")
     if not res:
         cands = sorted(glob.glob(os.path.join(
