@@ -23,6 +23,11 @@
 ///       generic         a non-generic candidate beats a generic one,
 ///                       otherwise `fn f(i32)` next to `fn <T> f(T)` is
 ///                       ambiguous on every call.
+///       specialization  among generic ones still tied, the one more
+///                       specialized than every other ([temp.func.order],
+///                       _partial_order): libc++ declares `==` on its
+///                       iterators as `(W<I>, W<I>)` beside `(W<I1>, W<I2>)`,
+///                       and every call matches both exactly.
 ///
 ///     Everything else that ties is ambiguous and errors, even when one
 ///     conversion looks "narrower".
@@ -334,6 +339,7 @@ class OverloadResolution {
             }
             if nongen.size() > 0 { winners = nongen; }
         }
+        if winners.size() > 1 { winners = self._partial_order(&cs, &winners); }
 
         if defer && self._undecided(&cs, &winners) {
             out.outcome = OvlOutcome::Deferred;
@@ -356,6 +362,81 @@ class OverloadResolution {
         out.inout_unmarked = w->inout_unmarked;
         out.inout_params   = w->inout_params;
         return out;
+    }
+
+    /// [temp.func.order]: of \p winners, all generic and tied, the one more
+    /// specialized than each of the others, or \p winners unchanged. Only
+    /// candidates of one kind are ordered (all members or all free), over the
+    /// parameters the call's arguments landed on; a pack or C `...` slot
+    /// leaves the tie for the ambiguity diagnostic.
+    priv fn _partial_order(self, cs: *vec::<Candidate>, winners: *vec::<usize>) -> vec::<usize> {
+        var first = &((*cs)[(*winners)[0]]);
+        for var i: usize = 0; i < winners->size(); ++i {
+            var c = &((*cs)[(*winners)[i]]);
+            if (!c->generic) || (c->free != first->free) { return *winners; }
+        }
+        for var i: usize = 0; i < winners->size(); ++i {
+            var a = &((*cs)[(*winners)[i]]);
+            var best = true;
+            for var j: usize = 0; j < winners->size(); ++j {
+                if i == j { continue; }
+                var b = &((*cs)[(*winners)[j]]);
+                if (!self._as_specialized(a, b)) || self._as_specialized(b, a) { best = false; break; }
+            }
+            if best {
+                var one = vec::<usize>();
+                one.push_back((*winners)[i]);
+                return one;
+            }
+        }
+        return *winners;
+    }
+
+    /// Whether \p a is at least as specialized as \p b ([temp.deduct.partial]):
+    /// b's generic parameters deduce from a's parameter types, a's own
+    /// generic parameters standing in as the unique types the rule asks for
+    /// (a GenericParamType of a's is a type b can bind and never equals one
+    /// of b's). References and top-level cv are stripped from both sides
+    /// first, and no conversion is allowed: exact unification or nothing.
+    priv fn _as_specialized(self, a: *Candidate, b: *Candidate) -> bool {
+        var pa = self._ordering_params(a);
+        var pb = self._ordering_params(b);
+        if (pa.size() == 0) || (pa.size() != pb.size()) { return false; }
+        var d = Deduction(self.sc, self.conv);
+        for var k: usize = 0; k < pa.size(); ++k {
+            if d.unify(self._ordering_type(pb[k]), self._ordering_type(pa[k]), false) != ImplicitRank::Exact { return false; }
+        }
+        return true;
+    }
+
+    /// The parameter types \p c's arguments landed on, in argument order;
+    /// empty if one landed on a pack or C `...` tail, or a type is missing.
+    priv fn _ordering_params(self, c: *Candidate) -> vec::<*Type> {
+        var params = vec::<*ParamDecl>();
+        for var i: usize = 0; i < c->f->params.size(); ++i {
+            var p = c->f->params[i];
+            if p == &null { continue; }
+            if p->is_self && (!c->free) { continue; }
+            params.push_back(p);
+        }
+        var out = vec::<*Type>();
+        for var i: usize = 0; i < c->arg_to_param.size(); ++i {
+            var k = c->arg_to_param[i];
+            if k >= params.size() { return vec::<*Type>(); }
+            var p = params[k];
+            if (p->type_ == &null) || (p->type_->canonical == &null) { return vec::<*Type>(); }
+            out.push_back(p->type_->canonical);
+        }
+        return out;
+    }
+
+    /// [temp.deduct.partial]/5-7: a reference becomes its referee, then
+    /// top-level cv goes.
+    priv fn _ordering_type(self, t: *Type) -> *Type {
+        var c = t;
+        if isa::<CXXLValueRefType>(c)      { c = cast::<CXXLValueRefType>(c)->referee; }
+        else if isa::<CXXRValueRefType>(c) { c = cast::<CXXRValueRefType>(c)->referee; }
+        return canon_unqual(c);
     }
 
     /// defer mode: whether \p winners leave the choice to the instance. A tie
