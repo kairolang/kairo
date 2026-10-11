@@ -48,7 +48,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "add include path forwarded only to clang for C++ interop headers (repeatable)");
     cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "dedicated search path for macro-only .k files (repeatable)");
     cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "force-include a file before all source files (repeatable)");
-    cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "override system root directory for both compilation and cross-compilation", "");
+    cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "system root for headers and linking; a --target with a bundled <prefix>/sysroot/<target> uses that instead", "");
     cmd->define::<FlagKind::String>   ("resource-dir",    "",  "resource-dir",        "clang resource directory for C++ interop; its include/ holds the builtin headers", "");
     cmd->define::<FlagKind::String>   ("builtins-dir",    "",  "builtins-dir",        "directory holding Kairo's builtin module tree; overrides <resource-dir>/builtin", "");
     cmd->define::<FlagKind::String>   ("std-dir",         "",  "std-dir",             "directory holding Kairo's standard library tree; overrides <resource-dir>/std", "");

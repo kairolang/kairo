@@ -142,6 +142,13 @@ def _clang_roots():
 
 kairo_roots = _clang_roots()
 
+# A --target picks <prefix>/sysroot/<target> beside the compiler over the
+# --sysroot above (CompilerInstance::_use_bundled_sysroot). Tests that compile
+# for another target's C library need that directory, and fail with a
+# confusing typedef clash rather than skip without it.
+if os.path.isdir(os.path.join(os.path.dirname(os.path.dirname(kairo_bin)), "sysroot")):
+    config.available_features.add("bundled-sysroot")
+
 config.substitutions.append(("%kairo", kairo_bin + " --error-format=basic" + kairo_roots))
 config.substitutions.append(("%FileCheck", filecheck_bin))
 

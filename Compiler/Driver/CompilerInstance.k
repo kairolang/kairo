@@ -594,6 +594,87 @@ class CompilerInstance {
         }
     }
 
+    /// A --target picks the sysroot bundled beside this binary,
+    /// <prefix>/sysroot/<target> with <prefix> the directory above bin/, over
+    /// --sysroot. One --sysroot then serves every host build while each
+    /// --target gets headers and libraries for its own ABI; a single
+    /// sysroot shared across targets makes clang reject the C library's
+    /// typedefs (size_t is `unsigned long` in x86_64 musl and `unsigned int`
+    /// on i386) and makes uint64_t 32 bits on Windows.
+    ///
+    /// A directory named exactly as --target is spelled wins. Otherwise any
+    /// directory whose name is the same target in another spelling matches
+    /// (Toolchain::same_target, plus the sub-arch so arm64e is not arm64):
+    /// x86_64-pc-windows-msvc finds x86_64-windows-msvc, and llvm reads
+    /// x86_64-linux-gnu-glibc2.31 as a gnu environment, so x86_64-linux-gnu
+    /// finds that. Of several such, the first by name, so the pick never
+    /// follows readdir order. -m32/-m64 look up the arch they switch to, as
+    /// the rest of the driver does: --target=x86_64-linux-musl -m32 finds
+    /// i686-linux-musl.
+    ///
+    /// No match is not an error: --sysroot is used if given, and otherwise
+    /// there are no system headers, as without a --target. A match that is
+    /// not a directory holding a loadable SYSROOT.toml is P007E: compiling
+    /// against half a sysroot fails much later, far from the cause.
+    ///
+    /// \return false if a match was malformed (already reported).
+    priv fn _use_bundled_sysroot(self) -> bool {
+        var tg = &(self.invocation().target);
+        if tg->triple.empty() { return true; }
+
+        var want = tg->triple;
+        if tg->m32 || tg->m64 {
+            var nw = std::string_to_nstring(want);
+            var tt = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nw.raw(), nw.size())));
+            tt = (tt.get32BitArchVariant()) if (tg->m32) else (tt.get64BitArchVariant());
+            var full: libcxx::string = tt.getTriple();
+            want = string(full.c_str(), full.size());
+        }
+
+        var prefix = string((((std::get_exe_path()).parent_path()).parent_path()).generic_wstring());
+        var root   = LinkText::join(prefix, "sysroot");
+        var dir    = LinkText::join(root, want);
+        if !LinkFS::exists(dir) {
+            var pick = "";
+            for name: string in LinkFS::list_dir(root) {
+                if !CompilerInstance::_same_bundled_target(name, want) { continue; }
+                if pick.empty() || (name < pick) { pick = name; }
+            }
+            if pick.empty() { return true; }
+            dir = LinkText::join(root, pick);
+        }
+
+        var why = "";
+        var mpath = LinkText::join(dir, "SYSROOT.toml");
+        if !LinkFS::is_dir(dir) {
+            why = "it is not a directory";
+        } else if !LinkFS::is_file(mpath) {
+            why = "it has no SYSROOT.toml";
+        } else {
+            var m = SysrootManifest();
+            if !SysrootManifest::load(mpath, m) { why = f"SYSROOT.toml: {m.error}"; }
+        }
+        if !why.empty() {
+            self._diag->report(DiagID::P007E,
+                f"the bundled sysroot for '{want}\x27 is malformed: {dir}").emit();
+            self._diag->report(DiagID::P007N, why).emit();
+            return false;
+        }
+
+        (tg->sysroot) = dir;
+        return true;
+    }
+
+    /// Whether the bundled sysroot directory \p name is for \p triple.
+    priv static fn _same_bundled_target(name: string, triple: string) -> bool {
+        if !Toolchain::same_target(name, triple) { return false; }
+        var na = std::string_to_nstring(name);
+        var nb = std::string_to_nstring(triple);
+        var ta = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(na.raw(), na.size())));
+        var tb = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nb.raw(), nb.size())));
+        return ta.getSubArch() == tb.getSubArch();
+    }
+
     /// Returns the effective target triple: --target if given, else host triple.
     ///
     /// Reads the typed option rather than the raw flag so it works on the
@@ -1794,16 +1875,6 @@ class CompilerInstance {
         var d  = self.invocation().diag;
         var fe = self.invocation().frontend;
 
-        // Both roots absolute from here on. Headers resolved under a relative
-        // --sysroot come back as relative paths, and the header set re-includes
-        // them from /kairo/pch/<id>.h, where a relative path resolves against
-        // the PCH's directory, not the cwd. The linker gets the same strings.
-        // real() leaves a path that does not exist unchanged; the resolvers
-        // report it.
-        var tg = &(self.invocation().target);
-        if !tg->sysroot.empty()      { (tg->sysroot)      = LinkFS::real(tg->sysroot); }
-        if !tg->resource_dir.empty() { (tg->resource_dir) = LinkFS::real(tg->resource_dir); }
-
         if d.format == "basic" {
             self._diag->remove_consumer(self._pretty);
             self._diag->add_consumer(self._basic);
@@ -1832,6 +1903,23 @@ class CompilerInstance {
         } else {
             Logger::set_stream_level(Logger::Level::Info);
         }
+
+        // After the consumers are set up, so a malformed sysroot reports in
+        // the format asked for.
+        if !self._use_bundled_sysroot() {
+            self.invocation().ok = false;
+            return;
+        }
+
+        // Both roots absolute from here on. Headers resolved under a relative
+        // --sysroot come back as relative paths, and the header set re-includes
+        // them from /kairo/pch/<id>.h, where a relative path resolves against
+        // the PCH's directory, not the cwd. The linker gets the same strings.
+        // real() leaves a path that does not exist unchanged; the resolvers
+        // report it.
+        var tg = &(self.invocation().target);
+        if !tg->sysroot.empty()      { (tg->sysroot)      = LinkFS::real(tg->sysroot); }
+        if !tg->resource_dir.empty() { (tg->resource_dir) = LinkFS::real(tg->resource_dir); }
 
         // Pointer width for usize/isize, off the effective triple. -m32/-m64
         // are applied as arch-variant rewrites first, matching clang: they

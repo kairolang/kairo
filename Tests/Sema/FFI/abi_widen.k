@@ -1,5 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --target i386-linux-gnu 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo %s --type-check-only --target i686-linux-musl 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// REQUIRES: bundled-sysroot
 //
 // Integer widening into an imported signature (Conversion::abi_widen).
 // usize/isize are the width range [32, 64] over 32/64-bit targets, a
@@ -7,6 +8,8 @@
 // (strict for unsigned -> signed). Run on a 64- and a 32-bit triple: both
 // must accept the same calls, lattice §4's portability. A 16-bit target
 // lowers the floor to 16; no 16-bit backend is built, so that is untested.
+// The 32-bit run needs i686 C headers, hence the bundled sysroot: a 64-bit
+// libc's size_t disagrees with clang's.
 // Every call here must type-check with no `as`; the refused directions
 // live in abi_widen_errors.k.
 

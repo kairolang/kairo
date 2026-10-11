@@ -160,3 +160,37 @@ group = "target"
 
     [P006.N]
     explain = "Says how to list the CPUs the selected target accepts."
+
+[P007]
+brief = "bundled sysroot for the target is malformed"
+group = "target"
+
+    [P007.E]
+    explain = """
+    # malformed bundled sysroot
+
+    a `--target` looks for a sysroot beside the compiler, at `<prefix>/sysroot/<target>`, where
+    `<prefix>` is the directory above the one holding the `kairo` binary. when that directory
+    exists it is used for both header search and linking, ahead of `--sysroot`, so it has to be
+    complete: it must hold a `SYSROOT.toml` that names its triple, its include directories and its
+    library directories. a directory without one, or with one that does not parse, is not
+    guessed at - compiling against half a sysroot fails later, far from the cause.
+
+    when no directory matches the target, nothing is reported: `--sysroot` is used if given, and
+    otherwise the build has no system headers, as before.
+
+    ## example
+
+    ```
+    kairo --target=x86_64-pc-windows-msvc main.k
+    # <prefix>/sysroot/x86_64-pc-windows-msvc exists, but has no SYSROOT.toml
+    ```
+
+    ## how to fix
+
+    restore the manifest (re-extract the sysroot), or remove the directory to fall back to
+    `--sysroot`.
+    """
+
+    [P007.N]
+    explain = "Says what is wrong with the bundled sysroot directory."
