@@ -1225,15 +1225,19 @@ class Toolchain {
     }
 
     /// Same arch, OS and environment; vendor and spelling ignored, so
-    /// x86_64-linux-musl matches x86_64-unknown-linux-musl, and darwin
-    /// matches macosx. Both sides are canonical_triple'd first, so an
-    /// armv7-linux-musl sysroot matches the musleabihf target it is for.
+    /// x86_64-linux-musl matches x86_64-unknown-linux-musl, darwin matches
+    /// macosx, and wasi matches wasip1 (llvm parses them as two OSes; both
+    /// are WASI preview 1, the one ABI a wasi-sdk sysroot is built for).
+    /// Both sides are canonical_triple'd first, so an armv7-linux-musl
+    /// sysroot matches the musleabihf target it is for.
     static fn same_target(a: string, b: string) -> bool {
         var na = std::string_to_nstring(Toolchain::canonical_triple(a));
         var nb = std::string_to_nstring(Toolchain::canonical_triple(b));
         var ta = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(na.raw(), na.size())));
         var tb = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nb.raw(), nb.size())));
-        var same_os = (ta.getOS() == tb.getOS()) || (ta.isMacOSX() && tb.isMacOSX());
+        var wasi_a  = (ta.getOS() == llvm::Triple::WASI) || (ta.getOS() == llvm::Triple::WASIp1);
+        var wasi_b  = (tb.getOS() == llvm::Triple::WASI) || (tb.getOS() == llvm::Triple::WASIp1);
+        var same_os = (ta.getOS() == tb.getOS()) || (ta.isMacOSX() && tb.isMacOSX()) || (wasi_a && wasi_b);
         return (ta.getArch() == tb.getArch()) && same_os
             && (ta.getEnvironment() == tb.getEnvironment());
     }
