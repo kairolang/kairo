@@ -21,11 +21,13 @@
 /// ------------------------------------------------------------------------ ///
 
 import AST::Node::Base::*;
+import AST::Node::Declarations::*;
 
 class ForeignRegistry {
     priv var _by_usr: libcxx::unordered_map::<libcxx::string, *Decl>;
     priv var _mu:     std::SharedMutex;
     priv var _spec_of: libcxx::unordered_map::<*Decl, *void>;   ///< see note_spec().
+    priv var _ns_head: libcxx::unordered_map::<libcxx::string, *ModuleDecl>;   ///< see link_namespace().
 
     fn ForeignRegistry(self) { self._by_usr.reserve(4096); }
 
@@ -44,6 +46,27 @@ class ForeignRegistry {
         if it != self._by_usr.end() { return it->second; }
         self._by_usr.insert(libcxx::make_pair(usr, d));
         return d;
+    }
+
+    /// Link \p m, a fresh ModuleDecl for the C++ namespace \p qual, into
+    /// the redeclaration ring of the first one minted for that namespace.
+    ///
+    /// DeclImport mints one ModuleDecl per (header, namespace) -- one table
+    /// each, so a header's names stay in its own TU -- but C++ has ONE `std`
+    /// however many headers reopen it, and argument-dependent lookup searches
+    /// all of it. The ring is the shape a reopened Kairo `module` already has
+    /// (NameLookup::module_scopes), so every reader that walks reopenings sees
+    /// the whole namespace. Spliced under the lock: a fill can mint a
+    /// namespace off the driver thread.
+    fn link_namespace(self, qual: cref::<libcxx::string>, m: *ModuleDecl) {
+        if m == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        var it = self._ns_head.find(qual);
+        if it == self._ns_head.end() {
+            self._ns_head.insert(libcxx::make_pair(qual, m));
+            return;
+        }
+        if it->second != m { m->set_prev(it->second); }
     }
 
     fn size(self) -> usize {

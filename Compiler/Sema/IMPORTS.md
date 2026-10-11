@@ -395,6 +395,15 @@ redecl ring by N(a). Three rules make the ring behave as one block:
 Two FILES both writing `module Util` are two rings; merging those is the
 cross-reopening question at M2 (item 13a).
 
+A C++ namespace is the exception: Sema/Foreign links every header's
+ModuleDecl for one qualified namespace into ONE ring as it mints them
+(ForeignRegistry::link_namespace), because C++ has one `std` however many
+headers reopen it. Each header keeps its own table; the ring is what makes
+`std` one entity to the readers above, and what argument-dependent lookup
+walks (MemberLookup::_enclosing_modules): libc++ forward-declares
+`__wrap_iter` in one header and declares its `operator==` in another.
+`tests: Tests/Sema/FFI/ns_reopen.k, Tests/Sema/FFI/op_lookup.k`.
+
 The entry TU is NOT the unnamed namespace any more: it reopens
 `namespace <file stem>`, and only its `priv`/`internal` decls go one level
 deeper into an unnamed namespace nested there. CODEGEN.md §5 has the rule;

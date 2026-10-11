@@ -468,7 +468,20 @@ class MemberLookup {
         var dc = reinterpret_cast::<*DeclContext>(src->semantic_dc);
         while dc != &null {
             if dc->dc_kind == DeclContextKind::TranslationUnit { return; }
-            if (dc->dc_kind == DeclContextKind::Module) && (!self._has_dc(out, dc)) { out->push_back(dc); }
+            if dc->dc_kind == DeclContextKind::Module {
+                if !self._has_dc(out, dc) { out->push_back(dc); }
+                // The namespace, not the one block of it the record sits in:
+                // C++ searches every reopening. Sema/Foreign gives each
+                // header's `namespace std { }` its own ModuleDecl, and libc++
+                // forward-declares __wrap_iter in <__iterator/iterator_traits.h>
+                // but declares its operators in <__iterator/wrap_iter.h>, so
+                // the record's own block never held a `==` to find.
+                var scopes = vec::<*DeclContext>();
+                NameLookup::module_scopes(dc->owner_decl(), scopes);
+                for var i: usize = 0; i < scopes.size(); ++i {
+                    if !self._has_dc(out, scopes[i]) { out->push_back(scopes[i]); }
+                }
+            }
             dc = dc->parent_context();
         }
     }

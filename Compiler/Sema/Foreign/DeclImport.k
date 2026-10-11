@@ -275,8 +275,9 @@ class DeclImport {
     }
 
     /// One ModuleDecl per (header, qualified namespace). Reopenings within
-    /// the header share it; across headers they are distinct decls that
-    /// ChainBinding's multi-scope Module anchor unions.
+    /// the header share it; across headers they are distinct decls, linked
+    /// into one redeclaration ring (ForeignRegistry::link_namespace) that
+    /// ChainBinding's multi-scope Module anchor and ADL both walk.
     fn namespace_for(self, t: *HeaderTarget, ns: const_obs::<clang::NamespaceDecl>) -> *ModuleDecl {
         var q  = self._qual(ns);
         var nq = libcxx::string(std::string_to_nstring(q).raw_string());
@@ -299,6 +300,7 @@ class DeclImport {
         // where its RANGE is (_tok), the key where the TABLE is.
         self.bind(t, parent, self._ident_key(t, parent, nm), static_cast::<*Decl>(m));
         t->namespaces.insert(libcxx::make_pair(nq, m));
+        self.reg->link_namespace(nq, m);
         return m;
     }
 
