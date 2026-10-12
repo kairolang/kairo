@@ -638,7 +638,7 @@ class CXXSpell {
     /// `type name` for a parameter, name folded into the declarator for
     /// EVERY type, never `param_type(p) + " " + name`: a function pointer
     /// spelled that way is `U(*)(T) f`, which clang reads as a cast-like
-    /// expression ("expected ')'", "undeclared identifier 'f'"); the name
+    /// expression ("expected ')\x27", "undeclared identifier 'f\x27"); the name
     /// belongs inside, `U (*f)(T)`. An array is still its own branch:
     /// `[T; N]` is passed by reference (`const T (&xs)[N]` / `T (&xs)[N]`),
     /// never by value (StmtTyping rejects that). Empty \p name is the
