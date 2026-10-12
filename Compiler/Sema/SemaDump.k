@@ -23,6 +23,8 @@
 ///                       source that answered it
 ///       types        -- every Type node's canonical / dependent  [T]
 ///       expr types   -- every Expr node's type_             [ExprTyper]
+///                       plus the match facts and pattern  [PatternChecking]
+///                       slots (resolved=, field=)
 ///       inferred     -- the decls whose type the typer, not [ExprTyper]
 ///                       the source, supplied
 ///
@@ -83,6 +85,7 @@ import AST::Node::Declarations::*;
 import AST::Node::Types::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
+import AST::Kind::PatternKind::*;
 import AST::Printer::PrintCore::*;
 import AST::Printer::ASTPrinter::*;
 import AST::Visitor::RecursiveASTVisitor::*;
@@ -100,6 +103,21 @@ fn sema_dump_loc(ctx: *ASTContext, loc: SourceLocation) -> string {
     if ctx->sm == &null { return "?:?"; }
     var full = ctx->sm->get_line_col(loc);
     return f"{full.line}:{full.column}";
+}
+
+fn sema_dump_pattern_kind_str(k: PatternKind) -> string {
+    switch k {
+        case PatternKind::WildcardPattern              { return "WildcardPattern";              }
+        case PatternKind::LiteralPattern               { return "LiteralPattern";               }
+        case PatternKind::BindingPattern               { return "BindingPattern";               }
+        case PatternKind::TupleDestructurePattern      { return "TupleDestructurePattern";      }
+        case PatternKind::ConstructorPattern           { return "ConstructorPattern";           }
+        case PatternKind::UnresolvedConstructorPattern { return "UnresolvedConstructorPattern"; }
+        case PatternKind::AlternationPattern           { return "AlternationPattern";           }
+        case PatternKind::RangePattern                 { return "RangePattern";                 }
+        case PatternKind::SlicePattern                 { return "SlicePattern";                 }
+        default                                        { return "Pattern";                      }
+    }
 }
 
 /// \brief Source-shaped word for a decl kind (`fn`, `class`, `param`, ...).
@@ -1001,7 +1019,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 self._p.paint(Color::Dim, "  (diagnosed)");
             } else {
                 // Both slots null and NO diagnostic: either a deliberately
-                // deferred node (pattern head, statement binder) or an N bug.
+                // deferred node (statement binder) or an N bug.
                 // Either way the reader needs to see it.
                 self._p.paint(Color::Error, "<UNBOUND>");
                 self._p.paint(Color::Dim, "  (no diagnostic  deferred or a bug)");
@@ -1296,7 +1314,63 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 self._p.put(sema_dump_decl_brief(self.ctx, c));
                 self._p.paint(Color::Dim, "]");
             }
+            return;
         }
+        if isa::<MatchExpr>(n) {
+            var m = cast::<MatchExpr>(n);
+            self._note_match_facts(m->is_exhaustive, m->covering_arm, m->open_tail);
+        }
+    }
+
+    /// `  [exhaustive=1 covering_arm=2 open_tail=1]`: PatternChecking's facts.
+    priv fn _note_match_facts(self, exhaustive: bool, covering: i32, open_tail: bool) {
+        var e = ("1") if (exhaustive) else ("0");
+        var o = ("1") if (open_tail) else ("0");
+        self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}]");
+    }
+
+    /// A MatchStmt is not an expression, so it gets its own row for the
+    /// facts the MatchExpr row carries.
+    fn visit_match_stmt(self, n: *MatchStmt) -> bool {
+        if (!self._expr_mode) || (n == &null) { return true; }
+        self._scope_header();
+        self._p.paint(Color::Tree, "    ");
+        self._p.paint(Color::Ident, self._pad("MatchStmt", 24));
+        self._p.paint(Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
+        self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail);
+        self._p.newline();
+        return true;
+    }
+
+    /// A row for each pattern PatternTyping wrote a slot on:
+    /// `resolved=<Variant|Record|Const> <name>` on a head that names a decl,
+    /// `field=<name>` on a payload subpattern. Patterns with neither are
+    /// left out; their type is the column's, already on the scrutinee row.
+    fn visit_pattern(self, n: *Pattern) -> bool {
+        if (!self._expr_mode) || (n == &null) { return true; }
+        if (n->resolved_decl == &null) && (n->field_decl == &null) { return true; }
+        self._scope_header();
+        self._p.paint(Color::Tree, "    ");
+        self._p.paint(Color::Ident, self._pad(sema_dump_pattern_kind_str(n->kind), 24));
+        self._p.paint(Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
+        if n->field_decl != &null {
+            self._p.paint(Color::Dim, "  [field=");
+            self._p.put(self._tu.decl_name(n->field_decl));
+            self._p.paint(Color::Dim, "]");
+        }
+        var d = n->resolved_decl;
+        if d != &null {
+            var what = "Const";
+            if isa::<EnumVariantDecl>(d)                         { what = "Variant"; }
+            else if isa::<StructDecl>(d) || isa::<ClassDecl>(d) { what = "Record"; }
+            self._p.paint(Color::Dim, f"  [resolved={what} ");
+            self._p.put(self._tu.decl_name(d));
+            self._p.paint(Color::Dim, "]");
+        }
+        self._p.newline();
+        return true;
     }
 
     /// `  [instance <args>]` for a call slot X filled with a registry entry.

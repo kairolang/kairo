@@ -49,6 +49,7 @@ import Sema::Check::ShadowCheck::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
+import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
@@ -301,9 +302,14 @@ class Sema {
 
         { var _p = TimeRegion("ShadowCheck"); ShadowCheck(&self.sc).run(); }
 
+        // Exhaustiveness and dead arms; writes MatchStmt / MatchExpr facts.
+        // REQUIRES ExprTyper (pattern types, resolved heads, field slots).
+        // Before ReturnPathCheck, which reads is_exhaustive.
+        { var _p = TimeRegion("PatternChecking"); PatternChecking(&self.sc).run(); }
+
         // Missing return on some path. REQUIRES ExprTyper: a call is a
-        // terminator when its type is `!`, and match coverage reads the
-        // scrutinee's type.
+        // terminator when its type is `!`. REQUIRES PatternChecking: match
+        // coverage is MatchStmt::is_exhaustive.
         { var _p = TimeRegion("ReturnPath"); ReturnPathCheck(&self.sc).run(); }
 
         // Per-record lifecycle facts (copyable / movable / trivial) and the

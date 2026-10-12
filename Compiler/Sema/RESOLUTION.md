@@ -105,8 +105,15 @@ overload set goes through whole.
     (R(b)) probe the owner through `MemberLookup::in_scope`, spelled; the
     ctor test compares SPELLINGS, each through its own TU's context.
     [DONE, by design] N does NOT bind: chain steps (ChainBinding);
-    ConstructorPattern heads and bare `case n` (pattern checking);
-    named-initializer field names (X); attribute ARGUMENTS.
+    `.Variant` pattern heads (PatternTyping, against the scrutinee's
+    enum); named-initializer field names (X); attribute ARGUMENTS.
+    [DONE] Pattern heads are name uses. A bare identifier in a pattern is
+    never a binder (binders are `var x` / `const x`), so `case MAX`,
+    `case Color::Red` and `case Point(...)` heads are bound like any other
+    expression; a bare head that misses is R020E with a "write 'var n'"
+    note. Alternatives share binder decls: the first alternative of an arm
+    (or of an `A | B` pattern) declares, and each later binder of the same
+    name points at that decl.
     [DONE] The explicit-qualifier rule (R049), below.
     [DONE] Clang builtins, the fourth source of unqualified names, below.
 
@@ -391,7 +398,15 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 
 In order: `ConstraintExtraction`, `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
-`ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`, `FeatureGateCheck`.
+`PatternChecking`, `ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`,
+`FeatureGateCheck`.
+
+`PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
+non-exhaustive match (statement form too), with a witness; SC121E for an
+arm that can never match, SC122E for such an alternative. It writes
+`is_exhaustive` / `covering_arm` / `open_tail` on every `MatchStmt` /
+`MatchExpr`. Integer columns are cut into segments, so ranges can complete
+a type; flags enums and imported C++ enums are open and need `default`.
 `ConformanceChecking`, `ConstChecking`, `AccessCheck`,
 `ExtensionOrphanCheck` are stubs / missing.
 
@@ -405,10 +420,10 @@ that lands its lowering.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
 value-returning body can reach its closing brace, SC105 for `-> !`. After X
-because a call ends a path when its type is `!`, and a `match` ends one only
-when exhaustive (default, catch-all, every enum variant by name, or
-`true`+`false`), which reads the scrutinee type. Unknowns (recovery nodes,
-`inline` blocks, `jump!`, an untyped scrutinee) count as ending the path.
+because a call ends a path when its type is `!`; after PatternChecking
+because a `match` ends one only when `is_exhaustive` and every arm does.
+Unknowns (recovery nodes, `inline` blocks, `jump!`, a non-exhaustive match,
+already SC120E) count as ending the path.
 
 `OperatorSignatureCheck` [DONE] runs BEFORE X, because X's derived
 operators and compound-assignment pairing assume the shapes it rejects:
@@ -764,7 +779,11 @@ literal (SC082E: the thunk would return a view of a dead array).
 
 **What X does NOT do**: ADL through the global namespace (a type at TU
 scope associates no scope, by design; see `_enclosing_modules`); pack deduction and
-ranking; pattern head resolution and exhaustiveness (PatternChecking);
+ranking; exhaustiveness and dead arms (PatternChecking, after X). X DOES
+type patterns (PatternTyping): it classifies each head N bound (variant,
+record type, or `const` / `eval` constant) into `Pattern::resolved_decl`,
+maps payload subpatterns to fields (names first, then positions) into
+`Pattern::field_decl`, and types every binder;
 const-correctness, including assignment to const and const-cast validity
 beyond "adds const" (ConstChecking); effect propagation (reads
 `panic_sites()`); access control (AccessCheck); `yield` vs `yield T`;
@@ -1106,7 +1125,7 @@ Type domain (each unblocks the next):
     i. ConformanceChecking: the conformance table, impl-only
        members, arity/Self checks, visibility at instantiation;
        instantiating a class with a `= virtual` method is an error
-    j. PatternChecking: ctor-pattern heads, bare `case n`,
+    j. PatternChecking: ctor-pattern heads, bare `case n`,       DONE
        `.Variant`, exhaustiveness
     k. ADL / free operator functions (X, OperatorTyping)     DONE
     l. AccessCheck (+ `prot` same-library provenance)
