@@ -19,6 +19,13 @@
 ///          exact underlying -> `op as` on the source -> one-param ctor on
 ///          the target -> error.  `op as` beats ctor.
 ///
+///     Integer -> Kairo enum needs EXACTLY the enum's underlying type (the
+///     `derives` type, `u32` when defaulted); anything else is SC127E with a
+///     fix-it casting to the underlying type first. The cast never fails: an
+///     enum holds any value of its underlying type, as in C++, and a match
+///     handles undeclared values through UnmatchedPolicy. An imported C++
+///     enum keeps SC092E for the same mismatch.
+///
 ///     `as static T` runs the ladder with 3-4 disabled and errors when the
 ///     answer would have been dynamic; a static downcast is forbidden
 ///     outright (it is a reinterpret wearing a hat). `as const T` asserts 1.
@@ -280,7 +287,24 @@ class <T> CastTyping {
             if ted->is_adt { dyn()->fail(n, DiagID::SC092E, "an integer cannot be cast to an ADT enum"); return &null; }
             var under = self._enum_underlying(ted);
             if under != src {
-                dyn()->fail(n, DiagID::SC092E, f"'{dyn()->tu.decl_name(static_cast::<*Decl>(ted))}' is backed by '{dyn()->tu.str(under)}'; the source must have exactly that type");
+                var en = dyn()->tu.decl_name(static_cast::<*Decl>(ted));
+                if ted->is_imported() {
+                    dyn()->fail(n, DiagID::SC092E, f"'{en}' is backed by '{dyn()->tu.str(under)}'; the source must have exactly that type");
+                    return &null;
+                }
+                // A Kairo enum: the one place a value could be truncated on
+                // the way in is its own, visible cast to the underlying type.
+                var u = dyn()->tu.str(under);
+                var b = dyn()->sc->diag->report(DiagID::SC127E, n->range.start,
+                    f"casting '{dyn()->tu.str(src)}' to '{en}' needs its underlying type '{u}'; cast to '{u}' first"
+                );
+                b.first(n->range);
+                if n->operand != &null {
+                    var _op = dyn()->sc->ctx->get_spelling(n->operand->range);
+                    b.fix(n->operand->range, f"({_op} as {u})", f"cast to '{u}' first");
+                }
+                b.emit();
+                n->poison();
                 return &null;
             }
             return target;

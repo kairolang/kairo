@@ -8,8 +8,9 @@
 ///     writes exactly these slots: Expr::type_, Expr::value_category,
 ///     Expr::expr_flags, Expr::poisoned; the inferred type of a VariableDecl
 ///     / ClosureExpr / expr-bodied FunctionDecl / binder decl (the canonical
-///     node itself); and the promotion candidate_cell -> resolved_decl on a
-///     callee. Nothing else. It allocates no AST node.
+///     node itself); Pattern::type_ / resolved_decl / field_decl (through
+///     PatternTyping); and the promotion candidate_cell -> resolved_decl on
+///     a callee. Nothing else. It allocates no AST node.
 ///
 ///     The RAV drives the walk over the TU so that scope-carrying overrides
 ///     (StmtTyping) push frames; `dispatch_expr` is overridden to route
@@ -58,6 +59,7 @@ import Sema::Type::MemberTyping::*;
 import Sema::Type::CastTyping::*;
 import Sema::Type::ControlTyping::*;
 import Sema::Type::StmtTyping::*;
+import Sema::Type::PatternTyping::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -175,7 +177,8 @@ class ExprTyper
           CallTyping::<ExprTyper>,
           MemberTyping::<ExprTyper>,
           CastTyping::<ExprTyper>,
-          ControlTyping::<ExprTyper> {
+          ControlTyping::<ExprTyper>,
+          PatternTyping::<ExprTyper> {
 
     // --- context + components -------------------------------------------
     pub var sc:   *SemaContext;
