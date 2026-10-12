@@ -23,15 +23,11 @@
 ///     above asks exactly that.
 ///
 ///   \par match counts only when it is exhaustive
-///     A `match` with a `default`, an unguarded catch-all arm (`_`, a bare
-///     binder), every variant of an enum scrutinee, or both `true` and
-///     `false` for a bool. Anything the arms do not cover falls out of the
-///     match, so an arm-wise "every arm returns" is not enough on its own.
-///     Variants are compared by NAME against the enum's declaration, which
-///     is exact within one enum and needs no pattern-head resolution
-///     (PatternChecking's job, not done yet). An ADT arm covers its variant
-///     only when every payload subpattern is irrefutable: `.Some(1)` does
-///     not cover `.Some`.
+///     Coverage is `MatchStmt::is_exhaustive`, written by PatternChecking,
+///     which runs first. An exhaustive match falls through only when one of
+///     its arms does. A non-exhaustive one is treated as NOT falling
+///     through: it is already SC120E, and a missing return on top of it is
+///     noise (the "conservative on unknowns" rule below).
 ///
 ///   \par Conservative on unknowns
 ///     A recovery node, an `inline` foreign block, `jump!`, and a match on a
@@ -48,11 +44,12 @@
 ///
 ///   \par What this is NOT
 ///     Unreachable-code warnings (TerminatorCheck, lexical), definite
-///     initialization, or a general exhaustiveness diagnostic
-///     (MatchExhaustiveness). The coverage test here only decides whether a
-///     match can fall through; it reports nothing about the match itself.
+///     initialization, or an exhaustiveness diagnostic (PatternChecking).
+///     This pass reads the match facts; it reports nothing about the match
+///     itself.
 ///
-///   Phase: CHECK (after ExprTyper: reads expression and scrutinee types)
+///   Phase: CHECK (after ExprTyper: reads expression types; after
+///          PatternChecking: reads MatchStmt::is_exhaustive)
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -378,7 +375,11 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
 
     // --- match ------------------------------------------------------------
 
+    /// A non-exhaustive match is not falling through on purpose: it is
+    /// already PatternChecking's SC120E, and a missing return on top of it
+    /// is noise (see "Conservative on unknowns").
     priv fn _match_falls_through(self, m: *MatchStmt) -> bool {
+        if !m->is_exhaustive { return false; }
         for var i: usize = 0; i < m->cases.size(); ++i {
             var mc = m->cases.get(i);
             if mc->body != &null {
@@ -387,127 +388,7 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
                 return true;
             }
         }
-        return !self._exhaustive(m);
-    }
-
-    /// Only what the fall-through question needs; see the file header.
-    priv fn _exhaustive(self, m: *MatchStmt) -> bool {
-        var st: *Type = &null;
-        if (m->scrutinee != &null) && (m->scrutinee->type_ != &null) {
-            st = canon_unqual(m->scrutinee->type_);
-        }
-        // Unknown scrutinee type: already an error upstream. Do not stack a
-        // missing-return on it.
-        if st == &null { return true; }
-
-        var en: *EnumDecl = &null;
-        if isa::<RecordType>(st) { en = dyn_cast::<EnumDecl>(cast::<RecordType>(st)->decl); }
-        var is_bool = self._tu.is_bool(st);
-
-        var covered: vec::<u32>;
-        var saw_true  = false;
-        var saw_false = false;
-
-        for var i: usize = 0; i < m->cases.size(); ++i {
-            var mc = m->cases.get(i);
-            if mc->is_default { return true; }
-            // A guarded arm may decline; it covers nothing for certain.
-            if mc->guard != &null { continue; }
-            for var j: usize = 0; j < mc->patterns.size(); ++j {
-                var p = mc->patterns[j];
-                if self._irrefutable(p) { return true; }
-                if en != &null { self._collect_variants(p, &covered); }
-                if is_bool {
-                    var v = self._bool_value(p);
-                    if v == 1 { saw_true  = true; }
-                    if v == 0 { saw_false = true; }
-                }
-            }
-        }
-
-        if is_bool { return saw_true && saw_false; }
-        if en == &null { return false; }
-        for var i: usize = 0; i < en->variants.size(); ++i {
-            var vd = en->variants[i];
-            if vd == &null { continue; }
-            var want = self._imm(vd->name);
-            var hit  = false;
-            for var k: usize = 0; k < covered.size(); ++k {
-                if covered[k] == want { hit = true; break; }
-            }
-            if (!hit) { return false; }
-        }
-        return true;
-    }
-
-    /// Matches every value: `_`, or a binder with no type test.
-    priv fn _irrefutable(self, p: *Pattern) -> bool {
-        if p == &null { return false; }
-        switch p->kind {
-            case PatternKind::WildcardPattern { return true; }
-            case PatternKind::BindingPattern  { return cast::<BindingPattern>(p)->type_ == &null; }
-            case PatternKind::TupleDestructurePattern {
-                var t = cast::<TupleDestructurePattern>(p);
-                for var i: usize = 0; i < t->elements.size(); ++i {
-                    if (!self._irrefutable(t->elements[i])) { return false; }
-                }
-                return true;
-            }
-            case PatternKind::AlternationPattern {
-                var a = cast::<AlternationPattern>(p);
-                for var i: usize = 0; i < a->alternatives.size(); ++i {
-                    if self._irrefutable(a->alternatives[i]) { return true; }
-                }
-                return false;
-            }
-            default { return false; }
-        }
-    }
-
-    /// Record the variant \p p covers WHOLE: a constructor head whose
-    /// payload (if any) is all irrefutable.
-    priv fn _collect_variants(self, p: *Pattern, out: *vec::<u32>) {
-        if p == &null { return; }
-        if p->kind == PatternKind::AlternationPattern {
-            var a = cast::<AlternationPattern>(p);
-            for var i: usize = 0; i < a->alternatives.size(); ++i {
-                self._collect_variants(a->alternatives[i], out);
-            }
-            return;
-        }
-        if p->kind != PatternKind::ConstructorPattern { return; }
-        var c = cast::<ConstructorPattern>(p);
-        for var i: usize = 0; i < c->subpatterns.size(); ++i {
-            if (!self._irrefutable(c->subpatterns[i])) { return; }
-        }
-        var imm = u32(-1);
-        if c->is_dotted { imm = self._imm(c->dotted_name); }
-        else            { imm = self._head_imm(c->head); }
-        if imm != u32(-1) { out->push_back(imm); }
-    }
-
-    /// The LAST name of a path head: `Color::Red` -> Red, `Red` -> Red.
-    priv fn _head_imm(self, e: *Expr) -> u32 {
-        if e == &null { return u32(-1); }
-        if isa::<NamedIdentExpr>(e) { return self._imm(cast::<NamedIdentExpr>(e)->name); }
-        if isa::<ChainExpr>(e) {
-            var ch = cast::<ChainExpr>(e);
-            var n  = ch->steps.size();
-            if n == 0 { return self._head_imm(ch->base); }
-            var last = ch->steps.get(n - 1);
-            if last->name == &null { return u32(-1); }
-            return self._imm(last->name->name);
-        }
-        return u32(-1);
-    }
-
-    /// 1 for a `true` literal pattern, 0 for `false`, -1 otherwise.
-    priv fn _bool_value(self, p: *Pattern) -> i32 {
-        if p == &null { return -1; }
-        if p->kind != PatternKind::LiteralPattern { return -1; }
-        var v = cast::<LiteralPattern>(p)->value;
-        if (v == &null) || (!isa::<BooleanLiteralExpr>(v)) { return -1; }
-        return (1) if (cast::<BooleanLiteralExpr>(v)->value) else (0);
+        return false;
     }
 
     priv fn _imm(self, tok: Token) -> u32 {

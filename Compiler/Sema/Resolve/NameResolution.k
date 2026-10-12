@@ -30,17 +30,32 @@
 ///       overload needs signatures. Deferred deliberately.
 ///     - alias expansion (NameLookup::context_of returns null for aliases
 ///       on purpose; T owns expansion).
-///     - chain SEGMENTS and pattern HEADS. A ChainExpr's base is an
-///       ordinary unqualified name and IS bound; everything after the
-///       first `::`/`.` waits for T. ConstructorPattern heads are skipped
-///       entirely so a bare binder-shaped head never mis-errors.
-///     - a BARE `case n` head. That is an UnresolvedConstructorPattern and
-///       is genuinely ambiguous between a nullary ctor and a binder until
-///       the scrutinee type exists; `case var n` IS handled. T owns it.
+///     - chain SEGMENTS. A ChainExpr's base is an ordinary unqualified
+///       name and IS bound; everything after the first `::`/`.` waits for
+///       T. A pattern head is such an expression and is walked like one.
+///
+///   \par Pattern heads are never binders
+///     A bare identifier in a pattern is never a binder: binders are
+///     written `var x` / `const x`. So a pattern head (`case MAX`,
+///     `case Color::Red`, `case Point(...)`) is bound here like any other
+///     name use, and must resolve to an enum variant, a record type or a
+///     `const` / `eval` constant (PatternTyping classifies it). A bare head
+///     that misses is the ordinary undeclared-identifier error, with a note
+///     saying how to write a binder. A dotted head (`.Red`) has no name to
+///     bind; PatternTyping resolves it against the scrutinee's enum.
+///
+///   \par Alternatives share binder decls
+///     `case .A(var x), .B(var x)` declares `x` once: the first alternative
+///     declares its binders, and every later alternative's binder of the
+///     same name is pointed at the first one's decl, so the body sees one
+///     `x`. A name with no counterpart in the first alternative is
+///     PatternBindingCheck's SC011E; its decl is left alone and undeclared.
+///     PatternTyping types the shared decl once and checks every later
+///     alternative against it.
 ///
 ///   \par Statement-level binders
 ///     `for x in xs`, `catch e`, `var (a, b) = t`, context bindings and
-///     `case var n` all DO bind: the parser synthesizes a VariableDecl per
+///     `case var n` all bind: the parser synthesizes a VariableDecl per
 ///     binder (Binding::decl / CatchArm::decl / BindingPattern::decl) and N
 ///     pushes it onto the lexical stack for the construct's body. The
 ///     value/iterable expression is resolved in the OUTER scope first, so
@@ -266,8 +281,11 @@ class NameBindingVerifier derives RecursiveASTVisitor::<NameBindingVerifier> {
         return true;
     }
 
+    /// A pattern head is an ordinary name use (see the NameResolution
+    /// header), so it is held to the same invariant. A dotted head is null.
     fn traverse_constructor_pattern(self, n: *ConstructorPattern) -> *ConstructorPattern {
         if n == &null { return n; }
+        if n->head != &null { self.dyn()->dispatch_expr(n->head); }
         for var i: usize = 0; i < n->subpatterns.size(); ++i {
             self.dyn()->dispatch_pattern(*(n->subpatterns.get(i)));
         }
@@ -277,6 +295,7 @@ class NameBindingVerifier derives RecursiveASTVisitor::<NameBindingVerifier> {
     fn traverse_unresolved_constructor_pattern(self, n: *UnresolvedConstructorPattern)
             -> *UnresolvedConstructorPattern {
         if n == &null { return n; }
+        if n->head != &null { self.dyn()->dispatch_expr(n->head); }
         for var i: usize = 0; i < n->subpatterns.size(); ++i {
             self.dyn()->dispatch_pattern(*(n->subpatterns.get(i)));
         }
@@ -315,6 +334,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// CompoundStmt must NOT push a second frame or a local would silently
     /// shadow a param instead of colliding with it.
     priv var _suppress_next_block_frame: bool = false;
+
+    /// Set while the bare identifier heading an UnresolvedConstructorPattern
+    /// (`case n`, `case n(...)`) is being bound, so a miss there can say
+    /// how to write the binder the user probably meant.
+    priv var _in_pattern_head: bool = false;
 
     /// How many FUNCTION or CLOSURE bodies enclose the cursor. Nonzero means
     /// "inside executable code", which is the only place the explicit-qualifier
@@ -1301,10 +1325,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// Statement-level binders (`for x in xs`, `catch e`, `var (a, b) = t`,
     /// context bindings) and `case var n` patterns route here too, through
     /// the `decl` slot the parser now synthesizes on Binding / CatchArm /
-    /// BindingPattern. A BARE `case n` does NOT: that head is an
-    /// UnresolvedConstructorPattern and is genuinely ambiguous between a
-    /// nullary constructor and a binder until the scrutinee type is known,
-    /// so it stays deferred to T.
+    /// BindingPattern. A BARE `case n` does NOT: a bare name in a pattern is
+    /// never a binder, so that head is an ordinary name use.
     priv fn _declare_local(self, imm: u32, d: *Decl, at: SourceRange) {
         if imm == u32(-1) { return; }
         if self.locals.empty() { return; }
@@ -1540,6 +1562,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
     /// One match arm: patterns bind, then the guard and body see those
     /// bindings. The arm is its own scope, so the frame wraps all three.
+    /// Only the first alternative declares; the rest share its decls (see
+    /// the header).
     fn traverse_match_case(self, mc: *MatchCase) {
         if mc == &null { return; }
 
@@ -1548,7 +1572,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         for var i: usize = 0; i < mc->patterns.size(); ++i {
             if self.stop { break; }
             var pat = *(mc->patterns.get(i));
-            self._declare_pattern_binders(pat);
+            if i == 0 { self._declare_pattern_binders(pat); }
+            else      { self._rebind_pattern_binders(pat); }
             self.dyn()->dispatch_pattern(pat);
         }
         if !self.stop {
@@ -1579,9 +1604,9 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     }
 
     /// Walk a pattern tree declaring every explicit `var`/`const` binder.
-    /// ConstructorPattern / UnresolvedConstructorPattern HEADS are skipped
-    /// (see traverse_unresolved_constructor_pattern); only their subpatterns
-    /// can contain binders.
+    /// A constructor pattern's head is a name use, never a binder; only its
+    /// subpatterns can contain binders. In an alternation the first
+    /// alternative declares and the rest share its decls.
     priv fn _declare_pattern_binders(self, p: *Pattern) {
         if p == &null { return; }
         switch p->kind {
@@ -1612,11 +1637,61 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
                 }
                 self._declare_pattern_binders(n->rest_binding);
             } case PatternKind::AlternationPattern {
-                // Every alternative binds the same set (PatternBindingCheck
-                // already enforced that), so the first stands for the whole.
+                // The first alternative declares; the rest share its decls.
                 var n = cast::<AlternationPattern>(p);
                 if n->alternatives.size() > 0 {
                     self._declare_pattern_binders(*(n->alternatives.get(0)));
+                }
+                for var i: usize = 1; i < n->alternatives.size(); ++i {
+                    self._rebind_pattern_binders(*(n->alternatives.get(i)));
+                }
+            } default { 0; }
+        }
+    }
+
+    /// A later alternative's binders: each one whose name the first
+    /// alternative already declared in this frame takes that decl, so the
+    /// body sees one binding. A name with no counterpart is SC011E
+    /// (PatternBindingCheck); its decl is left alone and NOT declared, or the
+    /// body would see a name some paths never bind.
+    priv fn _rebind_pattern_binders(self, p: *Pattern) {
+        if p == &null { return; }
+        switch p->kind {
+            case PatternKind::BindingPattern {
+                var bp = cast::<BindingPattern>(p);
+                var vd = dyn_cast::<VariableDecl>(bp->decl);
+                if (vd == &null) || self.locals.empty() { return; }
+                var frame = &(self.locals[self.locals.size() - 1]);
+                var first = frame->find(self._name_imm(vd->name));
+                if first != &null { bp->decl = first; }
+            } case PatternKind::TupleDestructurePattern {
+                var n = cast::<TupleDestructurePattern>(p);
+                for var i: usize = 0; i < n->elements.size(); ++i {
+                    self._rebind_pattern_binders(*(n->elements.get(i)));
+                }
+            } case PatternKind::ConstructorPattern {
+                var n = cast::<ConstructorPattern>(p);
+                for var i: usize = 0; i < n->subpatterns.size(); ++i {
+                    self._rebind_pattern_binders(*(n->subpatterns.get(i)));
+                }
+            } case PatternKind::UnresolvedConstructorPattern {
+                var n = cast::<UnresolvedConstructorPattern>(p);
+                for var i: usize = 0; i < n->subpatterns.size(); ++i {
+                    self._rebind_pattern_binders(*(n->subpatterns.get(i)));
+                }
+            } case PatternKind::SlicePattern {
+                var n = cast::<SlicePattern>(p);
+                for var i: usize = 0; i < n->prefix.size(); ++i {
+                    self._rebind_pattern_binders(*(n->prefix.get(i)));
+                }
+                for var i: usize = 0; i < n->suffix.size(); ++i {
+                    self._rebind_pattern_binders(*(n->suffix.get(i)));
+                }
+                self._rebind_pattern_binders(n->rest_binding);
+            } case PatternKind::AlternationPattern {
+                var n = cast::<AlternationPattern>(p);
+                for var i: usize = 0; i < n->alternatives.size(); ++i {
+                    self._rebind_pattern_binders(*(n->alternatives.get(i)));
                 }
             } default { 0; }
         }
@@ -1701,9 +1776,14 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if !h.found {
             if self._bind_builtin(n) { return true; }
             var nm = self.sc->ctx->get_spelling(n->name);
-            self.sc->diag->report(DiagID::R020E, n->range.start,
+            var b = self.sc->diag->report(DiagID::R020E, n->range.start,
                 f"use of undeclared identifier '{nm}\x27"
-            ).first(n->range).emit();
+            );
+            b.first(n->range);
+            if self._in_pattern_head {
+                b.note(n->range.start, f"to bind the matched value to a new name, write 'var {nm}\x27");
+            }
+            b.emit();
             n->poison();
             self.sc->trace.use_site(imm, n->range, &null, TraceVia::Miss,
                                     &null, usize(-1), 0, true,
@@ -2004,18 +2084,17 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         return u32(-1);
     }
 
-    // --- deferred: pattern heads -------------------------------------------
+    // --- pattern heads -----------------------------------------------------
     //
-    // A ConstructorPattern / UnresolvedConstructorPattern head is a bare
-    // path that may be a ctor OR a binder; deciding needs the scrutinee
-    // type. Walking it as an ordinary expression would report
-    // unresolved-ident on every binder-shaped head, so the head is skipped
-    // outright and only the subpatterns are walked. The pass that rewrites
-    // resolved ctor patterns owns this later.
+    // A ConstructorPattern / UnresolvedConstructorPattern head is a name
+    // use, never a binder (see the header), so it is bound as an ordinary
+    // expression before the subpatterns are walked. A dotted head is null:
+    // `.Red` resolves against the scrutinee's enum, in PatternTyping.
 
     fn traverse_constructor_pattern(self, n: *ConstructorPattern) -> *ConstructorPattern {
         if n == &null { return n; }
         if self.dyn()->walkup_constructor_pattern(n) == false { return n; }
+        if n->head != &null { n->head = self.dyn()->dispatch_expr(n->head); }
         for var i: usize = 0; i < n->subpatterns.size(); ++i {
             if self.stop { break; }
             self.dyn()->dispatch_pattern(*(n->subpatterns.get(i)));
@@ -2027,6 +2106,14 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             -> *UnresolvedConstructorPattern {
         if n == &null { return n; }
         if self.dyn()->walkup_unresolved_constructor_pattern(n) == false { return n; }
+        if n->head != &null {
+            // Only a bare name gets the `var` hint: `case a::b` is plainly
+            // a path, not a binder that lost its keyword.
+            var saved = self._in_pattern_head;
+            self._in_pattern_head = isa::<NamedIdentExpr>(n->head);
+            n->head = self.dyn()->dispatch_expr(n->head);
+            self._in_pattern_head = saved;
+        }
         for var i: usize = 0; i < n->subpatterns.size(); ++i {
             if self.stop { break; }
             self.dyn()->dispatch_pattern(*(n->subpatterns.get(i)));

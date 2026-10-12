@@ -386,7 +386,9 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
         for var i: usize = 0; i < mc->patterns.size(); ++i {
             if self.stop { break; }
             var pat = *(mc->patterns.get(i));
-            self._declare_pattern_binders(pat);
+            // Later alternatives share the first one's binder decls (N), so
+            // declaring them again would report one shadow twice.
+            if i == 0 { self._declare_pattern_binders(pat); }
             self.dyn()->dispatch_pattern(pat);
         }
         if !self.stop {
