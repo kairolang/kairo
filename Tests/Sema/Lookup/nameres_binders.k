@@ -25,9 +25,9 @@ fn f_shadow(xs: [i32;]) -> i32 {
     return 0
 }
 
-// `case var n` is a real BindingPattern and binds. (A BARE `case n` is an
-// UnresolvedConstructorPattern -- ambiguous between a nullary ctor and a
-// binder until the scrutinee type exists -- and stays deferred to T.)
+// `case var n` is a real BindingPattern and binds. (A BARE `case n` is
+// never a binder: its head is an ordinary name use, and an unknown one is
+// the undeclared-identifier error with a "write 'var n'" note.)
 fn f_match(v: i32) -> i32 {
     match v {
         case var n { return n }

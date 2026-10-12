@@ -3,6 +3,10 @@
 // ReturnPathCheck: SC104 when a value-returning function can reach its
 // closing brace, SC105 when a `-> !` function can. Every `ok_*` function
 // must stay silent (--implicit-check-not); every `bad_*` has one error.
+//
+// A non-exhaustive match is PatternChecking's SC120E, and ReturnPathCheck
+// treats it as not falling through, so those `bad_match_*` functions carry
+// SC120E and NO SC104E: a missing return on top of the match error is noise.
 
 enum Color { Red, Green, Blue }
 
@@ -138,13 +142,21 @@ fn ok_match_adt_irrefutable(o: Opt) -> i32 {
     }
 }
 
+// Coverage is computed: two ranges that together cover `u8` are exhaustive.
+fn ok_match_u8_ranges(x: u8) -> i32 {
+    match x {
+        case 0..=127   { return 0; }
+        case 128..=255 { return 1; }
+    }
+}
+
 fn bad_match_enum_missing(c: Color) -> i32 {
     match c {
         case Color::Red   { return 1; }
         case Color::Green { return 2; }
     }
 }
-// CHECK: missing_return.k:[[@LINE-1]]:1: error [SC104E]: 'bad_match_enum_missing'
+// CHECK: missing_return.k:[[@LINE-5]]:5: error [SC120E]: match is not exhaustive: '.Blue' is not covered
 
 fn bad_match_int_no_default(x: i32) -> i32 {
     match x {
@@ -152,7 +164,7 @@ fn bad_match_int_no_default(x: i32) -> i32 {
         case 2 { return 2; }
     }
 }
-// CHECK: missing_return.k:[[@LINE-1]]:1: error [SC104E]: 'bad_match_int_no_default'
+// CHECK: missing_return.k:[[@LINE-5]]:5: error [SC120E]: match is not exhaustive: '-2147483648..=0' is not covered
 
 fn bad_match_arm_falls(c: Color) -> i32 {
     match c {
@@ -170,7 +182,7 @@ fn bad_match_guarded(c: Color, k: bool) -> i32 {
         case .Blue        { return 3; }
     }
 }
-// CHECK: missing_return.k:[[@LINE-1]]:1: error [SC104E]: 'bad_match_guarded'
+// CHECK: missing_return.k:[[@LINE-6]]:5: error [SC120E]: match is not exhaustive: '.Red' is not covered
 
 fn bad_match_adt_refutable(o: Opt) -> i32 {
     match o {
@@ -178,8 +190,9 @@ fn bad_match_adt_refutable(o: Opt) -> i32 {
         case .None    { return 0; }
     }
 }
-// CHECK: missing_return.k:[[@LINE-1]]:1: error [SC104E]: 'bad_match_adt_refutable'
+// CHECK: missing_return.k:[[@LINE-5]]:5: error [SC120E]: match is not exhaustive: '.Some(
 
+// The match is the error; the `if` after it is not reported again.
 fn bad_partial_match_then_if(c: Color) -> i32 {
     match c {
         case .Red   { return 1; }
@@ -187,7 +200,7 @@ fn bad_partial_match_then_if(c: Color) -> i32 {
     }
     if true { return 3; }
 }
-// CHECK: missing_return.k:[[@LINE-1]]:1: error [SC104E]: 'bad_partial_match_then_if'
+// CHECK: missing_return.k:[[@LINE-6]]:5: error [SC120E]: match is not exhaustive: '.Blue' is not covered
 
 // --- `-> !` -----------------------------------------------------------------
 
