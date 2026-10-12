@@ -40,12 +40,11 @@ fn f2(x: i32, y: i32) -> i32 = x + y
 
 // --- lit wiring -----------------------------------------------------------
 // The full §9.4 program: `match` and `try` value arms next to `if`. It
-// type-checks clean today. It does not run yet: EmitIR has no lowering for a
-// match expression ("MatchLowering owns it") or for `panic` ("PanicLowering
-// owns it"), so codegen ICEs before a binary exists.
+// type-checks clean today. `match` lowers now (Tests/Codegen/match/run.k);
+// `try` and `panic` still wait on PanicLowering.
 //
-// TODO(MatchLowering, PanicLowering): once both land, link and run this file
-// like values.k and expect exit code 10.
+// TODO(PanicLowering): link and run this file like values.k and expect exit
+// code 10.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
