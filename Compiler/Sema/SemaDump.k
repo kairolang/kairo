@@ -63,6 +63,7 @@
 /// ----------------------------------------------------------------- ///
 
 import Sema::SemaContext::*;
+import Sema::Lower::PatternCompilation::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::ResolutionTrace::*;
@@ -1265,6 +1266,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         }
         self._note_lowering_choices(n);
         self._p.newline();
+        if isa::<MatchExpr>(n) { self._dump_decision(cast::<MatchExpr>(n)->decision); }
         return true;
     }
 
@@ -1340,7 +1342,19 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
             self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
         self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail);
         self._p.newline();
+        self._dump_decision(n->decision);
         return true;
+    }
+
+    /// PatternCompilation's tree under its match's row, one row per node.
+    priv fn _dump_decision(self, d: *void) {
+        if d == &null { return; }
+        var rows = decision_rows(self.sc, reinterpret_cast::<*DecisionTree>(d));
+        for var i: usize = 0; i < rows.size(); ++i {
+            self._p.paint(Color::Tree, "      ");
+            self._p.paint(Color::Dim, rows[i]);
+            self._p.newline();
+        }
     }
 
     /// A row for each pattern PatternTyping wrote a slot on:

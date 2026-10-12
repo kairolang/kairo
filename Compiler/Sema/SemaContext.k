@@ -40,6 +40,7 @@ import Sema::Resolve::ResolutionState::*;
 import Diagnostic::BufferedDiagSink::*;
 import Lexer::Immediate::*;
 import Config::Invocation::*;
+import Config::CodeGen::*;
 import AST::Context::InstantiationRegistry::*;
 import Sema::Foreign::ForeignInstantiate::*;
 import Sema::Foreign::BuiltinImport::*;
@@ -119,6 +120,8 @@ class SemaOptions {
     /// wants to tune without loosening every other nesting limit.
     pub var max_type_alias_depth: i32 = 64;
 
+    pub var unmatched: UnmatchedPolicy = UnmatchedPolicy::Trap; ///< what a match does with an undeclared value; MatchLowering reads it.
+
     fn SemaOptions(self) { }
 
     /// Populate from the invocation. The single flag -> option boundary.
@@ -131,6 +134,7 @@ class SemaOptions {
         self.implicit_conv     = ci->lang.implicit_conv;
         self.rtti              = ci->lang.rtti;
         self.max_type_alias_depth = ci->lang.max_type_alias_depth;
+        self.unmatched         = ci->codegen.unmatched_policy();
     }
 
     /// Resolve a tri-state against its profile default.

@@ -64,6 +64,9 @@ import Sema::Lower::ListLiteralLowering::*;
 import Sema::Lower::SequenceLowering::*;
 import Sema::Lower::FStringLowering::*;
 import Sema::Lower::StringLowering::*;
+import Sema::Lower::PatternCompilation::*;
+import Sema::Lower::MatchLowering::*;
+import Sema::Lower::LabelLowering::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 import Support::TimeReport::*;
@@ -333,6 +336,11 @@ class Sema {
         // error here keeps the schedule out of the lowerings, which ICE on
         // them, and that matters under --type-check-only too.
         { var _p = TimeRegion("FeatureGate"); FeatureGateCheck(&self.sc).run(); }
+        // Decision trees for every match. Last: it reads PatternChecking's
+        // facts and reports (SC116E) the two tests it cannot render, and an
+        // error anywhere above keeps the schedule out of the lowerings.
+        // --print-sema shows the trees.
+        { var _p = TimeRegion("PatternCompilation"); PatternCompilation(&self.sc).run(); }
         self.sc.advance_phase(SemaPhase::Checked);
         return true;
     }
@@ -371,6 +379,16 @@ class Sema {
         // which consumed the ranges written as a loop's iterable; a subscript's
         // range index is a slice and is left for SliceLowering.
         { var _p = TimeRegion("RangeLowering"); RangeLowering(&self.sc).run(); }
+        // Every match becomes labels, gotos and switches over a once-
+        // evaluated scrutinee, rendering PatternCompilation's tree. After
+        // IterLowering and RangeLowering; before SequenceLowering (which
+        // orders the scrutinee local this binds) and StringLowering (a
+        // string pattern's literal is still a literal here).
+        { var _p = TimeRegion("MatchLowering"); MatchLowering(&self.sc).run(); }
+        // `break L` / `continue L` become gotos past the loop / to the end
+        // of its body. After IterLowering (it keeps labels on the loops it
+        // mints) and MatchLowering (an arm's `break L` moves with the arm).
+        { var _p = TimeRegion("LabelLowering"); LabelLowering(&self.sc).run(); }
         // An extension member call becomes the free call: the receiver goes in
         // front of the placed arguments. Before SequenceLowering, which orders it.
         { var _p = TimeRegion("ExtensionLowering"); ExtensionLowering(&self.sc).run(); }
@@ -389,7 +407,6 @@ class Sema {
         //             using Base::name; for merged base overloads C++ would
         //             hide reads type->needs_using written by MemberLookup,
         //             never re-walks bases.
-        // TODO(sema): MatchLowering(&self.sc).run();
         // TODO(sema): PanicLowering(&self.sc).run();
         // TODO(sema): ...
         self.sc.advance_phase(SemaPhase::Lowered);

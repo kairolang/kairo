@@ -17,6 +17,10 @@
 ///       - `for x in e` where X classified `e` as Vector, Set, Map or
 ///         String (RangedForStmt::iter_kind). IterLowering renders the
 ///         other kinds.
+///       - `label!` / `jump!` in user code: EmitIR renders them (they are the
+///         lowerings' labels and gotos), but nothing yet proves a user jump
+///         crosses no initialization, which C++ rejects and Kairo must
+///         report first.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -47,6 +51,7 @@ import AST::Node::Casting::*;
 import AST::Kind::StmtKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::Token::*;
+import Location::SourceRange::*;
 import Diagnostic::Registry::*;
 
 class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
@@ -91,5 +96,21 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         b.first(n->iterable->range);
         b.emit();
         return true;
+    }
+
+    fn visit_label_intrinsic_stmt(self, n: *LabelIntrinsicStmt) -> bool {
+        self._gate(n->range, "'label!\x27");
+        return true;
+    }
+
+    fn visit_jump_intrinsic_stmt(self, n: *JumpIntrinsicStmt) -> bool {
+        self._gate(n->range, "'jump!\x27");
+        return true;
+    }
+
+    priv fn _gate(self, at: SourceRange, what: string) {
+        var b = self.sc->diag->report(DiagID::SC116E, at.start, f"{what} is not yet supported");
+        b.first(at);
+        b.emit();
     }
 }
