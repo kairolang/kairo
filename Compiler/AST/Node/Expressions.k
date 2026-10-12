@@ -1040,6 +1040,7 @@ class MatchExpr derives Expr {
     pub var is_exhaustive: bool = true;
     pub var covering_arm:  i32  = -1;
     pub var open_tail:     bool = false;
+    pub var decision:      *void = &null; ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
 
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchExpr {
         var node        = ctx->alloc::<MatchExpr>();
@@ -1050,6 +1051,7 @@ class MatchExpr derives Expr {
         node->is_exhaustive = true;
         node->covering_arm  = -1;
         node->open_tail     = false;
+        node->decision      = &null;
         return node;
     }
 
@@ -1063,6 +1065,7 @@ class MatchExpr derives Expr {
         node->is_exhaustive = true;
         node->covering_arm  = -1;
         node->open_tail     = false;
+        node->decision      = &null;
         return node;
     }
 

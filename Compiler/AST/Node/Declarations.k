@@ -907,6 +907,7 @@ class EnumVariantDecl derives Decl {
     pub var discriminant: *Expr = &null;          ///< `= <const expr>`; null if implicit.
     pub var payload:      FrozenList::<*FieldDecl>; ///< ADT fields; empty for plain variants.
     pub var index:        u32 = 0;                ///< declaration order.
+    pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
 
     static fn create(
         ctx:   *ASTContext,
@@ -920,6 +921,7 @@ class EnumVariantDecl derives Decl {
         node->init_annotations(&(ctx->ast_alloc));;
         node->name   = name;
         node->index  = index;
+        node->adt_member = &null;
         return node;
     }
 
@@ -929,6 +931,7 @@ class EnumVariantDecl derives Decl {
         node->recovery_kind = DeclKind::EnumVariantDecl;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
+        node->adt_member    = &null;
         return node;
     }
 
@@ -962,6 +965,11 @@ class EnumDecl
     pub var underlying: *Type = &null;                  ///< `derives u8` etc; null if default/ADT.
     pub var variants:   FrozenList::<*EnumVariantDecl>;
     pub var is_adt:     bool = false;                   ///< any variant carries a payload.
+    /// ADT enums: the record EnumLayoutLowering builds, and its `__kairo_tag`
+    /// field (tags are variant positions, underlying u32). One writer:
+    /// EnumLayoutLowering; null until it runs, always null on a plain enum.
+    pub var adt_layout:    *Decl      = &null;
+    pub var adt_tag_field: *FieldDecl = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -976,6 +984,8 @@ class EnumDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Enum, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->adt_layout    = &null;
+        node->adt_tag_field = &null;
         return node;
     }
 
@@ -987,6 +997,8 @@ class EnumDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Enum, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->adt_layout    = &null;
+        node->adt_tag_field = &null;
         return node;
     }
 

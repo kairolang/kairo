@@ -389,4 +389,35 @@ class LowerTargets {
     static fn default_thunk(fn_name: string, param: string) -> string {
         return "__kairo_default_" + fn_name + "_" + param;
     }
+
+    // --- match (writer: MatchLowering) -----------------------------------------
+    /// Labels are function-scoped in C++; `n` is the match's number within its function.
+    static fn match_scrutinee(n: usize) -> string          { return f"__kairo_m{n}_s"; }
+    static fn match_column(n: usize, c: usize) -> string   { return f"__kairo_m{n}_s{c}"; }
+    static fn match_arm(n: usize, k: usize) -> string      { return f"__kairo_m{n}_a{k}"; }
+    static fn match_node(n: usize, k: usize) -> string     { return f"__kairo_m{n}_t{k}"; }
+    static fn match_guard(n: usize, k: usize) -> string    { return f"__kairo_m{n}_g{k}"; }
+    static fn match_slot(n: usize, i: usize) -> string     { return f"__kairo_m{n}_p{i}"; }
+    static fn match_end(n: usize) -> string                { return f"__kairo_m{n}_end"; }
+    static fn match_fail(n: usize) -> string               { return f"__kairo_m{n}_fail"; }
+    static fn match_arm_index(n: usize) -> string          { return f"__kairo_m{n}_arm"; }
+    static fn match_cont(n: usize) -> string               { return f"__kairo_m{n}_k"; }
+
+    // --- labeled loops (writer: LabelLowering) -------------------------------------
+    /// `k` counts labeled loops in the function: a label name can repeat.
+    static fn loop_break(k: usize, label: string) -> string    { return f"__kairo_brk{k}_" + label; }
+    static fn loop_continue(k: usize, label: string) -> string { return f"__kairo_cont{k}_" + label; }
+
+    // --- ADT enums (writer: EnumLayoutLowering) ---------------------------------
+    static fn adt_tag_field() -> string              { return "__kairo_tag"; }
+    static fn adt_tag_type() -> string               { return "__kairo_Tag"; }
+    static fn adt_payload_field(v: string) -> string { return "__kairo_" + v; }
+    static fn adt_payload_type(v: string) -> string  { return "__kairo_" + v + "_t"; }
+    static fn adt_variant_tag() -> string            { return "__kairo_vt"; }
+    static fn adt_destroy() -> string                { return "__kairo_destroy"; }
+    static fn adt_construct_from() -> string         { return "__kairo_construct_from"; }
+    static fn adt_trivial_dtor() -> string           { return "__kairo_trivial_dtor"; }
+    static fn adt_trivial_copy() -> string           { return "__kairo_trivial_copy"; }
+    static fn construct_at() -> string               { return "__kairo_construct_at"; }
+    static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
 }

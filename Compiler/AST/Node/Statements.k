@@ -458,6 +458,9 @@ class StaticAssertStmt derives Stmt {
 ///
 ///  Declares a raw branch target. Distinct from a structured loop label
 ///  (LabeledStmt). Surfaced as macro syntax, parsed as a first-class node.
+///  Also the lowerings' labels and gotos (MatchLowering, LabelLowering);
+///  EmitIR spells both. User-written ones are SC116E (FeatureGateCheck) until
+///  a crossing-initialization check exists.
 ///
 class LabelIntrinsicStmt derives Stmt {
     pub var name: Token;
@@ -494,6 +497,9 @@ class LabelIntrinsicStmt derives Stmt {
 ///
 ///  Unconditional jump to a `label!`-declared target in the same function.
 ///  Bypasses destructors and finally blocks.
+///  Also the lowerings' labels and gotos (MatchLowering, LabelLowering);
+///  EmitIR spells both. User-written ones are SC116E (FeatureGateCheck) until
+///  a crossing-initialization check exists.
 ///
 class JumpIntrinsicStmt derives Stmt {
     pub var target: Token;
@@ -521,6 +527,56 @@ class JumpIntrinsicStmt derives Stmt {
     }
     /* OVERRIDE */ static fn stmt_kind() -> StmtKind {
         return StmtKind::JumpIntrinsicStmt;
+    }
+}
+
+///
+///  SwitchDispatchStmt
+///  Lowering-only: never parsed. MatchLowering's multiway jump:
+///    switch (value) { case lo: goto L; case lo ... hi: goto L; default: goto D; }
+///  or, with `default_stmt`, `default: <stmt>` (UnmatchedPolicy's call).
+///  The cases hold only gotos, so no user statement ever sits inside a C++
+///  switch. `hi` null: a single value; otherwise GNU `case lo ... hi:`.
+///
+struct DispatchCase {
+    var lo:     *Expr = &null;
+    var hi:     *Expr = &null;
+    var target: Token;
+}
+
+class SwitchDispatchStmt derives Stmt {
+    pub var value:          *Expr;
+    pub var cases:          FrozenList::<DispatchCase>;   ///< filled by the lowering that mints it.
+    pub var default_target: Token;           ///< meaningful when default_stmt is null.
+    pub var default_stmt:   *Stmt = &null;   ///< emitted in place of `goto default_target`.
+
+    static fn create(ctx: *ASTContext, range: SourceRange, value: *Expr) -> *SwitchDispatchStmt {
+        var node   = ctx->alloc::<SwitchDispatchStmt>();
+        node->kind  = StmtKind::SwitchDispatchStmt;
+        node->range = range;
+        node->init_annotations(&(ctx->ast_alloc));;
+        node->value          = value;
+        node->default_target = Token();
+        node->default_stmt   = &null;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *SwitchDispatchStmt {
+        var node            = ctx->alloc::<SwitchDispatchStmt>();
+        node->kind          = StmtKind::RecoveryStmt;
+        node->recovery_kind = StmtKind::SwitchDispatchStmt;
+        node->range         = range;
+        node->init_annotations(&(ctx->ast_alloc));;
+        node->value         = &null;
+        node->default_stmt  = &null;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Stmt) -> bool {
+        return ptr->kind == StmtKind::SwitchDispatchStmt;
+    }
+    /* OVERRIDE */ static fn stmt_kind() -> StmtKind {
+        return StmtKind::SwitchDispatchStmt;
     }
 }
 
@@ -815,6 +871,7 @@ class MatchStmt derives Stmt {
     pub var is_exhaustive: bool = true;
     pub var covering_arm:  i32  = -1;
     pub var open_tail:     bool = false;
+    pub var decision:      *void = &null; ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
 
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchStmt {
         var node       = ctx->alloc::<MatchStmt>();
@@ -825,6 +882,7 @@ class MatchStmt derives Stmt {
         node->is_exhaustive = true;
         node->covering_arm  = -1;
         node->open_tail     = false;
+        node->decision      = &null;
         return node;
     }
 
@@ -837,6 +895,7 @@ class MatchStmt derives Stmt {
         node->is_exhaustive = true;
         node->covering_arm  = -1;
         node->open_tail     = false;
+        node->decision      = &null;
         return node;
     }
 

@@ -151,9 +151,8 @@ enum StmtKind derives u8 {
     IndexedForStmt,
 
     /// Pattern match statement:  match expr { case* default? }
-    /// Used in statement position (not expression). Exhaustiveness rules
-    /// differ from expression-form match: statement form allows non-exhaustive
-    /// matching on integer/string scrutinees.
+    /// Used in statement position (not expression). Both forms are exhaustive
+    /// (PatternChecking).
     /// Note: `match` as an *expression* is MatchExpr.
     /// Node: MatchStmt with scrutinee *Expr + FrozenList<MatchCase>.
     MatchStmt,
@@ -227,6 +226,12 @@ enum StmtKind derives u8 {
     /// Node: EvalBlockStmt with body FrozenList<*Decl>.
     EvalBlockStmt,
 
+    // -- Lowering-only ---------------------------------------------------
+    /// `switch (v) { case lo [... hi]: goto L; default: goto D | <policy> }`.
+    /// Minted by MatchLowering; never parsed.
+    /// Node: SwitchDispatchStmt.
+    SwitchDispatchStmt,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -262,6 +267,7 @@ fn to_string(s: StmtKind) -> string {
         case StmtKind::DestructuringDeclStmt { return "DestructuringDeclStmt"; }
         case StmtKind::InlineBlockStmt { return "InlineBlockStmt"; }
         case StmtKind::EvalBlockStmt { return "EvalBlockStmt"; }
+        case StmtKind::SwitchDispatchStmt { return "SwitchDispatchStmt"; }
         case StmtKind::StmtKindCount { return "StmtKindCount"; }
     }
 }
