@@ -1202,6 +1202,7 @@ class <D> RecursiveASTVisitor {
             case StmtKind::DestructuringDeclStmt { return self.dyn()->traverse_destructuring_decl_stmt(cast::<DestructuringDeclStmt>(s) ); }
             case StmtKind::InlineBlockStmt       { return self.dyn()->traverse_inline_block_stmt(      cast::<InlineBlockStmt>(s)       ); }
             case StmtKind::EvalBlockStmt         { return self.dyn()->traverse_eval_block_stmt(        cast::<EvalBlockStmt>(s)         ); }
+            case StmtKind::SwitchDispatchStmt    { return self.dyn()->traverse_switch_dispatch_stmt(   cast::<SwitchDispatchStmt>(s)    ); }
             case StmtKind::RecoveryStmt          { self.dyn()->visit_stmt(s); return s; }
             case StmtKind::StmtKindCount         {  ICE_FAIL("StmtKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
         }
@@ -1394,6 +1395,19 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    fn traverse_switch_dispatch_stmt(self, n: *SwitchDispatchStmt) -> *SwitchDispatchStmt {
+        if self.dyn()->walkup_switch_dispatch_stmt(n) == false { return n; }
+        if n->value != &null { n->value = self.dyn()->dispatch_expr(n->value); }
+        for var i: usize = 0; i < n->cases.size(); i++ {
+            if self.stop { break; }
+            var c = n->cases.get(i);
+            if c->lo != &null { c->lo = self.dyn()->dispatch_expr(c->lo); }
+            if c->hi != &null { c->hi = self.dyn()->dispatch_expr(c->hi); }
+        }
+        if n->default_stmt != &null { n->default_stmt = self.dyn()->dispatch_stmt(n->default_stmt); }
+        return n;
+    }
+
     // --- walkup ------------------------------------------------------------
     fn walkup_compound_stmt(self, n: *CompoundStmt) -> bool {
         if self.dyn()->visit_stmt(n) == false { return false; }
@@ -1525,6 +1539,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_eval_block_stmt(n);
     }
 
+    fn walkup_switch_dispatch_stmt(self, n: *SwitchDispatchStmt) -> bool {
+        if self.dyn()->visit_stmt(n) == false { return false; }
+        return self.dyn()->visit_switch_dispatch_stmt(n);
+    }
+
     // --- leaf visit hooks --------------------------------------------------
     fn visit_compound_stmt(           self, n: *CompoundStmt          ) -> bool { return true; }
     fn visit_expression_stmt(         self, n: *ExpressionStmt        ) -> bool { return true; }
@@ -1552,6 +1571,7 @@ class <D> RecursiveASTVisitor {
     fn visit_destructuring_decl_stmt( self, n: *DestructuringDeclStmt ) -> bool { return true; }
     fn visit_inline_block_stmt(       self, n: *InlineBlockStmt       ) -> bool { return true; }
     fn visit_eval_block_stmt(         self, n: *EvalBlockStmt         ) -> bool { return true; }
+    fn visit_switch_dispatch_stmt(    self, n: *SwitchDispatchStmt    ) -> bool { return true; }
     // == DECL FAMILY =======================================================
     fn dispatch_decl(self, d: *Decl) -> *Decl {
         if d == &null { return d; }

@@ -940,6 +940,7 @@ class <D> ASTWriter {
             case StmtKind::DestructuringDeclStmt { return self.dyn()->transform_destructuring_decl_stmt(cast::<DestructuringDeclStmt>(s) ); }
             case StmtKind::InlineBlockStmt       { return self.dyn()->transform_inline_block_stmt(      cast::<InlineBlockStmt>(s)       ); }
             case StmtKind::EvalBlockStmt         { return self.dyn()->transform_eval_block_stmt(        cast::<EvalBlockStmt>(s)         ); }
+            case StmtKind::SwitchDispatchStmt    { return self.dyn()->transform_switch_dispatch_stmt(   cast::<SwitchDispatchStmt>(s)    ); }
             case StmtKind::RecoveryStmt          { return self._one_stmt(s); }
             case StmtKind::StmtKindCount         {  ICE_FAIL("StmtKindCount reached ASTWriter - bug"); return vec::<*Stmt>(); }
         }
@@ -1014,6 +1015,18 @@ class <D> ASTWriter {
     }
 
     fn transform_jump_intrinsic_stmt(self, n: *JumpIntrinsicStmt) -> vec::<*Stmt> {
+        return self._one_stmt(n);
+    }
+
+    fn transform_switch_dispatch_stmt(self, n: *SwitchDispatchStmt) -> vec::<*Stmt> {
+        if n->value != &null { n->value = self.dyn()->transform_expr(n->value); }
+        for var i: usize = 0; i < n->cases.size(); i++ {
+            if self.stop { break; }
+            var c = n->cases.get(i);
+            if c->lo != &null { c->lo = self.dyn()->transform_expr(c->lo); }
+            if c->hi != &null { c->hi = self.dyn()->transform_expr(c->hi); }
+        }
+        if n->default_stmt != &null { n->default_stmt = self.dyn()->transform_stmt_scalar(n->default_stmt); }
         return self._one_stmt(n);
     }
 

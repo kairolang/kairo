@@ -43,6 +43,7 @@ import AST::Node::Base::*;
 import AST::Node::Patterns::*;
 import AST::Node::Declarations::*;   // VariableDecl for BindingPattern::decl
 import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;      // UnaryOperatorExpr for a negated literal
 import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
 import Diagnostic::Engine::*;
@@ -119,7 +120,9 @@ class <T> PatternParse {
         }
 
         // -- literal or path head: parse a primary lead, then disambiguate ---
-        if self._starts_literal(k) || self._starts_path_head(k) {
+        // A `-` counts only directly before a numeric literal (`case -1`,
+        // `case -10..=-1`); before anything else it is still no pattern.
+        if self._starts_literal(k) || self._starts_path_head(k) || self._starts_negated_literal(k) {
             return self._parse_primary_led_pattern(start);
         }
 
@@ -141,6 +144,23 @@ class <T> PatternParse {
             || k == TokenKind::KwTrue
             || k == TokenKind::KwFalse
             || k == TokenKind::LitNull;
+    }
+
+    /// `-` immediately followed by an integer or float literal.
+    priv fn _starts_negated_literal(self, k: TokenKind) -> bool {
+        if k != TokenKind::OpMinus { return false; }
+        return dyn()->check_peek(TokenKind::LitInt) || dyn()->check_peek(TokenKind::LitFloat);
+    }
+
+    /// `-<literal>`: the prefix UnaryOperatorExpr ExprParse builds for `-1`,
+    /// so PatternSpace's constant reading sees one shape whichever parser
+    /// produced it.
+    priv fn _is_negated_literal(self, e: *Expr) -> bool {
+        if !isa::<UnaryOperatorExpr>(e) { return false; }
+        var u = cast::<UnaryOperatorExpr>(e);
+        if u->fix != UnaryOperatorExpr::Fix::Prefix { return false; }
+        if u->op_token.kind != TokenKind::OpMinus { return false; }
+        return isa::<IntegerLiteralExpr>(u->operand) || isa::<FloatingLiteralExpr>(u->operand);
     }
 
     /// path head: a bare identifier, a global-root `::`, or `self`. Builtins
@@ -352,7 +372,7 @@ class <T> PatternParse {
     /// (`foo`, `A::B`, `Foo<T>`). parse_pattern_lead stops before postfix `(`
     /// and before `..`, so we peek after to choose range vs constructor vs bare.
     priv fn _parse_primary_led_pattern(self, start: SourceRange) -> *Pattern {
-        var lead = dyn()->parse_pattern_lead();
+        var lead = self._parse_lead();
         if (lead == &null) || is_recovery(lead) {
             return self._error_pattern(start | dyn()->prev().range);
         }
@@ -374,7 +394,7 @@ class <T> PatternParse {
         }
 
         // bare literal value
-        if self._is_literal_expr(lead) {
+        if self._is_literal_expr(lead) || self._is_negated_literal(lead) {
             return static_cast::<*Pattern>(
                 LiteralPattern::create(dyn()->ctx, start | dyn()->prev().range, lead));
         }
@@ -382,6 +402,19 @@ class <T> PatternParse {
         // bare (nullary) path constructor / name
         var empty: std::StackBuf::<*Pattern, 8>;
         return self._build_ctor(start, lead, false, &empty);
+    }
+
+    /// The lead, or `-` over a numeric literal as one prefix UnaryOperatorExpr
+    /// spanning both tokens (a literal value or a range's lower bound).
+    priv fn _parse_lead(self) -> *Expr {
+        var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+        if !self._starts_negated_literal(k) { return dyn()->parse_pattern_lead(); }
+        var op_tok = dyn()->current();
+        dyn()->advance(); // consume `-`
+        var lit = dyn()->parse_pattern_lead();
+        if (lit == &null) || is_recovery(lit) { return lit; }
+        return static_cast::<*Expr>(UnaryOperatorExpr::create(
+            dyn()->ctx, op_tok.range | lit->range, lit, op_tok, UnaryOperatorExpr::Fix::Prefix));
     }
 
     /// `..hi` / `..=hi` with no lower bound at pattern start.

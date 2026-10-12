@@ -860,6 +860,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<DestructuringDeclStmt>(stmt) { self._s_destructure(cast::<DestructuringDeclStmt>(stmt)); return; }
         if isa::<InlineBlockStmt>(stmt)       { self._s_inline(cast::<InlineBlockStmt>(stmt));        return; }
         if isa::<EvalBlockStmt>(stmt)         { self.p.paint(Color::Keyword, "eval"); self.p.paint(Color::Punct, " { ... }"); return; }
+        if isa::<SwitchDispatchStmt>(stmt)    { self._s_switch_dispatch(cast::<SwitchDispatchStmt>(stmt)); return; }
 
         self.p.paint(Color::Error, "<error>");
     }
@@ -916,18 +917,50 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
     }
 
+    /// `name:;` -- after lowering these are the lowerings' labels, and the
+    /// dump reads as the C++ EmitIR writes for them.
     fn _s_label_intrinsic(self, stmt: *LabelIntrinsicStmt) {
-        self.p.paint(Color::Keyword, "label");
-        self.p.paint(Color::Punct, "!(");
         self.p.paint(Color::Ident, self.tok(stmt->name));
-        self.p.paint(Color::Punct, ")");
+        self.p.paint(Color::Punct, ":;");
     }
 
+    /// `goto name;`, for the same reason.
     fn _s_jump_intrinsic(self, stmt: *JumpIntrinsicStmt) {
-        self.p.paint(Color::Keyword, "jump");
-        self.p.paint(Color::Punct, "!(");
+        self.p.paint(Color::Keyword, "goto ");
         self.p.paint(Color::Ident, self.tok(stmt->target));
-        self.p.paint(Color::Punct, ")");
+        self.p.paint(Color::Punct, ";");
+    }
+
+    /// `switch (v) { case lo: goto L; case lo ... hi: goto L; default: goto D; }`,
+    /// or `default: <stmt>`: the shape EmitIR writes.
+    fn _s_switch_dispatch(self, stmt: *SwitchDispatchStmt) {
+        self.p.paint(Color::Keyword, "switch ");
+        self.p.paint(Color::Punct, "(");
+        self.src_expr(stmt->value);
+        self.p.paint(Color::Punct, ") { ");
+        for var i: usize = 0; i < stmt->cases.size(); ++i {
+            var c = stmt->cases.get(i);
+            self.p.paint(Color::Keyword, "case ");
+            self.src_expr(c->lo);
+            if c->hi != &null {
+                self.p.paint(Color::Punct, " ... ");
+                self.src_expr(c->hi);
+            }
+            self.p.paint(Color::Punct, ": ");
+            self.p.paint(Color::Keyword, "goto ");
+            self.p.paint(Color::Ident, self.tok(c->target));
+            self.p.paint(Color::Punct, "; ");
+        }
+        self.p.paint(Color::Keyword, "default");
+        self.p.paint(Color::Punct, ": ");
+        if stmt->default_stmt != &null {
+            self.src_stmt(stmt->default_stmt);
+        } else {
+            self.p.paint(Color::Keyword, "goto ");
+            self.p.paint(Color::Ident, self.tok(stmt->default_target));
+            self.p.paint(Color::Punct, ";");
+        }
+        self.p.paint(Color::Punct, " }");
     }
 
     fn _s_conditional(self, stmt: *ConditionalStmt) {
@@ -2616,6 +2649,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<DestructuringDeclStmt>(stmt) { self._ds_destructure(cast::<DestructuringDeclStmt>(stmt), is_last); return; }
         if isa::<InlineBlockStmt>(stmt)       { self._head("InlineBlockStmt", is_last); self._dim(f"({self._inline_lang(cast::<InlineBlockStmt>(stmt)->lang)})"); self.p.newline(); return; }
         if isa::<EvalBlockStmt>(stmt)         { self._ds_eval_block(cast::<EvalBlockStmt>(stmt), is_last);    return; }
+        if isa::<SwitchDispatchStmt>(stmt)    { self._ds_switch_dispatch(cast::<SwitchDispatchStmt>(stmt), is_last); return; }
 
         self._head("<unknown-stmt>", is_last); self.p.newline();
     }
@@ -2667,6 +2701,28 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         self._child_expr(cond, msg == &null);
         if msg != &null { self._child_expr(msg, true); }
+        self.p.leave();
+    }
+
+    /// `cases=<n> default=<label | policy>`; children are the value, each
+    /// case's lo then hi, then the policy statement when there is one.
+    fn _ds_switch_dispatch(self, stmt: *SwitchDispatchStmt, is_last: bool) {
+        self._head("SwitchDispatchStmt", is_last);
+        var dflt = "policy";
+        if stmt->default_stmt == &null { dflt = self.tok(stmt->default_target); }
+        self._dim(f"cases={stmt->cases.size()} default={dflt}");
+        self.p.newline();
+        self.p.enter(is_last);
+        var has_dflt = (stmt->default_stmt != &null);
+        var n_cases  = stmt->cases.size();
+        self._child_expr(stmt->value, (n_cases == 0) && (!has_dflt));
+        for var i: usize = 0; i < n_cases; ++i {
+            var c       = stmt->cases.get(i);
+            var tail    = (i == n_cases - 1) && (!has_dflt);
+            self._child_expr(c->lo, tail && (c->hi == &null));
+            if c->hi != &null { self._child_expr(c->hi, tail); }
+        }
+        if has_dflt { self._child_stmt(stmt->default_stmt, true); }
         self.p.leave();
     }
 
@@ -3485,6 +3541,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             case StmtKind::DestructuringDeclStmt { return "DestructuringDeclStmt"; }
             case StmtKind::InlineBlockStmt       { return "InlineBlockStmt";       }
             case StmtKind::EvalBlockStmt         { return "EvalBlockStmt";         }
+            case StmtKind::SwitchDispatchStmt    { return "SwitchDispatchStmt";    }
             default                              { return "<stmt>";                }
         }
     }
