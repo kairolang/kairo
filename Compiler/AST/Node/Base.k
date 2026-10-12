@@ -365,6 +365,16 @@ class Pattern derives Annotation::<Pattern> {
     /// a pattern binds take their types from here); null until then.
     pub var type_: *Type = &null;
 
+    /// What a constructor-shaped pattern names: the EnumVariantDecl, the
+    /// StructDecl / ClassDecl of a struct pattern, or the const / eval
+    /// VariableDecl of `case MAX`. Null on every other pattern. One writer:
+    /// PatternTyping (ExprTyper).
+    pub var resolved_decl: *Decl = &null;
+
+    /// On a subpattern of a variant or struct pattern: the FieldDecl it
+    /// destructures. Null otherwise. One writer: PatternTyping (ExprTyper).
+    pub var field_decl: *Decl = &null;
+
     /// Sema poison bit; see Expr::poisoned for the contract.
     pub var poisoned: bool = false;
 
@@ -377,8 +387,10 @@ class Pattern derives Annotation::<Pattern> {
     /// Copy sema-owned slots from \p other. See Expr::adopt_sema.
     fn adopt_sema(self, other: *Pattern) {
         if other == &null { return; }
-        self.type_    = other->type_;
-        self.poisoned = other->poisoned;
+        self.type_         = other->type_;
+        self.resolved_decl = other->resolved_decl;
+        self.field_decl    = other->field_decl;
+        self.poisoned      = other->poisoned;
     }
 
     static fn classof(ptr: *Pattern) -> bool {

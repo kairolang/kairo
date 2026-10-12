@@ -798,12 +798,23 @@ class IndexedForStmt derives Stmt {
 ///    match_case := 'case' pattern (',' pattern)* ('where' expr)? block
 ///                | 'default' block
 ///
-///  Statement-position match. Non-exhaustive matching on integer/string
-///  scrutinees is permitted (sema), unlike the expression form.
+///  Statement-position match. Exhaustive like the expression form
+///  (PatternChecking).
 ///
 class MatchStmt derives Stmt {
     pub var scrutinee: *Expr;
     pub var cases:     FrozenList::<MatchCase>;
+
+    /// Facts about this match. One writer: PatternChecking.
+    /// is_exhaustive: every value of the scrutinee type reaches an arm.
+    /// covering_arm:  the arm the remainder falls to (the last arm) when
+    ///                exhaustive; -1 otherwise.
+    /// open_tail:     exhaustive only because a closed enum's variants are all
+    ///                listed; an undeclared discriminant reaches no arm, and
+    ///                MatchLowering applies UnmatchedPolicy to it.
+    pub var is_exhaustive: bool = true;
+    pub var covering_arm:  i32  = -1;
+    pub var open_tail:     bool = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchStmt {
         var node       = ctx->alloc::<MatchStmt>();
@@ -811,6 +822,9 @@ class MatchStmt derives Stmt {
         node->range     = range;
         node->init_annotations(&(ctx->ast_alloc));;
         node->scrutinee = scrutinee;
+        node->is_exhaustive = true;
+        node->covering_arm  = -1;
+        node->open_tail     = false;
         return node;
     }
 
@@ -820,6 +834,9 @@ class MatchStmt derives Stmt {
         node->recovery_kind = StmtKind::MatchStmt;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
+        node->is_exhaustive = true;
+        node->covering_arm  = -1;
+        node->open_tail     = false;
         return node;
     }
 

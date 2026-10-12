@@ -1030,12 +1030,26 @@ class MatchExpr derives Expr {
     pub var scrutinee: *Expr = &null;
     pub var cases:     FrozenList::<MatchCase>;
 
+    /// Facts about this match. One writer: PatternChecking.
+    /// is_exhaustive: every value of the scrutinee type reaches an arm.
+    /// covering_arm:  the arm the remainder falls to (the last arm) when
+    ///                exhaustive; -1 otherwise.
+    /// open_tail:     exhaustive only because a closed enum's variants are all
+    ///                listed; an undeclared discriminant reaches no arm, and
+    ///                MatchLowering applies UnmatchedPolicy to it.
+    pub var is_exhaustive: bool = true;
+    pub var covering_arm:  i32  = -1;
+    pub var open_tail:     bool = false;
+
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchExpr {
         var node        = ctx->alloc::<MatchExpr>();
         node->kind       = ExprKind::MatchExpr;
         node->range      = range;
         node->scrutinee  = scrutinee;
         node->init_annotations(&(ctx->ast_alloc));;
+        node->is_exhaustive = true;
+        node->covering_arm  = -1;
+        node->open_tail     = false;
         return node;
     }
 
@@ -1046,6 +1060,9 @@ class MatchExpr derives Expr {
         node->range         = range;
         node->scrutinee     = &null;
         node->init_annotations(&(ctx->ast_alloc));;
+        node->is_exhaustive = true;
+        node->covering_arm  = -1;
+        node->open_tail     = false;
         return node;
     }
 
