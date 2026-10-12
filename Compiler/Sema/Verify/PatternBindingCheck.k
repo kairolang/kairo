@@ -11,14 +11,10 @@
 ///          because the body's `x` is unbound when `None` matches.
 ///       2. DUPLICATE BINDINGS: one name bound twice within a single
 ///          alternative (`Pair(x, x)`) or destructuring (`var (a, a)`).
-///       3. DEAD ALTERNATIVES: an irrefutable alternative (`_`, or a bare
-///          un-ascribed binding) that is not last makes its following
-///          siblings unreachable. The CASE-level analog (whole arm dead)
-///          is ArmOrderCheck's; this is within one arm's alternatives.
 ///
-///     Irrefutable = WildcardPattern, a BindingPattern with no `: T`
-///     ascription (an ascribed binding is a runtime type test), or an
-///     alternation with an irrefutable alternative.
+///     A dead alternative is not checked here: what an alternative covers
+///     depends on types, so it is PatternChecking's SC122E (and a dead arm
+///     its SC121E).
 ///
 ///     Nested alternations own their internals: when collecting an
 ///     alternation's bound set from outside, the FIRST alternative stands
@@ -156,29 +152,10 @@ class PatternBindingCheck derives RecursiveASTVisitor::<PatternBindingCheck> {
         return true;
     }
 
-    /// Matches every value: `_`, a bare un-ascribed binding, or an
-    /// alternation with an irrefutable alternative.
-    priv fn _is_irrefutable(self, p: *Pattern) -> bool {
-        if p == &null { return false; }
-        switch p->kind {
-            case PatternKind::WildcardPattern { return true; }
-            case PatternKind::BindingPattern {
-                return cast::<BindingPattern>(p)->type_ == &null;
-            } case PatternKind::AlternationPattern {
-                var n = cast::<AlternationPattern>(p);
-                for var i: usize = 0; i < n->alternatives.size(); i++ {
-                    if self._is_irrefutable(*(n->alternatives.get(i))) { return true; }
-                }
-                return false;
-            } default { return false; }
-        }
-    }
-
     /// The shared core: \p alts are sibling alternatives (an alternation's
     /// list, or a case's pattern list same FrozenList shape, same rules).
     priv fn _check_alternatives(self, alts: *FrozenList::<*Pattern>) {
         var first_set = vec::<Token>();
-        var dead_reported: bool = false;
 
         for var i: usize = 0; i < alts->size(); i++ {
             var p = *(alts->get(i));
@@ -199,17 +176,6 @@ class PatternBindingCheck derives RecursiveASTVisitor::<PatternBindingCheck> {
                     "alternative patterns must bind the same names; this "
                     "alternative's bindings differ from the first"
                 ).first(p->range).emit();
-            }
-
-            if (!dead_reported) && ((i + 1) < alts->size()) && self._is_irrefutable(p) {
-                var nx = *(alts->get(i + 1));
-                if nx != &null {
-                    self.sc->diag->report(DiagID::SC009W, nx->range.start,
-                        "unreachable alternative; a previous alternative "
-                        "matches everything first"
-                    ).first(nx->range).emit();
-                    dead_reported = true;
-                }
             }
         }
     }

@@ -1,8 +1,13 @@
 /// --- The Kairo Project ------------------------ Sema/Verify/ArmOrderCheck.k --- ///
 ///
-///   \brief Verify match / try-catch arm ordering.
-///          an arm lexically after a catch-all arm can never fire, and two
-///          catch-all arms can never both be meaningful.
+///   \brief Verify try-catch arm ordering.
+///          an arm lexically after a bare `catch` can never fire, and two
+///          bare `catch` arms can never both be meaningful.
+///
+///   \detail
+///     `match` arms are not checked here: an arm that can never match is
+///     PatternChecking's SC121E, which sees what every arm covers, not just
+///     whether an earlier one is a catch-all.
 ///
 ///   Phase: VERIFY (pre-N)
 ///
@@ -54,77 +59,6 @@ class ArmOrderCheck derives RecursiveASTVisitor::<ArmOrderCheck> {
                 default { 0; }
             }
         }
-    }
-
-    /// Irrefutable pattern: `_`, a bare un-ascribed binding (`case x`), or
-    /// an alternation containing either.
-    priv fn _is_irrefutable(self, p: *Pattern) -> bool {
-        if p == &null { return false; }
-        switch p->kind {
-            case PatternKind::WildcardPattern { return true; }
-            case PatternKind::BindingPattern {
-                return cast::<BindingPattern>(p)->type_ == &null;
-            } case PatternKind::AlternationPattern {
-                var n = cast::<AlternationPattern>(p);
-                for var i: usize = 0; i < n->alternatives.size(); i++ {
-                    if self._is_irrefutable(*(n->alternatives.get(i))) { return true; }
-                }
-
-                return false;
-            } default {
-                return false;
-            }
-        }
-    }
-
-    /// Guardless `default`, or a guardless irrefutable alternative.
-    priv fn _is_catch_all_case(self, mc: *MatchCase) -> bool {
-        if mc->guard != &null { return false; }
-        if mc->is_default { return true; }
-        for var i: usize = 0; i < mc->patterns.size(); i++ {
-            var p = *(mc->patterns.get(i));
-            if self._is_irrefutable(p) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    priv fn _check_cases(self, cases: *FrozenList::<MatchCase>) {
-        var catch_all_seen: bool = false;
-        for var i: usize = 0; i < cases->size(); i++ {
-            var mc = cases->get(i);
-            if catch_all_seen {
-                if self._is_catch_all_case(mc) {
-                    self.sc->diag->report(DiagID::SC008E, mc->range.start,
-                        "duplicate catch-all arm; a previous `default`/`_` arm "
-                        "already matches everything"
-                    ).first(mc->range).emit();
-                } else {
-                    self.sc->diag->report(DiagID::SC009W, mc->range.start,
-                        "unreachable match arm; a previous `default`/`_` arm "
-                        "matches everything first"
-                    ).first(mc->range).emit();
-                }
-
-                continue;
-            }
-
-            if self._is_catch_all_case(mc) {
-                catch_all_seen = true;
-            }
-        }
-    }
-
-    fn visit_match_stmt(self, n: *MatchStmt) -> bool {
-        self._check_cases(&(n->cases));
-        return true;
-    }
-
-    fn visit_match_expr(self, n: *MatchExpr) -> bool {
-        self._check_cases(&(n->cases));
-        return true;
     }
 
     fn visit_try_catch_stmt(self, n: *TryCatchStmt) -> bool {
