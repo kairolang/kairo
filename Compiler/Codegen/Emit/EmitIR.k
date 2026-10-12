@@ -465,17 +465,17 @@ class EmitIR {
             case StmtKind::IndexedForStmt  { self._for(cast::<IndexedForStmt>(s)); }
             case StmtKind::BreakStmt {
                 var n = cast::<BreakStmt>(s);
-                if (n->has_label) { self._ice(s->range, "EmitIR: labeled break; needs the label lowering (JumpLabelCheck's successor)"); }
+                if (n->has_label) { self._ice(s->range, "EmitIR: labeled break; LabelLowering must have rewritten it"); }
                 sink->spell(n->range, "break;");
             }
             case StmtKind::ContinueStmt {
                 var n = cast::<ContinueStmt>(s);
-                if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; needs the label lowering"); }
+                if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; LabelLowering must have rewritten it"); }
                 sink->spell(n->range, "continue;");
             }
             case StmtKind::UnsafeBlockStmt { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
             case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
-            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match; MatchLowering / PatternCompilation own it"); }
+            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place (an ADT before EnumLayoutLowering, or a tuple value)"); }
             case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
@@ -485,8 +485,18 @@ class EmitIR {
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
             case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; its lowering owns it"); }
             case StmtKind::LabeledStmt            { self._ice(s->range, "EmitIR: labeled loop; the label lowering owns it"); }
-            case StmtKind::LabelIntrinsicStmt     { self._ice(s->range, "EmitIR: label!; the label lowering owns it"); }
-            case StmtKind::JumpIntrinsicStmt      { self._ice(s->range, "EmitIR: jump!; the label lowering owns it"); }
+            case StmtKind::LabelIntrinsicStmt {
+                var n = cast::<LabelIntrinsicStmt>(s);
+                self._name(n->name);
+                sink->spell(n->range, ":;");
+            }
+            case StmtKind::JumpIntrinsicStmt {
+                var n = cast::<JumpIntrinsicStmt>(s);
+                sink->spell(n->range, "goto");
+                self._name(n->target);
+                sink->synth_at_end(n->range, clang::tok::semi);
+            }
+            case StmtKind::SwitchDispatchStmt { self._switch_dispatch(cast::<SwitchDispatchStmt>(s)); }
             case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }
             case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: eval block; EvalLowering owns it"); }
             default { self._ice(s->range, f"EmitIR: statement kind {to_string(s->kind)} is not in the core"); }
@@ -647,6 +657,36 @@ class EmitIR {
         self.emit_block(n->body);
     }
 
+    /// `switch (v) { case lo: goto L; case lo ... hi: goto L; default: goto D; }`:
+    /// MatchLowering's dispatch. The cases hold only gotos, so a user
+    /// `break` never meets this switch. `...` is clang's case range.
+    priv fn _switch_dispatch(self, n: *SwitchDispatchStmt) {
+        sink->spell(n->range, "switch (");
+        self.emit(n->value);
+        sink->spell(n->range, ") {");
+        for var i: usize = 0; i < n->cases.size(); ++i {
+            var c = n->cases.get(i);
+            sink->spell(n->range, "case");
+            self.emit(c->lo);
+            if c->hi != &null {
+                sink->spell(n->range, " ... ");
+                self.emit(c->hi);
+            }
+            sink->spell(n->range, ": goto");
+            self._name(c->target);
+            sink->spell(n->range, ";");
+        }
+        sink->spell(n->range, "default:");
+        if n->default_stmt != &null {
+            self.emit(n->default_stmt);
+        } else {
+            sink->spell(n->range, "goto");
+            self._name(n->default_target);
+            sink->spell(n->range, ";");
+        }
+        sink->spell(n->range, "}");
+    }
+
     priv fn _for(self, n: *IndexedForStmt) {
         if (n->is_eval) { self._ice(n->range, "EmitIR: eval for; EvalLowering owns it"); }
         sink->spell(SourceRange::from_bounds(n->range.start, u32(3)), "for (");
@@ -711,7 +751,7 @@ class EmitIR {
             case ExprKind::UnsafeExpr           { self.emit(cast::<UnsafeExpr>(e)->operand); }
             case ExprKind::SubscriptExpr        { self._subscript(cast::<SubscriptExpr>(e)); }
             case ExprKind::NamedArgExpr         { self._ice(e->range, "EmitIR: named argument; CallLowering owns it"); }
-            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match expression; MatchLowering owns it"); }
+            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place (an ADT before EnumLayoutLowering, or a tuple value)"); }
             case ExprKind::TryCatchExpr         { self._ice(e->range, "EmitIR: try expression; PanicLowering owns it"); }
             case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
             case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }
@@ -769,6 +809,11 @@ class EmitIR {
         }
         if have->is_dependent() || w->is_dependent() { return false; }
         if have->is_instantiation_dependent() || w->is_instantiation_dependent() { return false; }
+        // A reference bound to its own referee (`const T& x = path`): no conversion.
+        var wu = canon_unqual(w);
+        if (wu != &null) && isa::<CXXLValueRefType>(wu) {
+            if canon_unqual(have) == canon_unqual(cast::<CXXLValueRefType>(wu)->referee) { return false; }
+        }
         // A record by value is copy-constructed; `static_cast<Rec>(x)` is a
         // temporary and changes value category. Records go as they are.
         if canon_unqual(w)->kind == TypeKind::RecordType { return false; }
