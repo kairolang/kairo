@@ -9,9 +9,9 @@
 ///     §6, verbatim: for operands A != B, if W(A->B) and not W(B->A) the
 ///     operand type is B; the mirror gives A; otherwise error. There is no
 ///     "usual arithmetic conversion" and `u32 + i32` is an error on purpose.
-///     Comparison uses the same unification and yields bool; shifts unify the
-///     right operand independently; compound assignment converts the right
-///     operand only.
+///     Comparison uses the same unification and yields bool; a shift's left
+///     operand takes the expected type and its right operand is typed
+///     independently; compound assignment converts the right operand only.
 ///
 ///     An untyped literal on one side takes the other side's type (§5), which
 ///     is why `x + 1` works for any integer x with no conversion at all.
@@ -418,15 +418,19 @@ class <T> OperatorTyping {
         var rt: *Type = &null;
         var numeric_ctx = self._is_arith(k) || self._is_bitwise(k) || self._is_equality(k) || self._is_relational(k);
         var pass_down: *Type = (expected) if (self._is_arith(k) || self._is_bitwise(k)) else (&null);
+        // A shift's result IS its left operand's type, so the left operand
+        // takes the expected type (`var m: u8 = 1 << 3` is a u8 shift, as `^^`'s
+        // base is); the count stays its own integer.
+        var lhs_down: *Type = (expected) if (self._is_shift(k)) else (pass_down);
 
         if l_lit && (!r_lit) {
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, pass_down));
-            lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else (pass_down));
+            lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else (lhs_down));
         } else if r_lit && (!l_lit) {
-            lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, pass_down));
+            lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
             rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (pass_down));
         } else {
-            lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, pass_down));
+            lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (pass_down)));
         }
         if dyn()->propagate(n, n->lhs) || dyn()->propagate(n, n->rhs) { return &null; }

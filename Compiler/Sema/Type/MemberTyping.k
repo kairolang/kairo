@@ -254,9 +254,8 @@ class <T> MemberTyping {
                     var edc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
                     var ed  = (edc->owner_decl()) if (edc != &null) else (&null);
                     if ed == &null { dyn()->fail(n, DiagID::SC093E, "enum variant has no owning enum"); return &null; }
-                    var a = vec::<*Type>();
-                    cur = dyn()->sc->types->record(NameLookup::representative(ed), &a);
-                    if cur_kind == 1 { cur = cur_type; }   // `Foo<i32>::V` keeps the instance
+                    cur = dyn()->variant_value_type(ed);
+                    if (cur_kind == 1) && (dyn()->discr_enum == &null) { cur = cur_type; }   // `Foo<i32>::V` keeps the instance
                     cur_kind = 0; st->resolved_type = cur;
                     n->value_category = Expr::ValueCategory::RValue;
                 }

@@ -191,6 +191,11 @@ class ExprTyper
     // --- scope state ------------------------------------------------------
     pub var frames:       vec::<TyperFrame>;
     pub var unsafe_depth: u32 = 0;
+    /// The enum (representative) whose discriminant is being typed, or null.
+    /// Inside it a variant of that enum names its VALUE, typed as the
+    /// underlying integer (C++ [dcl.enum]/5), so `RW = Read | Write` is a
+    /// builtin `|`. One writer: StmtTyping::traverse_enum_variant_decl.
+    pub var discr_enum: *Decl = &null;
 
     // --- side tables --------------------------------------------------------
     priv var _memo:    libcxx::unordered_map::<u64, u8>;
@@ -214,6 +219,20 @@ class ExprTyper
         self.ml   = MemberLookup(sc);
         self.cb   = ChainBinding(sc);
         self._scratch_ded = Deduction(sc, &(self.conv));
+        self.discr_enum   = &null;
+    }
+
+    /// The type of a variant of \p ed used as a value: the enum, except
+    /// inside \p ed's own discriminants, where it is the underlying type.
+    fn variant_value_type(self, ed: *Decl) -> *Type {
+        var rep = NameLookup::representative(ed);
+        if (self.discr_enum != &null) && (rep == self.discr_enum) {
+            var en = dyn_cast::<EnumDecl>(rep);
+            if (en != &null) && (en->underlying != &null) && (en->underlying->canonical != &null) { return en->underlying->canonical; }
+            return self.tu.builtin(BuiltinKind::U32);
+        }
+        var a = vec::<*Type>();
+        return self.sc->types->record(rep, &a);
     }
 
     /// PRE: TypesResolved (canonicals exist, chain steps with declared
@@ -470,9 +489,8 @@ class ExprTyper
                 var edc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
                 var ed  = (edc->owner_decl()) if (edc != &null) else (&null);
                 if ed == &null { self.mark_unknown(n); return &null; }
-                var a = vec::<*Type>();
                 n->value_category = Expr::ValueCategory::RValue;    // a variant is a value, not storage.
-                return self.sc->types->record(NameLookup::representative(ed), &a);
+                return self.variant_value_type(ed);
             }
             case DeclKind::FunctionDecl {
                 // A builtin has no address: clang lowers each call in place.

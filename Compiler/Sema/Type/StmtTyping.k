@@ -421,8 +421,13 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             var ed  = (dyn_cast::<EnumDecl>(edc->owner_decl())) if (edc != &null) else (&null);
             var under: *Type = dyn()->tu.builtin(BuiltinKind::U32);
             if (ed != &null) && (ed->underlying != &null) && (ed->underlying->canonical != &null) { under = ed->underlying->canonical; }
+            // An earlier variant named here is its integer value, not an enum
+            // object; see ExprTyper::discr_enum.
+            var saved = dyn()->discr_enum;
+            dyn()->discr_enum = (NameLookup::representative(static_cast::<*Decl>(ed))) if (ed != &null) else (&null);
             dyn()->type_of(n->discriminant, under);
             dyn()->check_convertible(n->discriminant, under);
+            dyn()->discr_enum = saved;
         }
         for var i: usize = 0; i < n->payload.size(); ++i { self.traverse_field_decl(n->payload[i]); }
         return n;
