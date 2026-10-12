@@ -2570,3 +2570,267 @@ group = "unimplemented"
     use a supported form until the feature lands. for the loops above, iterate a slice of the
     data or an index range instead.
     """
+
+[SC120]
+brief = "match is not exhaustive"
+group = "pattern-matching"
+
+    [SC120.E]
+    explain = """
+    # non-exhaustive match
+
+    every `match`, the statement form as well as the value form, must handle every value its
+    scrutinee can hold. some value reaches no arm here. the error names one such value, the
+    WITNESS: `'.West' is not covered`, `'128' is not covered`, `'(false, false)' is not covered`.
+
+    ## example
+
+    ```kairo
+    enum Direction { North, East, South, West }
+
+    fn name(d: Direction) -> string {
+        return match d {                      // error: '.West' is not covered
+            case .North => "n"
+            case .East  => "e"
+            case .South => "s"
+        }
+    }
+    ```
+
+    what counts as covering:
+
+    - an enum is covered when every variant is listed; an ADT variant only when its payload is
+      covered too (`.Some(var v)` covers `.Some`, `.Some(1)` does not).
+    - an integer of at most 64 bits is covered when its listed values and ranges add up to the
+      whole type: `0..=127` and `128..=255` cover `u8`.
+    - a `bool` is covered by `true` and `false`; a tuple or struct column by column.
+    - strings, chars, floats, nullables, wider integers, flags enums (a discriminant written with
+      `|` or `<<`) and imported C++ enums are never covered by a list of values: they need
+      `default`. the error says so instead of naming a witness.
+    - an arm with a `where` guard never counts toward coverage, because the guard may decline at
+      run time.
+
+    ## how to fix
+
+    add an arm for the witness, or a `default` arm. in the statement form, `default { }` keeps the
+    old behaviour of doing nothing for the values no arm lists.
+    """
+
+[SC121]
+brief = "match arm can never match"
+group = "pattern-matching"
+
+    [SC121.E]
+    explain = """
+    # unreachable match arm
+
+    arms are tried in order, and the arms before this one already match every value it matches,
+    so it can never be selected. a guarded arm before it does not count, since its guard may
+    decline.
+
+    ## example
+
+    ```kairo
+    match n {
+        case 1..=10 { small(); }
+        case 5      { five(); }       // error: 1..=10 already matches 5
+        default     { other(); }
+    }
+
+    match d {
+        case .North, .East, .South, .West { go(); }
+        default { }                   // error: every variant is already listed
+    }
+    ```
+
+    ## how to fix
+
+    delete the arm, or move it above the arm that covers it. a `default` after an exhaustive set
+    of arms is dead and can simply be removed.
+    """
+
+[SC122]
+brief = "pattern alternative can never match"
+group = "pattern-matching"
+
+    [SC122.E]
+    explain = """
+    # unreachable pattern alternative
+
+    one alternative of an arm (`case A, B` or `A | B`) matches only values that earlier
+    alternatives or earlier arms already match. the arm itself is still reachable through its
+    other alternatives; this alternative is not.
+
+    ## example
+
+    ```kairo
+    match n {
+        case 1, 1 { one(); }          // error: the second `1` can never match
+        default   { }
+    }
+    ```
+
+    ## how to fix
+
+    remove the alternative, or replace it with the value that was meant.
+    """
+
+[SC123]
+brief = "pattern head does not name a variant, constant or type of the matched value"
+group = "pattern-matching"
+
+    [SC123.E]
+    explain = """
+    # pattern head names nothing it can match
+
+    the name at the head of a pattern must name something the matched value can be: a variant of
+    the scrutinee's enum (`.North`, `Direction::North`), the scrutinee's own struct or class (a
+    struct pattern, `Point(var x, var y)`), or a `const` / `eval` constant (`case MAX`). a bare
+    identifier in a pattern is never a new binding.
+
+    ## example
+
+    ```kairo
+    fn f(n: i32, limit: i32) {
+        match n {
+            case .North { }           // error: 'i32' is not an enum
+            case limit  { }           // error: 'limit' is a variable, not a constant
+            default     { }
+        }
+    }
+    ```
+
+    ## how to fix
+
+    name a variant of the scrutinee's own enum, the scrutinee's type, or a constant. to bind the
+    matched value to a new name, write `case var limit` (or `const limit`); to compare against a
+    variable, bind and use a guard: `case var v where v == limit`.
+    """
+
+[SC124]
+brief = "payload subpattern does not fit its constructor"
+group = "pattern-matching"
+
+    [SC124.E]
+    explain = """
+    # payload subpattern does not fit
+
+    the subpatterns inside `.Variant(...)` or `Type(...)` destructure the variant's payload or the
+    type's fields, names first, then positions: a binder takes the field of its own name, and any
+    other subpattern takes the field at its position in the declaration. fields left out are not
+    tested. this subpattern fits no field: the variant has no payload, no field has the binder's
+    name, there are more subpatterns than fields, or two subpatterns reach the same field.
+
+    ## example
+
+    ```kairo
+    enum Lookup { Found { key: i32, value: string }, Missing }
+
+    match r {
+        case .Missing(var x)         { }   // error: '.Missing' carries no payload
+        case .Found(var vlaue)       { }   // error: no field named 'vlaue'
+        case .Found(0..=9, var key)  { }   // error: field 'key' is matched twice
+        case .Found(0..=9, var value) { }  // ok: tests `key`, binds `value`
+        default { }
+    }
+    ```
+
+    a constant takes no payload either: `case MAX(1)` is this error.
+
+    ## how to fix
+
+    name binders after the fields they take, and keep positional subpatterns in field order.
+    """
+
+[SC125]
+brief = "alternatives bind a name differently"
+group = "pattern-matching"
+
+    [SC125.E]
+    explain = """
+    # alternatives disagree on a binding
+
+    the alternatives of one arm share a single body, so a name they bind is one variable there.
+    every alternative must bind it with the same type and the same mutability (`var` or
+    `const`); this one differs from an earlier alternative.
+
+    ## example
+
+    ```kairo
+    enum Value { Int { x: i32 }, Text { x: string } }
+
+    match v {
+        case .Int(var x), .Text(var x) { }    // error: 'x' is 'i32' in one, 'string' in the other
+    }
+    ```
+
+    ## how to fix
+
+    split the alternatives into separate arms, or bind the differing field under another name in
+    each.
+    """
+
+[SC126]
+brief = "invalid range pattern"
+group = "pattern-matching"
+
+    [SC126.E]
+    explain = """
+    # invalid range pattern
+
+    a range pattern (`lo..hi`, `lo..=hi`, `lo..`, `..hi`) matches an integer or `char` column, and
+    its bounds must be constants: a literal, a negated literal, or a `const` / `eval` name whose
+    value is one. it must also hold at least one value.
+
+    ## example
+
+    ```kairo
+    const LO = 1
+
+    match n {
+        case LO..=9 { }     // ok
+        case 5..=1  { }     // error: the lower bound is above the upper bound
+        case 3..3   { }     // error: `..` excludes 3, so nothing is left
+        case lo..=hi { }    // error: `lo` and `hi` are variables
+        default { }
+    }
+    ```
+
+    ## how to fix
+
+    use constant bounds in increasing order. for a single value write the value itself, or
+    `a..=a`. to test against run-time bounds, bind and guard: `case var v where lo <= v && v <= hi`.
+    """
+
+[SC127]
+brief = "cast to an enum from a type other than its underlying type"
+group = "casts"
+
+    [SC127.E]
+    explain = """
+    # enum cast from the wrong integer type
+
+    `x as E` turns an integer into a Kairo enum only when `x` already has exactly the enum's
+    underlying type: the type in `derives`, or `u32` when the enum does not name one. the cast
+    never fails: an enum value can hold any value of its underlying type, as in C++. requiring the
+    exact type keeps the one place a value could be truncated visible as its own cast.
+
+    ## example
+
+    ```kairo
+    enum Direction { North, East, South, West }      // underlying type u32
+    enum Opcode derives u8 { Nop, Halt }
+
+    fn f(a: i64, b: u32, c: u8) {
+        var d = a as Direction;     // error: needs 'u32'
+        var e = b as Direction;     // ok
+        var o = c as Opcode;        // ok
+        var p = b as Opcode;        // error: needs 'u8'
+    }
+    ```
+
+    ## how to fix
+
+    cast to the underlying type first: `(a as u32) as Direction`. casting an enum back to an
+    integer, and casting to an imported C++ enum, are not affected.
+    """

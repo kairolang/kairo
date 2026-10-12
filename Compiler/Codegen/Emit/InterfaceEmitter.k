@@ -727,7 +727,7 @@ class InterfaceEmitter {
             // The declarator-id is parenthesized, always: after a
             // class-template return, `Cell<double> ::test::f<...>` lexes as
             // ONE nested-name-specifier, so clang looks for a member `test`
-            // inside Cell<double> ("no member named 'test'", "does not refer
+            // inside Cell<double> ("no member named 'test\x27", "does not refer
             // to a function template"). `long (::test::get<long>)(...)` is
             // equally valid, so there is no case to special.
             s += " (";

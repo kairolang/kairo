@@ -13,6 +13,15 @@
 
 import Command::ParsedArgs::*;
 
+/// What an exhaustive match does with a value no arm declares: an
+/// undeclared enum discriminant, an invalid ADT tag (MatchStmt::open_tail).
+/// One writer: this config. MatchLowering reads it; nothing tests the
+/// optimization level itself.
+enum UnmatchedPolicy derives u8 {
+    Trap,          ///< `default: __builtin_trap();`
+    Unreachable,   ///< `default: __builtin_unreachable();` -- UB on a bad value
+}
+
 ///
 /// \class CodeGenOptions
 ///
@@ -42,6 +51,9 @@ class CodeGenOptions {
     pub var opt_level:             i32    = 0;
     pub var opt_size:              bool   = false;
     pub var opt_size_z:            bool   = false;
+    /// `--unmatched`: "trap", "unreachable", or "" to follow -O; read it
+    /// through unmatched_policy().
+    pub var unmatched:             string = "";
     // -- debug info --------------------------------------------------------
     pub var dwarf_version:         i32    = 5;
     pub var debug_info:            bool   = false;
@@ -135,6 +147,7 @@ class CodeGenOptions {
         else if o_val == "2"                      { (o.opt_level) = 2; }
         else if o_val == "3"                      { (o.opt_level) = 3; }
         else                                      { (o.opt_level) = 0; }
+        (o.unmatched)            = args.get_string("unmatched");
         (o.lto)                  = args.get_string("lto");
         (o.profile)              = args.get_string("profile");
         (o.debug_info)           = args.get_bool("debug-info");
@@ -227,5 +240,14 @@ class CodeGenOptions {
         for s in args.get_list("coverage-prefix-map") { o.coverage_prefix_map.push_back(s); }
 
         return o;
+    }
+
+    /// `--unmatched` when given; otherwise Trap at -O0 through -O2 and
+    /// Unreachable at -O3, where the check is the one being optimized away.
+    fn unmatched_policy(self) -> UnmatchedPolicy {
+        if self.unmatched == "trap"        { return UnmatchedPolicy::Trap; }
+        if self.unmatched == "unreachable" { return UnmatchedPolicy::Unreachable; }
+        if self.opt_level >= 3             { return UnmatchedPolicy::Unreachable; }
+        return UnmatchedPolicy::Trap;
     }
 }

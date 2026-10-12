@@ -508,8 +508,10 @@ class Command {
                     }
                     if def->has_bare && (def->short_.length() > 0) { set += f", -{def->short_}"; }
                     if !found {
+                        // A long-only flag has no `-X` spelling to name.
+                        var nm = (f"'-{def->short_}' / '--{def->key}\x27") if (def->short_.length() > 0) else (f"'--{def->key}\x27");
                         self._diag->report(DiagCode(DiagID::U003E),
-                            f"invalid value '{raw}' for flag '-{def->short_}' / '--{def->key}'; accepted: {set}")
+                            f"invalid value '{raw}' for flag {nm}; accepted: {set}")
                             .emit();
                         result->ok = false;
                         return;

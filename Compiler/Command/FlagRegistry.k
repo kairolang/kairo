@@ -23,6 +23,12 @@ fn _opt_level_choices() -> vec::<string> {
     return c;
 }
 
+fn _unmatched_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("trap"); c.push_back("unreachable");
+    return c;
+}
+
 fn register_kairo_flags(cmd: *Command) {
     //  IDENTITY
 
@@ -434,6 +440,9 @@ fn register_kairo_flags(cmd: *Command) {
     //  codegen optimizations
     cmd->define::<FlagKind::Bool>  ("strict-aliasing",       "", "strict-aliasing",        "enable strict aliasing optimizations (off in debug, on in release)",      false);
     cmd->define::<FlagKind::String>("thread-model",          "", "thread-model",           "threading model: posix|single (default: posix)",                          "posix");
+    // Empty default: the policy follows -O (CodeGenOptions::unmatched_policy).
+    cmd->define(FlagDef::str_c("unmatched", "", "unmatched", "an undeclared value reaching an exhaustive match: trap|unreachable (default: trap, unreachable at -O3)",
+                               "", _unmatched_choices(), ""));
     cmd->define::<FlagKind::String>("unwind-tables",         "", "unwind-tables",          "unwind table emission: none|sync|async (default: sync)",                  "sync");
     cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
     cmd->define::<FlagKind::String>("unwindlib",             "", "unwindlib",              "unwind library: libunwind|libgcc|none (default: platform default)",        "");
