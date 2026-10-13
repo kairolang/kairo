@@ -59,7 +59,25 @@ import Diagnostic::Engine::*;
 ///
 class VirtualFileManager {
     class Segment; ///< forward declaration of Segment class.
-    
+
+    /// Indexed by fid. INVARIANT: no task that can overlap a registration
+    /// reads this, directly or through get_buffer()/get_loc()/resolve_loc().
+    /// register_file/register_virtual push onto it under
+    /// SourceManager::_load_mu, and a reader without that lock can index it
+    /// mid-reallocation and see a null Segment.
+    ///
+    /// The line-index build is queued by load_file itself, so it always
+    /// overlaps the next load: it never reads this, and is handed the bytes
+    /// instead   a MemoryBuffer view resolved under the lock. That view stays
+    /// valid because the Segment it points into is heap-owned and only
+    /// evict()/invalidate()/reset() free or re-map it, each after the line
+    /// table has drained its builds.
+    ///
+    /// Lex/parse workers DO read this, unlocked. They are safe only because
+    /// every registration happens on the driver before the walk starts (the
+    /// DepScanner preloads the import graph); the walk's own load_file calls
+    /// are cache hits. A worker-side load that missed the cache would break
+    /// that, and would need this read path locked.
     priv var _segments:      vec::<own::<Segment>>          = vec::<own::<Segment>>();
     priv var _page_table:    vec::<u32> = vec::<u32>(); ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
 
@@ -247,6 +265,10 @@ class VirtualFileManager {
     ///
     /// \param path file to map.
     /// \return base file id assigned to the first segment.
+    ///
+    /// \warning grows _segments, which may reallocate it. Nothing that can run
+    ///          concurrently with this may index _segments; workers receive
+    ///          the buffer instead. See the invariant there.
     ///
     fn register_file(self, path: Path) -> u32 {
         var abs      = Path(path.full_path());

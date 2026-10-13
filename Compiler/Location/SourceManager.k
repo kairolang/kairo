@@ -199,10 +199,28 @@ class SourceManager {
             Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: skipping line index for fid={base_fid} path={path.full_path()}");
             return base_fid;
         }
-        
+
+        // Bytes and entry are both resolved HERE, under _load_mu, and handed
+        // to the task by value. The task must not go back to the
+        // VirtualFileManager for them: the next load_file pushes onto
+        // _segments, and a pool thread indexing it mid-reallocation read a
+        // null Segment. reserve_build also counts the task before it is
+        // queued, so evict()/invalidate() wait for it before unmapping.
+        var bytes = self._bytes_of(base_fid);
+        var entry = self._line_table.reserve_build(base_fid);
+        if entry == &null { return base_fid; }
+
+        // A stopped pool drops what it is handed, which would strand the
+        // reservation and hang every later drain. The driver destroys the
+        // pool after this manager, so this only catches misuse.
+        if !self._pool->is_active() {
+            self._line_table.run_reserved_build(entry, bytes);
+            return base_fid;
+        }
+
         self._pool->enqueue(__inline_cpp("
-            [fid = base_fid, this]() {
-                this->_line_table.build_index(fid, this->_vfile_mgr);
+            [entry, bytes, this]() {
+                this->_line_table.run_reserved_build(entry, bytes);
             }
         "));
 
@@ -246,6 +264,21 @@ class SourceManager {
     }
 
     ///
+    /// \brief \p fid's bytes as a by-value view, or an empty one.
+    ///
+    /// \details What every line-index build is handed, so that no build ever
+    ///          reads the VirtualFileManager itself. The view stays valid until
+    ///          the segment is evicted or re-mapped, and both of those drain
+    ///          the line table's builds first.
+    ///
+    /// \note Caller must hold \c _load_mu.
+    priv fn _bytes_of(self, fid: FileID) -> MemoryBuffer {
+        var buf = self._vfile_mgr->get_buffer(fid);
+        if (buf == &null) || (!buf->is_valid()) { return MemoryBuffer(); }
+        return buf->bytes();
+    }
+
+    ///
     /// \brief loads a virtual (in-memory) file into the source space.
     ///
     /// \param fake_path logical path to assign to the virtual file.
@@ -266,8 +299,8 @@ class SourceManager {
         self._materialize(fid, fake_path);
         Logger::info(Logger::Stage::Driver, f"SourceManager::load_virtual: registered fid={fid} path={fake_path.full_path()} size={size}B");
         
-        self._line_table.build_index(fid, self._vfile_mgr);
-        
+        self._line_table.build_index(fid, self._bytes_of(fid));
+
         return fid;
     }
 
@@ -315,6 +348,11 @@ class SourceManager {
     fn invalidate(self, file_id: FileID) -> bool {
         var lock = std::LockGuard(self._load_mu);
 
+        // A pool build may still be reading the current mapping, which the
+        // re-map below destroys. The line table's own invalidate drains too,
+        // but only after the bytes are already gone.
+        self._line_table.drain_builds();
+
         if !self._vfile_mgr->invalidate(file_id) { return false; }
 
         var path = Path();
@@ -327,7 +365,7 @@ class SourceManager {
         }
 
         self._materialize(file_id, path);
-        self._line_table.invalidate(file_id, self._vfile_mgr);
+        self._line_table.invalidate(file_id, self._bytes_of(file_id));
         return true;
     }
 

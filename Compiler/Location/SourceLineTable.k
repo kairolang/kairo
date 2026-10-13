@@ -222,14 +222,28 @@ class SourceLineTable {
     }
 
     ///
+    /// \brief _drain_builds() for a caller about to unmap file bytes.
+    ///
+    /// \details SourceManager::invalidate needs the drain BEFORE the
+    ///          VirtualFileManager replaces the mapping; invalidate() below
+    ///          drains too, but by then the old bytes are already gone.
+    ///
+    fn drain_builds(self) {
+        self._drain_builds();
+    }
+
+    ///
     /// \brief rebuilds \p fid's line index after its bytes changed.
     ///
     /// \details Keeps the entry (and therefore the fid) and swaps its contents.
-    ///          Re-reads the size from \p vfm, since an edit changes it.
+    ///          Takes the size from \p bytes, since an edit changes it.
+    ///
+    /// \param bytes the NEW contents, resolved by the caller under
+    ///        SourceManager::_load_mu.
     ///
     /// \return false if \p fid has no entry.
     ///
-    fn invalidate(self, fid: u32, vfm: *VirtualFileManager) -> bool {
+    fn invalidate(self, fid: u32, bytes: MemoryBuffer) -> bool {
         self._drain_builds();
 
         var tbl = self._file_table.load(std::MemoryOrder::acquire);
@@ -248,9 +262,9 @@ class SourceLineTable {
         entry->lines.store(&null, std::MemoryOrder::release);
         if old != &null { delete old; }
 
-        entry->file_size = static_cast::<u32>(vfm->get_info(fid).size);
+        entry->file_size = static_cast::<u32>(bytes.size());
 
-        self.build_index(fid, vfm);
+        self.build_index(fid, bytes);
         return true;
     }
 
@@ -281,14 +295,14 @@ class SourceLineTable {
     }
 
     ///
-    /// \brief builds the line index for a file using simd or scalar fallback.
+    /// \brief builds \p fid's line index from \p bytes, on the calling thread.
     ///
-    /// \details
-    /// scans for newline bytes (`'\n'`) and records their offsets.
-    /// architecture-specific branches use AVX512, AVX2, SSE2, or NEON.
-    /// automatically falls back to scalar if no simd is available.
+    /// \details For callers holding SourceManager::_load_mu, which is what
+    ///          makes looking the entry up by fid safe: register_file resizes
+    ///          _file_table under that lock. A pool task must go through
+    ///          reserve_build() / run_reserved_build() instead.
     ///
-    fn build_index(self, fid: u32, vfm: *VirtualFileManager) {
+    fn build_index(self, fid: u32, bytes: MemoryBuffer) {
         self._builds.fetch_add(1, std::MemoryOrder::acq_rel);
         finally { self._builds.fetch_sub(1, std::MemoryOrder::acq_rel); }
 
@@ -297,13 +311,68 @@ class SourceLineTable {
             return;
         }
 
+        self._scan((*tbl)[fid], bytes);
+    }
+
+    ///
+    /// \brief claims \p fid's index build for a pool task. Runs on the
+    ///        caller's thread, under SourceManager::_load_mu, BEFORE the task
+    ///        is enqueued.
+    ///
+    /// \details Two things are settled here rather than in the task, because
+    ///          the task runs without the lock:
+    ///
+    ///          - The entry is resolved now. The task must not index
+    ///            _file_table, which register_file resizes under the lock.
+    ///          - _builds is bumped now, not when the task starts. A task that
+    ///            is still QUEUED already holds a view into the file's mapping;
+    ///            counting it only once it ran would let _drain_builds return
+    ///            and evict()/invalidate() unmap those bytes under it.
+    ///
+    ///          Every non-null return must reach exactly one
+    ///          run_reserved_build(), or _drain_builds never returns.
+    ///
+    /// \return the entry to fill, or null if there is nothing to build.
+    ///
+    fn reserve_build(self, fid: u32) -> *FileEntry {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) { return &null; }
+
         var entry = (*tbl)[fid];
+        if (entry == &null) || (entry->is_ready()) { return &null; }
+
+        self._builds.fetch_add(1, std::MemoryOrder::acq_rel);
+        return entry;
+    }
+
+    ///
+    /// \brief the pool half of reserve_build(): fills \p entry from \p bytes,
+    ///        then releases the reservation.
+    ///
+    fn run_reserved_build(self, entry: *FileEntry, bytes: MemoryBuffer) {
+        finally { self._builds.fetch_sub(1, std::MemoryOrder::acq_rel); }
+        self._scan(entry, bytes);
+    }
+
+    ///
+    /// \brief builds the line index for a file using simd or scalar fallback.
+    ///
+    /// \details
+    /// scans for newline bytes (`'\n'`) and records their offsets.
+    /// architecture-specific branches use AVX512, AVX2, SSE2, or NEON.
+    /// automatically falls back to scalar if no simd is available.
+    ///
+    /// reads only \p entry and \p buff   never _file_table, never the
+    /// VirtualFileManager   so it is safe off the loader's thread. the caller
+    /// accounts for _builds.
+    ///
+    priv fn _scan(self, entry: *FileEntry, buff: MemoryBuffer) {
         if ((!entry) || entry->is_ready()) {
-            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} already ready, skipping");
+            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: entry missing or already ready, skipping");
             return;
         }
 
-        var buff = vfm->get_buffer(fid)->bytes();
+        var fid = entry->file_id;
 
         if ((!buff.data()) || buff.size() == 0) {
             var lines = std::create::<vec::<u32>>();
