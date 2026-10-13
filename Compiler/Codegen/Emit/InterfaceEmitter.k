@@ -12,7 +12,8 @@
 ///     is why nothing here is per-sink.
 ///
 ///   \par What is NOT emitted (each an ICE naming its owner)
-///     ADT enums (EnumLayoutLowering), unions (later), interfaces (no
+///     ADT enums (EnumLayoutLowering), named unions (later; an anonymous
+///     one is written inline as the field that declares it), interfaces (no
 ///     entity; witnesses MISSING), parameter defaults and field
 ///     initializers (expression emission across TUs), packs in expansion
 ///     position, structural containers (the container migration).
@@ -370,6 +371,10 @@ class InterfaceEmitter {
                 if nd == &null { continue; }
                 if isa::<VisibilityGroupDecl>(nd) { continue; }   // members are pointers back into the lists below.
                 if !self._is_type(nd) { continue; }
+                // An anonymous union is not a nested type: it has no name to
+                // define it under, and its one declaration is the field
+                // below that holds it (_anon_union_field).
+                if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
                 cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
                 self._type_def(CXXSpell::rep(nd));
             }
@@ -401,6 +406,8 @@ class InterfaceEmitter {
             var f = fields[i];
             if f == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(f)), is_class, at);
+            // Before anything spells the field: it has no name.
+            if f->is_anonymous_union { self._anon_union_field(f); continue; }
             var fs = "";
             if f->is_static()  { fs += "static "; }
             if f->is_mutable   { fs += "mutable "; }
@@ -432,6 +439,24 @@ class InterfaceEmitter {
 
         sink->spell(at, "};");
         sink->brk();
+    }
+
+    /// `union { T a; U b; };`: an anonymous union, written where its field
+    /// is. Its members are the owner's members to C++ and take the access
+    /// in force for the field, so no specifier goes inside. Each member is
+    /// spelled as an ordinary field would be. The layout is clang's.
+    priv fn _anon_union_field(self, f: *FieldDecl) {
+        var u = self._plan->anon_union_of(f);
+        var fat = self._at(static_cast::<*Decl>(f));
+        sink->spell(fat, "union {");
+        for var i: usize = 0; i < u->fields.size(); ++i {
+            var m = u->fields[i];
+            if m == &null { continue; }
+            var ms = self._spell->decl(m->type_, self._spell->leaf(static_cast::<*Decl>(m)));
+            ms += ";";
+            sink->spell(self._at(static_cast::<*Decl>(m)), ms);
+        }
+        sink->spell(fat, "};");
     }
 
     priv fn _is_type(self, d: *Decl) -> bool {

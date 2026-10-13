@@ -632,6 +632,18 @@ class FieldDecl derives Decl {
     pub var is_mutable: bool = false;    ///< `mutable var` escapes const-self.
     pub var is_thread:  bool = false;    ///< `static thread` thread_local storage.
     pub var index:      u32 = 0;         ///< declaration order in the owning type.
+    /// `type_` is the record type of an anonymous UnionDecl (`is_anonymous`),
+    /// and this field is that union's one and only declaration: C++ gets
+    /// `union { ... };` in its place, with no name. Unlike C++, the union's
+    /// members are NOT injected into the owner's member table -- nothing
+    /// looks them up by name. Compiler-minted field_of chains carry the
+    /// member FieldDecl itself and name it directly on the owner, as C++
+    /// does (`s.__kairo_Some`). This field is in no chain: it has no name to
+    /// spell, and exists only so the emitter writes the union. `name` is the
+    /// empty token, so test this flag before spelling the field. One writer:
+    /// EnumLayoutLowering, which mints the field together with its union;
+    /// the parser never sets it.
+    pub var is_anonymous_union: bool = false;
 
     static fn create(
         ctx:     *ASTContext,
@@ -649,6 +661,7 @@ class FieldDecl derives Decl {
         node->storage = storage;
         node->type_   = type_;
         node->index   = index;
+        node->is_anonymous_union = false;
         return node;
     }
 
@@ -658,6 +671,7 @@ class FieldDecl derives Decl {
         node->recovery_kind = DeclKind::FieldDecl;
         node->range         = range;
         node->type_         = &null;
+        node->is_anonymous_union = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1053,6 +1067,12 @@ class UnionDecl
     pub var fields:  FrozenList::<*FieldDecl>;
     /// Constructors and operator overloads only - same rule as StructDecl.
     pub var methods: FrozenList::<*FunctionDecl>;
+    /// No name (`name` is the empty token): the union exists only as the type
+    /// of one FieldDecl with `is_anonymous_union`, and codegen emits it there,
+    /// inline, never as a type of its own. Its members join no lookup table
+    /// (see FieldDecl::is_anonymous_union). Kairo source cannot write one;
+    /// one writer: EnumLayoutLowering, for an ADT's payload storage.
+    pub var is_anonymous: bool = false;
 
     static fn create(
         ctx:    *ASTContext,
@@ -1067,6 +1087,7 @@ class UnionDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Union, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->is_anonymous = false;
         return node;
     }
 
@@ -1078,6 +1099,7 @@ class UnionDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Union, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->is_anonymous = false;
         return node;
     }
 

@@ -275,7 +275,10 @@ class MemberLookup {
         //    the pattern exactly as before fills existed.
         MemberLookup::ensure_filled(self.sc, d);
 
-        // 1. own table.
+        // 1. own table. Unlike C++, an anonymous union field's members are
+        //    not injected here and never found by name: only compiler-minted
+        //    field_of chains reach them, carrying the member FieldDecl
+        //    itself (see FieldDecl::is_anonymous_union).
         var dc = NameLookup::context_of(d);
         if dc != &null {
             var cell = self.in_scope(dc, name, self._cur_spelling);

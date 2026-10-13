@@ -229,6 +229,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _collect_ext_in(self, cand: *Decl, target: *Decl);
     fn _ext_target(self, x: *ExtensionDecl) -> *Decl;
     fn layout_decl(self, d: *Decl) -> *Decl;
+    fn anon_union_of(self, f: *FieldDecl) -> *UnionDecl;
     fn param_by_value(self, prim: *Decl, idx: u32) -> bool;
     fn _param_by_value_walk(self, prim: *Decl, idx: u32) -> bool;
     fn _edges_reach_param(self, list: *FrozenList::<InheritEdge>, prim: *Decl, idx: u32) -> bool;
@@ -276,6 +277,12 @@ class LayoutSpine {
         for var i: usize = 0; i < list->size(); ++i {
             var f = *(list->get(i));
             if f == &null { continue; }
+            // An anonymous union's members are laid out inside this record,
+            // so they order it exactly as its own fields do.
+            if f->is_anonymous_union {
+                if self.fields(&(self._plan->anon_union_of(f)->fields)) { return true; }
+                continue;
+            }
             if self.reaches(f->type_) { return true; }
         }
         return false;
@@ -1115,6 +1122,10 @@ fn EmitPlan::_expand_type(d: *Decl) {
                 continue;
             }
             if !self._is_type_decl(nd) { continue; }
+            // An anonymous union is not a nested type: it has no name and no
+            // definition of its own, and its members were walked through its
+            // field by _fields. Expanding it here would walk them twice.
+            if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
             self._expand_type(CXXSpell::rep(nd));
         }
     }
@@ -1133,6 +1144,14 @@ fn EmitPlan::_fields(fields: *FrozenList::<*FieldDecl>) {
     for var i: usize = 0; i < fields->size(); ++i {
         var f = *(fields->get(i));
         if f == &null { continue; }
+        // The union is written inline as this field (`union { ... };`), so
+        // what its members hold by value is this record's dependency, at the
+        // same strength as an ordinary field's. Admitting the union type
+        // itself would only land on the owner again (_outermost_type).
+        if f->is_anonymous_union {
+            self._fields(&(self.anon_union_of(f)->fields));
+            continue;
+        }
         self._admit_type(f->type_, PlanNeed::Complete);
     }
 }
@@ -1221,6 +1240,23 @@ fn EmitPlan::layout_decl(d: *Decl) -> *Decl {
     return r;
 }
 
+/// The anonymous union that field \p f (`is_anonymous_union`) declares. One
+/// resolver for every walk that sees through such a field -- the plan's,
+/// LayoutSpine's and InterfaceEmitter's -- so none of them can disagree on
+/// what the members are. A flag on a field whose type is anything else is a
+/// broken lowering, not a shape to tolerate.
+fn EmitPlan::anon_union_of(f: *FieldDecl) -> *UnionDecl {
+    var u: *UnionDecl = &null;
+    if (f->type_ != &null) && (f->type_->canonical != &null) {
+        var c = canon_unqual(f->type_->canonical);
+        if isa::<RecordType>(c) { u = dyn_cast::<UnionDecl>(CXXSpell::rep(cast::<RecordType>(c)->decl)); }
+    }
+    if (u == &null) || (!u->is_anonymous) {
+        self._ice(f->range, "EmitPlan: a field marked is_anonymous_union whose type is not an anonymous union");
+    }
+    return u;
+}
+
 /// True iff \p prim's layout reaches its \p idx-th generic parameter by
 /// value. `Box<T> { var v: T }` yes; `Box<T> { var p: *T }` no. Memoized.
 /// Recursion through another generic's field bottoms out at a depth cap
@@ -1274,7 +1310,13 @@ fn EmitPlan::_edges_reach_param(list: *FrozenList::<InheritEdge>, prim: *Decl, i
 fn EmitPlan::_fields_reach_param(list: *FrozenList::<*FieldDecl>, prim: *Decl, idx: u32) -> bool {
     for var i: usize = 0; i < list->size(); ++i {
         var f = *(list->get(i));
-        if (f != &null) && self._type_reaches_param(f->type_, prim, idx) { return true; }
+        if f == &null { continue; }
+        // An anonymous union's members are stored in the record by value.
+        if f->is_anonymous_union {
+            if self._fields_reach_param(&(self.anon_union_of(f)->fields), prim, idx) { return true; }
+            continue;
+        }
+        if self._type_reaches_param(f->type_, prim, idx) { return true; }
     }
     return false;
 }

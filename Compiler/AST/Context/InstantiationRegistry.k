@@ -298,6 +298,7 @@ class InstantiationRegistry {
             self._shell::<UnionDecl>(n, p, DeclKind::UnionDecl, DeclContextKind::Union, ctx);
             n->fields.from_raw(static_cast::<*(*FieldDecl)>(&null), 0);
             n->methods.from_raw(static_cast::<*(*FunctionDecl)>(&null), 0);
+            n->is_anonymous = p->is_anonymous;
             return static_cast::<*Decl>(n);
         }
         if isa::<EnumDecl>(primary) {
