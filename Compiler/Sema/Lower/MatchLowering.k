@@ -65,11 +65,11 @@
 ///       opaque         `if` on `==`, or a range's two compares.
 ///
 ///   \par Not lowered here
-///     A match whose tree reaches an ADT payload or tag before
-///     EnumLayoutLowering has given the enum its record, or a tuple that is
-///     not a literal, is left as it is; EmitIR's ICE names the owner. Both
-///     appear in type-check-only tests that must keep passing, so no gate
-///     reports them yet.
+///     A tuple that is not a literal is left as it is; EmitIR's ICE names
+///     the owner. It appears in type-check-only tests that must keep
+///     passing, so no gate reports it yet. An ADT's tag and payloads always
+///     have their record by the time this runs: EnumLayoutLowering runs
+///     before every body rewrite.
 ///
 ///   Phase: LOWER, after IterLowering and RangeLowering; before
 ///   SequenceLowering (which orders the scrutinee local) and StringLowering

@@ -2577,6 +2577,17 @@ group = "unimplemented"
     data or an index range instead.
     """
 
+    [SC116.N]
+    explain = """
+    # note: what keeps the construct out of reach
+
+    points at the part of the program the unsupported construct depends on. for an enum whose
+    payload's lifecycle is not known until instantiation, it is the payload field whose type is an
+    instance of a generic record: until the compiler works out an instance's copy, move and
+    destruction on its own, an enum holding one in a variant cannot be generated. a generic enum
+    is not affected, and neither is an enum whose payloads are scalars or non-generic records.
+    """
+
 [SC120]
 brief = "match is not exhaustive"
 group = "pattern-matching"

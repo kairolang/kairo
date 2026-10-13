@@ -475,7 +475,7 @@ class EmitIR {
             }
             case StmtKind::UnsafeBlockStmt { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
             case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
-            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place (an ADT before EnumLayoutLowering, or a tuple value)"); }
+            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place (a tuple-valued scrutinee)"); }
             case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
@@ -751,7 +751,7 @@ class EmitIR {
             case ExprKind::UnsafeExpr           { self.emit(cast::<UnsafeExpr>(e)->operand); }
             case ExprKind::SubscriptExpr        { self._subscript(cast::<SubscriptExpr>(e)); }
             case ExprKind::NamedArgExpr         { self._ice(e->range, "EmitIR: named argument; CallLowering owns it"); }
-            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place (an ADT before EnumLayoutLowering, or a tuple value)"); }
+            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place (a tuple-valued scrutinee)"); }
             case ExprKind::TryCatchExpr         { self._ice(e->range, "EmitIR: try expression; PanicLowering owns it"); }
             case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
             case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }

@@ -25,9 +25,12 @@
 ///   Closures keep their expression bodies: EmitIR has no closure path yet,
 ///   and the day it does, it is this same rewrite on ClosureExpr.
 ///
-///   Phase: LOWER, FIRST. Every later lowering then sees an ordinary block,
-///   which SequenceLowering needs -- it hoists arguments into statements, and
-///   an expression body has no statement position to hoist into.
+///   Phase: LOWER, first of the passes that rewrite statements (only
+///   VariantInitLowering, which replaces construction nodes in place, and
+///   EnumLayoutLowering, which touches no body, run before it). Every later
+///   lowering then sees an ordinary block, which SequenceLowering needs -- it
+///   hoists arguments into statements, and an expression body has no
+///   statement position to hoist into.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

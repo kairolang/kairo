@@ -418,6 +418,9 @@ class LowerTargets {
     static fn adt_construct_from() -> string         { return "__kairo_construct_from"; }
     static fn adt_trivial_dtor() -> string           { return "__kairo_trivial_dtor"; }
     static fn adt_trivial_copy() -> string           { return "__kairo_trivial_copy"; }
+    static fn adt_destructible() -> string           { return "__kairo_destructible"; }
+    static fn adt_copyable() -> string               { return "__kairo_copyable"; }
+    static fn adt_movable() -> string                { return "__kairo_movable"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
 }

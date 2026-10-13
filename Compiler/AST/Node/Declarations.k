@@ -191,6 +191,32 @@ enum TransferKind derives u8 {
     Move,            ///< @move fn T(self, other: Self)
 }
 
+/// What a function minted for an ADT's layout record is
+/// (FunctionDecl::adt_role). None of them has a Kairo spelling, so none has
+/// a Kairo body: InterfaceEmitter renders each from its role and form.
+enum AdtRole derives u8 {
+    None = 0,        ///< an ordinary function.
+    VariantCtor,     ///< builds one variant: `E(__kairo_vt<I>, F&& payload)`.
+    CopyCtor,
+    MoveCtor,
+    CopyAssign,
+    MoveAssign,
+    Dtor,
+    Destroy,         ///< destroys the active payload: `__kairo_destroy()`.
+    ConstructFrom,   ///< builds a payload from another value's: `__kairo_construct_from(o)`.
+    TagEq,           ///< `==` on the tags alone.
+}
+
+/// Which of the three forms of an ADT special member a role function is
+/// (FunctionDecl::adt_form). A generic ADT declares all three, constrained
+/// so that exactly one is selected; a non-generic one only the form its
+/// lifecycle facts select.
+enum AdtForm derives u8 {
+    Trivial = 0,     ///< `= default`.
+    Body,            ///< written out: the payload is destroyed and built by hand.
+    Deleted,         ///< `= delete`.
+}
+
 /// Inheritance edge: base type + how its members are re-exposed + virtual.
 struct InheritEdge {
     var base:       *Type;            ///< the base/interface type reference.
@@ -453,6 +479,15 @@ class FunctionDecl
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.
     pub var ffi_ice_mask:   u32 = 0;              ///< bit i: parameter i takes an integer constant.
+    /// A function EnumLayoutLowering minted for an ADT's layout record, or
+    /// None. It has no Kairo body and never a requires_clause: InterfaceEmitter
+    /// writes its C++ from adt_role and adt_form, constraints included.
+    /// adt_variant is the position, in the enum's variants, of the variant a
+    /// VariantCtor builds; 0 for every other role. One writer for all three:
+    /// EnumLayoutLowering.
+    pub var adt_role:      AdtRole = AdtRole::None;
+    pub var adt_form:      AdtForm = AdtForm::Trivial;
+    pub var adt_variant:   u32     = 0;
 
     fn has_where(self) -> bool { return self.where_clause != &null; }
 
@@ -469,6 +504,9 @@ class FunctionDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->adt_role    = AdtRole::None;
+        node->adt_form    = AdtForm::Trivial;
+        node->adt_variant = 0;
         return node;
     }
 
@@ -480,6 +518,9 @@ class FunctionDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->adt_role    = AdtRole::None;
+        node->adt_form    = AdtForm::Trivial;
+        node->adt_variant = 0;
         return node;
     }
 
@@ -707,6 +748,14 @@ class StructDecl
     /// named methods (the parser rejects those); see _parse_member_body.
     pub var methods:    FrozenList::<*FunctionDecl>;
     pub var implements: FrozenList::<InheritEdge>;   ///< `impl` interface list.
+    /// The payload of one ADT variant: its fields are that variant's own
+    /// payload FieldDecls, and InterfaceEmitter gives it a placement
+    /// operator new, so `new (&member) P(...)` needs no <new>. One writer:
+    /// EnumLayoutLowering.
+    pub var is_adt_payload: bool  = false;
+    /// The ADT enum this record is the layout of (EnumDecl::adt_layout), or
+    /// null. One writer: EnumLayoutLowering.
+    pub var adt_of:         *Decl = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -721,6 +770,8 @@ class StructDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Struct, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->is_adt_payload = false;
+        node->adt_of         = &null;
         return node;
     }
 
@@ -732,6 +783,8 @@ class StructDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Struct, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->is_adt_payload = false;
+        node->adt_of         = &null;
         return node;
     }
 

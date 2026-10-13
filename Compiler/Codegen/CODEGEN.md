@@ -209,8 +209,14 @@ Every Preamble and every Header opens with
 
     template <class T, decltype(sizeof(0)) N> using __kairo_array = T[N];
     template <class T> auto* __kairo_tmp(T&& t) { return __builtin_addressof(t); }
+    template <unsigned int I> struct __kairo_vt { explicit __kairo_vt() = default; };
+    template <class T, class... A> inline void __kairo_construct_at(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }
+    template <class T> inline void __kairo_destroy_at(T* p) noexcept { p->~T(); }
 
-(`LowerTargets::array_alias`, `LowerTargets::tmp_addr`). The alias is never
+(`LowerTargets::array_alias`, `LowerTargets::tmp_addr`,
+`LowerTargets::adt_variant_tag`, `LowerTargets::construct_at`,
+`LowerTargets::destroy_at`). `__kairo_vt<I>` is the tag argument that selects
+an ADT's variant-I constructor. The alias is never
 instantiated. `__kairo_tmp` is the address of a prvalue's materialized
 temporary, valid to the end of the full-expression: ExtensionLowering's
 `materialize` `&` on a prvalue receiver, which EmitIR spells as
@@ -232,7 +238,8 @@ Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields, method DECLARATIONS (never bodies in the class —
 invariant 12),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
-types. Enums: C-like only. Functions: free only. Extension scopes:
+types. Enums: C-like as `enum class`, an ADT as its layout record (below).
+Functions: free only. Extension scopes:
 `struct __kairo_ext_X {` and one `static` declaration per member (merged
 template head, receiver first via `ext_receiver`, the postfix `int` dummy
 where it applies), `};`, all public and never in the unnamed namespace;
@@ -256,7 +263,27 @@ The class definitions stay byte-identical, because the bodies are emitted
 outside the class. `--emit-headers` therefore runs EmitIR, needs a lowered
 tree, and writes nothing after an error.
 
-V1 refusals (each an ICE naming its owner): ADT enums, unions, interfaces,
+An ADT enum is written as the record EnumLayoutLowering built
+(`EnumDecl::adt_layout`), under the enum's name and template head, in the
+record's order: the tag enum (bare enumerators: a tag is a variant's
+position), each payload struct with its own placement `operator new` as its
+first member (`new (&m) P(...)` finds it; no `<new>` is included and
+`::new` is never emitted), the tag, the anonymous union, a generic ADT's
+five `static constexpr bool` flags (type traits over the payload structs),
+then the role functions rendered from `adt_role` / `adt_form`: a
+`template <class F> E(::__kairo_vt<I>, F&& f)` or `E(::__kairo_vt<I>)` per
+variant, the special members, and the private `__kairo_destroy` /
+`__kairo_construct_from`. Their bodies are written in the class, the one
+exception to invariant 12: they have no Kairo body to put out of line, and
+the text is still a pure function of the decl. A generic ADT declares all
+three forms of each special member (defaulted, with a body, deleted),
+constrained on the flags so one is selected; a non-generic one declares the
+one form its lifecycle facts select, unconstrained. EmitPlan reads an ADT's
+members, nested types, layout edges and by-value parameters off the record
+(`EmitPlan::adt_record`, through `layout_decl`), and sees through the
+anonymous union and the payload structs as through ordinary fields.
+
+V1 refusals (each an ICE naming its owner): named unions, interfaces,
 field initializers. A pack is spelled as its
 `Slice<E>` (`ParamDecl::pack_type`).
 
@@ -418,7 +445,10 @@ body's call into the bound goes through the interface's witness
 ConformanceChecking's table: the primary forwards structurally
 (`requires requires { s->m(); }`), specializations exist only for
 extension and builtin conformances, and the derived concept `I_c<T>` is
-the one `requires` an emitted template may carry (revising invariant 13).
+the one Kairo-derived `requires` an emitted template may carry (revising
+invariant 13). ADT special members carry C++ constraints rendered by
+InterfaceEmitter from adt_role/adt_form; they are not Kairo constraints and
+have no requires_clause.
 Until EmitWitness lands, a callee owned by an `InterfaceDecl` is an ICE.
 
 ## 8. Diagnostics

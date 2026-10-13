@@ -229,6 +229,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _collect_ext_in(self, cand: *Decl, target: *Decl);
     fn _ext_target(self, x: *ExtensionDecl) -> *Decl;
     fn layout_decl(self, d: *Decl) -> *Decl;
+    fn adt_record(self, d: *Decl) -> *Decl;
     fn anon_union_of(self, f: *FieldDecl) -> *UnionDecl;
     fn param_by_value(self, prim: *Decl, idx: u32) -> bool;
     fn _param_by_value_walk(self, prim: *Decl, idx: u32) -> bool;
@@ -261,7 +262,9 @@ class LayoutSpine {
 
     fn LayoutSpine(self, plan: *EmitPlan, target: *Decl) {
         self._plan   = plan;
-        self._target = target;
+        // In the form reaches() compares against: layout_decl's, which for
+        // an ADT is its layout record.
+        self._target = plan->layout_decl(target);
     }
 
     fn bases(self, list: *FrozenList::<InheritEdge>) -> bool {
@@ -298,6 +301,11 @@ class LayoutSpine {
                 var r = cast::<RecordType>(c);
                 var d = self._plan->layout_decl(r->decl);
                 if d == self._target { return true; }
+                // A payload struct is defined inside its ADT's body, so what it
+                // holds by value orders the ADT exactly as its own fields
+                // would. Its type names the struct, never the ADT.
+                var ps = dyn_cast::<StructDecl>(d);
+                if (ps != &null) && ps->is_adt_payload { return self.fields(&(ps->fields)); }
                 for var i: usize = 0; i < r->args.size(); ++i {
                     if !self._plan->param_by_value(d, static_cast::<u32>(i)) { continue; }
                     if self.reaches(*(r->args.get(i))) { return true; }
@@ -661,7 +669,9 @@ fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
             var d = self.layout_decl(r->decl);
             if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
             var outer = self._outermost_type(d);
-            if outer == d { return; }
+            // An ADT's layout record sits in the enum's scope, but it IS the
+            // enum, not a type nested in it.
+            if (outer == d) || (self.adt_record(outer) == d) { return; }
             self._admit(outer, PlanNeed::Complete);
             self._scope_add_dep(k, outer);
         }
@@ -967,6 +977,14 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     // A nested type is part of its outermost owner's definition.
     var outer = self._outermost_type(c);
     if outer != c { self._admit(outer, need); return; }
+    // A payload struct is minted inside its ADT (its semantic_dc is the
+    // enum), so the fold above always takes it to the enum, whose layout
+    // record defines it. One planned here as a record of its own would be
+    // defined twice -- inside the ADT and again beside it.
+    var ps = dyn_cast::<StructDecl>(c);
+    if (ps != &null) && ps->is_adt_payload {
+        self._ice(c->range, "EmitPlan: an ADT payload struct reached the plan as a record of its own; EnumLayoutLowering places it in its enum");
+    }
 
     var at = self._index_of(c);
     if at == usize(-1) {
@@ -1080,31 +1098,35 @@ fn EmitPlan::_expand_fn(n: *FunctionDecl) {
 /// The whole definition (invariant 11): bases and by-value fields at
 /// Complete, the by-value types of method signatures at Complete too
 /// (_expand_member_sig), nested types recursively, and the same-file
-/// extension members that will be named as friends.
+/// extension members that will be named as friends. An ADT is defined as
+/// its layout record (adt_record): its fields, role functions, nested tag
+/// enum and payload structs, and the friends written on it.
 fn EmitPlan::_expand_type(d: *Decl) {
-    switch d->kind {
+    var rec = self.adt_record(d);
+    switch rec->kind {
         case DeclKind::ClassDecl {
-            var n = cast::<ClassDecl>(d);
+            var n = cast::<ClassDecl>(rec);
             self._bases(&(n->derives_list));
             self._fields(&(n->fields));
             self._methods(&(n->methods));
         } case DeclKind::StructDecl {
-            var n = cast::<StructDecl>(d);
+            var n = cast::<StructDecl>(rec);
             self._fields(&(n->fields));
             self._methods(&(n->methods));
         } case DeclKind::UnionDecl {
-            var n = cast::<UnionDecl>(d);
+            var n = cast::<UnionDecl>(rec);
             self._fields(&(n->fields));
             self._methods(&(n->methods));
         } case DeclKind::EnumDecl {
-            var n = cast::<EnumDecl>(d);
+            // A plain enum, or an ADT whose record was never built.
+            var n = cast::<EnumDecl>(rec);
             for var i: usize = 0; i < n->variants.size(); ++i {
                 var v = *(n->variants.get(i));
                 if v == &null { continue; }
                 self._fields(&(v->payload));
             }
         } case DeclKind::TypeAliasDecl {
-            self._admit_type(cast::<TypeAliasDecl>(d)->aliased, PlanNeed::Complete);
+            self._admit_type(cast::<TypeAliasDecl>(rec)->aliased, PlanNeed::Complete);
         } default { break; }
     }
     // Nested types ride inside this definition. So do member aliases
@@ -1112,7 +1134,7 @@ fn EmitPlan::_expand_type(d: *Decl) {
     // at Complete for the reason _expand_member_sig gives: whoever reads
     // `R::promise_type` -- <coroutine>'s traits, any C++ user -- gets the
     // type itself, not a declaration of it.
-    var dc = CXXSpell::dc_of(d);
+    var dc = CXXSpell::dc_of(rec);
     if dc != &null {
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             var nd = *(dc->dc_decls.get(i));
@@ -1129,7 +1151,7 @@ fn EmitPlan::_expand_type(d: *Decl) {
             self._expand_type(CXXSpell::rep(nd));
         }
     }
-    self._collect_same_file_extensions(d);
+    self._collect_same_file_extensions(rec);
 }
 
 fn EmitPlan::_bases(bases: *FrozenList::<InheritEdge>) {
@@ -1233,11 +1255,25 @@ fn EmitPlan::_ext_target(x: *ExtensionDecl) -> *Decl {
 // --- Layout queries (LayoutSpine + _admit_instance) ------------------------------
 
 /// The decl whose fields define a record's layout: an instance's pattern
-/// (its shell is empty until M2 fills it), the representative otherwise.
+/// (its shell is empty until M2 fills it), and for an ADT enum its layout
+/// record (adt_record); the representative otherwise.
 fn EmitPlan::layout_decl(d: *Decl) -> *Decl {
     var r = CXXSpell::rep(d);
-    if (r != &null) && decl_is_instance(r) { return CXXSpell::rep(decl_pattern(r)); }
-    return r;
+    if (r != &null) && decl_is_instance(r) { r = CXXSpell::rep(decl_pattern(r)); }
+    return self.adt_record(r);
+}
+
+/// THE redirect from an ADT enum to the record it is written as
+/// (EnumDecl::adt_layout). Every walk that reads a record's members comes
+/// through here -- layout_decl, _expand_type, _needs_complete,
+/// _param_by_value_walk -- so no two of them can disagree about whether an
+/// ADT is its variants or its record. A plain enum, every other decl, and an
+/// ADT whose record was never built (sema stopped before the lowerings) are
+/// themselves.
+fn EmitPlan::adt_record(d: *Decl) -> *Decl {
+    var en = dyn_cast::<EnumDecl>(d);
+    if (en == &null) || (!en->is_adt) || (en->adt_layout == &null) { return d; }
+    return en->adt_layout;
 }
 
 /// The anonymous union that field \p f (`is_anonymous_union`) declares. One
@@ -1264,31 +1300,37 @@ fn EmitPlan::anon_union_of(f: *FieldDecl) -> *UnionDecl {
 /// only trip the cycle assert, never miss a definition).
 fn EmitPlan::param_by_value(prim: *Decl, idx: u32) -> bool {
     if prim == &null { return false; }
-    var key = (reinterpret_cast::<u64>(prim) << 8) ^ static_cast::<u64>(idx);
+    // One question per record: an ADT asked as its enum or as its layout
+    // record is the same one, so it gets one memo key.
+    var p   = self.layout_decl(prim);
+    var key = (reinterpret_cast::<u64>(p) << 8) ^ static_cast::<u64>(idx);
     for var i: usize = 0; i < self._pbv_key.size(); ++i {
         if self._pbv_key[i] == key { return self._pbv_val[i]; }
     }
     if self._pbv_depth > 32 { return true; }
     self._pbv_depth += 1;
-    var ans = self._param_by_value_walk(prim, idx);
+    var ans = self._param_by_value_walk(p, idx);
     self._pbv_depth -= 1;
     self._pbv_key.push_back(key);
     self._pbv_val.push_back(ans);
     return ans;
 }
 
+/// An ADT's fields are its layout record's (adt_record). \p prim stays what
+/// a generic parameter's owner is compared against (_type_reaches_param).
 fn EmitPlan::_param_by_value_walk(prim: *Decl, idx: u32) -> bool {
-    switch prim->kind {
+    var rec = self.adt_record(prim);
+    switch rec->kind {
         case DeclKind::ClassDecl {
-            var n = cast::<ClassDecl>(prim);
+            var n = cast::<ClassDecl>(rec);
             if self._edges_reach_param(&(n->derives_list), prim, idx) { return true; }
             return self._fields_reach_param(&(n->fields), prim, idx);
         } case DeclKind::StructDecl {
-            return self._fields_reach_param(&(cast::<StructDecl>(prim)->fields), prim, idx);
+            return self._fields_reach_param(&(cast::<StructDecl>(rec)->fields), prim, idx);
         } case DeclKind::UnionDecl {
-            return self._fields_reach_param(&(cast::<UnionDecl>(prim)->fields), prim, idx);
+            return self._fields_reach_param(&(cast::<UnionDecl>(rec)->fields), prim, idx);
         } case DeclKind::EnumDecl {
-            var n = cast::<EnumDecl>(prim);
+            var n = cast::<EnumDecl>(rec);
             for var i: usize = 0; i < n->variants.size(); ++i {
                 var v = *(n->variants.get(i));
                 if (v != &null) && self._fields_reach_param(&(v->payload), prim, idx) { return true; }
@@ -1329,11 +1371,16 @@ fn EmitPlan::_type_reaches_param(t: *Type, prim: *Decl, idx: u32) -> bool {
         case TypeKind::QualifiedType { return self._type_reaches_param(cast::<QualifiedType>(c)->inner, prim, idx); }
         case TypeKind::GenericParamType {
             var g = cast::<GenericParamType>(c);
-            return (CXXSpell::rep(g->owner) == prim) && (g->param_index == idx);
+            // Both through layout_decl: walking an ADT's record, \p prim is
+            // that record while T's owner is the enum.
+            return (self.layout_decl(g->owner) == self.layout_decl(prim)) && (g->param_index == idx);
         }
         case TypeKind::RecordType {
             var r = cast::<RecordType>(c);
             var d = self.layout_decl(r->decl);
+            // A payload struct is laid out inside its ADT (LayoutSpine::reaches).
+            var ps = dyn_cast::<StructDecl>(d);
+            if (ps != &null) && ps->is_adt_payload { return self._fields_reach_param(&(ps->fields), prim, idx); }
             for var i: usize = 0; i < r->args.size(); ++i {
                 if !self.param_by_value(d, static_cast::<u32>(i)) { continue; }
                 if self._type_reaches_param(*(r->args.get(i)), prim, idx) { return true; }
@@ -1513,19 +1560,22 @@ fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
     return self._needs_complete(who->decl, dep->decl);
 }
 
-/// True when \p who's definition requires \p dep's definition first.
+/// True when \p who's definition requires \p dep's definition first. An
+/// ADT's definition is its layout record's (adt_record); LayoutSpine sees
+/// through its anonymous union and payload structs.
 fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     if (who == &null) || (dep == &null) { return false; }
     var probe = LayoutSpine(&self, dep);
-    switch who->kind {
+    var rec   = self.adt_record(who);
+    switch rec->kind {
         case DeclKind::ClassDecl {
-            var n = cast::<ClassDecl>(who);
+            var n = cast::<ClassDecl>(rec);
             if probe.bases(&(n->derives_list)) { return true; }
             return probe.fields(&(n->fields));
-        } case DeclKind::StructDecl { return probe.fields(&(cast::<StructDecl>(who)->fields)); }
-        case DeclKind::UnionDecl  { return probe.fields(&(cast::<UnionDecl>(who)->fields)); }
+        } case DeclKind::StructDecl { return probe.fields(&(cast::<StructDecl>(rec)->fields)); }
+        case DeclKind::UnionDecl  { return probe.fields(&(cast::<UnionDecl>(rec)->fields)); }
         case DeclKind::EnumDecl {
-            var n = cast::<EnumDecl>(who);
+            var n = cast::<EnumDecl>(rec);
             for var i: usize = 0; i < n->variants.size(); ++i {
                 var vr = *(n->variants.get(i));
                 if (vr != &null) && probe.fields(&(vr->payload)) { return true; }

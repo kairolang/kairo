@@ -21,10 +21,12 @@
 ///         lowerings' labels and gotos), but nothing yet proves a user jump
 ///         crosses no initialization, which C++ rejects and Kairo must
 ///         report first.
-///       - building an ADT enum variant (an expression X recorded a
-///         `variant_decl` on): EmitIR spells it as a constructor of the
-///         enum's layout record, which nothing builds yet. A plain enum's
-///         `.V` is its enumerator's name and is not gated.
+///       - a non-generic ADT enum one of whose lifecycle facts is Unknown (a
+///         payload that is an instance of a generic record reads its
+///         pattern's facts until they are computed per instance):
+///         EnumLayoutLowering picks its special members from those facts.
+///         Reported at the enum, with a note at the payload field that left
+///         the fact open.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -43,10 +45,13 @@
 /// ----------------------------------------------------------------- ///
 
 import Sema::SemaContext::*;
+import Sema::Resolve::NameLookup::*;
+import Sema::Type::TypeUtil::*;
+import Sema::Check::ClassLifecycle::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
-import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Statements::*;
@@ -113,13 +118,46 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         return true;
     }
 
-    fn visit_expr(self, n: *Expr) -> bool {
-        var v = variant_decl_of(n);
-        if (v == &null) || n->is_poisoned() { return true; }
-        var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
-        var en = (dyn_cast::<EnumDecl>(dc->owner_decl())) if (dc != &null) else (&null);
-        if (en == &null) || (!en->is_adt) { return true; }
-        self._gate(n->range, "building an enum variant");
+    /// A non-generic ADT has no flags for clang to pick its special members
+    /// by: EnumLayoutLowering picks one form of each from its lifecycle
+    /// facts, and ICEs when one of them is Unknown. A generic ADT leaves the
+    /// choice to clang and is never reported. Asked once per entity, as the
+    /// lowering builds once: an instance shares its pattern's record, and a
+    /// redeclaration is its representative's.
+    fn visit_enum_decl(self, n: *EnumDecl) -> bool {
+        if (!n->is_adt) || n->is_poisoned() || (n->generic_params.size() > 0) { return true; }
+        var d = static_cast::<*Decl>(n);
+        if decl_is_instance(d) || (NameLookup::representative(d) != d) { return true; }
+        var lc = lifecycle_of(self.sc);
+        if !lifecycle_open(lc->facts_of(d)) { return true; }
+
+        var b = self.sc->diag->report(DiagID::SC116E, n->name.range.start,
+            "an enum whose payload's lifecycle is not known until instantiation is not yet supported");
+        b.first(n->name.range);
+        // The first payload field whose own facts are open: the generic
+        // instance the enum's copy, move and destruction wait on.
+        var tu = TypeUtil(self.sc);
+        var noted = false;
+        for var i: usize = 0; i < n->variants.size(); ++i {
+            if noted { break; }
+            var v = n->variants[i];
+            if v == &null { continue; }
+            for var j: usize = 0; j < v->payload.size(); ++j {
+                var fd = v->payload[j];
+                if (fd == &null) || (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
+                var pf = lc->facts_of_type(fd->type_->canonical);
+                if !lifecycle_open(&pf) { continue; }
+                var fname = self.sc->ctx->get_spelling(fd->name);
+                var vname = self.sc->ctx->get_spelling(v->name);
+                var tn    = tu.str(fd->type_->canonical);
+                b.note(DiagID::SC116N, fd->range.start,
+                    f"'{fname}' of variant '{vname}' has type '{tn}', whose copy, move and destruction are not known until instantiation"
+                ).first(fd->range);
+                noted = true;
+                break;
+            }
+        }
+        b.emit();
         return true;
     }
 

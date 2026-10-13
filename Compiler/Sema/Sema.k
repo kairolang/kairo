@@ -55,6 +55,7 @@ import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
+import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
@@ -372,6 +373,12 @@ class Sema {
         // so every pass below sees one node kind for it (SequenceLowering
         // orders its payload).
         { var _p = TimeRegion("VariantInitLowering"); VariantInitLowering(&self.sc).run(); }
+        // Then: every ADT enum gets its layout record. Every later pass and
+        // EmitPlan must see the record's members -- MatchLowering reads the
+        // tag field and each variant's union member off it. It touches no
+        // body, and VariantInitLowering above reads nothing it builds, so
+        // the two could run in either order.
+        { var _p = TimeRegion("EnumLayoutLowering"); EnumLayoutLowering(&self.sc).run(); }
         // Then: `fn f() -> T = e` becomes `{ return e }`, so every pass below
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.

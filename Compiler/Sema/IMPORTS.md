@@ -325,10 +325,16 @@ every body. One object per non-foreign TU.
     header that can see the declaration also emits, out of line, as C++
     `inline`, with the same text. They are interface because an importer
     has to compile them: clang instantiates templates Kairo never lists,
-    and `inline` is the author saying the importer should.
+    and `inline` is the author saying the importer should. Exception: the
+    special members of an ADT record (rendered from adt_role/adt_form)
+    carry their bodies inside the class; they are compiler-synthesized,
+    have no Kairo source counterpart, and no user function body is ever
+    emitted in-class.
 13. **Clang never instantiates.** Every generic instantiation is
     enumerated by Kairo sema, checked by Kairo sema, and emitted explicitly.
-    Emitted templates carry no `requires`.
+    Emitted templates carry no `requires`. ADT special members carry C++
+    constraints rendered by InterfaceEmitter from adt_role/adt_form; they
+    are not Kairo constraints and have no requires_clause.
 
 ---
 

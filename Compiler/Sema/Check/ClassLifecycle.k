@@ -221,6 +221,18 @@ class LifecycleFacts {
     fn LifecycleFacts(self) { }
 }
 
+/// One of the five facts an ADT's special members are picked from --
+/// trivial_dtor, trivially_copyable, destructible, copyable, movable -- is
+/// still Unknown. FeatureGateCheck rejects a non-generic ADT for which this
+/// holds and EnumLayoutLowering ICEs on one, so both read this one
+/// predicate: the gate then covers the ICE exactly. The category needs no
+/// test of its own: with copyable and movable known it is decided.
+fn lifecycle_open(f: *LifecycleFacts) -> bool {
+    return (f->trivial_dtor == LifecycleTri::Unknown) || (f->trivially_copyable == LifecycleTri::Unknown)
+        || (f->destructible == LifecycleTri::Unknown) || (f->copyable == LifecycleTri::Unknown)
+        || (f->movable == LifecycleTri::Unknown);
+}
+
 class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     pub var sc: *SemaContext;
     priv var _tu:    TypeUtil;
@@ -802,6 +814,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         for var i: usize = 0; i < n->methods.size(); ++i {
             var m = n->methods[i];
             if m == &null { continue; }
+            // Compiler-made, not declared: "one transfer constructor" and "no
+            // user `op =`" are rules about what a user writes (see _methods).
+            if m->adt_role != AdtRole::None { continue; }
             if m->transfer == TransferKind::Copy {
                 if copy_ctor == &null { copy_ctor = m; }
                 else if dup == &null  { dup_of = copy_ctor; dup = m; }
@@ -1012,7 +1027,14 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         else if isa::<StructDecl>(d) { lst = &(cast::<StructDecl>(d)->methods); }
         else if isa::<UnionDecl>(d)  { lst = &(cast::<UnionDecl>(d)->methods);  }
         if lst == &null { return out; }
-        for var i: usize = 0; i < lst->size(); ++i { out.push_back((*lst)[i]); }
+        for var i: usize = 0; i < lst->size(); ++i {
+            var m = (*lst)[i];
+            // An ADT layout record's role functions are compiler-made C++
+            // (EnumLayoutLowering): no rule about what a user may declare,
+            // and no fact a user's declaration decides, is about them.
+            if (m != &null) && (m->adt_role != AdtRole::None) { continue; }
+            out.push_back(m);
+        }
         return out;
     }
 

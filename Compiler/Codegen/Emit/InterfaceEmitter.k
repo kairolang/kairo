@@ -11,9 +11,18 @@
 ///     every TU and in the header. That is the whole ODR argument, and it
 ///     is why nothing here is per-sink.
 ///
+///   \par ADT enums
+///     Written as the record EnumLayoutLowering built (EnumDecl::
+///     adt_layout), under the enum's own name and template head (_adt_def).
+///     Its role functions are the one place a declaration here carries
+///     bodies and constraints: they have no Kairo spelling, so the text is
+///     rendered from FunctionDecl::adt_role / adt_form, and it is still a
+///     pure function of the decl. The constraints are C++ mechanics over the
+///     record's flags, never a Kairo requires_clause.
+///
 ///   \par What is NOT emitted (each an ICE naming its owner)
-///     ADT enums (EnumLayoutLowering), named unions (later; an anonymous
-///     one is written inline as the field that declares it), interfaces (no
+///     Named unions (later; an anonymous one is written inline as the field
+///     that declares it), interfaces (no
 ///     entity; witnesses MISSING), parameter defaults and field
 ///     initializers (expression emission across TUs), packs in expansion
 ///     position, structural containers (the container migration).
@@ -98,6 +107,23 @@ class InterfaceEmitter {
         // temporary's, which lives to the end of the full-expression.
         sink->spell(self._tu_at(),
             "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
+        sink->brk();
+        // An ADT's variant tags: `E(::__kairo_vt<I>{}, ...)` picks variant I's
+        // constructor. The explicit default constructor keeps a bare `{}`
+        // from converting into a tag.
+        sink->spell(self._tu_at(),
+            "template <" + builtin_info(BuiltinKind::U32)->cxx + " I> struct " + LowerTargets::adt_variant_tag()
+            + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };");
+        sink->brk();
+        // Construction and destruction in place. `new (p) T(...)` finds T's
+        // own placement operator new first (an ADT payload declares one); no
+        // <new> is included, so it is never `::new`.
+        sink->spell(self._tu_at(),
+            "template <class T, class... A> inline void " + LowerTargets::construct_at()
+            + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }");
+        sink->brk();
+        sink->spell(self._tu_at(),
+            "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
         sink->brk();
         if header { sink->directive(self._tu_at(), "#endif"); }
 
@@ -298,7 +324,15 @@ class InterfaceEmitter {
             case DeclKind::UnionDecl  { self._ice(self._at(d), "InterfaceEmitter: union emission is not implemented yet"); }
             case DeclKind::EnumDecl {
                 var en = cast::<EnumDecl>(d);
-                if (en->is_adt) { self._ice(self._at(d), "InterfaceEmitter: ADT enum reached codegen; EnumLayoutLowering must reduce it to a record first"); }
+                // An ADT is written as a record (_adt_def), so it is declared
+                // as one.
+                if self._plan->adt_record(d) != d {
+                    s += "struct ";
+                    s += self._spell->leaf(d);
+                    s += ";";
+                    sink->spell(self._at(d), s);
+                    return;
+                }
                 s += "enum class ";
                 s += self._spell->leaf(d);
                 s += " : ";
@@ -362,6 +396,12 @@ class InterfaceEmitter {
         }
         s += " {";
         sink->spell(at, s);
+        // An ADT payload is built inside its union by `new (&member) P(...)`,
+        // and the TU includes no <new>: this placement form, found in the
+        // class before any global one, is what that expression calls.
+        if isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_adt_payload {
+            sink->spell(at, "static void* operator new(" + builtin_info(BuiltinKind::USize)->cxx + ", void* p) noexcept { return p; }");
+        }
 
         // Default access follows the keyword: a Kairo struct's members are
         // public unless marked; in a class only the VARIABLES are private
@@ -430,10 +470,18 @@ class InterfaceEmitter {
             sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
-        // Friends: every same-file extension scope, so an extension member
-        // written beside the type can reach its privates. One line per scope
-        // covers every member, generic or not, and each struct was declared
-        // in tier 0, so its qualified name needs no other prior declaration.
+        self._friends(d);
+
+        sink->spell(at, "};");
+        sink->brk();
+    }
+
+    /// Friends: every same-file extension scope, so an extension member
+    /// written beside the type can reach its privates. One line per scope
+    /// covers every member, generic or not, and each struct was declared in
+    /// tier 0, so its qualified name needs no other prior declaration. A
+    /// record's and an ADT's (_adt_def) alike.
+    priv fn _friends(self, d: *Decl) {
         var fs = vec::<*ExtScope>();
         self._plan->friend_scopes_of(d, &fs);
         for var i: usize = 0; i < fs.size(); ++i {
@@ -442,9 +490,6 @@ class InterfaceEmitter {
         if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
             self._ice(self._at(d), "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
         }
-
-        sink->spell(at, "};");
-        sink->brk();
     }
 
     /// `union { T a; U b; };`: an anonymous union, written where its field
@@ -493,7 +538,14 @@ class InterfaceEmitter {
     }
 
     priv fn _enum_def(self, en: *EnumDecl) {
-        if (en->is_adt) { self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: ADT enum reached codegen; EnumLayoutLowering must reduce it to a record first"); }
+        // An ADT is written as the record EnumLayoutLowering built for it; a
+        // plain enum, an ADT's tag enum included, as an `enum class`.
+        var rec = self._plan->adt_record(static_cast::<*Decl>(en));
+        if rec != static_cast::<*Decl>(en) {
+            self._adt_def(en, cast::<StructDecl>(rec));
+            return;
+        }
+        if (en->is_adt) { self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: ADT enum reached codegen without its layout record; sema stopped before EnumLayoutLowering"); }
         var at = self._at(static_cast::<*Decl>(en));
         var s = "enum class ";
         s += self._spell->leaf(static_cast::<*Decl>(en));
@@ -527,6 +579,206 @@ class InterfaceEmitter {
         }
         sink->spell(at, "};");
         sink->brk();
+    }
+
+    /// An ADT enum: the record EnumLayoutLowering built for it, written
+    /// under the enum's own name and template head in place of an `enum
+    /// class`, in the record's order -- the tag enum and the payload
+    /// structs, the tag, the anonymous union, the flags, the role functions
+    /// -- then the friends. Every type inside is spelled with the ENUM as
+    /// its scope: the record's members belong to it (their semantic_dc), so
+    /// its nested types go out by leaf, as a record's own do in _record_def.
+    priv fn _adt_def(self, en: *EnumDecl, lay: *StructDecl) {
+        var d       = static_cast::<*Decl>(en);
+        var at      = self._at(d);
+        var nm      = self._spell->leaf(d);
+        var generic = CXXSpell::template_params(d).size() > 0;
+        sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
+
+        // A struct: public unless marked. Only the two helpers the special
+        // members call are private.
+        var cur_access = VIS_PUB();
+        var dc = static_cast::<*DeclContext>(lay);
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var nd = *(dc->dc_decls.get(i));
+            if (nd == &null) || (!self._is_type(nd)) { continue; }
+            // Written where its field is (_anon_union_field).
+            if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+            cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
+            self._type_def(CXXSpell::rep(nd));
+        }
+
+        for var i: usize = 0; i < lay->fields.size(); ++i {
+            var f = lay->fields[i];
+            if f == &null { continue; }
+            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(f)), false, at);
+            if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
+            var fnm = self._spell->leaf(static_cast::<*Decl>(f));
+            // A flag: a compile-time constant with no Kairo expression behind
+            // it (_adt_flag).
+            if f->storage == StorageClass::Eval {
+                sink->spell(f->name.range, "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";");
+                continue;
+            }
+            sink->spell(f->name.range, self._spell->decl(f->type_, fnm, &null, d) + ";");
+        }
+
+        for var i: usize = 0; i < lay->methods.size(); ++i {
+            var m = lay->methods[i];
+            if m == &null { continue; }
+            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
+            sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
+        }
+
+        self._friends(d);
+
+        sink->spell(at, "};");
+        sink->brk();
+    }
+
+    /// A flag's initializer: its type trait over every payload struct,
+    /// joined with `&&`. Which flag it is is read off the name LowerTargets
+    /// gave it; the structs go by leaf, the text being inside the record.
+    priv fn _adt_flag(self, lay: *StructDecl, f: *FieldDecl, nm: string) -> string {
+        var s  = "";
+        var dc = static_cast::<*DeclContext>(lay);
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var ps = dyn_cast::<StructDecl>(*(dc->dc_decls.get(i)));
+            if (ps == &null) || (!ps->is_adt_payload) { continue; }
+            var p    = self._spell->leaf(static_cast::<*Decl>(ps));
+            var term = "";
+            if nm == LowerTargets::adt_trivial_dtor()      { term = "__is_trivially_destructible(" + p + ")"; }
+            else if nm == LowerTargets::adt_trivial_copy() { term = "__is_trivially_copyable(" + p + ")"; }
+            else if nm == LowerTargets::adt_destructible() { term = "__is_destructible(" + p + ")"; }
+            else if nm == LowerTargets::adt_copyable()     { term = "__is_constructible(" + p + ", const " + p + "&)"; }
+            else if nm == LowerTargets::adt_movable()      { term = "__is_constructible(" + p + ", " + p + "&&)"; }
+            else { self._ice(self._at(static_cast::<*Decl>(f)), f"InterfaceEmitter: ADT record field '{nm}' is compile-time but none of the five flags"); }
+            if s.size() > 0 { s += " && "; }
+            s += term;
+        }
+        if s.size() == 0 { self._ice(self._at(static_cast::<*Decl>(f)), "InterfaceEmitter: an ADT record with flags and no payload struct; EnumLayoutLowering gate failure"); }
+        return s;
+    }
+
+    /// The C++ constraint that selects \p m's form among the three a generic
+    /// ADT declares; "" for a non-generic one, which declares only the form
+    /// its facts chose (a constraint on a non-templated function is
+    /// ill-formed). Built from the flag names: C++ mechanics, never a Kairo
+    /// requires_clause.
+    priv fn _adt_requires(self, m: *FunctionDecl, generic: bool) -> string {
+        if !generic { return ""; }
+        if m->adt_role == AdtRole::Dtor {
+            var td = LowerTargets::adt_trivial_dtor();
+            var ds = LowerTargets::adt_destructible();
+            switch m->adt_form {
+                case AdtForm::Trivial { return " requires " + td; }
+                case AdtForm::Body    { return " requires (!" + td + " && " + ds + ")"; }
+                case AdtForm::Deleted { return " requires (!" + ds + ")"; }
+            }
+            return "";
+        }
+        var tc = LowerTargets::adt_trivial_copy();
+        var copying = (m->adt_role == AdtRole::CopyCtor) || (m->adt_role == AdtRole::CopyAssign);
+        var ok = (LowerTargets::adt_copyable()) if (copying) else (LowerTargets::adt_movable());
+        switch m->adt_form {
+            case AdtForm::Trivial { return " requires " + tc; }
+            case AdtForm::Body    { return " requires (!" + tc + " && " + ok + ")"; }
+            case AdtForm::Deleted { return " requires (!" + tc + " && !" + ok + ")"; }
+        }
+        return "";
+    }
+
+    /// The payload struct holding \p v, by leaf, read off its union member.
+    priv fn _payload_leaf(self, v: *EnumVariantDecl) -> string {
+        var t = v->adt_member->type_;
+        var c: *Type = &null;
+        if (t != &null) && (t->canonical != &null) { c = canon_unqual(t->canonical); }
+        if (c == &null) || (!isa::<RecordType>(c)) {
+            self._ice(self._at(static_cast::<*Decl>(v)), "InterfaceEmitter: an ADT union member whose type is not its payload struct; EnumLayoutLowering gate failure");
+        }
+        return self._spell->leaf(cast::<RecordType>(c)->decl);
+    }
+
+    /// One role function of an ADT's record as C++ text. None has a Kairo
+    /// body (EnumLayoutLowering's header says why): the text is a function
+    /// of the role, the form and whether the enum is generic, every invented
+    /// name from LowerTargets and every other from the record's own decls.
+    priv fn _adt_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string, generic: bool) -> string {
+        var tag  = LowerTargets::adt_tag_field();
+        var tt   = LowerTargets::adt_tag_type();
+        var ds   = LowerTargets::adt_destroy();
+        var cf   = LowerTargets::adt_construct_from();
+        var req  = self._adt_requires(m, generic);
+        var tail = (" = default;") if (m->adt_form == AdtForm::Trivial) else (" = delete;");
+        var body = m->adt_form == AdtForm::Body;
+        switch m->adt_role {
+            case AdtRole::VariantCtor {
+                if usize(m->adt_variant) >= en->variants.size() {
+                    self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT variant constructor past the last variant; EnumLayoutLowering gate failure");
+                }
+                var v    = en->variants[usize(m->adt_variant)];
+                var vt   = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
+                var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")";
+                if v->adt_member == &null { return nm + "(" + vt + ") : " + init + " {}"; }
+                // The payload is the callable's prvalue, so the union member
+                // is built straight from it: nothing is copied or moved.
+                return "template <class F> " + nm + "(" + vt + ", F&& f) : " + init + ", "
+                     + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(static_cast<F&&>(f)()) {}";
+            }
+            case AdtRole::CopyCtor {
+                if body { return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(o); }"; }
+                return nm + "(const " + nm + "&)" + req + tail;
+            }
+            case AdtRole::MoveCtor {
+                if body { return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(static_cast<" + nm + "&&>(o)); }"; }
+                return nm + "(" + nm + "&&)" + req + tail;
+            }
+            case AdtRole::CopyAssign {
+                // Destroying first would leave a self-assignment nothing to
+                // copy from, so it does nothing instead.
+                if body {
+                    return nm + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); "
+                         + tag + " = o." + tag + "; " + cf + "(o); } return *this; }";
+                }
+                return nm + "& operator=(const " + nm + "&)" + req + tail;
+            }
+            case AdtRole::MoveAssign {
+                if body {
+                    return nm + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); "
+                         + tag + " = o." + tag + "; " + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }";
+                }
+                return nm + "& operator=(" + nm + "&&)" + req + tail;
+            }
+            case AdtRole::Dtor {
+                if body { return "~" + nm + "()" + req + " { " + ds + "(); }"; }
+                return "~" + nm + "()" + req + tail;
+            }
+            case AdtRole::Destroy {
+                var s = "void " + ds + "() noexcept { switch (" + tag + ") {";
+                for var i: usize = 0; i < en->variants.size(); ++i {
+                    var v = en->variants[i];
+                    if (v == &null) || (v->adt_member == &null) { continue; }
+                    var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
+                    s += " case " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;";
+                }
+                return s + " default: break; } }";
+            }
+            case AdtRole::ConstructFrom {
+                // `new` finds the payload struct's own placement form (no <new>).
+                var s = "template <class O> void " + cf + "(O&& o) { switch (" + tag + ") {";
+                for var i: usize = 0; i < en->variants.size(); ++i {
+                    var v = en->variants[i];
+                    if (v == &null) || (v->adt_member == &null) { continue; }
+                    var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
+                    s += " case " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ": new (&" + mem + ") "
+                       + self._payload_leaf(v) + "(static_cast<O&&>(o)." + mem + "); break;";
+                }
+                return s + " default: break; } }";
+            }
+            default { 0; }
+        }
+        self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
+        return "";
     }
 
     /// A C++ enumerator value. The 64-bit minimum has no literal (its

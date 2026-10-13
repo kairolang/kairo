@@ -424,7 +424,9 @@ have no lowering yet, one SC116E each ("<construct> is not yet supported").
 Lowerings carry no diagnostics, and they run under `--type-check-only`, so
 an unfinished feature is said HERE; the error stops the schedule before L
 and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
-`iter_kind` is Vector, Set, Map or String. A gate is removed in the commit
+`iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
+whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
+its special members from those facts). A gate is removed in the commit
 that lands its lowering.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
@@ -852,17 +854,32 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> ExprBodyDesugar -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
-EnumLayoutLowering -> NullableTypeLowering -> NullTestLowering ->
+NullableTypeLowering -> NullTestLowering ->
 CoalesceLowering -> MatchLowering/PatternCompilation ->
 PanicLowering/FinallyLowering -> YieldLowering ->
 TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
 CopyMoveLowering -> DestructorInsertion. Sugar first, control flow second,
 lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
 codegen is an ICE naming the pass.
+
+EnumLayoutLowering [DONE]. Every ADT pattern gets one StructDecl,
+`EnumDecl::adt_layout`: a tag enum (`__kairo_Tag`, the variants by name and
+in order, so a tag is a variant's position), one payload struct per variant
+with a payload (`is_adt_payload`; its fields ARE that variant's payload
+FieldDecls), the tag field (`adt_tag_field`), an anonymous union with one
+member per payload (`EnumVariantDecl::adt_member`), five flags when the enum
+is generic, and FunctionDecls with no Kairo body marked `adt_role` /
+`adt_form`: a constructor per variant, the special members (all three forms
+of each when generic, the one its lifecycle facts select otherwise), and the
+private destroy / construct-from helpers. Every minted decl's semantic_dc is
+the EnumDecl. Nothing is retargeted: RecordTypes keep naming the enum, and
+codegen reaches the record only through `adt_layout`. A non-generic ADT
+whose facts are Unknown (a payload that is a generic instance) is rejected
+first by FeatureGateCheck (SC116E), so the pass's ICE on one is an invariant.
 
 CallLowering [DONE]. After it every call is one positional argument list in
 parameter order; `NamedArgExpr` is gone and `arg_map` is empty. A default
@@ -912,8 +929,8 @@ the instance for a generic enum -- and category kept. SequenceLowering binds
 the fields to locals when the two orders differ and a field has side
 effects. A plain enum's `.V` becomes a `NamedIdentExpr` bound to the
 enumerator and typed as the enum, which EmitIR spells as it spells
-`Dir::North`. FeatureGateCheck reports every ADT construction (SC116E) until
-the enum's layout record exists to build.
+`Dir::North`. EmitIR spells a `VariantInitExpr` as a constructor of the
+enum's layout record, which EnumLayoutLowering builds.
 
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
