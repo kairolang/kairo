@@ -1312,8 +1312,8 @@ group = "lifecycle"
 
     ## how to fix
 
-    make it move-only with `@move fn File(self, other: Self) = default`, or forbid copying with
-    `@copy fn File(self, other: Self) = delete`.
+    make it move-only with `@move fn File(self, other: Self) = default`, or make it
+    non-transferable with `@copy fn File(self, const other: Self) = delete`.
     """
 
 [SC061]

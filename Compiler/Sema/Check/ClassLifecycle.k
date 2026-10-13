@@ -28,10 +28,16 @@
 ///       trivial_dtor  no destructor that is user-provided, deleted or
 ///                  virtual on this type, its bases, or its by-value fields.
 ///       trivially_copyable  that, and no transfer ctor that is user-provided
-///                  or deleted on any of them either.
+///                  or deleted on any of them either, and no virtual method
+///                  or virtual base: a copy that must set up a vptr is not a
+///                  memcpy.
 ///                  `= default` is not user-provided, so a defaulted member
 ///                  is trivial exactly when its parts are, as C++ has it for
 ///                  one defaulted on its first declaration.
+///                  A NON_TRANSFER record is never trivially copyable,
+///                  whatever its parts or clang say: nothing copies or moves
+///                  it, and the lowering picks defaulted transfers off this
+///                  bit, so a Yes would hand it a transfer it does not have.
 ///       destructible  no `op delete = delete` on this type, its bases, or
 ///                  its by-value fields.
 ///
@@ -391,11 +397,15 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         var dtor_deleted  = false;
         var dtor_provided = false;
         var dtor_virtual  = false;
+        var polymorphic   = false;
 
         var methods = self._methods(d);
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
             if m == &null { continue; }
+            if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || m->ffi_virtual {
+                polymorphic = true;
+            }
             // Provided: neither `= default` nor `= delete`. A body-less
             // declaration counts -- an out-of-line definition, or an
             // imported ctor clang did not default -- since the user wrote it.
@@ -474,6 +484,27 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             f->trivial_dtor       = lifecycle_tri(dtor_trivial);
         }
 
+        // A vptr (a virtual method of its own) or a virtual-base offset
+        // makes every copy rewrite part of the object instead of copying its
+        // bytes, so a polymorphic record is not trivially copyable however
+        // its transfers are declared. A base that is itself polymorphic
+        // reaches here through the base fold below. Clang's bit already says
+        // so for an imported record; asking again is the same answer. An
+        // interface edge adds nothing: a virtual interface dispatches through
+        // a witness table built outside the object, not a vptr inside it.
+        // The destructor is untouched: only a virtual one is non-trivial,
+        // and dtor_virtual already decided that above.
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var e  = c->derives_list.get(i);
+                var bd = self._base_decl(e->base);
+                if (bd != &null) && isa::<InterfaceDecl>(bd) { continue; }
+                if e->is_virtual { polymorphic = true; }
+            }
+        }
+        if polymorphic { f->trivially_copyable = LifecycleTri::No; }
+
         // Bases.
         if isa::<ClassDecl>(d) {
             var c = cast::<ClassDecl>(d);
@@ -534,6 +565,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         && ((f->copyable == LifecycleTri::Unknown) || (f->movable == LifecycleTri::Unknown)) {
             f->category = LifecycleCategory::Unknown;
         }
+        self._settle_non_transfer(f);
 
         f->computed    = true;
         f->in_progress = false;
@@ -564,6 +596,10 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
 
         // The weakest category the payloads allow.
         f->category = self._folded_category(f);
+        // Not left to the payload fold: two payloads that are each still
+        // trivially copyable (one move-only, one an import with its move
+        // deleted) can together leave an ADT that transfers neither way.
+        self._settle_non_transfer(f);
 
         f->computed    = true;
         f->in_progress = false;
@@ -582,6 +618,18 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::Yes)      { return LifecycleCategory::Move;        }
         if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::No)       { return LifecycleCategory::NonTransfer; }
         return LifecycleCategory::Unknown;
+    }
+
+    /// A NON_TRANSFER record is not trivially copyable (file header). Run
+    /// once the category is final -- a derived category is only known after
+    /// the fold -- and only for a definite one: an Unknown category leaves
+    /// the bit to the instance. Overrides clang too: std::mutex deletes both
+    /// transfers yet reads trivially copyable there, and a later lowering
+    /// that read that Yes would default a copy the type forbids.
+    priv fn _settle_non_transfer(self, f: *LifecycleFacts) {
+        if f->category == LifecycleCategory::NonTransfer {
+            f->trivially_copyable = LifecycleTri::No;
+        }
     }
 
     // === the virtual-destructor rule =========================================
@@ -831,7 +879,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                 f"'{dn}' has a custom destructor but no '@copy' or '@move' transfer constructor; it is implicitly copyable"
             ).first(dtor->range)
              .note(dtor->range.start, f"declare it move-only: '@move fn {dn}(self, other: Self) = default\x27")
-             .note(dtor->range.start, f"or delete copying: '@copy fn {dn}(self, other: Self) = delete\x27")
+             .note(dtor->range.start, f"or make it non-transferable: '@copy fn {dn}(self, const other: Self) = delete\x27")
              .emit();
         }
 

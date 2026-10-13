@@ -37,8 +37,10 @@ struct StructUnique { var u: Unique; }
 //   Owned    a move-only payload makes the ADT move-only. Unique's move is
 //            `= default` over an i32, which is trivial, so Unique and
 //            everything holding it stay trivially copyable.
-//   Locked   clang's std::mutex is neither copyable nor movable; its
-//            triviality bits are the C++ library's, so they are not pinned.
+//   Locked   clang's std::mutex is neither copyable nor movable. Clang may
+//            call it trivially copyable; a NON_TRANSFER type never is, so
+//            that bit is pinned to 0. Its destructor is the C++ library's
+//            business and stays unpinned.
 //   Guarded  a NON_TRANSFER Kairo class payload (both transfers deleted).
 //   Opt      a `T` payload: every fact waits for an instance.
 //   Mixed    one `string` payload decides triviality whatever T is; the rest
@@ -65,14 +67,14 @@ struct StructUnique { var u: Unique; }
 // SEMA-NEXT:   lifecycle Num: category=COPY trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT:   lifecycle Text: category=COPY trivial_copy=0 trivial_dtor=0 destructible=1
 // SEMA-NEXT:   lifecycle Owned: category=MOVE trivial_copy=1 trivial_dtor=1 destructible=1
-// SEMA-NEXT:   lifecycle Locked: category=NON_TRANSFER trivial_copy={{[01]}} trivial_dtor={{[01]}} destructible=1
+// SEMA-NEXT:   lifecycle Locked: category=NON_TRANSFER trivial_copy=0 trivial_dtor={{[01]}} destructible=1
 // SEMA-NEXT:   lifecycle Guarded: category=NON_TRANSFER trivial_copy=0 trivial_dtor=0 destructible=1
 // SEMA-NEXT:   lifecycle Opt: category=? trivial_copy=? trivial_dtor=? destructible=?
 // SEMA-NEXT:   lifecycle Mixed: category=? trivial_copy=0 trivial_dtor=0 destructible=?
 // SEMA-NEXT:   lifecycle Box: category=? trivial_copy=? trivial_dtor=? destructible=?
 // SEMA-NEXT:   lifecycle Ptr: category=COPY trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT:   lifecycle HoldsUnique: category=MOVE trivial_copy=1 trivial_dtor=1 destructible=1
-// SEMA-NEXT:   lifecycle HoldsMutex: category=NON_TRANSFER trivial_copy={{[01]}} trivial_dtor={{[01]}} destructible=1
+// SEMA-NEXT:   lifecycle HoldsMutex: category=NON_TRANSFER trivial_copy=0 trivial_dtor={{[01]}} destructible=1
 // SEMA-NEXT:   lifecycle Wraps: category=MOVE trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT:   lifecycle StructUnique: category=MOVE trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT: -- multi-decl names (overload sets / redecl chains) --

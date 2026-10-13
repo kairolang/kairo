@@ -30,6 +30,6 @@ class <T> OwnsT {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
 // DIAG:      custom_dtor_category.k:8:{{[0-9]+}}: warning [SC060W]: 'OwnsInt' has a custom destructor but no '@copy' or '@move' transfer constructor; it is implicitly copyable
-// DIAG-NEXT: custom_dtor_category.k:8:{{[0-9]+}}: note
-// DIAG-NEXT: custom_dtor_category.k:8:{{[0-9]+}}: note
+// DIAG-NEXT: custom_dtor_category.k:8:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: declare it move-only: '@move fn OwnsInt(self, other: Self) = default'
+// DIAG-NEXT: custom_dtor_category.k:8:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: or make it non-transferable: '@copy fn OwnsInt(self, const other: Self) = delete'
 // DIAG-NOT:  {{error|warning}} [
