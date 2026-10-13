@@ -50,7 +50,18 @@
 ///     ClassLifecycle stamps it, in the checks, after this pass -- so until
 ///     then the marker is the one thing telling the two apart, and without it
 ///     the NON_TRANSFER shape (both `= delete`) reads as one member declared
-///     twice.
+///     twice. This is what lets R(b) refuse to pair an out-of-line `@move`
+///     definition with an in-class `@copy` declaration.
+///
+///     In a MEMBER TABLE, R(a) goes further and never merges two marked
+///     constructors at all, same kind or not. How many transfer constructors
+///     a class may have is ClassLifecycle's rule (SC057E), and it is the
+///     accurate error for a second `@copy`: merged here, `@copy` with and
+///     without `const` on `other` -- X(const X&) and X(X&), two constructors
+///     to C++ -- would read as one member declared twice (R041E), since
+///     top-level const is not in a signature. R(b) is untouched by this: an
+///     out-of-line definition that repeats the marker must still find the
+///     declaration it defines.
 ///
 ///     Everything else is EXCLUDED, and each exclusion is load-bearing:
 ///
@@ -305,6 +316,13 @@ class RedeclMerge {
             for var j: usize = i + 1; j < group.size(); ++j {
                 var b = group[j];
                 if b->is_poisoned() { continue; }
+                // Two marked constructors are never one member (header);
+                // ClassLifecycle reports a pair that may not coexist. Not an
+                // overload to vet either: their `other` modes are unstamped,
+                // so _check_cxx_collision would read two identical `@copy`
+                // ctors as one C++ signature and poison the second before
+                // that rule sees it.
+                if (a->transfer != TransferKind::NotTransfer) && (b->transfer != TransferKind::NotTransfer) { continue; }
                 if !self._same_signature(a, b) {
                     // Two entities to Kairo -- but maybe one to the C++ it
                     // emits, and maybe unchoosable at a Kairo call site.
@@ -512,6 +530,8 @@ class RedeclMerge {
         // decl of the same shape is either an out-of-line definition that did
         // not repeat the marker, which must still find its declaration, or an
         // unmarked transfer shape, which ClassLifecycle reports (SC110E).
+        // Only R(b) reaches here with two marked decls; R(a) keeps them apart
+        // before asking.
         if (a->transfer != TransferKind::NotTransfer) && (b->transfer != TransferKind::NotTransfer)
         && (a->transfer != b->transfer) { return false; }
 
@@ -673,7 +693,8 @@ class RedeclMerge {
         if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return; }
         // `@copy` beside `@move`: `const X&` / `X&` against `X&&` in C++,
         // though both `other`s still read as by-value here (the stamp that
-        // says so comes after this pass).
+        // says so comes after this pass). Two marked ctors never get here
+        // (_merge_cell); this keeps a marked one apart from an unmarked one.
         if a->transfer != b->transfer { return; }
         // A mode difference is a C++ difference (`T` vs `T&` vs `T&&`): no
         // collision possible, whatever the types lower to.

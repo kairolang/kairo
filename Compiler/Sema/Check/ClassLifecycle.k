@@ -41,11 +41,15 @@
 ///     unknown as `Opt<T>`. Every rule that diagnoses from a fact, here and
 ///     in MoveCheck, skips an Unknown one rather than guessing either way.
 ///
-///     A record's category is what it DECLARED (implicit COPY, @move, both
-///     deleted), not folded from its fields. It reads Unknown only when a
+///     A record that writes a @copy or @move constructor has the category it
+///     DECLARED (@copy, @move, both deleted). It reads Unknown only when a
 ///     dependent component leaves copyable or movable open, and never when it
 ///     declared NON_TRANSFER: nothing a field holds brings a deleted transfer
-///     back.
+///     back. A record that writes neither has no category of its own to
+///     declare: C++ generates its transfers from its bases and fields, so its
+///     category is the weakest they allow, read off the folded facts exactly
+///     as an ADT's is (_folded_category). A class holding a move-only field is
+///     MOVE, and one holding a std::mutex is NON_TRANSFER.
 ///
 ///     Facts are computed on demand and memoized per TU, keyed on the
 ///     representative, so a foreign or cross-TU record is asked once. A
@@ -177,9 +181,10 @@ class LifecycleFacts {
     pub var virtual_dtor:       LifecycleTri = LifecycleTri::No;
     pub var why_not_movable:    string = "";
     pub var why_not_copyable:   string = "";
-    /// Doc: Lifecycle Categories. DEFAULT is reported as Copy; the
-    /// distinction only matters for the implicit-copy warning, which
-    /// reads `user_transfer` instead.
+    /// Doc: Lifecycle Categories. DEFAULT (no transfer ctor written) is
+    /// reported as the weakest its bases and fields allow, which is Copy
+    /// whenever they all copy; the implicit-copy warning tells DEFAULT
+    /// apart by reading `user_transfer` instead.
     pub var category:      LifecycleCategory = LifecycleCategory::Copy;
     pub var user_transfer: bool = false;   ///< wrote a @copy or @move ctor at all.
     /// Destruction work of this record's OWN: a user destructor, or a
@@ -457,10 +462,14 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
         }
 
-        // The declared category stands unless a dependent component left the
+        // Nothing declared: the weakest category the bases and fields allow
+        // (file header), so the ones C++ would generate are what it reports.
+        // Declared: it stands unless a dependent component left the
         // transfers open. NON_TRANSFER stands regardless: no field brings a
         // deleted transfer back.
-        if (f->category != LifecycleCategory::NonTransfer)
+        if !f->user_transfer {
+            f->category = self._folded_category(f);
+        } else if (f->category != LifecycleCategory::NonTransfer)
         && ((f->copyable == LifecycleTri::Unknown) || (f->movable == LifecycleTri::Unknown)) {
             f->category = LifecycleCategory::Unknown;
         }
@@ -492,17 +501,26 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             }
         }
 
-        // The weakest category the payloads allow, read off the folded facts
-        // rather than each payload's own `category`: that one records only
-        // what a record DECLARED, so a class holding a move-only field says
-        // COPY while being uncopyable, and the ADT would inherit the lie.
-        if f->copyable == LifecycleTri::Yes                                           { f->category = LifecycleCategory::Copy;        }
-        else if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::Yes) { f->category = LifecycleCategory::Move;        }
-        else if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::No)  { f->category = LifecycleCategory::NonTransfer; }
-        else                                                                          { f->category = LifecycleCategory::Unknown;     }
+        // The weakest category the payloads allow.
+        f->category = self._folded_category(f);
 
         f->computed    = true;
         f->in_progress = false;
+    }
+
+    /// The weakest category folded facts allow (COPY > MOVE > NON_TRANSFER),
+    /// for an ADT and for a record that declares no transfer constructor.
+    /// Read off the copyable / movable bits rather than each component's own
+    /// `category`: a declared one records what was WRITTEN, and an imported
+    /// type's is clang's ctors read the same way -- std::mutex deletes its
+    /// copy and declares no move, which reads as a declared COPY while it
+    /// transfers neither way. A definite NON_TRANSFER is decided even beside
+    /// an Unknown (the folding is Kleene AND); anything else open is Unknown.
+    priv fn _folded_category(self, f: *LifecycleFacts) -> LifecycleCategory {
+        if f->copyable == LifecycleTri::Yes                                            { return LifecycleCategory::Copy;        }
+        if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::Yes)      { return LifecycleCategory::Move;        }
+        if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::No)       { return LifecycleCategory::NonTransfer; }
+        return LifecycleCategory::Unknown;
     }
 
     // === the virtual-destructor rule =========================================
@@ -664,22 +682,45 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         var f  = self.facts_of(static_cast::<*Decl>(n));
         var dn = self.sc->ctx->get_spelling(n->name);
 
+        // The first transfer ctor of each kind, and the first one that
+        // repeats a kind already seen (with the one it repeats).
         var copy_ctor: *FunctionDecl = &null;
         var move_ctor: *FunctionDecl = &null;
+        var dup_of:    *FunctionDecl = &null;
+        var dup:       *FunctionDecl = &null;
         var dtor:      *FunctionDecl = &null;
         var assign:    *FunctionDecl = &null;
         for var i: usize = 0; i < n->methods.size(); ++i {
             var m = n->methods[i];
             if m == &null { continue; }
-            if m->transfer == TransferKind::Copy { copy_ctor = m; }
-            if m->transfer == TransferKind::Move { move_ctor = m; }
+            if m->transfer == TransferKind::Copy {
+                if copy_ctor == &null { copy_ctor = m; }
+                else if dup == &null  { dup_of = copy_ctor; dup = m; }
+            }
+            if m->transfer == TransferKind::Move {
+                if move_ctor == &null { move_ctor = m; }
+                else if dup == &null  { dup_of = move_ctor; dup = m; }
+            }
             if self._is_dtor(m) { dtor = m; }
             if m->is_operator && (m->op_token.size() > 0) && (m->op_token[0].kind == TokenKind::OpEqual) { assign = m; }
         }
 
         // 1. One transfer constructor. Both is legal only as NON_TRANSFER
-        //    (both `= delete`), the ScopeLock shape.
-        if (copy_ctor != &null) && (move_ctor != &null)
+        //    (both `= delete`), the ScopeLock shape. Two of one kind never
+        //    are: RedeclMerge keeps any two marked constructors apart so
+        //    the error is this one, not a redeclaration -- `@copy` with and
+        //    without `const` on `other` would otherwise merge as one member,
+        //    since top-level const is not in a signature.
+        if dup != &null {
+            var marker = ("@copy") if (dup->transfer == TransferKind::Copy) else ("@move");
+            self.sc->diag->report(DiagID::SC057E, dup->range.start,
+                f"'{dn}' declares more than one '{marker}' transfer constructor; a class has exactly one transfer constructor"
+            ).first(dup->range)
+             .note(dup_of->range.start, "the other transfer constructor is here").first(dup_of->range)
+             .emit();
+            dup->poison();
+            self.n_errored += 1;
+        } else if (copy_ctor != &null) && (move_ctor != &null)
         && (!((copy_ctor->body_kind == FnBodyKind::Delete) && (move_ctor->body_kind == FnBodyKind::Delete))) {
             self.sc->diag->report(DiagID::SC057E, move_ctor->range.start,
                 f"'{dn}' declares both a '@copy' and a '@move' transfer constructor; pick one "
@@ -752,6 +793,84 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
              .emit();
             self.n_errored += 1;
         }
+
+        // 6. A defaulted transfer constructor transfers memberwise, so every
+        //    base and by-value field must transfer that way: a defaulted
+        //    `@copy` needs each copyable, a defaulted `@move` each movable (a
+        //    COPY-only field is copied as part of the move, per the doc). C++
+        //    would quietly define it as deleted instead, and the class would
+        //    claim a category it cannot transfer as.
+        if (copy_ctor != &null) && (!copy_ctor->is_poisoned()) && (copy_ctor->body_kind == FnBodyKind::Default) {
+            self._check_defaulted_transfer(n, copy_ctor, dn);
+        }
+        if (move_ctor != &null) && (!move_ctor->is_poisoned()) && (move_ctor->body_kind == FnBodyKind::Default) {
+            self._check_defaulted_transfer(n, move_ctor, dn);
+        }
+    }
+
+    /// Rule 6 for one defaulted transfer ctor \p x of \p n: the first base,
+    /// then the first field, that cannot be transferred the way \p x does,
+    /// in the order C++ constructs them. One error per constructor.
+    priv fn _check_defaulted_transfer(self, n: *ClassDecl, x: *FunctionDecl, dn: string) {
+        var is_copy = x->transfer == TransferKind::Copy;
+        var kind    = ("copy") if (is_copy) else ("move");
+
+        for var i: usize = 0; i < n->derives_list.size(); ++i {
+            var e  = n->derives_list.get(i);
+            var bd = self._base_decl(e->base);
+            if (bd == &null) || isa::<InterfaceDecl>(bd) { continue; }
+            var bf = self.facts_of(bd);
+            if bf->in_progress { continue; }                 // a cycle; TypeCycleCheck's.
+            var why = self._untransferable(bf, is_copy);
+            if why.size() == 0 { continue; }
+            var bn = self._tu.decl_name(bd);
+            var b = self.sc->diag->report(DiagID::SC129E, x->range.start,
+                f"'{dn}' cannot have a defaulted {kind} constructor: base '{bn}' is {why}"
+            );
+            b.first(x->range);
+            b.note(DiagID::SC129N, e->range.start, f"'{bn}' is a base of '{dn}' here").first(e->range);
+            b.emit();
+            self.n_errored += 1;
+            return;
+        }
+
+        var fields = self._fields(static_cast::<*Decl>(n));
+        for var i: usize = 0; i < fields.size(); ++i {
+            var fd = fields[i];
+            if (fd == &null) || fd->is_static() { continue; }
+            if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
+            var ff = self.facts_of_type(fd->type_->canonical);
+            if ff.in_progress { continue; }                  // a cycle; TypeCycleCheck's.
+            var why = self._untransferable(&ff, is_copy);
+            if why.size() == 0 { continue; }
+            var fname = self.sc->ctx->get_spelling(fd->name);
+            var tn    = self._tu.str(fd->type_->canonical);
+            var b = self.sc->diag->report(DiagID::SC129E, x->range.start,
+                f"'{dn}' cannot have a defaulted {kind} constructor: field '{fname}' of type '{tn}' is {why}"
+            );
+            b.first(x->range);
+            b.note(DiagID::SC129N, fd->range.start, f"'{fname}' declared here").first(fd->range);
+            b.emit();
+            self.n_errored += 1;
+            return;
+        }
+    }
+
+    /// Why a component with facts \p c cannot be transferred by a defaulted
+    /// copy (\p is_copy) or move, or "" when it can or cannot be told yet.
+    priv fn _untransferable(self, c: *LifecycleFacts, is_copy: bool) -> string {
+        // Unknown facts are resolved per instance at M2, which does not exist yet.
+        if is_copy {
+            if c->copyable != LifecycleTri::No { return ""; }
+            if c->movable == LifecycleTri::Yes { return "move-only"; }
+            if c->movable == LifecycleTri::No  { return "not transferable"; }
+            return "not copyable";
+        }
+        if c->movable != LifecycleTri::No { return ""; }
+        // An imported type can delete its move and keep its copy; a defaulted
+        // move then picks the deleted move all the same.
+        if c->copyable == LifecycleTri::No { return "not transferable"; }
+        return "not movable";
     }
 
     priv fn _cat_word(self, c: LifecycleCategory) -> string {

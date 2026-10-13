@@ -21,6 +21,10 @@ enum <T> Opt { Some { v: T }, None }
 enum <T> Mixed { A { s: string }, B { v: T } }
 class <T> Box { var v: T; }
 class <T> Ptr { var p: *T; }
+class HoldsUnique { var u: Unique; }
+class HoldsMutex { var m: cxx::std::mutex; }
+enum Wraps { Has { h: HoldsUnique }, Empty }
+struct StructUnique { var u: Unique; }
 
 // --- lit wiring -----------------------------------------------------------
 // ClassLifecycle's facts, one --print-sema row per class, struct and enum,
@@ -39,6 +43,11 @@ class <T> Ptr { var p: *T; }
 //            waits for an instance.
 //   Box      a record's dependent field is unknown the same way.
 //   Ptr      `*T` is an address whatever T is.
+//   HoldsUnique   no transfer ctor of its own: the weakest its fields allow,
+//                 so a move-only field makes it move-only.
+//   HoldsMutex    the same over clang's std::mutex: non-transferable.
+//   Wraps    an ADT over a class whose category was derived, not declared.
+//   StructUnique  a struct is derived the same way.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
@@ -60,4 +69,8 @@ class <T> Ptr { var p: *T; }
 // SEMA-NEXT:   lifecycle Mixed: category=? trivial_copy=0 trivial_dtor=0 destructible=?
 // SEMA-NEXT:   lifecycle Box: category=? trivial_copy=? trivial_dtor=? destructible=?
 // SEMA-NEXT:   lifecycle Ptr: category=COPY trivial_copy=1 trivial_dtor=1 destructible=1
+// SEMA-NEXT:   lifecycle HoldsUnique: category=MOVE trivial_copy=0 trivial_dtor=1 destructible=1
+// SEMA-NEXT:   lifecycle HoldsMutex: category=NON_TRANSFER trivial_copy={{[01]}} trivial_dtor={{[01]}} destructible=1
+// SEMA-NEXT:   lifecycle Wraps: category=MOVE trivial_copy=0 trivial_dtor=1 destructible=1
+// SEMA-NEXT:   lifecycle StructUnique: category=MOVE trivial_copy=0 trivial_dtor=1 destructible=1
 // SEMA-NEXT: -- multi-decl names (overload sets / redecl chains) --

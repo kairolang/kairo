@@ -1204,7 +1204,7 @@ group = "lifecycle"
     """
 
 [SC057]
-brief = "class declares both `@copy` and `@move` transfer constructors"
+brief = "class declares more than one transfer constructor"
 group = "lifecycle"
 
     [SC057.E]
@@ -1213,18 +1213,24 @@ group = "lifecycle"
 
     a class has exactly one transfer constructor, `@copy` or `@move`, which decides whether it is
     copyable or move-only. declaring both is an error, unless both are `= delete`, which makes the
-    class non-transferable.
+    class non-transferable. two of the same kind are an error too, whatever their `const`: the
+    class would have two answers to how it is copied.
 
     ```kairo
     class Buf {
         @copy fn Buf(self, other: Self) { ... }
         @move fn Buf(self, other: Self) { ... }
     }
+
+    class Twice {
+        @copy fn Twice(self, const other: Self) = default
+        @copy fn Twice(self, other: Self) = default
+    }
     ```
 
     ## how to fix
 
-    keep one of the two, or delete both.
+    keep one of the two, or, for a `@copy` and a `@move`, delete both.
     """
 
     [SC057.N]
@@ -2872,4 +2878,46 @@ group = "type-check"
 
     use a constant expression whose value fits, widen the underlying type with `derives`, or
     move a variant that others refer to above them.
+    """
+
+[SC129]
+brief = "defaulted transfer constructor over a field or base that cannot be transferred that way"
+group = "lifecycle"
+
+    [SC129.E]
+    explain = """
+    # defaulted transfer constructor that cannot be generated
+
+    `= default` on a transfer constructor transfers the class memberwise: every base and every
+    field through its own transfer constructor. a defaulted `@copy` needs every one of them to be
+    copyable; a defaulted `@move` needs every one of them to be movable. a COPY-only field is
+    fine under a defaulted `@move`: it is copied as part of the move.
+
+    ```kairo
+    class Unique {
+        @move fn Unique(self, other: Self) = default
+    }
+
+    class Holder {
+        var u: Unique
+        @copy fn Holder(self, const other: Self) = default   // error: 'u' is move-only
+    }
+
+    class Guarded {
+        var m: cxx::std::mutex
+        @move fn Guarded(self, other: Self) = default        // error: 'm' is not transferable
+    }
+    ```
+
+    ## how to fix
+
+    make the class `@move` when a field is move-only, write the transfer constructor's body to
+    say what happens to the field, or delete the transfer constructor.
+    """
+
+    [SC129.N]
+    explain = """
+    # note: the field that cannot be transferred
+
+    points at the field or base the defaulted transfer constructor would have to copy or move.
     """

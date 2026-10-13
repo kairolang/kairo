@@ -315,7 +315,12 @@ marker included when both decls carry one, since `other` is written bare
 and ClassLifecycle stamps its mode only in the checks, so `@copy fn X(self,
 const other: Self) = delete` beside `@move fn X(self, other: Self) =
 delete` is X(const X&) and X(X&&), not one member twice). R(a) walks
-frozen cells; R(b) matches `fn Class::method` against the in-class set.
+frozen cells, and never merges two constructors that both carry a marker,
+same kind or not: how many transfer constructors a class may have is
+ClassLifecycle's rule (SC057E), which would otherwise lose a second
+`@copy` differing only in `const` on `other` to R041E. R(b) matches
+`fn Class::method` against the in-class set, marker kind included, so an
+out-of-line definition that repeats the marker still finds its declaration.
 Return-type / default / linkage / modifier agreement checked across the
 chain. File scope permits repeats, a type body does not ([class.mem]).
 A pair with DISTINCT signatures whose parameters all lower to the same C++
