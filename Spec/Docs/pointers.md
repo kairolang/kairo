@@ -1,6 +1,6 @@
 # Pointers & Raw Pointers
 
-Kairo has two pointer types: safe pointers (`*T`) with compiler-tracked lifetime and null checking, and
+Kairo has two pointer types: safe pointers (`*T`) with compiler-tracked lifetime and a non-null guarantee, and
 raw pointers (`unsafe *T`) with no tracking and no checks. Both are 8 bytes on 64-bit platforms and
 hold a memory address.
 
@@ -9,12 +9,12 @@ hold a memory address.
 ## Safe Pointers (`*T`)
 
 `*T` is the default pointer type. The compiler tracks its provenance via
-[Tether](/docs/language/tether) and inserts null checks on dereference:
+[Tether](/docs/language/tether). It is never null, so a dereference needs no check:
 
 ```kairo
 var x = 42
 var p: *i32 = &x     // p points to x
-*p = 100              // dereference and assign null check inserted
+*p = 100              // dereference and assign, no null check
 std::println(*p)      // 100
 ```
 

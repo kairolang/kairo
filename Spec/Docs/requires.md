@@ -79,6 +79,13 @@ fn <T impl Serializable> save(data: T) { ... }
 fn <T> save(data: T) requires T impl Serializable { ... }
 ```
 
+Either way, the bounds are all a generic body can rely on. The body is checked once, where it is
+defined, against its bounds, not against each type it is instantiated with. Calling a method no
+bound declares is a compile error in the generic itself, even if every type it is ever
+instantiated with happens to have that method. See
+[Type parameter constraints](/docs/language/classes#type-parameter-constraints) and
+[Generic Bodies](/docs/language/interfaces#generic-bodies).
+
 The `requires` form is preferred when constraints are long or involve relationships between
 multiple type parameters:
 

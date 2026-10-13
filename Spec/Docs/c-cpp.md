@@ -32,7 +32,7 @@ The table below summarizes which C and C++ features Kairo can consume and expose
 | Concepts | Bidirectional | Kairo's `impl` constraints map to C++20 concepts |
 | Namespaces | Bidirectional | |
 | Pointers & References | Bidirectional | Requires `unsafe` on the Kairo side; see [below](#pointers-and-references) |
-| Operator Overloading | Bidirectional | See [Operators](/docs/language/operators) |
+| Operator Overloading | Bidirectional | See [Operators on C++ types](#operators-on-c-types) and [Operators](/docs/language/operators) |
 | Lambdas | Bidirectional | |
 | Exceptions | C++ → Kairo only | Kairo never throws; its errors are values. See [Exceptions](#exceptions) |
 | Macros | C++ → Kairo | Preprocessor macros are expanded before Kairo sees them |
@@ -97,6 +97,22 @@ kairo --target=aarch64-unknown-linux-gnu foo.k
 Sysroots are pinned to specific library versions (a particular glibc, a particular Windows SDK), so a build is
 reproducible across machines. Custom sysroots can be curated and registered locally.
 
+How `--target` finds its sysroot:
+
+- A `--target` uses the sysroot bundled with the compiler: `<prefix>/sysroot/<dir>`, where `<prefix>` is the
+  directory above the one holding `kairo`.
+- The folder is matched by target, not by spelling. Vendor, OS version, and LLVM's aliases do not matter, but
+  the sub-architecture does. So `x86_64-pc-windows-msvc` finds `x86_64-windows-msvc`, `x86_64-linux-gnu` finds
+  `x86_64-linux-gnu-glibc2.31`, `aarch64-apple-darwin` finds `arm64-apple-macosx`, and `arm64e` does not match
+  `arm64`.
+- `-m32` / `-m64` look up the architecture they switch to: `--target=x86_64-linux-musl -m32` uses
+  `i686-linux-musl`.
+- A bundled sysroot takes precedence over `--sysroot`. With no matching folder, `--sysroot` is used if given;
+  otherwise there are no system headers.
+- A matching folder without a loadable `SYSROOT.toml` is an error:
+  [P007E](/docs/language/diagnostics#p007e-bundled-sysroot-for-the-target-is-malformed) "bundled sysroot for
+  the target is malformed".
+
 > [!NOTE]
 > Cross-compiling to a GCC or MSVC target does not mean invoking GCC or MSVC. `kairo` and `kcc` produce object
 > code for those platforms' ABIs directly, using the pinned Clang and the curated sysroot.
@@ -159,6 +175,33 @@ Hello from C++! x = 42
 An imported function's default arguments are applied by C++, which can only leave out trailing arguments.
 Naming a later parameter while an earlier defaulted one is omitted is an error (SC107E); pass the earlier
 ones explicitly. See [Functions](/docs/language/functions#defaults-on-imported-c-functions).
+
+### Operators on C++ types
+
+Using an operator on C++ types follows C++ lookup:
+
+- **Member operators:** `a.operator+(b)`.
+- **Free operators:** found by argument-dependent lookup in the operands' namespaces, across every header that
+  reopens that namespace.
+- **Hidden friends** (`friend bool operator==(...)` defined inside a class): found through either operand's
+  class.
+- **Operator templates:** chosen by C++'s partial ordering.
+- **C++20 rewrites:** when an operand is a C++ type and no `!=` takes the operands, `a != b` is `!(a == b)`;
+  `<` and the other relational operators fall back to `<=>` the same way. Kairo types keep Kairo's own rule:
+  `!=` is derived from `op ==` only when the type declares no `op !=`. See
+  [Derived comparisons](/docs/language/operators#derived-comparisons).
+
+Unary `*` on an imported C++ class calls its `operator*`, which is how C++ iterators and smart pointers are
+read.
+
+### Argument conversions
+
+C and C++ signatures are judged by Kairo's conversion rules, with one addition: a
+fixed-width integer argument widens into a `size_t`, `ptrdiff_t`, `uintptr_t` or
+`intptr_t` parameter, and a `usize`/`isize` argument widens into a fixed-width one,
+whenever that is lossless on every 32- and 64-bit target. `n: u32` passes to a `size_t`
+directly on 32- and 64-bit targets; `n: u64` needs `as usize`. See the
+[Conversion Lattice §4.1](/docs/language/primitives#41-the-cc-boundary).
 
 ---
 

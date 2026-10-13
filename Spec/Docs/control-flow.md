@@ -1,8 +1,11 @@
 # Control Flow
 
-Kairo's control flow is block-scoped and brace-delimited. Every branch, loop, and error-handling construct
-uses `{ ... }` there are no single-statement bodies. Conditions are bare expressions (no parentheses required,
-though permitted for clarity).
+Kairo's control flow is block-scoped and brace-delimited. Every statement-form branch, loop, and
+error-handling construct uses `{ ... }` there are no single-statement bodies. The value forms of `if`,
+`match`, and `try` write each arm as `=> expr` instead. Conditions are bare expressions (no parentheses
+required, though permitted for clarity).
+
+`=>` introduces exactly one value; `{ }` after a control keyword is always a statement block.
 
 ---
 
@@ -25,17 +28,83 @@ integers or pointers.
 
 ### `if` as an expression (ternary equivalent)
 
-Kairo has no ternary `? :` operator. Use `if`/`else` as an expression instead. Each branch holds a single
-expression, which is the result:
+Kairo has no ternary `? :` operator. Use `if` as an expression instead:
 
 ```kairo
-var x = if condition { 10 } else { 20 }
+var x = if condition => 10 else => 20
 
-var y = if a > b { a } else if a == b { 0 } else { b }
+var z = if a == b => 2 else if b > 2 => 1 else => 0
 ```
 
-When used as an expression, the `else` branch is required and all branches must produce the same type. Empty
-branches are not permitted in expression form.
+The form is `if cond => value else if cond => value else => value`. Every arm is one expression, and the
+final `else` is mandatory. All arms must produce the same type.
+
+#### Arms are expressions, not blocks
+
+A braced arm is an error ([S073E](/docs/language/diagnostics#s073e-braced-value-arm-in-an-if-try-or-match-expression)),
+and the compiler offers a fix-it. An arm needs a value: `=>` with nothing after it is an error. For several
+statements, use a [statement expression](/docs/language/operators#statement-expressions):
+
+```kairo
+var v = if ready => ({ var t = load(); t.normalize(); (t.value); }) else => 0
+```
+
+#### How far an arm extends
+
+The last arm takes everything to its right that is part of the same expression:
+
+```kairo
+var z = if c => 1 else => 0 + 5     // else => (0 + 5)
+```
+
+An arm stops at `,`, `)`, `]`, `}`, and the end of the line, so call arguments work without parentheses:
+
+```kairo
+draw(if wide => 80 else => 40, height)
+```
+
+Using an `if` as the operand of an operator is legal, but it produces a warning
+([S078W](/docs/language/diagnostics#s078w-if-or-try-expression-as-an-operators-operand)). Parenthesize it:
+
+```kairo
+var w = base + (if wide => 80 else => 40)
+```
+
+#### Line breaks
+
+You may break before or after `=>`, and before `else`:
+
+```kairo
+var z = if a == b
+    => 2
+    else if b > 2
+    => 1
+    else
+    => 0
+```
+
+Inside an arm the ordinary rule applies: break after an operator, not before it.
+
+#### Nesting
+
+A nested `if` in any arm except the last must be in parentheses, and so must an `if` used as a condition.
+Otherwise it is a compile error
+([S077E](/docs/language/diagnostics#s077e-nested-if-or-try-expression-must-be-parenthesized)), and the
+compiler offers a fix-it. A nested `if` in the final `else` arm is allowed, but write it as `else if`:
+`else => if` produces a warning ([S079W](/docs/language/diagnostics#s079w--between-else-and-if-is-redundant)).
+
+```kairo
+var r = if a => (if b => 1 else => 2) else => 3     // ok
+var r = if a => if b => 1 else => 2 else => 3       // error: parenthesize the inner if
+```
+
+#### In statement position
+
+A value-form `if` in statement position is an ordinary expression statement. Its value is discarded:
+
+```kairo
+if verbose => log_full(e) else => log_short(e)
+```
 
 > [!TIP]
 > The compiler warns if `else if` nesting exceeds 3 levels. Consider restructuring deeply nested conditionals
@@ -160,6 +229,15 @@ match result {
 }
 ```
 
+Guards work the same way in a value-form `match`, written before the arrow:
+
+```kairo
+var amount = match result {
+    case .Found(var key, var value) where value > 0 => value
+    default => 0
+}
+```
+
 Guards are evaluated after the pattern matches. A case with a guard that fails falls through to the
 next case this is the only situation where control moves between cases.
 
@@ -202,33 +280,54 @@ match http_status {
 }
 ```
 
-### `match` as an expression
+The same ranges in a value-form `match`:
 
-Like `if`, `match` can be used as an expression. Each branch holds a single expression, which is the result
-value. All branches must produce the same type:
+```kairo
+var kind = match http_status {
+    case 200..=299 => "success"
+    case 300..=399 => "redirect"
+    case 400..=599 => "error"
+    default => "unknown"
+}
+```
+
+### `match` as an expression
 
 ```kairo
 var label = match level {
-    case .Debug   { "debug" }
-    case .Info    { "info" }
-    case .Warning { "warning" }
-    case .Error   { "error" }
-    case .Fatal   { "fatal" }
+    case .Debug   => "debug"
+    case .Info    => "info"
+    case .Warning => "warning"
+    case .Error   => "error"
+    case .Fatal   => "fatal"
 }
 
 var priority = match code {
-    case 200..=299 { 0 }
-    case 400..=499 { 1 }
-    case 500..=599 { 2 }
-    default        { -1 }
+    case 200..=299 => 0
+    case 400..=499 => 1
+    case 500..=599 => 2
+    default        => -1
 }
 
 var message = match result {
-    case .Found(var key, var value) { f"{key}: {value}" }
-    case .NotFound(var key)        { f"{key} not found" }
-    case .Error(var message)       { message }
+    case .Found(var key, var value) => f"{key}: {value}"
+    case .NotFound(var key)         => f"{key} not found"
+    case .Error(var message)        => message
 }
 ```
+
+Each arm is `case pattern => value` or `default => value`. All arms must produce the same type.
+
+- Arms are not separated by commas. A comma between arms is an error
+  ([S076E](/docs/language/diagnostics#s076e-match-arms-separated-by-a-comma)).
+- Guards come before the arrow: `case .Found(var v) where v > 0 => v`.
+- You may break before or after `=>`.
+- A `match` closes with `}`, so it can be used directly as an operand: `var n = match k { ... } + 1`. The
+  parentheses rule for `if` and `try` does not apply to it.
+- All arms of one `match` use the same form, either all `=>` or all `{ }`. Mixing the two is an error
+  ([S075E](/docs/language/diagnostics#s075e-match-arms-mix--and---forms)).
+- In statement position, a `match` whose arms are all `=>` is an expression, and exhaustiveness is
+  required as for any `match` expression. A `match` with block arms is a statement.
 
 In expression form, exhaustiveness is required every possible value must be covered. For integers
 and strings, this means `default` is mandatory.
@@ -246,6 +345,8 @@ The compiler verifies that all possible values are covered:
 | Structs | `default` always required |
 
 A `default` case matches any value not covered by preceding cases. It must be the last case.
+
+A match whose arms are all `=>` is an expression, wherever it appears.
 
 ### No fall-through
 
@@ -303,9 +404,12 @@ for item in collection {
 ```
 
 The range operators `..` and `..=` produce a `Range` object that implements the iterator protocol. Any type
-that defines `fn op in (self) -> yield T` is iterable. See [Operators](/docs/language/operators#ranges) for
-the `Steppable` interface and [Operators](/docs/language/operators#special-operators) for the `op in`
-overload.
+that defines `fn op in (self) -> yield T` is iterable. Defining `begin()` and `end()` on a Kairo class does
+not make it iterable. See [Operators](/docs/language/operators#ranges) for the `Steppable` interface and
+[Operators](/docs/language/operators#special-operators) for the `op in` overload.
+
+An imported C++ class iterates the way a C++ range-based `for` does: through its member `begin()` and
+`end()`, or else through free `begin()` and `end()` functions found by argument-dependent lookup.
 
 ### Multi-variable iteration
 
@@ -430,19 +534,47 @@ A bare `catch` (no type) acts as a catch-all and satisfies exhaustiveness for an
 
 ### `try`/`catch` as an expression
 
-Like `if`, `try`/`catch` can be used as an expression. Each block holds a single expression, which is the result value:
-
 ```kairo
-var result = try {
-    parse_int("42")
-} catch e: std::Error::Runtime {
-    -1   // fallback value
-} catch {
-    0    // default for any other error
-}
+var n = try parse(s) catch e: ParseError => -1 catch => 0
 ```
 
-All branches must produce the same type. `finally` is not permitted in expression form.
+The form is `try operand catch ... => value`. There is no arrow after `try` itself; the operand runs until
+the first `catch`. Every catch arm takes one of these forms:
+
+```kairo
+var a = try f() catch => v               // catch-all
+var b = try f() catch e => v             // catch-all, binds e
+var c = try f() catch var e => v         // binds e as var
+var d = try f() catch const e => v       // binds e as const
+var g = try f() catch e: ParseError => v // only ParseError
+```
+
+A bare name after `catch` is a binding, not a type: `catch ParseError => v` binds a variable named
+`ParseError`. Filter by type with `catch e: T`. At least one arm is required, and a default arm must be last.
+All arms must produce the same type. `finally` is not permitted in expression form.
+
+Each `catch` may start a new line:
+
+```kairo
+var n = try parse(s)
+    catch e: ParseError => -1
+    catch => 0
+```
+
+A bare `try {` always begins a statement-form `try`. To `try` several statements as a value, use a
+statement expression: `try ({ ...; (value); }) catch => ...`.
+
+{/* TODO(docs): how to `try` a set literal or anonymous initializer as the operand. `try ({1, 2})` parses as a statement expression and is rejected (S052E), although the S073E explain text recommends it. */}
+
+A `try` inside another `try`'s operand or arms must be parenthesized. Without the parentheses, the inner
+`try` would take every following `catch`:
+
+```kairo
+var n = try (try f() catch => 1) catch => 2
+```
+
+The last arm of a `try` extends as far right as it can, like the last arm of an `if`. See
+[How far an arm extends](#how-far-an-arm-extends).
 
 ### `finally`
 
@@ -569,7 +701,7 @@ and the zero-cost codegen strategy.
 
 ```kairo
 fn max(a: i32, b: i32) -> i32 {
-    return if a > b { a } else { b }
+    return if a > b => a else => b
 }
 ```
 
@@ -737,7 +869,7 @@ fn event_loop() -> ! {
 expected. This makes it valid in expression contexts:
 
 ```kairo
-var x: i32 = if valid { compute() } else { fatal("invalid state") }
+var x: i32 = if valid => compute() else => fatal("invalid state")
 // fatal() returns ! which coerces to i32
 ```
 
@@ -758,7 +890,7 @@ on return types, `void` returns, and expression-bodied functions.
 if the left operand determines the result:
 
 ```kairo
-if ptr != null || *ptr == 42 {
+if ptr != null && *ptr == 42 {
     // safe: *ptr is only evaluated if ptr is non-null
 }
 ```

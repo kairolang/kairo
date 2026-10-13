@@ -182,6 +182,23 @@ var y: f64 = x       // ok: f32 to f64
 
 Narrowing conversions require an explicit `as` cast. See [Casting](/docs/language/casting).
 
+### Integer widening into C/C++ parameters
+
+An argument to an imported C/C++ function widens into a `size_t`/`ptrdiff_t` parameter
+when no 32- or 64-bit target could lose a value:
+
+```kairo
+// buf.h: void buf_reserve(size_t n);
+ffi "c" import "buf.h"
+
+fn grow(n: u32) {
+    buf_reserve(n)    // ok: u32 to usize (size_t)
+}
+```
+
+`u64` to `usize` still needs `as`, because it narrows on 32-bit targets; on 16-bit
+targets `u32` to `usize` does too. The full rule is in the [Conversion Lattice §4.1](/docs/language/primitives#41-the-cc-boundary).
+
 ### `T` to `T?` - Non-nullable to Nullable
 
 A non-nullable value is implicitly convertible to its nullable counterpart:
@@ -289,7 +306,7 @@ fn fatal(msg: string) panic -> ! {
 `!` is a subtype of every type, making it valid in expression contexts:
 
 ```kairo
-var x: i32 = if valid { compute() } else { fatal("bad state") }
+var x: i32 = if valid => compute() else => fatal("bad state")
 ```
 
 `!` can only appear as a function return type. It cannot be used as a variable type, type parameter,
@@ -498,8 +515,8 @@ enum TypeKind {
 }
 ```
 
-`get_name()` returns the mangled name following the platform's C++ ABI (Itanium on Unix, MSVC on
-Windows). `get_pretty_name()` returns a human-readable string including generic arguments.
+`get_name()` returns the mangled name following the platform's C++ ABI (Itanium on Unix and MinGW, MSVC on
+`*-windows-msvc`). `get_pretty_name()` returns a human-readable string including generic arguments.
 
 > [!IMPORTANT]
 > The `TypeInfo` API is still being finalized. Additional methods for querying members, base classes,

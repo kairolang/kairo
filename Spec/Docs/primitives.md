@@ -7,8 +7,10 @@ hardware-supported representations where possible, falling back to software emul
 
 ## Integers
 
-All integer types have a fixed, guaranteed size. The default integer type is `i32` if a literal doesn't fit
-in `i32`, the compiler promotes it to the smallest signed type that can hold the value, up to `i512`.
+All integer types have a fixed, guaranteed size. An integer literal takes the type expected by its context
+(annotation, parameter, return position, the other operand) and must fit it. With no expected type the default
+is `i32`; only if the value does not fit `i32` does the compiler fall back to the smallest signed type that can
+hold it, up to `i512`. See [Literal inference](#5-literal-inference--a-separate-mechanism).
 
 | Type | Size | Description | C++ Equivalent |
 |---|---|---|---|
@@ -28,6 +30,10 @@ in `i32`, the compiler promotes it to the smallest signed type that can hold the
 | `i512` | 64 bytes | [Signed 512-bit integer](#extended-width-integers-u128u512-i128i512) |   |
 | `usize` | Platform-dependent | Unsigned, pointer-width integer | `size_t` |
 | `isize` | Platform-dependent | Signed, pointer-width integer | `ptrdiff_t` |
+
+`i64` and `u64` are spelled as the target's `int64_t` / `uint64_t`, not hard-coded: `long` on 64-bit Linux and
+FreeBSD; `long long` on Windows, on every 32-bit target, and on Darwin (a 64-bit platform that still spells
+`int64_t` as `long long`). This keeps C++ name mangling and header signatures matching on every target.
 
 Integer literals default to signed. Use a type suffix to specify:
 
@@ -63,8 +69,9 @@ Extended-width integers are always stack-allocated they are value types, not hea
 
 ## Floating-Point
 
-All floating-point types except `f80` follow the IEEE 754 standard. The default float type is `f64` if a literal doesn't
-fit in `f64`, the compiler promotes to the smallest float type that can hold the value, up to `f512`.
+All floating-point types except `f80` follow the IEEE 754 standard. A float literal takes the type expected by its
+context and must fit it. With no expected type the default is `f64`; only if the value does not fit `f64` does the
+compiler fall back to the smallest float type that can hold it, up to `f512`.
 
 | Type | Size | Precision | C++ Equivalent |
 |---|---|---|---|
@@ -585,10 +592,10 @@ Every ordered pair `(S, T)` of primitive types falls into exactly one class:
 | **U** — unsafe | requires an `unsafe` context in addition to `as` | required | no |
 | **X** — forbidden | no cast exists; diagnostic suggests a library function | rejected | no |
 
-I deliberately dropped the "warn" class I floated earlier. A conversion is either
-sound-by-construction or it is not; a third state means the checker has to carry a
-severity through overload resolution, and severities do not compose. Lossy-cast
-detection on known-constant operands belongs in a lint (§8), not in the type relation.
+There is no "warn" class. A conversion is either sound-by-construction or it is not; a
+third state would force the checker to carry a severity through overload resolution, and
+severities do not compose. Lossy-cast detection on known-constant operands is a lint (§8),
+not part of the type relation.
 
 **`-fno-implicit-conv` demotes every W to E.** It changes nothing else. §7 proves this
 cannot alter which overload is selected.
@@ -630,6 +637,8 @@ lattice target-independent.
 
 Everything else — `bool`, `char`, `byte`, `usize`, `isize`, `string`, `void`, pointers,
 aggregates — participates in **no** W conversion in either direction. Reasons in §4.
+The single exception is an argument to an imported C/C++ function, where
+`usize`/`isize` widen by the boundary rule in §4.1.
 
 ---
 
@@ -671,8 +680,9 @@ step is required, so `u32 → i32` is E), and the signed→unsigned quadrant is 
 | `string` | X | X | X | X | X | X | X | X |
 | `void` | X | X | X | X | X | X | X | X |
 
-Float→int is E in all cases (truncation toward zero; out-of-range is a saturating
-result, not UB — pick this and state it, C's UB here is a permanent source of bugs).
+Float→int is E in all cases. The cast truncates toward zero and saturates on
+out-of-range values; it is never undefined behavior. See
+[Casting](/docs/language/casting#float-to-integer).
 
 ---
 
@@ -685,17 +695,17 @@ compile on `x86_64` and fail on `wasm32`. `usize` and `isize` also do not W-conv
 each other. Literals still work — `var i: usize = 0` is literal inference (§5), not
 conversion.
 
-**`byte`.** No W conversion to or from `u8`. Your docs restrict `byte` to bitwise ops;
-if `byte → u8` were implicit then `b + mask` succeeds by converting both operands and
-the restriction is decorative. E in both directions.
+**`byte`.** No W conversion to or from `u8`. `byte` is restricted to bitwise operations
+([Byte](#byte)); if `byte → u8` were implicit then `b + mask` would succeed by converting
+both operands and the restriction would be decorative. E in both directions.
 
 **`char`.** `char → u32` is bit-identical and technically widening-free, but a codepoint
-is not a number. E. `u32 → char` is E and must range-check (surrogates and `> 0x10FFFF`
-are invalid scalar values) — decide whether that check traps or produces a
-`char?`/result; do not let an invalid `char` exist.
+is not a number. E. `u32 → char` is E and range-checks: surrogates and values above
+`0x10FFFF` are not scalar values, and an invalid `char` never exists. Whether the failed
+check traps or yields a `char?` is not yet specified.
 
-**`bool`.** E in both directions. Your docs already say "no implicit conversion from
-integers"; this extends it to the reverse. `int → bool` is E with `!= 0` semantics.
+**`bool`.** E in both directions. [Bool](#bool) already forbids implicit conversion
+from integers; the reverse is forbidden too. `int → bool` is E with `!= 0` semantics.
 
 **Pointers.** `*T → unsafe *T` is **U**, not W — it is a safety downgrade and Tether loses
 provenance at that point, so it should be visible. `unsafe *T → *T` is U and must be a
@@ -706,6 +716,40 @@ is U. Pointer↔integer is U in both directions. No pointer conversion is ever W
 `(i32, i32) → (i64, i64)`, `{string: i32} → {string: i64}` are all X. Function pointers
 are invariant in both parameter and return position — no variance, no exceptions. If you
 want element-wise conversion it is a library `map`, not a coercion.
+
+### 4.1 The C/C++ boundary
+
+An argument to an **imported** C/C++ function may widen to or from `usize`/`isize`
+without `as`. Nothing else uses this rule: Kairo functions, assignments, `if`/`match`
+arms and operator operands keep §4 alone.
+
+The rule reads the target only below 32 bits. `usize` and `isize` are taken as
+[32, 64] bits wide, or [P, 64] on a target whose pointer width P is below 32; a
+fixed-width integer of N bits is [N, N]. `S → D` is implicit iff:
+
+- same signedness: `max(S) ≤ min(D)`
+- unsigned → signed: `max(S) < min(D)`
+- signed → unsigned: never
+
+| Accepted | Refused |
+|---|---|
+| `u8`/`u16`/`u32` → `usize` | `u64` → `usize` (narrows on 32-bit) |
+| `i8`/`i16`/`i32` → `isize` | `i64` → `isize` (narrows on 32-bit) |
+| `u8`/`u16` → `isize` | `u32` → `isize` (same width on 32-bit) |
+| `usize` → `u64`, `isize` → `i64` | `usize` → `u32`, `isize` → `i32` (narrow on 64-bit) |
+| | `usize` → `i64` (same width on 64-bit) |
+| | `i32` → `usize`, `isize` → `u64` (signed → unsigned) |
+
+Because the rule judges against the narrowest and widest target at once, every 32- and
+64-bit target accepts the same set of programs; a 16-bit target accepts a subset. This
+keeps the property §4 protects. A conversion accepted by this rule is considered only
+when §3 would require `as`, and ranks like any other implicit conversion in overload
+resolution. Extended-width types (R5), floats and
+non-numeric types never take it, and `-fno-implicit-conv` turns it off like any other W.
+
+The importer reads `size_t`/`uintptr_t` as `usize`, and `ptrdiff_t`/`intptr_t`/`ssize_t`
+as `isize`. A plain `unsigned long` stays a fixed-width type (`u64` on LP64 targets) and
+is judged by §3.
 
 ---
 
@@ -720,12 +764,11 @@ does not consult this lattice.
    = 300` — error at the literal, with the range in the diagnostic.
 2. With no expected type, the default is `i32` for integer literals and `f64` for float
    literals. Only if the value does not fit does the "smallest type that holds it" rule
-   in your primitives doc apply.
+   from [Integers](#integers) apply.
 
-State rule 1 explicitly in the docs, because your current text implies the promotion rule
-always fires. Under that reading, `var x = 3000000000` yields `i64`, and a later
-`var y: u32 = x` errors even though the value fits `u32` — the type was chosen before
-anyone knew the destination. Expected-type-first eliminates the whole class.
+Rule 1 comes first on purpose. If promotion fired unconditionally, `var x: u32 = 3000000000`
+would type the literal as `i64` before looking at the annotation, and then fail to narrow
+it. Expected-type-first removes that whole class of error.
 
 Suffixed literals (`42u8`) are typed at the literal and then participate in conversion
 normally.
@@ -743,7 +786,7 @@ Given operands of type `A` and `B`, `A ≠ B`:
 - If `W(B → A)` and not `W(A → B)`: result operand type is `A`.
 - Otherwise: **error**, requiring an explicit cast on one side.
 
-Consequences worth confirming you want:
+Consequences:
 
 | Expression | Result | Why |
 |---|---|---|
@@ -756,9 +799,8 @@ Consequences worth confirming you want:
 | `i64 + i128` | error | R5 — extended width never silent |
 | `byte & u8` | error | §4 |
 
-The `u32 + i32` error is the single most valuable line in this document. C's answer is
-`u32`, which silently converts every negative `i32` into a huge positive number, and it
-has cost the industry more than any other implicit conversion.
+The `u32 + i32` error is deliberate. C's answer is `u32`, which silently converts every
+negative `i32` into a huge positive number; Kairo refuses rather than guess.
 
 Comparison operators use the same unification. Shift operators are the exception: the
 right operand is unified independently and any integer type is accepted, since the shift
@@ -779,18 +821,16 @@ Conversion sequences have exactly two ranks:
 There is deliberately no ordering *within* rank 2. If two candidates are both reachable
 by W, the call is **ambiguous** and errors, even if one conversion is "narrower" in some
 intuitive sense. No `i32 → i64` beats `i32 → f64` tiebreaking. No promotion-vs-conversion
-distinction. This is the property that makes the flag safe:
+distinction. The tie-breaks in [Function Overloading](/docs/language/functions#function-overloading)
+(reference binding, non-generic over generic, most specialized generic) never order conversions, so "no
+ordering within rank 2" still holds, and so does the guarantee below. This is the property that makes the
+flag safe:
 
 > Let `C_on` be the candidate selected with W enabled. `-fno-implicit-conv` demotes every
 > W to E, which removes candidates from the viable set but never adds one and never
 > reorders the two ranks. An exact-match winner stays the winner. A rank-2 winner becomes
 > non-viable, so the call errors. Therefore for all programs: the flag either preserves
 > the selection or produces a diagnostic. It can never select a different candidate.
-
-Write that as a differential test: compile the whole suite both ways, diff the
-`--dump-type-info` output, and assert every difference is `resolved → error` and never
-`resolved(A) → resolved(B)`. If that assertion ever fires you have introduced a ranking
-somewhere, and you want to know the day it happens.
 
 ### List literal arguments
 
@@ -835,47 +875,3 @@ Literals other than list literals are unaffected.
   on under a strict profile.
 
 None of these participate in overload resolution or operand unification.
-
----
-
-## 9. Invariants — property tests to write now
-
-These are the properties that keep the relation a well-formed partial order. Each is a
-one-page property test over the full primitive set, and each catches a class of bug that
-is otherwise found by users.
-
-1. **Reflexivity.** `class(T, T) == I` for all `T`.
-2. **Antisymmetry.** `W(A → B) ∧ W(B → A) ⟹ A == B`. A W-cycle means overload resolution
-   can pick either candidate depending on iteration order.
-3. **Transitivity.** `W(A → B) ∧ W(B → C) ⟹ W(A → C)`. The rules in §2 are already
-   transitively closed; the test guards against a future rule addition that breaks it.
-   If this ever fails, conversion becomes chain-length-dependent and results stop being
-   stable under refactoring.
-4. **Value preservation.** For every W pair and a generated corpus of source values
-   (bounds, zero, ±1 around bounds, random), round-tripping through the target and back
-   yields the original. Any failure is a mis-classified cell, not a codegen bug.
-5. **Target independence.** The full class matrix is byte-identical across every
-   supported triple. `usize`/`isize` rows and columns are the ones this is really
-   testing.
-6. **Totality.** Every ordered pair over the full primitive set has exactly one class.
-   No `default:` fallthrough in the decision function.
-
----
-
-## 10. Implementation shape
-
-Generate everything from one table. A single `conversions.def` X-macro or TOML listing
-`(source, target, class)` for every pair, and from it emit:
-
-- the `ConversionClass classify(TypeId, TypeId)` function used by sema,
-- the docs table in this file,
-- the property-test corpus for §9,
-- the `--dump-type-info` legend.
-
-The alternative — a hand-written `classify` with the docs maintained separately — drifts
-within a month, and the drift is invisible because nothing compares them. One source,
-three consumers, zero drift.
-
-Order of work: land `classify` and its property tests against the current checker *before*
-changing any behavior, so you find out which cells the compiler already disagrees with.
-That diff is the actual work item list.

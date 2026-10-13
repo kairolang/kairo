@@ -196,7 +196,7 @@ Constraints on an extension's parameters are written with `impl`, `derives`, or 
 ```kairo
 extend <T impl Comparable> Pair<T> {
     fn max(const self) -> T {
-        return if self.first > self.second { self.first } else { self.second }
+        return if self.first > self.second => self.first else => self.second
     }
 }
 ```
@@ -219,7 +219,7 @@ extend <T> Pair<T> impl Container<T> {
     fn size(const self) -> i32 { return 2 }
 
     fn get(const self, index: i32) -> T {
-        return if index == 0 { self.first } else { self.second }
+        return if index == 0 => self.first else => self.second
     }
 }
 ```
@@ -419,6 +419,6 @@ extend Vec2 impl Drawable {
 
 // Generic extend with constraints
 extend <T impl Comparable> Pair<T> {
-    fn max(const self) -> T = if self.first > self.second { self.first } else { self.second }
+    fn max(const self) -> T = if self.first > self.second => self.first else => self.second
 }
 ```

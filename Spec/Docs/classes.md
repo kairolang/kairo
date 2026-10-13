@@ -352,8 +352,9 @@ class X {
 
 A move is written bare at the call site, `X(h)`, with no marker on the argument.
 
-A class with no transfer constructor at all is implicitly **COPY** with all four special members
-compiler-generated.
+A class with no transfer constructor takes the weakest category its bases and fields allow: **COPY** if all
+of them are COPY, **MOVE** if any is move-only, **NON_TRANSFER** if any cannot be transferred. Its special
+members are compiler-generated to match.
 
 A class cannot define both `@copy` and `@move` transfer constructors pick one:
 
@@ -366,6 +367,9 @@ class Bad {
 
 The one exception is both being `= delete`, which is the **NON_TRANSFER** form.
 
+A class also cannot declare two transfer constructors of the same kind, such as `@copy` with and without
+`const` (SC057E).
+
 ### The four categories
 
 | Category | Trigger | Semantics |
@@ -373,7 +377,7 @@ The one exception is both being `= delete`, which is the **NON_TRANSFER** form.
 | **COPY** | `@copy` ctor (explicit or implicit) | Allows copy; Tether may silently elide a copy into a move when the source is unused after the transfer |
 | **MOVE** | `@move` ctor | Allows move only; copying is a compile error |
 | **NON_TRANSFER** | both `@copy` and `@move` are `= delete`d | Stack-only; cannot be assigned, copied, or moved |
-| **DEFAULT** | no transfer ctor declared | Treated as COPY with compiler-generated members |
+| **DEFAULT** | no transfer ctor declared | Derived from bases and fields (see above) |
 
 A NON_TRANSFER class is the canonical scope guard:
 
@@ -434,9 +438,10 @@ compile error.
 |---|---|
 | `= default` | `= default` |
 | `= delete` | `= delete` |
-| `{ body }` | destroys `self`, then runs the ctor body, then returns `self` |
+| `{ body }` | checks for self-assignment, destroys `self`, runs the ctor body, returns `self` |
 
-The body case handles self-assignment by destroying the current state before reconstructing it.
+The body case first checks for self-assignment: `x = x` does nothing. Otherwise it destroys `self`, runs
+the transfer constructor body with the right-hand side, and returns `self`.
 
 This implies a consistency rule: if the transfer ctor has a body and `op delete` is `= delete`d, the class fails to compile the auto-derived `op =` needs to invoke the destructor and cannot. Fix by providing a destructor or by changing the transfer ctor to `= default` / `= delete`.
 
@@ -444,9 +449,15 @@ This implies a consistency rule: if the transfer ctor has a body and `op delete`
 
 `= default` on a `@move` ctor performs memberwise move: each member is moved through its own `@move` ctor. If a member is COPY-only (no `@move` available), that member is **copied** as part of the move matching C++ semantics. This is silent and almost always what you want; if a member must be moved or nothing, write the transfer ctor body explicitly and let the compiler error on the COPY-only field.
 
+The converse is checked too. A defaulted `@copy` constructor requires every base and field to be copyable, and
+a defaulted `@move` requires every base and field to be movable or copyable. Otherwise it is a compile error
+(SC129E) naming the field. A transfer constructor with a body is exempt; it decides for itself how each field
+is transferred.
+
 ### Implicit-copy-with-custom-destructor warning
 
-A class with a custom destructor but no explicit `@copy` or `@move` transfer constructor compiles, but emits a warning. The class is implicitly copyable, and a custom destructor almost always means the class owns a resource silent copies of that resource cause double-free and aliasing bugs.
+A class with a custom destructor but no explicit `@copy` or `@move` transfer constructor compiles, but emits a warning. The class is implicitly copyable, and a custom destructor almost always means the class owns a resource silent copies of that resource cause double-free and aliasing bugs. The warning applies only when the class
+is actually copyable; a class that is move-only or non-transferable because of its fields does not get it.
 
 ```kairo
 class UniqueFile {
@@ -802,13 +813,17 @@ class <T> Derived derives Base<T> {
 
 ### Type parameter constraints
 
-By default, a type parameter accepts any `T`. Whether a specific `T` is valid for a given instantiation
-depends on what the body does with it by-reference use accepts anything, copying requires a COPY type,
-moving requires COPY or MOVE, returning by value requires COPY or MOVE. Instantiation errors point at
-both the body operation that required the capability and the type that lacks it.
+A generic body may use only what its bounds grant. The body is checked once, where it is defined,
+against its bounds, not against each type it is instantiated with. Calling a method no bound declares,
+copying a `T` without a copy bound, or declaring `var x: T` without a constructor bound is a compile
+error in the generic itself.
 
-Explicit bounds document intent and fail fast at the constraint check rather than mid-body. Two kinds of
-bounds exist:
+**Implicit capabilities.** Every type parameter may be destroyed and moved without saying so.
+Instantiating with a type whose `op delete` is `= delete`, or whose category is NON_TRANSFER, is an
+error at the instantiation site. It names the generic's implicit requirement, not a line inside its
+body. (Opt-out syntax: TBD.)
+
+Two kinds of bounds exist:
 
 **Kind bounds** restrict `T` to a specific category of type declaration:
 
@@ -826,10 +841,12 @@ still being finalized in `std` write your own if you need them now:
 
 ```kairo
 interface Copyable {
-    fn Copyable(self)               // default ctor
-
     @copy
     fn Copyable(self, const other: Self)
+}
+
+interface Defaultable {
+    fn Defaultable(self)
 }
 
 fn <T impl Copyable> store(item: T) -> T { ... }

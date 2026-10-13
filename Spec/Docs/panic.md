@@ -163,16 +163,17 @@ Callers of `process` must handle `std::Error::IO`, `std::Error::Runtime`, and
 
 ## Try/Catch as an Expression
 
-`try`/`catch` can produce a value. Each branch must return the same type:
-
 ```kairo
 var port = try parse_port(input)
-           catch e: std::Error::Runtime { 8080 }
-           catch { 3000 }
+    catch e: std::Error::Runtime => 8080
+    catch => 3000
 ```
 
-`finally` is not permitted in expression form. See
-[Control Flow](/docs/language/control-flow#trycatch-as-an-expression) for expression-form rules.
+`try`/`catch` can produce a value. Each arm is `catch ... => value`, and every arm must produce the same
+type. `finally` is not permitted in expression form.
+
+See [Control Flow](/docs/language/control-flow#trycatch-as-an-expression) for the `=>` arm rules: arm
+forms, line breaks, and nesting.
 
 ---
 
@@ -347,12 +348,12 @@ fn safe_divide(a: i32, b: i32) -> i32 {
 // Partial handling propagates unhandled types
 fn partial(a: i32, b: i32) panic -> i32 {
     return try complex_operation(a, b)
-           catch e: std::Error::Runtime { -1 }
+        catch e: std::Error::Runtime => -1
     // other error types propagate
 }
 
 // Expression form
-var result = try { divide(10, 0) } catch { 0 }
+var result = try divide(10, 0) catch => 0
 
 // Scope exit
 fn with_cleanup() panic {

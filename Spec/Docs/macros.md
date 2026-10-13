@@ -38,7 +38,7 @@ comma-separated:
 
 ```kairo
 macro clamp!(value, lo, hi) {
-    if value < lo { lo } else if value > hi { hi } else { value }
+    if value < lo => lo else if value > hi => hi else => value
 }
 
 var x = clamp!(temperature, 0, 100)

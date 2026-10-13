@@ -1,12 +1,14 @@
 # Interfaces
 
-Interfaces define a set of method signatures that a type must satisfy. They are zero-cost conformance
-contracts no vtable, no runtime dispatch, no storage overhead. A type conforms to an interface if it
-has all the required methods with matching signatures, whether or not it explicitly declares conformance.
+Interfaces define a set of method signatures that a type must satisfy. An interface used as a bound
+is zero-cost: it is checked at compile time and leaves nothing in the binary. Using an interface for
+runtime dispatch, via a witness table, is described in [Virtual Interfaces](#virtual-interfaces). A
+type conforms to an interface if it has all the required methods with matching signatures, whether or
+not it explicitly declares conformance.
 
-Interfaces are a compile-time mechanism. For runtime polymorphism, use a base
-[class](/docs/language/classes) with `virtual` methods and dispatch through a base pointer. Interfaces
-and virtual dispatch solve different problems and can be used together on the same type.
+For runtime polymorphism over a class hierarchy, use a base [class](/docs/language/classes) with
+`virtual` methods and dispatch through a base pointer. Interfaces and virtual dispatch solve different
+problems and can be used together on the same type.
 
 ---
 
@@ -19,8 +21,9 @@ interface Serializable {
 }
 ```
 
-An interface body contains method signatures, static function signatures, and operator signatures. No
-method bodies, no variables, no constants, no nested types. Every member is implicitly `pub` the
+An interface body contains method signatures (including generic methods), static function signatures,
+operator signatures, constructor requirements, and [associated types](#associated-types). It has no
+method bodies, variables, constants, or nested classes, structs, enums or interfaces. Every member is implicitly `pub` the
 `priv` and `prot` modifiers are compile errors on interface members. Explicit `pub` is permitted but
 has no effect.
 
@@ -95,6 +98,22 @@ write_to_disk(Logger())   // compiles: Logger has serialize() and byte_size()
 The difference between explicit and implicit conformance is when the check happens at declaration
 time (`class Foo impl Bar`) or at first use (`fn <T impl Bar>`). The runtime behavior is identical.
 
+### Signature matching
+
+A generic method requirement is matched by a
+method with the same number of generic parameters, the same bounds, and the same signature after
+renaming them: `fn <U> liz(self)` satisfies `fn <T> liz(self)`.
+
+```kairo
+interface Sink {
+    fn <T impl Serializable> push(self, item: T)
+}
+
+class Buffer impl Sink {
+    fn <U impl Serializable> push(self, item: U) { ... }   // ok: same shape, U renamed from T
+}
+```
+
 ---
 
 ## Generic Interfaces
@@ -136,9 +155,84 @@ interface <T impl Comparable, U derives Base> Registry {
 }
 ```
 
-Generic defaults are not permitted on interface type parameters.
+Generic defaults are not permitted on interface type parameters. (An [associated type](#associated-types)
+may have a default; that is a different thing, chosen by the conforming type rather than by the user
+of the interface.)
 
 See [Requires Clauses](/docs/language/requires) for the full constraint system.
+
+---
+
+## Associated Types
+
+An interface can require a type member. A conforming type supplies it with a type alias:
+
+```kairo
+interface Graph {
+    type Node
+    type Edge
+    fn edges(const self, n: Self::Node) -> [Self::Edge]
+}
+
+class RoadMap impl Graph {
+    type Node = CityId
+    type Edge = Road
+
+    fn edges(const self, n: CityId) -> [Road] { ... }
+}
+```
+
+A generic body names it through its parameter: `T::Node`. Associated types can carry bounds, and can
+themselves be generic:
+
+```kairo
+interface Store {
+    type <K impl Hashable> Map
+    fn <K impl Hashable> index(const self) -> Self::Map<K>
+}
+```
+
+### Defaults
+
+An associated type may have a default:
+
+```kairo
+interface Indexed {
+    type Index = usize
+    fn at(const self, i: Self::Index) -> i32
+}
+```
+
+The default applies only when a type conforms explicitly, with `impl` on its declaration or through
+`extend ... impl`, and doesn't declare the type itself. Structural conformance never uses defaults: a
+type that satisfies an interface implicitly must declare every associated type.
+
+A default may refer to `Self` and to associated types declared before it in the same interface. Defaults
+resolve in declaration order; a forward reference, and therefore any cycle, is a compile error:
+
+```kairo
+interface WeightedGraph {
+    type Node
+    type Edge = (Self::Node, Self::Node)   // ok: Node is declared earlier
+    // type Cost = Self::Weight             // compile error: Weight is declared later
+    type Weight
+}
+```
+
+A default must satisfy its own bounds. This is checked once, at the interface declaration, with `Self`
+abstract, not separately for each conforming type.
+
+### Associated types and inheritance
+
+A derived interface may give an inherited associated type a default if it has none. It may not change
+a default that is already given; otherwise which default applies would depend on the inheritance path.
+
+### Name collisions between bounds
+
+Associated types belong to their interface. If `Graph` and `Tree` both declare `Node`, then for the same
+`T`, `Graph`'s `Node` and `Tree`'s `Node` are different types. In a body bounded by both, `T::Node` is
+ambiguous and is a compile error; it must be written with a qualified form that names the interface. The
+qualified syntax is not fixed yet. It is needed only when the names collide.
 
 ---
 
@@ -173,8 +267,8 @@ interface Defaultable {
     fn Defaultable(self)
 }
 
-interface <T> Cloneable {
-    fn Cloneable(self, source: T)
+interface <T> ConstructibleFrom {
+    fn ConstructibleFrom(self, source: T)
 }
 ```
 
@@ -198,22 +292,26 @@ category. This is how you express "T must be copyable" or "T must be movable" as
 
 ```kairo
 interface Copyable {
-    fn Copyable(self)               // default ctor
-
     @copy
     fn Copyable(self, const other: Self)
 }
 
-interface Moveable {
-    fn Moveable(self)
-
+interface Movable {
     @move
-    fn Moveable(self, other: Self)
+    fn Movable(self, other: Self)
 }
 
 fn <T impl Copyable> store(item: T) -> T { ... }
-fn <T impl Moveable> consume(item: T)    { ... }
+fn <T impl Movable> consume(item: T)     { ... }
 ```
+
+A `@copy` requirement is satisfied only by COPY types. A `@move` requirement is satisfied by COPY and
+MOVE types; a copy is a valid move. NON_TRANSFER types satisfy neither.
+
+Keep lifecycle requirements separate from a default constructor requirement. Putting `fn Copyable(self)`
+in `Copyable` would make "copyable" also mean "default-constructible", and the bound would reject every
+copyable type without a default constructor. Require default construction separately, with
+`Defaultable` above, where a body needs it.
 
 The standard library will provide canonical lifecycle interfaces; these are just examples. See [Lifecycle Categories](/docs/language/classes#lifecycle-categories) for the underlying model.
 
@@ -224,12 +322,12 @@ The standard library will provide canonical lifecycle interfaces; these are just
 Interfaces can require static methods:
 
 ```kairo
-interface <T> Parseable {
-    static fn from_string(input: string) -> T
-    static fn from_bytes(data: [byte]) -> T
+interface Parseable {
+    static fn from_string(input: string) -> Self
+    static fn from_bytes(data: [byte]) -> Self
 }
 
-class Timestamp impl Parseable<Timestamp> {
+class Timestamp impl Parseable {
     var epoch: i64
 
     fn Timestamp(self, epoch: i64) {
@@ -325,7 +423,8 @@ class FileStream impl Stream {
 
 Interface inheritance is purely additive the derived interface's requirements are the union of its
 own methods and all inherited methods. There is no diamond problem because interfaces carry no
-implementation or state.
+implementation or state. Associated type defaults follow a rule that keeps it that way; see
+[Associated types and inheritance](#associated-types-and-inheritance).
 
 Multiple inheritance is permitted:
 
@@ -356,6 +455,65 @@ for the full constraint system.
 fn <T impl Serializable> save(data: T) { ... }   // T has serialize() and byte_size()
 fn <T derives Base> process(data: T) { ... }     // T is a subclass of Base
 ```
+
+---
+
+## Generic Bodies
+
+Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and everything it derives)
+declares, plus destruction and move.
+
+- `x.method()` resolves against `Foo`'s methods.
+- A generic method requirement is called with explicit arguments, `x.liz<i32>()`, or with deduced ones.
+- `var x: T` with no initializer requires a constructor requirement `fn Foo(self)` in some bound.
+- `T::Name` names an [associated type](#associated-types).
+
+Nothing else is available, and the body is checked once against its bounds, never per instantiation.
+
+```kairo
+interface Shape {
+    fn area(const self) -> f64
+}
+
+fn <T impl Shape> describe(s: T) -> f64 {
+    var a = s.area()     // ok: declared by Shape
+    // s.perimeter()     // compile error: Shape declares no perimeter()
+    // var t: T          // compile error: no bound requires a default constructor
+    return a
+}
+```
+
+See [Generic Classes](/docs/language/classes#type-parameter-constraints) for the implicit destroy and
+move capabilities and how instantiation reports them.
+
+---
+
+## Virtual Interfaces
+
+An interface declared `virtual interface` can also be used for runtime dispatch. A pointer to it,
+`*Allocator`, can point at a value of any conforming type; calls through the pointer go through a
+witness table built for each conforming type, so the caller doesn't need to know at compile time which
+type it holds:
+
+```kairo
+virtual interface Allocator {
+    fn alloc(self, size: usize, align: usize) -> unsafe *u8
+    fn free(self, ptr: unsafe *u8, size: usize)
+}
+
+class LibcAllocator impl Allocator {
+    fn alloc(self, size: usize, align: usize) -> unsafe *u8 { ... }
+    fn free(self, ptr: unsafe *u8, size: usize) { ... }
+}
+
+fn release(alloc: *Allocator, ptr: unsafe *u8, size: usize) {
+    alloc->free(ptr, size)   // dispatched through LibcAllocator's (or any conformer's) witness table
+}
+```
+
+A virtual interface is still an ordinary interface when used as a bound: `fn <T impl Allocator>` is
+checked at compile time and costs nothing. The witness table is paid for only where the interface is
+used for runtime dispatch.
 
 ---
 
@@ -390,7 +548,7 @@ interface Hashable {
 ```
 
 This keeps interfaces as zero-cost contracts. There is no method resolution order, no inheritance
-of behavior, and no hidden dispatch. If you need shared implementation, use a base
+of behavior, and no hidden dispatch when an interface is used as a bound. If you need shared implementation, use a base
 [class](/docs/language/classes) with `derives`.
 
 ---

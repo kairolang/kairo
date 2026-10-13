@@ -38,7 +38,10 @@ enum HttpStatus {
 }
 ```
 
-Discriminant expressions must be compile-time constants. Duplicate values are a compile error.
+Discriminants are integer constant expressions. Duplicate values are a compile error. A discriminant
+may refer to variants declared before it; inside a discriminant expression, an earlier variant has
+the enum's [underlying type](#underlying-type), not the enum type. Referring to a later variant, or to
+anything that is not an integer constant, is a compile error.
 
 Compound expressions are valid for bit flags:
 
@@ -101,6 +104,14 @@ an anonymous struct alongside the discriminant. A single enum can freely mix bot
 
 ### Construction
 
+There are three construction forms:
+
+| Form | Use |
+|---|---|
+| `Enum::V { f: e }` | Payload variant, fully qualified |
+| `.V { f: e }` | Payload variant, enum type inferred from context |
+| `.V` (or `Enum::V`) | Variant with no payload |
+
 ADT variants are constructed with the variant name followed by brace-delimited field assignment,
 matching [struct](/docs/language/structures) aggregate initialization:
 
@@ -158,21 +169,16 @@ See [Control Flow](/docs/language/control-flow#match) for the full `match` synta
 
 ### `match` as an expression
 
-ADT enums work in expression-form `match`. Each branch must produce the same type:
-
 ```kairo
 var description = match result {
-    case .Success(var value, var bytes_consumed) {
-        f"parsed {value} ({bytes_consumed} bytes)"
-    }
-    case .Error(var message, var position) {
-        f"error at {position}: {message}"
-    }
-    case .EndOfInput {
-        "end of input"
-    }
+    case .Success(var value, var bytes_consumed) => f"parsed {value} ({bytes_consumed} bytes)"
+    case .Error(var message, var position) => f"error at {position}: {message}"
+    case .EndOfInput => "end of input"
 }
 ```
+
+ADT enums work in expression-form `match`. Each arm is `case pattern => value`, and every arm must produce
+the same type.
 
 See [Control Flow](/docs/language/control-flow#match-as-an-expression) for the full expression-form
 rules.
@@ -190,6 +196,12 @@ ParseResult<f64> layout:
 
 The compiler generates a destructor that switches on the tag to destroy the active variant's fields.
 Copy and move operations follow the same pattern.
+
+### Lifecycle category
+
+An ADT enum's [lifecycle category](/docs/language/classes#lifecycle-categories) is decided by its payload
+fields: the weakest category wins. If any payload field is NON_TRANSFER, the enum is
+NON_TRANSFER; otherwise, if any is MOVE, the enum is MOVE; otherwise it is COPY. A plain enum is COPY.
 
 ---
 
@@ -262,8 +274,13 @@ if a != b { ... }    // ok
 // if a < b { ... }  // compile error: no ordering defined
 ```
 
-For ADT enums, equality compares the tag only by default. Extend `op ==` to include payload comparison
-if needed. See [Operators](/docs/language/operators#operator-overloading) for operator extension.
+For ADT enums, `==` compares tags only, unless the enum declares `op ==`. Extend `op ==` to include
+payload comparison if needed. See [Operators](/docs/language/operators#operator-overloading) for operator
+extension.
+
+The synthesized `==` is a real operator, so every enum satisfies an interface that requires
+`fn op ==(const self, other: Self) -> bool` (such as `Equatable`) structurally, without declaring
+anything.
 
 ---
 

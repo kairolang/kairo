@@ -452,7 +452,7 @@ fn event_loop() -> ! {
 expected:
 
 ```kairo
-var x: i32 = if valid { compute() } else { fatal("bad state") }
+var x: i32 = if valid => compute() else => fatal("bad state")
 // fatal() returns ! which coerces to i32
 ```
 
@@ -607,7 +607,17 @@ Parameter modes also participate in overloading. See [Overloading on mode](#over
 
 A candidate either matches an argument exactly or through a conversion, and there is no ordering among
 conversions: if two candidates both need one, the call is ambiguous (`call to 'f' is ambiguous: more than
-one candidate matches at the same rank`). For a list literal argument, a `[T; N]` parameter with the same
+one candidate matches at the same rank`). Before a tie at the same rank is declared ambiguous, three
+tie-breaks run, in C++'s order:
+
+1. **Reference binding.** An rvalue argument prefers a `T&&` parameter to `const T&`; a non-const lvalue
+   prefers `T&` to `const T&`; a non-const receiver prefers the non-const method.
+2. **Non-generic over generic.** A non-generic candidate beats a generic one.
+3. **Most specialized generic.** Among generic candidates still tied, the most specialized wins:
+   `fn <T> f(a: Box<T>, b: Box<T>)` beats `fn <A, B> f(a: Box<A>, b: Box<B>)` for `f(x, y)` with two
+   `Box<i32>`.
+
+These tie-breaks never order conversions. For a list literal argument, a `[T; N]` parameter with the same
 element count is an exact match, while `[T;]` and `[T]` parameters both need a conversion:
 
 ```kairo
@@ -744,7 +754,7 @@ Constrain type parameters with `impl` (interface conformance) or `derives` (clas
 
 ```kairo
 fn <T impl Comparable> max(a: T, b: T) -> T {
-    return if a > b { a } else { b }
+    return if a > b => a else => b
 }
 
 fn <T derives Serializable> serialize(value: T) -> [byte] {
@@ -973,8 +983,8 @@ top-level declarations before type checking, so mutual recursion works without
 them:
 
 ```kairo
-fn is_even(n: u32) -> bool = if n == 0 { true } else { is_odd(n - 1) }
-fn is_odd(n: u32) -> bool  = if n == 0 { false } else { is_even(n - 1) }
+fn is_even(n: u32) -> bool = if n == 0 => true else => is_odd(n - 1)
+fn is_odd(n: u32) -> bool  = if n == 0 => false else => is_even(n - 1)
 ```
 
 Forward declarations are used when the definition lives elsewhere:
@@ -982,7 +992,7 @@ Forward declarations are used when the definition lives elsewhere:
 - **FFI imports** the body is provided by a C or C++ library. See
   [C/C++ Interop](/docs/language/c-cpp).
 - **Separate translation units** the declaration is visible to callers; the
-  definition is linked in from another `.kro` file.
+  definition is linked in from another `.k` file.
 - **Out-of-line class methods** declared in the class body, defined outside it using the `Class::method` qualified-name syntax:
 
     ```kairo
