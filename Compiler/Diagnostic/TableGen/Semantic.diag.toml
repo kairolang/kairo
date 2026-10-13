@@ -1559,7 +1559,11 @@ group = "operators"
     # the target is not assignable
 
     assignment, compound assignment and `++`/`--` need an assignable lvalue. temporaries,
-    constants and whole arrays are not.
+    constants and whole arrays are not, and neither is a value of a class that derives no
+    assignment from its transfer constructor: a polymorphic class whose transfer constructor
+    has a body (assigning it would destroy it and rebuild it in place, which a base or a
+    derived object does not survive), a class whose transfer constructor is deleted, or a
+    class assigned member by member over a member that cannot be assigned.
 
     ```kairo
     f() = 3;   // error
@@ -1568,7 +1572,7 @@ group = "operators"
     ## how to fix
 
     assign to a variable, field or element; for an array, assign its elements or go through a
-    slice.
+    slice. polymorphic classes cannot be assigned; construct a new value.
     """
 
 [SC072]

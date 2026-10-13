@@ -216,6 +216,18 @@ enum AdtForm derives u8 {
     Deleted,         ///< `= delete`.
 }
 
+/// How a record's `op =` reaches C++ (ClassDecl / StructDecl::assign_form).
+/// Assignment is never written in Kairo: it is derived from the transfer
+/// constructor. ClassLifecycle decides the derivation and InterfaceEmitter
+/// writes it, in the class, since no Kairo decl stands behind it.
+enum AssignForm derives u8 {
+    Implicit = 0,    ///< no transfer constructor written: C++'s implicit assignment is the derived one; nothing is declared.
+    Default,         ///< `= default`: member by member, from a defaulted transfer constructor.
+    Body,            ///< destroy the old value, then build the new one in place through the transfer constructor.
+    Deleted,         ///< `= delete`: a deleted transfer, a polymorphic record with a transfer body, or a part that cannot be assigned.
+    Constrained,     ///< a Body that an instance of a generic record may not allow: Body and Deleted, each under a C++ constraint.
+}
+
 /// Inheritance edge: base type + how its members are re-exposed + virtual.
 struct InheritEdge {
     var base:       *Type;            ///< the base/interface type reference.
@@ -755,6 +767,11 @@ class StructDecl
     /// The ADT enum this record is the layout of (EnumDecl::adt_layout), or
     /// null. One writer: EnumLayoutLowering.
     pub var adt_of:         *Decl = &null;
+    /// The transfer constructor this record's `op =` is derived from, or
+    /// null (AssignForm::Implicit). One writer: ClassLifecycle.
+    pub var assign_from:    *FunctionDecl = &null;
+    /// How that `op =` is given to C++. One writer: ClassLifecycle.
+    pub var assign_form:    AssignForm    = AssignForm::Implicit;
 
     static fn create(
         ctx:    *ASTContext,
@@ -771,6 +788,8 @@ class StructDecl
         node->init_redecl();
         node->is_adt_payload = false;
         node->adt_of         = &null;
+        node->assign_from    = &null;
+        node->assign_form    = AssignForm::Implicit;
         return node;
     }
 
@@ -784,6 +803,8 @@ class StructDecl
         node->init_redecl();
         node->is_adt_payload = false;
         node->adt_of         = &null;
+        node->assign_from    = &null;
+        node->assign_form    = AssignForm::Implicit;
         return node;
     }
 
@@ -818,6 +839,11 @@ class ClassDecl
     pub var implements:   FrozenList::<InheritEdge>;  ///< interfaces.
     pub var is_final:     bool = false;               ///< `final class`.
     pub var is_abstract:  bool = false;               ///< has a `= virtual` method.
+    /// The transfer constructor this class's `op =` is derived from, or
+    /// null (AssignForm::Implicit). One writer: ClassLifecycle.
+    pub var assign_from:  *FunctionDecl = &null;
+    /// How that `op =` is given to C++. One writer: ClassLifecycle.
+    pub var assign_form:  AssignForm    = AssignForm::Implicit;
 
     static fn create(
         ctx:    *ASTContext,
@@ -832,6 +858,8 @@ class ClassDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Class, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->assign_from = &null;
+        node->assign_form = AssignForm::Implicit;
         return node;
     }
 
@@ -843,6 +871,8 @@ class ClassDecl
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Class, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
+        node->assign_from = &null;
+        node->assign_form = AssignForm::Implicit;
         return node;
     }
 

@@ -9,7 +9,8 @@ that feed it. Where it disagrees with either, it is newer and wins.
 Kairo lowers to C++ by injecting a token stream into clang. Every emitted
 TU is: a PREAMBLE (the declarations a header would have provided, own and
 foreign), the BODIES the TU defines, then the explicit instantiation
-definitions it homes. Nothing is `#include`d except ffi headers.
+definitions it homes. Nothing is `#include`d except ffi headers, and
+`<new>` where a derived assignment rebuilds a value in place (§5).
 
 Three rules govern the whole layer:
 
@@ -236,7 +237,7 @@ it. Library roots still wrap by `module_base` (Piece 1 open).
 
 Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields, method DECLARATIONS (never bodies in the class —
-invariant 12),
+invariant 12), the derived `op =` (below),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
 types. Enums: C-like as `enum class`, an ADT as its layout record (below).
 Functions: free only. Extension scopes:
@@ -263,20 +264,47 @@ The class definitions stay byte-identical, because the bodies are emitted
 outside the class. `--emit-headers` therefore runs EmitIR, needs a lowered
 tree, and writes nothing after an error.
 
+A record's `op =` is derived from its transfer constructor, never written
+(classes.md); ClassLifecycle decides how (`assign_from`, `assign_form`) and
+`_derived_assign` writes it after the methods, public, its operand spelled
+as the constructor's own `other`. No transfer constructor written: nothing,
+since C++'s implicit assignment is the derived one and declaring one would
+change which constructors C++ generates. Defaulted: `= default`. Deleted, a
+polymorphic record with a body, or a part that cannot be assigned:
+`= delete`, and assigning one is SC071E. A body: `X& operator=(<other> o)
+{ if (this != &o) { this->X::~X(); ::new (static_cast<void*>(this)) X(o); }
+return *this; }`, `static_cast<X&&>(o)` from a `@move` one -- nothing on
+self-assignment, the destructor qualified so it is never virtual, and the
+old value destroyed before the new one is built since emitted C++ has no
+exceptions. A generic record whose dependent parts leave that open declares
+it twice: the body under `requires (<every dependent field destructible,
+every dependent base destructible and not polymorphic>)` and `= delete`
+under the negation, the traits over the parts because the record is
+incomplete inside its own body. The body sits in the class (invariant 12's
+exception). Its `::new` is the global placement form, so a TU or header
+that writes one asks for `<new>` before any class: TextSink as a line,
+TokenSink through KairoInject, which both appends it to the predefines and
+adds it to `PreprocessorOptions::Includes` (clang reads the one or the
+other, as the TU loads a PCH or not). It is included rather than
+declared: libc++ declares the operator with an abi_tag and, from C++26,
+constexpr, and clang rejects a redeclaration that differs, in either order.
+
 An ADT enum is written as the record EnumLayoutLowering built
 (`EnumDecl::adt_layout`), under the enum's name and template head, in the
 record's order: the tag enum (bare enumerators: a tag is a variant's
 position), each payload struct with its own placement `operator new` as its
-first member (`new (&m) P(...)` finds it; no `<new>` is included and
+first member (`new (&m) P(...)` finds it whether or not the TU includes
+`<new>`, so for a payload
 `::new` is never emitted), the tag (public: an ADT's `==` is a compare of
 two values' tags in the user's code), the anonymous union, a generic ADT's
 five `static constexpr bool` flags (type traits over the payload structs),
 then the role functions rendered from `adt_role` / `adt_form`: a
 `template <class F> E(::__kairo_vt<I>, F&& f)` or `E(::__kairo_vt<I>)` per
 variant, the special members, and the private `__kairo_destroy` /
-`__kairo_construct_from`. Their bodies are written in the class, the one
-exception to invariant 12: they have no Kairo body to put out of line, and
-the text is still a pure function of the decl. A generic ADT declares all
+`__kairo_construct_from`. Their bodies are written in the class, as a
+derived assignment's is (invariant 12's exception): they have no Kairo body
+to put out of line, and the text is still a pure function of the decl. A
+generic ADT declares all
 three forms of each special member (defaulted, with a body, deleted),
 constrained on the flags so one is selected; a non-generic one declares the
 one form its lifecycle facts select, unconstrained. EmitPlan reads an ADT's
@@ -450,8 +478,9 @@ ConformanceChecking's table: the primary forwards structurally
 extension and builtin conformances, and the derived concept `I_c<T>` is
 the one Kairo-derived `requires` an emitted template may carry (revising
 invariant 13). ADT special members carry C++ constraints rendered by
-InterfaceEmitter from adt_role/adt_form; they are not Kairo constraints and
-have no requires_clause.
+InterfaceEmitter from adt_role/adt_form, and a generic record's derived
+assignment from its assign_form; they are not Kairo constraints and have no
+requires_clause.
 Until EmitWitness lands, a callee owned by an `InterfaceDecl` is an ICE.
 
 ## 8. Diagnostics

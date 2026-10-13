@@ -40,6 +40,8 @@ ffi "c++" import "clang/Basic/SourceManager.h";
 ffi "c++" import "clang/Frontend/CompilerInstance.h";
 ffi "c++" import "clang/Frontend/FrontendActions.h";
 ffi "c++" import "clang/CodeGen/CodeGenAction.h";
+ffi "c++" import "clang/Lex/Preprocessor.h";
+ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
 
 import Codegen::TokenSink::*;
@@ -115,6 +117,23 @@ class KairoInject {
             pp, csm, self.locmap, live_cfid, self.kfid, self.ksize, self.arena);
         self.filled = self.filler->fill(self.sink);
         if !self.filled { return false; }
+
+        // The system headers the stream needs (TokenSink::system_header),
+        // entered ahead of it as a header set's textual includes are. Both
+        // routes, because clang reads only one: without a PCH the predefines
+        // buffer was built from PreprocessorOptions::Includes before this
+        // action began, so the line is appended to it; with one, the PCH
+        // reader rebuilds the predefines from Includes after this point and
+        // drops an append. Backend::run restores Includes after the run.
+        var ppo = &(ci.getPreprocessorOpts());
+        for var i: usize = 0; i < self.sink->system_headers.size(); ++i {
+            var h = self.sink->system_headers[i];
+            ppo->Includes.push_back(libcxx::string(std::string_to_nstring(h).raw_string()));
+            var pre  = libcxx::string(pp->getPredefines());
+            var line = "#include <" + h + ">\n";
+            pre.append(std::string_to_nstring(line).raw_string());
+            pp->setPredefines(pre);
+        }
 
         if self.sink->has_arena() {
             var view = self.sink->seal_arena();

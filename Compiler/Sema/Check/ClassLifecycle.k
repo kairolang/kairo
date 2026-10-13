@@ -105,6 +105,22 @@
 ///     for `const X&` too, whereas an Inout parameter in X is a `T&` that
 ///     wants the call-site `&` and refuses a temporary.
 ///
+///   \par Assignment
+///     `op =` is never written (rule 2): it is derived from the transfer
+///     constructor, and the derivation is decided here and written on the
+///     record (assign_from, assign_form; Declarations.k AssignForm) for
+///     InterfaceEmitter. A defaulted transfer, or none at all, assigns
+///     member by member, so a part that cannot be assigned leaves none. A
+///     deleted transfer leaves none. A transfer with a body destroys the old
+///     value and builds the new one in place through that constructor,
+///     which neither a polymorphic record takes -- it may be a base
+///     subobject, and the rebuild would leave the derived object with this
+///     record's vptr -- nor one that cannot be destroyed. `assignable` is
+///     that verdict and `polymorphic` the vptr fact it reads; assigning a
+///     record left with none is an error here (SC071E) rather than in
+///     clang. A generic record whose parts leave a body's verdict open gets
+///     it constrained per instance (AssignForm::Constrained).
+///
 ///   \par Ownership
 ///     One instance per TU run, owned by Sema and published on
 ///     SemaContext::lifecycle. Readers reach it through lifecycle_of(sc), so
@@ -133,6 +149,7 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
+import AST::Node::Expressions::*;
 import AST::ParamMode::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
@@ -218,6 +235,14 @@ class LifecycleFacts {
     /// No when the destructor is `= delete` here, on a base, or on a
     /// by-value field (an ADT: on any payload field).
     pub var destructible: LifecycleTri = LifecycleTri::Yes;
+    /// A vptr: a virtual method of its own (a pure one included), a virtual
+    /// base, or a polymorphic base. Unknown under a dependent base.
+    pub var polymorphic: LifecycleTri = LifecycleTri::No;
+    /// The derived `op =` exists (file header, Assignment). Folded over the
+    /// parts by _absorb_assign, never by _absorb: an ADT rebuilds its
+    /// payloads rather than assigning them.
+    pub var assignable:         LifecycleTri = LifecycleTri::Yes;
+    pub var why_not_assignable: string = "";
     fn LifecycleFacts(self) { }
 }
 
@@ -330,6 +355,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                 for var i: usize = 0; i < tt->elements.size(); ++i {
                     var ef = self.facts_of_type(tt->elements[i]);
                     self._absorb(&out, &ef, f"element {i}");
+                    self._absorb_assign(&out, &ef, f"element {i}");
                 }
                 return out;
             }
@@ -370,6 +396,8 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         out.destructible       = LifecycleTri::Unknown;
         out.own_dtor_work      = LifecycleTri::Unknown;
         out.virtual_dtor       = LifecycleTri::Unknown;
+        out.polymorphic        = LifecycleTri::Unknown;
+        out.assignable         = LifecycleTri::Unknown;
         out.category           = LifecycleCategory::Unknown;
         return out;
     }
@@ -415,7 +443,10 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
             if m == &null { continue; }
-            if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || m->ffi_virtual {
+            // A pure `= virtual` one too: InterfaceEmitter declares it
+            // `virtual`, so the class has a vptr all the same.
+            if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || m->ffi_virtual
+            || (m->body_kind == FnBodyKind::Virtual) {
                 polymorphic = true;
             }
             // Provided: neither `= default` nor `= delete`. A body-less
@@ -516,6 +547,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             }
         }
         if polymorphic { f->trivially_copyable = LifecycleTri::No; }
+        f->polymorphic = lifecycle_tri(polymorphic);
 
         // Bases.
         if isa::<ClassDecl>(d) {
@@ -529,7 +561,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                     if self._dependent_base(e->base) {
                         var uf = self._unknown_facts();
                         f->virtual_dtor = lifecycle_or(f->virtual_dtor, uf.virtual_dtor);
+                        f->polymorphic  = lifecycle_or(f->polymorphic, uf.polymorphic);
                         self._absorb(f, &uf, "its base");
+                        self._absorb_assign(f, &uf, "its base");
                     }
                     continue;
                 }
@@ -537,7 +571,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                 var bf = self.facts_of(bd);
                 if bf->in_progress { continue; }             // a cycle; TypeCycleCheck's.
                 f->virtual_dtor = lifecycle_or(f->virtual_dtor, bf->virtual_dtor);
+                f->polymorphic  = lifecycle_or(f->polymorphic, bf->polymorphic);
                 self._absorb(f, bf, f"its base '{self._tu.decl_name(bd)}\x27");
+                self._absorb_assign(f, bf, f"its base '{self._tu.decl_name(bd)}\x27");
             }
         }
 
@@ -551,6 +587,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if ff.in_progress { continue; }
             f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(ff.trivial_dtor));
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
+            self._absorb_assign(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
         }
 
         // Undo what the folding did to a pinned transfer (see above). The
@@ -578,6 +615,28 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             f->category = LifecycleCategory::Unknown;
         }
         self._settle_non_transfer(f);
+
+        // The derived `op =` (file header, Assignment). The fold above is
+        // member by member, which is what a defaulted transfer or none
+        // gives; a deleted transfer gives none; a body destroys and rebuilds,
+        // which no part's `op =` takes part in but which a polymorphic or an
+        // indestructible record cannot take. An imported record's
+        // assignment is its own, never derived.
+        if (lay != &null) && lay->known {
+            f->assignable         = LifecycleTri::Yes;
+            f->why_not_assignable = "";
+        } else if copy_deleted || move_deleted {
+            f->assignable         = LifecycleTri::No;
+            f->why_not_assignable = "its transfer constructor is deleted";
+        } else if copy_provided || move_provided {
+            f->assignable         = lifecycle_and(lifecycle_not(f->polymorphic), f->destructible);
+            f->why_not_assignable = "";
+            if f->polymorphic == LifecycleTri::Yes {
+                f->why_not_assignable = "it is polymorphic, and assigning it would destroy it and rebuild it in place through its transfer constructor";
+            } else if f->destructible == LifecycleTri::No {
+                f->why_not_assignable = "assigning it destroys the old value first, and it cannot be destroyed";
+            }
+        }
 
         f->computed    = true;
         f->in_progress = false;
@@ -612,6 +671,11 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // trivially copyable (one move-only, one an import with its move
         // deleted) can together leave an ADT that transfers neither way.
         self._settle_non_transfer(f);
+        // An ADT's `op =` rebuilds the payload through the payload's own
+        // transfer constructor (EnumLayoutLowering) and never assigns it, so
+        // it exists whenever the ADT transfers at all.
+        f->assignable = lifecycle_or(f->copyable, f->movable);
+        if f->assignable == LifecycleTri::No { f->why_not_assignable = "it can be neither copied nor moved"; }
 
         f->computed    = true;
         f->in_progress = false;
@@ -653,6 +717,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // class's own members, so this sits above the no-base early-out.
         self._check_transfer_shapes(static_cast::<*Decl>(n), self.sc->ctx->get_spelling(n->name));
         self._check_lifecycle_rules(n);
+        self._derive_assign(static_cast::<*Decl>(n));
         if n->derives_list.size() == 0 { return true; }
         self.n_checked += 1;
 
@@ -693,6 +758,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         if n == &null { return true; }
         if n->is_poisoned() { return true; }
         self._check_transfer_shapes(static_cast::<*Decl>(n), self.sc->ctx->get_spelling(n->name));
+        self._derive_assign(static_cast::<*Decl>(n));
         return true;
     }
 
@@ -1008,6 +1074,131 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             case LifecycleCategory::Unknown     { return "undecided until instantiation"; }
             default                             { return "copyable (@copy)";            }
         }
+    }
+
+    // === the derived `op =` ==================================================
+
+    /// Fold a part's assignability into its owner's, for an `op =` that
+    /// assigns member by member (file header, Assignment). A reason is kept
+    /// for a definite No only, the first, as _absorb keeps its own.
+    priv fn _absorb_assign(self, f: *LifecycleFacts, c: *LifecycleFacts, what: string) {
+        var a = lifecycle_and(f->assignable, c->assignable);
+        if (a == LifecycleTri::No) && (f->assignable != LifecycleTri::No) {
+            f->why_not_assignable = f"{what} cannot be assigned";
+        }
+        f->assignable = a;
+    }
+
+    /// The transfer constructor \p d's `op =` is derived from: the first
+    /// `@copy` / `@move` constructor that takes `Self` (the shape
+    /// _check_transfer_shapes accepts and stamps). Null when none is
+    /// written: C++'s implicit assignment is then the derived one. A marker
+    /// on a constructor that does not take `Self` makes no transfer
+    /// constructor to C++, so nothing derives from it. Rules 1 and 3 poison
+    /// the ones they reject.
+    priv fn _assign_source(self, d: *Decl) -> *FunctionDecl {
+        var methods = self._methods(d);
+        for var i: usize = 0; i < methods.size(); ++i {
+            var m = methods[i];
+            if (m == &null) || m->is_poisoned() || (m->transfer == TransferKind::NotTransfer) { continue; }
+            var selfp: *ParamDecl = &null;
+            var other: *ParamDecl = &null;
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var q = m->params[j];
+                if q == &null { continue; }
+                if q->is_self { selfp = q; continue; }
+                if other == &null { other = q; }
+            }
+            if (selfp == &null) || (other == &null) { continue; }
+            if (selfp->type_ == &null) || (selfp->type_->canonical == &null) { continue; }
+            if (other->type_ == &null) || (other->type_->canonical == &null) { continue; }
+            if canon_unqual(other->type_->canonical) != canon_unqual(selfp->type_->canonical) { continue; }
+            return m;
+        }
+        return &null;
+    }
+
+    /// A by-value field or a base whose type depends on a generic
+    /// parameter (_dependent_base asks any type): what leaves a body's
+    /// verdict open in the pattern, and what InterfaceEmitter constrains a
+    /// Constrained `op =` on -- the same test over the same lists.
+    priv fn _has_dependent_part(self, d: *Decl) -> bool {
+        var fields = self._fields(d);
+        for var i: usize = 0; i < fields.size(); ++i {
+            var fd = fields[i];
+            if (fd == &null) || fd->is_static() { continue; }
+            if self._dependent_base(fd->type_) { return true; }
+        }
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                if self._dependent_base(c->derives_list.get(i)->base) { return true; }
+            }
+        }
+        return false;
+    }
+
+    /// How \p d's `op =`, derived from \p x, is given to C++.
+    priv fn _assign_form(self, d: *Decl, x: *FunctionDecl) -> AssignForm {
+        if x == &null { return AssignForm::Implicit; }
+        if x->body_kind == FnBodyKind::Delete { return AssignForm::Deleted; }
+        var f = self.facts_of(d);
+        if f->assignable == LifecycleTri::No { return AssignForm::Deleted; }
+        // Member by member: C++'s `= default` is the derived one, and an
+        // instance whose part cannot be assigned has it deleted by C++.
+        if x->body_kind == FnBodyKind::Default { return AssignForm::Default; }
+        // Open only where a dependent part leaves destruction or a vptr to
+        // the instance. A record open only because an instance it holds
+        // reads its pattern's facts depends on nothing, so it has nothing to
+        // constrain on; it is rebuilt, as its destructor already assumes.
+        if (f->assignable == LifecycleTri::Unknown) && self._has_dependent_part(d) { return AssignForm::Constrained; }
+        return AssignForm::Body;
+    }
+
+    /// The one writer of ClassDecl / StructDecl::assign_from and
+    /// assign_form (file header, Assignment).
+    priv fn _derive_assign(self, d: *Decl) {
+        var x    = self._assign_source(d);
+        var form = self._assign_form(d, x);
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            c->assign_from = x;
+            c->assign_form = form;
+        } else if isa::<StructDecl>(d) {
+            var s = cast::<StructDecl>(d);
+            s->assign_from = x;
+            s->assign_form = form;
+        }
+    }
+
+    // === assignment ==========================================================
+
+    /// `a = b` where the derived `op =` of a's record does not exist (file
+    /// header, Assignment): an error here, in Kairo's terms, rather than
+    /// clang's about a deleted operator. A definite No only. A compound
+    /// operator is a user or a builtin one, never this.
+    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
+        if (n == &null) || n->is_poisoned() { return true; }
+        if n->op_token.kind != TokenKind::OpEqual { return true; }
+        if (n->lhs == &null) || (n->lhs->type_ == &null) { return true; }
+        var c  = canon_unqual(n->lhs->type_);
+        var rd = self._tu.record_decl(c);
+        if rd == &null { return true; }
+        var f = self.facts_of(rd);
+        if f->assignable != LifecycleTri::No { return true; }
+        var b = self.sc->diag->report(DiagID::SC071E, n->range.start,
+            f"cannot assign a '{self._tu.str(c)}': {f->why_not_assignable}"
+        );
+        b.first(n->range);
+        b.note(rd->range.start, "type declared here").first(rd->range);
+        // `op =` cannot be written (rule 2), so there is no assignment to
+        // suggest: the value has to be built anew.
+        if f->polymorphic == LifecycleTri::Yes {
+            b.note(rd->range.start, "polymorphic classes cannot be assigned; construct a new value");
+        }
+        b.emit();
+        self.n_errored += 1;
+        return true;
     }
 
     // === helpers =============================================================

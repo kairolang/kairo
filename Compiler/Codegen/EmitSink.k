@@ -73,6 +73,11 @@ class EmitSink {
     /// only; a token stream has no line to put it on.
     virtual fn directive(self, at: SourceRange, text: string) -> bool { self.ice_at(at, "EmitSink::directive: this sink is a token stream and cannot carry a preprocessor line"); return false; }
 
+    /// `#include <name>`: a system header the emitted C++ needs (<new>, for
+    /// a derived `op =` that rebuilds in place). TextSink writes the line;
+    /// TokenSink records it, and KairoInject enters it ahead of the stream.
+    virtual fn system_header(self, at: SourceRange, name: string) -> bool { self.ice_at(at, "EmitSink::system_header: abstract"); return false; }
+
     /// Layout hint. TextSink breaks the line; TokenSink ignores it.
     virtual fn brk(self) { }
 

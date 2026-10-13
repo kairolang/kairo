@@ -76,6 +76,9 @@ class TokenSink derives EmitSink {
     /// at one of them moves within its anchor, or to the arena: see _claim.
     priv var _used:       libcxx::unordered_set::<u32>;
     priv var _sealed:     bool = false;
+    /// System headers the stream needs (system_header), for KairoInject to
+    /// enter ahead of it: a token stream has no line for an #include.
+    pub var system_headers: vec::<string>;
 
     fn TokenSink(self, pp: *clang::Preprocessor, csm: *clang::SourceManager,
                  locmap: *ClangLocMap, cfid: clang::FileID, kfid: FileID, ksize: u32,
@@ -220,6 +223,15 @@ class TokenSink derives EmitSink {
     /// \p cxx INCLUDES the quotes.
     override fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
         return self._arena_tok(clang::tok::string_literal, at, cxx);
+    }
+
+    /// Recorded, not emitted (system_headers); once per header.
+    override fn system_header(self, at: SourceRange, name: string) -> bool {
+        for var i: usize = 0; i < self.system_headers.size(); ++i {
+            if self.system_headers[i] == name { return true; }
+        }
+        self.system_headers.push_back(name);
+        return true;
     }
 
     /// End of stream. Zero length, anchored on the file's last byte.

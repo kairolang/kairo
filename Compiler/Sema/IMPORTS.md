@@ -22,7 +22,8 @@ use site holds a `*Decl`; the decl knows its own home through the
 DeclContext parent chain; nothing after sema reads an `ImportDecl`. Codegen
 regenerates, per TU, the declarations a C++ header would have provided,
 derived from those `*Decl` links. The only `#include` in emitted C++ is an
-`ffi` import.
+`ffi` import, and `<new>` in a TU or header that writes a class whose
+derived assignment rebuilds a value in place (CODEGEN.md §5).
 
 Everything below is a consequence of that sentence.
 
@@ -325,16 +326,17 @@ every body. One object per non-foreign TU.
     header that can see the declaration also emits, out of line, as C++
     `inline`, with the same text. They are interface because an importer
     has to compile them: clang instantiates templates Kairo never lists,
-    and `inline` is the author saying the importer should. Exception: the
-    special members of an ADT record (rendered from adt_role/adt_form)
-    carry their bodies inside the class; they are compiler-synthesized,
-    have no Kairo source counterpart, and no user function body is ever
-    emitted in-class.
+    and `inline` is the author saying the importer should. Exception:
+    members the compiler synthesizes (ADT special members, rendered from
+    adt_role/adt_form, and derived assignment operators) carry their
+    bodies inside the class; they have no Kairo source counterpart, and no
+    user-written function body is ever emitted in-class.
 13. **Clang never instantiates.** Every generic instantiation is
     enumerated by Kairo sema, checked by Kairo sema, and emitted explicitly.
     Emitted templates carry no `requires`. ADT special members carry C++
-    constraints rendered by InterfaceEmitter from adt_role/adt_form; they
-    are not Kairo constraints and have no requires_clause.
+    constraints rendered by InterfaceEmitter from adt_role/adt_form, and a
+    generic record's derived assignment operators from its assign_form;
+    they are not Kairo constraints and have no requires_clause.
 
 ---
 

@@ -20,6 +20,18 @@
 ///     pure function of the decl. The constraints are C++ mechanics over the
 ///     record's flags, never a Kairo requires_clause.
 ///
+///   \par Derived assignment
+///     A record's `op =` is derived from its transfer constructor and has
+///     no Kairo decl. ClassLifecycle decides how (ClassDecl / StructDecl::
+///     assign_form) and _derived_assign writes it after the methods, a pure
+///     function of the record. With a body it is the other member that
+///     carries one in the class: destroy, then rebuild through the global
+///     placement `::new`, so a TU or header that writes one asks the sink
+///     for <new> before any class (_needs_new). Included, not declared:
+///     libc++ declares that operator with an abi_tag and, from C++26,
+///     constexpr, and clang rejects a redeclaration that differs, whichever
+///     of the two comes first.
+///
 ///   \par What is NOT emitted (each an ICE naming its owner)
 ///     Named unions (later; an anonymous one is written inline as the field
 ///     that declares it), interfaces (no
@@ -91,6 +103,12 @@ class InterfaceEmitter {
     fn run(self) {
         var header = (self._plan->mode() == PlanMode::Header);
         if header { self._header_prologue(); }
+        // A rebuilding `op =` calls the global placement `::new`, which only
+        // <new> declares: asked for ahead of every class, and only by a TU
+        // or header that writes one (_needs_new). Outside the guard below:
+        // a header that needs it may follow one that defined the guard
+        // without it.
+        if self._needs_new() { sink->system_header(self._tu_at(), "new"); }
         // A header carries the module's inline and template bodies too
         // (EmitPlan::visible_bodies), so it needs these as much as a
         // preamble. Guarded there: one C++ TU may include several Kairo
@@ -116,8 +134,8 @@ class InterfaceEmitter {
             + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };");
         sink->brk();
         // Construction and destruction in place. `new (p) T(...)` finds T's
-        // own placement operator new first (an ADT payload declares one); no
-        // <new> is included, so it is never `::new`.
+        // own placement operator new first (an ADT payload declares one),
+        // which needs no <new>, so it is never `::new`.
         sink->spell(self._tu_at(),
             "template <class T, class... A> inline void " + LowerTargets::construct_at()
             + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }");
@@ -366,7 +384,8 @@ class InterfaceEmitter {
     }
 
     /// The definition, body-less (invariant 12): bases, nested types,
-    /// fields, method declarations, friends. Field initializers and
+    /// fields, method declarations, the derived `op =` (the exception:
+    /// _derived_assign), friends. Field initializers and
     /// parameter defaults are not emitted; see the file header.
     ///
     /// Every type written inside the braces is spelled with \p d as its
@@ -397,8 +416,8 @@ class InterfaceEmitter {
         s += " {";
         sink->spell(at, s);
         // An ADT payload is built inside its union by `new (&member) P(...)`,
-        // and the TU includes no <new>: this placement form, found in the
-        // class before any global one, is what that expression calls.
+        // which must not depend on the TU including <new>: this placement
+        // form, found in the class before any global one, is what it calls.
         if isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_adt_payload {
             sink->spell(at, "static void* operator new(" + builtin_info(BuiltinKind::USize)->cxx + ", void* p) noexcept { return p; }");
         }
@@ -470,6 +489,13 @@ class InterfaceEmitter {
             sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
+        // `op =`, derived from the transfer constructor (_derived_assign).
+        // Public, as C++'s implicit one is.
+        if self._assign_form_of(d) != AssignForm::Implicit {
+            cur_access = self._access(cur_access, VIS_PUB(), false, at);
+            self._derived_assign(d);
+        }
+
         self._friends(d);
 
         sink->spell(at, "};");
@@ -490,6 +516,138 @@ class InterfaceEmitter {
         if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
             self._ice(self._at(d), "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
         }
+    }
+
+    /// The derived `op =` slots ClassLifecycle wrote on a record; Implicit
+    /// and null for anything else.
+    priv fn _assign_form_of(self, d: *Decl) -> AssignForm {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->assign_form; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->assign_form; }
+        return AssignForm::Implicit;
+    }
+
+    priv fn _assign_from_of(self, d: *Decl) -> *FunctionDecl {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->assign_from; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->assign_from; }
+        return &null;
+    }
+
+    /// Some class this run writes carries an `op =` that rebuilds in place
+    /// (Body, Constrained): tier 1, and the records _record_def nests in
+    /// those. A header skips what it includes, as run() does.
+    priv fn _needs_new(self) -> bool {
+        var header = (self._plan->mode() == PlanMode::Header);
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var e = &(self._plan->entries[i]);
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) { continue; }
+            if header && (!e->own) { continue; }
+            if self._rebuilds(e->decl) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _rebuilds(self, d: *Decl) -> bool {
+        var form = self._assign_form_of(d);
+        if (form == AssignForm::Body) || (form == AssignForm::Constrained) { return true; }
+        if (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d)) { return false; }
+        var dc = CXXSpell::dc_of(d);
+        if dc == &null { return false; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var nd = *(dc->dc_decls.get(i));
+            if (nd == &null) || isa::<VisibilityGroupDecl>(nd) || (!self._is_type(nd)) { continue; }
+            if self._rebuilds(CXXSpell::rep(nd)) { return true; }
+        }
+        return false;
+    }
+
+    /// `X& operator=(...)`, as ClassLifecycle chose it (AssignForm). The
+    /// operand is the transfer constructor's own `other`, so the
+    /// constructor takes it exactly: `const X&` from `@copy fn X(self,
+    /// const other: Self)`, `X&` without the `const`, `X&&` from `@move`.
+    /// Anchored on the constructor, which it is derived from.
+    priv fn _derived_assign(self, d: *Decl) {
+        var form = self._assign_form_of(d);
+        var x    = self._assign_from_of(d);
+        if x == &null { self._ice(self._at(d), "InterfaceEmitter: a derived `op =` with no transfer constructor; ClassLifecycle gate failure"); }
+        var other: *ParamDecl = &null;
+        for var i: usize = 0; i < x->params.size(); ++i {
+            var p = x->params[i];
+            if (p != &null) && (!p->is_self) { other = p; break; }
+        }
+        if other == &null { self._ice(self._at(static_cast::<*Decl>(x)), "InterfaceEmitter: a transfer constructor with no `other`; ClassLifecycle gate failure"); }
+        var xat   = self._at(static_cast::<*Decl>(x));
+        var head  = self._spell->leaf(d) + "& operator=(";
+        var bare  = head + self._spell->param_decl(other, "", &null, d) + ")";
+        var named = head + self._spell->param_decl(other, "o", &null, d) + ")";
+        switch form {
+            case AssignForm::Default { sink->spell(xat, bare + " = default;"); }
+            case AssignForm::Deleted { sink->spell(xat, bare + " = delete;"); }
+            case AssignForm::Body    { sink->spell(xat, named + self._rebuild(d, x)); }
+            case AssignForm::Constrained {
+                // Exactly one is viable in an instance, as with a generic
+                // ADT's special members; the deleted one leaves an instance
+                // that fails the constraint unassignable by name.
+                var ok = self._rebuild_constraint(d);
+                sink->spell(xat, named + " requires (" + ok + ")" + self._rebuild(d, x));
+                sink->spell(xat, bare + " requires (!(" + ok + ")) = delete;");
+            }
+            default { 0; }
+        }
+    }
+
+    /// ` { if (this != &o) { this->X::~X(); ::new (static_cast<void*>(this))
+    /// X(o); } return *this; }` (`static_cast<X&&>(o)` from a `@move`
+    /// constructor). Nothing on self-assignment: destroying first would
+    /// leave nothing to build from. The destructor call is qualified, so it
+    /// is never virtual: only X is rebuilt (a polymorphic record never gets
+    /// here). The old value goes before the new one is built, not after
+    /// building it aside: emitted C++ is compiled without exceptions, so the
+    /// constructor cannot leave the record half-assigned. `::new` is the
+    /// global placement form (<new>, _needs_new); X is the injected class
+    /// name, template or not.
+    priv fn _rebuild(self, d: *Decl, x: *FunctionDecl) -> string {
+        var nm  = self._spell->leaf(d);
+        var src = ("static_cast<" + nm + "&&>(o)") if (x->transfer == TransferKind::Move) else ("o");
+        return " { if (this != &o) { this->" + nm + "::~" + nm + "(); ::new (static_cast<void*>(this)) "
+             + nm + "(" + src + "); } return *this; }";
+    }
+
+    /// What a Constrained `op =` asks of an instance: every by-value field
+    /// whose type depends on a generic parameter destructible, and every
+    /// such base destructible and not polymorphic -- what ClassLifecycle
+    /// could not decide in the pattern (_has_dependent_part walks the same
+    /// lists with the same test). Traits over the parts, never over the
+    /// record: inside its own body the record is incomplete, and clang
+    /// rejects a trait on it there.
+    priv fn _rebuild_constraint(self, d: *Decl) -> string {
+        var s = "";
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var e = c->derives_list.get(i);
+                if (e == &null) || (!self._dependent(e->base)) { continue; }
+                var b = self._spell->_type(e->base);
+                if s.size() > 0 { s += " && "; }
+                s += "__is_destructible(" + b + ") && !__is_polymorphic(" + b + ")";
+            }
+        }
+        var fields = (cast::<ClassDecl>(d)->fields) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->fields);
+        for var i: usize = 0; i < fields.size(); ++i {
+            var f = fields[i];
+            if (f == &null) || f->is_static() || (!self._dependent(f->type_)) { continue; }
+            if s.size() > 0 { s += " && "; }
+            s += "__is_destructible(" + self._spell->_type(f->type_, &null, d) + ")";
+        }
+        if s.size() == 0 { self._ice(self._at(d), "InterfaceEmitter: a constrained `op =` with no dependent part; ClassLifecycle gate failure"); }
+        return s;
+    }
+
+    /// The type depends on a generic parameter (ClassLifecycle's test for
+    /// an open part).
+    priv fn _dependent(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        return c->is_dependent() || c->is_instantiation_dependent();
     }
 
     /// `union { T a; U b; };`: an anonymous union, written where its field
@@ -766,7 +924,8 @@ class InterfaceEmitter {
                 return s + " default: break; } }";
             }
             case AdtRole::ConstructFrom {
-                // `new` finds the payload struct's own placement form (no <new>).
+                // `new` finds the payload struct's own placement form, which
+                // needs no <new>.
                 var s = "template <class O> void " + cf + "(O&& o) { switch (" + tag + ") {";
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var v = en->variants[i];

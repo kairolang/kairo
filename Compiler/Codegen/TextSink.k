@@ -123,6 +123,10 @@ class TextSink derives EmitSink {
         return true;
     }
 
+    override fn system_header(self, at: SourceRange, name: string) -> bool {
+        return self.directive(at, "#include <" + name + ">");
+    }
+
     override fn brk(self) {
         if self._at_line_start { return; }
         self.out += "\n";
