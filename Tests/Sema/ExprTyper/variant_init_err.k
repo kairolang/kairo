@@ -65,5 +65,20 @@ fn <T> pick() -> T {
     return .North;
 }
 
+// Overloads are told apart only by which enum has the variant. When both
+// parameters' enums have it, `.V` takes either one exactly, neither is
+// better, and the call is ambiguous -- not resolved by declaration order.
+enum Slot { Full { n: i32 }, Empty }
+fn place(s: Shape) { }
+fn place(s: Slot) { }
+
+fn tied() {
+    place(.Empty);
+// DIAG:      variant_init_err.k:[[@LINE-1]]:5: error [SC064E]: call to 'place' is ambiguous: more than one candidate matches at the same rank
+// DIAG-NEXT: variant_init_err.k:[[@LINE-6]]:1: note [I900N]: candidate declared here
+// DIAG-NEXT: variant_init_err.k:[[@LINE-6]]:1: note [I900N]: candidate declared here
+// DIAG-NEXT: variant_init_err.k:[[@LINE-4]]:5: note [I900N]: conversions are not ordered within a rank; cast one argument to make the choice explicit
+}
+
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["

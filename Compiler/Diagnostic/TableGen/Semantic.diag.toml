@@ -2693,7 +2693,7 @@ group = "pattern-matching"
     """
 
 [SC123]
-brief = "pattern head does not name a variant, constant or type of the matched value"
+brief = "pattern head or `.Variant` names nothing the matched or expected type has"
 group = "pattern-matching"
 
     [SC123.E]

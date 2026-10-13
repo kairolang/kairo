@@ -5,12 +5,42 @@
 ///
 ///   \detail
 ///     type_of(e, expected) is memoized per node, walks children itself, and
-///     writes exactly these slots: Expr::type_, Expr::value_category,
-///     Expr::expr_flags, Expr::poisoned; the inferred type of a VariableDecl
-///     / ClosureExpr / expr-bodied FunctionDecl / binder decl (the canonical
-///     node itself); Pattern::type_ / resolved_decl / field_decl (through
-///     PatternTyping); and the promotion candidate_cell -> resolved_decl on
-///     a callee. Nothing else. It allocates no AST node.
+///     writes exactly these slots, each a fact some later pass reads instead
+///     of deciding again:
+///
+///       any expression     Expr::type_, value_category, expr_flags, poisoned
+///       inferred decls     the type of a VariableDecl / ClosureExpr /
+///                          expr-bodied FunctionDecl / binder decl (the
+///                          canonical node itself), or its poison bit
+///       functions          is_generator, has_yield, no_unwind
+///       enum variants      EnumVariantDecl::value
+///       patterns           Pattern::type_ / resolved_decl / field_decl
+///                          (PatternTyping)
+///       callees            the promotion candidate_cell -> resolved_decl
+///       calls              CallExpr::arg_map / pack_len / instance /
+///                          ctor_decl; UnaryOperatorExpr::is_mode_marker
+///       operators          resolved_op / op_via_free / op_instance on a
+///                          binary, unary or assignment operator, op_rewrite
+///                          on a binary one; resolved_op / op_via_free on a
+///                          SubscriptExpr; resolved_op / op_via_free /
+///                          resolved_ctor / widening on a TypeCastExpr
+///       chains, typeof,    ChainExpr::Step::resolved_type,
+///         ranges           TypeOfExpr::resolved_type, RangeExpr::as_index
+///       literals           StringLiteralExpr::string_ctor / fmt_holes /
+///                          fmt_ctor / fmt_text / fmt_finish / fmt_len;
+///                          ListLiteralExpr::owner_ctor / slice_ctor / storage
+///       variant            variant_decl on the NamedInitializerExpr,
+///         construction     NamedIdentExpr or ChainExpr it was written as,
+///                          and InitField::field_decl on each field
+///       loops              RangedForStmt::iter_kind / iter_op / iter_elem,
+///                          and a C++ range's cxx_* slots
+///
+///     Nothing else in the tree. Outside it: its own side tables, sc.rstate
+///     for the decls it infers, and instances it asks the registry for.
+///
+///     It allocates AST nodes in one place: a C++ range's iterator locals
+///     and its `!=` / `*` / `++` expressions (StmtTyping::_cxx_range). It
+///     types them itself and leaves them on the loop for IterLowering.
 ///
 ///     The RAV drives the walk over the TU so that scope-carrying overrides
 ///     (StmtTyping) push frames; `dispatch_expr` is overridden to route
