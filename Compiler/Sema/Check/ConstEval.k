@@ -27,9 +27,15 @@
 ///     `as`, which keeps the low bits of the two's complement value
 ///     (casting.md, Narrowing), as C++ does.
 ///
-///     The bitwise operators work on the infinite two's complement form: a
-///     value is its low 64 bits plus one sign bit that extends forever, so
-///     `-1 & 0xFF` is 255 and `~0` is -1 with no width in sight.
+///     The binary bitwise operators work on the infinite two's complement
+///     form: a value is its low 64 bits plus one sign bit that extends
+///     forever, so `-1 & 0xFF` is 255 with no width in sight. `~` cannot:
+///     on that form `~0` is -1, which no unsigned type holds, yet `~0` in a
+///     u32 flags enum is meant as all 32 bits set. So `~x` is taken in the
+///     type X gave its operand (`_complement`), which inside a
+///     discriminant is the underlying type: the literal is typed against it,
+///     and an earlier variant reads as it. The result is still exact; only
+///     its meaning depends on the width.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -213,13 +219,28 @@ class ConstEval {
         return self.make(a.neg != b.neg, a.mag * b.mag);
     }
 
-    /// `~a` is `-a - 1` on the infinite two's complement form.
+    /// `~a` is `-a - 1` on the infinite two's complement form, which is
+    /// also its value in any signed type.
     fn complement(self, a: IntConst) -> IntConst {
         if a.overflow { return a; }
         if a.neg { return self.make(false, a.mag - u64(1)); }
         var all = u64(0) - u64(1);
         if a.mag == all { return self.too_wide(); }
         return self.make(true, a.mag + u64(1));
+    }
+
+    /// `~a` in an integer type of \p bits: `-a - 1` when signed, and
+    /// `(2^bits - 1) - a` when unsigned. Both are exact, so an `a` outside
+    /// the type gives a result outside it too, and the final range check
+    /// rejects it rather than this quietly wrapping it. Not ok for an
+    /// unsigned type wider than 64 bits, whose all-ones value has no
+    /// IntConst.
+    fn complement_in(self, a: IntConst, bits: usize, signed: bool) -> IntConst {
+        if signed { return self.complement(a); }
+        if (bits == 0) || (bits > 64) { return IntConst{}; }
+        var all  = u64(0) - u64(1);
+        var ones = (all) if (bits == 64) else ((u64(1) << u64(bits)) - u64(1));
+        return self.sub(self.make(false, ones), a);
     }
 
     /// `|` `&` `^` (\p which 0 / 1 / 2) on the infinite two's complement form:
@@ -310,7 +331,7 @@ class ConstEval {
             var inner = self._eval(u->operand, depth);
             if !inner.ok { return inner; }
             if isneg { return self.negate(inner); }
-            if isnot { return self.complement(inner); }
+            if isnot { return self._complement(u, inner); }
             return inner;
         }
 
@@ -363,6 +384,24 @@ class ConstEval {
         if r.neg { return self._fail(b->rhs, "a shift count cannot be negative"); }
         if k == TokenKind::OpLessLess { return self.shl(l, r); }
         return self.shr(l, r);
+    }
+
+    /// `~x` in the type of `x`. Without an integer builtin there is no width
+    /// to complement within, and guessing one (u32, or the infinite form)
+    /// would give a value the C++ `~` does not, so it does not evaluate.
+    priv fn _complement(self, u: *UnaryOperatorExpr, v: IntConst) -> IntConst {
+        var e  = static_cast::<*Expr>(u);
+        var wt: *Type = (u->operand->type_) if (u->operand != &null) else (&null);
+        var ot = self.tu.as_value(wt);
+        if (ot == &null) || (!self.tu.is_integer(ot)) {
+            return self._fail(e, "'~' is evaluated at compile time only on an operand of an integer type");
+        }
+        var signed = self.tu.is_signed_int(ot);
+        var bits   = self.tu.int_bits(ot);
+        if (!signed) && (bits > 64) {
+            return self._fail(e, f"'~' on a '{self.tu.str(ot)}\x27 operand is not evaluated at compile time; its value can be wider than 64 bits");
+        }
+        return self.complement_in(v, bits, signed);
     }
 
     /// `x as T` to an integer T, builtin only.

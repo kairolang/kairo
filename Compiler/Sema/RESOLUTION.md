@@ -788,11 +788,16 @@ literal (SC082E: the thunk would return a view of a dead array).
 An enum discriminant is typed against the underlying type (`u32` when
 none is written), the variants of its own enum reading as that integer;
 then `ConstEval` (Sema/Check) evaluates it, exactly, into
-`EnumVariantDecl::value`. A variant without one is the previous value plus
+`EnumVariantDecl::value`; `~x` alone is taken in the type of `x` (so `~0`
+is the underlying type's all-ones value), the other operators on the
+infinite two's complement form. A variant without one is the previous value plus
 one, the first 0, so every variant of a Kairo enum gets a value, an ADT's
 being its position. Only variants ABOVE the one being defined evaluate.
 SC128E when the discriminant does not evaluate or its value does not fit
 the underlying type; an imported C++ enum's values are clang's, not written.
+SC130E when a variant's value repeats one above it (a closed-enum match's
+switch would have two case labels with one value); a variant whose value
+failed takes no part, and neither ADTs nor imported C++ enums are checked.
 
 **What X does NOT do**: ADL through the global namespace (a type at TU
 scope associates no scope, by design; see `_enclosing_modules`); pack deduction and

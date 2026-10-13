@@ -15,7 +15,7 @@ enum Mixed { Ok = 200, NotFound = 404, Teapot, Wrapped = BIG as u8, Masked = MAS
 
 enum Wide derives i64 { Min = 0 - 9223372036854775807 - 1, AfterMin, Neg = 0 - 5 }
 
-enum Huge derives u64 { Max = MINUS_ONE as u64, Top = 18446744073709551615 }
+enum Huge derives u64 { Max = MINUS_ONE as u64, Top = 18446744073709551614 }
 
 enum Plain { A, B, C }
 
@@ -39,7 +39,7 @@ fn main() -> i32 {
 // CXX:      enum class Wide : signed long {
 // CXX-NEXT:     Min ={{ ?}}(-{{ ?}}9223372036854775807 - 1), AfterMin = -{{ ?}}9223372036854775807, Neg = -{{ ?}}5, };
 // CXX:      enum class Huge : unsigned long {
-// CXX-NEXT:     Max = 18446744073709551615u, Top = 18446744073709551615u, };
+// CXX-NEXT:     Max = 18446744073709551615u, Top = 18446744073709551614u, };
 // CXX:      enum class Plain : unsigned int {
 // CXX-NEXT:     A, B, C, };
 // CXX:      enum class Ops : signed int {

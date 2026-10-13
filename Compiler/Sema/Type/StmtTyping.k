@@ -457,7 +457,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             // did not type or convert (SC075E for `256` in a u8 enum).
             if (!typed_ok) || n->discriminant->is_poisoned() { return; }
             var c = ce.eval_discriminant(n->discriminant, ed, pos);
-            if c.ok && ce.fits(c, under) { n->value = c; return; }
+            if c.ok && ce.fits(c, under) {
+                n->value = c;
+                self._reject_duplicate_value(n, ed, pos);
+                return;
+            }
             if (!c.ok) && ce.quiet { return; }
             if !c.ok {
                 var at = (ce.bad) if (ce.bad != &null) else (n->discriminant);
@@ -480,10 +484,43 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var prev = (ed->variants[pos - 1]) if ((ed != &null) && (pos < ed->variants.size())) else (&null);
         if (prev == &null) || (!prev->value.ok) { return; }   // the previous one failed, and said so.
         var c = ce.add(prev->value, ce.make(false, u64(1)));
-        if ce.fits(c, under) { n->value = c; return; }
+        if ce.fits(c, under) {
+            n->value = c;
+            self._reject_duplicate_value(n, ed, pos);
+            return;
+        }
         // C++ rejects the enumerator too; say it here, where the cause is.
         self._report_value_misfit(ed, under, n->name.range,
             f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' is one past '{dyn()->tu.decl_name(static_cast::<*Decl>(prev))}', so it is {ce.str(c)}");
+    }
+
+    /// SC130E when \p n, just given its value, repeats the value of a
+    /// variant above it. A closed-enum match switches on the enumerators, so
+    /// two with one value would be two case labels with one value, which
+    /// C++ rejects in the emitted switch, and no arm could tell the two
+    /// apart anyway. How either value came about does not matter: written,
+    /// computed, or one past the previous. Only the variants above are
+    /// compared, so each pair is reported once, at the later one. A variant
+    /// whose value failed has no ok slot and takes no part; its error is
+    /// already out. An ADT is not checked: its match switches on the tag,
+    /// which is the variant's position (MatchLowering), never its value.
+    priv fn _reject_duplicate_value(self, n: *EnumVariantDecl, ed: *EnumDecl, pos: usize) {
+        if (ed == &null) || ed->is_adt || (!n->value.ok) { return; }
+        var lim = (pos) if (pos < ed->variants.size()) else (ed->variants.size());
+        for var i: usize = 0; i < lim; ++i {
+            var a = ed->variants[i];
+            if (a == &null) || (a == n) || (!a->value.ok) || a->value.overflow { continue; }
+            if (a->value.neg != n->value.neg) || (a->value.mag != n->value.mag) { continue; }
+            var ce = ConstEval(dyn()->sc);
+            var an = dyn()->tu.decl_name(static_cast::<*Decl>(a));
+            var b = dyn()->sc->diag->report(DiagID::SC130E, n->name.range.start,
+                f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' has the same value as '{an}' ({ce.str(n->value)})"
+            );
+            b.first(n->name.range);
+            b.note(DiagID::SC130N, a->name.range.start, f"'{an}' is declared here");
+            b.emit();
+            return;
+        }
     }
 
     /// SC128E for a value outside the underlying type, with a note on

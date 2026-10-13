@@ -2856,7 +2856,9 @@ group = "type-check"
     what evaluates: integer literals, `+ - * | & ^ << >>`, unary `-` and `~`, parentheses, `as`
     to an integer type (which keeps the low bits, as everywhere else), `const` / `eval` names
     whose initializers evaluate, and the variants declared ABOVE this one in the same enum.
-    arithmetic is exact; only the final value is checked against the underlying type.
+    arithmetic is exact; only the final value is checked against the underlying type. `~` is
+    taken in its operand's type, which here is the underlying type, so `~0` is 255 in a `u8`
+    enum and -1 in an `i32` one.
 
     ## example
 
@@ -2920,4 +2922,53 @@ group = "lifecycle"
     # note: the field that cannot be transferred
 
     points at the field or base the defaulted transfer constructor would have to copy or move.
+    """
+
+[SC130]
+brief = "two variants of one enum have the same value"
+group = "type-check"
+
+    [SC130.E]
+    explain = """
+    # enum variants with the same value
+
+    every variant of a Kairo enum has its own value, however it got it: written, computed from
+    the variants above it, or one past the previous variant. a `match` over a closed enum switches
+    on its variants, and two variants with one value would be two `case` labels with one value,
+    which C++ rejects; it would also make the variants indistinguishable, so no arm could tell
+    them apart. the later variant is the error.
+
+    a variant whose value is a combination of others is fine, as long as no other variant already
+    has that value.
+
+    ## example
+
+    ```kairo
+    enum Status {
+        Ok      = 200,
+        Created,            // 201
+        Success = 200,      // error: same value as 'Ok'
+    }
+
+    enum Perms derives u8 {
+        R  = 1,
+        W  = 2,
+        RW = R | W,         // ok: no other variant is 3
+        X  = 3,             // error: same value as 'RW'
+    }
+    ```
+
+    imported C++ enums are not checked: their values are clang's, and C++ allows aliases.
+
+    ## how to fix
+
+    give the variant a value of its own. for a second name for one value, use a `const` outside
+    the enum rather than a variant.
+    """
+
+    [SC130.N]
+    explain = """
+    # note: the variant that already has the value
+
+    points at the earlier variant of the same enum whose value the later one repeats.
     """
