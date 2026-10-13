@@ -334,6 +334,12 @@ class InterfaceEmitter {
     /// The definition, body-less (invariant 12): bases, nested types,
     /// fields, method declarations, friends. Field initializers and
     /// parameter defaults are not emitted; see the file header.
+    ///
+    /// Every type written inside the braces is spelled with \p d as its
+    /// scope (CXXSpell::_type), so the record's own nested types go out by
+    /// leaf: qualified, a nested type of a class template would need the
+    /// template's arguments, and inside the body the injected class name
+    /// already supplies them. A nested record's definition passes itself.
     priv fn _record_def(self, d: *Decl, kw: string) {
         var at = self._at(d);
         var is_class = (d->kind == DeclKind::ClassDecl);
@@ -394,7 +400,7 @@ class InterfaceEmitter {
                 if ta->aliased == &null { continue; }
                 cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
                 var us = self._spell->template_head(nd);
-                us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(ta->aliased) + ";";
+                us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(ta->aliased, &null, d) + ";";
                 sink->spell(self._at(nd), us);
             }
         }
@@ -407,12 +413,12 @@ class InterfaceEmitter {
             if f == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(f)), is_class, at);
             // Before anything spells the field: it has no name.
-            if f->is_anonymous_union { self._anon_union_field(f); continue; }
+            if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
             var fs = "";
             if f->is_static()  { fs += "static "; }
             if f->is_mutable   { fs += "mutable "; }
             if f->is_const()   { fs += "const "; }
-            fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)));
+            fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
             fs += ";";
             sink->spell(f->name.range, fs);
         }
@@ -444,15 +450,16 @@ class InterfaceEmitter {
     /// `union { T a; U b; };`: an anonymous union, written where its field
     /// is. Its members are the owner's members to C++ and take the access
     /// in force for the field, so no specifier goes inside. Each member is
-    /// spelled as an ordinary field would be. The layout is clang's.
-    priv fn _anon_union_field(self, f: *FieldDecl) {
+    /// spelled as an ordinary field would be, \p owner's body being the
+    /// scope its types are named from. The layout is clang's.
+    priv fn _anon_union_field(self, f: *FieldDecl, owner: *Decl) {
         var u = self._plan->anon_union_of(f);
         var fat = self._at(static_cast::<*Decl>(f));
         sink->spell(fat, "union {");
         for var i: usize = 0; i < u->fields.size(); ++i {
             var m = u->fields[i];
             if m == &null { continue; }
-            var ms = self._spell->decl(m->type_, self._spell->leaf(static_cast::<*Decl>(m)));
+            var ms = self._spell->decl(m->type_, self._spell->leaf(static_cast::<*Decl>(m)), &null, owner);
             ms += ";";
             sink->spell(self._at(static_cast::<*Decl>(m)), ms);
         }
@@ -561,12 +568,12 @@ class InterfaceEmitter {
         } else if is_dtor || is_conv {
             s += nm;
         } else {
-            s += self._ret(m);
+            s += self._ret(m, owner);
             s += " ";
             s += nm;
         }
         s += "(";
-        s += self._params(m, false, &null);
+        s += self._params(m, false, &null, owner);
         s += ")";
         if is_method && m->is_const() { s += " const"; }
         if m->no_unwind { s += " noexcept"; }
@@ -689,7 +696,9 @@ class InterfaceEmitter {
         sink->spell(self._at(static_cast::<*Decl>(f)), s);
     }
 
-    priv fn _params(self, f: *FunctionDecl, with_self: bool, ext: *ExtensionDecl) -> string {
+    /// \p scope: the record whose body the declaration is in, or null
+    /// (CXXSpell::_type).
+    priv fn _params(self, f: *FunctionDecl, with_self: bool, ext: *ExtensionDecl, scope: *Decl = &null) -> string {
         var s = "";
         var first = true;
         for var i: usize = 0; i < f->params.size(); ++i {
@@ -711,7 +720,7 @@ class InterfaceEmitter {
             first = false;
             var nm = "";
             if !p->unname { nm = self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f))); }
-            s += self._spell->param_decl(p, nm);
+            s += self._spell->param_decl(p, nm, &null, scope);
         }
         // C++ distinguishes postfix `++`/`--` from prefix by an unnamed `int`
         // parameter. Kairo says `op r++`, so the dummy is invented here.
@@ -722,9 +731,9 @@ class InterfaceEmitter {
         return s;
     }
 
-    priv fn _ret(self, f: *FunctionDecl) -> string {
+    priv fn _ret(self, f: *FunctionDecl, scope: *Decl = &null) -> string {
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
-        return self._spell->return_spelling(f, &null);
+        return self._spell->return_spelling(f, &null, scope);
     }
 
     priv fn _fn_name(self, f: *FunctionDecl) -> string {

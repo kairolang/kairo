@@ -261,12 +261,12 @@ class CXXSpell {
     /// type and an imported `T&` and a Kairo place are one ABI. Everything
     /// else, a value `op []` included, is the declared type. The pointee of `*const T` is the `const T`
     /// canonical, so _type already spells the const and `&` goes on the end.
-    fn return_spelling(self, f: *FunctionDecl, subst: *InstanceEntry) -> string {
-        if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst); }
-        if !CXXSpell::is_place_operator(f) { return self._type(f->return_type, subst); }
+    fn return_spelling(self, f: *FunctionDecl, subst: *InstanceEntry, scope: *Decl = &null) -> string {
+        if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst, scope); }
+        if !CXXSpell::is_place_operator(f) { return self._type(f->return_type, subst, scope); }
         var c = canon_unqual(f->return_type->canonical);
         if ((c == &null) || (!isa::<PointerType>(c))) { self._ice(f->range, "CXXSpell: is_place_operator accepted a non-pointer result"); }
-        return self._type(cast::<PointerType>(c)->pointee, subst) + "&";
+        return self._type(cast::<PointerType>(c)->pointee, subst, scope) + "&";
     }
 
     /// The type an operator belongs to: its class, or its extension's target.
@@ -553,13 +553,20 @@ class CXXSpell {
     /// C++ spelling of a canonical type. \p subst substitutes the primary's
     /// generic parameters with an instance's args (tier 3). Declarator
     /// shapes (arrays, function pointers) need a name to wrap; use decl().
-    fn _type(self, t: *Type, subst: *InstanceEntry = &null) -> string {
-        return self.decl(t, "", subst);
+    ///
+    /// \p scope is the record whose class body the text is written in, or
+    /// null. Inside it, its own nested types are named by leaf: the
+    /// qualified form of a type nested in a class template needs the
+    /// template's arguments, which a nested decl's canonical does not carry.
+    /// It is the decl being emitted, never ambient state, so the text stays a
+    /// function of that decl (InterfaceEmitter's ODR argument).
+    fn _type(self, t: *Type, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        return self.decl(t, "", subst, scope);
     }
 
     /// `type name` with the declarator folded in: `int x`, `int (*f)(int)`.
-    /// Empty \p name gives the abstract form.
-    fn decl(self, t_in: *Type, name: string, subst: *InstanceEntry = &null) -> string {
+    /// Empty \p name gives the abstract form. \p scope as for _type.
+    fn decl(self, t_in: *Type, name: string, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         if t_in == &null { return self._join("void", name); }
         var t = t_in->canonical;
         if (t == &null) { self._ice(t_in->range, "CXXSpell: type with no canonical reached codegen (sema gate failure)"); }
@@ -570,7 +577,7 @@ class CXXSpell {
                 var pfx = "";
                 if (q->quals & QUAL_CONST())    != 0 { pfx += "const "; }
                 if (q->quals & QUAL_VOLATILE()) != 0 { pfx += "volatile "; }
-                return pfx + self.decl(q->inner, name, subst);
+                return pfx + self.decl(q->inner, name, subst, scope);
             }
             case TypeKind::BuiltinType {
                 var b = cast::<BuiltinType>(t);
@@ -578,16 +585,16 @@ class CXXSpell {
                 return self._join(b->cxx_emission(), name);
             }
             case TypeKind::RecordType {
-                return self._join(self._record(cast::<RecordType>(t), subst), name);
+                return self._join(self._record(cast::<RecordType>(t), subst, scope), name);
             }
             case TypeKind::PointerType {
-                return self.decl(cast::<PointerType>(t)->pointee, "*" + name, subst);
+                return self.decl(cast::<PointerType>(t)->pointee, "*" + name, subst, scope);
             }
             case TypeKind::CXXLValueRefType {
-                return self.decl(cast::<CXXLValueRefType>(t)->referee, "&" + name, subst);
+                return self.decl(cast::<CXXLValueRefType>(t)->referee, "&" + name, subst, scope);
             }
             case TypeKind::CXXRValueRefType {
-                return self.decl(cast::<CXXRValueRefType>(t)->referee, "&&" + name, subst);
+                return self.decl(cast::<CXXRValueRefType>(t)->referee, "&&" + name, subst, scope);
             }
             case TypeKind::FixedArrayType {
                 var a = cast::<FixedArrayType>(t);
@@ -597,16 +604,16 @@ class CXXSpell {
                 // TO an array parenthesizes its declarator.
                 var nm = name;
                 if (nm.size() > 0) && ((nm[0] == '*') || (nm[0] == '&')) { nm = "(" + nm + ")"; }
-                return self.decl(a->element, f"{nm}[{ext}]", subst);
+                return self.decl(a->element, f"{nm}[{ext}]", subst, scope);
             }
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
                 var ps = "";
                 for var i: usize = 0; i < f->params.size(); ++i {
                     if i > 0 { ps += ", "; }
-                    ps += self._param_type(f->params[i], f->modes[i], false, "", subst);
+                    ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope);
                 }
-                return self.decl(f->return_type, f"(*{name})({ps})", subst);
+                return self.decl(f->return_type, f"(*{name})({ps})", subst, scope);
             }
             case TypeKind::GenericParamType {
                 return self._join(self._gparam(cast::<GenericParamType>(t), subst), name);
@@ -627,12 +634,12 @@ class CXXSpell {
 
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as
     /// EmitIR documents them). \p is_const is the `const x: T` marker.
-    fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null) -> string {
+    fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         if p->is_pack {
             if (p->pack_type == &null) { self._ice(p->range, "CXXSpell: pack parameter with no slice type; CallLowering stamps it"); }
-            return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst);
+            return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst, scope);
         }
-        return self._param_type(p->type_, p->mode, p->is_const, "", subst);
+        return self._param_type(p->type_, p->mode, p->is_const, "", subst, scope);
     }
 
     /// `type name` for a parameter, name folded into the declarator for
@@ -642,42 +649,42 @@ class CXXSpell {
     /// belongs inside, `U (*f)(T)`. An array is still its own branch:
     /// `[T; N]` is passed by reference (`const T (&xs)[N]` / `T (&xs)[N]`),
     /// never by value (StmtTyping rejects that). Empty \p name is the
-    /// abstract form.
-    fn param_decl(self, p: *ParamDecl, name: string, subst: *InstanceEntry = &null) -> string {
+    /// abstract form. \p scope as for _type.
+    fn param_decl(self, p: *ParamDecl, name: string, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         var c = (p->type_->canonical) if (p->type_ != &null) else (&null);
         if (!p->is_pack) && (c != &null) && (canon_unqual(c)->kind == TypeKind::FixedArrayType) {
             if ((p->mode == ParamMode::Value) && (!p->is_const)) { self._ice(p->range, "CXXSpell: array parameter by value; StmtTyping must reject it"); }
-            var s = self.decl(canon_unqual(c), "&" + name, subst);
+            var s = self.decl(canon_unqual(c), "&" + name, subst, scope);
             return (("const " + s) if (p->is_const) else (s));
         }
         if p->is_pack {
-            var s = self.param_type(p, subst);
+            var s = self.param_type(p, subst, scope);
             if name.size() > 0 { s += " " + name; }
             return s;
         }
-        return self._param_type(p->type_, p->mode, p->is_const, name, subst);
+        return self._param_type(p->type_, p->mode, p->is_const, name, subst, scope);
     }
 
     /// The mode's reference and the const marker folded into decl(), so a
     /// name lands inside the declarator: `@inout` on a function pointer is
     /// `U (*&f)(T)`, which decl() brackets as it does any `*`/`&` declarator.
-    priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, name: string, subst: *InstanceEntry) -> string {
+    priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, name: string, subst: *InstanceEntry, scope: *Decl) -> string {
         // `const T&` only from a stamped `@copy fn X(self, const other: Self)`
         // (ClassLifecycle); nothing else sets Inout together with `const`.
         if mode == ParamMode::Inout {
-            var s = self.decl(t, self._ref_declarator("&", name), subst);
+            var s = self.decl(t, self._ref_declarator("&", name), subst, scope);
             return ("const " + s) if (is_const) else (s);
         }
-        if mode == ParamMode::Move  { return self.decl(t, self._ref_declarator("&&", name), subst); }
+        if mode == ParamMode::Move  { return self.decl(t, self._ref_declarator("&&", name), subst, scope); }
         if is_const {
             // `const T&` iff a non-generic record; `const T` otherwise.
             var c = t->canonical;
             if (c != &null) && (c->kind == TypeKind::RecordType) && (!c->is_dependent()) {
-                return "const " + self.decl(t, self._ref_declarator("&", name), subst);
+                return "const " + self.decl(t, self._ref_declarator("&", name), subst, scope);
             }
-            return "const " + self.decl(t, name, subst);
+            return "const " + self.decl(t, name, subst, scope);
         }
-        return self.decl(t, name, subst);
+        return self.decl(t, name, subst, scope);
     }
 
     /// `& name`, keeping the `T& x` spelling the printed C++ has always had
@@ -688,14 +695,47 @@ class CXXSpell {
     }
 
     /// `<a, b>` from an instance's args or a pattern's own params.
-    fn args_str(self, args: *vec::<*Type>, subst: *InstanceEntry = &null) -> string {
+    fn args_str(self, args: *vec::<*Type>, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         var s = "<";
         for var i: usize = 0; i < args->size(); ++i {
             if i > 0 { s += ", "; }
-            s += self._type((*args)[i], subst);
+            s += self._type((*args)[i], subst, scope);
         }
         s += ">";
         return s;
+    }
+
+    // --- Dependent-qualified names ---------------------------------------------
+
+    /// `Q::leaf`, a member type named through the record type \p record:
+    /// `typename Q::leaf` when Q is dependent, and with \p args
+    /// `typename Q::template leaf<args>`. This is the one place a member of
+    /// a dependent type is spelled; a nested type of a generic record, an
+    /// associated type (`T::Bar`), a generic associated type
+    /// (`T::Bar<U>`) and a member-template call (`x.template f<U>()`) are
+    /// all the same C++ rule -- inside a template, a name qualified by a
+    /// dependent type is assumed to be neither a type nor a template unless
+    /// it says so -- and spelling it twice is how the two copies drift.
+    ///
+    /// A non-dependent Q drops both keywords. C++ allows them there, but Q is
+    /// then a concrete class whose members are looked up at once, so they
+    /// say nothing. \p subst and \p scope are passed through to Q's spelling
+    /// and to \p args. Q's top-level cv is dropped: it qualifies the object,
+    /// not the scope a member is named from.
+    fn dependent_member_type(self, record: *Type, leaf: string, args: *vec::<*Type> = &null,
+                             subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        ICE_IF((record == &null) || (record->canonical == &null), "CXXSpell: dependent_member_type with no canonical qualifier");
+        var q = canon_unqual(record->canonical);
+        var targs = "";
+        if (args != &null) && (args->size() > 0) { targs = self.args_str(args, subst, scope); }
+        return CXXSpell::_member_type(self._type(q, subst, scope), q->is_dependent(), leaf, targs);
+    }
+
+    /// The text of dependent_member_type from an already-spelled qualifier.
+    static fn _member_type(q: string, dependent: bool, leaf: string, targs: string) -> string {
+        if !dependent { return q + "::" + leaf + targs; }
+        if targs.size() == 0 { return "typename " + q + "::" + leaf; }
+        return "typename " + q + "::template " + leaf + targs;
     }
 
     /// \p d's C++ template parameters: an extension member's extension's,
@@ -772,7 +812,7 @@ class CXXSpell {
         return ty + " " + name;
     }
 
-    priv fn _record(self, r: *RecordType, subst: *InstanceEntry) -> string {
+    priv fn _record(self, r: *RecordType, subst: *InstanceEntry, scope: *Decl) -> string {
         var d = r->decl;
         ICE_IF(d == &null, "CXXSpell: RecordType with no decl");
         if (isa::<InterfaceDecl>(d)) { self._ice(d->range, "CXXSpell: an interface has no C++ type; witnesses are not emitted yet"); }
@@ -782,15 +822,91 @@ class CXXSpell {
         if decl_is_instance(d) {
             var e = self._cg->instances->entry_of(d);
             if (e == &null) { self._ice(d->range, "CXXSpell: instance shell with no registry entry"); }
-            return self.qual_name(e->primary) + self.args_str(&(e->args), subst);
+            return self._record_name(e->primary, self.args_str(&(e->args), subst, scope), scope);
         }
-        var s = self.qual_name(d);
+        var targs = "";
         if r->args.size() > 0 {
             var v = vec::<*Type>();
             for var i: usize = 0; i < r->args.size(); ++i { v.push_back(r->args[i]); }
-            s += self.args_str(&v, subst);
+            targs = self.args_str(&v, subst, scope);
         }
-        return s;
+        return self._record_name(d, targs, scope);
+    }
+
+    /// A record's name with its own template arguments \p targs ("" for
+    /// none). A type nested in a class template cannot be qualified the way
+    /// qual_name does it: `::ns::L::P` names the template `L` without
+    /// arguments, which C++ rejects. So, in order:
+    ///   - inside the owner's own body (\p scope), the leaf: the owner's
+    ///     scope is in force there, and its injected class name stands for
+    ///     the current instantiation;
+    ///   - any other place under a generic owner, the member of the owner
+    ///     spelled with its own parameters, `typename ::ns::L<K>::P` -- what
+    ///     an out-of-line member's return type and body need, and valid
+    ///     anywhere inside the owner's template;
+    ///   - everything else, the plain qualified name.
+    /// Outside the owner's template the second form names parameters that
+    /// are not in scope. That is unreachable from correct input only once
+    /// Sema keeps the owner's arguments on a nested type (`L<i32>::P`
+    /// canonicalizes to the pattern's `P` today), and the qualified form
+    /// would be just as wrong there.
+    priv fn _record_name(self, d_in: *Decl, targs: string, scope: *Decl) -> string {
+        var d   = CXXSpell::rep(d_in);
+        var own = self._record_owner(d);
+        if own == &null { return self.qual_name(d) + targs; }
+        if scope != &null {
+            var sc = CXXSpell::rep(scope);
+            if (sc == own) || (sc == d) { return self.leaf(d) + targs; }
+        }
+        var q = self._generic_owner_qual(d);
+        if q.size() == 0 { return self.qual_name(d) + targs; }
+        return CXXSpell::_member_type(q, true, self.leaf(d), targs);
+    }
+
+    /// The record \p d is a member of, or null at namespace scope. An
+    /// extension is not an owner here: it opens no C++ class scope a nested
+    /// type could live in.
+    priv fn _record_owner(self, d: *Decl) -> *Decl {
+        var dc = self._home_dc(d);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return &null; }
+        return CXXSpell::rep(dc->dc_owner);
+    }
+
+    /// `::ns::L<K>::Q`: \p d's owners, each generic one spelled with its own
+    /// parameters, i.e. the owner chain as its own template body sees it;
+    /// "" when no owner is generic, because then qual_name is already a
+    /// complete name. A generic owner past the first is a member template of
+    /// a dependent type and takes `template`, as dependent_member_type
+    /// spells it.
+    priv fn _generic_owner_qual(self, d: *Decl) -> string {
+        var rev = vec::<*Decl>();
+        var dc = self._home_dc(d);
+        while (dc != &null) && dc->is_type_scope() {
+            if dc->dc_kind != DeclContextKind::Extension { rev.push_back(CXXSpell::rep(dc->dc_owner)); }
+            dc = dc->dc_parent;
+        }
+        var s = "";
+        var ns = self.ns_segments(d);
+        for var i: usize = 0; i < ns.size(); ++i { s += "::"; s += ns[i]; }
+        var dependent = false;
+        for var i: usize = 0; i < rev.size(); ++i {
+            var o   = rev[rev.size() - 1 - i];
+            var gps = decl_generic_params(o);
+            s += "::";
+            if dependent && (gps.size() > 0) { s += "template "; }
+            s += self.leaf(o);
+            if gps.size() == 0 { continue; }
+            dependent = true;
+            var fid = CXXSpell::fid_of(o);
+            s += "<";
+            for var j: usize = 0; j < gps.size(); ++j {
+                if j > 0 { s += ", "; }
+                s += self.imm_name(gps[j]->name.imm, fid);
+                if gps[j]->is_pack { s += "..."; }
+            }
+            s += ">";
+        }
+        return (s) if (dependent) else ("");
     }
 
     priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry) -> string {
