@@ -30,8 +30,9 @@ class Deep derives VDerived {               // expect: clean -- virtual inherite
 // ClassLifecycle's virtual-destructor rule. Every class declares its copy
 // constructor `= delete`, so lifecycle rule 4 (custom destructor, implicit
 // copy) is silent and the FULL diagnostic set is asserted: a wrong warning
-// fails this file as surely as a wrong error. All are category Copy, so
-// rule 5 (base compatibility) is silent too.
+// fails this file as surely as a wrong error. A deleted copy alone makes a
+// class NON_TRANSFER, and every one here is, so rule 5 (base compatibility)
+// is silent too.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //

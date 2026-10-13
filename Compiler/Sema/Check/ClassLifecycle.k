@@ -25,8 +25,13 @@
 ///     what the transfer does, so the components do not. A defaulted
 ///     transfer, or the one C++ generates when none is declared, is
 ///     memberwise and does ask them.
-///       trivial    nothing user-provided on this type, its bases, or its
-///                  by-value fields.
+///       trivial_dtor  no destructor that is user-provided, deleted or
+///                  virtual on this type, its bases, or its by-value fields.
+///       trivially_copyable  that, and no transfer ctor that is user-provided
+///                  or deleted on any of them either.
+///                  `= default` is not user-provided, so a defaulted member
+///                  is trivial exactly when its parts are, as C++ has it for
+///                  one defaulted on its first declaration.
 ///       destructible  no `op delete = delete` on this type, its bases, or
 ///                  its by-value fields.
 ///
@@ -49,14 +54,18 @@
 ///     in MoveCheck, skips an Unknown one rather than guessing either way.
 ///
 ///     A record that writes a @copy or @move constructor has the category it
-///     DECLARED (@copy, @move, both deleted). It reads Unknown only when a
+///     DECLARED, read off the copyable / movable rules above: @copy is COPY,
+///     @move is MOVE, and a deleted one -- either alone, or both -- is
+///     NON_TRANSFER, since a deleted copy suppresses the implicit move and a
+///     deleted move deletes the implicit copy. It reads Unknown only when a
 ///     dependent component leaves a defaulted transfer open, and never when
 ///     the transfer is user-provided or it declared NON_TRANSFER: nothing a
-///     field holds brings a deleted transfer back. A record that writes neither has no category of its own to
-///     declare: C++ generates its transfers from its bases and fields, so its
-///     category is the weakest they allow, read off the folded facts exactly
-///     as an ADT's is (_folded_category). A class holding a move-only field is
-///     MOVE, and one holding a std::mutex is NON_TRANSFER.
+///     field holds brings a deleted transfer back. A record that writes
+///     neither has no category of its own to declare: C++ generates its
+///     transfers from its bases and fields, so its category is the weakest
+///     they allow, read off the folded facts exactly as an ADT's is
+///     (_folded_category). A class holding a move-only field is MOVE, and one
+///     holding a std::mutex is NON_TRANSFER.
 ///
 ///     Facts are computed on demand and memoized per TU, keyed on the
 ///     representative, so a foreign or cross-TU record is asked once. A
@@ -136,7 +145,7 @@ __inline_cpp("
 enum LifecycleCategory derives u8 {
     Copy = 0,      ///< @copy, explicit or implicit; DEFAULT reads as this.
     Move,          ///< @move.
-    NonTransfer,   ///< both deleted: stack-only.
+    NonTransfer,   ///< a deleted transfer ctor (one or both): stack-only.
     Unknown,       ///< hangs on a generic parameter (see LifecycleTri).
 }
 
@@ -378,9 +387,10 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         var move_deleted  = false;
         var copy_provided = false;
         var move_provided = false;
-        var user_dtor    = false;
-        var dtor_deleted = false;
-        var dtor_virtual = false;
+        var user_dtor     = false;
+        var dtor_deleted  = false;
+        var dtor_provided = false;
+        var dtor_virtual  = false;
 
         var methods = self._methods(d);
         for var i: usize = 0; i < methods.size(); ++i {
@@ -403,6 +413,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if self._is_dtor(m) {
                 user_dtor = true;
                 if m->body_kind == FnBodyKind::Delete { dtor_deleted = true; }
+                if provided { dtor_provided = true; }
                 if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || m->ffi_virtual {
                     dtor_virtual = true;
                 }
@@ -415,11 +426,17 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         f->copyable      = lifecycle_tri(copyable);
         f->movable       = lifecycle_tri(movable);
         f->user_transfer = user_copy || user_move;
-        if copy_deleted && move_deleted      { f->category = LifecycleCategory::NonTransfer; }
-        else if user_move && (!user_copy)    { f->category = LifecycleCategory::Move; }
-        else                                 { f->category = LifecycleCategory::Copy; }
+        // The declared category is whatever those two bits leave, not which
+        // marker was written: a lone `@copy = delete` suppresses the implicit
+        // move and a lone `@move = delete` deletes the implicit copy, so
+        // either one alone is NON_TRANSFER, the same as both.
+        if copyable          { f->category = LifecycleCategory::Copy; }
+        else if movable      { f->category = LifecycleCategory::Move; }
+        else                 { f->category = LifecycleCategory::NonTransfer; }
         f->has_user_dtor = user_dtor;
-        f->own_dtor_work = lifecycle_tri(user_dtor);
+        // A defaulted destructor only runs the fields', which the field loop
+        // below folds in; it does no work of its own.
+        f->own_dtor_work = lifecycle_tri(dtor_provided);
         f->destructible  = lifecycle_tri(!dtor_deleted);
         f->virtual_dtor  = lifecycle_tri(dtor_virtual);
         if !copyable {
@@ -439,13 +456,22 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         var move_pinned = movable && (move_provided || copy_provided);
 
         // clang's triviality bits for an imported record; ours otherwise.
+        // Ours are C++'s for a member defaulted on its first declaration: it
+        // is trivial when every base and field is, so `= default` decides
+        // nothing here and the folding below does. A body (or a body-less
+        // out-of-line declaration) is never trivial, and neither is a virtual
+        // destructor. A deleted transfer leaves no transfer to be trivial --
+        // the derived `op =` is deleted with it -- and a deleted destructor
+        // makes nothing trivially copyable or destroyed.
         var lay = self._layout(d);
         if (lay != &null) && lay->known {
             f->trivially_copyable = lifecycle_tri(lay->trivially_copyable);
             f->trivial_dtor       = lifecycle_tri(lay->trivial_dtor);
         } else {
-            f->trivially_copyable = lifecycle_tri((!user_copy) && (!user_move) && (!user_dtor));
-            f->trivial_dtor       = lifecycle_tri(!user_dtor);
+            var dtor_trivial = (!dtor_provided) && (!dtor_deleted) && (!dtor_virtual);
+            f->trivially_copyable = lifecycle_tri(
+                (!copy_provided) && (!move_provided) && (!copy_deleted) && (!move_deleted) && dtor_trivial);
+            f->trivial_dtor       = lifecycle_tri(dtor_trivial);
         }
 
         // Bases.
@@ -546,11 +572,11 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     /// The weakest category folded facts allow (COPY > MOVE > NON_TRANSFER),
     /// for an ADT and for a record that declares no transfer constructor.
     /// Read off the copyable / movable bits rather than each component's own
-    /// `category`: a declared one records what was WRITTEN, and an imported
-    /// type's is clang's ctors read the same way -- std::mutex deletes its
-    /// copy and declares no move, which reads as a declared COPY while it
-    /// transfers neither way. A definite NON_TRANSFER is decided even beside
-    /// an Unknown (the folding is Kleene AND); anything else open is Unknown.
+    /// `category`: a declared one records what was WRITTEN, so a defaulted
+    /// `@copy` over a move-only field still declares COPY (SC129E's case)
+    /// while the folded bits say it copies nothing. A definite NON_TRANSFER
+    /// is decided even beside an Unknown (the folding is Kleene AND);
+    /// anything else open is Unknown.
     priv fn _folded_category(self, f: *LifecycleFacts) -> LifecycleCategory {
         if f->copyable == LifecycleTri::Yes                                            { return LifecycleCategory::Copy;        }
         if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::Yes)      { return LifecycleCategory::Move;        }
@@ -915,7 +941,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     priv fn _cat_word(self, c: LifecycleCategory) -> string {
         switch c {
             case LifecycleCategory::Move        { return "move-only (@move)";           }
-            case LifecycleCategory::NonTransfer { return "non-transferable (both deleted)"; }
+            case LifecycleCategory::NonTransfer { return "non-transferable (deleted transfer)"; }
             case LifecycleCategory::Unknown     { return "undecided until instantiation"; }
             default                             { return "copyable (@copy)";            }
         }
