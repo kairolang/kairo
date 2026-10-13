@@ -596,7 +596,9 @@ class InterfaceEmitter {
         sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
 
         // A struct: public unless marked. Only the two helpers the special
-        // members call are private.
+        // members call are private. The tag must stay public: `==` on an ADT
+        // is a compare of two values' tags, written by OperatorLowering in
+        // the user's code, outside the record.
         var cur_access = VIS_PUB();
         var dc = static_cast::<*DeclContext>(lay);
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {

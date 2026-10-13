@@ -2285,6 +2285,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Operator, self.tok(e->op_token));
         if e->op_rewrite == OpRewrite::Not { self._dim("rewrite !(==)"); }
         if e->op_rewrite == OpRewrite::Cmp { self._dim("rewrite <=> vs 0"); }
+        if e->tag_eq { self._dim("tag_eq"); }
         self._instance(e->op_instance);
         self.p.newline();
         self.p.enter(is_last);

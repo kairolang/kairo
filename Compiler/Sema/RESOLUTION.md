@@ -503,7 +503,9 @@ Plus facts on operator and call nodes that are slots, not nodes:
 (the user operator overload resolution selected);
 `BinaryOperatorExpr::op_rewrite` (a comparison derived from `op ==` as
 `!(==)` or from `op <=>` as `(<=>) <op> 0`, so OperatorLowering never looks
-an operator up again); `op_instance` on Binary/Unary/Assign and
+an operator up again); `BinaryOperatorExpr::tag_eq` (`==`/`!=` on two values
+of one ADT enum that declares no `op ==`, `resolved_op` null: OperatorLowering
+compares the two `adt_tag_field`s); `op_instance` on Binary/Unary/Assign and
 `CallExpr::instance` (the registry entry of a GENERIC callee's instance,
 `*InstanceEntry` stored as `*void`, which EmitIR spells the call's template
 arguments from and EmitPlan homes); and `CallExpr::arg_map`/`pack_len`
@@ -753,7 +755,13 @@ declared in (`MemberLookup::declaring_scope`): a free `op *` beside a
 file-scope type is otherwise unreachable from every file, its own included.
 A comparison the type does not declare is derived: `!=` from `op ==`,
 `<`/`<=`/`>`/`>=` from `op <=>` (C++20's rewritten candidates, minus the
-reversed ones), recorded in `op_rewrite`. Members and frees rank in ONE set
+reversed ones), recorded in `op_rewrite`. `==`/`!=` on two values of one ADT
+enum -- one canonical type, so one instance of a generic enum, never a
+nullable -- with no `op ==` found compares variants, not payloads: X sets
+`tag_eq` and binds nothing, and OperatorLowering writes the builtin
+`a.<tag> == b.<tag>` through `EnumDecl::adt_tag_field`. A nullable ADT
+operand keeps builtin equality; two instances of one generic enum have no
+`==`. Members and frees rank in ONE set
 (`OverloadResolution::resolve_mixed`), so a tie between them is ambiguous.
 An unqualified call gets the same ADL over its arguments unless ordinary
 lookup found a method.

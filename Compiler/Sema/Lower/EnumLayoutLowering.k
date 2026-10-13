@@ -68,7 +68,8 @@
 ///
 ///   Phase: LOWER, before every body rewrite: every later pass and EmitPlan
 ///   must see the record's members (MatchLowering reads adt_tag_field and
-///   adt_member). It touches no body, so its place beside
+///   adt_member, OperatorLowering adt_tag_field). It touches no body, so its
+///   place beside
 ///   VariantInitLowering, which reads nothing it builds, is free.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the

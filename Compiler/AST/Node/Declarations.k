@@ -204,7 +204,6 @@ enum AdtRole derives u8 {
     Dtor,
     Destroy,         ///< destroys the active payload: `__kairo_destroy()`.
     ConstructFrom,   ///< builds a payload from another value's: `__kairo_construct_from(o)`.
-    TagEq,           ///< `==` on the tags alone.
 }
 
 /// Which of the three forms of an ADT special member a role function is

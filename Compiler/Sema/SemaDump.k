@@ -1344,7 +1344,8 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// What X decided that the type alone does not say, and that the tree
     /// stops showing once Lower/ has run: which storage a slice literal's
     /// backing array gets, that a cast is a construction, how a comparison
-    /// is derived, and which instance a generic call or operator names.
+    /// is derived or that it compares two ADT tags, and which instance a
+    /// generic call or operator names.
     priv fn _note_lowering_choices(self, n: *Expr) {
         // A variant construction: which variant X matched, on the node it was
         // written as, which VariantInitLowering replaces.
@@ -1385,6 +1386,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
             var b = cast::<BinaryOperatorExpr>(n);
             if b->op_rewrite == OpRewrite::Not { self._p.paint(Color::Dim, "  [rewrite: !(==)]"); }
             if b->op_rewrite == OpRewrite::Cmp { self._p.paint(Color::Dim, "  [rewrite: <=> vs 0]"); }
+            if b->tag_eq { self._p.paint(Color::Dim, "  [tag_eq]"); }
             self._note_instance(b->op_instance);
             return;
         }

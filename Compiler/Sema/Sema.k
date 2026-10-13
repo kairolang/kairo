@@ -380,7 +380,8 @@ class Sema {
         // VariantInitExpr is built through (a variant constructor per
         // variant). Before every body rewrite: every later pass and EmitPlan
         // must see the record's members -- MatchLowering reads the tag field
-        // and each variant's union member off it. The pass touches no body
+        // and each variant's union member off it, OperatorLowering the tag
+        // field for an ADT's `==`. The pass touches no body
         // and VariantInitLowering reads nothing it builds, so neither feeds
         // the other; placing it second means every pass from here on sees
         // both the constructions and the record that renders them.

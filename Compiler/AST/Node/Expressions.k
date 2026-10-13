@@ -806,6 +806,12 @@ class BinaryOperatorExpr derives Expr {
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
     pub var op_rewrite:  OpRewrite = OpRewrite::None;
+    /// `==` / `!=` on two values of one ADT enum that declares no `op ==`:
+    /// equal when the variants are, whatever the payloads. resolved_op stays
+    /// null -- no operator is bound -- and OperatorLowering rewrites the node
+    /// into a builtin compare of the two tag fields. One writer: X
+    /// (OperatorTyping).
+    pub var tag_eq:      bool  = false;
     /// The registry entry of a GENERIC free operator's instance, written by X
     /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
     /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
@@ -828,6 +834,7 @@ class BinaryOperatorExpr derives Expr {
         node->resolved_op = &null;
         node->op_via_free = false;
         node->op_rewrite  = OpRewrite::None;
+        node->tag_eq      = false;
         node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
@@ -846,6 +853,7 @@ class BinaryOperatorExpr derives Expr {
         node->resolved_op   = &null;
         node->op_via_free   = false;
         node->op_rewrite    = OpRewrite::None;
+        node->tag_eq        = false;
         node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

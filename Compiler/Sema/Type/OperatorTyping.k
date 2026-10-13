@@ -42,6 +42,14 @@
 ///     and is an error here. An imported C++ type gets exactly what C++
 ///     declares. `a += b` on a record is a statement: its type is void.
 ///
+///   \par ADT `==`
+///     `==` / `!=` on two values of one ADT enum that declares no `op ==`
+///     compares the variants, not the payloads. No operator is bound: the
+///     node's tag_eq is set and OperatorLowering writes the compare of the
+///     two tag fields. The user lookup runs first, so an `op ==` from any
+///     source replaces it. A nullable ADT operand keeps builtin equality;
+///     two instances of one generic enum have no `==`.
+///
 ///   \par `===`
 ///     Not overloadable. Valid when an operand is nullable: both non-null and
 ///     equal, a nullable pointer comparing what it points to. Typed here,
@@ -517,12 +525,23 @@ class <T> OperatorTyping {
             }
 
             // No user operator. Equality is builtin on pointers, nullables and
-            // plain enums; a record compares only through its own `op ==`.
+            // plain enums; a record compares only through its own `op ==`, and
+            // an ADT enum that declares none by its tags.
             if self._is_equality(k) {
                 if self._is_plain_record(lt) || self._is_plain_record(rt) {
                     var rec = (lt) if (self._is_plain_record(lt)) else (rt);
                     dyn()->fail(n, DiagID::SC066E, f"no 'op ==' on '{dyn()->tu.str(rec)}'; a record compares only through its own operator");
                     return &null;
+                }
+                // Two values of one ADT: equal when their variants are. No
+                // operator is bound; OperatorLowering compares the tags. lt and
+                // rt are canonical and unqualified here, so one instance of a
+                // generic enum is one pointer and two instances are two. A
+                // nullable operand is no ADT to _adt_of and keeps the builtin
+                // equality below.
+                if (lt == rt) && (self._adt_of(lt) != &null) {
+                    n->tag_eq = true;
+                    return dyn()->tu.builtin(BuiltinKind::Bool);
                 }
                 if self.unify_operands(lt, rt) != &null { return dyn()->tu.builtin(BuiltinKind::Bool); }
             }
@@ -584,6 +603,17 @@ class <T> OperatorTyping {
         }
         dyn()->fail(n, DiagID::SC066E, f"operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on primitives");
         return &null;
+    }
+
+    /// The ADT enum a value of \p t is -- the pattern, for an instance of a
+    /// generic one, as MatchLowering reaches it -- or null. \p t itself, not
+    /// under a nullable: `Pt?` is no ADT here.
+    priv fn _adt_of(self, t: *Type) -> *EnumDecl {
+        var d = dyn()->tu.record_decl(t);
+        if d == &null { return &null; }
+        var en = dyn_cast::<EnumDecl>(decl_pattern(d));
+        if (en == &null) || (!en->is_adt) { return &null; }
+        return en;
     }
 
     priv fn _unify_error(self, n: *Expr, lt: *Type, rt: *Type) {

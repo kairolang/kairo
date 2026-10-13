@@ -268,7 +268,8 @@ An ADT enum is written as the record EnumLayoutLowering built
 record's order: the tag enum (bare enumerators: a tag is a variant's
 position), each payload struct with its own placement `operator new` as its
 first member (`new (&m) P(...)` finds it; no `<new>` is included and
-`::new` is never emitted), the tag, the anonymous union, a generic ADT's
+`::new` is never emitted), the tag (public: an ADT's `==` is a compare of
+two values' tags in the user's code), the anonymous union, a generic ADT's
 five `static constexpr bool` flags (type traits over the payload structs),
 then the role functions rendered from `adt_role` / `adt_form`: a
 `template <class F> E(::__kairo_vt<I>, F&& f)` or `E(::__kairo_vt<I>)` per
@@ -364,7 +365,9 @@ The no-headroom rules, each with one home:
   parenthesized; a record operand is an ICE naming OperatorLowering.
   "Record" is a class, struct, union or ADT enum (`_record_operand`): a
   plain enum is a RecordType too, but `==`, `<` and `as` on an `enum class`
-  are C++'s own. `===` in `_binary` is an ICE naming the nullable
+  are C++'s own; an ADT's `==` arrives that way, as a compare of the two
+  `__kairo_tag` fields (OperatorLowering, from X's `tag_eq`), never as a
+  call to an `operator==`. `===` in `_binary` is an ICE naming the nullable
   lowering; `x as T&&` (a lowering's move, never user-written) is a
   `static_cast`.
 - `_var_decl`: an inferred type is the shared canonical (no range) and is

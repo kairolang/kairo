@@ -20,17 +20,21 @@
 ///       a != b  from op ==   ->  !(a.op==(b))
 ///       a < b   from op <=>  ->  ((a.op<=>(b)) as i8) < 0     the original token, against 0
 ///
+///     An ADT's `==` (X's tag_eq: the enum declares no `op ==`) binds no
+///     operator. It is the builtin compare of the two tags, an `enum class`:
+///       a == b  on an ADT    ->  a.__kairo_tag == b.__kairo_tag     `!=` likewise
+///
 ///     Compound assignment, one definition per pair:
 ///       a += b  with op +=   ->  a.op+=(b)
 ///       a += b  with op +    ->  a = a.op+(b)                  a evaluated once: an impure a
 ///                                                              is bound by address first
 ///       a + b   with op +=   ->  ({ var t = a; t.op+=(b); t as T&&; })
 ///
-///     A node with `resolved_op == null` is a builtin operator and is left
-///     alone: EmitIR emits those as C++ operators on primitives. `===` is
-///     also left alone: it is typed on nullables only and the nullable trio
-///     lowers it. After this pass no operator node has a record operand;
-///     EmitIR ICEs if one does.
+///     A node with `resolved_op == null` (and no tag_eq) is a builtin
+///     operator and is left alone: EmitIR emits those as C++ operators on
+///     primitives. `===` is also left alone: it is typed on nullables only
+///     and the nullable trio lowers it. After this pass no operator node has
+///     a record operand; EmitIR ICEs if one does.
 ///
 ///     The rewritten call carries the original node's sema facts through
 ///     adopt_sema, the Operator step carries `resolved_decl` so codegen
@@ -135,6 +139,8 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
         var out = ASTWriter_OperatorLowering::transform_binary_operator_expr(n);
+        // Before the builtin test: a tag `==` binds no operator either.
+        if n->tag_eq { return self._tag_eq(n); }
         if n->resolved_op == &null { return out; }   // builtin, or `===` (the nullable trio's).
         var f = self._fn(n->resolved_op);
         var k = n->op_token.kind;
@@ -234,6 +240,32 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         all.freeze_into(&(call->args));
         call->adopt_sema(static_cast::<*Expr>(n));
         return static_cast::<*Expr>(call);
+    }
+
+    // --- ADT `==` ----------------------------------------------------------------
+
+    /// `a == b` on an ADT with no `op ==` -> `a.__kairo_tag == b.__kairo_tag`,
+    /// and `!=` likewise, under the written token. The tags are an `enum
+    /// class`, which C++ compares natively, so the node built here is a
+    /// builtin operator: no resolved_op and no tag_eq, nothing for this pass
+    /// or EmitIR to rewrite. Each operand appears once, so it runs once; their
+    /// order is C++'s, as for every primitive operator (SequenceLowering
+    /// orders call arguments only). The tag field is the pattern's --
+    /// EnumLayoutLowering lays out the pattern and an instance shares it --
+    /// reached as MatchLowering reaches it, and a public member of the record.
+    priv fn _tag_eq(self, n: *BinaryOperatorExpr) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        var d  = tu.record_decl(tu.as_value(n->lhs->type_));
+        ICE_IF(d == &null, "OperatorLowering: tag_eq on an operand that is no record; OperatorTyping gate failure");
+        var en = dyn_cast::<EnumDecl>(tu.pattern_of(d));
+        ICE_IF((en == &null) || (!en->is_adt), "OperatorLowering: tag_eq on an operand that is no ADT enum; OperatorTyping gate failure");
+        var tag = en->adt_tag_field;
+        ICE_IF(tag == &null, "OperatorLowering: tag_eq on an ADT with no tag field; EnumLayoutLowering runs first");
+        var l   = self.synth.field_of(n->lhs->range, n->lhs, static_cast::<*Decl>(tag), tag->type_);
+        var r   = self.synth.field_of(n->rhs->range, n->rhs, static_cast::<*Decl>(tag), tag->type_);
+        var cmp = BinaryOperatorExpr::create(self.ctx, n->range, l, r, n->op_token);
+        cmp->adopt_sema(static_cast::<*Expr>(n));
+        return static_cast::<*Expr>(cmp);
     }
 
     // --- derived operators -------------------------------------------------------
