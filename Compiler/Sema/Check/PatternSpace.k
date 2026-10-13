@@ -38,11 +38,10 @@
 ///     over the DECLARED values only. MatchLowering applies UnmatchedPolicy
 ///     to the rest.
 ///
-///     Integer constants are evaluated from literals, unary minus, and
-///     `const` / `eval` variables whose initializers are themselves such
-///     constants (depth-limited). Kairo has no general constant evaluator
-///     yet; anything else is Opaque, which is sound: an opaque value
-///     covers nothing, so it can only ask for a `default`, never hide one.
+///     Integer constants are ConstEval's (Sema/Check/ConstEval.k). A bound
+///     that does not evaluate, or needs more than 64 bits, is Opaque, which
+///     is sound: an opaque value covers nothing, so it can only ask for a
+///     `default`, never hide one.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -55,6 +54,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -124,23 +124,16 @@ struct PatRow {
     var guarded: bool = false;
 }
 
-/// An evaluated integer constant: `ok` false when the expression is not one
-/// this file can evaluate. `neg` + `mag` is sign-magnitude, so `-0x8000...`
-/// for i64 needs no wider type.
-struct IntConst {
-    var ok:  bool = false;
-    var neg: bool = false;
-    var mag: u64  = 0;
-}
-
 class PatternSpace {
     pub var sc: *SemaContext;
     pub var tu: TypeUtil;
+    pub var ce: ConstEval;
 
     fn PatternSpace(self) { self.sc = &null; }
     fn PatternSpace(self, sc: *SemaContext) {
         self.sc = sc;
         self.tu = TypeUtil(sc);
+        self.ce = ConstEval(sc);
     }
 
     // === domains ============================================================
@@ -245,50 +238,12 @@ class PatternSpace {
 
     // === integer constants ==================================================
 
-    /// Evaluate \p e as an integer constant. See the file header for what counts.
+    /// Evaluate \p e as an integer constant. A value past 64 bits is no
+    /// key of any Int domain, so it reads as not a constant here.
     fn eval_int(self, e: *Expr) -> IntConst {
-        return self._eval_int(e, 0);
-    }
-
-    priv fn _eval_int(self, e0: *Expr, depth: u32) -> IntConst {
-        var r = IntConst{};
-        if (e0 == &null) || (depth > 8) { return r; }
-        var e = self.tu.strip_parens(e0);
-        if e == &null { return r; }
-
-        if isa::<IntegerLiteralExpr>(e) {
-            var lit = cast::<IntegerLiteralExpr>(e);
-            if lit->imm == &null { return r; }
-            if lit->get_value_hi() != u64(0) { return r; }   // wider than 64 bits.
-            r.ok  = true;
-            r.mag = lit->get_value_lo();
-            return r;
-        }
-
-        if isa::<UnaryOperatorExpr>(e) {
-            var u = cast::<UnaryOperatorExpr>(e);
-            if (!u->is_prefix()) || (u->op_token.kind != TokenKind::OpMinus) { return r; }
-            var inner = self._eval_int(u->operand, depth + 1);
-            if !inner.ok { return r; }
-            inner.neg = (!inner.neg) && (inner.mag != u64(0));
-            return inner;
-        }
-
-        if isa::<NamedIdentExpr>(e) {
-            var vd = dyn_cast::<VariableDecl>(cast::<NamedIdentExpr>(e)->resolved_decl);
-            if (vd == &null) || ((!vd->is_const()) && (!vd->is_eval())) { return r; }
-            return self._eval_int(vd->init, depth + 1);
-        }
-
-        if isa::<ChainExpr>(e) {
-            var ch = cast::<ChainExpr>(e);
-            if ch->steps.size() == 0 { return r; }
-            var vd = dyn_cast::<VariableDecl>(ch->steps.get(ch->steps.size() - 1)->resolved_decl);
-            if (vd == &null) || ((!vd->is_const()) && (!vd->is_eval())) { return r; }
-            return self._eval_int(vd->init, depth + 1);
-        }
-
-        return r;
+        var c = self.ce.eval_int(e);
+        if c.overflow { c.ok = false; }
+        return c;
     }
 
     /// \p c as a key of \p d, or false when it is out of the type's range.
@@ -433,7 +388,7 @@ class PatternSpace {
         if vd != &null {
             if d.kind == DomainKind::Int {
                 var k: u64 = 0;
-                if self.key_of(d, self._eval_int(vd->init, 1), &k) {
+                if self.key_of(d, self.eval_int(vd->init), &k) {
                     var c = Ctor{};
                     c.kind = CtorKind::Int; c.lo = k; c.hi = k;
                     return c;

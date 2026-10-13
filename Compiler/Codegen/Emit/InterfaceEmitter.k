@@ -469,37 +469,46 @@ class InterfaceEmitter {
         s += self._enum_underlying(en);
         s += " {";
         sink->spell(at, s);
+        // With no discriminant anywhere every value is its position, which
+        // is C++'s own numbering, so the names go out bare. That is also the
+        // only form an enum the compiler mints can take: it is built after
+        // X, so its value slots were never written.
+        var numbered = false;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if (v != &null) && (v->discriminant != &null) { numbered = true; break; }
+        }
         for var i: usize = 0; i < en->variants.size(); ++i {
             var v = en->variants[i];
             if v == &null { continue; }
             var vs = self._spell->leaf(static_cast::<*Decl>(v));
-            if v->discriminant != &null {
-                // A NEGATIVE discriminant is a prefix `-` over the literal, not
-                // a literal -- `Ordering::Less = -1` in the builtin root is the
-                // first one to reach here. The sign is emitted ahead of the
-                // token; anything else still needs the constant evaluator.
-                var dexpr = v->discriminant;
-                var sign  = "";
-                if isa::<UnaryOperatorExpr>(dexpr) {
-                    var u = cast::<UnaryOperatorExpr>(dexpr);
-                    if u->fix == UnaryOperatorExpr::Fix::Prefix {
-                        if u->op_token.kind == TokenKind::OpMinus { sign  = "-"; dexpr = u->operand; }
-                        else if u->op_token.kind == TokenKind::OpPlus { dexpr = u->operand; }
-                    }
-                }
-                var lit = dyn_cast::<IntegerLiteralExpr>(dexpr);
-                if (lit == &null) { self._ice(dexpr->range, "InterfaceEmitter: non-literal enum discriminant; needs the constant evaluator"); }
-                vs += " = " + sign;
-                sink->spell(v->name.range, vs);
-                sink->literal(lit->token.range, clang::tok::numeric_constant);
-                sink->spell(v->name.range, ",");
-                continue;
+            if numbered {
+                // Every variant, written discriminant or not, gets the value
+                // X computed: the source text of a discriminant may name
+                // other variants or constants C++ cannot see by those names.
+                // Not ok only after an error X reported; --print-cxx still
+                // renders such a TU, and a bare name is the harmless form.
+                if v->value.ok { vs += " = " + self._enum_value(v->value); }
             }
             vs += ",";
             sink->spell(v->name.range, vs);
         }
         sink->spell(at, "};");
         sink->brk();
+    }
+
+    /// A C++ enumerator value. The 64-bit minimum has no literal (its
+    /// magnitude is no long long), so it is spelled as an expression; a
+    /// magnitude past the long long range takes `u`, which keeps clang from
+    /// warning that the literal is too large for a signed type.
+    priv fn _enum_value(self, c: IntConst) -> string {
+        var min_mag = u64(1) << u64(63);
+        if c.neg {
+            if c.mag == min_mag { return "(-9223372036854775807 - 1)"; }
+            return f"-{c.mag}";
+        }
+        if c.mag >= min_mag { return f"{c.mag}u"; }
+        return f"{c.mag}";
     }
 
     // --- Functions ---------------------------------------------------------------------

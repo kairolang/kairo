@@ -780,6 +780,14 @@ is YieldLowering's. A parameter default is typed against its parameter, and
 may not refer to another parameter or `self` (SC106E: a default is evaluated
 by a nullary thunk, so it has nothing to read them from) nor be a slice
 literal (SC082E: the thunk would return a view of a dead array).
+An enum discriminant is typed against the underlying type (`u32` when
+none is written), the variants of its own enum reading as that integer;
+then `ConstEval` (Sema/Check) evaluates it, exactly, into
+`EnumVariantDecl::value`. A variant without one is the previous value plus
+one, the first 0, so every variant of a Kairo enum gets a value, an ADT's
+being its position. Only variants ABOVE the one being defined evaluate.
+SC128E when the discriminant does not evaluate or its value does not fit
+the underlying type; an imported C++ enum's values are clang's, not written.
 
 **What X does NOT do**: ADL through the global namespace (a type at TU
 scope associates no scope, by design; see `_enclosing_modules`); pack deduction and

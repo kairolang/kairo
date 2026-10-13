@@ -2834,3 +2834,42 @@ group = "casts"
     cast to the underlying type first: `(a as u32) as Direction`. casting an enum back to an
     integer, and casting to an imported C++ enum, are not affected.
     """
+
+[SC128]
+brief = "enum discriminant is not an integer constant of its underlying type"
+group = "type-check"
+
+    [SC128.E]
+    explain = """
+    # enum discriminant is not a constant that fits
+
+    a discriminant is evaluated at compile time, and the result must be a value of the enum's
+    underlying type: the type in `derives`, or `u32` when the enum does not name one. this one
+    either does not evaluate, or evaluates to a value outside that type.
+
+    what evaluates: integer literals, `+ - * | & ^ << >>`, unary `-` and `~`, parentheses, `as`
+    to an integer type (which keeps the low bits, as everywhere else), `const` / `eval` names
+    whose initializers evaluate, and the variants declared ABOVE this one in the same enum.
+    arithmetic is exact; only the final value is checked against the underlying type.
+
+    ## example
+
+    ```kairo
+    fn width() -> u32 { return 4; }
+
+    enum Mode derives u8 {
+        Read  = 1 << 0,
+        Write = 1 << 1,
+        RW    = Read | Write,       // ok: earlier variants
+        Big   = 1 << 8,             // error: 256 does not fit 'u8'
+        Wide  = width(),            // error: a call does not evaluate
+        Early = Late,               // error: 'Late' is declared below
+        Late  = 9,
+    }
+    ```
+
+    ## how to fix
+
+    use a constant expression whose value fits, widen the underlying type with `derives`, or
+    move a variant that others refer to above them.
+    """

@@ -894,6 +894,19 @@ class ExtensionDecl
     }
 }
 
+/// An integer constant: what Sema's constant evaluator (Sema/Check/
+/// ConstEval.k) computes, kept here as plain data so a decl can carry one.
+/// Sign-magnitude over u64, so u64's 2^64 - 1 and i64's -2^63 are both
+/// exact and no wider type is needed. `ok` false: not a constant.
+/// `overflow`: a constant whose magnitude needs more than 64 bits, so no
+/// 64-bit type holds it.
+struct IntConst {
+    var ok:       bool = false;
+    var neg:      bool = false;
+    var mag:      u64  = 0;
+    var overflow: bool = false;
+}
+
 ///
 ///  EnumVariantDecl
 ///  North | Ok = 2 | Found { key: K, value: V }
@@ -908,6 +921,14 @@ class EnumVariantDecl derives Decl {
     pub var payload:      FrozenList::<*FieldDecl>; ///< ADT fields; empty for plain variants.
     pub var index:        u32 = 0;                ///< declaration order.
     pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
+    /// The variant's value: its discriminant's, else the previous variant's
+    /// plus one, else 0 for the first, so an ADT's variants are their
+    /// positions. One writer: StmtTyping::traverse_enum_variant_decl, in
+    /// declaration order, which is what lets a discriminant read the
+    /// variants above it. Not ok when the value failed (and was reported),
+    /// and never written for an imported C++ enum: clang owns those values,
+    /// and codegen never emits the enum.
+    pub var value:        IntConst;
 
     static fn create(
         ctx:   *ASTContext,
@@ -922,6 +943,7 @@ class EnumVariantDecl derives Decl {
         node->name   = name;
         node->index  = index;
         node->adt_member = &null;
+        node->value      = IntConst{};
         return node;
     }
 
@@ -932,6 +954,7 @@ class EnumVariantDecl derives Decl {
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         node->adt_member    = &null;
+        node->value         = IntConst{};
         return node;
     }
 

@@ -38,6 +38,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -416,21 +417,90 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
     fn traverse_enum_variant_decl(self, n: *EnumVariantDecl) -> *EnumVariantDecl {
         if n == &null { return n; }
+        var edc = reinterpret_cast::<*DeclContext>(n->semantic_dc);
+        var ed  = (dyn_cast::<EnumDecl>(edc->owner_decl())) if (edc != &null) else (&null);
+        var under: *Type = dyn()->tu.builtin(BuiltinKind::U32);
+        if (ed != &null) && (ed->underlying != &null) && (ed->underlying->canonical != &null) { under = ed->underlying->canonical; }
+        var typed_ok = true;
         if n->discriminant != &null {
-            var edc = reinterpret_cast::<*DeclContext>(n->semantic_dc);
-            var ed  = (dyn_cast::<EnumDecl>(edc->owner_decl())) if (edc != &null) else (&null);
-            var under: *Type = dyn()->tu.builtin(BuiltinKind::U32);
-            if (ed != &null) && (ed->underlying != &null) && (ed->underlying->canonical != &null) { under = ed->underlying->canonical; }
             // An earlier variant named here is its integer value, not an enum
             // object; see ExprTyper::discr_enum.
             var saved = dyn()->discr_enum;
             dyn()->discr_enum = (NameLookup::representative(static_cast::<*Decl>(ed))) if (ed != &null) else (&null);
             dyn()->type_of(n->discriminant, under);
-            dyn()->check_convertible(n->discriminant, under);
+            typed_ok = dyn()->check_convertible(n->discriminant, under);
             dyn()->discr_enum = saved;
         }
+        self._enum_variant_value(n, ed, under, typed_ok);
         for var i: usize = 0; i < n->payload.size(); ++i { self.traverse_field_decl(n->payload[i]); }
         return n;
+    }
+
+    /// Write EnumVariantDecl::value (this is its one writer): the
+    /// discriminant's value, else the previous variant's plus one, else 0.
+    /// The RAV visits `variants` in order, so the previous variant's slot,
+    /// and every slot a discriminant may name, is already written. An
+    /// imported C++ enum is clang's to number and is left alone.
+    priv fn _enum_variant_value(self, n: *EnumVariantDecl, ed: *EnumDecl, under: *Type, typed_ok: bool) {
+        n->value = IntConst{};
+        if (ed != &null) && ed->is_imported() { return; }
+        var ce = ConstEval(dyn()->sc);
+        var pos = usize(n->index);
+        if ed != &null {
+            for var i: usize = 0; i < ed->variants.size(); ++i {
+                if ed->variants[i] == n { pos = i; break; }
+            }
+        }
+
+        if n->discriminant != &null {
+            // X has already said what is wrong with a discriminant that
+            // did not type or convert (SC075E for `256` in a u8 enum).
+            if (!typed_ok) || n->discriminant->is_poisoned() { return; }
+            var c = ce.eval_discriminant(n->discriminant, ed, pos);
+            if c.ok && ce.fits(c, under) { n->value = c; return; }
+            if (!c.ok) && ce.quiet { return; }
+            if !c.ok {
+                var at = (ce.bad) if (ce.bad != &null) else (n->discriminant);
+                var why = (ce.bad_why) if (ce.bad_why.size() > 0) else ("it is not a constant");
+                var b = dyn()->sc->diag->report(DiagID::SC128E, at->range.start,
+                    f"an enum discriminant must be an integer constant that fits '{dyn()->tu.str(under)}'; this one does not evaluate: {why}"
+                );
+                b.first(at->range);
+                if ce.bad_decl != &null {
+                    b.note(ce.bad_decl->range.start, f"'{dyn()->tu.decl_name(ce.bad_decl)}' is declared here");
+                }
+                b.emit();
+                return;
+            }
+            self._report_value_misfit(ed, under, n->discriminant->range, f"it is {ce.str(c)}");
+            return;
+        }
+
+        if pos == 0 { n->value = ce.make(false, u64(0)); return; }
+        var prev = (ed->variants[pos - 1]) if ((ed != &null) && (pos < ed->variants.size())) else (&null);
+        if (prev == &null) || (!prev->value.ok) { return; }   // the previous one failed, and said so.
+        var c = ce.add(prev->value, ce.make(false, u64(1)));
+        if ce.fits(c, under) { n->value = c; return; }
+        // C++ rejects the enumerator too; say it here, where the cause is.
+        self._report_value_misfit(ed, under, n->name.range,
+            f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' is one past '{dyn()->tu.decl_name(static_cast::<*Decl>(prev))}', so it is {ce.str(c)}");
+    }
+
+    /// SC128E for a value outside the underlying type, with a note on
+    /// where that type comes from.
+    priv fn _report_value_misfit(self, ed: *EnumDecl, under: *Type, at: SourceRange, what: string) {
+        var b = dyn()->sc->diag->report(DiagID::SC128E, at.start,
+            f"an enum discriminant must be an integer constant that fits '{dyn()->tu.str(under)}'; {what}, which does not fit"
+        );
+        b.first(at);
+        if (ed != &null) && (ed->underlying != &null) && ed->underlying->range.is_valid() {
+            b.note(ed->underlying->range.start, "the underlying type is declared here");
+        } else if ed != &null {
+            b.note(ed->name.range.start,
+                f"'{dyn()->tu.decl_name(static_cast::<*Decl>(ed))}' has the default underlying type 'u32'; name a wider one with 'derives\x27"
+            );
+        }
+        b.emit();
     }
 
     fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
