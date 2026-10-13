@@ -198,6 +198,8 @@ class SemaContext {
     /// meant to explain it.
     pub var trace: ResolutionTrace;
 
+    pub var lifecycle: *void = &null; ///< the Sema-owned ClassLifecycle; one writer: Sema. Untyped because ClassLifecycle imports this file.
+
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;

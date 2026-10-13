@@ -20,6 +20,32 @@
 ///                  base and by-value field movable.
 ///       trivial    nothing user-provided on this type, its bases, or its
 ///                  by-value fields.
+///       destructible  no `op delete = delete` on this type, its bases, or
+///                  its by-value fields.
+///
+///     An ENUM is the same question with no members to declare. A plain enum
+///     is an integer: COPY, trivially everything, destructible. An ADT is a
+///     tag beside a union of its payloads, so it follows the struct rule over
+///     every payload field of every variant: copyable, movable, destructible
+///     and trivially so only when each payload type is, and its category is
+///     the weakest any payload allows (COPY > MOVE > NON_TRANSFER).
+///
+///   \par Unknown
+///     Every fact a component decides is a LifecycleTri, Unknown when it
+///     depends on a generic parameter: a field, payload or base whose type is
+///     dependent. Folding is Kleene AND -- one definite No decides, an
+///     Unknown only spoils a Yes -- so `{ s: string, v: T }` is definitely
+///     not trivially copyable. A pointer is a pointer whatever it points at,
+///     so `*T` stays trivial. An instance reads its pattern (nothing computes
+///     facts per instance yet; that is M2's), so `Opt<i32>` reads exactly as
+///     unknown as `Opt<T>`. Every rule that diagnoses from a fact, here and
+///     in MoveCheck, skips an Unknown one rather than guessing either way.
+///
+///     A record's category is what it DECLARED (implicit COPY, @move, both
+///     deleted), not folded from its fields. It reads Unknown only when a
+///     dependent component leaves copyable or movable open, and never when it
+///     declared NON_TRANSFER: nothing a field holds brings a deleted transfer
+///     back.
 ///
 ///     Facts are computed on demand and memoized per TU, keyed on the
 ///     representative, so a foreign or cross-TU record is asked once. A
@@ -53,7 +79,13 @@
 ///     for `const X&` too, whereas an Inout parameter in X is a `T&` that
 ///     wants the call-site `&` and refuses a temporary.
 ///
-///   Phase: CHECK, after ExprTyper. MoveCheck reads facts_of().
+///   \par Ownership
+///     One instance per TU run, owned by Sema and published on
+///     SemaContext::lifecycle. Readers reach it through lifecycle_of(sc), so
+///     the memo is one table: a second instance would compute every fact
+///     twice and could answer differently mid-run.
+///
+///   Phase: CHECK, after ExprTyper. MoveCheck and SemaDump read facts_of().
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -94,17 +126,55 @@ enum LifecycleCategory derives u8 {
     Copy = 0,      ///< @copy, explicit or implicit; DEFAULT reads as this.
     Move,          ///< @move.
     NonTransfer,   ///< both deleted: stack-only.
+    Unknown,       ///< hangs on a generic parameter (see LifecycleTri).
 }
 
+/// One lifecycle fact. Unknown is not a third answer but the absence of one:
+/// the pattern cannot say, an instance can (file header).
+enum LifecycleTri derives u8 {
+    No = 0,
+    Yes,
+    Unknown,       ///< a dependent field, payload or base decides it.
+}
+
+fn lifecycle_tri(b: bool) -> LifecycleTri {
+    return (LifecycleTri::Yes) if (b) else (LifecycleTri::No);
+}
+
+/// Every part has it. A definite No wins over an Unknown: `{ s: string,
+/// v: T }` is not trivially copyable whatever T turns out to be.
+fn lifecycle_and(a: LifecycleTri, b: LifecycleTri) -> LifecycleTri {
+    if (a == LifecycleTri::No) || (b == LifecycleTri::No) { return LifecycleTri::No; }
+    if (a == LifecycleTri::Unknown) || (b == LifecycleTri::Unknown) { return LifecycleTri::Unknown; }
+    return LifecycleTri::Yes;
+}
+
+/// Some part has it. A definite Yes wins over an Unknown.
+fn lifecycle_or(a: LifecycleTri, b: LifecycleTri) -> LifecycleTri {
+    if (a == LifecycleTri::Yes) || (b == LifecycleTri::Yes) { return LifecycleTri::Yes; }
+    if (a == LifecycleTri::Unknown) || (b == LifecycleTri::Unknown) { return LifecycleTri::Unknown; }
+    return LifecycleTri::No;
+}
+
+fn lifecycle_not(a: LifecycleTri) -> LifecycleTri {
+    if a == LifecycleTri::Yes { return LifecycleTri::No; }
+    if a == LifecycleTri::No  { return LifecycleTri::Yes; }
+    return LifecycleTri::Unknown;
+}
+
+/// Every fact below that a field, payload or base can decide is a
+/// LifecycleTri. The bools are the record's own declarations, never unknown.
+/// One writer for all of it: the fact computation in ClassLifecycle
+/// (_compute, _compute_enum, facts_of_type, folded through _absorb).
 class LifecycleFacts {
     pub var computed:           bool = false;
     pub var in_progress:        bool = false;
-    pub var copyable:           bool = true;
-    pub var movable:            bool = true;
-    pub var trivially_copyable: bool = true;
-    pub var trivial_dtor:       bool = true;
+    pub var copyable:           LifecycleTri = LifecycleTri::Yes;
+    pub var movable:            LifecycleTri = LifecycleTri::Yes;
+    pub var trivially_copyable: LifecycleTri = LifecycleTri::Yes;
+    pub var trivial_dtor:       LifecycleTri = LifecycleTri::Yes;
     pub var has_user_dtor:      bool = false;
-    pub var virtual_dtor:       bool = false;
+    pub var virtual_dtor:       LifecycleTri = LifecycleTri::No;
     pub var why_not_movable:    string = "";
     pub var why_not_copyable:   string = "";
     /// Doc: Lifecycle Categories. DEFAULT is reported as Copy; the
@@ -117,7 +187,10 @@ class LifecycleFacts {
     /// not contribute -- a `delete` through a base pointer still runs the
     /// base's destructor, so the base's work is never the part that leaks.
     /// The virtual-destructor rule reads this, not `trivial_dtor`.
-    pub var own_dtor_work: bool = false;
+    pub var own_dtor_work: LifecycleTri = LifecycleTri::No;
+    /// No when the destructor is `= delete` here, on a base, or on a
+    /// by-value field (an ADT: on any payload field).
+    pub var destructible: LifecycleTri = LifecycleTri::Yes;
     fn LifecycleFacts(self) { }
 }
 
@@ -127,6 +200,13 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     priv var _facts: libcxx::unordered_map::<u64, LifecycleFacts>;
     pub var n_checked: usize = 0;
     pub var n_errored: usize = 0;
+
+    /// Unwired. Exists for the by-value member Sema::lifecycle, which is
+    /// assigned the wired form once the SemaContext it borrows sits at its
+    /// final address.
+    fn ClassLifecycle(self) {
+        self.sc = &null;
+    }
 
     fn ClassLifecycle(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -175,7 +255,8 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
 
     /// Facts for a canonical TYPE: a record's are its decl's; everything
     /// else is trivially everything, except the library containers, which
-    /// are movable, copyable and non-trivially destroyed.
+    /// are movable, copyable and non-trivially destroyed, and a by-value
+    /// type that depends on a generic parameter, which is Unknown throughout.
     fn facts_of_type(self, t_in: *Type) -> LifecycleFacts {
         var out = LifecycleFacts{};
         out.computed = true;
@@ -194,8 +275,8 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // it IS trivial in both senses.
         if self._tu.is_vector_like(t) || self._tu.is_map_like(t)
         || self._tu.is_set_like(t)    || self._tu.is_string(t) {
-            out.trivially_copyable = false;
-            out.trivial_dtor       = false;
+            out.trivially_copyable = LifecycleTri::No;
+            out.trivial_dtor       = LifecycleTri::No;
             return out;
         }
 
@@ -214,29 +295,69 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                 return out;
             }
             case TypeKind::FixedArrayType { return self.facts_of_type(cast::<FixedArrayType>(t)->element); }
-            case TypeKind::VectorType     { out.trivially_copyable = false; out.trivial_dtor = false; return out; }
-            case TypeKind::MapType        { out.trivially_copyable = false; out.trivial_dtor = false; return out; }
-            case TypeKind::SetType        { out.trivially_copyable = false; out.trivial_dtor = false; return out; }
-            case TypeKind::OpaqueFFIType  { out.trivially_copyable = false; out.trivial_dtor = false; return out; }
-            default                       { return out; }   // builtins, pointers, nullable, fn pointers, refs, dependent.
+            case TypeKind::VectorType     { out.trivially_copyable = LifecycleTri::No; out.trivial_dtor = LifecycleTri::No; return out; }
+            case TypeKind::MapType        { out.trivially_copyable = LifecycleTri::No; out.trivial_dtor = LifecycleTri::No; return out; }
+            case TypeKind::SetType        { out.trivially_copyable = LifecycleTri::No; out.trivial_dtor = LifecycleTri::No; return out; }
+            case TypeKind::OpaqueFFIType  { out.trivially_copyable = LifecycleTri::No; out.trivial_dtor = LifecycleTri::No; return out; }
+            // An address, whatever it addresses: `*T` is as trivial as `*i32`,
+            // and asking T would make every generic node type unknown.
+            case TypeKind::PointerType         { return out; }
+            case TypeKind::FunctionPointerType { return out; }
+            case TypeKind::CXXLValueRefType    { return out; }
+            case TypeKind::CXXRValueRefType    { return out; }
+            case TypeKind::NullableType {
+                var inner = cast::<NullableType>(t)->inner;
+                if (inner != &null) && isa::<PointerType>(canon_unqual(inner)) { return out; }
+                if t->is_dependent() || t->is_instantiation_dependent() { return self._unknown_facts(); }
+                return out;
+            }
+            default {
+                // A generic parameter, or a type built from one by value.
+                if t->is_dependent() || t->is_instantiation_dependent() { return self._unknown_facts(); }
+                return out;                                  // builtins.
+            }
         }
     }
 
-    /// Fold a component's facts into its owner's.
+    /// The facts of a by-value type that depends on a generic parameter: all
+    /// of them are the instance's to decide.
+    priv fn _unknown_facts(self) -> LifecycleFacts {
+        var out = LifecycleFacts{};
+        out.computed           = true;
+        out.copyable           = LifecycleTri::Unknown;
+        out.movable            = LifecycleTri::Unknown;
+        out.trivially_copyable = LifecycleTri::Unknown;
+        out.trivial_dtor       = LifecycleTri::Unknown;
+        out.destructible       = LifecycleTri::Unknown;
+        out.own_dtor_work      = LifecycleTri::Unknown;
+        out.virtual_dtor       = LifecycleTri::Unknown;
+        out.category           = LifecycleCategory::Unknown;
+        return out;
+    }
+
+    /// Fold a component's facts into its owner's. A reason is recorded only
+    /// for a definite No, and only the first: an Unknown has no reason yet.
     priv fn _absorb(self, f: *LifecycleFacts, c: *LifecycleFacts, what: string) {
-        if !c->trivially_copyable { f->trivially_copyable = false; }
-        if !c->trivial_dtor       { f->trivial_dtor       = false; }
-        if (!c->copyable) && f->copyable {
-            f->copyable = false;
+        f->trivially_copyable = lifecycle_and(f->trivially_copyable, c->trivially_copyable);
+        f->trivial_dtor       = lifecycle_and(f->trivial_dtor,       c->trivial_dtor);
+        f->destructible       = lifecycle_and(f->destructible,       c->destructible);
+        var cp = lifecycle_and(f->copyable, c->copyable);
+        if (cp == LifecycleTri::No) && (f->copyable != LifecycleTri::No) {
             f->why_not_copyable = f"{what} is not copyable";
         }
-        if (!c->movable) && f->movable {
-            f->movable = false;
+        f->copyable = cp;
+        var mv = lifecycle_and(f->movable, c->movable);
+        if (mv == LifecycleTri::No) && (f->movable != LifecycleTri::No) {
             f->why_not_movable = f"{what} is not movable";
         }
+        f->movable = mv;
     }
 
     priv fn _compute(self, d: *Decl, f: *LifecycleFacts) {
+        if isa::<EnumDecl>(d) {
+            self._compute_enum(cast::<EnumDecl>(d), f);
+            return;
+        }
         f->in_progress = true;
 
         var user_copy    = false;
@@ -244,6 +365,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         var copy_deleted = false;
         var move_deleted = false;
         var user_dtor    = false;
+        var dtor_deleted = false;
         var dtor_virtual = false;
 
         var methods = self._methods(d);
@@ -260,6 +382,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             }
             if self._is_dtor(m) {
                 user_dtor = true;
+                if m->body_kind == FnBodyKind::Delete { dtor_deleted = true; }
                 if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || m->ffi_virtual {
                     dtor_virtual = true;
                 }
@@ -267,20 +390,23 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         }
 
         // C++ rules, since that is what the record lowers under.
-        f->copyable      = (!copy_deleted) && (user_copy || (!user_move));
-        f->movable       = (!move_deleted) && (user_move || f->copyable);
+        var copyable = (!copy_deleted) && (user_copy || (!user_move));
+        var movable  = (!move_deleted) && (user_move || copyable);
+        f->copyable      = lifecycle_tri(copyable);
+        f->movable       = lifecycle_tri(movable);
         f->user_transfer = user_copy || user_move;
         if copy_deleted && move_deleted      { f->category = LifecycleCategory::NonTransfer; }
         else if user_move && (!user_copy)    { f->category = LifecycleCategory::Move; }
         else                                 { f->category = LifecycleCategory::Copy; }
         f->has_user_dtor = user_dtor;
-        f->own_dtor_work = user_dtor;
-        f->virtual_dtor  = dtor_virtual;
-        if !f->copyable {
+        f->own_dtor_work = lifecycle_tri(user_dtor);
+        f->destructible  = lifecycle_tri(!dtor_deleted);
+        f->virtual_dtor  = lifecycle_tri(dtor_virtual);
+        if !copyable {
             f->why_not_copyable = ("its copy constructor is deleted") if (copy_deleted)
                                   else ("it declares a move constructor and no copy constructor");
         }
-        if !f->movable {
+        if !movable {
             f->why_not_movable = ("its move constructor is deleted") if (move_deleted)
                                  else (f"it declares no move constructor and {f->why_not_copyable}");
         }
@@ -288,11 +414,11 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // clang's triviality bits for an imported record; ours otherwise.
         var lay = self._layout(d);
         if (lay != &null) && lay->known {
-            f->trivially_copyable = lay->trivially_copyable;
-            f->trivial_dtor       = lay->trivial_dtor;
+            f->trivially_copyable = lifecycle_tri(lay->trivially_copyable);
+            f->trivial_dtor       = lifecycle_tri(lay->trivial_dtor);
         } else {
-            f->trivially_copyable = (!user_copy) && (!user_move) && (!user_dtor);
-            f->trivial_dtor       = !user_dtor;
+            f->trivially_copyable = lifecycle_tri((!user_copy) && (!user_move) && (!user_dtor));
+            f->trivial_dtor       = lifecycle_tri(!user_dtor);
         }
 
         // Bases.
@@ -301,11 +427,20 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             for var i: usize = 0; i < c->derives_list.size(); ++i {
                 var e  = c->derives_list.get(i);
                 var bd = self._base_decl(e->base);
-                if bd == &null { continue; }
+                if bd == &null {
+                    // `derives T`: no decl to ask, and everything the base
+                    // would fold in is the instance's.
+                    if self._dependent_base(e->base) {
+                        var uf = self._unknown_facts();
+                        f->virtual_dtor = lifecycle_or(f->virtual_dtor, uf.virtual_dtor);
+                        self._absorb(f, &uf, "its base");
+                    }
+                    continue;
+                }
                 if isa::<InterfaceDecl>(bd) { continue; }
                 var bf = self.facts_of(bd);
                 if bf->in_progress { continue; }             // a cycle; TypeCycleCheck's.
-                if bf->virtual_dtor { f->virtual_dtor = true; }
+                f->virtual_dtor = lifecycle_or(f->virtual_dtor, bf->virtual_dtor);
                 self._absorb(f, bf, f"its base '{self._tu.decl_name(bd)}\x27");
             }
         }
@@ -318,9 +453,53 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
             var ff = self.facts_of_type(fd->type_->canonical);
             if ff.in_progress { continue; }
-            if !ff.trivial_dtor { f->own_dtor_work = true; }
+            f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(ff.trivial_dtor));
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
         }
+
+        // The declared category stands unless a dependent component left the
+        // transfers open. NON_TRANSFER stands regardless: no field brings a
+        // deleted transfer back.
+        if (f->category != LifecycleCategory::NonTransfer)
+        && ((f->copyable == LifecycleTri::Unknown) || (f->movable == LifecycleTri::Unknown)) {
+            f->category = LifecycleCategory::Unknown;
+        }
+
+        f->computed    = true;
+        f->in_progress = false;
+    }
+
+    /// An enum's facts (file header). A plain enum has no payload, so the
+    /// LifecycleFacts defaults stand. An ADT declares no transfer ctor or
+    /// destructor of its own, so everything it has comes from the payloads.
+    priv fn _compute_enum(self, en: *EnumDecl, f: *LifecycleFacts) {
+        f->in_progress = true;
+
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if v == &null { continue; }
+            for var j: usize = 0; j < v->payload.size(); ++j {
+                var fd = v->payload[j];
+                if fd == &null { continue; }
+                // Unresolved: T reported it, and guessing here would only add
+                // a second error about a type nobody could name.
+                if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
+                var pf = self.facts_of_type(fd->type_->canonical);
+                if pf.in_progress { continue; }                // a cycle; TypeCycleCheck's.
+                f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(pf.trivial_dtor));
+                self._absorb(f, &pf,
+                    f"the payload field '{self.sc->ctx->get_spelling(fd->name)}' of variant '{self.sc->ctx->get_spelling(v->name)}\x27");
+            }
+        }
+
+        // The weakest category the payloads allow, read off the folded facts
+        // rather than each payload's own `category`: that one records only
+        // what a record DECLARED, so a class holding a move-only field says
+        // COPY while being uncopyable, and the ADT would inherit the lie.
+        if f->copyable == LifecycleTri::Yes                                           { f->category = LifecycleCategory::Copy;        }
+        else if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::Yes) { f->category = LifecycleCategory::Move;        }
+        else if (f->copyable == LifecycleTri::No) && (f->movable == LifecycleTri::No)  { f->category = LifecycleCategory::NonTransfer; }
+        else                                                                          { f->category = LifecycleCategory::Unknown;     }
 
         f->computed    = true;
         f->in_progress = false;
@@ -342,7 +521,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // Own work, not `trivial_dtor`: that absorbs the base's destructor,
         // which made every class deriving a non-trivial base an error -- even
         // one adding nothing a base-typed `delete` would skip.
-        if !df->own_dtor_work { return true; }
+        if df->own_dtor_work == LifecycleTri::No { return true; }
+        // Unknown facts are resolved per instance at M2, which does not exist yet.
+        if df->own_dtor_work == LifecycleTri::Unknown { return true; }
         var dn = self.sc->ctx->get_spelling(n->name);
 
         for var i: usize = 0; i < n->derives_list.size(); ++i {
@@ -351,7 +532,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if bd == &null { continue; }
             if isa::<InterfaceDecl>(bd) { continue; }
             var bf = self.facts_of(bd);
-            if bf->virtual_dtor { continue; }
+            if bf->virtual_dtor == LifecycleTri::Yes { continue; }
+            // Unknown facts are resolved per instance at M2, which does not exist yet.
+            if bf->virtual_dtor == LifecycleTri::Unknown { continue; }
 
             var bn = self._tu.decl_name(bd);
             var b = self.sc->diag->report(DiagID::SC056E, e->range.start,
@@ -556,6 +739,8 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             var bd = self._base_decl(e->base);
             if (bd == &null) || isa::<InterfaceDecl>(bd) { continue; }
             var bf = self.facts_of(bd);
+            // Unknown facts are resolved per instance at M2, which does not exist yet.
+            if (f->category == LifecycleCategory::Unknown) || (bf->category == LifecycleCategory::Unknown) { continue; }
             var ok = (f->category == LifecycleCategory::NonTransfer)
                   || (f->category == bf->category);
             if ok { continue; }
@@ -573,6 +758,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         switch c {
             case LifecycleCategory::Move        { return "move-only (@move)";           }
             case LifecycleCategory::NonTransfer { return "non-transferable (both deleted)"; }
+            case LifecycleCategory::Unknown     { return "undecided until instantiation"; }
             default                             { return "copyable (@copy)";            }
         }
     }
@@ -623,4 +809,22 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         if !isa::<RecordType>(c) { return &null; }
         return cast::<RecordType>(c)->decl;
     }
+
+    /// A base edge _base_decl has no decl for because it names a generic
+    /// parameter (`derives T`), as opposed to one T could not resolve.
+    priv fn _dependent_base(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        return c->is_dependent() || c->is_instantiation_dependent();
+    }
+}
+
+/// THE ClassLifecycle of \p sc's run: Sema owns it and publishes it on
+/// SemaContext::lifecycle, untyped there because this file imports that one.
+/// Every reader comes through here, so the facts are one memo per TU.
+fn lifecycle_of(sc: *SemaContext) -> *ClassLifecycle {
+    if (sc == &null) || (sc->lifecycle == &null) {
+        ICE_FAIL("lifecycle facts read before Sema created them");
+    }
+    return reinterpret_cast::<*ClassLifecycle>(sc->lifecycle);
 }

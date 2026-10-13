@@ -15,6 +15,7 @@
 ///       phase        -- how far sema actually got for this TU.
 ///       lang items   -- sc.well_known                            [N(a)]
 ///       tables       -- every DeclContext's frozen table, whole  [I]
+///                       plus each record's lifecycle facts [ClassLifecycle]
 ///       chains       -- multi-decl cells: overload set vs redecl [N(a)]
 ///       out-of-line  -- `fn Class::method` attachment            [N(a)]
 ///       scopes       -- the lexical frame tree: what each scope  [N(b)]
@@ -64,6 +65,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Lower::PatternCompilation::*;
+import Sema::Check::ClassLifecycle::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::ResolutionTrace::*;
@@ -74,6 +76,7 @@ import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::PrimaryExpressions::*;
@@ -236,6 +239,24 @@ fn sema_dump_sep_str(k: TraceSep) -> string {
         case TraceSep::QuestionArrow { return "?->"; }
     }
     return ".";
+}
+
+/// `1` / `0` / `?`: one column of a lifecycle row.
+fn sema_dump_tri_str(t: LifecycleTri) -> string {
+    switch t {
+        case LifecycleTri::Yes { return "1"; }
+        case LifecycleTri::No  { return "0"; }
+        default                { return "?"; }
+    }
+}
+
+fn sema_dump_category_str(c: LifecycleCategory) -> string {
+    switch c {
+        case LifecycleCategory::Copy        { return "COPY";         }
+        case LifecycleCategory::Move        { return "MOVE";         }
+        case LifecycleCategory::NonTransfer { return "NON_TRANSFER"; }
+        default                             { return "?";            }
+    }
 }
 
 fn sema_dump_phase_str(p: SemaPhase) -> string {
@@ -416,6 +437,56 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
             self._p.paint(Color::Dim, "(no scope declares anything)");
             self._p.newline();
         }
+        self._dump_lifecycle(tu);
+    }
+
+    /// One `lifecycle <Name>: ...` row per class, struct and enum, at the foot
+    /// of the tables. ClassLifecycle's facts are otherwise visible only
+    /// through the diagnostics that read them, and an Unknown one through
+    /// none at all.
+    ///
+    /// This TU's own decls only, and no rows in a library TU: the builtin and
+    /// std roots are dumped as well, and their rows would bury the ones a
+    /// test is about. Nothing before T: the facts read canonical types.
+    priv fn _dump_lifecycle(self, tu: *TranslationUnit) {
+        if static_cast::<u8>(self.sc->phase) < static_cast::<u8>(SemaPhase::TypesResolved) { return; }
+        if self._library_tu() { return; }
+        self._lifecycle_in(static_cast::<*DeclContext>(tu));
+    }
+
+    priv fn _lifecycle_in(self, dc: *DeclContext) {
+        if dc == &null { return; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if d == &null { continue; }
+            // One row per entity: a forward declaration shares its
+            // definition's facts, and an instance reads its pattern's.
+            var is_record = isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<EnumDecl>(d);
+            if is_record && (NameLookup::representative(d) == d) && (decl_instantiated_from(d) == &null) {
+                var f = lifecycle_of(self.sc)->facts_of(d);
+                self._p.paint(Color::Tree, "  ");
+                self._p.paint(Color::Attr, "lifecycle ");
+                self._p.put(f"{sema_dump_decl_name(self.ctx, d)}: category={sema_dump_category_str(f->category)}");
+                self._p.put(f" trivial_copy={sema_dump_tri_str(f->trivially_copyable)}");
+                self._p.put(f" trivial_dtor={sema_dump_tri_str(f->trivial_dtor)}");
+                self._p.put(f" destructible={sema_dump_tri_str(f->destructible)}");
+                self._p.newline();
+            }
+            self._lifecycle_in(NameLookup::context_of(d));
+        }
+    }
+
+    /// The builtin root by fid; std by path, against the root the driver
+    /// mounts it from (--std-dir, else <resource-dir>/std).
+    priv fn _library_tu(self) -> bool {
+        if (self.sc->g != &null) && self.sc->g->is_builtin_fid(self.fid) { return true; }
+        var ci = self.ctx->ci;
+        if (ci == &null) || (self.ctx->sm == &null) { return false; }
+        var root = ci->pp.std_dir;
+        if root.empty() && (!ci->target.resource_dir.empty()) { root = ci->target.resource_dir + "/std"; }
+        if root.empty() { return false; }
+        if !root.ends_with("/") { root += "/"; }
+        return self.ctx->sm->get_filename(self.fid).starts_with(root);
     }
 
     /// \return how many scopes actually printed, so the caller can say

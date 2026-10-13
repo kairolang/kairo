@@ -5,7 +5,7 @@
 ///
 ///   \detail
 ///     (a) At a call whose parameter is `@move`, the argument's type must be
-///         movable (ClassLifecycle::facts_of). Error naming the type and why.
+///         movable (lifecycle_of(sc)->facts_of). Error naming the type and why.
 ///
 ///     (b) Use after move. When the `@move` argument is a bare local or
 ///         parameter, that binding is MOVED-FROM from that point: any later
@@ -150,16 +150,14 @@ class LoopFrame {
 
 class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     pub var sc: *SemaContext;
-    pub var lc: *ClassLifecycle;
     priv var _tu:    TypeUtil;
     priv var _st:    MoveState;
     priv var _loops: vec::<LoopFrame>;
     pub var n_moves:   usize = 0;
     pub var n_errored: usize = 0;
 
-    fn MoveCheck(self, sc: *SemaContext, lc: *ClassLifecycle) {
+    fn MoveCheck(self, sc: *SemaContext) {
         self.sc  = sc;
-        self.lc  = lc;
         self._tu = TypeUtil(sc);
     }
 
@@ -597,8 +595,9 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             var c  = canon_unqual(e->type_);
             var rd = self._tu.record_decl(c);
             if rd != &null {
-                var facts = self.lc->facts_of(rd);
-                if !facts->movable {
+                var facts = lifecycle_of(self.sc)->facts_of(rd);
+                // A definite No only: Unknown facts are resolved per instance at M2, which does not exist yet.
+                if facts->movable == LifecycleTri::No {
                     var b = self.sc->diag->report(DiagID::SC051E, e->range.start,
                         f"cannot move a value of type '{self._tu.str(c)}': {facts->why_not_movable}"
                     );

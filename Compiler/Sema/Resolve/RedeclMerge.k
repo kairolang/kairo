@@ -43,6 +43,15 @@
 ///     the type-only comparison: their modes are all Value and the
 ///     reference kinds are already in their canonicals.
 ///
+///     The TRANSFER MARKER is in the signature when both decls carry one:
+///     `@copy fn X(self, const other: Self)` and `@move fn X(self, other:
+///     Self)` are X(const X&) and X(X&&), two constructors. Their `other` is
+///     written bare and only gets the mode its marker means when
+///     ClassLifecycle stamps it, in the checks, after this pass -- so until
+///     then the marker is the one thing telling the two apart, and without it
+///     the NON_TRANSFER shape (both `= delete`) reads as one member declared
+///     twice.
+///
 ///     Everything else is EXCLUDED, and each exclusion is load-bearing:
 ///
 ///       return type       -- excluded, which is what makes a mismatch a
@@ -499,6 +508,13 @@ class RedeclMerge {
         // Prefix and postfix `++`/`--` are one name cell and two entities.
         if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return false; }
 
+        // `@copy` beside `@move` (see header). Both marked only: an unmarked
+        // decl of the same shape is either an out-of-line definition that did
+        // not repeat the marker, which must still find its declaration, or an
+        // unmarked transfer shape, which ClassLifecycle reports (SC110E).
+        if (a->transfer != TransferKind::NotTransfer) && (b->transfer != TransferKind::NotTransfer)
+        && (a->transfer != b->transfer) { return false; }
+
         var fa = self._foreign(a);
         var fb = self._foreign(b);
         // Const-ness participates in signature identity for FOREIGN decls
@@ -655,6 +671,10 @@ class RedeclMerge {
         // Postfix `++`/`--` gets C++'s `int` dummy, prefix does not: two
         // different C++ parameter lists however the Kairo ones compare.
         if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return; }
+        // `@copy` beside `@move`: `const X&` / `X&` against `X&&` in C++,
+        // though both `other`s still read as by-value here (the stamp that
+        // says so comes after this pass).
+        if a->transfer != b->transfer { return; }
         // A mode difference is a C++ difference (`T` vs `T&` vs `T&&`): no
         // collision possible, whatever the types lower to.
         for var i: usize = 0; i < a->params.size(); ++i {

@@ -310,7 +310,11 @@ is two functions; top-level
 parameter cv excluded as in C++ ([dcl.fct]/5), both the binding's `const`
 and a `const` written at the top of the type, so `f(x: const *i32)` and
 `f(x: *i32)` are one function while `f(*const i32)` and `f(*i32)` are two;
-the receiver's `const` is one level down and stays). R(a) walks
+the receiver's `const` is one level down and stays; the `@copy` / `@move`
+marker included when both decls carry one, since `other` is written bare
+and ClassLifecycle stamps its mode only in the checks, so `@copy fn X(self,
+const other: Self) = delete` beside `@move fn X(self, other: Self) =
+delete` is X(const X&) and X(X&&), not one member twice). R(a) walks
 frozen cells; R(b) matches `fn Class::method` against the in-class set.
 Return-type / default / linkage / modifier agreement checked across the
 chain. File scope permits repeats, a type body does not ([class.mem]).
@@ -1059,7 +1063,9 @@ A pass that needs one asks that file; it never spells the string itself.
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
    `default_thunk` / `pack_type` on ParamDecl: CallLowering.
    `is_generator` / `has_yield` on FunctionDecl: X. A transfer
-   constructor's `other` mode stamp: ClassLifecycle.
+   constructor's `other` mode stamp: ClassLifecycle. Lifecycle facts:
+   ClassLifecycle, one instance owned by Sema and published as
+   `sc->lifecycle`; every reader goes through `lifecycle_of(sc)`.
 8. **Canonical identity is build-wide, and cv-qualified: const i32 and i32
    are two canonicals.**
 9. **T never rewrites nodes.** X never allocates nodes.

@@ -80,11 +80,22 @@ import Support::TimeReport::*;
 class Sema {
     pub var sc: SemaContext;
 
+    /// The TU's lifecycle facts. A member, not a stage local: the checks
+    /// fill the memo and --print-sema reads it after the run returns.
+    /// Sema only runs it; readers reach it through sc.lifecycle
+    /// (lifecycle_of), never through this field.
+    priv var lifecycle: ClassLifecycle;
+
     /// Mirrors ASTParse's ctor: wire handles, no work. ctx->tu must be a
     /// fully parsed TranslationUnit (dc_symbols frozen, out_of_line
     /// collected) i.e. ASTParse::parse() returned it.
     fn Sema(self, ctx: *ASTContext, g: *GlobalDisambigTable) {
         self.sc = SemaContext(ctx, g);
+        // Only now: `sc` was assigned from a temporary, and the instance
+        // keeps `&self.sc` while `sc` keeps `&self.lifecycle`, so both have
+        // to be the members' final addresses.
+        self.lifecycle    = ClassLifecycle(&self.sc);
+        self.sc.lifecycle = &self.lifecycle;
     }
 
     // --- Entry points ---------------------------------------------------------
@@ -319,15 +330,14 @@ class Sema {
         // rules about the lifecycle itself: one transfer ctor, no user
         // `op =`, base/derived category match, the virtual-destructor rule.
         // After ExprTyper only for schedule linearity; it reads declarations
-        // and canonicals, never expression types. MoveCheck below reads its
-        // table, so the object outlives both calls.
-        var lifecycle = ClassLifecycle(&self.sc);
-        { var _p = TimeRegion("ClassLifecycle"); lifecycle.run(); }
+        // and canonicals, never expression types. The instance is Sema's
+        // member: MoveCheck below and the dump read the same memo.
+        { var _p = TimeRegion("ClassLifecycle"); self.lifecycle.run(); }
 
         // `@move` arguments: movability, and use-after-move over each body.
         // REQUIRES ExprTyper complete (promoted callees, typed arguments) and
         // ClassLifecycle (movability).
-        { var _p = TimeRegion("MoveCheck"); MoveCheck(&self.sc, &lifecycle).run(); }
+        { var _p = TimeRegion("MoveCheck"); MoveCheck(&self.sc).run(); }
 
         // TODO(sema): ConformanceChecking(&self.sc).run();
         // TODO(sema): ConstChecking(&self.sc).run();
