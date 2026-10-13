@@ -77,6 +77,19 @@ fn tied() {
 // DIAG:      variant_init_err.k:[[@LINE-1]]:5: error [SC064E]: call to 'place' is ambiguous: more than one candidate matches at the same rank
 // DIAG-NEXT: variant_init_err.k:[[@LINE-6]]:1: note [I900N]: candidate declared here
 // DIAG-NEXT: variant_init_err.k:[[@LINE-6]]:1: note [I900N]: candidate declared here
+// DIAG-NEXT: variant_init_err.k:[[@LINE-4]]:5: note [I900N]: '.Empty' is a variant of more than one candidate's enum; write the enum name: Shape::Empty or Slot::Empty
+}
+
+// Both take `.Empty` as a Shape: naming the enum decides nothing, the tie is
+// in the other argument, and the hint is the cast one.
+fn put(s: Shape, x: i64) { }
+fn put(s: Shape, x: f64) { }
+
+fn tied_elsewhere() {
+    put(.Empty, 1);
+// DIAG:      variant_init_err.k:[[@LINE-1]]:5: error [SC064E]: call to 'put' is ambiguous: more than one candidate matches at the same rank
+// DIAG-NEXT: variant_init_err.k:[[@LINE-6]]:1: note [I900N]: candidate declared here
+// DIAG-NEXT: variant_init_err.k:[[@LINE-6]]:1: note [I900N]: candidate declared here
 // DIAG-NEXT: variant_init_err.k:[[@LINE-4]]:5: note [I900N]: conversions are not ordered within a rank; cast one argument to make the choice explicit
 }
 

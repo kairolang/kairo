@@ -1414,7 +1414,8 @@ group = "calls"
     ## how to fix
 
     convert an argument explicitly so one candidate matches better, or remove one of the
-    overloads.
+    overloads. when the argument is a `.V` shorthand that more than one candidate's enum
+    has, there is nothing to convert: write the enum name, `Shape::Empty` for `.Empty`.
     """
 
     [SC064.N]

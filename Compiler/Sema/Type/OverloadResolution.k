@@ -179,6 +179,11 @@ class Candidate {
     /// parameter, or not Exact), 1 `const T&`, 2 `T&&`, 3 `T&`. Read only by
     /// the reference tiebreak.
     pub var binds:        vec::<u8>;
+    /// per arg: the parameter type it was ranked against, null where nothing
+    /// was ranked (a C `...` tail, an assumed argument). Read only by the
+    /// ambiguity diagnostic: which enum a `.V` argument took is known only
+    /// here, after `self` is skipped and `Self` is read through the receiver.
+    pub var targets:      vec::<*Type>;
     /// The implicit object parameter, judged like one more reference
     /// argument: 1 `const self`, 3 plain `self`, 0 not judged (no receiver
     /// object known). recv_const is the OBJECT's constness.
@@ -367,7 +372,7 @@ class OverloadResolution {
         }
 
         if winners.size() > 1 {
-            self._report_ambiguous(&cs, &winners, at, name);
+            self._report_ambiguous(&cs, &winners, margs, fargs, at, name);
             out.outcome = OvlOutcome::Ambiguous;
             return out;
         }
@@ -640,7 +645,7 @@ class OverloadResolution {
 
         var filled = vec::<bool>();
         for var i: usize = 0; i < nparams; ++i { filled.push_back(false); }
-        for var i: usize = 0; i < args->size(); ++i { c->arg_to_param.push_back(usize(-1)); c->binds.push_back(0); }
+        for var i: usize = 0; i < args->size(); ++i { c->arg_to_param.push_back(usize(-1)); c->binds.push_back(0); c->targets.push_back(&null); }
 
         // 1. NAMED first, then positional. Placement has to know which slots a
         //    name already claimed before it decides where the positionals
@@ -808,6 +813,7 @@ class OverloadResolution {
             // never reaches here (bound above, and it takes no mode).
             var mode = (ParamMode::Value) if (pi == usize(-1)) else (p->mode);
 
+            c->targets[i] = pt;
             var r = self._rank_arg(c, a, pt, pi == usize(-1), mode);
             if r == ImplicitRank::None {
                 var pn = self.tu.param_name(p);
@@ -999,9 +1005,9 @@ class OverloadResolution {
                 // `.V` TAKES the parameter's enum when it has a variant of
                 // that name (§5, as a literal takes its type); it converts to
                 // nothing else.
-                var rd = self.tu.record_decl(canon_unqual(target));
-                var en = (dyn_cast::<EnumDecl>(self.tu.pattern_of(rd))) if (rd != &null) else (&null);
-                if en == &null { return ImplicitRank::None; }
+                var et = self._variant_enum(target);
+                if et == &null { return ImplicitRank::None; }
+                var en = cast::<EnumDecl>(self.tu.pattern_of(self.tu.record_decl(et)));
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var v = en->variants[i];
                     if (v != &null) && (self.tu.decl_name(static_cast::<*Decl>(v)) == a->lit_name) { return ImplicitRank::Exact; }
@@ -1010,6 +1016,23 @@ class OverloadResolution {
             }
             default { return ImplicitRank::None; }
         }
+    }
+
+    /// The enum a `.V` argument takes from parameter type \p pt, or null
+    /// when \p pt is not one. A reference is read through to its referee and
+    /// a nullable to its inner type. Ranking and the ambiguity hint both ask,
+    /// and must agree on which enum a parameter offers.
+    priv fn _variant_enum(self, pt: *Type) -> *Type {
+        if pt == &null { return &null; }
+        var t = pt;
+        if isa::<CXXLValueRefType>(t) { t = cast::<CXXLValueRefType>(t)->referee; }
+        else if isa::<CXXRValueRefType>(t) { t = cast::<CXXRValueRefType>(t)->referee; }
+        t = canon_unqual(self.tu.strip_nullable(canon_unqual(t)));
+        if t == &null { return &null; }
+        var rd = self.tu.record_decl(t);
+        if rd == &null { return &null; }
+        if dyn_cast::<EnumDecl>(self.tu.pattern_of(rd)) == &null { return &null; }
+        return t;
     }
 
     /// A list literal TAKES its parameter's type (§5), so nothing is converted;
@@ -1150,7 +1173,58 @@ class OverloadResolution {
         b.emit();
     }
 
-    priv fn _report_ambiguous(self, cs: *vec::<Candidate>, winners: *vec::<usize>, at: SourceRange, name: string) {
+    /// The hint for a tie a `.V` argument caused, or "" when none did. A
+    /// `.V` takes whichever enum its parameter offers, so there is nothing to
+    /// cast: the fix is to name the enum. Only when the winners' enums for
+    /// that argument DIFFER -- with `place(Shape, i32)` beside
+    /// `place(Shape, i64)`, `Shape::Empty` decides nothing, the tie is in
+    /// another argument, and the cast hint is the right one.
+    priv fn _variant_spellings(self, cs: *vec::<Candidate>, winners: *vec::<usize>,
+                               margs: *vec::<ArgInfo>, fargs: *vec::<ArgInfo>) -> string {
+        // A member and a free winner index different argument lists, so the
+        // `.V` is found per winner and matched across them by its node,
+        // never by index.
+        var first = &((*cs)[(*winners)[0]]);
+        var args0 = (fargs) if (first->free) else (margs);
+        if args0 == &null { return ""; }
+        for var k: usize = 0; k < args0->size(); ++k {
+            var a = &((*args0)[k]);
+            if a->lit != LitKind::Variant { continue; }
+            var names = vec::<string>();
+            for var i: usize = 0; i < winners->size(); ++i {
+                var c = &((*cs)[(*winners)[i]]);
+                var args = (fargs) if (c->free) else (margs);
+                var et: *Type = &null;
+                for var j: usize = 0; (args != &null) && (j < args->size()); ++j {
+                    var aj = &((*args)[j]);
+                    if (aj->lit != LitKind::Variant) || (aj->expr != a->expr) { continue; }
+                    if j < c->targets.size() { et = self._variant_enum(c->targets[j]); }
+                    break;
+                }
+                if et == &null { continue; }
+                var n = self.tu.str(et);
+                var dup = false;
+                for var m: usize = 0; m < names.size(); ++m {
+                    if names[m] == n { dup = true; break; }
+                }
+                if !dup { names.push_back(n); }
+            }
+            if names.size() < 2 { continue; }
+            var joined = "";
+            for var m: usize = 0; m < names.size(); ++m {
+                if m > 0 { joined = joined + ((" or ") if (m + 1 == names.size()) else (", ")); }
+                joined = joined + names[m] + "::" + a->lit_name;
+            }
+            return f"'.{a->lit_name}' is a variant of more than one candidate's enum; write the enum name: {joined}";
+        }
+        return "";
+    }
+
+    /// \p margs / \p fargs are the argument lists the winners were judged
+    /// against, chosen per winner by Candidate::free as in _ref_tiebreak.
+    priv fn _report_ambiguous(self, cs: *vec::<Candidate>, winners: *vec::<usize>,
+                              margs: *vec::<ArgInfo>, fargs: *vec::<ArgInfo>,
+                              at: SourceRange, name: string) {
         var b = self.sc->diag->report(DiagID::SC064E, at.start,
             f"call to '{name}' is ambiguous: more than one candidate matches at the same rank"
         );
@@ -1159,7 +1233,12 @@ class OverloadResolution {
             var c = &((*cs)[(*winners)[i]]);
             b.note(c->f->range.start, "candidate declared here").first(c->f->range);
         }
-        b.note(at.start, "conversions are not ordered within a rank; cast one argument to make the choice explicit");
+        var spelled = self._variant_spellings(cs, winners, margs, fargs);
+        if spelled.size() > 0 {
+            b.note(at.start, spelled);
+        } else {
+            b.note(at.start, "conversions are not ordered within a rank; cast one argument to make the choice explicit");
+        }
         b.emit();
     }
 }
