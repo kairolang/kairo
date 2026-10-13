@@ -366,6 +366,9 @@ class Sema {
         // nested one would only repeat it (Lower.Lowerings.X).
         self.sc.require_phase(SemaPhase::Checked);
 
+        // The head of the stage is VariantInitLowering, then
+        // EnumLayoutLowering, then ExprBodyDesugar, and the rest after them.
+        //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
         // from the facts X recorded on the node it was written as. Before any
@@ -373,13 +376,16 @@ class Sema {
         // so every pass below sees one node kind for it (SequenceLowering
         // orders its payload).
         { var _p = TimeRegion("VariantInitLowering"); VariantInitLowering(&self.sc).run(); }
-        // Then: every ADT enum gets its layout record. Every later pass and
-        // EmitPlan must see the record's members -- MatchLowering reads the
-        // tag field and each variant's union member off it. It touches no
-        // body, and VariantInitLowering above reads nothing it builds, so
-        // the two could run in either order.
+        // Second: every ADT enum gets its layout record, the one a
+        // VariantInitExpr is built through (a variant constructor per
+        // variant). Before every body rewrite: every later pass and EmitPlan
+        // must see the record's members -- MatchLowering reads the tag field
+        // and each variant's union member off it. The pass touches no body
+        // and VariantInitLowering reads nothing it builds, so neither feeds
+        // the other; placing it second means every pass from here on sees
+        // both the constructions and the record that renders them.
         { var _p = TimeRegion("EnumLayoutLowering"); EnumLayoutLowering(&self.sc).run(); }
-        // Then: `fn f() -> T = e` becomes `{ return e }`, so every pass below
+        // Third: `fn f() -> T = e` becomes `{ return e }`, so every pass below
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.
         { var _p = TimeRegion("ExprBodyDesugar"); ExprBodyDesugar(&self.sc).run(); }

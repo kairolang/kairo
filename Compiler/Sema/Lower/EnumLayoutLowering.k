@@ -290,10 +290,14 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             // payload fields with no scope at all. To C++ they are members
             // of this struct, and that is where a spelling of one
             // (CXXSpell::leaf reads the name in its scope's TU) and a use of
-            // one (EmitPlan::_member_owner) must find it.
+            // one (EmitPlan::_member_owner) must find it. This is the only
+            // writer: a scope already here means a second one exists, and
+            // whichever ran last would silently decide where the field lives.
             var fd = static_cast::<*Decl>(f);
-            if fd->semantic_dc == &null { fd->semantic_dc = pdc; }
-            if fd->lexical_dc == &null  { fd->lexical_dc  = pdc; }
+            ICE_IF((fd->semantic_dc != &null) || (fd->lexical_dc != &null),
+                   "EnumLayoutLowering: payload field already has a scope; this pass is its only writer");
+            fd->semantic_dc = pdc;
+            fd->lexical_dc  = pdc;
         }
         fs.freeze_into(&(ps->fields));
         return ps;
