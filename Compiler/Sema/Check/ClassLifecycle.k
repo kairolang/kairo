@@ -14,10 +14,17 @@
 ///
 ///       copyable   no deleted copy ctor, and no user move ctor without a
 ///                  user copy ctor (declaring a move deletes the implicit
-///                  copy); every base and by-value field copyable.
+///                  copy); every base and by-value field copyable, unless
+///                  the copy ctor is user-provided.
 ///       movable    no deleted move ctor, and (a user move ctor, or
 ///                  copyable -- an rvalue falls back to the copy); every
-///                  base and by-value field movable.
+///                  base and by-value field movable, unless the move or
+///                  copy ctor is user-provided.
+///
+///     User-provided is neither `= default` nor `= delete`: the body decides
+///     what the transfer does, so the components do not. A defaulted
+///     transfer, or the one C++ generates when none is declared, is
+///     memberwise and does ask them.
 ///       trivial    nothing user-provided on this type, its bases, or its
 ///                  by-value fields.
 ///       destructible  no `op delete = delete` on this type, its bases, or
@@ -43,9 +50,9 @@
 ///
 ///     A record that writes a @copy or @move constructor has the category it
 ///     DECLARED (@copy, @move, both deleted). It reads Unknown only when a
-///     dependent component leaves copyable or movable open, and never when it
-///     declared NON_TRANSFER: nothing a field holds brings a deleted transfer
-///     back. A record that writes neither has no category of its own to
+///     dependent component leaves a defaulted transfer open, and never when
+///     the transfer is user-provided or it declared NON_TRANSFER: nothing a
+///     field holds brings a deleted transfer back. A record that writes neither has no category of its own to
 ///     declare: C++ generates its transfers from its bases and fields, so its
 ///     category is the weakest they allow, read off the folded facts exactly
 ///     as an ADT's is (_folded_category). A class holding a move-only field is
@@ -365,10 +372,12 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         }
         f->in_progress = true;
 
-        var user_copy    = false;
-        var user_move    = false;
-        var copy_deleted = false;
-        var move_deleted = false;
+        var user_copy     = false;
+        var user_move     = false;
+        var copy_deleted  = false;
+        var move_deleted  = false;
+        var copy_provided = false;
+        var move_provided = false;
         var user_dtor    = false;
         var dtor_deleted = false;
         var dtor_virtual = false;
@@ -377,13 +386,19 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
             if m == &null { continue; }
+            // Provided: neither `= default` nor `= delete`. A body-less
+            // declaration counts -- an out-of-line definition, or an
+            // imported ctor clang did not default -- since the user wrote it.
+            var provided = (m->body_kind != FnBodyKind::Default) && (m->body_kind != FnBodyKind::Delete);
             if m->transfer == TransferKind::Copy {
                 user_copy = true;
                 if m->body_kind == FnBodyKind::Delete { copy_deleted = true; }
+                if provided { copy_provided = true; }
             }
             if m->transfer == TransferKind::Move {
                 user_move = true;
                 if m->body_kind == FnBodyKind::Delete { move_deleted = true; }
+                if provided { move_provided = true; }
             }
             if self._is_dtor(m) {
                 user_dtor = true;
@@ -415,6 +430,13 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             f->why_not_movable = ("its move constructor is deleted") if (move_deleted)
                                  else (f"it declares no move constructor and {f->why_not_copyable}");
         }
+        // A transfer the user wrote a body for does whatever that body does,
+        // so no base or field can take it away: a hand-written @copy over a
+        // std::mutex builds a fresh mutex and copies, and a copy is a valid
+        // move. Only a defaulted transfer, or one C++ generates because none
+        // was declared, is memberwise and asks the components.
+        var copy_pinned = copyable && copy_provided;
+        var move_pinned = movable && (move_provided || copy_provided);
 
         // clang's triviality bits for an imported record; ours otherwise.
         var lay = self._layout(d);
@@ -462,11 +484,24 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
         }
 
+        // Undo what the folding did to a pinned transfer (see above). The
+        // folding still ran for it: triviality and destructibility are the
+        // components' whatever the transfer ctor's body says.
+        if copy_pinned {
+            f->copyable         = LifecycleTri::Yes;
+            f->why_not_copyable = "";
+        }
+        if move_pinned {
+            f->movable         = LifecycleTri::Yes;
+            f->why_not_movable = "";
+        }
+
         // Nothing declared: the weakest category the bases and fields allow
         // (file header), so the ones C++ would generate are what it reports.
-        // Declared: it stands unless a dependent component left the
-        // transfers open. NON_TRANSFER stands regardless: no field brings a
-        // deleted transfer back.
+        // Declared: it stands unless a dependent component left a defaulted
+        // transfer open (a provided one is pinned above, so it never is).
+        // NON_TRANSFER stands regardless: no field brings a deleted transfer
+        // back.
         if !f->user_transfer {
             f->category = self._folded_category(f);
         } else if (f->category != LifecycleCategory::NonTransfer)
@@ -760,8 +795,12 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
 
         // 4. Custom destructor, implicit copy: almost always an owned
         //    resource that will be silently copied. Warning, per the doc.
+        //    Only when the derived category really is COPY: a move-only or
+        //    non-transferable field already keeps C++ from generating the
+        //    copy, so there is nothing silent to warn about.
+        //    Unknown facts are resolved per instance at M2, which does not exist yet.
         if (dtor != &null) && (dtor->body_kind != FnBodyKind::Default) && (dtor->body_kind != FnBodyKind::Delete)
-        && (!f->user_transfer) {
+        && (!f->user_transfer) && (f->category == LifecycleCategory::Copy) {
             self.sc->diag->report(DiagID::SC060W, dtor->range.start,
                 f"'{dn}' has a custom destructor but no '@copy' or '@move' transfer constructor; it is implicitly copyable"
             ).first(dtor->range)
