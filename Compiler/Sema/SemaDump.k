@@ -1346,6 +1346,27 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// backing array gets, that a cast is a construction, how a comparison
     /// is derived, and which instance a generic call or operator names.
     priv fn _note_lowering_choices(self, n: *Expr) {
+        // A variant construction: which variant X matched, on the node it was
+        // written as, which VariantInitLowering replaces.
+        var vd = variant_decl_of(n);
+        if vd != &null {
+            self._p.paint(Color::Dim, "  [variant=" + self._variant_name(vd) + "]");
+            return;
+        }
+        if isa::<VariantInitExpr>(n) {
+            // --print-lowered: the variant, and the written order of its
+            // payload, which the tree stops showing once SequenceLowering has
+            // bound it.
+            var vi = cast::<VariantInitExpr>(n);
+            var en = cast::<EnumDecl>(vi->en);
+            var s  = "  [variant=" + self._variant_name(static_cast::<*Decl>(en->variants[usize(vi->variant)]));
+            if vi->source_order.size() > 0 {
+                s += " source_order";
+                for var i: usize = 0; i < vi->source_order.size(); ++i { s += f" {vi->source_order[i]}"; }
+            }
+            self._p.paint(Color::Dim, s + "]");
+            return;
+        }
         if isa::<CallExpr>(n) {
             var c = cast::<CallExpr>(n);
             if c->arg_map.size() > 0 {
@@ -1400,6 +1421,14 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         var e = ("1") if (exhaustive) else ("0");
         var o = ("1") if (open_tail) else ("0");
         self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}]");
+    }
+
+    /// `Enum::Variant` for \p v.
+    priv fn _variant_name(self, v: *Decl) -> string {
+        var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
+        var en = (dc->owner_decl()) if (dc != &null) else (&null);
+        if en == &null { return self._tu.decl_name(v); }
+        return self._tu.decl_name(en) + "::" + self._tu.decl_name(v);
     }
 
     /// A MatchStmt is not an expression, so it gets its own row for the

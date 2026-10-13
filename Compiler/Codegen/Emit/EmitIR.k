@@ -762,6 +762,7 @@ class EmitIR {
             case ExprKind::PackExpansionExpr    { self._ice(e->range, "EmitIR: pack expansion; not emitted yet"); }
             case ExprKind::ListLiteralExpr      { self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
+            case ExprKind::VariantInitExpr      { self._variant_init(cast::<VariantInitExpr>(e)); }
             case ExprKind::StmtExpr {
                 // `({ ... })`: clang's statement expression. The block is
                 // emitted as any block; the parens make it a value.
@@ -1424,6 +1425,48 @@ class EmitIR {
             }
         }
         sink->spell(e->range, "}");
+    }
+
+    /// An ADT variant built in place: the enum's tagged constructor,
+    /// `T(::__kairo_vt<I>{})` for a variant without a payload, and otherwise
+    ///
+    ///   T(::__kairo_vt<I>{}, [&]() -> P { return { f0, f1 }; })
+    ///
+    /// with P the variant's payload struct named through T. The union member
+    /// is initialized from the lambda's prvalue, so the payload is built in
+    /// place: no copy or move is asked of it. The fields are in declaration
+    /// order, which a braced list runs left to right; where the written order
+    /// differs and matters, SequenceLowering has bound them to locals.
+    priv fn _variant_init(self, n: *VariantInitExpr) {
+        if (n->type_ == &null) { self._ice(n->range, "EmitIR: untyped variant construction reached codegen; ControlTyping types it"); }
+        var en = dyn_cast::<EnumDecl>(n->en);
+        if (en == &null) { self._ice(n->range, "EmitIR: variant construction with no enum"); }
+        if (!en->is_adt) { self._ice(n->range, "EmitIR: VariantInitExpr of a plain enum; VariantInitLowering spells a plain variant as its enumerator"); }
+        var v   = en->variants[usize(n->variant)];
+        var t   = self._spell._type(n->type_);
+        var tag = "::" + LowerTargets::adt_variant_tag() + "<" + f"{n->variant}" + ">{}";
+        if v->payload.size() == 0 {
+            sink->spell(n->range, t + "(" + tag + ")");
+            return;
+        }
+        var leaf = LowerTargets::adt_payload_type(self._spell.leaf(static_cast::<*Decl>(v)));
+        var pt   = self._spell.dependent_member_type(n->type_, leaf);
+        sink->spell(n->range, t + "(" + tag + ", [&]() -> " + pt + " { return {");
+        for var i: usize = 0; i < n->fields.size(); ++i {
+            if i > 0 { sink->spell(n->range, ","); }
+            var fd = v->payload[i];
+            var f  = n->fields[i];
+            // An array member takes bare braces, as in _init.
+            var fc: *Type = &null;
+            if (fd->type_ != &null) && (fd->type_->canonical != &null) { fc = canon_unqual(fd->type_->canonical); }
+            var il = dyn_cast::<InitListExpr>(f);
+            if (il != &null) && (fc != &null) && (fc->kind == TypeKind::FixedArrayType) {
+                self._init_list(il, true);
+            } else {
+                self._value(f, fd->type_);
+            }
+        }
+        sink->spell(n->range, "}; })");
     }
 
     priv fn _layout_of(self, d: *Decl) -> *Decl {

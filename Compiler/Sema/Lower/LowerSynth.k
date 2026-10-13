@@ -447,6 +447,13 @@ class LowerSynth {
                 for var i: usize = 0; i < l->elements.size(); ++i { if !LowerSynth::pure(l->elements[i]) { return false; } }
                 return true;
             }
+            case ExprKind::VariantInitExpr {
+                // As pure as its fields: a variant without a payload runs
+                // nothing.
+                var v = cast::<VariantInitExpr>(e);
+                for var i: usize = 0; i < v->fields.size(); ++i { if !LowerSynth::pure(v->fields[i]) { return false; } }
+                return true;
+            }
             default { return false; }   // calls, assignment, if-expr, closures, ...
         }
     }

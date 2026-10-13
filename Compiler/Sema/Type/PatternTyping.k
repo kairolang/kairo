@@ -278,7 +278,7 @@ class <T> PatternTyping {
         // Unknown or dependent column: nothing to resolve against. Binders
         // still get typed (as unknown) so the body has decls to bind to.
         if (st == &null) || st->is_dependent() {
-            if head != &null { dyn()->type_of(head, &null); }
+            if head != &null { dyn()->type_head(head); }
             self._type_subs_unknown(subs);
             return;
         }
@@ -312,7 +312,7 @@ class <T> PatternTyping {
             owner = nm;
         } else {
             if head == &null { p->poison(); return; }
-            dyn()->type_of(head, &null);
+            dyn()->type_head(head);   // the variant a head names is matched, not built.
             if head->is_poisoned() { p->poison(); self._type_subs_unknown(subs); return; }
 
             var den = dyn()->denoted_type(head);
@@ -459,16 +459,17 @@ class <T> PatternTyping {
         for var i: usize = 0; i < subs.size(); ++i { self.type_pattern(subs[i], &null); }
     }
 
-    /// The enum a column ranges over, or null.
-    priv fn _enum_of(self, st: *Type) -> *EnumDecl {
+    /// The enum a column ranges over, or null. ControlTyping reads the enum
+    /// of a variant construction's type through it too.
+    fn _enum_of(self, st: *Type) -> *EnumDecl {
         var rd = dyn()->tu.record_decl(st);
         if rd == &null { return &null; }
         return dyn_cast::<EnumDecl>(dyn()->tu.pattern_of(rd));
     }
 
     /// The declaration a typed head names: an ident's binding, or a path's
-    /// last step.
-    priv fn _head_decl(self, e: *Expr) -> *Decl {
+    /// last step. ControlTyping classifies an initializer's head with it.
+    fn _head_decl(self, e: *Expr) -> *Decl {
         if e == &null { return &null; }
         if isa::<NamedIdentExpr>(e) { return cast::<NamedIdentExpr>(e)->resolved_decl; }
         if isa::<ChainExpr>(e) {

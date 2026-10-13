@@ -21,6 +21,10 @@
 ///         lowerings' labels and gotos), but nothing yet proves a user jump
 ///         crosses no initialization, which C++ rejects and Kairo must
 ///         report first.
+///       - building an ADT enum variant (an expression X recorded a
+///         `variant_decl` on): EmitIR spells it as a constructor of the
+///         enum's layout record, which nothing builds yet. A plain enum's
+///         `.V` is its enumerator's name and is not gated.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -41,6 +45,7 @@
 import Sema::SemaContext::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
@@ -105,6 +110,16 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
 
     fn visit_jump_intrinsic_stmt(self, n: *JumpIntrinsicStmt) -> bool {
         self._gate(n->range, "'jump!\x27");
+        return true;
+    }
+
+    fn visit_expr(self, n: *Expr) -> bool {
+        var v = variant_decl_of(n);
+        if (v == &null) || n->is_poisoned() { return true; }
+        var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
+        var en = (dyn_cast::<EnumDecl>(dc->owner_decl())) if (dc != &null) else (&null);
+        if (en == &null) || (!en->is_adt) { return true; }
+        self._gate(n->range, "building an enum variant");
         return true;
     }
 

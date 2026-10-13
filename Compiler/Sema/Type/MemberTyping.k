@@ -80,6 +80,7 @@ class <T> MemberTyping {
         var cur_kind: u8 = 0;             // 0 value, 1 type, 2 module, 3 callable, 4 unknown
         var cur_type: *Type = &null;      // when cur_kind == 1
         var saw_optional = false;
+        var last_variant: *EnumVariantDecl = &null;   // the chain ends naming this variant
 
         if n->base == &null {
             cur_kind = 2;
@@ -258,6 +259,7 @@ class <T> MemberTyping {
                     if (cur_kind == 1) && (dyn()->discr_enum == &null) { cur = cur_type; }   // `Foo<i32>::V` keeps the instance
                     cur_kind = 0; st->resolved_type = cur;
                     n->value_category = Expr::ValueCategory::RValue;
+                    if is_last { last_variant = cast::<EnumVariantDecl>(d); }
                 }
                 case DeclKind::FunctionDecl {
                     info->callable_cands.clear();
@@ -284,6 +286,8 @@ class <T> MemberTyping {
         switch cur_kind {
             case 0 {
                 if cur == &null { return &null; }
+                // `Opt::None` as a value is a construction (ControlTyping).
+                if last_variant != &null { return dyn()->type_variant_value(static_cast::<*Expr>(n), last_variant, cur); }
                 if saw_optional { return dyn()->sc->types->nullable(dyn()->tu.strip_nullable(cur)); }
                 return cur;
             }

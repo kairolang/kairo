@@ -2046,6 +2046,11 @@ class <T> ExprParse {
             return self._parse_global_root_expr();
         }
 
+        // -- leading dot: .Variant | .Variant { f: e } -----------------
+        if dyn()->check(TokenKind::OpDot) {
+            return self._parse_dotted_variant(stop);
+        }
+
         // -- no production matched -----------------------------------
         var resolved = dyn()->resolve_deep(cur_ptr);
 
@@ -2138,6 +2143,51 @@ class <T> ExprParse {
         }
 
         return nte;
+    }
+
+    //  Leading-dot variant: .Variant | .Variant { field: value, ... }
+
+    /// \brief parses `.Variant`, a variant of the enum the expected type
+    ///        names, alone or with its payload in braces.
+    ///
+    /// \details nothing is looked up: as for the `.Variant` pattern, which enum
+    ///          is a sema fact. Both forms are a NamedInitializerExpr with no
+    ///          head, `is_dotted` set and `has_braces` saying which was written.
+    ///          Where NoStructLiteral holds the `{` is left for the caller, as
+    ///          the postfix loop leaves it after a path: in `if x == .A { }`
+    ///          it is the block.
+    ///
+    /// precondition: current token is `.`
+    priv fn _parse_dotted_variant(self, stop: ExprStopKind) -> *Expr {
+        var dot_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `.`
+
+        if !dyn()->check(TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S054E, dot_range.start,
+                "expected a variant name after '.\x27"
+            ).first(dot_range).emit();
+            return static_cast::<*Expr>(NamedInitializerExpr::create_error(dyn()->ctx, dot_range));
+        }
+        var name = dyn()->current();
+        dyn()->advance(); // consume the variant name
+        var head_range = dot_range | name.range;
+
+        var suppressed = (static_cast::<u8>(stop)
+                        & static_cast::<u8>(ExprStopKind::NoStructLiteral)) != 0;
+        var braces = (!suppressed) && dyn()->check(TokenKind::OpLBrace);
+        var e: *Expr = &null;
+        if braces {
+            e = self._parse_init_braces(&null, head_range);
+        } else {
+            e = static_cast::<*Expr>(NamedInitializerExpr::create(dyn()->ctx, head_range, &null));
+        }
+        if isa::<NamedInitializerExpr>(e) {
+            var ni = cast::<NamedInitializerExpr>(e);
+            ni->is_dotted   = true;
+            ni->dotted_name = name;
+            ni->has_braces  = braces;
+        }
+        return e;
     }
 
     //  Global root path: ::foo::bar
@@ -2878,8 +2928,15 @@ class <T> ExprParse {
     ///          A trailing comma is permitted. Empty `{}` is allowed (zero-field
     ///          aggregate / default init).
     priv fn _parse_named_initializer(self, path: *Expr, stop: ExprStopKind) -> *Expr {
-        var start_range = path->range;
+        return self._parse_init_braces(path, path->range);
+    }
 
+    /// \brief the `{ ... }` of a named initializer whose head spans
+    ///        \p start_range. \p path is that head, or null for the dotted
+    ///        form, which has none (_parse_dotted_variant).
+    ///
+    /// precondition: current token is `{`.
+    priv fn _parse_init_braces(self, path: *Expr, start_range: SourceRange) -> *Expr {
         if !dyn()->enter_depth() {
             return static_cast::<*Expr>(NamedInitializerExpr::create_error(dyn()->ctx, start_range));
         }

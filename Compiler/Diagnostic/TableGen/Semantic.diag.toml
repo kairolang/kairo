@@ -2706,11 +2706,29 @@ group = "pattern-matching"
     }
     ```
 
+    ## in an expression
+
+    `.Variant` in an expression builds a variant of the enum its expected type names: the
+    declared type of the variable it initializes, the return type it is returned as, the field
+    it fills, the parameter of the call it is an argument to. it is the same error when nothing
+    gives it a type, when that type is not an enum, or when the enum has no variant of that name.
+
+    ```kairo
+    var a: Shape = .Empty   // ok
+    var b = .Empty          // error: nothing gives '.Empty' an enum type
+    var c: i32 = .Empty     // error: 'i32' is not an enum
+    ```
+
+    a call argument takes the type of the parameter the call resolves to; overloads are told
+    apart by which enum has the variant. a generic parameter `T` has no enum to offer, so
+    `f(.Empty)` against `fn <T> f(x: T)` finds no viable function.
+
     ## how to fix
 
     name a variant of the scrutinee's own enum, the scrutinee's type, or a constant. to bind the
     matched value to a new name, write `case var limit` (or `const limit`); to compare against a
-    variable, bind and use a guard: `case var v where v == limit`.
+    variable, bind and use a guard: `case var v where v == limit`. in an expression, write the
+    enum's name before the variant (`Shape::Empty`), or give the target a type.
     """
 
 [SC124]
@@ -2971,4 +2989,45 @@ group = "type-check"
     # note: the variant that already has the value
 
     points at the earlier variant of the same enum whose value the later one repeats.
+    """
+
+[SC131]
+brief = "enum variant built with the wrong payload"
+group = "type-check"
+
+    [SC131.E]
+    explain = """
+    # variant built with the wrong payload
+
+    a variant with a payload is built with each of its fields exactly once, by name, in braces
+    after the variant; the fields may be written in any order. a variant without a payload is
+    written alone, with no braces. this construction leaves a field out, gives one twice, puts
+    braces on a variant that has no payload, or writes a variant that has one without them.
+
+    ## example
+
+    ```kairo
+    enum Shape { Circle { r: i32 }, Rect { w: i32, h: i32 }, Empty }
+
+    var a = Shape::Rect { w: 1 }               // error: 'Shape::Rect' is missing field 'h'
+    var b = Shape::Rect { w: 1, w: 2, h: 3 }   // error: field 'w' of 'Shape::Rect' is given twice
+    var c = Shape::Empty { }                   // error: 'Shape::Empty' carries no payload
+    var d = Shape::Circle                      // error: 'Shape::Circle' carries a payload
+    var e = Shape::Rect { h: 2, w: 1 }         // ok: any order
+    ```
+
+    a field the variant does not have is SC040, as for a struct.
+
+    ## how to fix
+
+    give every payload field once, by its name, and write a variant without a payload with no
+    braces.
+    """
+
+    [SC131.N]
+    explain = """
+    # note: what the construction is checked against
+
+    points at the variant's declaration, at the payload field that was left out, or at the first
+    place a repeated field was given.
     """

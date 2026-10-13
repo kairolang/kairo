@@ -355,6 +355,15 @@ enum ExprKind derives u8 {
     /// evaluation order explicit. clang-only, like the array prvalue.
     StmtExpr,
 
+    /// An ADT enum variant built in place: `Shape::Rect { w: 1, h: 2 }`,
+    /// `.Rect { .. }`, `.Empty`, or a variant without a payload named as a
+    /// value (`Opt::None`).
+    /// Node: VariantInitExpr: the enum, the variant's position, the payload in
+    /// declaration order and the order it was written in. Never parsed;
+    /// VariantInitLowering mints it from what X recorded on the node the
+    /// construction was written as.
+    VariantInitExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -408,6 +417,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::NamedArgExpr { return "NamedArgExpr"; }
         case ExprKind::InitListExpr { return "InitListExpr"; }
         case ExprKind::StmtExpr { return "StmtExpr"; }
+        case ExprKind::VariantInitExpr { return "VariantInitExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

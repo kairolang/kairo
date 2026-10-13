@@ -465,6 +465,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::ListLiteralExpr          { return self.dyn()->traverse_list_literal_expr(          cast::<ListLiteralExpr>(e)          ); }
             case ExprKind::InitListExpr             { return self.dyn()->traverse_init_list_expr(             cast::<InitListExpr>(e)             ); }
             case ExprKind::StmtExpr                 { return self.dyn()->traverse_stmt_expr(                  cast::<StmtExpr>(e)                 ); }
+            case ExprKind::VariantInitExpr          { return self.dyn()->traverse_variant_init_expr(          cast::<VariantInitExpr>(e)          ); }
             case ExprKind::TupleLiteralExpr         { return self.dyn()->traverse_tuple_literal_expr(         cast::<TupleLiteralExpr>(e)         ); }
             case ExprKind::SetLiteralExpr           { return self.dyn()->traverse_set_literal_expr(           cast::<SetLiteralExpr>(e)           ); }
             case ExprKind::MapLiteralExpr           { return self.dyn()->traverse_map_literal_expr(           cast::<MapLiteralExpr>(e)           ); }
@@ -567,6 +568,22 @@ class <D> RecursiveASTVisitor {
     fn traverse_stmt_expr(self, n: *StmtExpr) -> *StmtExpr {
         if self.dyn()->walkup_stmt_expr(n) == false { return n; }
         n->body = self.dyn()->traverse_block(n->body);
+        return n;
+    }
+
+    // The fields in the order they were written, which is the order they run
+    // in (SequenceLowering keeps it so); `fields` itself is in declaration
+    // order. A walk that reads a use after a move reads it in this order.
+    fn traverse_variant_init_expr(self, n: *VariantInitExpr) -> *VariantInitExpr {
+        if self.dyn()->walkup_variant_init_expr(n) == false { return n; }
+        for var k: usize = 0; k < n->fields.size(); k++ {
+            for var i: usize = 0; i < n->fields.size(); i++ {
+                if self.stop { return n; }
+                if usize(*(n->source_order.get(i))) == k {
+                    self.dyn()->dispatch_expr(*(n->fields.get(i)));  // discard
+                }
+            }
+        }
         return n;
     }
 
@@ -949,6 +966,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_stmt_expr(n);
     }
 
+    fn walkup_variant_init_expr(self, n: *VariantInitExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_variant_init_expr(n);
+    }
+
     fn walkup_tuple_literal_expr(self, n: *TupleLiteralExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_tuple_literal_expr(n);
@@ -1138,6 +1160,7 @@ class <D> RecursiveASTVisitor {
     fn visit_list_literal_expr(           self, n: *ListLiteralExpr          ) -> bool { return true; }
     fn visit_init_list_expr(              self, n: *InitListExpr             ) -> bool { return true; }
     fn visit_stmt_expr(                   self, n: *StmtExpr                 ) -> bool { return true; }
+    fn visit_variant_init_expr(           self, n: *VariantInitExpr          ) -> bool { return true; }
     fn visit_tuple_literal_expr(          self, n: *TupleLiteralExpr         ) -> bool { return true; }
     fn visit_set_literal_expr(            self, n: *SetLiteralExpr           ) -> bool { return true; }
     fn visit_map_literal_expr(            self, n: *MapLiteralExpr           ) -> bool { return true; }

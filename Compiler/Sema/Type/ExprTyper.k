@@ -196,6 +196,11 @@ class ExprTyper
     /// underlying integer (C++ [dcl.enum]/5), so `RW = Read | Write` is a
     /// builtin `|`. One writer: StmtTyping::traverse_enum_variant_decl.
     pub var discr_enum: *Decl = &null;
+    /// The initializer or pattern head being typed right now, or null. A
+    /// variant named there is what the enclosing construct builds or
+    /// matches, so ControlTyping::type_variant_value does not make it a
+    /// construction of its own. One writer: ControlTyping::type_head.
+    pub var variant_head: *Expr = &null;
 
     // --- side tables --------------------------------------------------------
     priv var _memo:    libcxx::unordered_map::<u64, u8>;
@@ -220,6 +225,7 @@ class ExprTyper
         self.cb   = ChainBinding(sc);
         self._scratch_ded = Deduction(sc, &(self.conv));
         self.discr_enum   = &null;
+        self.variant_head = &null;
     }
 
     /// The type of a variant of \p ed used as a value: the enum, except
@@ -490,7 +496,7 @@ class ExprTyper
                 var ed  = (edc->owner_decl()) if (edc != &null) else (&null);
                 if ed == &null { self.mark_unknown(n); return &null; }
                 n->value_category = Expr::ValueCategory::RValue;    // a variant is a value, not storage.
-                return self.variant_value_type(ed);
+                return self.type_variant_value(static_cast::<*Expr>(n), cast::<EnumVariantDecl>(d), self.variant_value_type(ed));
             }
             case DeclKind::FunctionDecl {
                 // A builtin has no address: clang lowers each call in place.

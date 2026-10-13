@@ -54,6 +54,7 @@ import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
 import Sema::Type::ExprTyper::*;
+import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
@@ -364,7 +365,14 @@ class Sema {
         // nested one would only repeat it (Lower.Lowerings.X).
         self.sc.require_phase(SemaPhase::Checked);
 
-        // First: `fn f() -> T = e` becomes `{ return e }`, so every pass below
+        // First: a variant construction becomes the node EmitIR renders -- a
+        // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
+        // from the facts X recorded on the node it was written as. Before any
+        // pass rebuilds an initializer or a chain, which would lose them, and
+        // so every pass below sees one node kind for it (SequenceLowering
+        // orders its payload).
+        { var _p = TimeRegion("VariantInitLowering"); VariantInitLowering(&self.sc).run(); }
+        // Then: `fn f() -> T = e` becomes `{ return e }`, so every pass below
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.
         { var _p = TimeRegion("ExprBodyDesugar"); ExprBodyDesugar(&self.sc).run(); }

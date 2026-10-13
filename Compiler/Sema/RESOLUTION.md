@@ -511,6 +511,19 @@ the bound receiver in slot 0, which is no argument and has no default); and
 names the TYPE, so nothing else records which ctor `arg_map` is parallel
 to). `Lower/` reads them; codegen reads the instance slots and `ctor_decl`.
 
+And facts on an enum variant construction, which X checks and does not
+build: `variant_decl` on the node the construction was written as -- the
+`NamedInitializerExpr` of `E::V { .. }` / `.V { .. }` / `.V`, or the
+`ChainExpr` / `NamedIdentExpr` of a payload-less ADT variant named as a value
+(`Opt::None`) -- holding the pattern enum's own `EnumVariantDecl`; and
+`InitField::field_decl` on each of its fields, the payload `FieldDecl` the
+field fills. Written only once every field matched exactly once. A plain
+enum's variant gets the slot only when written `.V`: `Dir::North` is already
+the value it names. A head (`Shape::Rect` before its braces, a pattern's
+head) is not a construction and gets nothing (`ExprTyper::variant_head`).
+`VariantInitLowering` reads both and builds the node; `variant_decl_of` is
+the one reader of the three slots.
+
 **Four terminal states per expression.** typed (`type_` set); poisoned
 (diagnosed, `type_` null); unknown (`IsInstantiationDependent` set,
 `type_` null, not poisoned: dependent, foreign, or a hole a later pass
@@ -630,6 +643,17 @@ directly initializes a `var`, and it propagates into nested slice literals.
 A literal SequenceLowering hoists into a `__kairo_arg` local is marked
 Extended there for the same reason: the local is a `var`, and the statement
 expression's block is the scope its backing array lives in.
+
+**Dotted variants** (`ControlTyping::type_named_init`). `.V` and `.V { .. }`
+take their enum from the expected type, as a `.V` pattern takes it from the
+scrutinee: a reference, cv and a nullable are looked through. No expected
+type, one that is not an enum, or an enum with no variant `V` is SC123E; a
+bare generic parameter is unknown with no diagnostic, as an initializer whose
+head is one is. In argument position `.V` is deferred like a literal
+(`LitKind::Variant`, the name in `ArgInfo::lit_name`): Exact against a
+parameter whose enum has a variant of that name, nothing otherwise, and typed
+against the parameter after selection. A dependent parameter deduces nothing
+from it: `f(.A)` against `fn <T> f(x: T)` has no viable candidate.
 
 **Argument order.** Arguments are evaluated left to right, whatever the C++
 compiler would do with them. SequenceLowering writes the order into the
@@ -828,7 +852,7 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: ExprBodyDesugar -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> ExprBodyDesugar -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
@@ -878,6 +902,18 @@ ranges are valid only as a subscript index (X), where `a..` and `..` are
 `..=b` are `RangeTo<T>{.end, .inclusive}`. A subscript's range reaches the
 pass as an ordinary `op[]` argument (OperatorLowering ran first), so it is
 lowered like any other range.
+
+VariantInitLowering [DONE]. First, so X's variant facts are read on the
+nodes X wrote them on and every later pass sees one node kind for a
+construction. An ADT construction becomes a `VariantInitExpr`: the payload
+in declaration order (what a C++ braced list runs), `source_order` the
+position each field was written at (what Kairo runs), and the node's type --
+the instance for a generic enum -- and category kept. SequenceLowering binds
+the fields to locals when the two orders differ and a field has side
+effects. A plain enum's `.V` becomes a `NamedIdentExpr` bound to the
+enumerator and typed as the enum, which EmitIR spells as it spells
+`Dir::North`. FeatureGateCheck reports every ADT construction (SC116E) until
+the enum's layout record exists to build.
 
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X

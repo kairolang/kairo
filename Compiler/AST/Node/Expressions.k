@@ -369,6 +369,65 @@ class StmtExpr derives Expr {
 }
 
 ///
+///  VariantInitExpr
+///  An ADT enum variant built in place. `fields` are the payload in
+///  declaration order; `source_order[i]` is the position field i was written
+///  at. One writer: VariantInitLowering, which mints it, typed as the enum and
+///  an rvalue, in place of the construction X checked. EmitIR spells it as the
+///  tagged constructor taking a lambda that returns the payload struct. A
+///  plain enum's variant never becomes one: it is a value, and its `.V` is
+///  lowered to the enumerator's name.
+///
+class VariantInitExpr derives Expr {
+    /// The pattern EnumDecl: a `*Decl`, as every decl link in this file is.
+    pub var en:           *Decl = &null;
+    pub var variant:      u32   = 0;               ///< position in en->variants.
+    pub var fields:       FrozenList::<*Expr>;     ///< declaration order; empty for a nullary variant.
+    pub var source_order: FrozenList::<u32>;       ///< parallel to fields.
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        en:      *Decl,
+        variant: u32
+    ) -> *VariantInitExpr {
+        var node           = ctx->alloc::<VariantInitExpr>();
+        node->kind         = ExprKind::VariantInitExpr;
+        node->range        = range;
+        node->en           = en;
+        node->variant      = variant;
+        node->fields       = create_empty_frozen_list::<*Expr>();
+        node->source_order = create_empty_frozen_list::<u32>();
+        node->init_annotations(&(ctx->ast_alloc));
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *VariantInitExpr {
+        var node            = ctx->alloc::<VariantInitExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::VariantInitExpr;
+        node->range         = range;
+        node->en            = &null;
+        node->variant       = 0;
+        node->fields        = create_empty_frozen_list::<*Expr>();
+        node->source_order  = create_empty_frozen_list::<u32>();
+        node->init_annotations(&(ctx->ast_alloc));
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::VariantInitExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::VariantInitExpr;
+    }
+}
+
+///
 ///  TupleLiteralExpr
 ///  (1, "two", 3.0)
 ///
@@ -495,6 +554,10 @@ struct InitField {
     var name:   Token;       ///< field name token
     var value: *Expr;        ///< initializer expression
     var range:  SourceRange; ///< range covering `name: value`
+    /// On a variant construction's field: the payload FieldDecl it fills.
+    /// Null on a record's initializer, whose fields EmitIR matches by name.
+    /// One writer: X (ControlTyping); read by VariantInitLowering.
+    var field_decl: *Decl = &null;
 }
 
 ///
@@ -502,22 +565,46 @@ struct InitField {
 ///  Point { x: 1, y: 2 }
 ///
 class NamedInitializerExpr derives Expr {
-    /// the type being initialized. ChainExpr or NamedIdentExpr.
+    /// the type being initialized. ChainExpr or NamedIdentExpr; null for the
+    /// dotted form, and for an initializer Lower/ mints (RangeLowering), which
+    /// EmitIR spells from `type_`.
     pub var type_expr: *Expr;
     pub var ctx: *ASTContext;
     /// field initializers in source order.
     pub var fields:    FrozenList::<InitField>;
+    /// `.Variant` / `.Variant { .. }`: a variant of the enum the expected type
+    /// names, so there is no head to resolve and `dotted_name` is the
+    /// variant's name. A null `type_expr` alone does not say this: a minted
+    /// initializer has none either. One writer: the parser
+    /// (ExprParse::_parse_dotted_variant).
+    pub var is_dotted:   bool = false;
+    pub var dotted_name: Token;
+    /// The braces were written. Always true with a head; the dotted form may
+    /// stand alone (`.None`), which a variant without a payload must and one
+    /// with a payload must not. One writer: the parser.
+    pub var has_braces:  bool = true;
+    /// The EnumVariantDecl this initializer builds (`E::V { .. }`,
+    /// `.V { .. }`, `.V`), the pattern enum's own, once X has checked the
+    /// fields against its payload; null for a record's initializer and for a
+    /// construction that failed. One writer: X (ControlTyping); read through
+    /// variant_decl_of. VariantInitLowering replaces the node.
+    pub var variant_decl: *Decl = &null;
 
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,
         type_expr: *Expr
     ) -> *NamedInitializerExpr {
-        var node        = ctx->alloc::<NamedInitializerExpr>();
-        node->kind      = ExprKind::NamedInitializerExpr;
-        node->range     = range;
-        node->type_expr = type_expr;
-        node->ctx       = ctx;
+        var node          = ctx->alloc::<NamedInitializerExpr>();
+        node->kind        = ExprKind::NamedInitializerExpr;
+        node->range       = range;
+        node->type_expr   = type_expr;
+        node->ctx         = ctx;
+        node->fields      = create_empty_frozen_list::<InitField>();   // the bare dotted form has no braces to fill it.
+        node->is_dotted   = false;
+        node->dotted_name = Token();
+        node->has_braces  = true;
+        node->variant_decl = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -532,6 +619,11 @@ class NamedInitializerExpr derives Expr {
         node->range         = range;
         node->type_expr     = &null;
         node->ctx           = ctx;
+        node->fields        = create_empty_frozen_list::<InitField>();
+        node->is_dotted     = false;
+        node->dotted_name   = Token();
+        node->has_braces    = true;
+        node->variant_decl  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -543,6 +635,19 @@ class NamedInitializerExpr derives Expr {
     static fn expr_kind() -> ExprKind {
         return ExprKind::NamedInitializerExpr;
     }
+}
+
+/// The EnumVariantDecl X recorded on \p e as the variant it builds, or null.
+/// A construction is written as one of three nodes -- an initializer
+/// (`E::V { .. }`, `.V`), a path (`Opt::None`), a bare name (`None` inside its
+/// enum) -- and each carries the fact as its own `variant_decl`. One reader
+/// for the three.
+fn variant_decl_of(e: *Expr) -> *Decl {
+    if e == &null { return &null; }
+    if isa::<NamedInitializerExpr>(e) { return cast::<NamedInitializerExpr>(e)->variant_decl; }
+    if isa::<ChainExpr>(e)            { return cast::<ChainExpr>(e)->variant_decl; }
+    if isa::<NamedIdentExpr>(e)       { return cast::<NamedIdentExpr>(e)->variant_decl; }
+    return &null;
 }
 
 ///

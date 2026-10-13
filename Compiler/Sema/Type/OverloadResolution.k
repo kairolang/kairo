@@ -78,6 +78,7 @@ enum LitKind derives u8 {
     Null,     ///< `null`: fits any nullable.
     NullPtr,  ///< `&null`: fits any pointer or nullable pointer.
     List,     ///< `[...]`: ranked by shape through ArgInfo::elems.
+    Variant,  ///< `.V`: fits a parameter whose enum has a variant named lit_name.
 }
 
 /// One element of a list literal, ranked by SHAPE. Flat on purpose: ArgInfo
@@ -91,6 +92,7 @@ class ListShape {
     pub var lit_hi:  u64  = 0;
     pub var lit_big: bool = false;
     pub var lit_neg: bool = false;
+    pub var lit_name: string = "";    ///< LitKind::Variant: the name after the dot.
     pub var ty:      *Type = &null;   ///< set when the element is not an untyped literal.
     pub var kids_lo: usize = 0;       ///< a nested list literal's own elements.
     pub var kids_n:  usize = 0;
@@ -112,6 +114,9 @@ class ArgInfo {
     pub var lit_hi:     u64  = 0;
     pub var lit_big:    bool = false;
     pub var lit_neg:    bool = false;
+    /// LitKind::Variant only: the name written after the dot. Written by
+    /// ControlTyping::dotted_variant_shape.
+    pub var lit_name:   string = "";
     /// LitKind::List only: the element shapes, as a range in
     /// OverloadResolution::list_shapes. Written by
     /// LiteralTyping::list_literal_shape.
@@ -807,6 +812,7 @@ class OverloadResolution {
             if r == ImplicitRank::None {
                 var pn = self.tu.param_name(p);
                 var got = (self.tu.str(a->ty)) if (a->ty != &null) else ("<literal>");
+                if a->lit == LitKind::Variant { got = "." + a->lit_name; }
                 if mode == ParamMode::Inout {
                     var iv = (self.tu.str(a->inner_ty)) if (a->marked && (a->inner_ty != &null)) else (got);
                     c->viable = false;
@@ -989,6 +995,19 @@ class OverloadResolution {
                 return (ImplicitRank::Exact) if (self.tu.pointee(target) != &null) else (ImplicitRank::None);
             }
             case LitKind::List { return self._rank_list(a, pt); }
+            case LitKind::Variant {
+                // `.V` TAKES the parameter's enum when it has a variant of
+                // that name (§5, as a literal takes its type); it converts to
+                // nothing else.
+                var rd = self.tu.record_decl(canon_unqual(target));
+                var en = (dyn_cast::<EnumDecl>(self.tu.pattern_of(rd))) if (rd != &null) else (&null);
+                if en == &null { return ImplicitRank::None; }
+                for var i: usize = 0; i < en->variants.size(); ++i {
+                    var v = en->variants[i];
+                    if (v != &null) && (self.tu.decl_name(static_cast::<*Decl>(v)) == a->lit_name) { return ImplicitRank::Exact; }
+                }
+                return ImplicitRank::None;
+            }
             default { return ImplicitRank::None; }
         }
     }
@@ -1042,6 +1061,7 @@ class OverloadResolution {
             sub.lit_hi  = el->lit_hi;
             sub.lit_big = el->lit_big;
             sub.lit_neg = el->lit_neg;
+            sub.lit_name = el->lit_name;
             return self._rank_literal(&sub, elem);
         }
         if el->ty != &null { return self.conv->implicit(el->ty, elem); }
@@ -1062,6 +1082,8 @@ class OverloadResolution {
             }
             case LitKind::Float { return self.tu.builtin(BuiltinKind::F64); }
             case LitKind::List { return self._list_default(a->elems_lo, a->elems_n, pt); }
+            // `.V` has no type of its own to deduce a `T` from.
+            case LitKind::Variant { return &null; }
             default { return &null; }
         }
     }
@@ -1084,6 +1106,7 @@ class OverloadResolution {
                 sub.lit_hi  = el->lit_hi;
                 sub.lit_big = el->lit_big;
                 sub.lit_neg = el->lit_neg;
+                sub.lit_name = el->lit_name;
                 t = self._literal_default(&sub, ept);
             } else { t = el->ty; }
             if t == &null { return &null; }

@@ -31,6 +31,15 @@
 ///     order. Primitive operators (`a + b` with two impure operands) are not
 ///     calls and are not covered here.
 ///
+///   \par Variant payloads
+///     An enum variant's payload is built from a braced list, which C++
+///     evaluates in declaration order; Kairo runs the fields in the order they
+///     were written. When the two differ and a field has side effects, every
+///     field is bound first, in written order, and the payload reads the
+///     locals. The construction is a prvalue of the enum that clang builds in
+///     place, so unlike a call's record result it may end the statement
+///     expression: nothing is copied or moved out of the block.
+///
 ///   Phase: LOWER, after OperatorLowering (user operators are calls by then)
 ///   and before ListLiteralLowering (a hoisted slice literal is marked
 ///   Extended here and given its backing there).
@@ -139,6 +148,47 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         return static_cast::<*Expr>(se);
     }
 
+    ///   Shape::Rect { h: g(), w: f() }
+    /// ->
+    ///   ({ i32 __kairo_arg0 = g(); i32 __kairo_arg1 = f(); Shape::Rect { w: __kairo_arg1, h: __kairo_arg0 }; })
+    fn transform_variant_init_expr(self, n: *VariantInitExpr) -> *Expr {
+        var out = ASTWriter_SequenceLowering::transform_variant_init_expr(n);
+        if n->is_poisoned() || (n->type_ == &null) { return out; }
+        var count = n->fields.size();
+        var in_order = true;
+        var impure   = false;
+        for var i: usize = 0; i < count; ++i {
+            if usize(n->source_order[i]) != i { in_order = false; }
+            if !LowerSynth::pure(n->fields[i]) { impure = true; }
+        }
+        if in_order || (!impure) { return out; }
+        // Every field must have a type to declare its local with.
+        for var i: usize = 0; i < count; ++i {
+            if n->fields[i]->type_ == &null { return out; }
+        }
+
+        var stmts = self.list_builder::<*Stmt>();
+        var bound = vec::<*Expr>();
+        for var i: usize = 0; i < count; ++i { bound.push_back(&null); }
+        for var k: usize = 0; k < count; ++k {
+            for var i: usize = 0; i < count; ++i {
+                if usize(n->source_order[i]) != k { continue; }
+                bound[i] = self._moved(self._bind(n->fields[i], &stmts));
+            }
+        }
+        var fields = self.list_builder::<*Expr>();
+        var order  = self.list_builder::<u32>();
+        for var i: usize = 0; i < count; ++i {
+            fields.push(bound[i]);
+            order.push(u32(i));
+        }
+        fields.freeze_into(&(n->fields));
+        order.freeze_into(&(n->source_order));   // the locals are read in place: written order is declaration order now.
+
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, static_cast::<*Expr>(n))));
+        return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, n->type_);
+    }
+
     /// A statement expression is a prvalue of its last statement's type. A
     /// call that yields an lvalue, or a record (the copy out of the block may
     /// not exist), keeps C++'s order rather than a changed meaning.
@@ -184,6 +234,16 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         self._mark_extended(e);                         // a slice literal's backing lives in this block.
         stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, e->range, static_cast::<*Decl>(vd))));
         return self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue);
+    }
+
+    /// A record local bound for one payload field is moved into it: nothing
+    /// else reads it. A reference-typed local already names its referent.
+    priv fn _moved(self, use: *Expr) -> *Expr {
+        var t = use->type_;
+        if (t == &null) || isa::<CXXLValueRefType>(t) || isa::<CXXRValueRefType>(t) { return use; }
+        var c = canon_unqual(t);
+        if (c == &null) || (c->kind != TypeKind::RecordType) { return use; }
+        return self.synth.cast_to(use->range, use, self.sc->types->cxx_rref(t), CastMode::Default);
     }
 
     /// Mirrors LiteralTyping::mark_list_storage: the local this literal now

@@ -78,6 +78,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::ListLiteralExpr          { return "ListLiteralExpr";          }
         case ExprKind::InitListExpr             { return "InitListExpr";             }
         case ExprKind::StmtExpr                 { return "StmtExpr";                 }
+        case ExprKind::VariantInitExpr          { return "VariantInitExpr";          }
         case ExprKind::TupleLiteralExpr         { return "TupleLiteralExpr";         }
         case ExprKind::SetLiteralExpr           { return "SetLiteralExpr";           }
         case ExprKind::MapLiteralExpr           { return "MapLiteralExpr";           }
@@ -353,6 +354,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<SetLiteralExpr>(e)       { self._expr_list("{", "}", cast::<SetLiteralExpr>(e)->elements);   return; }
         if isa::<MapLiteralExpr>(e)       { self._e_map(cast::<MapLiteralExpr>(e));               return; }
         if isa::<NamedInitializerExpr>(e) { self._e_named_init(cast::<NamedInitializerExpr>(e));  return; }
+        if isa::<VariantInitExpr>(e)      { self._e_variant_init(cast::<VariantInitExpr>(e));      return; }
         if isa::<AnonInitializerExpr>(e)  { self._e_anon_init(cast::<AnonInitializerExpr>(e));    return; }
         if isa::<IfExpr>(e)               { self._e_if(cast::<IfExpr>(e));         return; }
         if isa::<TryCatchExpr>(e)         { self._e_try(cast::<TryCatchExpr>(e));  return; }
@@ -491,7 +493,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _e_named_init(self, e: *NamedInitializerExpr) {
-        self.src_expr(e->type_expr);
+        if e->is_dotted {
+            self.p.paint(Color::Punct, ".");
+            self.p.paint(Color::Ident, self.tok(e->dotted_name));
+            if !e->has_braces { return; }
+        } else {
+            self.src_expr(e->type_expr);
+        }
         self.p.paint(Color::Punct, " { ");
         for var i: usize = 0; i < e->fields.size(); ++i {
             if i > 0 { self.p.paint(Color::Punct, ", "); }
@@ -499,6 +507,24 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Ident, self.tok(fld->name));
             self.p.paint(Color::Punct, ": ");
             self.src_expr(fld->value);
+        }
+        self.p.paint(Color::Punct, " }");
+    }
+
+    /// `Enum::Variant { f: e, .. }`, the payload in declaration order.
+    fn _e_variant_init(self, e: *VariantInitExpr) {
+        var en = cast::<EnumDecl>(e->en);
+        var v  = en->variants[usize(e->variant)];
+        self.p.paint(Color::Ident, self.tok(en->name));
+        self.p.paint(Color::Punct, "::");
+        self.p.paint(Color::Ident, self.tok(v->name));
+        if v->payload.is_empty() { return; }
+        self.p.paint(Color::Punct, " { ");
+        for var i: usize = 0; i < e->fields.size(); ++i {
+            if i > 0 { self.p.paint(Color::Punct, ", "); }
+            self.p.paint(Color::Ident, self.tok(v->payload[i]->name));
+            self.p.paint(Color::Punct, ": ");
+            self.src_expr(e->fields[i]);
         }
         self.p.paint(Color::Punct, " }");
     }
@@ -2122,6 +2148,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<SetLiteralExpr>(e)       { self._dx_expr_seq("SetLiteralExpr",   cast::<SetLiteralExpr>(e)->elements,   is_last); return; }
         if isa::<MapLiteralExpr>(e)       { self._dx_map(cast::<MapLiteralExpr>(e), is_last);          return; }
         if isa::<NamedInitializerExpr>(e) { self._dx_named_init(cast::<NamedInitializerExpr>(e), is_last); return; }
+        if isa::<VariantInitExpr>(e)      { self._dx_variant_init(cast::<VariantInitExpr>(e), is_last);      return; }
         if isa::<AnonInitializerExpr>(e)  { self._dx_anon_init(cast::<AnonInitializerExpr>(e), is_last);   return; }
         if isa::<IfExpr>(e)               { self._dx_if(cast::<IfExpr>(e), is_last);                   return; }
         if isa::<TryCatchExpr>(e)         { self._dx_try(cast::<TryCatchExpr>(e), is_last);            return; }
@@ -2354,10 +2381,15 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     fn _dx_named_init(self, e: *NamedInitializerExpr, is_last: bool) {
         self._head("NamedInitializerExpr", is_last);
+        // The dotted form has no head expression: its name is on the row.
+        if e->is_dotted {
+            self.p.put(" .");
+            self.p.paint(Color::Ident, self.tok(e->dotted_name));
+        }
         self.p.newline();
         self.p.enter(is_last);
         var has_fields = !e->fields.is_empty();
-        self._child_expr(e->type_expr, !has_fields);
+        if !e->is_dotted { self._child_expr(e->type_expr, !has_fields); }
         for var i: usize = 0; i < e->fields.size(); ++i {
             var fld  = e->fields.get(i);
             var last = (i == e->fields.size() - 1);
@@ -2368,6 +2400,23 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.enter(last);
             self._child_expr(fld->value, true);
             self.p.leave();
+        }
+        self.p.leave();
+    }
+
+    /// `VariantInitExpr Enum::Variant fields=N`, then the fields in
+    /// declaration order.
+    fn _dx_variant_init(self, e: *VariantInitExpr, is_last: bool) {
+        var en = cast::<EnumDecl>(e->en);
+        var v  = en->variants[usize(e->variant)];
+        self._head("VariantInitExpr", is_last);
+        self.p.put(" ");
+        self.p.paint(Color::Ident, self.tok(en->name) + "::" + self.tok(v->name));
+        self.p.put(f" fields={e->fields.size()}");
+        self.p.newline();
+        self.p.enter(is_last);
+        for var i: usize = 0; i < e->fields.size(); ++i {
+            self._child_expr(e->fields[i], i + 1 == e->fields.size());
         }
         self.p.leave();
     }

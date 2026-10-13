@@ -14,6 +14,16 @@
 ///     be annotated (the docs say so); the return type is declared or inferred
 ///     from the body through the same frame machinery a function uses.
 ///
+///     An enum variant construction -- `Shape::Rect { w: 1, h: 2 }`,
+///     `Opt<i32>::Some { .. }`, `.Rect { .. }`, `.Empty`, and an ADT variant
+///     without a payload named as a value -- is checked against the
+///     variant's own payload. X records what it found, the node's
+///     `variant_decl` and each field's `field_decl`, and builds nothing:
+///     VariantInitLowering makes the node. `.V` takes its enum from the
+///     expected type, as a `.V` pattern takes it from the scrutinee; as a call
+///     argument it waits, like an untyped literal, for the parameter overload
+///     resolution picks (dotted_variant_shape).
+///
 ///     Lang-item desugars (`a..b` -> Range, `await` -> Future<T>, `spawn`)
 ///     are typed against the lang record and error when the item is unbound
 ///     -- that is the "error at USE" the SemaContext header promises.
@@ -297,12 +307,19 @@ class <T> ControlTyping {
 
     // === initializers =======================================================
 
-    /// `Point { x: 1, y: 2 }`
+    /// `Point { x: 1, y: 2 }`; and an enum variant built with its payload,
+    /// `Shape::Rect { w: 1, h: 2 }` / `Opt<i32>::Some { v: 1 }`, or written
+    /// dotted, `.Rect { .. }` / `.Empty`, with the expected type's enum.
     fn type_named_init(self, n: *NamedInitializerExpr, expected: *Type) -> *Type {
+        if n->is_dotted { return self._type_dotted_init(n, expected); }
+        // A head, not a value: a variant it names is the one this initializer
+        // builds, not a construction of its own.
+        self.type_head(n->type_expr);
         var rec = dyn()->denoted_type(n->type_expr);
         if rec == &null {
-            dyn()->type_of(n->type_expr, &null);
             if n->type_expr->is_poisoned() { dyn()->poison_only(n); return &null; }
+            var v = dyn_cast::<EnumVariantDecl>(dyn()->_head_decl(n->type_expr));
+            if v != &null { return self._type_variant_head(n, v); }
             dyn()->fail(n, DiagID::SC088E, "initializer head does not name a type");
             return &null;
         }
@@ -369,6 +386,231 @@ class <T> ControlTyping {
         }
         if !ok { dyn()->poison_only(n); return &null; }
         return rec;
+    }
+
+    // === enum variants ======================================================
+
+    /// Type \p e as a head -- the path before an initializer's braces or a
+    /// pattern's payload -- rather than as a value. A variant it names is
+    /// what the initializer builds or the pattern matches, so it must not
+    /// become a construction of its own (type_variant_value).
+    fn type_head(self, e: *Expr) -> *Type {
+        if e == &null { return &null; }
+        var outer = dyn()->variant_head;
+        dyn()->variant_head = e;
+        var t = dyn()->type_of(e, &null);
+        dyn()->variant_head = outer;
+        return t;
+    }
+
+    /// A variant named as a value -- `Opt::None`, `Opt<i32>::None`, or a bare
+    /// `None` inside its enum -- already typed \p t, the enum, by MemberTyping
+    /// or _type_ident. An ADT's variant is a construction, checked as `.None`
+    /// is: only one without a payload may be written without braces. A plain
+    /// enum's stays the value it names; so does a head (type_head), and a
+    /// variant read inside its enum's discriminants, where it is an integer.
+    fn type_variant_value(self, at: *Expr, v: *EnumVariantDecl, t: *Type) -> *Type {
+        if (t == &null) || (at == dyn()->variant_head) || (dyn()->discr_enum != &null) { return t; }
+        var en = dyn()->_enum_of(t);
+        if (en == &null) || (!en->is_adt) { return t; }
+        var idx = self._variant_index(en, dyn()->tu.decl_name(static_cast::<*Decl>(v)));
+        if idx < 0 { return t; }
+        return self._check_variant(at, en, usize(idx), t, false, create_empty_frozen_list::<InitField>());
+    }
+
+    /// `.V` as a call argument. Nothing gives it a type until the call is
+    /// resolved, so, like an untyped literal, it is ranked by its shape --
+    /// viable against a parameter whose enum has a variant of that name -- and
+    /// typed against the parameter selection picked (finish_call_args).
+    fn dotted_variant_shape(self, e_in: *Expr, a: *ArgInfo) -> bool {
+        var e = dyn()->tu.strip_parens(e_in);
+        if (e == &null) || (!isa::<NamedInitializerExpr>(e)) { return false; }
+        var n = cast::<NamedInitializerExpr>(e);
+        if (!n->is_dotted) || (n->type_ != &null) || n->is_poisoned() { return false; }
+        a->lit      = LitKind::Variant;
+        a->lit_name = dyn()->sc->ctx->get_spelling(n->dotted_name);
+        return true;
+    }
+
+    /// `Shape::Rect { .. }` / `Opt<i32>::Some { .. }`. The head is typed as the
+    /// enum -- its instance when it has arguments -- and that is the type the
+    /// construction has. The variant is found again by name in the enum's own
+    /// list: its position there is its tag, and its payload is the one the
+    /// enum's layout holds.
+    priv fn _type_variant_head(self, n: *NamedInitializerExpr, v: *EnumVariantDecl) -> *Type {
+        var rec = n->type_expr->type_;
+        var en: *EnumDecl = &null;
+        if rec != &null { en = dyn()->_enum_of(rec); }
+        var idx: i32 = -1;
+        if en != &null { idx = self._variant_index(en, dyn()->tu.decl_name(static_cast::<*Decl>(v))); }
+        if idx < 0 {
+            // The head's enum is not known here (dependent, or foreign): there
+            // is no payload to check the fields against.
+            self._type_fields_unknown(n->fields);
+            dyn()->mark_unknown(n);
+            return &null;
+        }
+        return self._check_variant(static_cast::<*Expr>(n), en, usize(idx), rec, true, n->fields);
+    }
+
+    /// `.Rect { .. }` / `.Empty`. The expected type names the enum, as the
+    /// scrutinee does for a `.Rect` pattern, and a failure is the pattern's
+    /// SC123E. A nullable target names its inner type. A bare generic
+    /// parameter has no enum to resolve against until the instance: unknown,
+    /// as an initializer whose head is one is (_init_fields).
+    priv fn _type_dotted_init(self, n: *NamedInitializerExpr, expected: *Type) -> *Type {
+        var nm = dyn()->sc->ctx->get_spelling(n->dotted_name);
+        var st: *Type = &null;
+        if expected != &null { st = canon_unqual(dyn()->tu.strip_nullable(dyn()->tu.as_value(expected))); }
+        if st == &null {
+            self._type_fields_unknown(n->fields);
+            dyn()->fail(n, DiagID::SC123E, f"'.{nm}' names an enum variant, but nothing here gives it an enum type; write the enum's name before it");
+            return &null;
+        }
+        var en = dyn()->_enum_of(st);
+        if en == &null {
+            self._type_fields_unknown(n->fields);
+            if st->is_dependent() && (dyn()->tu.record_decl(st) == &null) { dyn()->mark_unknown(n); return &null; }
+            dyn()->fail(n, DiagID::SC123E, f"'.{nm}' names an enum variant, but the expected type is '{dyn()->tu.str(st)}', not an enum");
+            return &null;
+        }
+        var idx = self._variant_index(en, nm);
+        if idx < 0 {
+            self._type_fields_unknown(n->fields);
+            dyn()->fail(n, DiagID::SC123E, f"'{dyn()->tu.str(st)}' has no variant named '{nm}\x27");
+            return &null;
+        }
+        return self._check_variant(static_cast::<*Expr>(n), en, usize(idx), st, n->has_braces, n->fields);
+    }
+
+    /// Check one variant construction, written as \p n, and record it: the
+    /// variant on \p n (`variant_decl`) and on each field the payload field
+    /// it fills (`field_decl`). VariantInitLowering builds the node from
+    /// those. \p rec is the enum type the construction has: the head's, or
+    /// the expected type for `.V`.
+    ///
+    /// The payload FieldDecls are read off the variant itself, not looked up
+    /// in a scope: they are the variant's own, and the enum's layout and the
+    /// match lowering both key on their identity. Each written field is
+    /// matched by name and typed against its field seen through \p rec, as
+    /// _init_fields does for a generic record. A field the payload lacks is
+    /// _init_fields' SC040E; a field given twice, a field left out, braces on
+    /// a variant without a payload and none on one with a payload are SC131E.
+    priv fn _check_variant(self, n: *Expr, en: *EnumDecl, idx: usize, rec: *Type,
+                           braces: bool, fields: FrozenList::<InitField>) -> *Type {
+        var v  = en->variants[idx];
+        var nm = dyn()->tu.decl_name(static_cast::<*Decl>(en)) + "::" + dyn()->tu.decl_name(static_cast::<*Decl>(v));
+        var np = v->payload.size();
+
+        if (np == 0) && braces {
+            self._type_fields_unknown(fields);
+            dyn()->sc->diag->report(DiagID::SC131E, n->range.start,
+                f"'{nm}' carries no payload; write it without braces"
+            ).first(n->range)
+             .note(DiagID::SC131N, v->range.start, "declared here without a payload")
+             .emit();
+            dyn()->poison_only(n);
+            return &null;
+        }
+        if (np > 0) && (!braces) {
+            dyn()->sc->diag->report(DiagID::SC131E, n->range.start,
+                f"'{nm}' carries a payload; give its fields in braces after the name"
+            ).first(n->range)
+             .note(DiagID::SC131N, v->range.start, "declared here with its payload")
+             .emit();
+            dyn()->poison_only(n);
+            return &null;
+        }
+
+        // Per payload field: the initializer written for it.
+        var given = vec::<*InitField>();
+        for var k: usize = 0; k < np; ++k { given.push_back(&null); }
+
+        var ok = true;
+        for var i: usize = 0; i < fields.size(); ++i {
+            var f = fields.get(i);
+            var spelled = dyn()->sc->ctx->get_spelling(f->name);
+            var k: i32 = -1;
+            for var j: usize = 0; j < np; ++j {
+                if dyn()->tu.decl_name(static_cast::<*Decl>(v->payload[j])) == spelled { k = i32(j); break; }
+            }
+            if k < 0 {
+                dyn()->type_of(f->value, &null);
+                dyn()->sc->diag->report(DiagID::SC040E, f->range.start,
+                    f"'{nm}' has no field named '{spelled}\x27"
+                ).first(f->range).emit();
+                ok = false;
+                continue;
+            }
+            var uk = usize(k);
+            if given[uk] != &null {
+                dyn()->type_of(f->value, &null);
+                dyn()->sc->diag->report(DiagID::SC131E, f->range.start,
+                    f"field '{spelled}' of '{nm}' is given twice"
+                ).first(f->range)
+                 .note(DiagID::SC131N, given[uk]->range.start, "first given here")
+                 .emit();
+                ok = false;
+                continue;
+            }
+            given[uk] = f;
+
+            var fd = v->payload[uk];
+            var ft = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
+            if ft != &null { ft = dyn()->ded_scratch()->member_through(rec, ft); }
+            dyn()->type_of(f->value, ft);
+            if dyn()->reject_slice_literal(f->value, "stored in a field") { ok = false; continue; }
+            if (ft != &null) && dyn()->reject_array_copy(f->value, ft) { ok = false; continue; }
+            // Either side dependent: the instance's question, as for a record.
+            var vt = f->value->type_;
+            if (ft != &null) && ft->is_dependent() { continue; }
+            if (vt != &null) && vt->is_dependent() { continue; }
+            if (ft != &null) && (!dyn()->check_convertible(f->value, ft)) { ok = false; }
+        }
+        for var k: usize = 0; k < np; ++k {
+            if given[k] != &null { continue; }
+            var fd = v->payload[k];
+            var fname = dyn()->tu.decl_name(static_cast::<*Decl>(fd));
+            dyn()->sc->diag->report(DiagID::SC131E, n->range.start,
+                f"'{nm}' is missing field '{fname}\x27"
+            ).first(n->range)
+             .note(DiagID::SC131N, fd->range.start, "declared here")
+             .emit();
+            ok = false;
+        }
+        if !ok { dyn()->poison_only(n); return &null; }
+
+        // Only now, every field matched exactly once: a failed construction
+        // carries no fact for a later pass to build from.
+        for var k: usize = 0; k < np; ++k { given[k]->field_decl = static_cast::<*Decl>(v->payload[k]); }
+        self._set_variant_decl(n, static_cast::<*Decl>(v));
+        n->value_category = Expr::ValueCategory::RValue;
+        return rec;
+    }
+
+    /// The one writer of `variant_decl`, on whichever node the construction
+    /// was written as.
+    priv fn _set_variant_decl(self, n: *Expr, v: *Decl) {
+        if isa::<NamedInitializerExpr>(n) { cast::<NamedInitializerExpr>(n)->variant_decl = v; return; }
+        if isa::<ChainExpr>(n)            { cast::<ChainExpr>(n)->variant_decl = v; return; }
+        if isa::<NamedIdentExpr>(n)       { cast::<NamedIdentExpr>(n)->variant_decl = v; return; }
+        ICE_FAIL("ControlTyping: a variant construction written as neither an initializer nor a name");
+    }
+
+    /// The position of the variant named \p name in \p en, or -1.
+    priv fn _variant_index(self, en: *EnumDecl, name: string) -> i32 {
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if (v != &null) && (dyn()->tu.decl_name(static_cast::<*Decl>(v)) == name) { return i32(i); }
+        }
+        return -1;
+    }
+
+    /// Every field value typed with nothing expected: the construction failed
+    /// before its fields could be matched, and each value still needs a
+    /// terminal state.
+    priv fn _type_fields_unknown(self, fields: FrozenList::<InitField>) {
+        for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
     }
 
     // === keyword expressions ================================================

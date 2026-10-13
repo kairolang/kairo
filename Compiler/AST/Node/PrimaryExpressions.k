@@ -220,6 +220,13 @@ class NamedIdentExpr derives Expr {
     pub var resolved_decl:  *Decl         = &null;
     pub var candidate_cell: *OverloadCell = &null;
 
+    /// The EnumVariantDecl this name builds: a payload-less ADT variant named
+    /// bare as a value (`None` inside its enum), which is a construction. Null
+    /// everywhere else, a plain enum's variant included: that is the value
+    /// `resolved_decl` already names. One writer: X (ControlTyping); read
+    /// through variant_decl_of (Expressions.k).
+    pub var variant_decl: *Decl = &null;
+
     fn is_bound(self)    -> bool { return self.resolved_decl != &null; }
     fn is_deferred(self) -> bool {
         return (self.resolved_decl == &null) && (self.candidate_cell != &null);
@@ -235,6 +242,7 @@ class NamedIdentExpr derives Expr {
         node->range = range;
         node->name  = name;
         node->ctx   = ctx;
+        node->variant_decl = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -364,6 +372,13 @@ class ChainExpr derives Expr {
     /// zero or more postfix access operations.
     pub var steps: FrozenList::<Step>;
 
+    /// The EnumVariantDecl this path builds when its last step names a
+    /// payload-less ADT variant as a value (`Opt::None`, `Opt<i32>::None`).
+    /// Null for a head (`Shape::Rect` before its braces) and for a plain
+    /// enum's variant, which is the value it names. One writer: X
+    /// (ControlTyping); read through variant_decl_of (Expressions.k).
+    pub var variant_decl: *Decl = &null;
+
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
@@ -374,6 +389,7 @@ class ChainExpr derives Expr {
         node->range = range;
         node->base  = base;
         node->ctx   = ctx;
+        node->variant_decl = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -388,6 +404,7 @@ class ChainExpr derives Expr {
         node->range = range;
         node->base  = &null;
         node->ctx   = ctx;
+        node->variant_decl = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -402,6 +419,7 @@ class ChainExpr derives Expr {
         node->range         = range;
         node->base          = &null;
         node->ctx           = ctx;
+        node->variant_decl  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

@@ -620,6 +620,7 @@ class <D> ASTWriter {
             case ExprKind::NamedArgExpr             { return self.dyn()->transform_named_arg_expr(             cast::<NamedArgExpr>(e)             ); }
             case ExprKind::InitListExpr             { return self.dyn()->transform_init_list_expr(             cast::<InitListExpr>(e)             ); }
             case ExprKind::StmtExpr                 { return self.dyn()->transform_stmt_expr(                  cast::<StmtExpr>(e)                 ); }
+            case ExprKind::VariantInitExpr          { return self.dyn()->transform_variant_init_expr(          cast::<VariantInitExpr>(e)          ); }
             case ExprKind::RecoveryExpr             { return e; }
             case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached ASTWriter - bug"); return &null; }
         }
@@ -650,6 +651,15 @@ class <D> ASTWriter {
 
     fn transform_stmt_expr(self, n: *StmtExpr) -> *Expr {
         if n->body != &null { n->body = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(static_cast::<*Stmt>(n->body))); }
+        return n;
+    }
+
+    // `source_order` is parallel to `fields`: a field may be rewritten, never
+    // dropped.
+    fn transform_variant_init_expr(self, n: *VariantInitExpr) -> *Expr {
+        self.dyn()->rebuild_expr_list(&(n->fields));
+        ICE_IF((n->fields.size() != n->source_order.size()),
+               "ASTWriter: VariantInitExpr::fields not parallel to source_order after rebuild");
         return n;
     }
 

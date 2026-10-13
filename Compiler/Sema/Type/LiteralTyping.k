@@ -123,6 +123,7 @@ class <T> LiteralTyping {
             sh.lit_hi  = el.lit_hi;
             sh.lit_big = el.lit_big;
             sh.lit_neg = el.lit_neg;
+            sh.lit_name = el.lit_name;
             sh.ty      = el.ty;
             sh.kids_lo = el.elems_lo;
             sh.kids_n  = el.elems_n;

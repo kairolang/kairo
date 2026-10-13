@@ -130,6 +130,7 @@ class <T> CallTyping {
 
         if dyn()->list_literal_shape(e, &a) { return a; }
         if dyn()->literal_shape(e, &a) { return a; }
+        if dyn()->dotted_variant_shape(e, &a) { return a; }
         a.ty = dyn()->type_of(e, &null);
         if (a.ty == &null) && (!e->is_poisoned()) { a.dependent = true; }
         a.cat      = e->value_category;          // set by the typer's finish (paren copies its inner).
