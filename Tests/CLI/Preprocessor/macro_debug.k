@@ -1,6 +1,6 @@
-// --macro-debug logs each macro expansion, but through the verbose logger, so
-// it only shows with -v; without the flag nothing is logged. Only the message
-// tail is matched, the log prefix carries timestamps.
+// --macro-debug prints each macro expansion to stderr on its own; -v is no
+// longer needed (it used to go through the verbose logger and was silent
+// without it). This test still passes -v and matches only the message tail.
 
 macro two!() { 2 }
 fn main() -> i32 { return two!() }

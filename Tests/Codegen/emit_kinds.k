@@ -29,4 +29,4 @@ fn main() -> i32 { return add(40, 2) }
 // RUN: { %kairo %s --emit=ll 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
 // BAD: error [U003E]: invalid --emit value 'll'; accepted: obj, asm, llvm-ir, llvm-bc
 // RUN: { %kairo %s --emit=tokens 2>&1 || true; } | %FileCheck %s --check-prefix=LATER
-// LATER: error [U003E]: --emit=tokens is not implemented yet
+// LATER: error [U003E]: invalid --emit value 'tokens'; accepted: obj, asm, llvm-ir, llvm-bc
