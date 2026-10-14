@@ -718,15 +718,36 @@ class CompilerInstance {
     /// invocation path too. TargetOptions::triple is set verbatim from
     /// `--target`, so the argv path is unaffected.
     priv fn _effective_triple(self) -> string {
-        var t = self.invocation().target.triple;
+        var tg = &(self.invocation().target);
+        var t  = tg->triple;
+        var explicit_target = !t.empty();
+        if !explicit_target { t = self.get_target_triple(); }
+
+        // -m32/-m64 rewrite the ARCH of the triple, as clang does, so the cc1
+        // `-triple` agrees with the sysroot _use_bundled_sysroot picked with
+        // the same rewrite: left at x86_64, --m32 compiled 64-bit code against
+        // the i686 headers and died on the size_t typedef mismatch. -m32 wins
+        // when both are given (matches _use_bundled_sysroot). An arch with no
+        // such variant has pointer width 0 after the rewrite and keeps its
+        // own triple instead of becoming "unknown".
+        if tg->m32 || tg->m64 {
+            var nw   = std::string_to_nstring(t);
+            var tri0 = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nw.raw(), nw.size())));
+            var wide = tri0;
+            wide = (tri0.get32BitArchVariant()) if (tg->m32) else (tri0.get64BitArchVariant());
+            if wide.getArchPointerBitWidth() != 0 {
+                var full: libcxx::string = wide.getTriple();
+                t = string(full.c_str(), full.size());
+            }
+        }
 
         // Canonicalized here so clang, codegen and the linker all see the
         // same float ABI (see Toolchain::canonical_triple).
-        if !t.empty() {
+        if explicit_target {
             return Toolchain::canonical_triple(t);
         }
 
-        return self.get_target_triple();
+        return t;
     }
 
     /// Looks up a registered target by triple. Returns nullptr if not found
@@ -1073,6 +1094,199 @@ class CompilerInstance {
         }
     }
 
+    /// \brief the cc1 tokens `-ffast-math` stands for, as clang 22's driver
+    ///        spells them (checked with `clang -### -ffast-math`). Shared by
+    ///        -ffast-math and --fp-model=fast, which differ only in
+    ///        -complex-range.
+    ///
+    /// \details Spelled out rather than taken from the driver probe: the probe
+    ///          runs once per triple for target defaults, and its keep-list
+    ///          would also have to carry a default-on `-ffp-contract=on`
+    ///          that Kairo's cc1 line must not have.
+    priv fn _fast_math_cc1(self, complex_range: string) -> vec::<string> {
+        var o = vec::<string>();
+        o.push_back("-menable-no-infs");
+        o.push_back("-menable-no-nans");
+        o.push_back("-fapprox-func");
+        o.push_back("-funsafe-math-optimizations");
+        o.push_back("-fno-signed-zeros");
+        o.push_back("-mreassociate");
+        o.push_back("-freciprocal-math");
+        o.push_back("-ffp-contract=fast");
+        o.push_back("-ffast-math");
+        o.push_back("-ffinite-math-only");
+        o.push_back(f"-complex-range={complex_range}");
+        return o;
+    }
+
+    /// \brief the cc1 tokens for the code-generation flags: target ISA,
+    ///        -f[no-] toggles, floating-point model, instrumentation,
+    ///        reproducible-build maps and -mllvm words. Each is a spelling
+    ///        verified against clang -### / clang -cc1 -help; a flag with no
+    ///        direct cc1 spelling is NOT here (see the audit report).
+    ///
+    /// \details Order is part of the contract (cc1 takes the last of a
+    ///          repeated option, --print-clang-args shows it): the broad
+    ///          switch (-ffast-math, --fp-model) comes before the specific
+    ///          one (--fp-contract) so the explicit flag wins, and --mllvm
+    ///          words come last so a user word can override a lowered one.
+    ///          Anything cc1 does by default is only pushed when the user
+    ///          asked for a different value, so a plain build's line, and
+    ///          every header-set PCH keyed on it, stays as it was.
+    priv fn _codegen_cc1(self, triple: string) -> vec::<string> {
+        var o   = vec::<string>();
+        var cgo = self.invocation().codegen;
+        var tgt = self.invocation().target;
+        var lg  = self.invocation().lang;
+
+        // -- target ISA ----------------------------------------------------
+        // (--march rides the driver probe, see _backend_config; --mcpu is
+        // pushed there too and, coming later, wins over a march's CPU.)
+        if !tgt.mtune.empty() { o.push_back("-tune-cpu");   o.push_back(tgt.mtune); }
+        if !tgt.mabi.empty()  { o.push_back("-target-abi"); o.push_back(tgt.mabi); }
+        for ft: string in tgt.feature_list() { o.push_back("-target-feature"); o.push_back(ft); }
+
+        // -- optimization toggles ------------------------------------------
+        if cgo.f_inline == 0          { o.push_back("-fno-inline"); }
+        if cgo.f_unroll_loops == 1    { o.push_back("-funroll-loops"); }
+        if cgo.f_unroll_loops == 0    { o.push_back("-fno-unroll-loops"); }
+        if cgo.f_merge_functions == 1 { o.push_back("-fmerge-functions"); }
+        if cgo.f_function_sections == 1 { o.push_back("-ffunction-sections"); }
+        if cgo.f_data_sections == 1     { o.push_back("-fdata-sections"); }
+        // cc1 keeps no frame pointer unless told (the driver adds =all on
+        // most Linux targets), so both directions are spelled out.
+        if cgo.f_omit_frame_pointer == 1 { o.push_back("-mframe-pointer=none"); }
+        if cgo.f_omit_frame_pointer == 0 { o.push_back("-mframe-pointer=all"); }
+
+        // -- floating point ------------------------------------------------
+        if cgo.f_fast_math == 1 {
+            for t: string in self._fast_math_cc1("basic") { o.push_back(t); }
+        }
+        if cgo.fp_model == "fast" {
+            for t: string in self._fast_math_cc1("promoted") { o.push_back(t); }
+        } else if cgo.fp_model == "strict" {
+            o.push_back("-ffp-contract=off");
+            o.push_back("-frounding-math");
+            o.push_back("-ffp-exception-behavior=strict");
+            o.push_back("-complex-range=full");
+        }
+        if cgo.fp_contract_set { o.push_back(f"-ffp-contract={cgo.fp_contract}"); }
+        if cgo.signed_wrap     { o.push_back("-fwrapv"); }
+        if cgo.f_soft_float == 1 {
+            o.push_back("-msoft-float");
+            o.push_back("-mfloat-abi");
+            o.push_back("soft");
+        }
+        if cgo.no_implicit_float { o.push_back("-no-implicit-float"); }
+
+        // -- hardening / code model ----------------------------------------
+        if cgo.f_stack_protector == 1 { o.push_back("-stack-protector"); o.push_back("1"); }
+        if cgo.stack_clash            { o.push_back("-fstack-clash-protection"); }
+        if cgo.f_split_stack == 1     { o.push_back("-fsplit-stack"); }
+        // --pic-level is the explicit spelling and wins; -f[no-]pic only
+        // speaks when it was not given (it is pushed in _backend_config).
+        if tgt.pic_level == 0 {
+            if cgo.f_pic == 1 {
+                o.push_back("-mrelocation-model"); o.push_back("pic");
+                o.push_back("-pic-level");         o.push_back("2");
+            } else if cgo.f_pic == 0 {
+                o.push_back("-mrelocation-model"); o.push_back("static");
+            }
+        }
+        if cgo.kernel_mode {
+            // Same set the driver makes of -mkernel, minus the hosted-library
+            // bits (-fapple-kext, -fno-builtin, -ffreestanding) that would
+            // break Kairo's own lowered C++. SSE is only taken away on x86,
+            // where the kernel cannot save FP state; elsewhere there is no
+            // single feature name for it.
+            o.push_back("-mcmodel=kernel");
+            o.push_back("-mrelocation-model"); o.push_back("static");
+            o.push_back("-disable-red-zone");
+            o.push_back("-no-implicit-float");
+            var nt  = std::string_to_nstring(triple);
+            var tri = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+            if tri.isX86() { o.push_back("-target-feature"); o.push_back("-sse"); }
+        }
+
+        // -- language-level C++ switches (Config::Language) -----------------
+        // Exceptions are OFF in a bare cc1 line (the driver is what adds
+        // them), so only -fexceptions has anything to add; RTTI is on by
+        // default, so only -fno-rtti does.
+        if lg.exceptions == 1 { o.push_back("-fcxx-exceptions"); o.push_back("-fexceptions"); }
+        if lg.rtti == 0       { o.push_back("-fno-rtti"); }
+
+        // -- runtime model -------------------------------------------------
+        if cgo.thread_model != "posix" { o.push_back("-mthread-model"); o.push_back(cgo.thread_model); }
+        if cgo.unwind_tables_set {
+            if cgo.unwind_tables == "none"       { o.push_back("-funwind-tables=0"); }
+            else if cgo.unwind_tables == "sync"  { o.push_back("-funwind-tables=1"); }
+            else if cgo.unwind_tables == "async" { o.push_back("-funwind-tables=2"); }
+        }
+        if cgo.instrument_functions { o.push_back("-finstrument-functions"); }
+
+        // -- coverage / PGO --------------------------------------------------
+        if cgo.f_coverage == 1 {
+            o.push_back("-fprofile-instrument=clang");
+            o.push_back("-fcoverage-mapping");
+        } else if cgo.f_profile_generate == 1 {
+            o.push_back("-fprofile-instrument=clang");
+        }
+        if !cgo.profile_use.empty() {
+            // Checked here, not left to cc1: its message names neither the
+            // flag nor says the file is what is missing.
+            if !LinkFS::is_file(cgo.profile_use) {
+                self._diag->report(DiagID::U001E,
+                    f"--profile-use: no such profile data file '{cgo.profile_use}\x27").emit();
+            } else {
+                o.push_back("-fprofile-instrument-use=clang");
+                o.push_back(f"-fprofile-instrument-use-path={cgo.profile_use}");
+            }
+        }
+
+        // -- reproducible builds ---------------------------------------------
+        // --remap-path-prefix is clang's -ffile-prefix-map, which cc1 only
+        // knows as its three halves.
+        for m: string in cgo.remap_path_prefix {
+            o.push_back(f"-fdebug-prefix-map={m}");
+            o.push_back(f"-fmacro-prefix-map={m}");
+            o.push_back(f"-fcoverage-prefix-map={m}");
+        }
+        for m: string in cgo.debug_prefix_map    { o.push_back(f"-fdebug-prefix-map={m}"); }
+        for m: string in cgo.coverage_prefix_map { o.push_back(f"-fcoverage-prefix-map={m}"); }
+        // Only __DATE__/__TIME__/__TIMESTAMP__ in C and C++ sources read it:
+        // Kairo objects carry no other timestamp.
+        if !cgo.source_date_epoch.empty() {
+            o.push_back("-source-date-epoch"); o.push_back(cgo.source_date_epoch);
+        } else if cgo.no_timestamps {
+            o.push_back("-source-date-epoch"); o.push_back("0");
+        }
+
+        // -- LLVM pass control -----------------------------------------------
+        for pl: string in cgo.pass_plugins {
+            if !LinkFS::is_file(pl) {
+                self._diag->report(DiagID::U001E,
+                    f"--pass-plugin: no such plugin file '{pl}\x27").emit();
+            } else {
+                o.push_back(f"-fpass-plugin={pl}");
+            }
+        }
+
+        // -- -mllvm (applied by ClangBackend::_apply_llvm_args) ----------------
+        if cgo.hot_cold_split          { o.push_back("-mllvm"); o.push_back("-hot-cold-split=true"); }
+        if cgo.f_trap_unreachable == 1 { o.push_back("-mllvm"); o.push_back("-trap-unreachable"); }
+        // Both thresholds differ per level in LLVM itself, so a default value
+        // must not be forwarded: only what the user set.
+        if cgo.inline_cost_set {
+            var thr: i32 = static_cast::<i32>(cgo.inline_cost);
+            o.push_back("-mllvm"); o.push_back(f"-inline-threshold={thr}");
+        }
+        if cgo.max_unroll_count > 0 {
+            o.push_back("-mllvm"); o.push_back(f"-unroll-count={cgo.max_unroll_count}");
+        }
+        for w: string in cgo.mllvm_flags { o.push_back("-mllvm"); o.push_back(w); }
+        return o;
+    }
+
     /// \brief the shared clang backend's configuration, from the
     ///        invocation: target, header roots, optimization and debug
     ///        info, the user's -W policy. initialize builds the backend from
@@ -1087,6 +1301,9 @@ class CompilerInstance {
         // nothing -- `--sysroot` used to be accepted and silently dropped.
         var tgt = self.invocation().target;
         if !tgt.cxx_std.empty() { (bcfg.cxx_std) = tgt.cxx_std; }
+        // --march is a DRIVER spelling (cc1 has none): the probe turns it
+        // into -target-cpu and the -target-feature pairs its extensions imply.
+        if !tgt.march.empty() { bcfg.driver_words.push_back(f"-march={tgt.march}"); }
         if !tgt.mcpu.empty() {
             bcfg.extra_cc1.push_back("-target-cpu");
             bcfg.extra_cc1.push_back(tgt.mcpu);
@@ -1097,6 +1314,7 @@ class CompilerInstance {
             bcfg.extra_cc1.push_back("-pic-level");
             bcfg.extra_cc1.push_back(f"{tgt.pic_level}");
         }
+        for a: string in self._codegen_cc1(bcfg.triple) { bcfg.extra_cc1.push_back(a); }
         // User header dirs for C++ interop: both flags name directories clang
         // searches for an ffi header, ahead of the system roots.
         for d: string in self.invocation().ffi_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }

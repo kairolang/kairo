@@ -23,6 +23,52 @@ fn _opt_level_choices() -> vec::<string> {
     return c;
 }
 
+/// c++17 is deliberately absent: Lib/builtin needs __builtin_coro_*, so every
+/// compile at that level dies in R020E. gnu++ spellings stay for libc++ headers
+/// that want the GNU extensions.
+fn _cxx_std_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("c++20"); c.push_back("c++23"); c.push_back("c++26");
+    c.push_back("gnu++20"); c.push_back("gnu++23"); c.push_back("gnu++26");
+    return c;
+}
+
+fn _lto_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("off"); c.push_back("thin"); c.push_back("full");
+    return c;
+}
+
+fn _profile_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("debug"); c.push_back("release"); c.push_back("min-size");
+    return c;
+}
+
+fn _fp_model_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("precise"); c.push_back("strict"); c.push_back("fast");
+    return c;
+}
+
+fn _fp_contract_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("off"); c.push_back("on"); c.push_back("fast");
+    return c;
+}
+
+fn _thread_model_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("posix"); c.push_back("single");
+    return c;
+}
+
+fn _unwind_tables_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("none"); c.push_back("sync"); c.push_back("async");
+    return c;
+}
+
 fn _unmatched_choices() -> vec::<string> {
     var c: vec::<string>;
     c.push_back("trap"); c.push_back("unreachable");
@@ -111,29 +157,32 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("shared",         "",  "shared",         "produce a shared library (.so / .dylib / .dll); not available on static-only sysroots (musl)", false);
     cmd->define::<FlagKind::Bool>  ("static",         "",  "static",         "produce a statically linked binary or archive",                                     false);
     cmd->define::<FlagKind::Bool>  ("no-entry",       "",  "no-entry",       "no entry point: library / kernel / raw binary output",                              false);
-    cmd->define::<FlagKind::Bool>  ("save-temps",     "",  "save-temps",     "keep all intermediate files (.ll, .bc, .o, .s)",                                    false);
+    cmd->define::<FlagKind::Bool>  ("save-temps",     "",  "save-temps",     "keep the object files, under <out>.kobj/ (only without --cache-dir)",              false);
 
     //  TARGET
 
     cmd->define::<FlagKind::String>("target",         "",  "target",         "target triple: arch-vendor-os-abi (e.g. x86_64-unknown-linux-gnu)",                 "");
     cmd->define::<FlagKind::String>("host",           "",  "host",           "host triple (defaults to native)",                                                  "");
     cmd->define::<FlagKind::String>("march",          "",  "march",          "target architecture (e.g. armv8-a, x86-64-v3)",                                    "");
-    cmd->define::<FlagKind::String>("mcpu",           "",  "mcpu",           "target CPU (e.g. apple-m1, znver3, cortex-a72). use --print-cpus to list",          "");
+    cmd->define::<FlagKind::String>("mcpu",           "",  "mcpu",           "target CPU (e.g. apple-m1, znver3, cortex-a72); wins over --march. use --print-cpus to list", "");
     cmd->define::<FlagKind::String>("mtune",          "",  "mtune",          "tune codegen for this CPU without restricting ISA",                                 "");
     cmd->define::<FlagKind::String>("mabi",           "",  "mabi",           "target ABI (e.g. lp64d, ilp32, eabihf)",                                           "");
     cmd->define::<FlagKind::String>("mfeatures",      "",  "mfeatures",      "enable/disable target features: +avx2,+bmi2,-sse4.1",                              "");
-    cmd->define::<FlagKind::Bool>  ("m32",            "",  "m32",            "force 32-bit code generation",                                                      false);
+    cmd->define::<FlagKind::Bool>  ("m32",            "",  "m32",            "force 32-bit code generation: --target becomes its 32-bit variant (x86_64 -> i386)", false);
     cmd->define::<FlagKind::Bool>  ("m64",            "",  "m64",            "force 64-bit code generation",                                                      false);
-    cmd->define::<FlagKind::String>("cxx-std",        "",  "cxx-std",        "C++ standard for interop: c++17|c++20|c++23 (default: c++20)",                     "c++20");
+    cmd->define(FlagDef::str_c("cxx-std", "", "cxx-std", "C++ standard for interop: c++20|c++23|c++26, or the gnu++ spelling of each (default: c++20)",
+                               "c++20", _cxx_std_choices(), "c++20"));
     cmd->define::<FlagKind::String>("cxx-abi",        "",  "cxx-abi",        "C++ ABI for interop: itanium|msvc (default: itanium)",                             "itanium");
 
     //  BUILD MODE
 
-    cmd->define::<FlagKind::String>("profile",        "",  "profile",        "build profile: debug|release|min-size (sets mode defaults)",                       "debug");
+    cmd->define(FlagDef::str_c("profile", "", "profile", "build profile: debug (-O0 -g), release (-O2), min-size (-Os); an explicit -O or -g wins",
+                               "debug", _profile_choices(), "debug"));
     cmd->define(_choice_flag("borrow-check", "borrow checker severity: warn|error|off (default: warn in debug, error in release)", "", _borrow_check_choices()));
     cmd->define(_choice_flag("amt-mode", "AMT violation reporting independent of --borrow-check: warn|error|silent", "", _amt_mode_choices()));
     cmd->define::<FlagKind::String>("amt-report-file","",  "amt-report-file","write all AMT decisions and rewrites to this file for auditing",                   "");
-    cmd->define::<FlagKind::String>("lto",            "",  "lto",            "link-time optimization: off|thin|full (default: off)",                             "off");
+    cmd->define(FlagDef::str_c("lto", "", "lto", "link-time optimization: off|thin|full (default: off)",
+                               "off", _lto_choices(), "off"));
     cmd->define::<FlagKind::String>("panic-handler",  "",  "panic-handler",  "symbol name of a custom panic handler (for --no-stdlib targets)",                  "");
 
     //  OPTIMISATION
@@ -143,9 +192,9 @@ fn register_kairo_flags(cmd: *Command) {
     // floating-point semantics and is a separate decision.
     cmd->define(FlagDef::str_c("opt", "O", "", "optimization level: -O0 (default), -O1, -O2, -O3, -Os, -Oz; -O and -Og are -O1",
                                "0", _opt_level_choices(), "1"));
-    cmd->define::<FlagKind::Bool> ("debug-info",      "g", "",               "emit DWARF debug information",                                                      false);
+    cmd->define::<FlagKind::Bool> ("debug-info",      "g", "",               "emit debug information: DWARF, or CodeView on MSVC targets",                       false);
     cmd->define::<FlagKind::Bool> ("no-debug-info",   "",  "g0",             "explicitly disable debug info emission",                                            false);
-    cmd->define::<FlagKind::I32>  ("dwarf-version",   "",  "dwarf-version",  "DWARF version to emit: 2|3|4|5 (default: 5)",                                      5, 2, 5);
+    cmd->define::<FlagKind::I32>  ("dwarf-version",   "",  "dwarf-version",  "DWARF version to emit: 2|3|4|5 (default: 5); needs -g",                           5, 2, 5);
     cmd->define::<FlagKind::Bool> ("split-dwarf",     "",  "split-dwarf",    "emit DWARF into separate .dwo files (reduces link-time memory usage)",              false);
     cmd->define::<FlagKind::Bool> ("strip",           "",  "strip",          "strip all symbols from output; wins over --strip-debug", false);
     cmd->define::<FlagKind::Bool> ("strip-debug",     "",  "strip-debug",    "strip only debug symbols, keep exports",                                            false);
@@ -156,7 +205,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  REPRODUCIBLE BUILDS
 
     cmd->define::<FlagKind::String>    ("source-date-epoch","","source-date-epoch","clamp all embedded timestamps to this Unix epoch value for reproducible output","");
-    cmd->define::<FlagKind::StringList>("remap-path-prefix","","remap-path-prefix","old=new path prefix remapping applied everywhere: debug info, coverage, macros, errors (repeatable)");
+    cmd->define::<FlagKind::StringList>("remap-path-prefix","","remap-path-prefix","old=new path prefix remapping for debug info, coverage mappings and __FILE__-style macros (repeatable)");
     cmd->define::<FlagKind::StringList>("debug-prefix-map","", "debug-prefix-map", "old=new path remapping applied only to DWARF debug info (repeatable)");
     cmd->define::<FlagKind::Bool>      ("no-timestamps","",   "no-timestamps",    "strip all timestamps from output (implies --source-date-epoch=0)",              false);
 
@@ -197,7 +246,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("force-inline",       "honour @force_inline() directives (on)");
     cmd->define::<FlagKind::Feature>("tail-call",          "tail call optimization");
     cmd->define::<FlagKind::Feature>("dead-code-elim",     "dead code elimination (on)");
-    cmd->define::<FlagKind::Feature>("vectorize",          "auto-vectorisation (loop + SLP)");
+    cmd->define::<FlagKind::Feature>("vectorize",          "auto-vectorisation (loop + SLP); on at every level above -O0");
     cmd->define::<FlagKind::Feature>("unroll-loops",       "loop unrolling");
     cmd->define::<FlagKind::Feature>("merge-functions",    "merge identical functions (ICF)");
     cmd->define::<FlagKind::Feature>("function-sections",  "place each function in its own section");
@@ -209,7 +258,7 @@ fn register_kairo_flags(cmd: *Command) {
     // hardening
     cmd->define::<FlagKind::Feature>("stack-protector",    "stack canary insertion");
     cmd->define::<FlagKind::Feature>("pic",                "position-independent code");
-    cmd->define::<FlagKind::Feature>("pie",                "position-independent executable");
+    cmd->define::<FlagKind::Feature>("pie",                "position-independent executable (a link-time choice; code generation is unchanged)");
     cmd->define::<FlagKind::Feature>("split-stack",        "segmented stack (for green-thread runtimes)");
     cmd->define::<FlagKind::Feature>("trap-unreachable",   "lower unreachable to a hardware trap instruction rather than UB");
     cmd->define::<FlagKind::Feature>("soft-float",         "software floating point ABI (for targets without FPU)");
@@ -349,7 +398,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  PLATFORM: Embedded / Bare Metal
 
-    cmd->define::<FlagKind::I32>  ("pic-level",       "",  "pic-level",      "PIC level for embedded targets: 0|1|2 (default: 0)",                              0, 0, 2);
+    cmd->define::<FlagKind::I32>  ("pic-level",       "",  "pic-level",      "PIC level on any target: 0|1|2 (default: 0 = none forced); overrides -fpic/-fno-pic", 0, 0, 2);
     cmd->define::<FlagKind::Bool> ("no-stack-check",  "",  "no-stack-check", "disable stack overflow checking entirely (bare metal)",                            false);
     cmd->define::<FlagKind::I32>  ("fixed-stack-size","",  "fixed-stack-size","fix stack size at compile time in bytes (for static analysis, 0 = dynamic)",    0, 0, 2147483647);
 
@@ -460,24 +509,28 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("max-threads",               "hard cap on compilation threads regardless of --threads (0 = no cap)",    0,       0,    1024);
 
     //  floating point
-    cmd->define::<FlagKind::String>("fp-model",              "", "fp-model",               "floating-point semantics: precise|strict|fast (default: precise)",       "precise");
-    cmd->define::<FlagKind::String>("fp-contract",           "", "fp-contract",            "fused FP ops (FMAs): off|on|fast (default: off)",                        "off");
+    cmd->define(FlagDef::str_c("fp-model", "", "fp-model", "floating-point semantics: precise|strict|fast (default: precise)",
+                               "precise", _fp_model_choices(), "precise"));
+    cmd->define(FlagDef::str_c("fp-contract", "", "fp-contract", "fused FP ops (FMAs): off|on|fast (default: off; wins over --fp-model)",
+                               "off", _fp_contract_choices(), "off"));
     cmd->define::<FlagKind::Bool>  ("signed-wrap",           "", "signed-wrap",            "treat signed integer overflow as two's complement instead of UB",         false);
     cmd->define::<FlagKind::Bool>  ("unsigned-trap",         "", "unsigned-trap",          "trap on unsigned integer overflow (extends --no-overflow to unsigned)",    false);
 
     //  codegen optimizations
     cmd->define::<FlagKind::Bool>  ("strict-aliasing",       "", "strict-aliasing",        "enable strict aliasing optimizations (off in debug, on in release)",      false);
-    cmd->define::<FlagKind::String>("thread-model",          "", "thread-model",           "threading model: posix|single (default: posix)",                          "posix");
+    cmd->define(FlagDef::str_c("thread-model", "", "thread-model", "threading model: posix|single (default: posix)",
+                               "posix", _thread_model_choices(), "posix"));
     // Empty default: the policy follows -O (CodeGenOptions::unmatched_policy).
     cmd->define(FlagDef::str_c("unmatched", "", "unmatched", "an undeclared value reaching an exhaustive match: trap|unreachable (default: trap, unreachable at -O3)",
                                "", _unmatched_choices(), ""));
-    cmd->define::<FlagKind::String>("unwind-tables",         "", "unwind-tables",          "unwind table emission: none|sync|async (default: sync)",                  "sync");
+    cmd->define(FlagDef::str_c("unwind-tables", "", "unwind-tables", "unwind table emission: none|sync|async (default: per target; async on x86_64)",
+                               "", _unwind_tables_choices(), ""));
     cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
     cmd->define::<FlagKind::String>("unwindlib",             "", "unwindlib",              "unwind library: libunwind|libgcc|none (default: libgcc with --rtlib=libgcc, else libunwind; a sysroot manifest may set it)",        "");
 
     //  debug info
-    cmd->define::<FlagKind::Bool>  ("debug-macros",          "", "debug-macros",           "embed macro definitions in DWARF debug info",                             false);
-    cmd->define::<FlagKind::Bool>  ("embed-source",          "", "embed-source",           "embed source text directly in DWARF debug sections",                      false);
+    cmd->define::<FlagKind::Bool>  ("debug-macros",          "", "debug-macros",           "embed macro definitions in DWARF debug info (needs -g)",                    false);
+    cmd->define::<FlagKind::Bool>  ("embed-source",          "", "embed-source",           "embed source text in DWARF debug sections (needs -g and DWARF 5)",          false);
 
     //  instrumentation
     cmd->define::<FlagKind::Bool>  ("instrument-functions",  "", "instrument-functions",   "insert entry/exit instrumentation calls on every function",               false);

@@ -66,6 +66,7 @@ ffi "c++" import "clang/CodeGen/CodeGenAction.h";
 ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h";
 ffi "c++" import "llvm/ADT/Twine.h";
+ffi "c++" import "llvm/Support/CommandLine.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
 ffi "c++" import "llvm/Support/TargetSelect.h";
 ffi "c++" import "llvm/Support/VirtualFileSystem.h";
@@ -196,6 +197,11 @@ struct ClangBackendConfig {
     var dwarf_version: i32  = 0;           ///< 0 = the target's default (MSVC: CodeView)
     var debug_macros:  bool = false;       ///< -fdebug-macro
     var embed_source:  bool = false;       ///< -gembed-source
+    /// Extra words for the driver probe in _driver_target_args (--march). They
+    /// go to the clang DRIVER, never to cc1: cc1 has no -march, and what the
+    /// driver makes of one (-target-cpu plus a -target-feature per implied
+    /// extension) is only right per architecture.
+    var driver_words:  vec::<string>;
 }
 
 class ClangBackend {
@@ -509,6 +515,7 @@ class ClangBackend {
         words.push_back("clang");
         words.push_back(f"--target={self._cfg.triple}");
         words.push_back(f"-std={self._cfg.cxx_std}");
+        for w: string in self._cfg.driver_words { words.push_back(w); }
         if self._cfg.debug_info {
             words.push_back("-g");
             if self._cfg.dwarf_version > 0 { words.push_back(f"-gdwarf-{self._cfg.dwarf_version}"); }
@@ -530,7 +537,7 @@ class ClangBackend {
         var inv = clang::createInvocation(dargv, opts);
         if cc1.empty() {
             Logger::error(Logger::Stage::Driver,
-                f"ClangBackend: clang\x27s driver gave no cc1 line for {self._cfg.triple}; compiling without target defaults");
+                f"ClangBackend: clang\x27s driver gave no cc1 line for {self._cfg.triple} (a bad --march fails this probe); compiling without target defaults");
             return self._target_args;
         }
 
@@ -686,6 +693,32 @@ class ClangBackend {
         }
     }
 
+    /// \brief hands the invocation's -mllvm words to LLVM's option parser.
+    ///
+    /// \details CreateFromArgs only RECORDS them in FrontendOptions::LLVMArgs;
+    ///          the parse is done by clang's cc1_main (ExecuteCompilerInvocation),
+    ///          which this backend never goes through, so without this every
+    ///          --mllvm (and the flags lowered to one) would be accepted and
+    ///          dropped. Once per process: the options are global state.
+    priv fn _apply_llvm_args(self) {
+        var n = self._cinv.get()->getFrontendOpts().LLVMArgs.size();
+        if n == 0 { return; }
+        var av: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
+        self._arg(&av, "kairo (LLVM option parsing)");
+        for var i: usize = 0; i < n; ++i {
+            self._arg(&av, std::nstring_to_string(self._cinv.get()->getFrontendOpts().LLVMArgs[i]));
+        }
+        // Errors go to a stream and come back as false: without one LLVM calls
+        // exit(1), here on a pool thread, for a mistyped --mllvm word.
+        var ov = std::string_to_nstring("kairo");
+        var es = &(llvm::errs());
+        if !llvm::cl::ParseCommandLineOptions(static_cast::<i32>(av.size()), av.data(),
+                                              llvm::StringRef(ov.raw(), ov.size()), es) {
+            Logger::error(Logger::Stage::Driver, "ClangBackend: an --mllvm word was not accepted by LLVM");
+            self._failed = true;
+        }
+    }
+
     priv fn _startup_locked(self) {
         if (self._started) || (self._failed) {
             return;
@@ -721,6 +754,7 @@ class ClangBackend {
             self._failed = true;
             return;
         }
+        self._apply_llvm_args();
 
         // -include names travel via the predefines buffer.
         for inc: string in self._cfg.includes {

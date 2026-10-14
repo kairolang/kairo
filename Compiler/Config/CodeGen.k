@@ -33,14 +33,22 @@ class CodeGenOptions {
     pub var fp_model:              string = "precise";
     pub var fp_contract:           string = "off";
     pub var thread_model:          string = "posix";
-    pub var unwind_tables:         string = "sync";
-    pub var rtlib:                 string = "compiler-rt";
+    pub var unwind_tables:         string = "";
+    /// Whether --unwind-tables / --fp-contract were given. cc1 without the
+    /// flag is NOT "sync" / "off" for these (the target probe already yields
+    /// async tables on x86_64, and the driver adds contract=on), so forwarding
+    /// a default would silently change every build; only an explicit flag does.
+    pub var unwind_tables_set:     bool   = false;
+    pub var fp_contract_set:       bool   = false;
     pub var unwindlib:             string = "";
     // -- optimization ------------------------------------------------------
     pub var lto:                   string = "off";
     pub var profile:               string = "debug";
     // -- inliner / loop limits (from --c* config flags) --------------------
     pub var inline_cost:           f64    = 225.0;
+    /// --cinline-cost-threshold given. LLVM's own threshold differs per level
+    /// (225 at -O2, 75 at -Os), so the 225.0 default must not be forwarded.
+    pub var inline_cost_set:       bool   = false;
     pub var max_inline_depth:      i32    = 256;
     pub var max_unroll_count:      i32    = 0;
     pub var max_for_unroll:        i32    = 1024;
@@ -61,11 +69,7 @@ class CodeGenOptions {
     pub var split_dwarf:           bool   = false;
     pub var debug_macros:          bool   = false;
     pub var embed_source:          bool   = false;
-    // -- strip -------------------------------------------------------------
-    pub var strip:                 bool   = false;
-    pub var strip_debug:           bool   = false;
     // -- misc codegen ------------------------------------------------------
-    pub var save_temps:            bool   = false;
     pub var signed_wrap:           bool   = false;
     pub var unsigned_trap:         bool   = false;
     pub var strict_aliasing:       bool   = false;
@@ -89,7 +93,6 @@ class CodeGenOptions {
     // -- hardening feature toggles -----------------------------------------
     pub var f_stack_protector:     i32 = -1;
     pub var f_pic:                 i32 = -1;
-    pub var f_pie:                 i32 = -1;
     pub var f_split_stack:         i32 = -1;
     pub var f_trap_unreachable:    i32 = -1;
     pub var f_soft_float:          i32 = -1;
@@ -112,8 +115,6 @@ class CodeGenOptions {
     pub var xray_threshold:        i32    = 200;
 
     // -- link-time optimizations -------------------------------------------
-    pub var icf:                   bool   = false;
-    pub var icf_mode:              string = "safe";
     pub var whole_program_vtables: bool   = false;
     pub var devirt:                bool   = false;
 
@@ -140,6 +141,15 @@ class CodeGenOptions {
         // rest). s and z are level 2 plus a size goal and g is level 1,
         // exactly what clang's cc1 makes of them.
         var o_val = args.get_string("opt");
+        // --profile only fills in what the user left unsaid, and only when it
+        // was actually given: "debug" is also the registry default, so acting
+        // on it unconditionally would force -g onto every plain build.
+        var prof = args.get_string("profile");
+        var prof_given = args.is_set("profile");
+        if prof_given && (!args.is_set("opt")) {
+            if prof == "release"       { o_val = "2"; }
+            else if prof == "min-size" { o_val = "s"; }
+        }
         (o.opt_size)             = (o_val == "s") || (o_val == "z");
         (o.opt_size_z)           = o_val == "z";
         if o.opt_size                             { (o.opt_level) = 2; }
@@ -149,32 +159,34 @@ class CodeGenOptions {
         else                                      { (o.opt_level) = 0; }
         (o.unmatched)            = args.get_string("unmatched");
         (o.lto)                  = args.get_string("lto");
-        (o.profile)              = args.get_string("profile");
+        (o.profile)              = prof;
         (o.debug_info)           = args.get_bool("debug-info");
         (o.no_debug_info)        = args.get_bool("no-debug-info");
+        if prof_given && (prof == "debug") && (!args.is_set("debug-info")) && (!args.is_set("no-debug-info")) {
+            (o.debug_info) = true;
+        }
         (o.dwarf_version)        = args.get_i32("dwarf-version");
         (o.split_dwarf)          = args.get_bool("split-dwarf");
         (o.debug_macros)         = args.get_bool("debug-macros");
         (o.embed_source)         = args.get_bool("embed-source");
-        (o.strip)                = args.get_bool("strip");
-        (o.strip_debug)          = args.get_bool("strip-debug");
         (o.max_inline_depth)     = args.get_cfg_i32("max-inline-depth");
         (o.inline_cost)          = args.get_cfg_f64("inline-cost-threshold");
+        (o.inline_cost_set)      = args.cfg_is_set("inline-cost-threshold");
         (o.max_unroll_count)     = args.get_cfg_i32("max-unroll-count");
         (o.max_for_unroll)       = args.get_cfg_i32("max-for-unroll-count");
         (o.max_lambda_capture)   = args.get_cfg_i32("max-lambda-capture-size");
         (o.max_codegen_passes)   = args.get_cfg_i32("max-codegen-passes");
         (o.max_object_size_mb)   = args.get_cfg_i32("max-object-size-mb");
-        (o.save_temps)           = args.get_bool("save-temps");
         (o.signed_wrap)          = args.get_bool("signed-wrap");
         (o.unsigned_trap)        = args.get_bool("unsigned-trap");
         (o.strict_aliasing)      = args.get_bool("strict-aliasing");
         (o.instrument_functions) = args.get_bool("instrument-functions");
         (o.fp_model)             = args.get_string("fp-model");
         (o.fp_contract)          = args.get_string("fp-contract");
+        (o.fp_contract_set)      = args.is_set("fp-contract");
         (o.thread_model)         = args.get_string("thread-model");
         (o.unwind_tables)        = args.get_string("unwind-tables");
-        (o.rtlib)                = args.get_string("rtlib");
+        (o.unwind_tables_set)    = args.is_set("unwind-tables");
         (o.unwindlib)            = args.get_string("unwindlib");
 
         // -- codegen feature toggles ---------------------------------------
@@ -194,7 +206,6 @@ class CodeGenOptions {
         // -- hardening feature toggles -------------------------------------
         (o.f_stack_protector)    = args.get_feature("stack-protector");
         (o.f_pic)                = args.get_feature("pic");
-        (o.f_pie)                = args.get_feature("pie");
         (o.f_split_stack)        = args.get_feature("split-stack");
         (o.f_trap_unreachable)   = args.get_feature("trap-unreachable");
         (o.f_soft_float)         = args.get_feature("soft-float");
@@ -217,8 +228,6 @@ class CodeGenOptions {
         (o.xray_threshold)       = args.get_i32("xray-threshold");
 
         // -- link-time optimizations ---------------------------------------
-        (o.icf)                   = args.get_bool("icf");
-        (o.icf_mode)              = args.get_string("icf-mode");
         (o.whole_program_vtables) = args.get_bool("whole-program-vtables");
         (o.devirt)                = args.get_bool("devirt");
 

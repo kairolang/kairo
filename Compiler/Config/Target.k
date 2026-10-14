@@ -25,7 +25,7 @@ class TargetOptions {
     pub var mcpu:      string = ""; ///< -mcpu  / --mcpu
     pub var mtune:     string = ""; ///< --mtune
     pub var mabi:      string = ""; ///< --mabi
-    pub var mfeatures: string = ""; ///< --mfeatures (e.g. +avx2,-sse4.1)
+    pub var mfeatures: string = ""; ///< --mfeatures (e.g. +avx2,-sse4.1); read it through feature_list()
     pub var cxx_std:   string = "c++20";
     pub var cxx_abi:   string = "itanium";
     pub var sysroot:   string = "";
@@ -147,6 +147,28 @@ class TargetOptions {
         if !self.resolved                  { return "<target not resolved>"; }
         if self.effective_triple.size() == 0 { return "<unknown target>"; }
         return self.effective_triple;
+    }
+
+    /// --mfeatures split on commas, each item as a signed LLVM feature name
+    /// ("+avx2", "-sse4.1"). An unsigned item means "enable": cc1's
+    /// -target-feature takes the sign as part of the value, and a bare name
+    /// is silently ignored by the backend rather than rejected, so the sign
+    /// is made explicit here instead of leaving a typo'd flag to do nothing.
+    fn feature_list(self) -> vec::<string> {
+        var out = vec::<string>();
+        var cur = "";
+        for var i: usize = 0; i <= self.mfeatures.size(); ++i {
+            if (i == self.mfeatures.size()) || (self.mfeatures[i] == ',') {
+                if cur.size() > 0 {
+                    if (cur[0] == '+') || (cur[0] == '-') { out.push_back(cur); }
+                    else                                   { out.push_back("+" + cur); }
+                }
+                cur = "";
+                continue;
+            }
+            cur += self.mfeatures[i];
+        }
+        return out;
     }
 
     static fn from_args(args: ref!(ParsedArgs)) -> TargetOptions {
