@@ -129,6 +129,23 @@ class MacroTable {
         return n;
     }
 
+    /// \brief the entries \p fid defined, in declaration order.
+    ///
+    /// \details A snapshot of borrowed pointers taken under the read lock, for
+    ///          --print-macros. The table keeps ownership, so the caller must
+    ///          not hold the result across forget_fid(\p fid).
+    fn entries_of_fid(self, fid: u32) -> vec::<*MacroEntry> {
+        var rlock = std::SharedLock(self._mu);
+        var out = vec::<*MacroEntry>();
+        var it = self._by_fid.find(fid);
+        if it == self._by_fid.end() { return out; }
+        for e in it->second {
+            if e == &null { continue; }
+            out.push_back(e);
+        }
+        return out;
+    }
+
     /// \brief drops every macro defined by \p fid, from both indexes.
     ///
     /// \details MANDATORY before \p fid's ASTContext is destroyed. MacroEntry

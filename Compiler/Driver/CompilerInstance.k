@@ -320,6 +320,7 @@ class CompilerInstance {
     priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
     priv var _obj_tmp:     bool   = false;///< _obj_dir is a temp dir this run owns and removes
+    priv var _kairo_inputs: usize = 0;    ///< Kairo (non-native, non-linker) inputs; set by _plan_outputs
     priv var _native_objs: vec::<string>; ///< objects from _compile_native_inputs, in order
     priv var _link_inputs: vec::<string>; ///< .o/.a/.so given on the command line, in order
 
@@ -411,11 +412,16 @@ class CompilerInstance {
         // the caller is expected to check before going further.
         if self.invocation().ok { self._apply_invocation(); }
 
-        self._pool = std::create::<ThreadPool>(usize(
-                    (llvm::hardware_concurrency().compute_thread_count())
+        var want_threads: i32 =
+                    i32(llvm::hardware_concurrency().compute_thread_count())
             if   (self.invocation().frontend.thread_count == 0)
-            else (self.invocation().frontend.thread_count)
-        ));
+            else (self.invocation().frontend.thread_count);
+        // --cmax-threads is a hard cap over --threads AND the hardware default;
+        // 0 means no cap. Clamping after the choice (not before) is what makes
+        // it "regardless of --threads".
+        var cap_threads: i32 = self.invocation().frontend.max_threads;
+        if (cap_threads > 0) && (want_threads > cap_threads) { want_threads = cap_threads; }
+        self._pool = std::create::<ThreadPool>(usize(want_threads));
 
         time_set_pool_size(i32(self._pool->get_thread_count()));
 
@@ -524,7 +530,6 @@ class CompilerInstance {
             || self.invocation().args.get_bool("print-dirs")
             || self.invocation().args.get_bool("print-clang-args")
             || self.invocation().args.get_bool("print-target-info")
-            || self.invocation().args.get_bool("print-pass-pipeline")
             || self.invocation().args.get_bool("print-cfg");
     }
 
@@ -548,7 +553,11 @@ class CompilerInstance {
 
     fn print_version(self) {
         std::print(f"installed version: {VERSION}");
-        std::print(f"target triple:     {self.get_target_triple()}");
+        // "target" is what this run would compile for (--target when given),
+        // "host" is the machine running the compiler; reporting only the host
+        // misled anyone checking a cross invocation.
+        std::print(f"target triple:     {self._effective_triple()}");
+        std::print(f"host triple:       {self.get_target_triple()}");
         std::print(f"thread model:      {std::get_thread_model()}");
         std::print(f"installed at:      {((std::get_exe_path()).parent_path()).generic_wstring()}");
     }
@@ -790,6 +799,9 @@ class CompilerInstance {
 
         if T == &null {
             self._diag->report(DiagID::P004F, f"unknown target triple '{triple}': {string(err.c_str(), err.size())}").emit();
+            // Info queries exit before execute(), so nothing else drains the
+            // engine; without this the error is built and never printed.
+            self.flush_errors();
             return 1;
         }
 
@@ -889,6 +901,7 @@ class CompilerInstance {
             self._diag->report(DiagID::P004F,
                 f"unknown target triple '{string(triple.raw())}': {string(err.c_str(), err.size())}"
             ).emit();
+            self.flush_errors(); // see print_cpus: info queries never reach execute()
             return 1;
         }
 
@@ -1117,6 +1130,36 @@ class CompilerInstance {
         return bcfg;
     }
 
+    /// Applies the two process-level input flags, before initialize() reads
+    /// the current directory: --working-dir (every relative path in the run,
+    /// source files included, resolves against it) and --input-encoding (the
+    /// lexer only reads UTF-8, so any other value would be silently
+    /// mis-decoded rather than honoured).
+    ///
+    /// \return false after reporting; the caller must stop.
+    fn apply_input_options(self) -> bool {
+        var enc = self.invocation().input_encoding;
+        var is_utf8 = enc.empty() || (enc == "utf-8") || (enc == "UTF-8") || (enc == "utf8") || (enc == "UTF8");
+        if !is_utf8 {
+            self._diag->report(DiagID::U001E,
+                f"--input-encoding={enc}: only utf-8 input is supported").emit();
+            return false;
+        }
+
+        var wd = self.invocation().working_dir;
+        if wd.empty() { return true; }
+
+        var fspath = libcxx::filesystem::path(std::string_to_nstring(wd).raw());
+        var ec     = libcxx::error_code();
+        libcxx::filesystem::current_path(fspath, ec);
+        if ec {
+            self._diag->report(DiagID::U001E,
+                f"--working-dir: cannot change to '{wd}\x27: no such directory").emit();
+            return false;
+        }
+        return true;
+    }
+
     fn initialize(self, cwd: Path) {
         {
             var _t = TimeRegion("ImportIndex");
@@ -1228,8 +1271,11 @@ class CompilerInstance {
             return false;
         }
 
+        // With a Kairo input -o already names that TU's object, so a native
+        // input beside it has no name left. Runtime objects never take -o:
+        // they always go under the object dir.
         var single = self.single_object();
-        if (!single.empty()) && (with_runtime || (natives.size() != 1)) {
+        if (!single.empty()) && (natives.size() > 0) && (with_runtime || (natives.size() != 1)) {
             self._diag->report(DiagID::I004F,
                 f"-o {single} names one object, but this build emits more than one; use --cache-dir <dir> for the objects").emit();
             return false;
@@ -1347,6 +1393,17 @@ class CompilerInstance {
         self._obj_dir  = lk->cache_dir;
         self._obj_tmp  = false;
 
+        // Counted here, before any TU runs: -o under -c names the one USER
+        // translation unit, and codegen of the first input must already know
+        // whether a second one is coming.
+        self._kairo_inputs = 0;
+        for path_str: string in self.invocation().input_files {
+            var lext = Path(path_str).extension();
+            if (lext == "o") || (lext == "a") || (lext == "so") { continue; }
+            if CompilerInstance::_native_lang(lext) != 0 { continue; }
+            self._kairo_inputs += 1;
+        }
+
         if (!out.empty()) && (LinkText::ends_with(out, "/") || LinkFS::is_dir(out)) {
             self._diag->report(DiagID::I004F,
                 f"-o {out} is a directory; -o names the output file, and object files go to --cache-dir <dir>").emit();
@@ -1395,6 +1452,8 @@ class CompilerInstance {
     /// The file -o names when it names an object: a -c run with -o. "" when
     /// this run links (-o is the executable then) or there is no -o. Valid
     /// only if the build emits exactly one object; each emitter checks.
+    fn kairo_input_count(self) -> usize { return self._kairo_inputs; }
+
     fn single_object(self) -> string {
         if !self._link_out.empty() { return ""; }
         return self.invocation().frontend.output;
@@ -2438,7 +2497,9 @@ fn FrontendAction::_sema() -> bool {
     // analysis, and a "Sema" row that contained them misreported all three.
     self._stage = TUStage::Sema;
     var fe = self._ci->invocation().frontend;
-    if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
+    // --dump-type-info has no consumer: SemaDump's expression-types section is
+    // private to its whole-TU walk, so there is no cheap per-expression hook
+    // here. It is marked unimplemented centrally rather than faking a header.
 
     // --print-sema styling follows --print-ast, exactly like --print-symbols:
     // 'tree' -> dump(), 'canonical' -> canonical(), otherwise flat diag rows.
@@ -2734,6 +2795,12 @@ fn FrontendAction::_sema() -> bool {
                 var h = EmitCXXHeader(ctx, self._ci->pp()->get_symbol_table(), self._global_scope->instances());
                 if h.write(fe.emit_headers) {
                     Logger::info(Logger::Stage::Driver, f"emitted header {h.path_under(fe.emit_headers)}");
+                } else if h.render().size() > 0 {
+                    // write() is false both for a TU with no header (the entry
+                    // TU) and for a failed write; only the second has text. An
+                    // unwritable --emit-headers dir used to exit 0 silently.
+                    self._ci->diag()->report(DiagID::U001E,
+                        f"cannot write C++ header '{h.path_under(fe.emit_headers)}\x27").emit();
                 }
             }
         }
@@ -2891,10 +2958,17 @@ fn FrontendAction::_codegen() -> bool {
         return self._fatal(DiagID::I004F, "--emit names no output to write");
     }
 
+    // -o names the one USER translation unit's output. The prelude (builtin,
+    // std) and any imported module are separate TUs in `own` too, but they are
+    // not what -o is about: they go under the object dir. So the I004F count
+    // is user inputs and kinds, never `own`, which always holds the prelude.
     var single_obj = self._ci->single_object();
-    if (!single_obj.empty()) && ((own.size() * kinds.size()) > 1) {
-        return self._fatal(DiagID::I004F,
-            f"-o {single_obj} names one output, but this build emits {own.size() * kinds.size()}; use --cache-dir <dir> for them");
+    if (!single_obj.empty()) {
+        var n_out = self._ci->kairo_input_count() * kinds.size();
+        if n_out > 1 {
+            return self._fatal(DiagID::I004F,
+                f"-o {single_obj} names one output, but this build emits {n_out}; use --cache-dir <dir> for them");
+        }
     }
     var obj_dir = self._ci->object_dir();
 
@@ -2908,7 +2982,8 @@ fn FrontendAction::_codegen() -> bool {
         // The output path mirrors the module path, so two modules of the
         // same leaf name do not collide. The entry TU has no module path.
         var stem = "";
-        if single_obj.empty() {
+        var to_single = (!single_obj.empty()) && (fid == self._file_id);
+        if !to_single {
             var ocg  = CodegenContext(ctx, &null, psym, insts);
             var sp   = CXXSpell(&ocg);
             var segs = sp.module_segments(reinterpret_cast::<*TranslationUnit>(ctx->tu));
@@ -2955,7 +3030,7 @@ fn FrontendAction::_codegen() -> bool {
         {
             var _tr = TimeRegion("Backend");
             for var k: usize = 0; k < kinds.size(); ++k {
-                var out = (single_obj) if (!single_obj.empty()) else (stem + exts[k]);
+                var out = (single_obj) if (to_single) else (stem + exts[k]);
                 self._ensure_parent_dir(out);
                 // Every run re-fills the same stream; print it once.
                 if k > 0 { cg.set_print_cg(0, self._ci->sm()->get_filename(fid)); }
@@ -3056,7 +3131,25 @@ fn FrontendAction::_dump_macros() {
     var st = pp->get_symbol_table();
     if (mt == &null) || (st == &null) { return; }
     std::print(f"-- macro table: {self.path.full_path()} --");
-    // TODO: MacroTable::as_string not yet implemented
+    // One row per macro this graph defines, builtin/std included: they share
+    // the table, and hiding them would make the count disagree with
+    // PreProcessor::macro_count(). Keyed by fid because that is the table's
+    // ownership index; `_fids` is the set this action preprocessed.
+    for fid: u32 in self._fids {
+        var entries = mt->entries_of_fid(fid);
+        for var i: usize = 0; i < entries.size(); ++i {
+            var e = entries[i];
+            if e->decl == &null { continue; }
+            var name = st->resolve(e->name_sym);
+            var nm   = string("?");
+            if name != &null { nm = *name; }
+            var nparams: usize = e->decl->params_spec.size();
+            var shape = f"{nparams} param(s)";
+            if e->decl->is_variadic { shape = f"{nparams} param(s) + variadic"; }
+            var full = self._ci->sm()->get_line_col(e->decl->range.start);
+            std::print(f"macro {nm}: {shape}, defined at {full.path.full_path()}:{full.line}:{full.column}");
+        }
+    }
 }
 
 fn FrontendAction::_dump_imports() {

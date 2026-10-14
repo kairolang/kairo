@@ -37,7 +37,6 @@ enum FrontendActionKind derives u8 {
 class FrontendOptions {
     // output
     pub var output:              string = "";
-    pub var entry:               string = "main";
     pub var emit:                string = "obj";
     /// --emit, split. Backend outputs codegen writes per TU, each beside the
     /// others under the object dir (`<module>.o/.s/.ll/.bc`).
@@ -90,14 +89,11 @@ class FrontendOptions {
     pub var verify_bcir:         bool   = false;
     pub var bcir_verbose:        bool   = false;
     pub var bcir_stats:          bool   = false;
-    // output
-    pub var shared:              bool   = false;
-    pub var static_:             bool   = false;
-    pub var no_entry:            bool   = false;
-    pub var dll:                 bool   = false;
-    pub var save_temps:          bool   = false;
+    // The linker owns shared/static/no-entry/dll/save-temps/entry
+    // (Config/Linker.k); copies here were never read and could only drift.
+
     // parser / sema
-    pub var max_generic_instantiations: i32 = 0x7FFFFFFE;
+    pub var max_generic_instantiations: i32 = 16384; ///< matches the --cmax-generic-instantiations help; not read yet
     pub var max_tuple_arity:            i32 = 128;
 
     // incremental compilation
@@ -157,14 +153,8 @@ class FrontendOptions {
     static fn from_args(args: ref!(ParsedArgs)) -> FrontendOptions {
         var o = FrontendOptions();
         (o.output)          = args.get_string("output");
-        (o.entry)           = args.get_string("entry");
         (o.emit)            = args.get_string("emit");
         FrontendOptions::_parse_emit(&o, args);
-        (o.shared)          = args.get_bool("shared");
-        (o.static_)         = args.get_bool("static");
-        (o.no_entry)        = args.get_bool("no-entry");
-        (o.dll)             = args.get_bool("dll");
-        (o.save_temps)      = args.get_bool("save-temps");
         (o.verbose)         = args.get_bool("verbose");
         (o.quiet)           = args.get_bool("quiet");
         (o.suppress)        = args.get_bool("suppress");
@@ -271,11 +261,7 @@ class FrontendOptions {
             else if it == "asm"     { (o->emit_asm)     = true; }
             else if it == "llvm-ir" { (o->emit_llvm_ir) = true; }
             else if it == "llvm-bc" { (o->emit_llvm_bc) = true; }
-            else if (it == "tokens") || (it == "ast") || (it == "sema") || (it == "bcir") || (it == "cxx") || (it == "dep-info") {
-                o->emit_unsupported.push_back(it);
-            } else {
-                o->emit_unknown.push_back(it);
-            }
+            else { o->emit_unknown.push_back(it); }
         }
         if args.get_bool("emit-asm") {
             (o->emit_asm) = true;

@@ -113,6 +113,9 @@ fn _scan_timing_flags(
             const char *a = argv[i];
             if (a == nullptr) { continue; }
             if (::strcmp(a, "--time-passes") == 0) { on = true; continue; }
+            // --print-stats / --stats-file reuse the --time-passes report.
+            if (::strcmp(a, "--print-stats") == 0) { on = true; continue; }
+            if (::strncmp(a, "--stats-file", 12) == 0) { on = true; continue; }
             if (::strncmp(a, "--time-trace", 12) == 0) {
                 // --time-trace, --time-trace=PATH, --time-trace PATH
                 on = true;
@@ -123,6 +126,24 @@ fn _scan_timing_flags(
     }
 
     return on;
+}
+
+/// \brief writes the timing report to \p path instead of stderr.
+///
+/// \details --stats-file. The report engine takes any FILE*; the Kairo
+///          wrapper (time_print) only knows stderr, hence the direct call.
+fn _time_print_to(path: string) -> bool {
+    var p  = std::string_to_nstring(path);
+    var ok = false;
+    inline "c++" {
+        FILE *f = ::fopen(p.raw_string().c_str(), "wb");
+        if (f != nullptr) {
+            ::kairo::TimeReport::print(f);
+            ::fclose(f);
+            ok = true;
+        }
+    }
+    return ok;
 }
 
 fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
@@ -176,8 +197,16 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         return 1;
     }
 
+    // Before anything reads the current directory: initialize() takes
+    // Path::cwd() and every relative input path resolves against it.
+    if !ci->apply_input_options() {
+        ci->flush_errors();
+        return 1;
+    }
+
     var fe_time = ci->invocation().frontend;
-    if fe_time.time_passes || !fe_time.time_trace.empty() {
+    var want_stats = fe_time.print_stats || (!fe_time.stats_file.empty());
+    if fe_time.time_passes || want_stats || !fe_time.time_trace.empty() {
         want_tp = true;
         want_tt = want_tt || !fe_time.time_trace.empty();
         time_enable(true, want_tt);
@@ -195,15 +224,31 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     var result = ci->execute();
     ci->flush_errors();
 
+    // An unwritable report/trace path is an error, not a note: the run
+    // exited 0 with no file, which a script cannot tell from success.
+    var out_failed = false;
     if want_tp {
         time_finish();
-        time_print();
+        // --stats-file alone replaces the stderr table; --time-passes still
+        // asks for stderr, so it keeps it.
+        if fe_time.time_passes || (!want_stats) || (fe_time.stats_file.empty()) {
+            time_print();
+        }
+        if !fe_time.stats_file.empty() {
+            if !_time_print_to(fe_time.stats_file) {
+                std::eprintln(f"error [U001E]: cannot write statistics to '{fe_time.stats_file}\x27");
+                out_failed = true;
+            }
+        }
 
         if want_tt {
             if time_write_trace(fe_time.time_trace) {
                 std::eprintln(f"time trace written to '{fe_time.time_trace}\x27");
             } else {
-                std::eprintln(f"error: cannot write time trace to '{fe_time.time_trace}\x27");
+                std::eprintln(f"error [U001E]: cannot write time trace to '{fe_time.time_trace}\x27");
+                // A bare --time-trace names no path at all; that was never a
+                // write failure, so it keeps its old exit status.
+                if !fe_time.time_trace.empty() { out_failed = true; }
             }
         }
     }
@@ -212,5 +257,5 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         std::eprintln(f"compilation: {result.summary()}");
     }
 
-    return 0 if result.ok() else 1;
+    return 0 if (result.ok() && (!out_failed)) else 1;
 }

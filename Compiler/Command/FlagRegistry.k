@@ -34,11 +34,11 @@ fn register_kairo_flags(cmd: *Command) {
 
     cmd->define::<FlagKind::Bool>  ("help",               "h", "help",               "show this help message and exit",                                          false);
     cmd->define::<FlagKind::Bool>  ("version",            "V", "version",             "print compiler version and exit",                                          false);
-    cmd->define::<FlagKind::String>("explain",            "",  "explain",             "print detailed explanation for a diagnostic code (e.g. --explain E0042)",  "");
-    cmd->define::<FlagKind::Bool>  ("print-targets",      "",  "print-targets",       "list all supported target triples and exit",                               false);
+    cmd->define::<FlagKind::String>("explain",            "",  "explain",             "print detailed explanation for a diagnostic code (e.g. --explain R049E)",  "");
+    cmd->define::<FlagKind::Bool>  ("print-targets",      "",  "print-targets",       "list the LLVM target architectures (not triples) and exit",                               false);
     cmd->define::<FlagKind::Bool>  ("print-cpus",         "",  "print-cpus",          "list supported CPUs for the current or specified --target",                false);
-    cmd->define::<FlagKind::Bool>  ("print-cfg",          "",  "print-cfg",           "print all active --cfg flags for this invocation and exit",                false);
-    cmd->define::<FlagKind::Bool>  ("print-dirs",         "",  "print-dirs",          "print all include/lib search paths and exit",                              false);
+    cmd->define::<FlagKind::Bool>  ("print-cfg",          "",  "print-cfg",           "print the --cfg values given on this command line and exit",                false);
+    cmd->define::<FlagKind::Bool>  ("print-dirs",         "",  "print-dirs",          "print the toolchain/sysroot directories and exit",                              false);
     cmd->define::<FlagKind::Bool>  ("print-clang-args",   "",  "print-clang-args",    "print the exact clang invocation and exit (does not compile)",             false);
     cmd->define::<FlagKind::Bool>  ("print-ld-args",      "",  "print-ld-args",       "print the exact kld invocation and exit (does not link)",                  false);
     cmd->define::<FlagKind::Bool>  ("print-target-info",  "",  "print-target-info",   "print target ABI, pointer width, endianness for --target and exit",        false);
@@ -60,7 +60,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>   ("std-dir",         "",  "std-dir",             "directory holding Kairo's standard library tree; overrides <resource-dir>/std", "");
     cmd->define::<FlagKind::String>   ("prelude",         "",  "prelude",             "file imported as <file>::* into the main file, REPLACING the default builtin prelude",             "");
     cmd->define::<FlagKind::String>   ("working-dir",     "",  "working-dir",         "override working directory for all relative path resolution",              "");
-    cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding override: utf-8|utf-16|latin-1 (default: utf-8)",    "utf-8");
+    cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding: only utf-8 is supported (default: utf-8)",    "utf-8");
     cmd->define::<FlagKind::Bool>     ("no-prelude",      "",  "no-prelude",          "no implicit prelude and builtin is not linked (--no-builtins only skips the import)",                                    false);
     cmd->define::<FlagKind::Bool>     ("no-builtins",     "",  "no-builtins",         "skip the implicit 'import builtin::*' only; builtin is still compiled and linked", false);
     cmd->define::<FlagKind::Bool>     ("no-stdlib",       "",  "no-stdlib",           "do not include or link the standard library",                              false);
@@ -72,9 +72,9 @@ fn register_kairo_flags(cmd: *Command) {
 
     cmd->define::<FlagKind::String>("output",         "o", "output",         "write the output to this file: the executable or library, or with -c the one object", "");
     cmd->define::<FlagKind::String>("cache-dir",      "",  "cache-dir",      "directory for object files, kept (default: a temp dir removed after linking; . with -c)", "");
-    cmd->define::<FlagKind::String>("emit",           "",  "emit",           "comma-separated output types: obj,asm,llvm-ir,llvm-bc,tokens,ast,sema,bcir,cxx,dep-info", "obj");
+    cmd->define::<FlagKind::String>("emit",           "",  "emit",           "comma-separated output types: obj,asm,llvm-ir,llvm-bc (any other value is an error)", "obj");
     cmd->define::<FlagKind::String>("entry",          "",  "entry",          "override entry point symbol name (default: main)",                                  "main");
-    cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link (sugar for --emit obj)",                                  false);
+    cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link",                                  false);
     cmd->define::<FlagKind::Bool>  ("emit-asm",       "S", "emit-asm",       "emit assembly output (sugar for --emit asm)",                                       false);
     cmd->define::<FlagKind::Bool>  ("preprocess",     "",  "preprocess",     "run preprocessor only, then exit (no extra output)",                                false);
     cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","run preprocessor only and print the expanded tokens (space-joined) to stdout",   false);
@@ -338,7 +338,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  OUTPUT VERBOSITY
 
-    cmd->define::<FlagKind::Bool>  ("verbose",         "v", "verbose",        "print all subprocess invocations and internal pass activity",                    false);
+    cmd->define::<FlagKind::Bool>  ("verbose",         "v", "verbose",        "print the linker invocation and INFO log lines",                    false);
     cmd->define::<FlagKind::Bool>  ("quiet",           "",  "quiet",          "suppress all output except errors",                                              false);
     cmd->define::<FlagKind::Bool>  ("suppress",        "",  "suppress",       "route all output to stderr, nothing to stdout",                                  false);
     cmd->define::<FlagKind::I32>   ("threads",         "",  "threads",        "parallelism for multi-file compilation (0 = logical CPU count)",                0, 0, 1024);
@@ -347,18 +347,18 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  DEVELOPER / DUMP INTERNALS
 
-    cmd->define::<FlagKind::Bool>  ("print-cg",         "",  "print-cg",         "dump codegen tokens after sema, lower, and optimization passes",               false);
-    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump CXX IR after codegen",                                                    false);
+    cmd->define::<FlagKind::Bool>  ("print-cg",         "",  "print-cg",         "dump the codegen token stream for every TU, incl. builtin/std",               false);
+    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump the generated C++ source for every TU, incl. builtin/std",                                                    false);
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
-    cmd->define::<FlagKind::String>("print-ast",        "",  "print-ast",        "AST dump format: tree|flat|canonical (default: tree)",                         "");
-    cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
-    cmd->define::<FlagKind::Bool>  ("print-lowered",    "",  "print-lowered",    "dump IR again after the Lower/ passes rewrite the tree",                       false);
+    cmd->define::<FlagKind::String>("print-ast",        "",  "print-ast",        "AST dump format: tree|flat|canonical; give the value as --print-ast=FORMAT (--print-ast= alone means tree)",                         "");
+    cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump resolved Sema declarations for every TU, incl. builtin/std",                                              false);
+    cmd->define::<FlagKind::Bool>  ("print-lowered",    "",  "print-lowered",    "dump resolved Sema declarations again after the Lower/ passes, for every TU incl. builtin/std",                       false);
     cmd->define::<FlagKind::Bool>  ("print-tokens",     "",  "print-tokens",     "dump token stream after preprocessing",                                        false);
-    cmd->define::<FlagKind::Bool>  ("print-macros",     "",  "print-macros",     "dump macro symbol table after preprocessing",                                  false);
-    cmd->define::<FlagKind::Bool>  ("print-imports",    "",  "print-imports",    "dump the full import resolution graph",                                        false);
+    cmd->define::<FlagKind::Bool>  ("print-macros",     "",  "print-macros",     "list every macro after preprocessing: name, parameter count, definition location",                                  false);
+    cmd->define::<FlagKind::Bool>  ("print-imports",    "",  "print-imports",    "dump the import resolution graph, followed by the overlay section",                                        false);
     cmd->define::<FlagKind::Bool>  ("print-emit-plan",  "",  "print-emit-plan",  "dump the per-TU EmitPlan: the foreign decls a C++ header would supply",        false);
     cmd->define::<FlagKind::Bool>  ("print-cxx",        "",  "print-cxx",        "print the TU's C++ preamble (every declaration, no bodies) as text",           false);
-    cmd->define::<FlagKind::String>("emit-headers",     "",  "emit-headers",     "write each non-entry module's C++ interop header under this directory",       "");
+    cmd->define::<FlagKind::String>("emit-headers",     "",  "emit-headers",     "write each non-entry module's C++ interop header under this directory (skipped when sema reports errors)",       "");
     cmd->define::<FlagKind::Bool>  ("print-symbols",    "",  "print-symbols",    "dump the frozen per-DeclContext symbol tables (uses --print-ast style)",       false);
     cmd->define::<FlagKind::Bool>  ("preserve-comments","",  "preserve-comments","keep comments in the token stream; they reach the AST as annotations",         false);
     cmd->define::<FlagKind::Bool>  ("print-generics",   "",  "print-generics",   "dump every generic instantiation and its origin site",                        false);

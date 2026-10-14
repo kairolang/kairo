@@ -60,9 +60,6 @@ class CompilerInvocation {
     pub var ffi_includes:   vec::<string>;
     pub var cxx_includes:   vec::<string>;
     pub var macro_paths:    vec::<string>;
-    // -- link paths & libraries --------------------------------------------
-    pub var lib_dirs:       vec::<string>;
-    pub var link_libs:      vec::<string>;
 
     // -- provenance --------------------------------------------------------
 
@@ -107,8 +104,6 @@ class CompilerInvocation {
         for s in (args.get_list("ffi-include"))       { (inv.ffi_includes.push_back(s)); }
         for s in (args.get_list("cxx-include"))       { (inv.cxx_includes.push_back(s)); }
         for s in (args.get_list("macro-search-path")) { (inv.macro_paths.push_back(s));  }
-        for s in (args.get_list("lib-dirs"))          { (inv.lib_dirs.push_back(s));     }
-        for s in (args.get_list("link-libs"))         { (inv.link_libs.push_back(s));    }
         return inv;
     }
 
