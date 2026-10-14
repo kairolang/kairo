@@ -674,6 +674,10 @@ class CompilerInstance {
         if !LinkFS::exists(dir) {
             var pick = "";
             for name: string in LinkFS::list_dir(root) {
+                // Only directories can be sysroots: the manifest file beside
+                // them matched an unknown triple and was then reported as a
+                // malformed sysroot instead of the real "unknown target".
+                if !LinkFS::is_dir(LinkText::join(root, name)) { continue; }
                 if !CompilerInstance::_same_bundled_target(name, want) { continue; }
                 if pick.empty() || (name < pick) { pick = name; }
             }
@@ -819,7 +823,12 @@ class CompilerInstance {
         );
 
         if T == &null {
-            self._diag->report(DiagID::P004F, f"unknown target triple '{triple}': {string(err.c_str(), err.size())}").emit();
+            // _apply_invocation already reported this triple (and cleared ok)
+            // when it resolved the target; a second P004F here printed the
+            // same line twice.
+            if self.invocation().ok {
+                self._diag->report(DiagID::P004F, f"unknown target triple '{triple}': {string(err.c_str(), err.size())}").emit();
+            }
             // Info queries exit before execute(), so nothing else drains the
             // engine; without this the error is built and never printed.
             self.flush_errors();
@@ -919,9 +928,11 @@ class CompilerInstance {
         );
 
         if T == &null {
-            self._diag->report(DiagID::P004F,
-                f"unknown target triple '{string(triple.raw())}': {string(err.c_str(), err.size())}"
-            ).emit();
+            if self.invocation().ok { // see print_cpus: _apply_invocation may have reported it already
+                self._diag->report(DiagID::P004F,
+                    f"unknown target triple '{string(triple.raw())}': {string(err.c_str(), err.size())}"
+                ).emit();
+            }
             self.flush_errors(); // see print_cpus: info queries never reach execute()
             return 1;
         }
@@ -2238,6 +2249,9 @@ class CompilerInstance {
             self._diag->remove_consumer(self._pretty);
             self._diag->add_consumer(self._basic);
             self._basic->set_json(d.format == "json");
+            // Flag-parse diagnostics (U005W, -D shape errors) are already in
+            // the pretty buffer; carry them over or basic mode never shows them.
+            self._pretty->drain_into(self._basic);
         }
 
         self._basic->set_absolute_paths(d.absolute_paths);

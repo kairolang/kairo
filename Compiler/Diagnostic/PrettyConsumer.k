@@ -123,6 +123,16 @@ class PrettyDiagConsumer derives DiagConsumer {
         self._diags.push_back(diag);
     }
 
+    /// Hands every buffered diagnostic to \p other and forgets it. The flag
+    /// parser reports into this consumer (it is the default one, and the
+    /// output format is not known until the flags are parsed); when the
+    /// driver then swaps in the basic/json consumer, dropping this buffer
+    /// with it lost every parse-time warning under --error-format=basic.
+    fn drain_into(self, other: *DiagConsumer) {
+        for var i: usize = 0; i < self._diags.size(); ++i { other->handle(self._diags[i]); }
+        self._diags.clear();
+    }
+
     fn attach_source_manager(self, sm: *SourceManager) {
         self._sm = sm;
     }
