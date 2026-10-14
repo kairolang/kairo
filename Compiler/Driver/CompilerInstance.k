@@ -101,6 +101,7 @@
 
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
+import Diagnostic::Code::*;
 import Diagnostic::PrettyConsumer::*;
 import Diagnostic::BasicConsumer::*;
 import Location::SourceManager::*;
@@ -540,7 +541,7 @@ class CompilerInstance {
             code = code.raw_string().substr(first, (last - first + 1));
         }
 
-        var diag_id = diag_from_string(code);
+        var diag_id = diag_from_code(code);
         var explain = diag_explain(diag_id);
         if explain.empty() {
             std::eprintln(f"error: unknown diagnostic code '{code}\x27");

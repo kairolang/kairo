@@ -50,6 +50,7 @@ def load_diags(folder):
 
     diags = []
     seen = set()
+    seen_ident = {}
 
     for base_code, entry in data.items():
         if not isinstance(entry, dict):
@@ -75,6 +76,15 @@ def load_diags(folder):
                 print(f"ERROR: duplicate {full_code}", file=sys.stderr)
                 sys.exit(1)
             seen.add(full_code)
+            # A code is its category, number and severity; the key's zero
+            # padding is only spelling (C0195 prints as C195). Two keys that
+            # differ in padding alone would be one code to --explain and to
+            # the -W/-A policy lists, which match on the number.
+            ident = (prefix, num, sev_char)
+            if ident in seen_ident:
+                print(f"ERROR: {full_code} duplicates {seen_ident[ident]} (same category, number and severity)", file=sys.stderr)
+                sys.exit(1)
+            seen_ident[ident] = full_code
 
             explain = textwrap.dedent(sev_entry.get("explain", "")).strip()
             diags.append((full_code, cat, num, SEV_MAP[sev_char], brief, group, explain))
