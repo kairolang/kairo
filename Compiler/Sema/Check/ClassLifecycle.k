@@ -243,6 +243,10 @@ class LifecycleFacts {
     /// payloads rather than assigning them.
     pub var assignable:         LifecycleTri = LifecycleTri::Yes;
     pub var why_not_assignable: string = "";
+    /// No `op =` only because a transfer body would rebuild a polymorphic
+    /// record in place. The one case where building a new value is the fix:
+    /// a deleted transfer or an unassignable member has nothing to rebuild.
+    pub var poly_rebuild: bool = false;
     fn LifecycleFacts(self) { }
 }
 
@@ -633,6 +637,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             f->why_not_assignable = "";
             if f->polymorphic == LifecycleTri::Yes {
                 f->why_not_assignable = "it is polymorphic, and assigning it would destroy it and rebuild it in place through its transfer constructor";
+                f->poly_rebuild       = true;
             } else if f->destructible == LifecycleTri::No {
                 f->why_not_assignable = "assigning it destroys the old value first, and it cannot be destroyed";
             }
@@ -1193,8 +1198,8 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         b.note(rd->range.start, "type declared here").first(rd->range);
         // `op =` cannot be written (rule 2), so there is no assignment to
         // suggest: the value has to be built anew.
-        if f->polymorphic == LifecycleTri::Yes {
-            b.note(rd->range.start, "polymorphic classes cannot be assigned; construct a new value");
+        if f->poly_rebuild {
+            b.note(rd->range.start, "a polymorphic class whose transfer constructor has a body cannot be assigned; construct a new value");
         }
         b.emit();
         self.n_errored += 1;

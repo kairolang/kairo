@@ -63,17 +63,37 @@ class W {
     pub fn set(self, o: P) { self.p = o }
 }
 
+class V {
+    pub var v: i32
+    pub fn V(self, v: i32) { self.v = v }
+    @copy
+    fn V(self, const other: Self) = delete
+    virtual fn get(const self) -> i32 { return self.v }
+}
+
+fn g() {
+    var a = V(1)
+    var b = V(2)
+    a = b
+}
+
 // --- lit wiring -----------------------------------------------------------
-// The last line is a member assigned inside a method, reported once.
+// A member assigned inside a method is reported once. Only the polymorphic
+// class with a transfer body is told to construct a new value; V's
+// transfer constructor is deleted, so there is nothing to rebuild.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG:     assign_deleted.k:49:{{[0-9]+}}: error [SC071E]: cannot assign a 'P': it is polymorphic, and assigning it would destroy it and rebuild it in place through its transfer constructor
 // DIAG:     assign_deleted.k:10:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: type declared here
-// DIAG:     note [{{[A-Z0-9]+}}]: polymorphic classes cannot be assigned; construct a new value
+// DIAG:     note [{{[A-Z0-9]+}}]: a polymorphic class whose transfer constructor has a body cannot be assigned; construct a new value
 // DIAG-NOT: error [
 // DIAG:     assign_deleted.k:56:{{[0-9]+}}: error [SC071E]: cannot assign a 'N': its transfer constructor is deleted
 // DIAG-NOT: error [
 // DIAG:     assign_deleted.k:58:{{[0-9]+}}: error [SC071E]: cannot assign a 'H': its field 'p' cannot be assigned
 // DIAG-NOT: error [
 // DIAG:     assign_deleted.k:63:{{[0-9]+}}: error [SC071E]: cannot assign a 'P': it is polymorphic
+// DIAG-NOT: error [
+// DIAG:     assign_deleted.k:77:{{[0-9]+}}: error [SC071E]: cannot assign a 'V': its transfer constructor is deleted
+// DIAG:     assign_deleted.k:66:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: type declared here
+// DIAG-NOT: construct a new value
 // DIAG-NOT: {{error|warning}} [

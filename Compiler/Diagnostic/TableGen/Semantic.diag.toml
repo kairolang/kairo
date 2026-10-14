@@ -1572,7 +1572,8 @@ group = "operators"
     ## how to fix
 
     assign to a variable, field or element; for an array, assign its elements or go through a
-    slice. polymorphic classes cannot be assigned; construct a new value.
+    slice. a polymorphic class whose transfer constructor has a body cannot be assigned;
+    construct a new value.
     """
 
 [SC072]
