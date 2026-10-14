@@ -35,6 +35,12 @@ fn <T> gen(x: traits<T>::size_type) -> traits<T>::size_type { return x }
 // SEMA-NEXT: NamedIdentExpr @ 20:12 : u64
 // SEMA-NEXT: AssignOperatorExpr @ 21:5 : i32
 // SEMA:      NamedIdentExpr @ 22:12 : u64
-// SEMA:      0 unknown, 0 errored
+// `gen`'s parameter is typed by `traits<T>::size_type`, a member of an
+// instance only M2 can fill. No canonical type names it, so its use is
+// unknown: deferred, never errored (RESOLUTION.md invariant #5, as `T::Item`
+// would be).
+// SEMA:      <tu>::gen
+// SEMA-NEXT: NamedIdentExpr @ 27:70 : <unknown>
+// SEMA-NEXT: typed, 1 unknown, 0 errored
 // Only gen's two uses of `traits<T>::size_type` (and what they spread to).
 // SEMA:      {{[1-9][0-9]*}} of them dependent, 0 errored
