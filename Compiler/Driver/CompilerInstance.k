@@ -2570,6 +2570,54 @@ fn FrontendAction::_sema() -> bool {
         }
     }
 
+    // --prelude <file> / --force-include <file>: the PP folded each file into
+    // the import GRAPH, which orders and parses it but binds no names (see the
+    // builtin note above), so without a real wildcard ImportDecl the entry TU
+    // reports every one of their declarations as undeclared (R020E).
+    //
+    // The ENTRY TU only, not every fid: a force-included file may itself import
+    // helper modules, and injecting its wildcard into those would close a cycle
+    // in the overlay fold. Flags apply per input file, so each input's own
+    // action gets its own injection. load_file is a cache hit here (the PP
+    // loaded the same paths), so this re-derives the fids without PP state.
+    {
+        var xfids = vec::<u32>();
+        if (!self._ci->invocation().pp.no_prelude) && (self._ci->invocation().pp.prelude_path.size() > 0) {
+            xfids.push_back(self._ci->sm()->load_file(Path(self._ci->invocation().pp.prelude_path)));
+        }
+        for xpath: string in self._ci->invocation().pp.force_includes {
+            xfids.push_back(self._ci->sm()->load_file(Path(xpath)));
+        }
+        var xctx = self._global_scope->get_context(self._file_id);
+        if (xfids.size() > 0) && (xctx != &null) {
+            var xtu = reinterpret_cast::<*TranslationUnit>(xctx->tu);
+            if (xtu != &null) && (!xtu->is_foreign) {
+                var xrng = SourceRange::invalid();
+                if xctx->sm != &null {
+                    var xloc = xctx->sm->get_loc(self._file_id, 0);
+                    xrng = SourceRange(xloc, xloc);
+                }
+                for var xi: usize = 0; xi < xfids.size(); ++xi {
+                    var xf = xfids[xi];
+                    // u32(-1): load_file already reported the missing path.
+                    // A self-include is a no-op, not a self-edge.
+                    if (xf == u32(-1)) || (xf == 0) || (xf == self._file_id) { continue; }
+                    var xid = ImportDecl::create(xctx, xrng, ImportKind::Native);
+                    xid->is_wildcard    = true;
+                    xid->is_prelude     = true;
+                    xid->resolved_fid   = xf;
+                    xid->file_seg_count = 1;
+                    xtu->imports.push(static_cast::<*Decl>(xid));
+
+                    var xedge = ImportEdge{};
+                    xedge.target_fid = xf;
+                    xedge.decl       = static_cast::<*Decl>(xid);
+                    xtu->import_edges.push(xedge);
+                }
+            }
+        }
+    }
+
     // Phases I -> E -> V -> N -> T -> checks (ImportResolution, Expand,
     // Verify, NameResolution, TypeResolution/ChainBinding, then the
     // signature/layout checks) across every fid of this TU's graph. Run in
