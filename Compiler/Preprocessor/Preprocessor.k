@@ -83,6 +83,10 @@ class PPWalker
     priv var _unique_tag_cache:  map::<string, u32>;
     priv var _fid:               u32 = u32(-1); //< invalid sentinel
     priv var _expansion_count:   i32 = 0;
+    /// Outermost-invocation sites whose chain already hit --cmax-macro-depth.
+    /// Every deeper hop of a runaway chain trips the same limit; one R008E per
+    /// chain says it, the rest are noise that buries the real error.
+    priv var _depth_reported:    set::<u32>;
     priv var _unique_counter:    u32 = 0;
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
@@ -139,6 +143,7 @@ class PPWalker
         self._out     = std::create::<TokenBuffer::<512>>();
         self._src     = std::create::<TokenSource>(lexer, opts.max_token_count, diag);
         self._src->set_preserve_comments(opts.preserve_comments);
+        self._src->set_file_name(sm->get_filename(fid));
         self._imports = std::create::<FileImportIndex>(sym, sm, tcm, resolver, macros, diag, fid);
         self._tracker = std::create::<ScopeTracker>(sym, sm, self._imm, tcm, module_base);
         self._sink    = self._out;
@@ -845,8 +850,10 @@ class PPWalker
             var nm = self._sym_name(inv.name_sym);
             if within_trace_depth
             && (self._opts.macro_debug_filter.empty() || (nm == self._opts.macro_debug_filter)) {
-                Logger::info(Logger::Stage::Preprocessor,
-                    f"[macro-debug] expand '{nm}!' depth={depth} count={self._expansion_count}");
+                // Straight to stderr, not the Logger: Logger::info is gated on -v,
+                // which made --macro-debug print nothing on its own. The user
+                // asked for this trace by name; it must not need a second flag.
+                std::eprintln(f"[macro-debug] expand '{nm}!' depth={depth} count={self._expansion_count}");
             }
         }
 
@@ -879,10 +886,16 @@ class PPWalker
         }
 
         if i32(self._src->depth()) >= self._opts.max_depth {
-            self._report_expand_err(DiagID::R008E, &inv,
-                f"macro expansion depth limit ({self._opts.max_depth}) exceeded",
-                "expanded from here",
-                f"limit can be increased with --cmax-macro-depth=N");
+            // Once per chain (keyed on the outermost invoke site); the poison
+            // still goes out so the chain stops expanding here either way.
+            var chain_key = inv.origin_site.start.raw();
+            if !self._depth_reported.contains(chain_key) {
+                self._depth_reported.insert(chain_key);
+                self._report_expand_err(DiagID::R008E, &inv,
+                    f"macro expansion depth limit ({self._opts.max_depth}) exceeded",
+                    "expanded from here",
+                    f"limit can be increased with --cmax-macro-depth=N");
+            }
             self._emit_poison(&inv);
             return;
         }
@@ -2379,7 +2392,14 @@ class PreProcessor {
                 name  = raw;
                 value = "1";
             }
-            if name.empty() { continue; }
+            if name.empty() {
+                // "=VALUE" and "" used to be skipped silently, so a typo'd -D
+                // looked accepted and the macro just never existed.
+                self._diag->report(DiagID::U001E,
+                    f"invalid -D argument '{raw}\x27: expected NAME or NAME=VALUE with a non-empty NAME"
+                ).emit();
+                continue;
+            }
 
             self._define_storage.push_back(libcxx::string(std::string_to_nstring(value)));
             var stored = &(self._define_storage[self._define_storage.size() - 1]);

@@ -70,6 +70,7 @@ class TokenSource {
     priv var _max_token_count: i32  = 0;    ///< 0 = unlimited; --cmax-token-count
     priv var _pulled_count:    usize = 0;   ///< frame-0 tokens pulled from the lexer
     priv var _budget_reported: bool = false;
+    priv var _file_name:       string = "";  ///< named in S065E; the diagnostic has no location of its own
 
     /// Drop AtComment on the way out of the lexer, so nothing downstream ever
     /// sees one. Comments reach the AST as annotations (ASTParse::_stash_comment
@@ -97,6 +98,13 @@ class TokenSource {
         self._max_token_count = max_token_count;
         self._diag            = diag;
         self._ring.reserve(4);
+    }
+
+    /// The file this source lexes, for the S065E message. The budget trips with
+    /// the lexer mid-file and no token to point at, so without a name the user
+    /// cannot tell WHICH file (often a builtin/std one) blew a per-file limit.
+    fn set_file_name(self, name: string) {
+        self._file_name = name;
     }
 
     /// Keep AtComment in the stream (--preserve-comments). Call before the
@@ -259,7 +267,7 @@ class TokenSource {
             if (!self._budget_reported) && (self._diag != &null) {
                 self._budget_reported = true;
                 self._diag->report(DiagID::S065E,
-                    f"preprocessor token budget exceeded (limit {self._max_token_count}); "
+                    f"preprocessor token budget exceeded in '{self._file_name}\x27 (limit {self._max_token_count}); "
                     "raise it with --cmax-token-count=N"
                 ).emit();
             }
