@@ -29,6 +29,34 @@ fn _unmatched_choices() -> vec::<string> {
     return c;
 }
 
+/// A String flag restricted to \p choices that still takes its value as the
+/// next argument. str_c is built for `-O`, whose bare form means `-O1`; it sets
+/// has_bare, and a flag with a bare form never consumes the following word, so
+/// `--edition 2026` would have left `2026` behind as an input file.
+fn _choice_flag(key: string, help: string, dfl: string, choices: vec::<string>) -> FlagDef {
+    var d = FlagDef::str_c(key, "", key, help, dfl, choices, "");
+    (d.has_bare) = false;
+    return d;
+}
+
+fn _edition_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("2025"); c.push_back("2026");
+    return c;
+}
+
+fn _borrow_check_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("warn"); c.push_back("error"); c.push_back("off");
+    return c;
+}
+
+fn _amt_mode_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("warn"); c.push_back("error"); c.push_back("silent");
+    return c;
+}
+
 fn register_kairo_flags(cmd: *Command) {
     //  IDENTITY
 
@@ -102,8 +130,8 @@ fn register_kairo_flags(cmd: *Command) {
     //  BUILD MODE
 
     cmd->define::<FlagKind::String>("profile",        "",  "profile",        "build profile: debug|release|min-size (sets mode defaults)",                       "debug");
-    cmd->define::<FlagKind::String>("borrow-check",   "",  "borrow-check",   "borrow checker severity: warn|error|off (default: warn in debug, error in release)","");
-    cmd->define::<FlagKind::String>("amt-mode",       "",  "amt-mode",       "AMT violation reporting independent of --borrow-check: warn|error|silent",         "");
+    cmd->define(_choice_flag("borrow-check", "borrow checker severity: warn|error|off (default: warn in debug, error in release)", "", _borrow_check_choices()));
+    cmd->define(_choice_flag("amt-mode", "AMT violation reporting independent of --borrow-check: warn|error|silent", "", _amt_mode_choices()));
     cmd->define::<FlagKind::String>("amt-report-file","",  "amt-report-file","write all AMT decisions and rewrites to this file for auditing",                   "");
     cmd->define::<FlagKind::String>("lto",            "",  "lto",            "link-time optimization: off|thin|full (default: off)",                             "off");
     cmd->define::<FlagKind::String>("panic-handler",  "",  "panic-handler",  "symbol name of a custom panic handler (for --no-stdlib targets)",                  "");
@@ -134,20 +162,20 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  LANGUAGE SEMANTICS  (hard on/off switches)
 
-    cmd->define::<FlagKind::String>("edition",        "",  "edition",        "language edition (e.g. 2025)",                                                      "2025");
+    cmd->define(_choice_flag("edition", "language edition: 2025|2026 (checked, otherwise unused) (default: 2026)", "2026", _edition_choices()));
     cmd->define::<FlagKind::Bool>  ("no-assert",      "",  "no-assert",      "disable assert{} block codegen",                                                    false);
     cmd->define::<FlagKind::Bool>  ("no-finally",     "",  "no-finally",     "disable finally{} codegen (freestanding / embedded targets)",                      false);
     cmd->define::<FlagKind::Bool>  ("no-exceptions",  "",  "no-exceptions",  "disable exception handling codegen",                                                false);
-    cmd->define::<FlagKind::Bool>  ("no-ffi",         "",  "no-ffi",         "disable all FFI (ffi\"...\" imports become hard errors)",                            false);
-    cmd->define::<FlagKind::Bool>  ("no-cxx",         "",  "no-cxx",         "disable C++ interop entirely",                                                      false);
-    cmd->define::<FlagKind::Bool>  ("no-unsafe",      "",  "no-unsafe",      "treat any unsafe{} block as a compile error",                                       false);
+    cmd->define::<FlagKind::Bool>  ("no-ffi",         "",  "no-ffi",         "error on any ffi\"...\" import or ffi block (C and C++) in the program\x27s own files",   false);
+    cmd->define::<FlagKind::Bool>  ("no-cxx",         "",  "no-cxx",         "error on any ffi \"c++\" import or block; ffi \"c\" stays allowed (see --no-ffi)",     false);
+    cmd->define::<FlagKind::Bool>  ("no-unsafe",      "",  "no-unsafe",      "treat any unsafe{} block or expression as a compile error (same as -fno-unsafe)",     false);
     cmd->define::<FlagKind::Bool>  ("no-overflow",    "",  "no-overflow",    "trap on integer overflow in all modes (overrides profile default)",                 false);
     cmd->define::<FlagKind::Bool>  ("strict-const",   "",  "strict-const",   "error when a const/eval expression cannot be fully reduced at compile time",       false);
     cmd->define::<FlagKind::Bool>  ("no-eval",        "",  "no-eval",        "disable eval compile-time expansion (C++ template pass-through mode)",             false);
-    cmd->define::<FlagKind::Bool>  ("no-yield",       "",  "no-yield",       "disable yield/async codegen (for targets without coroutine support)",              false);
-    cmd->define::<FlagKind::Bool>  ("no-modules",     "",  "no-modules",     "disable module system (single-TU flat compilation mode)",                          false);
+    cmd->define::<FlagKind::Bool>  ("no-yield",       "",  "no-yield",       "error on yield, await, async fns and -> yield T generators",                           false);
+    cmd->define::<FlagKind::Bool>  ("no-modules",     "",  "no-modules",     "error on any import of a Kairo module (ffi imports are governed by --no-ffi)",        false);
     cmd->define::<FlagKind::Bool>  ("no-generics",    "",  "no-generics",    "disable generic instantiation (useful for analysing uninstantiated IR)",           false);
-    cmd->define::<FlagKind::Bool>  ("no-fp",          "",  "no-fp",          "hard error on any floating-point operation (embedded targets with no FPU)",        false);
+    cmd->define::<FlagKind::Bool>  ("no-fp",          "",  "no-fp",          "error on any floating-point literal or float-typed expression in the program\x27s own files", false);
 
     //  LANGUAGE FEATURE TOGGLES  (-f{name} / -fno-{name})
     //  query: args.get_feature("name") -> -1 unset, 0 disabled, 1 enabled
@@ -162,7 +190,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
     cmd->define::<FlagKind::Feature>("union-inference",    "union type inference: x = 1; x = \"s\" -> x: i32|string");
     cmd->define::<FlagKind::Feature>("exceptions",         "C++ style exception handling");
-    cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks");
+    cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks (-fno-unsafe makes them an error)");
 
     // codegen / optimization (off by default unless noted) -----------------
     cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");
@@ -399,15 +427,15 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("max-scope-depth",           "maximum nested scope depth",                                               256,     1,    65536);
     cmd->define_cfg::<FlagKind::I32>("tab-width",                 "tab stop width for column numbers in diagnostics",                         4,       1,    16);
     //  type system
-    cmd->define_cfg::<FlagKind::I32>("max-struct-fields",         "maximum fields in a single struct or class (0 = unlimited)",               0,       0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-function-params",       "maximum parameters in a single function declaration (0 = unlimited)",      255,     0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-struct-fields",         "error when a struct or class declares more fields than this (0 = unlimited)",    0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-function-params",       "error when a function declares more parameters than this (0 = unlimited)",       255,     0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-tuple-arity",           "maximum elements in a tuple type (0 = unlimited)",                         128,     0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-enum-variants",         "maximum variants in a single enum (0 = unlimited)",                        0,       0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-match-arms",            "maximum arms in a single match block (0 = unlimited)",                     0,       0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-union-width",           "maximum number of types in a union type (0 = unlimited)",                  64,      2,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-enum-variants",         "error when an enum declares more variants than this (0 = unlimited)",            0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-match-arms",            "error when a match has more arms than this (0 = unlimited)",                     0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-union-width",           "error when a union declares more members than this (0 = unlimited)",             64,      0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-type-alias-depth",      "maximum type alias chain depth before hard error",                         64,      1,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-interface-impls",       "maximum impl T declarations per type (0 = unlimited)",                     0,       0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-extend-chain",          "maximum extend{} chain depth per type",                                    64,      1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-interface-impls",       "error when a struct or class lists more impl interfaces than this (0 = unlimited)", 0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-extend-chain",          "error when a type has more extend{} blocks than this in one file",             64,      1,    65536);
 
     //  error / warning budget
     cmd->define_cfg::<FlagKind::I32>("max-errors",                "stop after N errors (0 = unlimited)",                                      20,      0,    100000);
