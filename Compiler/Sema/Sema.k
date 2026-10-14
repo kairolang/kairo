@@ -59,6 +59,7 @@ import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::FieldInitLowering::*;
+import Sema::Lower::CopyMoveLowering::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
 import Sema::Lower::IterLowering::*;
@@ -373,8 +374,8 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         // The head of the stage is VariantInitLowering, then
-        // EnumLayoutLowering, then ExprBodyDesugar and FieldInitLowering, and
-        // the rest after them.
+        // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering and
+        // CopyMoveLowering, and the rest after them.
         //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
@@ -402,6 +403,12 @@ class Sema {
         // statement expression at class scope; from here on every pass meets
         // the initializer as an ordinary `return`.
         { var _p = TimeRegion("FieldInitLowering"); FieldInitLowering(&self.sc).run(); }
+        // Fifth: a MOVE value passed, initialized from, assigned or returned
+        // is cast to `T&&` at each site MoveCheck recorded. Before any pass
+        // rebuilds an expression, which would drop the node the record names;
+        // SequenceLowering leaves the cast in place, a cast of a name being
+        // pure.
+        { var _p = TimeRegion("CopyMoveLowering"); CopyMoveLowering(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before

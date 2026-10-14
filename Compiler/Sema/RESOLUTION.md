@@ -419,6 +419,14 @@ a type; flags enums and imported C++ enums are open and need `default`.
 `ConformanceChecking`, `ConstChecking`, `AccessCheck`,
 `ExtensionOrphanCheck` are stubs / missing.
 
+`MoveCheck` [PARTIAL] decides every move and checks use-after-move
+(SC052E). A `@move` argument moves; so does a MOVE value transferred: by
+value, into a C++ `T&&`, into a variable, by assignment, out of a return
+that is not a bare local. It records each transfer site for
+CopyMoveLowering. Bindings and field paths under them (`p.a`) are
+tracked; pointers, `self` and captures are not. Path-insensitive: a move
+in the right operand of `&&` leaves the binding maybe-moved after it.
+
 `InitCheck` [PARTIAL] checks one rule so far: a field's default reads
 only fields declared before it (SC001E naming both, with a note at the
 later one). A default keeps the type body's scope, so it may name a
@@ -873,7 +881,7 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CopyMoveLowering (moves) -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
@@ -881,7 +889,7 @@ NullableTypeLowering -> NullTestLowering ->
 CoalesceLowering -> MatchLowering/PatternCompilation ->
 PanicLowering/FinallyLowering -> YieldLowering ->
 TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
-CopyMoveLowering -> DestructorInsertion. Sugar first, control flow second,
+CopyMoveLowering (copies) -> DestructorInsertion. Sugar first, control flow second,
 lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
 codegen is an ICE naming the pass.
 
@@ -899,6 +907,17 @@ the EnumDecl. Nothing is retargeted: RecordTypes keep naming the enum, and
 codegen reaches the record only through `adt_layout`. A non-generic ADT
 whose facts are Unknown (a payload that is a generic instance) is rejected
 first by FeatureGateCheck (SC116E), so the pass's ICE on one is an invariant.
+
+CopyMoveLowering [PARTIAL]. The moves only, and early: every site
+MoveCheck recorded in `SemaContext::move_sites` -- a MOVE value passed by
+value or to a C++ `T&&`, initializing a variable, assigned, or returned
+when it is not a bare local -- becomes `e as T&&`, which EmitIR spells
+`static_cast<T&&>(e)`. Kairo has no std::move; the type decides that a
+transfer moves, and C++ only moves an lvalue that is cast. MoveCheck is
+the only decider, so the cast and the use-after-move check agree. It runs
+before every pass that rebuilds an expression, so each recorded node is
+still in the tree; SequenceLowering leaves the cast in place (a cast of a
+name is pure). Choosing a @copy constructor stays with the later slot.
 
 FieldInitLowering [DONE]. A class or struct field's initializer becomes
 its C++ default member initializer. A constant (an integer ConstEval

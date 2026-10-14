@@ -200,6 +200,13 @@ class SemaContext {
 
     pub var lifecycle: *void = &null; ///< the Sema-owned ClassLifecycle; one writer: Sema. Untyped because ClassLifecycle imports this file.
 
+    /// The expressions a transfer moves from (`*Expr` as u64): a MOVE value
+    /// passed, initialized from or assigned. One writer, MoveCheck, which
+    /// decides it alongside use-after-move; one reader, CopyMoveLowering,
+    /// which casts each to `T&&`. So the move C++ performs is exactly the
+    /// one the checker counted.
+    pub var move_sites: libcxx::unordered_set::<u64>;
+
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;
