@@ -148,14 +148,14 @@ class EmitIR {
         if d->is_poisoned() { return; }
 
         switch d->kind {
-            case DeclKind::FunctionDecl { self._free_fn(cast::<FunctionDecl>(d), &null); }
-            case DeclKind::ClassDecl    { self._record_bodies(d); }
-            case DeclKind::StructDecl   { self._record_bodies(d); }
-            case DeclKind::UnionDecl    { self._record_bodies(d); }
+            case DeclKind::FunctionDecl  { self._free_fn(cast::<FunctionDecl>(d), &null); }
+            case DeclKind::ClassDecl     { self._record_bodies(d); }
+            case DeclKind::StructDecl    { self._record_bodies(d); }
+            case DeclKind::UnionDecl     { self._record_bodies(d); }
             case DeclKind::EnumDecl      { return; }
             case DeclKind::TypeAliasDecl { return; }
             case DeclKind::InterfaceDecl { return; }
-            case DeclKind::ModuleDecl {
+            case DeclKind::ModuleDecl    {
                 var dc = static_cast::<*DeclContext>(cast::<ModuleDecl>(d));
                 for var i: usize = 0; i < dc->dc_decls.size(); ++i { self.emit(*(dc->dc_decls.get(i))); }
             }
@@ -473,13 +473,13 @@ class EmitIR {
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; LabelLowering must have rewritten it"); }
                 sink->spell(n->range, "continue;");
             }
-            case StmtKind::UnsafeBlockStmt { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
+            case StmtKind::UnsafeBlockStmt        { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
             case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
             case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place (a tuple-valued scrutinee)"); }
             case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
-            case StmtKind::YieldStmt       { self._yield(cast::<YieldStmt>(s)); }
+            case StmtKind::YieldStmt              { self._yield(cast::<YieldStmt>(s)); }
             case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; PanicLowering owns it"); }
             case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
@@ -1301,8 +1301,9 @@ class EmitIR {
     }
 
     /// The written target is the result type (invariant 15). Which C++ cast:
-    /// `as const` -> const_cast, `as unsafe` -> reinterpret_cast, otherwise
-    /// static_cast. A checked/asserting downcast is PanicLowering's; a user
+    /// `as const` -> const_cast, `as unsafe` -> reinterpret_cast (a C-style
+    /// cast when it drops a pointee qualifier), otherwise static_cast. A
+    /// checked/asserting downcast is PanicLowering's; a user
     /// `op as` or a converting ctor is OperatorLowering's.
     priv fn _cast(self, n: *TypeCastExpr) {
         // A lowering's move: `x as T&&`. Never written by the user (Kairo has
@@ -1318,7 +1319,52 @@ class EmitIR {
         var kind = "static_cast";
         if n->mode == CastMode::Const  { kind = "const_cast"; }
         if n->mode == CastMode::Unsafe { kind = "reinterpret_cast"; }
+        // reinterpret_cast cannot cast away qualifiers, and `as unsafe *` is
+        // the one Kairo spelling that drops them (the written cast already
+        // passed the unsafe-context check). A C-style cast is the one C++
+        // cast that both retypes and drops cv. Between two classes it would
+        // pick static_cast and move the pointer to a base at a nonzero
+        // offset, which `as unsafe *` never does, so that pair goes through
+        // `const volatile void *` first: from there only the bits survive.
+        if (n->mode == CastMode::Unsafe) && self._drops_quals(n->operand->type_, n->target) {
+            var bridge = self._record_pointee(n->operand->type_) && self._record_pointee(n->target);
+            sink->spell(n->operand->range, "(" + self._spell._type(n->target, &null) + ")(");
+            if bridge { sink->spell(n->operand->range, "(const volatile void *)("); }
+            self.emit(n->operand);
+            if bridge { sink->spell(n->operand->range, ")"); }
+            sink->spell(n->operand->range, ")");
+            return;
+        }
         self._cast_to(n->target, n->operand, kind);
+    }
+
+    /// True when some pointee level of \p src carries a qualifier the same
+    /// level of \p dst lacks. Walks while both sides are pointers, so
+    /// `*const u8 -> *void` is a drop at the first level although the
+    /// pointees differ, and an integer source never is.
+    priv fn _drops_quals(self, src: *Type, dst: *Type) -> bool {
+        if (src == &null) || (dst == &null) { return false; }
+        var s = (src->canonical) if (src->canonical != &null) else (src);
+        var d = (dst->canonical) if (dst->canonical != &null) else (dst);
+        while true {
+            var su = canon_unqual(s);
+            var du = canon_unqual(d);
+            if (su == &null) || (du == &null) { return false; }
+            if (su->kind != TypeKind::PointerType) || (du->kind != TypeKind::PointerType) { return false; }
+            s = cast::<PointerType>(su)->pointee;
+            d = cast::<PointerType>(du)->pointee;
+            if (canon_quals(s) & (~canon_quals(d))) != 0 { return true; }
+        }
+        return false;
+    }
+
+    /// \p t is a pointer whose pointee is a record.
+    priv fn _record_pointee(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+        if (c == &null) || (c->kind != TypeKind::PointerType) { return false; }
+        var p = canon_unqual(cast::<PointerType>(c)->pointee);
+        return (p != &null) && (p->kind == TypeKind::RecordType);
     }
 
     priv fn _subscript(self, n: *SubscriptExpr) {

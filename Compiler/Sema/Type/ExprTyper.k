@@ -760,9 +760,17 @@ class ExprTyper
             // Safety first: `unsafe *T -> *T` is one record on both sides,
             // and derives_from(T, T) holds, so the record test would call it
             // a downcast.
-            var fd = self.tu.record_decl(self.tu.pointee(from));
-            var td = self.tu.record_decl(self.tu.pointee(to));
-            if self.tu.is_unsafe_ptr(to) && (!self.tu.is_unsafe_ptr(from)) {
+            var fd   = self.tu.record_decl(self.tu.pointee(from));
+            var td   = self.tu.record_decl(self.tu.pointee(to));
+            var lost = self._dropped_qual(from, to);
+            if (lost != &null) && self.tu.is_unsafe_ptr(to) && self.tu.is_unsafe_ptr(from) {
+                // No implicit conversion drops a qualifier, unsafe or not:
+                // the drop is a written reinterpret, and the block is what
+                // lets that cast through.
+                var what = ("const") if (canon_has_const(lost)) else ("volatile");
+                var how  = ("write 'as unsafe *T\x27") if (self.in_unsafe()) else ("write 'as unsafe *T' inside an 'unsafe' block");
+                hint = f"; the conversion drops '{what}' from the pointee '{self.tu.str(lost)}', which only a cast does: {how}";
+            } else if self.tu.is_unsafe_ptr(to) && (!self.tu.is_unsafe_ptr(from)) {
                 hint = "; a safe pointer becomes a raw one only explicitly: 'unsafe &x', or 'as unsafe *T' inside an unsafe block";
             } else if self.tu.is_unsafe_ptr(from) && (!self.tu.is_unsafe_ptr(to)) {
                 hint = "; a raw pointer becomes safe only by 'as *T' inside an unsafe block";
@@ -776,6 +784,18 @@ class ExprTyper
         ).first(e->range).emit();
         e->poison();
         return false;
+    }
+
+    /// The first pointee level (outermost first) of \p from carrying a
+    /// qualifier the same level of \p to lacks, or &null. Walks while both
+    /// sides are pointers, so `*const u8 -> *void` drops at the first level
+    /// although the pointees differ.
+    priv fn _dropped_qual(self, from: *Type, to: *Type) -> *Type {
+        var fp = self.tu.pointee(canon_unqual(from));
+        var tp = self.tu.pointee(canon_unqual(to));
+        if (fp == &null) || (tp == &null) { return &null; }
+        if (canon_quals(fp) & (~canon_quals(tp))) != 0 { return fp; }
+        return self._dropped_qual(fp, tp);
     }
 
     // === lang items / panic sites ===========================================
