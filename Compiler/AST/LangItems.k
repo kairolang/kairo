@@ -390,6 +390,15 @@ class LowerTargets {
         return "__kairo_default_" + fn_name + "_" + param;
     }
 
+    // --- Field initializers (writer: FieldInitLowering) -------------------------
+
+    /// `__kairo_init_<field>`: the member function a field's initializer
+    /// becomes, called by the field's C++ default member initializer. A
+    /// field name is unique in its record, so this name is too.
+    static fn field_init_thunk(field: string) -> string {
+        return "__kairo_init_" + field;
+    }
+
     // --- match (writer: MatchLowering) -----------------------------------------
     /// Labels are function-scoped in C++; `n` is the match's number within its function.
     static fn match_scrutinee(n: usize) -> string          { return f"__kairo_m{n}_s"; }

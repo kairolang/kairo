@@ -667,6 +667,20 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     fn is_inferred(self) -> bool { return self.type_ == &null; }
 }
 
+/// What FieldInitLowering made of a field's initializer, for the emitter's
+/// default member initializer. None: no initializer was lowered (none was
+/// written, or a gate kept it). Int / True / False / Null: a constant the
+/// emitter spells itself, the value in FieldDecl::init_neg / init_mag for
+/// Int. Thunk: anything else, a call of FieldDecl::init_thunk.
+enum FieldFold derives u8 {
+    None = 0,
+    Int,
+    True,
+    False,
+    Null,
+    Thunk,
+}
+
 ///
 ///  FieldDecl
 ///  Class/struct/union member: var/const/static/eval, optionally `mutable`.
@@ -680,7 +694,7 @@ class FieldDecl derives Decl {
     pub var name:       Token;
     pub var storage:    StorageClass = StorageClass::Var;
     pub var type_:      *Type = &null;   ///< field type; null only in recovery.
-    pub var init:       *Expr = &null;   ///< at-decl default; null if none.
+    pub var init:       *Expr = &null;   ///< at-decl default; null if none, or once FieldInitLowering has consumed it.
     pub var is_mutable: bool = false;    ///< `mutable var` escapes const-self.
     pub var is_thread:  bool = false;    ///< `static thread` thread_local storage.
     pub var index:      u32 = 0;         ///< declaration order in the owning type.
@@ -696,6 +710,15 @@ class FieldDecl derives Decl {
     /// EnumLayoutLowering, which mints the field together with its union;
     /// the parser never sets it.
     pub var is_anonymous_union: bool = false;
+    /// The C++ default member initializer FieldInitLowering made of `init`,
+    /// which is null afterwards. A constant (`init_fold` Int, True, False,
+    /// Null) is spelled in the class as it is; any other initializer became
+    /// the body of `init_thunk`, a member function the default calls. One
+    /// writer: FieldInitLowering.
+    pub var init_fold:  FieldFold = FieldFold::None;
+    pub var init_neg:   bool = false;
+    pub var init_mag:   u64 = 0;
+    pub var init_thunk: *Decl = &null;
 
     static fn create(
         ctx:     *ASTContext,
@@ -714,6 +737,8 @@ class FieldDecl derives Decl {
         node->type_   = type_;
         node->index   = index;
         node->is_anonymous_union = false;
+        node->init_fold  = FieldFold::None;
+        node->init_thunk = &null;
         return node;
     }
 
@@ -724,6 +749,8 @@ class FieldDecl derives Decl {
         node->range         = range;
         node->type_         = &null;
         node->is_anonymous_union = false;
+        node->init_fold     = FieldFold::None;
+        node->init_thunk    = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

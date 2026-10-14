@@ -236,8 +236,12 @@ C++'s implicit using-directive — so `qual_name` knows nothing about any of
 it. Library roots still wrap by `module_base` (Piece 1 open).
 
 Walks plan entries by tier. Records: `class`/`struct` with access
-specifiers, fields, method DECLARATIONS (never bodies in the class —
-invariant 12), the derived `op =` (below),
+specifiers, fields (a default as a C++ default member initializer: a
+constant FieldInitLowering folded as it is, `signed int n = 5;`, anything
+else as a call of the member function it made of the initializer,
+`T d = __kairo_init_d();`, so the expression is a body like any other),
+method DECLARATIONS (never bodies in the class — invariant 12), the
+derived `op =` (below),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
 types. Enums: C-like as `enum class`, an ADT as its layout record (below).
 Functions: free only. Extension scopes:
@@ -312,8 +316,11 @@ members, nested types, layout edges and by-value parameters off the record
 (`EmitPlan::adt_record`, through `layout_decl`), and sees through the
 anonymous union and the payload structs as through ordinary fields.
 
-V1 refusals (each an ICE naming its owner): named unions, interfaces,
-field initializers. A pack is spelled as its
+V1 refusals (each an ICE naming its owner): named unions, interfaces, the
+initializer of a static, eval or array-typed field (FeatureGateCheck
+rejects it first, SC116E: no definition of a static or eval field is
+emitted yet, and a C++ function cannot return an array). A pack is spelled
+as its
 `Slice<E>` (`ParamDecl::pack_type`).
 
 ## 6. EmitIR — the core
@@ -539,7 +546,12 @@ name comparison — goldens for every `Tests/Codegen` test go in FIRST, or
 the refactor has nothing to hold it.
 
 Constructor initializer lists: `FunctionDecl::initializers`, mem-init
-emission, and the const-field init-once rule. AccessCheck. Vector/HashSet/
+emission, and the const-field init-once rule. A field a mem-initializer
+sets skips its default member initializer, which is C++'s rule and
+Kairo's. Until then a constructor that assigns a defaulted field in its
+body runs the default first, then the assignment. Static data member
+definitions (an initialized `static` field) and `eval` fields as
+constants. AccessCheck. Vector/HashSet/
 HashMap constructor bodies in `Lib/builtin` — vector literals type-check
 and emit today, but do not LINK. Set and map literal lowering, which needs
 `Pair<K, V>` and the Slice constructors on HashSet/HashMap. Static

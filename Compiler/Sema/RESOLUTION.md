@@ -408,7 +408,7 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 In order: `ConstraintExtraction`, `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
 `PatternChecking`, `ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`,
-`FeatureGateCheck`.
+`InitCheck`, `FeatureGateCheck`.
 
 `PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
 non-exhaustive match (statement form too), with a witness; SC121E for an
@@ -419,6 +419,16 @@ a type; flags enums and imported C++ enums are open and need `default`.
 `ConformanceChecking`, `ConstChecking`, `AccessCheck`,
 `ExtensionOrphanCheck` are stubs / missing.
 
+`InitCheck` [PARTIAL] checks one rule so far: a field's default reads
+only fields declared before it (SC001E naming both, with a note at the
+later one). A default keeps the type body's scope, so it may name a
+sibling bare, and it runs as a C++ default member initializer, in
+declaration order; the field itself and every later one are not built
+yet. A static field is never refused. It also gates (SC116E) an earlier
+sibling read in a GENERIC record's default, which the thunk's qualified
+spelling cannot compile yet: CXXSpell gives the record no template
+arguments there.
+
 `FeatureGateCheck` [DONE] runs last and reports well-typed constructs that
 have no lowering yet, one SC116E each ("<construct> is not yet supported").
 Lowerings carry no diagnostics, and they run under `--type-check-only`, so
@@ -426,8 +436,9 @@ an unfinished feature is said HERE; the error stops the schedule before L
 and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
 `iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
 whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
-its special members from those facts). A gate is removed in the commit
-that lands its lowering.
+its special members from those facts), and an initializer on a static,
+eval or array-typed field (FieldInitLowering lowers every other one). A
+gate is removed in the commit that lands its lowering.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
 value-returning body can reach its closing brace, SC105 for `-> !`. After X
@@ -862,7 +873,7 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
@@ -888,6 +899,21 @@ the EnumDecl. Nothing is retargeted: RecordTypes keep naming the enum, and
 codegen reaches the record only through `adt_layout`. A non-generic ADT
 whose facts are Unknown (a payload that is a generic instance) is rejected
 first by FeatureGateCheck (SC116E), so the pass's ICE on one is an invariant.
+
+FieldInitLowering [DONE]. A class or struct field's initializer becomes
+its C++ default member initializer. A constant (an integer ConstEval
+folds and that fits the field, `true` / `false` on a bool, `&null` on a
+raw pointer) is recorded on the field (`FieldDecl::init_fold`, the value
+in `init_neg` / `init_mag`) and spelled in the class. Anything else
+becomes `fn __kairo_init_<f>(self) -> T { return <init> }`
+(`LowerTargets::field_init_thunk`), appended to the record's methods and
+stamped as `FieldDecl::init_thunk`, and the default calls it. Either way
+`init` is null afterwards (MOVED into the thunk). The thunk's body goes
+out of line like every user-written body (IMPORTS.md invariant 12). It is
+a method, so a bare member the default names (it keeps the type body's
+scope) is read through `this`; InitCheck has made sure that member is
+built by then. Static, eval and array-typed fields keep `init`;
+FeatureGateCheck has rejected them.
 
 CallLowering [DONE]. After it every call is one positional argument list in
 parameter order; `NamedArgExpr` is gone and `arg_map` is empty. A default
@@ -1141,6 +1167,8 @@ A pass that needs one asks that file; it never spells the string itself.
    `instantiated_from` on implicit nodes: registry (then M2).
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
    `default_thunk` / `pack_type` on ParamDecl: CallLowering.
+   `init_fold` / `init_neg` / `init_mag` / `init_thunk` on FieldDecl:
+   FieldInitLowering.
    `is_generator` / `has_yield` on FunctionDecl: X. A transfer
    constructor's `other` mode stamp: ClassLifecycle. A record's derived
    `op =` (`assign_from`, `assign_form`): ClassLifecycle. Lifecycle facts:

@@ -27,6 +27,14 @@
 ///         EnumLayoutLowering picks its special members from those facts.
 ///         Reported at the enum, with a note at the payload field that left
 ///         the fact open.
+///       - an initializer on a static, eval or array-typed field.
+///         FieldInitLowering turns every other one into a C++ default member
+///         initializer; no definition of a static or eval field is emitted
+///         yet, and a C++ function cannot return an array, so these keep
+///         theirs and codegen would ICE on them.
+///       - a generic record's field default that reads another field.
+///         InitCheck reports it (SC116E too): it is the pass that walks what
+///         a default reads.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -50,6 +58,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Check::ClassLifecycle::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::Node::Base::*;
@@ -58,7 +67,9 @@ import AST::Node::Statements::*;
 import AST::Node::Expressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::Node::CanonicalNodes::*;
 import AST::Kind::StmtKind::*;
+import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::Token::*;
 import Location::SourceRange::*;
@@ -158,6 +169,28 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
             }
         }
         b.emit();
+        return true;
+    }
+
+    /// The initializers FieldInitLowering leaves on the field (its file
+    /// header, Not lowered). Reported at the initializer, once: an instance
+    /// shares its pattern's fields.
+    fn visit_field_decl(self, n: *FieldDecl) -> bool {
+        if (n->init == &null) || n->is_poisoned() || n->init->is_poisoned() || (n->type_ == &null) { return true; }
+        var odc   = reinterpret_cast::<*DeclContext>(n->semantic_dc);
+        var owner = (odc->owner_decl()) if (odc != &null) else (&null);
+        if (owner != &null) && decl_is_instance(owner) { return true; }
+        var what = "";
+        if n->is_static() {
+            what = "a static field";
+        } else if n->storage == StorageClass::Eval {
+            what = "an eval field";
+        } else {
+            var c = canon_unqual(n->type_->canonical);
+            if (c == &null) || (c->kind != TypeKind::FixedArrayType) { return true; }
+            what = "an array-typed field";
+        }
+        self._gate(n->init->range, f"an initializer on {what}");
         return true;
     }
 

@@ -32,12 +32,23 @@
 ///     constexpr, and clang rejects a redeclaration that differs, whichever
 ///     of the two comes first.
 ///
+///   \par Field initializers
+///     A default is a C++ default member initializer. A constant
+///     FieldInitLowering folded is spelled as it is (`signed int n = 5;`);
+///     any other initializer is the body of the member function it made
+///     (FieldDecl::init_thunk), and the default calls it
+///     (`signed int d = __kairo_init_d();`). The class names only a member
+///     of the record, so it is still a pure function of the decl, and the
+///     body goes out of line like every user-written body (invariant 12: no
+///     user-written function body is ever emitted in-class).
+///
 ///   \par What is NOT emitted (each an ICE naming its owner)
 ///     Named unions (later; an anonymous one is written inline as the field
-///     that declares it), interfaces (no
-///     entity; witnesses MISSING), parameter defaults and field
-///     initializers (expression emission across TUs), packs in expansion
-///     position, structural containers (the container migration).
+///     that declares it), interfaces (no entity; witnesses MISSING), the
+///     initializer of a static, eval or array-typed field (FeatureGateCheck
+///     rejects it), packs in expansion position, structural containers (the
+///     container migration). Parameter defaults are not declared:
+///     CallLowering's thunks supply them at every call.
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -385,8 +396,9 @@ class InterfaceEmitter {
 
     /// The definition, body-less (invariant 12): bases, nested types,
     /// fields, method declarations, the derived `op =` (the exception:
-    /// _derived_assign), friends. Field initializers and
-    /// parameter defaults are not emitted; see the file header.
+    /// _derived_assign), friends. A field's default is a constant or a
+    /// call of its thunk (_field_default); parameter defaults are not
+    /// declared. See the file header.
     ///
     /// Every type written inside the braces is spelled with \p d as its
     /// scope (CXXSpell::_type), so the record's own nested types go out by
@@ -478,6 +490,7 @@ class InterfaceEmitter {
             if f->is_mutable   { fs += "mutable "; }
             if f->is_const()   { fs += "const "; }
             fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
+            fs += self._field_default(f);
             fs += ";";
             sink->spell(f->name.range, fs);
         }
@@ -939,6 +952,35 @@ class InterfaceEmitter {
             default { 0; }
         }
         self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
+        return "";
+    }
+
+    /// A field's C++ default member initializer, from what
+    /// FieldInitLowering made of its Kairo one: a constant as it is, or a
+    /// call of the member function holding the expression, named by leaf (a
+    /// default member initializer sees the whole class, that member's later
+    /// declaration included). Either way the text names nothing outside the
+    /// record, so the class stays a pure function of the decl.
+    priv fn _field_default(self, f: *FieldDecl) -> string {
+        switch f->init_fold {
+            case FieldFold::Int {
+                var c = IntConst{};
+                c.ok  = true;
+                c.neg = f->init_neg;
+                c.mag = f->init_mag;
+                return " = " + self._enum_value(c);
+            }
+            case FieldFold::True  { return " = true"; }
+            case FieldFold::False { return " = false"; }
+            case FieldFold::Null  { return " = nullptr"; }
+            case FieldFold::Thunk { return " = " + self._spell->leaf(f->init_thunk) + "()"; }
+            default { 0; }
+        }
+        // An initializer still on the field is one FeatureGateCheck rejects
+        // (a static, eval or array-typed field) and FieldInitLowering leaves.
+        if f->init != &null {
+            self._ice(f->name.range, "InterfaceEmitter: initializer of a static, eval or array-typed field reached codegen; FeatureGateCheck rejects it");
+        }
         return "";
     }
 

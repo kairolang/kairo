@@ -204,12 +204,22 @@ class Holder {
     pub var tag: i32
 }
 
+// Its ADT field starts from a default, and a defaulted @copy gives it a
+// member-by-member `op =`.
+class HolderD {
+    pub var s: Slot<Cp> = Slot<Cp>::Empty
+    pub var tag: i32 = 3
+    pub fn HolderD(self) { }
+    @copy
+    fn HolderD(self, const other: Self) = default
+}
+
 struct Pair {
     var a: Outer<Cp>
     var b: Slot<Cp>
 }
 
-// A class and a struct holding ADTs: the derived `op =` assigns each member,
+// Classes and a struct holding ADTs: the derived `op =` assigns each member,
 // and the ADT's own `op =` destroys the old payload and copies the new one.
 fn holder_assign() -> i32 {
     {
@@ -228,7 +238,14 @@ fn holder_assign() -> i32 {
         q = q
         q.b = q.b
         if (outer_sum(q.a) != 1) || (slot_sum(q.b) != 2) { return 0 }
-        if live != 6 { return 0 }
+        var d = HolderD()
+        if (slot_sum(d.s) != 0) || (d.tag != 3) { return 0 }
+        d.s = Slot<Cp>::Two { a: Cp(4), b: Cp(5) }
+        var e = HolderD()
+        e = d
+        e = e
+        if (slot_sum(e.s) != 9) || (e.tag != 3) { return 0 }
+        if live != 10 { return 0 }
     }
     if live != 0 { return 0 }
     return 16

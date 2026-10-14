@@ -53,10 +53,12 @@ import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
+import Sema::Check::InitCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
+import Sema::Lower::FieldInitLowering::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
 import Sema::Lower::IterLowering::*;
@@ -341,6 +343,10 @@ class Sema {
         // ClassLifecycle (movability).
         { var _p = TimeRegion("MoveCheck"); MoveCheck(&self.sc).run(); }
 
+        // Default member initializers read only fields built before them.
+        // REQUIRES N's bindings (a bare sibling in a default is a field).
+        { var _p = TimeRegion("InitCheck"); InitCheck(&self.sc).run(); }
+
         // TODO(sema): ConformanceChecking(&self.sc).run();
         // TODO(sema): ConstChecking(&self.sc).run();
 
@@ -367,7 +373,8 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         // The head of the stage is VariantInitLowering, then
-        // EnumLayoutLowering, then ExprBodyDesugar, and the rest after them.
+        // EnumLayoutLowering, then ExprBodyDesugar and FieldInitLowering, and
+        // the rest after them.
         //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
@@ -390,6 +397,11 @@ class Sema {
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.
         { var _p = TimeRegion("ExprBodyDesugar"); ExprBodyDesugar(&self.sc).run(); }
+        // Fourth: a field's initializer becomes a constant on the field or the
+        // body of a member function its C++ default calls. Clang takes no
+        // statement expression at class scope; from here on every pass meets
+        // the initializer as an ordinary `return`.
+        { var _p = TimeRegion("FieldInitLowering"); FieldInitLowering(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before
