@@ -64,14 +64,88 @@ class DiagEngine;
 ///   \c Silence  drop the diagnostic entirely (\c --allow / \c -A)
 ///   \c Promote  raise a warning to an error   (\c --error / \c -E)
 ///   \c Forbid   force an error that downstream cannot override (\c --forbid / \c -F)
+///   \c Warn     re-enable a code: an Ignored diagnostic is raised to a
+///               warning, and (applied after \c -A) it lifts that silence (\c -W)
 ///
-/// The policy table is keyed on the NUMERIC part of the code only
-/// (e.g. 25 for \c S025 / \c S025W, 889 for \c C889); the severity letter
-/// is not part of the address.
+/// The policy table is keyed on category + number (see \c diag_policy_key),
+/// e.g. \c SC005 and \c S005 are distinct; the severity letter is not part
+/// of the address.
 enum DiagAction {
     Silence,
     Promote,
     Forbid,
+    Warn,
+}
+
+/// Dense index of \p cat, 1-based so a valid policy key is never 0.
+fn diag_category_index(cat: DiagCategory) -> u32 {
+    switch cat {
+        case DiagCategory::Syntax        { return 1;  }
+        case DiagCategory::Uncategorized { return 2;  }
+        case DiagCategory::CodeGen       { return 3;  }
+        case DiagCategory::Memory        { return 4;  }
+        case DiagCategory::Resolution    { return 5;  }
+        case DiagCategory::Linker        { return 6;  }
+        case DiagCategory::Semantic      { return 7;  }
+        case DiagCategory::Portability   { return 8;  }
+        case DiagCategory::Lowering      { return 9;  }
+        case DiagCategory::Optimization  { return 10; }
+        case DiagCategory::Internal      { return 11; }
+        default                          { return 0;  }
+    }
+}
+
+/// Key into the per-code policy table: category index in the high byte, the
+/// code number below it. Keying on the number alone made SC005, S005 and R005
+/// one entry, so `-A SC005` silenced three unrelated diagnostics.
+fn diag_policy_key(cat: DiagCategory, number: u32) -> u32 {
+    return (diag_category_index(cat) << 24) | (number & 0x00FFFFFF);
+}
+
+/// Parses a user-spelled code (\c R020E, \c sc005, \c C889W) into a policy key.
+/// Returns 0 when the string has no recognised category prefix or no digits;
+/// a bare number is rejected on purpose, since it cannot say which category
+/// it means.
+fn diag_policy_key_from_string(code: string) -> u32 {
+    var n = code.length();
+    var i: usize = 0;
+    var pfx: string = "";
+    while i < n && (code[i] == ' ' || code[i] == '\t') { i += 1; }
+    while i < n {
+        var c = code[i];
+        if c >= 'a' && c <= 'z' { pfx += static_cast::<char>(c - 32); i += 1; continue; }
+        if c >= 'A' && c <= 'Z' { pfx += c; i += 1; continue; }
+        break;
+    }
+
+    var val: u32 = 0;
+    var seen: bool = false;
+    while i < n {
+        var c = code[i];
+        if c >= '0' && c <= '9' {
+            seen = true;
+            val = val * 10 + static_cast::<u32>(c - '0');
+            i += 1;
+            continue;
+        }
+        break; // digit run ended; a trailing severity letter is ignored
+    }
+    if !seen { return 0; }
+
+    var idx: u32 = 0;
+    if pfx == "S"        { idx = 1;  }
+    else if pfx == "U"   { idx = 2;  }
+    else if pfx == "C"   { idx = 3;  }
+    else if pfx == "M"   { idx = 4;  }
+    else if pfx == "R"   { idx = 5;  }
+    else if pfx == "L"   { idx = 6;  }
+    else if pfx == "SC"  { idx = 7;  }
+    else if pfx == "P"   { idx = 8;  }
+    else if pfx == "CL"  { idx = 9;  }
+    else if pfx == "OPT" { idx = 10; }
+    else if pfx == "I"   { idx = 11; }
+    if idx == 0 { return 0; }
+    return (idx << 24) | (val & 0x00FFFFFF);
 }
 class DiagBuilder;
 
@@ -565,7 +639,16 @@ class DiagEngine derives DiagEngineVBase {
     priv var _suppress_depth:     u32  = 0;
     priv var _warnings_as_errors: bool = false;
     priv var _suppress_all_warnings: bool = false;   ///< -w: drop every Warning-severity diagnostic.
-    priv var _policy: map::<u32, DiagAction>;        ///< numeric-code -> per-code action (see DiagAction).
+    priv var _policy: map::<u32, DiagAction>;        ///< diag_policy_key -> per-code action (see DiagAction).
+    priv var _warning_limit:      u32  = 0;          ///< 0 = unlimited.
+    priv var _note_limit:         u32  = 0;          ///< per diagnostic; 0 = unlimited.
+    priv var _fixit_limit:        u32  = 0xFFFFFFFF; ///< per diagnostic (and per child); none = unlimited.
+    priv var _quiet:              bool = false;      ///< --quiet: drop standalone warnings, notes, remarks.
+    /// The "too many ..." line is printed once per run. Keyed on its own flag,
+    /// not on _suppressed_count: a prior -A/-w suppression bumps that counter
+    /// and used to swallow the limit notice entirely.
+    priv var _error_limit_noted:  bool = false;
+    priv var _warn_limit_noted:   bool = false;
 
     // --- Constructors --------------------------------------------------------
 
@@ -765,7 +848,7 @@ class DiagEngine derives DiagEngineVBase {
         //   5. --Werror (_warnings_as_errors) -> blanket Warning -> Error.
         // Explicit per-code policy beats blanket flags: --allow beats
         // --Werror; --forbid beats a later --warn/enable.
-        var num = diag->code.number();
+        var num = diag_policy_key(cat, diag->code.number());
         if self._policy.contains(num) {
             switch self._policy[num] {
                 case DiagAction::Forbid {
@@ -782,9 +865,20 @@ class DiagEngine derives DiagEngineVBase {
                     }
                 }
                 case DiagAction::Silence {
-                    self._suppressed_count += 1;
-                    std::destroy(diag);   // suppressed: never reaches a consumer
-                    return;
+                    // Errors and fatals are never silenced: dropping one would
+                    // let a broken program compile and exit 0.
+                    if sev != DiagSeverity::Error && sev != DiagSeverity::Fatal {
+                        self._suppressed_count += 1;
+                        std::destroy(diag);   // suppressed: never reaches a consumer
+                        return;
+                    }
+                }
+                case DiagAction::Warn {
+                    // An Ignored-severity code is invisible until asked for.
+                    if sev == DiagSeverity::Ignored {
+                        diag->code = self._override_severity(diag->code, DiagSeverity::Warning);
+                        sev = DiagSeverity::Warning;
+                    }
                 }
                 default {}
             }
@@ -797,9 +891,41 @@ class DiagEngine derives DiagEngineVBase {
             sev = DiagSeverity::Error;
         }
 
+        // --quiet, after the policy block so a -Werror promoted warning is an
+        // error by now and still prints.
+        if self._quiet {
+            if sev == DiagSeverity::Warning || sev == DiagSeverity::Note || sev == DiagSeverity::Remark {
+                self._suppressed_count += 1;
+                std::destroy(diag);
+                return;
+            }
+        }
+
+        if sev == DiagSeverity::Warning && self._warning_limit != 0 {
+            if self._warn_count >= self._warning_limit {
+                if !self._warn_limit_noted {
+                    self._warn_limit_noted = true;
+                    var wlimit_diag = std::create::<Diagnostic>(
+                        DiagCode(DiagID::U001W),
+                        f"too many warnings emitted, further warnings will be suppressed");
+                    self._all_diags.push_back(wlimit_diag);
+                    for var i: usize = 0; i < self._consumers.size(); ++i {
+                        self._consumers[i]->handle(wlimit_diag);
+                    }
+                }
+
+                self._suppressed_count += 1;
+                std::destroy(diag);   // over the warning limit: nobody sees it
+                return;
+            }
+        }
+
+        // 0 = unlimited (--cmax-errors=0). Without the guard every error was
+        // "over" a limit of 0 and was dropped, so a broken program exited 0.
         if sev == DiagSeverity::Error || sev == DiagSeverity::Fatal {
-            if self._error_count >= self._error_limit {
-                if self._suppressed_count == 0 {
+            if self._error_limit != 0 && self._error_count >= self._error_limit {
+                if !self._error_limit_noted {
+                    self._error_limit_noted = true;
                     var limit_diag = std::create::<Diagnostic>(
                         DiagCode(DiagID::I957E),
                         f"too many errors emitted, further errors will be suppressed");
@@ -828,6 +954,23 @@ class DiagEngine derives DiagEngineVBase {
             default {}
         }
 
+        // --cmax-notes / --cmax-suggestion-count: trim before delivery so every
+        // consumer (and the tooling collector) sees the same capped diagnostic.
+        if self._note_limit != 0 {
+            while diag->children.size() > static_cast::<usize>(self._note_limit) {
+                std::destroy(diag->children[diag->children.size() - 1]);
+                diag->children.pop_back();
+            }
+        }
+        while diag->fixits.size() > static_cast::<usize>(self._fixit_limit) {
+            diag->fixits.pop_back();
+        }
+        for var i: usize = 0; i < diag->children.size(); ++i {
+            while diag->children[i]->fixits.size() > static_cast::<usize>(self._fixit_limit) {
+                diag->children[i]->fixits.pop_back();
+            }
+        }
+
         self._all_diags.push_back(diag);
 
         for var i: usize = 0; i < self._consumers.size(); ++i {
@@ -838,7 +981,20 @@ class DiagEngine derives DiagEngineVBase {
     // --- Configuration -------------------------------------------------------
 
     /// Sets the maximum number of errors before suppression. Default: 50.
+    /// 0 means unlimited.
     fn set_error_limit(self, limit: u32) { self._error_limit = limit; }
+
+    /// Suppresses warnings after \p limit have been delivered. 0 = unlimited.
+    fn set_warning_limit(self, limit: u32) { self._warning_limit = limit; }
+
+    /// Caps the notes attached to one diagnostic. 0 = unlimited.
+    fn set_note_limit(self, limit: u32) { self._note_limit = limit; }
+
+    /// Caps the fix-its attached to one diagnostic (and to each note).
+    fn set_fixit_limit(self, limit: u32) { self._fixit_limit = limit; }
+
+    /// --quiet: standalone warnings, notes and remarks are dropped.
+    fn set_quiet(self, val: bool) { self._quiet = val; }
     fn push_suppress(self) {
         self._suppress_depth += 1;
     }
@@ -854,8 +1010,8 @@ class DiagEngine derives DiagEngineVBase {
     /// Suppresses every Warning-severity diagnostic when \p val is true (\c -w).
     fn set_suppress_all_warnings(self, val: bool) { self._suppress_all_warnings = val; }
 
-    /// Installs a per-code policy action, keyed on the numeric part of the
-    /// code (severity-letter-agnostic). Last write for a given number wins.
+    /// Installs a per-code policy action, keyed by \c diag_policy_key
+    /// (category + number, severity-letter-agnostic). Last write wins.
     fn set_policy(self, code: u32, action: DiagAction) { self._policy[code] = action; }
 
     /// Returns a copy of \p code re-tagged at \p new_sev. Used to promote a
@@ -922,6 +1078,8 @@ class DiagEngine derives DiagEngineVBase {
         self._debug_count      = 0;
         self._fatal_count      = 0;
         self._suppressed_count = 0;
+        self._error_limit_noted = false;
+        self._warn_limit_noted  = false;
     }
 
     fn has_fatal(self) -> bool       { return self._fatal_count > 0;  }

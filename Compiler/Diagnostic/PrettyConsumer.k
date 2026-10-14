@@ -17,6 +17,7 @@ import Diagnostic::Diagnostic::*;
 import Diagnostic::Consumer::*;
 import Location::SourceManager::*;
 import Support::TermRenderer::*;
+import Support::FileIO::Path::*;
 
 /// ANSI-colored diagnostic consumer.
 ///
@@ -86,6 +87,9 @@ struct DiagGroup {
 class PrettyDiagConsumer derives DiagConsumer {
     priv var _diags: vec::<obs::<Diagnostic>>;
     priv var _sm:    opt::<SourceManager>;
+    priv var _show_context: bool = true;   ///< --diag-show-context: false hides the source snippet
+    priv var _ctx_lines:    u32  = 3;      ///< --cmax-diag-context-lines: lines shown up to the caret line; 0 = no limit
+    priv var _abs_paths:    bool = false;  ///< --diag-absolute-paths
 
     // --- ANSI escape codes --------------------------------------------------
     priv var RESET:    string = "\x1b[0m";
@@ -121,6 +125,28 @@ class PrettyDiagConsumer derives DiagConsumer {
 
     fn attach_source_manager(self, sm: *SourceManager) {
         self._sm = sm;
+    }
+
+    fn configure(self, show_context: bool, ctx_lines: u32, abs_paths: bool) {
+        self._show_context = show_context;
+        self._ctx_lines    = ctx_lines;
+        self._abs_paths    = abs_paths;
+    }
+
+    /// Lines shown BEFORE the caret line. The window is _ctx_lines including
+    /// the caret line itself, so 3 (the default) is the two-line lead-in the
+    /// renderer always had. 0 is "no limit": everything above the caret.
+    priv fn ctx_before(self) -> u32 {
+        if self._ctx_lines == 0 { return 0xFFFFFF; }
+        return self._ctx_lines - 1;
+    }
+
+    /// "<...>" names are synthetic buffers, not files; never join them onto
+    /// the cwd.
+    priv fn display_path(self, p: string) -> string {
+        if (!self._abs_paths) || p.empty() { return p; }
+        if p[0] == '<' { return p; }
+        return Path(p).full_path();
     }
 
     fn finalize_to_stderr(self) {
@@ -262,7 +288,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             } else {
                 var g: DiagGroup;
                 g.key      = key;
-                g.filename = sm->get_filename(diag->loc);
+                g.filename = self.display_path(sm->get_filename(diag->loc));
                 g.line_num = loc_info.line;
                 g.diags.push_back(diag);
                 groups.push_back(g);
@@ -287,6 +313,45 @@ class PrettyDiagConsumer derives DiagConsumer {
             return f"{self.severity_color(sev)}[{(code) as string}]{RESET} ";
         }
         return f"[{(code) as string}] ";
+    }
+
+    /// Fix-it message lines and deduped child notes of a group; shared by the
+    /// snippet and the snippet-less (--diag-show-context=false) renderings.
+    priv fn render_group_tail(self, group: ref!(DiagGroup), color: bool) -> string {
+        const var NL = "\n";
+        var out: string;
+        // --- Fix-its: the edit is already shown inline on the primary line;
+        // here we only print the trailing "> fix: <message>" line.
+        for var i: usize = 0; i < group.diags.size(); ++i {
+            var diag = group.diags[i];
+            for var j: usize = 0; j < diag->fixits.size(); ++j {
+                var fi      = diag->fixits[j];
+                var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
+                out += f" > {fix_pfx}: {fi.message}" + NL;
+            }
+        }
+
+        // --- Children (deduped: identical child notes render once) --------------
+        var seen_children: vec::<string>;
+        for var i: usize = 0; i < group.diags.size(); ++i {
+            var diag = group.diags[i];
+            for var j: usize = 0; j < diag->children.size(); ++j {
+                var c = diag->children[j];
+
+                var key = f"{(c->code) as string}|{c->message}|{c->loc.id}";
+
+                var dup = false;
+                for var k: usize = 0; k < seen_children.size(); ++k {
+                    if seen_children[k] == key { dup = true; break; }
+                }
+                if dup { continue; }
+
+                seen_children.push_back(key);
+                out += self.render_single(c, color, "    ", true);
+            }
+        }
+
+        return out;
     }
 
     priv fn render_group(self, group: ref!(DiagGroup), sm: *SourceManager, color: bool) -> string {
@@ -315,7 +380,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         var sev_str  = (f"{sev_col}{BOLD}{sev_name}{RESET}") if color else sev_name;
 
         // Context window properties
-        var ctx_before: u32 = 2;
+        var ctx_before: u32 = self.ctx_before();
         var ctx_after:  u32 = 0;
         var first_line = (group.line_num - ctx_before) if (group.line_num > ctx_before) else 1;
 
@@ -343,6 +408,17 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         // Header format: "severity @ filename:line"
         out += f"{sev_str}{header_pad} @ {group.filename}:{group.line_num}" + NL;
+
+        // No snippet: one "[CODE] message" line per diagnostic, in place of the
+        // caret rows that normally carry the message.
+        if !self._show_context {
+            for var i: usize = 0; i < group.diags.size(); ++i {
+                var nd = group.diags[i];
+                out += "  " + self.code_prefix(nd->code, nd->code.severity(), color, false) + nd->message + NL;
+            }
+            out += self.render_group_tail(group, color);
+            return out + NL;
+        }
 
         // --- Build caret spans -------------------------------------------------
 
@@ -613,36 +689,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        // --- Fix-its: the edit is already shown inline on the primary line;
-        // here we only print the trailing "> fix: <message>" line.
-        for var i: usize = 0; i < group.diags.size(); ++i {
-            var diag = group.diags[i];
-            for var j: usize = 0; j < diag->fixits.size(); ++j {
-                var fi      = diag->fixits[j];
-                var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
-                out += f" > {fix_pfx}: {fi.message}" + NL;
-            }
-        }
-
-        // --- Children (deduped: identical child notes render once) --------------
-        var seen_children: vec::<string>;
-        for var i: usize = 0; i < group.diags.size(); ++i {
-            var diag = group.diags[i];
-            for var j: usize = 0; j < diag->children.size(); ++j {
-                var c = diag->children[j];
-
-                var key = f"{(c->code) as string}|{c->message}|{c->loc.id}";
-
-                var dup = false;
-                for var k: usize = 0; k < seen_children.size(); ++k {
-                    if seen_children[k] == key { dup = true; break; }
-                }
-                if dup { continue; }
-
-                seen_children.push_back(key);
-                out += self.render_single(c, color, "    ", true);
-            }
-        }
+        out += self.render_group_tail(group, color);
 
         return out + NL;
     }
@@ -680,7 +727,7 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         var sm       = self._sm;
         var loc_info = sm->get_line_col(diag->loc);
-        var filename = sm->get_filename(diag->loc);
+        var filename = self.display_path(sm->get_filename(diag->loc));
 
         // Find the maximum line width in the target labels to calculate padding
         var max_num_len = f"{loc_info.line}".length();
@@ -723,8 +770,13 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         out += indent + f"{sev_str}{header_pad} @ {filename}:{loc_info.line}" + NL;
 
-        // Render the source context snippet and label lines
-        out += self.render_labels(temp_labels, sm, indent, sev_col, color, left_pad);
+        // Render the source context snippet and label lines. With the snippet
+        // hidden the message still has to appear: it normally rides on a label.
+        if self._show_context {
+            out += self.render_labels(temp_labels, sm, indent, sev_col, color, left_pad);
+        } else {
+            out += indent + "  " + self.code_prefix(diag->code, sev, color, is_child) + diag->message + NL;
+        }
 
         for var i: usize = 0; i < diag->fixits.size(); ++i {
             var fi      = diag->fixits[i];
@@ -793,7 +845,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}";
 
             // --- leading context window (same policy as render_group) ---------
-            var ctx_before: u32 = 2;
+            var ctx_before: u32 = self.ctx_before();
             var res  = sm->resolve(label.range.start);
             var fid  = res.fid;
             var first_line = (start_lc.line - ctx_before) if (start_lc.line > ctx_before) else 1;

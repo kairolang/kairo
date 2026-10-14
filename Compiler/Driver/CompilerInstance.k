@@ -1017,7 +1017,7 @@ class CompilerInstance {
     }
 
     fn flush_errors(self) {
-        if self.invocation().diag.format == "basic" {
+        if (self.invocation().diag.format == "basic") || (self.invocation().diag.format == "json") {
             self._basic->finalize_to_stderr();
         } else {
             self._pretty->finalize_to_stderr();
@@ -1991,6 +1991,19 @@ class CompilerInstance {
         return false;
     }
 
+    /// Installs \p action for a user-spelled diagnostic code. A code the
+    /// engine cannot key (no category prefix, no digits) is reported rather
+    /// than dropped, so a typo does not look like it worked.
+    priv fn _set_code_policy(self, code: string, action: DiagAction) {
+        var key = diag_policy_key_from_string(code);
+        if key == 0 {
+            self._diag->report(DiagID::U001W,
+                f"ignoring diagnostic code '{code}\x27: expected a category and number such as R020E").emit();
+            return;
+        }
+        self._diag->set_policy(key, action);
+    }
+
     /// Maps invocation fields to live subsystem setters. Called once after
     /// the invocation is built. Fields whose subsystem does not yet exist are
     /// silently accepted stored in the invocation for future use.
@@ -1998,33 +2011,69 @@ class CompilerInstance {
         var d  = self.invocation().diag;
         var fe = self.invocation().frontend;
 
-        if d.format == "basic" {
+        // Only the formats a consumer exists for. json and msvc used to be
+        // advertised and silently rendered as pretty; msvc still has no
+        // consumer, so it is refused rather than faked.
+        if (d.format != "pretty") && (d.format != "basic") && (d.format != "json") {
+            if (d.format == "msvc") {
+                self._diag->report(DiagID::U001E, "error format 'msvc' is not implemented").emit();
+            } else {
+                self._diag->report(DiagID::U001E,
+                    f"unknown error format '{d.format}\x27 (expected pretty, basic or json)").emit();
+            }
+            self.invocation().ok = false;
+            return;
+        }
+
+        if (d.format == "basic") || (d.format == "json") {
             self._diag->remove_consumer(self._pretty);
             self._diag->add_consumer(self._basic);
+            self._basic->set_json(d.format == "json");
         }
+
+        self._basic->set_absolute_paths(d.absolute_paths);
+        self._pretty->configure(d.show_context, u32(d.max_context_lines), d.absolute_paths);
 
         if d.no_color { self._pretty->set_color(false); }
 
+        // 0 = unlimited for the error, warning and note caps (Engine honours it).
         self._diag->set_error_limit(u32(d.max_errors));
+        self._diag->set_warning_limit(u32(d.max_warnings));
+        self._diag->set_note_limit(u32(d.max_notes));
+        self._diag->set_fixit_limit(u32(d.max_suggestions));
         self._diag->set_warnings_as_errors(d.warnings_as_errors);
         self._diag->set_suppress_all_warnings(d.suppress_warnings);
 
-        // Per-code diagnostic policy. Codes are addressed by their numeric part
-        // only (severity-letter-agnostic): S025, S025W, s025 all key on 25.
-        // allow -> Silence, deny(--error/-E) -> Promote, forbid -> Forbid.
-        for c in d.allow_list  { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Silence); }
-        for c in d.deny_list   { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Promote); }
-        for c in d.forbid_list { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Forbid);  }
+        // Per-code diagnostic policy. A code is addressed by category prefix +
+        // number (severity-letter-agnostic): R020, R020E and r020w are one key,
+        // but SC005 and S005 are not. Applied in this order so the stronger
+        // intent wins on a repeated code: allow < warn < deny < forbid, i.e.
+        // `-A X -W X` leaves X enabled.
+        for c in d.allow_list  { self._set_code_policy(c, DiagAction::Silence); }
+        for c in d.warn_list   { self._set_code_policy(c, DiagAction::Warn);    }
+        for c in d.deny_list   { self._set_code_policy(c, DiagAction::Promote); }
+        for c in d.forbid_list { self._set_code_policy(c, DiagAction::Forbid);  }
+
+        // --quiet: nothing but errors. Warnings, notes and remarks are dropped
+        // at the engine; the logger stream follows so verbose chatter cannot
+        // leak around it.
+        if fe.quiet {
+            self._diag->set_quiet(true);
+            Logger::set_level(Logger::Level::Error);
+        }
 
         // Logger was initialised at Trace in main(); quiet it down unless
         // the user asked for verbose output. The stream level controls what is
         // echoed to stderr live (default Error); --verbose turns the terminal
         // into a running trace instead of something you read out of kairo.log
         // after the fact.
-        if !fe.verbose {
-            Logger::set_level(Logger::Level::Warn);
-        } else {
-            Logger::set_stream_level(Logger::Level::Info);
+        // Under --quiet the level is already pinned to Error above.
+        if !fe.quiet {
+            if !fe.verbose {
+                Logger::set_level(Logger::Level::Warn);
+            } else {
+                Logger::set_stream_level(Logger::Level::Info);
+            }
         }
 
         // After the consumers are set up, so a malformed sysroot reports in

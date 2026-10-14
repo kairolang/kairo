@@ -229,18 +229,18 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  WARNINGS & DIAGNOSTICS
 
-    cmd->define::<FlagKind::Bool>      ("Wall",               "",  "Wall",               "enable the standard set of useful warnings",                           false);
-    cmd->define::<FlagKind::Bool>      ("Wextra",             "",  "Wextra",             "enable extra warnings not covered by --Wall",                          false);
-    cmd->define::<FlagKind::Bool>      ("Wpedantic",          "",  "Wpedantic",          "strict language-conformance warnings",                                 false);
+    cmd->define::<FlagKind::Bool>      ("Wall",               "",  "Wall",               "forwarded to clang for the generated C++; no Kairo diagnostic is gated",  false);
+    cmd->define::<FlagKind::Bool>      ("Wextra",             "",  "Wextra",             "forwarded to clang for the generated C++; no Kairo diagnostic is gated",  false);
+    cmd->define::<FlagKind::Bool>      ("Wpedantic",          "",  "Wpedantic",          "forwarded to clang for the generated C++; no Kairo diagnostic is gated",  false);
     cmd->define::<FlagKind::Bool>      ("Werror",             "",  "Werror",             "treat all warnings as errors",                                         false);
     cmd->define::<FlagKind::Bool>      ("nowarn",             "w", "",                   "suppress all warnings",                                                false);
-    cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a specific diagnostic warning by name (repeatable)");
-    cmd->define::<FlagKind::StringList>("allow",              "A", "",                   "silence a specific diagnostic by name (repeatable)");
-    cmd->define::<FlagKind::StringList>("deny",               "E", "error",                   "promote a specific diagnostic to error (repeatable)");
-    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic - error, cannot be overridden downstream (repeatable)");
-    cmd->define::<FlagKind::String>    ("error-format",       "",  "error-format",       "diagnostic output format: pretty|basic|json|msvc (default: pretty)",  "pretty");
-    cmd->define::<FlagKind::Bool>      ("no-color",           "",  "no-color",           "disable ANSI color in diagnostic output",                             false);
-    cmd->define::<FlagKind::Bool>      ("diag-show-ids",      "",  "diag-show-ids",      "print DiagCode alongside every diagnostic message",                    false);
+    cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a diagnostic by code, e.g. R020E; overrides an earlier -A (repeatable)");
+    cmd->define::<FlagKind::StringList>("allow",              "A", "",                   "silence a warning, note or remark by code, e.g. R020E; errors are never silenced (repeatable)");
+    cmd->define::<FlagKind::StringList>("deny",               "E", "error",                   "promote a warning to error by code, e.g. R020E (repeatable)");
+    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "force a diagnostic to error by code, e.g. R020E; not overridable by -A or -W (repeatable)");
+    cmd->define::<FlagKind::String>    ("error-format",       "",  "error-format",       "diagnostic output format: pretty|basic|json (default: pretty)",  "pretty");
+    cmd->define::<FlagKind::Bool>      ("no-color",           "",  "no-color",           "disable ANSI color in diagnostic output (also off when stdout is not a terminal)",                         false);
+    cmd->define::<FlagKind::Bool>      ("diag-show-ids",      "",  "diag-show-ids",      "print diagnostic codes (always on; accepted for compatibility)",         false);
     cmd->define::<FlagKind::Bool>      ("diag-cascade",       "",  "diag-cascade",       "enable cascade suppression via poisoned scopes (default: on)",         true);
     cmd->define::<FlagKind::Bool>      ("diag-absolute-paths","",  "diag-absolute-paths","print absolute paths in diagnostic messages",                          false);
     cmd->define::<FlagKind::Bool>      ("diag-show-context",  "",  "diag-show-context",  "print surrounding source lines in diagnostics (default: on)",          true);
@@ -339,7 +339,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  OUTPUT VERBOSITY
 
     cmd->define::<FlagKind::Bool>  ("verbose",         "v", "verbose",        "print the linker invocation and INFO log lines",                    false);
-    cmd->define::<FlagKind::Bool>  ("quiet",           "",  "quiet",          "suppress all output except errors",                                              false);
+    cmd->define::<FlagKind::Bool>  ("quiet",           "",  "quiet",          "suppress warnings, notes and remarks; errors still print",                      false);
     cmd->define::<FlagKind::Bool>  ("suppress",        "",  "suppress",       "route all output to stderr, nothing to stdout",                                  false);
     cmd->define::<FlagKind::I32>   ("threads",         "",  "threads",        "parallelism for multi-file compilation (0 = logical CPU count)",                0, 0, 1024);
     cmd->define::<FlagKind::Bool>  ("time-passes",     "",  "time-passes",    "print per-pass timing breakdown after compilation",                              false);
@@ -414,7 +414,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("max-warnings",              "suppress warnings after N (0 = unlimited)",                                0,       0,    100000);
     cmd->define_cfg::<FlagKind::I32>("max-notes",                 "suppress notes after N per diagnostic (0 = unlimited)",                    0,       0,    100000);
     cmd->define_cfg::<FlagKind::I32>("max-diag-context-lines",    "maximum source lines shown per diagnostic caret (0 = no limit)",           3,       0,    32);
-    cmd->define_cfg::<FlagKind::I32>("max-suggestion-count",      "maximum fix-it suggestions shown per error",                               5,       0,    64);
+    cmd->define_cfg::<FlagKind::I32>("max-suggestion-count",      "maximum fix-it suggestions kept per diagnostic (0 = none)",                  5,       0,    64);
 
     //  source / lexer
     cmd->define_cfg::<FlagKind::I32>("max-file-size-mb",          "reject source files larger than this size in MB (0 = unlimited)",          256,     0,    65536);
