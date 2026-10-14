@@ -53,6 +53,7 @@ import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
+import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
@@ -355,6 +356,9 @@ class Sema {
         // error here keeps the schedule out of the lowerings, which ICE on
         // them, and that matters under --type-check-only too.
         { var _p = TimeRegion("FeatureGate"); FeatureGateCheck(&self.sc).run(); }
+        // --no-unsafe / --no-fp / --no-ffi / --cmax-* and friends: the user's
+        // own files only, over the tree as written (before any lowering).
+        { var _p = TimeRegion("FlagGates"); FlagGates(&self.sc).run(); }
         // Decision trees for every match. Last: it reads PatternChecking's
         // facts and reports (SC116E) the two tests it cannot render, and an
         // error anywhere above keeps the schedule out of the lowerings.

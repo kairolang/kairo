@@ -122,6 +122,23 @@ class SemaOptions {
 
     pub var unmatched: UnmatchedPolicy = UnmatchedPolicy::Trap; ///< what a match does with an undeclared value; MatchLowering reads it.
 
+    // -- language gates and declaration limits (FlagGates reads these) ------
+    // Defaults are "off" / unlimited so a hand-built SemaOptions (tests that
+    // skip load) never trips a gate; load() applies the real defaults.
+    pub var no_unsafe:  bool = false;  ///< --no-unsafe or -fno-unsafe.
+    pub var no_fp:      bool = false;  ///< --no-fp.
+    pub var no_ffi:     bool = false;  ///< --no-ffi.
+    pub var no_cxx:     bool = false;  ///< --no-cxx.
+    pub var no_yield:   bool = false;  ///< --no-yield.
+    pub var no_modules: bool = false;  ///< --no-modules.
+    pub var max_struct_fields:   i32 = 0;  ///< 0 = unlimited.
+    pub var max_function_params: i32 = 0;  ///< 0 = unlimited.
+    pub var max_enum_variants:   i32 = 0;  ///< 0 = unlimited.
+    pub var max_match_arms:      i32 = 0;  ///< 0 = unlimited.
+    pub var max_union_width:     i32 = 0;  ///< 0 = unlimited.
+    pub var max_interface_impls: i32 = 0;  ///< 0 = unlimited.
+    pub var max_extend_chain:    i32 = 0;  ///< 0 = unlimited.
+
     fn SemaOptions(self) { }
 
     /// Populate from the invocation. The single flag -> option boundary.
@@ -135,6 +152,23 @@ class SemaOptions {
         self.rtti              = ci->lang.rtti;
         self.max_type_alias_depth = ci->lang.max_type_alias_depth;
         self.unmatched         = ci->codegen.unmatched_policy();
+
+        // Language gates and declaration limits. -fno-unsafe is the same
+        // switch as --no-unsafe spelled as a feature, so both fold in here
+        // rather than making the pass know two spellings.
+        self.no_unsafe  = ci->lang.no_unsafe || (ci->lang.unsafe_feature == 0);
+        self.no_fp      = ci->lang.no_fp;
+        self.no_ffi     = ci->lang.no_ffi;
+        self.no_cxx     = ci->lang.no_cxx;
+        self.no_yield   = ci->lang.no_yield;
+        self.no_modules = ci->lang.no_modules;
+        self.max_struct_fields   = ci->lang.max_struct_fields;
+        self.max_function_params = ci->lang.max_function_params;
+        self.max_enum_variants   = ci->lang.max_enum_variants;
+        self.max_match_arms      = ci->lang.max_match_arms;
+        self.max_union_width     = ci->lang.max_union_width;
+        self.max_interface_impls = ci->lang.max_interface_impls;
+        self.max_extend_chain    = ci->lang.max_extend_chain;
     }
 
     /// Resolve a tri-state against its profile default.

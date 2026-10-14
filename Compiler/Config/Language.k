@@ -60,10 +60,6 @@ class LangOptions {
     pub var no_generics:     bool = false;
     pub var no_fp:           bool = false;
     pub var freestanding:    bool = false;
-    pub var no_prelude:      bool = false;
-    pub var no_stdlib:       bool = false;
-    pub var no_default_libs: bool = false;
-    pub var no_crt:          bool = false;
 
     // -- sema / type system limits (from --c* config flags) ----------------
     pub var max_generic_depth:     i32 = 256;
@@ -108,12 +104,10 @@ class LangOptions {
         (o.no_generics)     = args.get_bool("no-generics");
         (o.no_fp)           = args.get_bool("no-fp");
 
-        var fs = args.get_bool("freestanding");
-        (o.freestanding)    = fs;
-        (o.no_prelude)      = ((fs) || (args.get_bool("no-prelude")));
-        (o.no_stdlib)       = ((fs) || (args.get_bool("no-stdlib")));
-        (o.no_default_libs) = (args.get_bool("no-default-libs"));
-        (o.no_crt)          = ((fs) || (args.get_bool("no-crt")));
+        // no-prelude / no-stdlib live in PreprocessorOptions and no-crt /
+        // no-default-libs in LinkerOptions, where their consumers read them;
+        // a second copy here had no reader and could only drift.
+        (o.freestanding)    = args.get_bool("freestanding");
 
         // -- feature toggles -----------------------------------------------
         (o.verify_interfaces)   = (args.get_feature("verify-interfaces"));
