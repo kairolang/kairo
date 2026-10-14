@@ -472,6 +472,9 @@ fn register_kairo_flags(cmd: *Command) {
     //  platform-specific / embedded
     cmd->define::<FlagKind::Bool>  ("no-implicit-float",     "", "no-implicit-float",      "disallow implicit generation of float or vector instructions",            false);
     cmd->define::<FlagKind::Bool>  ("kernel-mode",           "", "kernel-mode",            "kernel code model: no red zone, no implicit float, no SSE (x86 only)",   false);
+
+    // Flags parsed and stored but consumed by nothing yet; the orchestrator fills this list.
+    cmd->mark_unimplemented("print-pass-pipeline");
 }
 
 fn register_test_flags(cmd: *Command) {

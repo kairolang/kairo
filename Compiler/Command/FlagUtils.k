@@ -105,6 +105,9 @@ class FlagDef {
     /// which for `-O main.k` would swallow the input file.
     pub var has_bare:   bool   = false;
     pub var bare_:      string = "";
+    /// Parsed and stored but no subsystem reads it yet (see
+    /// Command::mark_unimplemented): setting it warns U005W and --help tags it.
+    pub var unimplemented: bool = false;
 
     static fn bool_(key: string, short_: string, long_: string,
                     help: string, dfl: bool) -> FlagDef {

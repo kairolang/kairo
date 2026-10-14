@@ -90,3 +90,27 @@ group = "cli"
     ## how to fix
     supply the required value immediately after the flag: `--output=./bin/app` or `--output ./bin/app`.
     """
+
+[U005]
+brief = "command-line flag not yet implemented"
+group = "cli"
+
+    [U005.W]
+    explain = """
+    # flag accepted but not yet implemented
+
+    the flag is recognized, parsed and validated, but no part of the compiler consumes its value
+    yet, so passing it changes nothing about the output. this is a warning, not an error: the
+    build proceeds exactly as if the flag had been omitted.
+
+    ## example
+
+    - flag with no effect:
+    ```
+    kairo --print-pass-pipeline main.k   // parsed, but nothing prints the pipeline yet
+    ```
+
+    ## how to fix
+    remove the flag, or keep it knowing it has no effect until the feature lands.
+    `kairo --help` marks these flags with `[not implemented]`.
+    """

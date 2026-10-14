@@ -212,6 +212,43 @@ class Command {
     }
 
 
+    /// Flag the def stored under `key` as parsed-but-consumed-by-nothing. Cfg
+    /// flags are stored as "c:{name}", so pass that form for them; a Feature's
+    /// key is its bare feature name. An unknown key is ignored on purpose: the
+    /// list lives in the registry, and a typo there must not abort the compiler.
+    fn mark_unimplemented(self, key: string) {
+        for var i: usize = 0; i < self._table.size(); ++i {
+            var def = &(self._table[i]);
+            if def->key == key { def->unimplemented = true; }
+        }
+    }
+
+    /// One U005W per unimplemented flag the user actually set. Warning only:
+    /// the flag parsed fine, it just has no effect yet.
+    priv fn _warn_unimplemented(self, result: *ParsedArgs) {
+        for var i: usize = 0; i < self._table.size(); ++i {
+            var def = &(self._table[i]);
+            if (!def->unimplemented) || (!result->is_set(def->key)) { continue; }
+
+            var nm: string = "";
+            if def->kind == FlagKind::Feature {
+                nm = (f"-f{def->key}") if (result->get_feature(def->key) == 1) else (f"-fno-{def->key}");
+            } else if (def->key.length() > 2) && (def->key[0] == 'c') && (def->key[1] == ':') {
+                var bare = def->key.raw_string().substr(2);
+                nm = f"--c{bare}";
+            } else if def->long_.length() > 0 {
+                nm = f"--{def->long_}";
+            } else if def->short_.length() > 0 {
+                nm = f"-{def->short_}";
+            } else {
+                nm = f"--{def->key}";
+            }
+            self._diag->report(DiagCode(DiagID::U005W),
+                f"flag '{nm}\x27 is accepted but not yet implemented; it has no effect")
+                .emit();
+        }
+    }
+
     /// linear scan by short, long, or key - fine for CLI-sized tables
     /// key fallback lets --opt=2 find a flag defined with long_=""
     priv fn _find(self, name: string) -> *FlagDef {
@@ -433,6 +470,8 @@ class Command {
         var best_s: usize = self._no_match();
 
         for var i: usize = 0; i < names.size(); ++i {
+            // never hand back the very spelling that was just rejected
+            if names[i] == name { continue; }
             var sc = self._score(name, names[i]);
             if sc >= self._no_match() { continue; }
             // ties go to the shorter flag - it is the less surprising guess
@@ -447,22 +486,27 @@ class Command {
     }
 
 
-    priv fn _parse_i32(self, s: string, out: *i32) -> bool {
+    /// 0 = parsed, 1 = not an integer, 2 = integer outside the i32 range.
+    /// The two failures need different messages: "expects an integer" for
+    /// 99999999999 sends the user hunting for a typo that is not there.
+    /// wcstoll saturates at the i64 limits on overflow, which the i32 range
+    /// check below also rejects, so errno is not needed.
+    priv fn _parse_i32(self, s: string, out: *i32) -> i32 {
         var raw = s.raw_string();
         var ptr: *char = raw.data();
 
         var end: *char = &null;
         var v: i64 = libcxx::wcstoll(ptr, &end, 10);
 
-        if end == ptr { return false; }     // nothing parsed
-        if (*end) != '\0' { return false; }   // trailing garbage
+        if end == ptr { return 1; }     // nothing parsed
+        if (*end) != '\0' { return 1; }   // trailing garbage
 
         if (v < __inline_cpp("(libcxx::numeric_limits<i32>::min)()")) || (v > __inline_cpp("(libcxx::numeric_limits<i32>::max)()")) {
-            return false;
+            return 2;
         }
 
         (*out) = i32(v);
-        return true;
+        return 0;
     }
 
     priv fn _parse_f64(self, s: string, out: *f64) -> bool {
@@ -488,6 +532,77 @@ class Command {
         return true;
     }
 
+
+    /// how a flag is spelled in a diagnostic: `'--long'`, `'-s'`, or
+    /// `'-s' / '--long'` when both exist; cfg flags are `'--c<name>'` and
+    /// features `'-f<name>'`. Rendering `-{short}` unconditionally printed a
+    /// bare `'-'` for every long-only flag.
+    priv fn _flag_name(self, def: *FlagDef) -> string {
+        if (def->key.length() > 2) && (def->key[0] == 'c') && (def->key[1] == ':') {
+            var bare = def->key.raw_string().substr(2);
+            return f"'--c{bare}\x27";
+        }
+        if def->kind == FlagKind::Feature { return f"'-f{def->key}\x27"; }
+
+        var has_s = def->short_.length() > 0;
+        var has_l = def->long_.length() > 0;
+        if has_s && has_l { return f"'-{def->short_}' / '--{def->long_}\x27"; }
+        if has_l { return f"'--{def->long_}\x27"; }
+        if has_s { return f"'-{def->short_}\x27"; }
+        return f"'--{def->key}\x27";
+    }
+
+    /// case-insensitive compare against an already-lowercase ASCII word.
+    /// Works on code points so no char arithmetic is needed.
+    priv fn _ieq_lower(self, raw: string, word: string) -> bool {
+        if raw.length() != word.length() { return false; }
+        for var k: usize = 0; k < raw.length(); ++k {
+            var c: i32 = i32(raw[k]);
+            if (c >= 65) && (c <= 90) { c += 32; }
+            if c != i32(word[k]) { return false; }
+        }
+        return true;
+    }
+
+    /// an explicit `--flag=value` on a Bool flag. Anything outside the
+    /// accepted set used to be read as true, so `--shared=false` enabled it.
+    priv fn _apply_bool_value(self, def: *FlagDef, raw: string, result: *ParsedArgs) {
+        var cell = result->_cell(def->key);
+        if self._ieq_lower(raw, "true") || self._ieq_lower(raw, "1") || self._ieq_lower(raw, "yes") || self._ieq_lower(raw, "on") {
+            cell->set_bool(true);
+            return;
+        }
+        if self._ieq_lower(raw, "false") || self._ieq_lower(raw, "0") || self._ieq_lower(raw, "no") || self._ieq_lower(raw, "off") {
+            cell->set_bool(false);
+            return;
+        }
+        var nm = self._flag_name(def);
+        self._diag->report(DiagCode(DiagID::U003E),
+            f"invalid value '{raw}\x27 for flag {nm}; accepted: true, false, 1, 0, yes, no, on, off")
+            .emit();
+        result->ok = false;
+    }
+
+    /// `-fX=value`: a feature is a toggle pair, it takes no value.
+    priv fn _reject_feature_value(self, def: *FlagDef, raw: string, result: *ParsedArgs) {
+        var nm = self._flag_name(def);
+        self._diag->report(DiagCode(DiagID::U003E),
+            f"invalid value '{raw}\x27 for flag {nm}; a feature takes no value, use -f{def->key} or -fno-{def->key}")
+            .emit();
+        result->ok = false;
+    }
+
+    /// \brief true when a flag's help already states its default; the
+    ///        renderer must not append a second "(default: X)"
+    priv fn _contains(self, hay: string, needle: string) -> bool {
+        var n = hay.length();
+        var m = needle.length();
+        if m > n { return false; }
+        for var i: usize = 0; i + m <= n; ++i {
+            if hay.raw_string().substr(i, m) == needle.raw_string() { return true; }
+        }
+        return false;
+    }
 
     priv fn _apply(self, def: *FlagDef, raw: string, result: *ParsedArgs) {
         var cell = result->_cell(def->key);
@@ -524,16 +639,25 @@ class Command {
             }
             case FlagKind::I32 {
                 var v: i32 = 0;
-                if !self._parse_i32(raw, &v) {
+                var nm = self._flag_name(def);
+                var pst = self._parse_i32(raw, &v);
+                if pst == 1 {
                     self._diag->report(DiagCode(DiagID::U003E),
-                        f"flag '-{def->short_}' / '--{def->long_}' expects an integer, got '{raw}\x27")
+                        f"flag {nm} expects an integer, got '{raw}\x27")
+                        .emit();
+                    result->ok = false;
+                    return;
+                }
+                if pst == 2 {
+                    self._diag->report(DiagCode(DiagID::U003E),
+                        f"flag {nm} value '{raw}\x27 is out of range for a 32-bit integer")
                         .emit();
                     result->ok = false;
                     return;
                 }
                 if def->has_bounds && ((v < def->min_i) || (v > def->max_i)) {
                     self._diag->report(DiagCode(DiagID::U003E),
-                        f"flag '-{def->short_}' value {v} is out of range [{def->min_i}, {def->max_i}]")
+                        f"flag {nm} value {v} is out of range [{def->min_i}, {def->max_i}]")
                         .emit();
                     result->ok = false;
                     return;
@@ -542,16 +666,17 @@ class Command {
             }
             case FlagKind::F64 {
                 var v: f64 = 0.0;
+                var nm = self._flag_name(def);
                 if !self._parse_f64(raw, &v) {
                     self._diag->report(DiagCode(DiagID::U003E),
-                        f"flag '--{def->long_}' expects a number, got '{raw}\x27")
+                        f"flag {nm} expects a number, got '{raw}\x27")
                         .emit();
                     result->ok = false;
                     return;
                 }
                 if def->has_bounds && ((v < def->min_f) || (v > def->max_f)) {
                     self._diag->report(DiagCode(DiagID::U003E),
-                        f"flag '--{def->long_}' value {v} is out of range [{def->min_f}, {def->max_f}]")
+                        f"flag {nm} value {v} is out of range [{def->min_f}, {def->max_f}]")
                         .emit();
                     result->ok = false;
                     return;
@@ -600,10 +725,25 @@ class Command {
             }
 
             if gstate == GlobalState::AwaitValue {
-                self._apply(pending, elem, &result);
-                gstate  = GlobalState::Normal;
-                pending = &null;
-                i += 1; continue;
+                // A dash-led element is the next flag, not this one's value: taking it
+                // swallowed `-o` in `--xray -o out` and then parsed the old output as
+                // a source file. Bare '-' stays a legal value (stdin); a value that
+                // really starts with '-' is spelled `--flag=-value`.
+                if (elen > 1) && (elem[0] == '-') {
+                    var pnm = self._flag_name(pending);
+                    self._diag->report(DiagCode(DiagID::U004E),
+                        f"flag {pnm} requires a value but none was provided")
+                        .emit();
+                    result.ok = false;
+                    gstate  = GlobalState::Normal;
+                    pending = &null;
+                    // fall through: reprocess this element as a flag
+                } else {
+                    self._apply(pending, elem, &result);
+                    gstate  = GlobalState::Normal;
+                    pending = &null;
+                    i += 1; continue;
+                }
             }
 
             if elen == 0 { i += 1; continue; }
@@ -640,7 +780,11 @@ class Command {
                     }
 
                     if j < elen { // '--flag=value'
-                        self._apply(def, elem.raw_string().substr(j + 1), &result);
+                        if def->kind == FlagKind::Bool {
+                            self._apply_bool_value(def, elem.raw_string().substr(j + 1), &result);
+                        } else {
+                            self._apply(def, elem.raw_string().substr(j + 1), &result);
+                        }
                     } else if def->kind == FlagKind::Bool {
                         self._apply(def, "", &result);
                     } else {
@@ -660,6 +804,7 @@ class Command {
                     if (def == &null) && (name.length() > 4) && (name.substr(0, 4) == "fno-".raw_string()) {
                         var feat = self._find_feature(name.substr(4));
                         if feat != &null {
+                            if j < elen { self._reject_feature_value(feat, elem.raw_string().substr(j + 1), &result); i += 1; continue; }
                             self._apply_feature(feat, false, &result); // -fno-X -> disable
                             i += 1; continue;
                         }
@@ -667,6 +812,7 @@ class Command {
                     if (def == &null) && (name.length() > 1) && (name[0] == 'f') {
                         var feat = self._find_feature(name.substr(1));
                         if feat != &null {
+                            if j < elen { self._reject_feature_value(feat, elem.raw_string().substr(j + 1), &result); i += 1; continue; }
                             self._apply_feature(feat, true, &result); // -fX -> enable
                             i += 1; continue;
                         }
@@ -682,8 +828,17 @@ class Command {
                         i += 1; continue;
                     }
 
-                    if j < elen { // explicit '=value' overrides any joined suffix
-                        self._apply(def, elem.raw_string().substr(j + 1), &result);
+                    if j < elen { // explicit '=value'
+                        var evalue: string = elem.raw_string().substr(j + 1);
+                        if def->kind == FlagKind::Bool {
+                            self._apply_bool_value(def, evalue, &result);
+                        } else if (joined.length() > 0) && ((def->kind == FlagKind::String) || (def->kind == FlagKind::StringList) || (def->kind == FlagKind::Path)) {
+                            // `-DFOO=7` splits to `-D` + "FOO" and then `=7`: the pair is one
+                            // value "FOO=7", not "7" overwriting the name.
+                            self._apply(def, f"{joined}={evalue}", &result);
+                        } else {
+                            self._apply(def, evalue, &result);
+                        }
                     } else if def->kind == FlagKind::Bool {
                         self._apply(def, "", &result);
                     } else if joined.length() > 0 { // joined value from prefix split, e.g. -O2
@@ -751,7 +906,14 @@ class Command {
                         self._diag->report(DiagCode(DiagID::U002E), msg).emit();
                         result.ok = false;
                     } else if j < elen {
-                        self._apply(def, elem.raw_string().substr(j + 1), &result);
+                        var evalue: string = elem.raw_string().substr(j + 1);
+                        if def->kind == FlagKind::Bool {
+                            self._apply_bool_value(def, evalue, &result);
+                        } else if (joined.length() > 0) && ((def->kind == FlagKind::String) || (def->kind == FlagKind::StringList) || (def->kind == FlagKind::Path)) {
+                            self._apply(def, f"{joined}={evalue}", &result);
+                        } else {
+                            self._apply(def, evalue, &result);
+                        }
                     } else if def->kind == FlagKind::Bool {
                         self._apply(def, "", &result);
                     } else if joined.length() > 0 {
@@ -800,8 +962,9 @@ class Command {
 
         // dangling AwaitValue: ran out before the value arrived
         if gstate == GlobalState::AwaitValue && pending != &null {
+            var pnm = self._flag_name(pending);
             self._diag->report(DiagCode(DiagID::U004E),
-                f"flag '-{pending->short_}' / '--{pending->long_}' requires a value but none was provided")
+                f"flag {pnm} requires a value but none was provided")
                 .emit();
             result.ok = false;
         }
@@ -842,7 +1005,9 @@ class Command {
             return result;
         }
 
-        return self._parse_impl(self._args);
+        var result = self._parse_impl(self._args);
+        self._warn_unimplemented(&result);
+        return result;
     }
     
     /// \brief split a space-separated string and parse (convenience for tests)
@@ -862,7 +1027,9 @@ class Command {
             }
         }
 
-        return self._parse_impl(args);
+        var result = self._parse_impl(args);
+        self._warn_unimplemented(&result);
+        return result;
     }
 
 
@@ -927,9 +1094,12 @@ class Command {
             }
 
             var rhs: string = def->help;
+            // Many help strings already state their default ("(default: X)",
+            // "-O0 (default)"); appending the rendered one printed it twice.
+            var help_has_default = self._contains(def->help, "(default");
             if def->default_.is_required {
                 rhs += " (required)";
-            } else {
+            } else if !help_has_default {
                 switch def->kind {
                     case FlagKind::Bool {
                         // only note if default is non-obvious (true)
@@ -945,6 +1115,7 @@ class Command {
                     default {} // Feature, StringList - no default shown
                 }
             }
+            if def->unimplemented { rhs += " [not implemented]"; }
 
             if lhs.length() < COL {
                 while lhs.length() < COL { lhs += ' '; }
