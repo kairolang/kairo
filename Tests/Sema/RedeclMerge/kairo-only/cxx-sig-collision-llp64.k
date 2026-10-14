@@ -2,7 +2,7 @@
 // (the EXPECT-ERROR line numbers depend on it: the code starts on line 14
 // there and here).
 //
-// LLP64: size_t and uint64_t are both `unsigned long long`, so the pair is
+// On LLP64, size_t and uint64_t are both `unsigned long long`, so the pair is
 // ONE C++ function here too, spelled `long long`. mingw rather than msvc:
 // the run needs that target's headers, and the bundled set ships windows-gnu.
 // REQUIRES: sysroot-x86_64-windows-gnu
