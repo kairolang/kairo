@@ -57,6 +57,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::InstantiationRegistry::*;
@@ -135,6 +136,14 @@ class <T> CallTyping {
         if (a.ty == &null) && (!e->is_poisoned()) { a.dependent = true; }
         a.cat      = e->value_category;          // set by the typer's finish (paren copies its inner).
         a.is_const = self._const_lvalue(e);
+        // Passing a MOVE value moves it: the type decides, not the
+        // expression, and Kairo has no std::move to write. So a MOVE lvalue
+        // binds as the xvalue C++ would need: `v.push_back(m)` takes
+        // push_back(T&&), and MoveCheck counts the call as the move. A const
+        // one cannot be moved from and stays an lvalue.
+        if (a.cat == Expr::ValueCategory::LValue) && (!a.is_const) && moves_on_pass(dyn()->sc, a.ty) {
+            a.cat = Expr::ValueCategory::XValue;
+        }
         return a;
     }
 

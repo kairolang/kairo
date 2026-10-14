@@ -815,6 +815,11 @@ class EmitIR {
         if (wu != &null) && isa::<CXXLValueRefType>(wu) {
             if canon_unqual(have) == canon_unqual(cast::<CXXLValueRefType>(wu)->referee) { return false; }
         }
+        // `T&&` from a prvalue of T binds as it is. Only an lvalue Sema let
+        // bind there (a MOVE value: CallTyping::arg_info) needs the cast.
+        if (wu != &null) && isa::<CXXRValueRefType>(wu) && (e->value_category == Expr::ValueCategory::RValue) {
+            if canon_unqual(have) == canon_unqual(cast::<CXXRValueRefType>(wu)->referee) { return false; }
+        }
         // A record by value is copy-constructed; `static_cast<Rec>(x)` is a
         // temporary and changes value category. Records go as they are.
         if canon_unqual(w)->kind == TypeKind::RecordType { return false; }

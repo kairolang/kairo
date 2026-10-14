@@ -1278,3 +1278,15 @@ fn lifecycle_of(sc: *SemaContext) -> *ClassLifecycle {
     }
     return reinterpret_cast::<*ClassLifecycle>(sc->lifecycle);
 }
+
+/// \p t is a record whose category is MOVE, so passing a value of it moves
+/// the value (Doc: Ownership, Function Parameters). Overload resolution
+/// binds such an lvalue as an xvalue and MoveCheck counts the move, both
+/// from this one answer. A category that hangs on a generic parameter is
+/// not MOVE here; the instance decides.
+fn moves_on_pass(sc: *SemaContext, t: *Type) -> bool {
+    if t == &null { return false; }
+    var d = TypeUtil(sc).record_decl(t);
+    if (d == &null) || isa::<InterfaceDecl>(d) { return false; }
+    return lifecycle_of(sc)->facts_of(d)->category == LifecycleCategory::Move;
+}
