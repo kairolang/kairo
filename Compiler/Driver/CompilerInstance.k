@@ -259,6 +259,29 @@ class FrontendAction {
     priv fn _dump_mem_stats(self);
 }
 
+/// \p s as one shell word: unchanged when no shell would split or expand
+/// it, otherwise in single quotes, each quote inside spelled '\''.
+fn _shell_quote(s: string) -> string {
+    if s.empty() { return "\x27\x27"; }
+    var r = s.raw_string();
+    var plain = true;
+    for var i: usize = 0; i < r.size(); ++i {
+        var c = r[i];
+        var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')) || ((c >= '0') && (c <= '9'))
+              || (c == '-') || (c == '_') || (c == '=') || (c == '/') || (c == '.') || (c == ',')
+              || (c == ':') || (c == '+') || (c == '@') || (c == '%');
+        if !ok { plain = false; break; }
+    }
+    if plain { return s; }
+    var out: string = "\x27";
+    for var i: usize = 0; i < r.size(); ++i {
+        if r[i] == static_cast::<char>(39) { out = out + "\x27\\\x27\x27"; continue; }
+        var one: string = r.substr(i, 1);
+        out = out + one;
+    }
+    return out + "\x27";
+}
+
 /// Shared resource hub for a single compilation.
 ///
 /// Owns all subsystems and drives \c FrontendAction execution via
@@ -969,6 +992,10 @@ class CompilerInstance {
             return self.print_dirs();
         }
 
+        if self.invocation().args.get_bool("print-clang-args") {
+            return self.print_clang_args();
+        }
+
         if self.invocation().args.get_bool("print-cfg") {
             for s: string in self.invocation().args.get_list("cfg") { std::print(s); }
             return 0;
@@ -1033,6 +1060,63 @@ class CompilerInstance {
         }
     }
 
+    /// \brief the shared clang backend's configuration, from the
+    ///        invocation: target, header roots, optimization and debug
+    ///        info, the user's -W policy. initialize builds the backend from
+    ///        it; --print-clang-args prints what it makes.
+    priv fn _backend_config(self) -> ClangBackendConfig {
+        var bcfg = ClangBackendConfig{};
+        (bcfg.triple) = self._effective_triple();
+        (bcfg.wargs)  = _clang_wargs_from_policy(self.invocation().diag);
+
+        // The target flags clang has a spelling for. Parsed into the
+        // invocation long before this; until they are copied here they reach
+        // nothing -- `--sysroot` used to be accepted and silently dropped.
+        var tgt = self.invocation().target;
+        if !tgt.cxx_std.empty() { (bcfg.cxx_std) = tgt.cxx_std; }
+        if !tgt.mcpu.empty() {
+            bcfg.extra_cc1.push_back("-target-cpu");
+            bcfg.extra_cc1.push_back(tgt.mcpu);
+        }
+        if tgt.pic_level > 0 {
+            bcfg.extra_cc1.push_back("-mrelocation-model");
+            bcfg.extra_cc1.push_back("pic");
+            bcfg.extra_cc1.push_back("-pic-level");
+            bcfg.extra_cc1.push_back(f"{tgt.pic_level}");
+        }
+        // User header dirs for C++ interop: both flags name directories clang
+        // searches for an ffi header, ahead of the system roots.
+        for d: string in self.invocation().ffi_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
+        for d: string in self.invocation().cxx_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
+        // The runtime root, after the user's: `rt/fmt.h` names the same file
+        // from Lib/builtin/fmt.k (an ffi header set copies this invocation)
+        // and from Lib/rt/fmt.c (compile_native shares these arguments).
+        var rt_root = self._runtime_root();
+        if !rt_root.empty() { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(rt_root); }
+        // The two header-search roots, exactly as given: no discovery. With
+        // neither, clang searches no system headers at all (see the model in
+        // ClangBackend::_startup_locked), which is the honest answer.
+        (bcfg.sysroot)      = tgt.sysroot;
+        (bcfg.resource_dir) = tgt.resource_dir;
+        self._sysroot_header_roots(bcfg);
+        // One optimization level for the whole build: ClangBackend applies
+        // it to the invocation every compile copies.
+        var cgo = self.invocation().codegen;
+        (bcfg.opt_level) = cgo.opt_level;
+        if cgo.opt_size_z    { (bcfg.opt_size) = 2; }
+        else if cgo.opt_size { (bcfg.opt_size) = 1; }
+        (bcfg.vectorize) = cgo.f_vectorize != 0;
+        // -g0 wins over -g wherever it sits. --dwarf-version always has a
+        // value (default 5), so it cannot say whether DWARF was asked for;
+        // on MSVC it is left out and the driver emits CodeView, which is
+        // what link.exe-style PDBs need.
+        (bcfg.debug_info)   = (cgo.debug_info) && (!cgo.no_debug_info);
+        (bcfg.debug_macros) = cgo.debug_macros;
+        (bcfg.embed_source) = cgo.embed_source;
+        if !Toolchain::is_msvc(bcfg.triple) { (bcfg.dwarf_version) = cgo.dwarf_version; }
+        return bcfg;
+    }
+
     fn initialize(self, cwd: Path) {
         {
             var _t = TimeRegion("ImportIndex");
@@ -1086,55 +1170,7 @@ class CompilerInstance {
         // Built BEFORE the PreProcessor now: the PP hands every file's ffi
         // header list to the HeaderSetCache, whose builds copy this backend's
         // invocation.
-        var bcfg = ClangBackendConfig{};
-        (bcfg.triple) = self._effective_triple();
-        (bcfg.wargs)  = _clang_wargs_from_policy(self.invocation().diag);
-
-        // The target flags clang has a spelling for. Parsed into the
-        // invocation long before this; until they are copied here they reach
-        // nothing -- `--sysroot` used to be accepted and silently dropped.
-        var tgt = self.invocation().target;
-        if !tgt.cxx_std.empty() { (bcfg.cxx_std) = tgt.cxx_std; }
-        if !tgt.mcpu.empty() {
-            bcfg.extra_cc1.push_back("-target-cpu");
-            bcfg.extra_cc1.push_back(tgt.mcpu);
-        }
-        if tgt.pic_level > 0 {
-            bcfg.extra_cc1.push_back("-mrelocation-model");
-            bcfg.extra_cc1.push_back("pic");
-            bcfg.extra_cc1.push_back("-pic-level");
-            bcfg.extra_cc1.push_back(f"{tgt.pic_level}");
-        }
-        // User header dirs for C++ interop: both flags name directories clang
-        // searches for an ffi header, ahead of the system roots.
-        for d: string in self.invocation().ffi_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
-        for d: string in self.invocation().cxx_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
-        // The runtime root, after the user's: `rt/fmt.h` names the same file
-        // from Lib/builtin/fmt.k (an ffi header set copies this invocation)
-        // and from Lib/rt/fmt.c (compile_native shares these arguments).
-        var rt_root = self._runtime_root();
-        if !rt_root.empty() { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(rt_root); }
-        // The two header-search roots, exactly as given: no discovery. With
-        // neither, clang searches no system headers at all (see the model in
-        // ClangBackend::_startup_locked), which is the honest answer.
-        (bcfg.sysroot)      = tgt.sysroot;
-        (bcfg.resource_dir) = tgt.resource_dir;
-        self._sysroot_header_roots(bcfg);
-        // One optimization level for the whole build: ClangBackend applies
-        // it to the invocation every compile copies.
-        var cgo = self.invocation().codegen;
-        (bcfg.opt_level) = cgo.opt_level;
-        if cgo.opt_size_z    { (bcfg.opt_size) = 2; }
-        else if cgo.opt_size { (bcfg.opt_size) = 1; }
-        (bcfg.vectorize) = cgo.f_vectorize != 0;
-        // -g0 wins over -g wherever it sits. --dwarf-version always has a
-        // value (default 5), so it cannot say whether DWARF was asked for;
-        // on MSVC it is left out and the driver emits CodeView, which is
-        // what link.exe-style PDBs need.
-        (bcfg.debug_info)   = (cgo.debug_info) && (!cgo.no_debug_info);
-        (bcfg.debug_macros) = cgo.debug_macros;
-        (bcfg.embed_source) = cgo.embed_source;
-        if !Toolchain::is_msvc(bcfg.triple) { (bcfg.dwarf_version) = cgo.dwarf_version; }
+        var bcfg = self._backend_config();
 
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 
@@ -1463,6 +1499,29 @@ class CompilerInstance {
         // engine; without this a failed resolve exits 1 silently.
         self.flush_errors();
         return (0) if (ok) else (1);
+    }
+
+    //  --print-clang-args
+
+    /// Prints the cc1 invocation every compile copies, as one shell line:
+    /// `clang -cc1` and the arguments, each quoted when the shell would
+    /// split or expand it. The input is a placeholder; a real compile hands
+    /// clang each TU as an in-memory buffer. Builds the backend's
+    /// configuration and starts nothing.
+    fn print_clang_args(self) -> i32 {
+        // A failed parse leaves the invocation at its defaults, so the line
+        // would show a target and level the user did not ask for.
+        if !self.args_ok() {
+            self.flush_errors();
+            return 1;
+        }
+        var be   = std::create::<ClangBackend>(self._sm, self._backend_config());
+        var line = "clang -cc1";
+        for a: string in be->invocation_args() { line = line + " " + _shell_quote(a); }
+        std::destroy(be);
+        std::print(line);
+        self.flush_errors();
+        return 0;
     }
 
     fn execute(self) -> BatchResult {

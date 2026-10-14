@@ -434,6 +434,39 @@ class ClangBackend {
 
     // --- Internals -----------------------------------------------------------
 
+    /// The cc1 argv of the shared invocation, which every compile copies.
+    /// One builder for _startup_locked and invocation_args, so what
+    /// --print-clang-args shows is what runs.
+    priv fn _shared_argv(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>) {
+        self._cc1_common(argv, false);
+        self._arg(argv, f"-std={self._cfg.cxx_std}");
+
+        // Placeholder input; per-TU runs replace FrontendOpts.Inputs with the
+        // injected in-memory buffer before ExecuteAction.
+        self._arg(argv, "-x");
+        self._arg(argv, "c++");
+        self._arg(argv, "<injected>");
+    }
+
+    /// \brief the shared invocation's cc1 arguments, for --print-clang-args.
+    ///
+    /// \details the argv _startup_locked parses, then each configured
+    ///          -include, which the backend hands to the preprocessor options
+    ///          directly and cc1 would take as the flag. Nothing is started.
+    fn invocation_args(self) -> vec::<string> {
+        var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
+        self._shared_argv(&argv);
+        var out = vec::<string>();
+        for var i: usize = 0; i < argv.size(); ++i {
+            out.push_back(std::nstring_to_string(libcxx::string(argv[i])));
+        }
+        for inc: string in self._cfg.includes {
+            out.push_back("-include");
+            out.push_back(inc);
+        }
+        return out;
+    }
+
     priv fn _arg(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, s: string) {
         self._owned.push_back(libcxx::string(std::string_to_nstring(s).raw_string()));
         argv->push_back(self._owned.back().c_str());
@@ -677,14 +710,7 @@ class ClangBackend {
         // come from CreateFromArgs instead of hand-set option fields.
         var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
 
-        self._cc1_common(&argv, false);
-        self._arg(&argv, f"-std={self._cfg.cxx_std}");
-
-        // Placeholder input; per-TU runs replace FrontendOpts.Inputs with the
-        // injected in-memory buffer before ExecuteAction.
-        self._arg(&argv, "-x");
-        self._arg(&argv, "c++");
-        self._arg(&argv, "<injected>");
+        self._shared_argv(&argv);
 
         self._cinv = libcxx::make_shared::<clang::CompilerInvocation>();
 
