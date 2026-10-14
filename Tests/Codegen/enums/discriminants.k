@@ -36,9 +36,10 @@ fn main() -> i32 {
 // CXX-NEXT:     Read = 1, Write = 2, Exec = 4, RW = 3, };
 // CXX:      enum class Mixed : unsigned int {
 // CXX-NEXT:     Ok = 200, NotFound = 404, Teapot = 405, Wrapped = 44, Masked = 255, };
-// CXX:      enum class Wide : signed long {
+// i64/u64 are `long` or `long long` by target (Codegen/target_int64.k).
+// CXX:      enum class Wide : signed long{{( long)?}} {
 // CXX-NEXT:     Min ={{ ?}}(-{{ ?}}9223372036854775807 - 1), AfterMin = -{{ ?}}9223372036854775807, Neg = -{{ ?}}5, };
-// CXX:      enum class Huge : unsigned long {
+// CXX:      enum class Huge : unsigned long{{( long)?}} {
 // CXX-NEXT:     Max = 18446744073709551615u, Top = 18446744073709551614u, };
 // CXX:      enum class Plain : unsigned int {
 // CXX-NEXT:     A, B, C, };

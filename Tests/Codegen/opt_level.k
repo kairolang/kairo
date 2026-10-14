@@ -16,11 +16,13 @@ fn main() -> i32 {
 // RUN: %kairo %s -c --cache-dir %t.o0
 // RUN: %kairo %s -c -O2 --cache-dir %t.o2
 
-// At -O0 the helper stays a call.
-// RUN: objdump -dr --no-show-raw-insn %t.o0/opt_level.o | awk '/<main>:/,/^$/' | grep -q call
+// At -O0 the helper stays a call (`bl` on arm64; `_main` on Mach-O, where the
+// assembler's ltmp0 shares the first function's address, so every symbol
+// there is printed and the awk range still finds the real one).
+// RUN: llvm-objdump --show-all-symbols -dr --no-show-raw-insn %t.o0/opt_level.o | awk '/<_?main>:/,/^$/' | grep -qE 'call|[[:space:]]bl[[:space:]]'
 
 // At -O2 it is inlined and the loop folds away: no call left in main.
-// RUN: objdump -dr --no-show-raw-insn %t.o2/opt_level.o | awk '/<main>:/,/^$/' | { ! grep -q call; }
+// RUN: llvm-objdump --show-all-symbols -dr --no-show-raw-insn %t.o2/opt_level.o | awk '/<_?main>:/,/^$/' | { ! grep -qE 'call|[[:space:]]bl[[:space:]]'; }
 
 // -O4 and -Ofast are not levels; the error names the accepted set.
 // RUN: { %kairo %s -O4 2>&1 || true; } | %FileCheck %s --check-prefix=BADO

@@ -18,12 +18,13 @@ fn main() -> i32 {
 
 // The consumer defines both inline functions itself: weak definitions, not
 // undefined references. U here would mean it still calls into lib's object.
-// RUN: nm %t.d/main.o | grep -E ' W .*is_open'
-// RUN: nm %t.d/main.o | grep -E ' W .*twice'
+// ELF nm marks them W; Mach-O nm only says so under -m ("weak external").
+// RUN: nm %t.d/main.o | grep -E ' W .*is_open' || nm -m %t.d/main.o | grep -E 'weak external .*is_open'
+// RUN: nm %t.d/main.o | grep -E ' W .*twice' || nm -m %t.d/main.o | grep -E 'weak external .*twice'
 
 // At -O2 they inline away.
 // RUN: %kairo %s -c -O2 --cache-dir %t.o2
-// RUN: objdump -dr --no-show-raw-insn %t.o2/main.o | awk '/<main>:/,/^$/' | { ! grep -q call; }
+// RUN: llvm-objdump --show-all-symbols -dr --no-show-raw-insn %t.o2/main.o | awk '/<_?main>:/,/^$/' | { ! grep -qE 'call|[[:space:]]bl[[:space:]]'; }
 
 // The header carries the inline bodies too, after the class definition and
 // outside it, so the class text is unchanged.

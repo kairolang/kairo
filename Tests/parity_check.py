@@ -111,8 +111,11 @@ def oracle_argv(clang, kairo_argv, cpp):
     argv = [clang, "-fsyntax-only", "-std=c++26", "-x", "c++"]
     if sysroot:
         root, dirs, defines = sysroot_header_roots(sysroot)
-        cxx_dirs = [d for d in dirs if "/c++/" in d]
-        c_dirs   = [d for d in dirs if "/c++/" not in d]
+        # Same split as CompilerInstance::_sysroot_header_roots; slashes
+        # normalised so an os.path.join on Windows cannot hide the marker.
+        is_cxx   = lambda d: "/c++/" in d.replace("\\", "/")
+        cxx_dirs = [d for d in dirs if is_cxx(d)]
+        c_dirs   = [d for d in dirs if not is_cxx(d)]
         argv += ["-nostdinc++", "-nostdlibinc", "-isysroot", root]
         for d in cxx_dirs:
             argv += ["-isystem", d]

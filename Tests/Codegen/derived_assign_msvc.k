@@ -41,7 +41,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-windows-msvc
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -c --target=x86_64-pc-windows-msvc --cache-dir %t.d
 // RUN: test -f %t.d/derived_assign_msvc.o

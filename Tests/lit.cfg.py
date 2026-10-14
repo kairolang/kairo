@@ -154,8 +154,46 @@ kairo_roots = _clang_roots()
 # --sysroot above (CompilerInstance::_use_bundled_sysroot). Tests that compile
 # for another target's C library need that directory, and fail with a
 # confusing typedef clash rather than skip without it.
-if os.path.isdir(os.path.join(os.path.dirname(os.path.dirname(kairo_bin)), "sysroot")):
+#
+# One feature per bundled sysroot, from the triple its SYSROOT.toml names
+# with the vendor dropped: sysroot-x86_64-linux-gnu, sysroot-wasm32-wasi,
+# sysroot-x86_64-windows-msvc, sysroot-arm64-macosx (and -aarch64- for the
+# same dir). A test that compiles for a target says `REQUIRES: sysroot-<t>`
+# and is UNSUPPORTED, not failed, where that sysroot is not shipped -- the
+# msvc and Apple ones are not redistributable, so most machines lack them.
+# `bundled-sysroot` alone still says the directory exists at all.
+_bundle = os.path.join(os.path.dirname(os.path.dirname(kairo_bin)), "sysroot")
+_VENDORS = {"unknown", "pc", "apple", "w64", "none"}
+
+def _sysroot_features(triple):
+    c = triple.split("-")
+    if len(c) < 2:
+        return []
+    arch, rest = c[0], c[1:]
+    # arch-vendor-os[-env] vs arch-os[-env]: the second slot is a vendor only
+    # if it is a known one and something follows it.
+    if len(rest) >= 2 and rest[0] in _VENDORS:
+        rest = rest[1:]
+    key = "-".join([arch] + rest)
+    out = ["sysroot-" + key]
+    alias = {"arm64": "aarch64", "aarch64": "arm64"}.get(arch)
+    if alias:
+        out.append("sysroot-" + "-".join([alias] + rest))
+    return out
+
+if os.path.isdir(_bundle):
     config.available_features.add("bundled-sysroot")
+    for _d in sorted(os.listdir(_bundle)):
+        _m = os.path.join(_bundle, _d, "SYSROOT.toml")
+        if not os.path.isfile(_m):
+            continue
+        _triple = ""
+        for _line in open(_m, encoding="utf-8"):
+            if _line.split("#", 1)[0].strip().startswith("triple"):
+                _triple = _line.split("=", 1)[1].strip().strip('"')
+                break
+        for _f in _sysroot_features(_triple or _d):
+            config.available_features.add(_f)
 
 config.substitutions.append(("%kairo", kairo_bin + " --error-format=basic" + kairo_roots))
 
@@ -169,7 +207,7 @@ _host_os = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(
 config.available_features.add("host-" + _host_os)
 import platform as _platform
 _host_arch = {"x86_64": "x86_64", "amd64": "x86_64", "AMD64": "x86_64",
-              "arm64": "aarch64", "aarch64": "aarch64"}.get(
+              "arm64": "aarch64", "aarch64": "aarch64", "ARM64": "aarch64"}.get(
     _platform.machine(), _platform.machine())
 config.available_features.add("host-" + _host_arch)
 
@@ -177,13 +215,15 @@ config.available_features.add("host-" + _host_arch)
 # Tests guard a parser that could hang with `timeout 10 %kairo ...; test $? -ne
 # 124`. macOS ships no `timeout` (Homebrew coreutils has `gtimeout`), and a
 # missing command fails the test with "command not found" -- which says nothing
-# about kairo. Prepend a shim dir to the tests' PATH: a symlink to gtimeout
-# where there is one, else a Python stand-in with the same exit code contract.
-if not shutil.which("timeout"):
+# about kairo. Windows HAS a `timeout.exe`, and it is a sleep command, so it is
+# treated as missing. Prepend a shim dir to the tests' PATH: a symlink to
+# gtimeout where there is one, else a Python stand-in with the same exit code
+# contract (tests run under a POSIX shell, so the shebang is honoured).
+if sys.platform == "win32" or not shutil.which("timeout"):
     _shim_dir = os.path.join(config.test_exec_root, "Output", ".lit-bin")
     os.makedirs(_shim_dir, exist_ok=True)
     _shim = os.path.join(_shim_dir, "timeout")
-    _gtimeout = shutil.which("gtimeout")
+    _gtimeout = shutil.which("gtimeout") if sys.platform != "win32" else None
     if _gtimeout:
         if os.path.islink(_shim) or os.path.exists(_shim):
             os.remove(_shim)

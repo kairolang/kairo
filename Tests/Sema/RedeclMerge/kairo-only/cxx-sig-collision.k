@@ -5,7 +5,7 @@
 // distinct Kairo signatures that lower to one C++ signature are an error at
 // the second decl (RedeclMerge::_check_cxx_collision).
 //
-// Assumes a 64-bit target (lit runs on the host).
+// Assumes a 64-bit target; every RUN below pins one.
 //
 // EXPECT-ERROR: 15: cxx-signature-collision (u64 / usize)
 // EXPECT-ERROR: 18: cxx-signature-collision (i64 / isize, second param agrees)
@@ -27,8 +27,19 @@ class C {
 // absolute LINE NUMBERS in the code, so anything inserted above the code
 // silently invalidates them.
 //
+// The collision is a TARGET fact: `usize` emits as size_t and `u64` as the
+// target's uint64_t, and those are one C++ type on LP64 Linux (`unsigned
+// long` both) and LLP64 Windows (`unsigned long long` both), but two on
+// Darwin -- LP64 with a `long long` int64_t, so size_t stays `unsigned
+// long` and f(u64) / f(usize) are two overloads there. The run pins its
+// target rather than reading the host: an Apple-silicon host would
+// otherwise expect a diagnostic the compiler is right not to give. The
+// LLP64 and Darwin sides are cxx-sig-collision-llp64.k / -darwin.k, gated
+// on the sysroots they need. A Linux host's own headers serve this one.
+// REQUIRES: host-linux || sysroot-x86_64-linux-gnu
+//
 // Error at the SECOND decl, note at the first, and the C++ signature named.
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
+// RUN: { %kairo %s --type-check-only --target=x86_64-unknown-linux-gnu 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // The C++ signature is spelled with BUILTIN types, not the <cstdint>
 // typedefs: an emitted interface that named ::std::uint64_t would drag
 // <cstdint> into every C++ consumer of it. The collision is the same one

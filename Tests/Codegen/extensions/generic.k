@@ -47,12 +47,13 @@ fn main() -> i32 {
 // CXX:      return::generic::Cell<U> {
 // CXX:      template<class T>::generic::Cell<T> __kairo_ext_Cell::make(T v) {
 // CXX-NEXT: return::generic::Cell<T> {
-// CXX:      ::generic::__kairo_ext_Cell::make<signed long>(0);
-// CXX:      ::generic::__kairo_ext_Cell::map<signed long, double>((& a), ::generic::halve);
-// CXX:      template void({{ *}}::generic::__kairo_ext_Cell::put<signed long>)(
-// CXX:      template signed long({{ *}}::generic::__kairo_ext_Cell::get<signed long>)(
-// CXX:      template::generic::Cell<double>({{ *}}::generic::__kairo_ext_Cell::map<signed long, double>)(const::generic::Cell<signed long> *, double(*)(signed long));
-// CXX:      template::generic::Cell<signed long>({{ *}}::generic::__kairo_ext_Cell::make<signed long>)(signed long);
+// i64 is `long` or `long long` by target (Codegen/target_int64.k).
+// CXX:      ::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>(0);
+// CXX:      ::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>((& a), ::generic::halve);
+// CXX:      template void({{ *}}::generic::__kairo_ext_Cell::put<signed long{{( long)?}}>)(
+// CXX:      template signed long{{( long)?}}({{ *}}::generic::__kairo_ext_Cell::get<signed long{{( long)?}}>)(
+// CXX:      template::generic::Cell<double>({{ *}}::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>)(const::generic::Cell<signed long{{( long)?}}> *, double(*)(signed long{{( long)?}}));
+// CXX:      template::generic::Cell<signed long{{( long)?}}>({{ *}}::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>)(signed long{{( long)?}});
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

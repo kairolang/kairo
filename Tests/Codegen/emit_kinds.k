@@ -9,9 +9,10 @@ fn main() -> i32 { return add(40, 2) }
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.both
 // RUN: %kairo %s --emit=asm,llvm-ir,llvm-bc --cache-dir %t.d
-// RUN: grep -q '^main:' %t.d/emit_kinds.s
+// RUN: grep -qE '^_?main:' %t.d/emit_kinds.s
 // RUN: grep -q 'define .*@main' %t.d/emit_kinds.ll
-// RUN: od -An -c -N4 %t.d/emit_kinds.bc | grep -q 'B   C'
+// Raw bitcode starts with BC; Darwin wraps it in a 20-byte header first.
+// RUN: od -An -c -N24 %t.d/emit_kinds.bc | grep -q 'B   C'
 // RUN: test -f %t.d/builtin/types.s
 // RUN: test -z "$(find %t.d -name '*.o')"
 

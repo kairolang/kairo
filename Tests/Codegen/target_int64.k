@@ -12,8 +12,14 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // Every cross target needs its own C library headers: lib/builtin's runtime
 // header includes <stdint.h>, and a host libc read for another target makes
-// uint64_t 32 bits on Windows. Each triple below names a bundled sysroot.
-// REQUIRES: bundled-sysroot
+// uint64_t 32 bits on Windows. Each triple below names a bundled sysroot
+// (one lit feature per shipped SYSROOT.toml). The msvc and Darwin spellings
+// are in target_int64_msvc.k / target_int64_apple.k: those sysroots are not
+// redistributable, so most bundles lack them.
+// REQUIRES: sysroot-x86_64-linux-gnu
+// REQUIRES: sysroot-aarch64-linux-musl
+// REQUIRES: sysroot-x86_64-windows-gnu
+// REQUIRES: sysroot-i686-linux-musl
 // LP64 targets keep `long`.
 // RUN: { %kairo %s --target=x86_64-linux-gnu --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LP64
 // RUN: { %kairo %s --target=aarch64-linux-musl --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LP64
@@ -22,10 +28,8 @@ fn main() -> i32 { return 0 }
 // LP64-NOT: long long
 
 // LLP64 and 32-bit targets spell `long long`, and never a bare `long`.
-// RUN: { %kairo %s --target=x86_64-pc-windows-msvc --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
+// RUN: { %kairo %s --target=x86_64-w64-mingw32 --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // RUN: { %kairo %s --target=i686-linux-musl --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
-// RUN: { %kairo %s --target=arm64-apple-macosx --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
-// RUN: { %kairo %s --target=x86_64-apple-macosx --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // LLONG-NOT: signed long x
 // LLONG: signed long long exp;
 // LLONG: signed long long f(signed long long x, unsigned long long y);
