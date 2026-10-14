@@ -8,6 +8,7 @@
 import os
 import shutil
 import glob
+import subprocess
 import sys
 import lit.formats
 
@@ -81,6 +82,8 @@ def _find_kairo():
     return default
 
 kairo_bin = _find_kairo()
+# Exposed for lit.local.cfg files (they do not see this module's globals).
+config.kairo_bin = kairo_bin
 # --- Locate FileCheck --------------------------------------------------------
 def _find_filecheck():
     p = lit_config.params.get("filecheck")
@@ -155,6 +158,50 @@ if os.path.isdir(os.path.join(os.path.dirname(os.path.dirname(kairo_bin)), "sysr
     config.available_features.add("bundled-sysroot")
 
 config.substitutions.append(("%kairo", kairo_bin + " --error-format=basic" + kairo_roots))
+
+# --- Host facts as lit features ---------------------------------------------
+# For tests whose expectations are the HOST's ABI (f80 on x86, `long` int64_t,
+# size_t == uint64_t): `REQUIRES: host-x86_64`, `REQUIRES: host-linux`, so an
+# arm64 or Darwin host reports them UNSUPPORTED instead of failing on facts
+# the test never claimed to hold there.
+_host_os = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(
+    sys.platform, sys.platform)
+config.available_features.add("host-" + _host_os)
+import platform as _platform
+_host_arch = {"x86_64": "x86_64", "amd64": "x86_64", "AMD64": "x86_64",
+              "arm64": "aarch64", "aarch64": "aarch64"}.get(
+    _platform.machine(), _platform.machine())
+config.available_features.add("host-" + _host_arch)
+
+# --- `timeout` on hosts without coreutils -------------------------------------
+# Tests guard a parser that could hang with `timeout 10 %kairo ...; test $? -ne
+# 124`. macOS ships no `timeout` (Homebrew coreutils has `gtimeout`), and a
+# missing command fails the test with "command not found" -- which says nothing
+# about kairo. Prepend a shim dir to the tests' PATH: a symlink to gtimeout
+# where there is one, else a Python stand-in with the same exit code contract.
+if not shutil.which("timeout"):
+    _shim_dir = os.path.join(config.test_exec_root, "Output", ".lit-bin")
+    os.makedirs(_shim_dir, exist_ok=True)
+    _shim = os.path.join(_shim_dir, "timeout")
+    _gtimeout = shutil.which("gtimeout")
+    if _gtimeout:
+        if os.path.islink(_shim) or os.path.exists(_shim):
+            os.remove(_shim)
+        os.symlink(_gtimeout, _shim)
+    else:
+        with open(_shim, "w") as f:
+            f.write("""#!%s
+import subprocess, sys
+# timeout DURATION COMMAND [ARG]... -> 124 on expiry, else the command's status.
+dur = float(sys.argv[1].rstrip("s"))
+try:
+    sys.exit(subprocess.call(sys.argv[2:], timeout=dur))
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+""" % sys.executable)
+        os.chmod(_shim, 0o755)
+    config.environment["PATH"] = _shim_dir + os.pathsep + config.environment.get(
+        "PATH", os.environ.get("PATH", ""))
 config.substitutions.append(("%FileCheck", filecheck_bin))
 
 # --- Parity (differential) tests --------------------------------------------
@@ -210,7 +257,24 @@ if clang_bin:
     # libc++. The driver's default on a GCC host is libstdc++, which links only
     # while no test happens to touch a std:: symbol -- then fails with
     # `std::__1::...` undefined.
-    config.substitutions.append(("%clangxx", clang_bin + " --driver-mode=g++ -stdlib=libc++"))
+    clangxx = clang_bin + " --driver-mode=g++ -stdlib=libc++"
+    # Darwin: a clang built in-tree has no default SDK, so without -isysroot
+    # its link step finds no libSystem. The bundled sysroot IS an SDK copy
+    # (SDKSettings.json, usr/lib/libSystem.tbd, usr/lib/libc++.a with the ABI
+    # merged in), so link against the same roots kairo compiled against;
+    # otherwise fall back to the toolchain's own SDK.
+    if sys.platform == "darwin":
+        sdk = lit_config.params.get("sysroot", "")
+        if not os.path.isfile(os.path.join(sdk, "SDKSettings.json")):
+            try:
+                sdk = subprocess.check_output(
+                    ["xcrun", "--show-sdk-path"],
+                    stderr=subprocess.DEVNULL).decode().strip()
+            except (OSError, subprocess.CalledProcessError):
+                sdk = ""
+        if sdk:
+            clangxx += " -isysroot " + sdk
+    config.substitutions.append(("%clangxx", clangxx))
 else:
     # Leave a substitution that explains itself, in case a test forgets
     # `REQUIRES: clang` and runs anyway.

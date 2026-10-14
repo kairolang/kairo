@@ -162,8 +162,7 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.o2
-// RUN: %kairo %s -c --cache-dir %t.d
-// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 15
 
 // Opt<i32> is eight bytes and trivially copyable, so twice() returns it in a

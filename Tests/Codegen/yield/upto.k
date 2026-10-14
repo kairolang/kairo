@@ -32,8 +32,7 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -c --cache-dir %t.d
-// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 45
 
 // With Suspend's methods inline, every coroutine call is visible here and

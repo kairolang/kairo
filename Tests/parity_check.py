@@ -17,6 +17,7 @@ Usage: parity_check.py <kairo> <clang> <file.k>
 Exit:  0 = same verdict, 1 = diverged, 2 = harness problem (missing oracle).
 """
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -39,17 +40,67 @@ def verdict(argv):
     return ("accept" if p.returncode == 0 else "reject"), out
 
 
+def _read_manifest(path):
+    """SYSROOT.toml's sysroot / include_dirs / cc_defines. tomllib where the
+    interpreter has it (3.11+); otherwise the three keys by hand -- kbld
+    writes them as one-line scalars and one-line string arrays, nothing else.
+    """
+    try:
+        import tomllib
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except ImportError:
+        pass
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if "=" not in line:
+            continue
+        key, val = (x.strip() for x in line.split("=", 1))
+        if val.startswith("["):
+            out[key] = re.findall(r'"([^"]*)"', val)
+        elif val.startswith('"'):
+            out[key] = val.strip('"')
+    return out
+
+
+def sysroot_header_roots(sysroot):
+    """(root, [include dirs]) for --sysroot, resolved the way kairo resolves
+    the same flag (CompilerInstance::_sysroot_header_roots), so the oracle
+    parses the headers kairo parsed:
+
+      SYSROOT.toml  its include_dirs under <sysroot>/<manifest sysroot>
+      Apple SDK     <sdk>/usr/include/c++/v1, <sdk>/usr/include
+      otherwise     <sysroot>/include/c++/v1, <sysroot>/include (the bare
+                    prefix layout ClangBackend keeps when nothing declares)
+    Also the manifest's cc_defines, as -D flags.
+    """
+    manifest = os.path.join(sysroot, "SYSROOT.toml")
+    if os.path.isfile(manifest):
+        m = _read_manifest(manifest)
+        root = sysroot
+        if m.get("sysroot") and m["sysroot"] != ".":
+            root = os.path.join(sysroot, m["sysroot"])
+        dirs = [os.path.join(root, d) for d in m.get("include_dirs", [])]
+        return root, dirs, list(m.get("cc_defines", []))
+    if os.path.isfile(os.path.join(sysroot, "SDKSettings.json")):
+        return sysroot, [os.path.join(sysroot, "usr", "include", "c++", "v1"),
+                         os.path.join(sysroot, "usr", "include")], []
+    return sysroot, [os.path.join(sysroot, "include", "c++", "v1"),
+                     os.path.join(sysroot, "include")], []
+
+
 def oracle_argv(clang, kairo_argv, cpp):
     """clang on the .cpp, seeing the SAME headers kairo's ffi imports see.
 
-    Kairo's ClangBackend never discovers headers: it searches exactly
-    <sysroot>/include/c++/v1 (libc++), <resource-dir>/include and
-    <sysroot>/include, under -std=c++26. A bare `clang -fsyntax-only` does
-    discover them, and on a GCC host that means libstdc++ -- so the oracle
-    was judging a different standard library than the one kairo parsed, and
-    a verdict could agree or diverge for reasons neither compiler controls.
-    Mirror the roots from kairo's own flags; without them, fall back to
-    asking for libc++ and let clang find it.
+    Kairo's ClangBackend never discovers headers: it searches exactly the
+    roots --sysroot resolves to (sysroot_header_roots) plus
+    <resource-dir>/include, under -std=c++26. A bare `clang -fsyntax-only`
+    does discover them, and on a GCC host that means libstdc++ -- so the
+    oracle was judging a different standard library than the one kairo
+    parsed, and a verdict could agree or diverge for reasons neither compiler
+    controls. Mirror the roots from kairo's own flags; without them, fall
+    back to asking for libc++ and let clang find it.
     """
     sysroot = resource = None
     for a in kairo_argv:
@@ -59,12 +110,18 @@ def oracle_argv(clang, kairo_argv, cpp):
             resource = a.split("=", 1)[1]
     argv = [clang, "-fsyntax-only", "-std=c++26", "-x", "c++"]
     if sysroot:
-        argv += ["-nostdinc++", "-nostdlibinc",
-                 "-isystem", os.path.join(sysroot, "include", "c++", "v1")]
+        root, dirs, defines = sysroot_header_roots(sysroot)
+        cxx_dirs = [d for d in dirs if "/c++/" in d]
+        c_dirs   = [d for d in dirs if "/c++/" not in d]
+        argv += ["-nostdinc++", "-nostdlibinc", "-isysroot", root]
+        for d in cxx_dirs:
+            argv += ["-isystem", d]
         if resource:
             argv += ["-resource-dir", resource,
                      "-isystem", os.path.join(resource, "include")]
-        argv += ["-isystem", os.path.join(sysroot, "include")]
+        for d in c_dirs:
+            argv += ["-isystem", d]
+        argv += ["-D" + d for d in defines]
     else:
         argv += ["-stdlib=libc++"]
     return argv + [cpp]

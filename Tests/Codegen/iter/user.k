@@ -27,8 +27,7 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.o3
-// RUN: %kairo %s -c --cache-dir %t.d
-// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 13
 
 // A method generator's frame holds a pointer to self rather than a copy,
