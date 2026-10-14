@@ -146,6 +146,7 @@ class COFFArgs {
             argv.push_back("-opt:noicf");
         }
         if !o->map_file.empty() { argv.push_back(f"-map:{o->map_file}"); }
+        COFFArgs::_pe_options(o, argv, msgs);
         for f: string in o->ld_flags { argv.push_back(f); }
 
         // --- inputs ----------------------------------------------------------
@@ -155,6 +156,41 @@ class COFFArgs {
         if !no_libs { COFFArgs::_default_libs(tc, o, no_crt, argv, msgs); }
 
         return LinkDiag::error_count(msgs) == errs0;
+    }
+
+    /// PE header and output-file options. Every feature toggle is emitted only
+    /// when asked for: lld-link's own defaults (ASLR, NX, TS-aware on) already
+    /// match the help text, so an unset flag must leave the line alone.
+    priv static fn _pe_options(o: *LinkerOptions, argv: ref!(vec::<string>),
+                               msgs: ref!(vec::<LinkMessage>)) {
+        if o->subsystem_set {
+            if Toolchain::pe_subsystem_ok(o->subsystem) {
+                argv.push_back(f"-subsystem:{o->subsystem}");
+            } else {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"unknown --subsystem {o->subsystem}; expected console, windows, native, posix, efi_application, efi_boot_service_driver, efi_rom, efi_runtime_driver or boot_application"));
+            }
+        }
+        if !o->pdb.empty()    { argv.push_back(f"-pdb:{o->pdb}"); }
+        if !o->def.empty()    { argv.push_back(f"-def:{o->def}"); }
+        if !o->implib.empty() { argv.push_back(f"-implib:{o->implib}"); }
+        // A custom manifest is only valid with /manifest:embed, so naming one
+        // implies embedding it.
+        if o->manifest || (!o->manifest_file.empty()) { argv.push_back("-manifest:embed"); }
+        if !o->manifest_file.empty() { argv.push_back(f"-manifestinput:{o->manifest_file}"); }
+        if o->kill_at { argv.push_back("-kill-at"); }
+        if o->stack_size > 0 { argv.push_back(f"-stack:{o->stack_size}"); }
+        if o->heap_size > 0  { argv.push_back(f"-heap:{o->heap_size}"); }
+        if o->f_high_entropy_va == 1 { argv.push_back("-highentropyva"); }
+        if o->f_high_entropy_va == 0 { argv.push_back("-highentropyva:no"); }
+        if o->f_dynamicbase == 1 { argv.push_back("-dynamicbase"); }
+        if o->f_dynamicbase == 0 { argv.push_back("-dynamicbase:no"); }
+        if o->f_nxcompat == 1 { argv.push_back("-nxcompat"); }
+        if o->f_nxcompat == 0 { argv.push_back("-nxcompat:no"); }
+        if o->f_guard_cf == 1 { argv.push_back("-guard:cf"); }
+        if o->f_guard_cf == 0 { argv.push_back("-guard:no"); }
+        if o->f_tsaware == 1 { argv.push_back("-tsaware"); }
+        if o->f_tsaware == 0 { argv.push_back("-tsaware:no"); }
     }
 
     priv static fn _ignored(o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {

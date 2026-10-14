@@ -154,6 +154,7 @@ class MinGWArgs {
         if o->strip            { argv.push_back("--strip-all");   }
         else if o->strip_debug { argv.push_back("--strip-debug"); }
         if !o->map_file.empty() { argv.push_back(f"--Map={o->map_file}"); }
+        MinGWArgs::_pe_options(o, argv, msgs);
 
         // With crt, crt2's mainCRTStartup is the entry and calls main. The
         // MinGW driver strips i386's leading underscore itself, so the name
@@ -166,6 +167,9 @@ class MinGWArgs {
 
         // --- inputs ----------------------------------------------------------
         for obj: string in job.objects { argv.push_back(obj); }
+        // The MinGW driver has no --def: a .def file is an input, like any
+        // other, and the driver reads the exports from it.
+        if !o->def.empty() { argv.push_back(o->def); }
         for spec: string in o->link_libs { MinGWArgs::_user_lib(spec, want_stat, argv, msgs); }
 
         if !no_libs { MinGWArgs::_default_libs(tc, o, want_stat, argv, msgs); }
@@ -181,6 +185,39 @@ class MinGWArgs {
         }
 
         return LinkDiag::error_count(msgs) == errs0;
+    }
+
+    /// PE header and output-file options, in the MinGW driver's spellings
+    /// (--disable-<x> rather than <x>:no). Emitted only when asked for.
+    priv static fn _pe_options(o: *LinkerOptions, argv: ref!(vec::<string>),
+                               msgs: ref!(vec::<LinkMessage>)) {
+        if o->subsystem_set {
+            if Toolchain::pe_subsystem_ok(o->subsystem) {
+                argv.push_back(f"--subsystem={o->subsystem}");
+            } else {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"unknown --subsystem {o->subsystem}; expected console, windows, native, posix, efi_application, efi_boot_service_driver, efi_rom, efi_runtime_driver or boot_application"));
+            }
+        }
+        if !o->pdb.empty()    { argv.push_back(f"--pdb={o->pdb}"); }
+        if !o->implib.empty() { argv.push_back(f"--out-implib={o->implib}"); }
+        // The MinGW driver has no manifest option; -Xlink hands lld-link's
+        // through. A custom manifest is only valid with /manifest:embed.
+        if o->manifest || (!o->manifest_file.empty()) { argv.push_back("-Xlink=-manifest:embed"); }
+        if !o->manifest_file.empty() { argv.push_back(f"-Xlink=-manifestinput:{o->manifest_file}"); }
+        if o->kill_at { argv.push_back("--kill-at"); }
+        if o->stack_size > 0 { argv.push_back(f"--stack={o->stack_size}"); }
+        if o->heap_size > 0  { argv.push_back(f"--heap={o->heap_size}"); }
+        if o->f_high_entropy_va == 1 { argv.push_back("--high-entropy-va"); }
+        if o->f_high_entropy_va == 0 { argv.push_back("--disable-high-entropy-va"); }
+        if o->f_dynamicbase == 1 { argv.push_back("--dynamicbase"); }
+        if o->f_dynamicbase == 0 { argv.push_back("--disable-dynamicbase"); }
+        if o->f_nxcompat == 1 { argv.push_back("--nxcompat"); }
+        if o->f_nxcompat == 0 { argv.push_back("--disable-nxcompat"); }
+        if o->f_guard_cf == 1 { argv.push_back("--guard-cf"); }
+        if o->f_guard_cf == 0 { argv.push_back("--no-guard-cf"); }
+        if o->f_tsaware == 1 { argv.push_back("--tsaware"); }
+        if o->f_tsaware == 0 { argv.push_back("--disable-tsaware"); }
     }
 
     /// Options that mean something on ELF and nothing here. Diagnosed only
