@@ -58,7 +58,15 @@ class WasmArgs {
 
         var bare    = tc.libc.empty();
         var no_libs = o->no_default_libs || o->freestanding;
-        var no_crt  = o->no_crt || o->no_entry || o->freestanding || bare;
+        var reactor = o->wasm_exec_model == "reactor";
+        if (o->wasm_exec_model != "command") && (!reactor) {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"unknown --wasm-exec-model {o->wasm_exec_model}; expected command or reactor"));
+            return false;
+        }
+        // A reactor has no _start: its crt is crt1-reactor.o (which supplies
+        // _initialize), never the command crt, so the command crt is skipped.
+        var no_crt  = o->no_crt || o->no_entry || o->freestanding || bare || reactor;
 
         if bare && (!no_libs) {
             msgs.push_back(LinkDiag::make(LinkSeverity::Error,
@@ -82,6 +90,15 @@ class WasmArgs {
         argv.push_back(job.output);
 
         // --- crt startup ---------------------------------------------------
+        if reactor && (!o->no_crt) && (!o->freestanding) && (!bare) {
+            var rc = tc.find_lib_file("crt1-reactor.o");
+            if rc.empty() {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                    "--wasm-exec-model=reactor: no crt1-reactor.o in the sysroot; the module will have no _initialize"));
+            } else {
+                argv.push_back(rc);
+            }
+        }
         if !no_crt {
             if tc.has_manifest && (!tc.manifest.crt_startup.empty()) {
                 for n: string in tc.manifest.crt_startup { WasmArgs::_crt(tc, n, argv, msgs); }
@@ -107,11 +124,12 @@ class WasmArgs {
 
         // With crt, _start is the entry. Without it the module has none unless
         // one is named.
-        if o->no_entry || (no_crt && o->entry.empty()) {
+        if o->no_entry || reactor || (no_crt && o->entry.empty()) {
             argv.push_back("--no-entry");
         } else if no_crt {
             argv.push_back(f"--entry={o->entry}");
         }
+        WasmArgs::_wasm_options(o, argv, msgs);
         for f: string in o->ld_flags { argv.push_back(f); }
 
         // --- inputs ----------------------------------------------------------
@@ -126,6 +144,44 @@ class WasmArgs {
         }
 
         return LinkDiag::error_count(msgs) == errs0;
+    }
+
+    /// Memory layout and exports. Sizes are emitted only when given: the
+    /// registry defaults (64 KiB) are not a request, and --initial-memory at
+    /// one page would make a module with any data fail to link.
+    priv static fn _wasm_options(o: *LinkerOptions, argv: ref!(vec::<string>),
+                                 msgs: ref!(vec::<LinkMessage>)) {
+        if o->wasm_import_memory { argv.push_back("--import-memory"); }
+        if o->wasm_export_memory { argv.push_back("--export-memory"); }
+        // Linear memory grows in 64 KiB pages; wasm-ld rejects anything else
+        // with a message that does not name the Kairo flag.
+        if o->wasm_initial_memory_set {
+            if (o->wasm_initial_memory % 65536) != 0 {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--wasm-initial-memory={o->wasm_initial_memory} is not a multiple of the 65536-byte wasm page"));
+            } else {
+                argv.push_back(f"--initial-memory={o->wasm_initial_memory}");
+            }
+        }
+        if o->wasm_max_memory > 0 {
+            if (o->wasm_max_memory % 65536) != 0 {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--wasm-max-memory={o->wasm_max_memory} is not a multiple of the 65536-byte wasm page"));
+            } else {
+                argv.push_back(f"--max-memory={o->wasm_max_memory}");
+            }
+        }
+        if o->wasm_stack_size_set {
+            if (o->wasm_stack_size % 16) != 0 {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--wasm-stack-size={o->wasm_stack_size} is not 16-byte aligned, which the wasm ABI requires"));
+            } else {
+                argv.push_back("-z");
+                argv.push_back(f"stack-size={o->wasm_stack_size}");
+            }
+        }
+        if o->f_wasm_threads == 1 { argv.push_back("--shared-memory"); }
+        for e: string in o->wasm_export { argv.push_back(f"--export={e}"); }
     }
 
     priv static fn _ignored(o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
