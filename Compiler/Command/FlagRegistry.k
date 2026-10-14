@@ -49,20 +49,20 @@ fn register_kairo_flags(cmd: *Command) {
     //  INPUT
 
     cmd->define::<FlagKind::PathList> ("files",                "run --help to see usage");
-    cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "add directory to module/header search path (repeatable)");
-    cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "add directory to FFI/C++ header search path (repeatable)");
-    cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "add include path forwarded only to clang for C++ interop headers (repeatable)");
-    cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "dedicated search path for macro-only .k files (repeatable)");
-    cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "force-include a file before all source files (repeatable)");
+    cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "module search root for .k imports; not passed to clang (repeatable)");
+    cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "adds -I for clang, identical to --cxx-include (repeatable)");
+    cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "adds -I for clang, identical to --ffi-include (repeatable)");
+    cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "module search root for .k imports, same as -I (repeatable)");
+    cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "import <file>::* into the main file (adds to the prelude; repeatable)");
     cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "system root for headers and linking; a --target with a bundled <prefix>/sysroot/<target> uses that instead", "");
     cmd->define::<FlagKind::String>   ("resource-dir",    "",  "resource-dir",        "clang resource directory for C++ interop; its include/ holds the builtin headers", "");
-    cmd->define::<FlagKind::String>   ("builtins-dir",    "",  "builtins-dir",        "directory holding Kairo's builtin module tree; overrides <resource-dir>/builtin", "");
+    cmd->define::<FlagKind::String>   ("builtins-dir",    "",  "builtins-dir",        "builtin module tree, overrides <resource-dir>/builtin; its parent becomes the runtime root", "");
     cmd->define::<FlagKind::String>   ("std-dir",         "",  "std-dir",             "directory holding Kairo's standard library tree; overrides <resource-dir>/std", "");
-    cmd->define::<FlagKind::String>   ("prelude",         "",  "prelude",             "path to a custom prelude file (replaces the default prelude)",             "");
+    cmd->define::<FlagKind::String>   ("prelude",         "",  "prelude",             "file imported as <file>::* into the main file, REPLACING the default builtin prelude",             "");
     cmd->define::<FlagKind::String>   ("working-dir",     "",  "working-dir",         "override working directory for all relative path resolution",              "");
     cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding override: utf-8|utf-16|latin-1 (default: utf-8)",    "utf-8");
-    cmd->define::<FlagKind::Bool>     ("no-prelude",      "",  "no-prelude",          "disable the implicit prelude entirely",                                    false);
-    cmd->define::<FlagKind::Bool>     ("no-builtins",     "",  "no-builtins",         "do not inject the implicit 'import builtin::*' into each translation unit", false);
+    cmd->define::<FlagKind::Bool>     ("no-prelude",      "",  "no-prelude",          "no implicit prelude and builtin is not linked (--no-builtins only skips the import)",                                    false);
+    cmd->define::<FlagKind::Bool>     ("no-builtins",     "",  "no-builtins",         "skip the implicit 'import builtin::*' only; builtin is still compiled and linked", false);
     cmd->define::<FlagKind::Bool>     ("no-stdlib",       "",  "no-stdlib",           "do not include or link the standard library",                              false);
     cmd->define::<FlagKind::Bool>     ("no-default-libs", "",  "no-default-libs",     "do not link default runtime libraries",                                    false);
     cmd->define::<FlagKind::Bool>     ("no-crt",          "",  "no-crt",              "do not link CRT startup objects (freestanding targets)",                   false);
@@ -77,7 +77,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link (sugar for --emit obj)",                                  false);
     cmd->define::<FlagKind::Bool>  ("emit-asm",       "S", "emit-asm",       "emit assembly output (sugar for --emit asm)",                                       false);
     cmd->define::<FlagKind::Bool>  ("preprocess",     "",  "preprocess",     "run preprocessor only, then exit (no extra output)",                                false);
-    cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","run preprocessor only and print reconstructed macro-expanded source to stdout",   false);
+    cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","run preprocessor only and print the expanded tokens (space-joined) to stdout",   false);
     cmd->define::<FlagKind::Bool>  ("syntax-only",    "",  "syntax-only",    "stop after parsing and report only syntax errors, no sema or codegen",             false);
     cmd->define::<FlagKind::Bool>  ("type-check-only","",  "type-check-only","stop after type checking, no codegen or linking",                                   false);
     cmd->define::<FlagKind::Bool>  ("shared",         "",  "shared",         "produce a shared library (.so / .dylib / .dll)",                                    false);
@@ -221,7 +221,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  DEFINES & CONFIG FLAGS
 
-    cmd->define::<FlagKind::StringList>("define",     "D", "",              "define a compile-time macro: -DNAME or -DNAME=VALUE (repeatable)");
+    cmd->define::<FlagKind::StringList>("define",     "D", "",              "define a preprocessor macro for Kairo source (not forwarded to clang): -DNAME or -DNAME=VALUE (repeatable)");
     cmd->define::<FlagKind::StringList>("cfg",        "",  "cfg",           "set a named config flag for conditional compilation: --cfg name or --cfg name=value (repeatable)");
     cmd->define::<FlagKind::String>    ("profile-use","",  "profile-use",   "path to .profdata file for PGO-guided optimization",                                "");
     cmd->define::<FlagKind::String>    ("coverage-format","","coverage-format","coverage output format: lcov|gcov|llvm (default: llvm)",                         "llvm");
@@ -363,8 +363,8 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("preserve-comments","",  "preserve-comments","keep comments in the token stream; they reach the AST as annotations",         false);
     cmd->define::<FlagKind::Bool>  ("print-generics",   "",  "print-generics",   "dump every generic instantiation and its origin site",                        false);
     cmd->define::<FlagKind::Bool>  ("verify-ir",        "",  "verify-ir",        "run LLVM IR verifier after codegen",                                           false);
-    cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "dump macro expansion trace (ExpansionContext output)",                         false);
-    cmd->define::<FlagKind::String>("macro-debug-filter","",  "macro-debug-filter","limit macro trace to expansions of this macro name",                        "");
+    cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "print each macro expansion to stderr (no -v needed)",                         false);
+    cmd->define::<FlagKind::String>("macro-debug-filter","",  "macro-debug-filter","requires --macro-debug; limit the trace to this macro name (without '!')",                        "");
 
     //  COMPILER LIMITS  (--c prefix, query via get_cfg_*)
 
@@ -372,7 +372,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("max-macro-depth",           "maximum macro recursion depth",                                             128,     1,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-macro-expansions",      "maximum total macro expansion nodes across compilation",                    65536,   1,    16777216);
     cmd->define_cfg::<FlagKind::I32>("max-macro-backtrace",       "maximum frames shown in macro expansion error backtraces",                  8,       0,    64);
-    cmd->define_cfg::<FlagKind::I32>("macro-trace-depth",         "maximum depth of --macro-debug expansion output (0 = unlimited)",           0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("macro-trace-depth",         "needs --macro-debug; maximum depth of the expansion trace (0 = unlimited)",           0,       0,    65536);
 
     //  generic instantiation
     cmd->define_cfg::<FlagKind::I32>("max-generic-depth",         "maximum generic instantiation nesting depth",                               256,     1,    65536);
@@ -418,7 +418,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  source / lexer
     cmd->define_cfg::<FlagKind::I32>("max-file-size-mb",          "reject source files larger than this size in MB (0 = unlimited)",          256,     0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-token-count",           "reject token streams longer than this count per file (0 = unlimited)",     0,       0,    2147483647);
+    cmd->define_cfg::<FlagKind::I32>("max-token-count",           "reject files longer than this many tokens, per file including builtin/std (0 = unlimited)",     0,       0,    2147483647);
 
     //  codegen
     cmd->define_cfg::<FlagKind::I32>("max-codegen-passes",        "maximum LLVM optimization passes to run (0 = pipeline default)",           0,       0,    1024);
