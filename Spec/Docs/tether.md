@@ -19,11 +19,12 @@ Tether operates on safe pointers (`*T`) only. Raw pointers (`unsafe *T`) carry n
 never analyzed. The programmer owns their correctness.
 
 > [!WARNING]
-> Tether is not yet implemented. The compiler is currently in the **Stage 1** parsing phase.
-> Tether development begins at **Stage 2**. The roadmap:
+> Tether is not yet implemented. The current compiler is **Stage 1**; Tether development begins
+> at **Stage 2**. The roadmap:
 >
-> - **Stage 0** (stable): C++ compiler, transpiles Kairo to C++.
-> - **Stage 1** (current): self-hosted compiler frontend parser, AST, diagnostics.
+> - **Stage 0** (frozen): C++ compiler, transpiles Kairo to C++. Kept only to bootstrap Stage 1.
+> - **Stage 1** (current): self-hosted compiler. Lowers Kairo to a Clang token stream:
+>   declarations, definitions, ordering, mangling. No lifetime analysis.
 > - **Stage 1.5**: Stage 1 migrated to Kairo's standard library, fully self-hosting.
 > - **Stage 2**: compiler rewritten using Kairo's extended feature set. **Tether work begins here.**
 >

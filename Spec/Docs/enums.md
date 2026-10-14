@@ -19,7 +19,10 @@ enum Direction {
     West,
 }
 
-var dir = Direction::North
+fn main() -> i32 {
+    var dir = Direction::North
+    return 0
+}
 ```
 
 Variants are comma-separated and scoped to the enum name. The trailing comma is optional.
@@ -38,10 +41,17 @@ enum HttpStatus {
 }
 ```
 
-Discriminants are integer constant expressions. Duplicate values are a compile error. A discriminant
-may refer to variants declared before it; inside a discriminant expression, an earlier variant has
-the enum's [underlying type](#underlying-type), not the enum type. Referring to a later variant, or to
-anything that is not an integer constant, is a compile error.
+A discriminant is an integer constant expression evaluated by the compiler: literals, `+ - * | & ^ << >>`,
+unary `-` and `~`, parentheses, `as` to an integer type, and earlier variants of the same enum. Inside a
+discriminant, an earlier variant has the enum's [underlying type](#underlying-type), so `Exec = Read << 2`
+and `RW = Read | Write` work. `~` works in the underlying type: `All = ~0` in a `u32` enum is `0xFFFFFFFF`.
+A variant without a discriminant is the previous value plus one, or 0 if it is first.
+
+A value that doesn't evaluate or doesn't fit the underlying type is
+[SC128E](/docs/language/diagnostics#sc128e-an-enum-discriminant-does-not-evaluate-or-does-not-fit). Two
+variants with the same value is
+[SC130E](/docs/language/diagnostics#sc130e-two-variants-of-an-enum-have-the-same-value); imported C++
+enums are exempt.
 
 Compound expressions are valid for bit flags:
 
@@ -54,11 +64,17 @@ enum FileMode derives u8 {
     All     = (Read | Write | Execute),  // 7
 }
 
-var perms: FileMode = .RW
-if perms & FileMode::Read != 0 {
-    // has read permission
+fn main() -> i32 {
+    var perms: FileMode = .RW
+    if (perms as u8 & FileMode::Read as u8) != 0 {
+        // has read permission
+    }
+    return 0
 }
 ```
+
+Bitwise operators are not defined on the enum type itself, so test a flag on the underlying integer:
+cast both sides with `as` and compare the result with `0`.
 
 ---
 
@@ -102,6 +118,10 @@ enum <T> ParseResult {
 Variants without a payload (`EndOfInput` above) are plain discriminants. Variants with a payload carry
 an anonymous struct alongside the discriminant. A single enum can freely mix both.
 
+> [!NOTE]
+> A non-generic payload enum whose payload holds a type whose copy, move and destruction are not known
+> until instantiation (such as `Box<i32>` for a generic class `Box`) is not compiled yet. See [Status](/docs/status#not-compiled-yet).
+
 ### Construction
 
 There are three construction forms:
@@ -112,23 +132,35 @@ There are three construction forms:
 | `.V { f: e }` | Payload variant, enum type inferred from context |
 | `.V` (or `Enum::V`) | Variant with no payload |
 
+A payload variant written without braces, braces on a variant without a payload, a missing field, or a
+field given twice is [SC131E](/docs/language/diagnostics#sc131e-a-variant-is-built-with-the-wrong-shape).
+
+`Enum::V { field: value }` builds a payload variant anywhere; `.V { field: value }` and `.V` work where the
+expected type is known. A nullary variant takes no braces.
+
 ADT variants are constructed with the variant name followed by brace-delimited field assignment,
 matching [struct](/docs/language/structures) aggregate initialization:
 
 ```kairo
-var result = ParseResult<f64>::Success { value: 3.14, bytes_consumed: 4 }
-var err = ParseResult<f64>::Error { message: "unexpected token", position: 12 }
-var eof = ParseResult<f64>::EndOfInput
+enum <T> ParseResult {
+    Success { value: T, bytes_consumed: i32 },
+    Error   { message: string, position: i32 },
+    EndOfInput,
+}
+
+fn main() -> i32 {
+    var result = ParseResult<f64>::Success { value: 3.14, bytes_consumed: 4 }
+    var err = ParseResult<f64>::Error { message: "unexpected token", position: 12 }
+    var eof = ParseResult<f64>::EndOfInput
+
+    // the enum type is known from the declaration, so the shorthand works
+    var inferred: ParseResult<f64> = .Success { value: 3.14, bytes_consumed: 4 }
+    return 0
+}
 ```
 
 Field names are required. The order of fields in the initializer does not need to match the declaration
 order.
-
-When the enum type can be inferred from context, the `.Variant` shorthand works:
-
-```kairo
-var result: ParseResult<f64> = .Success { value: 3.14, bytes_consumed: 4 }
-```
 
 ### Destructuring with `match`
 
@@ -136,31 +168,50 @@ Use `match` to dispatch on variants and extract payload fields. Destructured fie
 to control mutability of the bound variable:
 
 ```kairo
-match result {
-    case .Success(var value, var bytes_consumed) {
-        std::println(f"parsed {value} from {bytes_consumed} bytes")
-    }
-    case .Error(const message, const position) {
-        std::println(f"error at {position}: {message}")
-        // message = "other"  // compile error: message is const
-    }
-    case .EndOfInput {
-        std::println("nothing left to parse")
+enum <T> ParseResult {
+    Success { value: T, bytes_consumed: i32 },
+    Error   { message: string, position: i32 },
+    EndOfInput,
+}
+
+fn report(result: ParseResult<f64>) -> string {
+    match result {
+        case .Success(var value, var bytes_consumed) {
+            return f"parsed {value} from {bytes_consumed} bytes"
+        }
+        case .Error(const message, const position) {
+            // message = "other"  // compile error: message is const
+            return f"error at {position}: {message}"
+        }
+        case .EndOfInput {
+            return "nothing left to parse"
+        }
     }
 }
 ```
+
+> [!NOTE]
+> The current compiler does not report assigning to a `const` pattern binding yet. See
+> [Status](/docs/status#not-diagnosed).
 
 Field names in the destructuring pattern must match the names in the variant declaration. You can omit
 fields you do not need the compiler does not require exhaustive field extraction:
 
 ```kairo
-match result {
-    case .Error(const message) {
-        // only message is bound, position is ignored
-        log_error(message)
+enum <T> ParseResult {
+    Success { value: T, bytes_consumed: i32 },
+    Error   { message: string, position: i32 },
+    EndOfInput,
+}
+
+fn error_message(result: ParseResult<f64>) -> string {
+    match result {
+        case .Error(const message) {
+            // only message is bound, position is ignored
+            return message
+        }
+        default { return "" }
     }
-    // ...
-    default { }
 }
 ```
 
@@ -170,10 +221,18 @@ See [Control Flow](/docs/language/control-flow#match) for the full `match` synta
 ### `match` as an expression
 
 ```kairo
-var description = match result {
-    case .Success(var value, var bytes_consumed) => f"parsed {value} ({bytes_consumed} bytes)"
-    case .Error(var message, var position) => f"error at {position}: {message}"
-    case .EndOfInput => "end of input"
+enum <T> ParseResult {
+    Success { value: T, bytes_consumed: i32 },
+    Error   { message: string, position: i32 },
+    EndOfInput,
+}
+
+fn describe(result: ParseResult<f64>) -> string {
+    return match result {
+        case .Success(var value, var bytes_consumed) => f"parsed {value} ({bytes_consumed} bytes)"
+        case .Error(var message, var position) => f"error at {position}: {message}"
+        case .EndOfInput => "end of input"
+    }
 }
 ```
 
@@ -186,8 +245,11 @@ rules.
 ### Memory layout
 
 An ADT enum stores a discriminant tag plus storage sized to the largest variant's payload. The tag is
-the same integer type as the underlying type (default `u32`). A variant with no payload consumes no
-extra storage beyond the tag.
+a `u32`. A variant with no payload consumes no extra storage beyond the tag.
+
+> [!NOTE]
+> A `derives` type on an enum with payloads is accepted but ignored for now: the tag stays `u32`. See
+> [Status](/docs/status#not-compiled-yet).
 
 ```
 ParseResult<f64> layout:
@@ -199,9 +261,10 @@ Copy and move operations follow the same pattern.
 
 ### Lifecycle category
 
-An ADT enum's [lifecycle category](/docs/language/classes#lifecycle-categories) is decided by its payload
-fields: the weakest category wins. If any payload field is NON_TRANSFER, the enum is
-NON_TRANSFER; otherwise, if any is MOVE, the enum is MOVE; otherwise it is COPY. A plain enum is COPY.
+An enum whose variants carry payloads follows the struct rule for lifecycle: its
+[category](/docs/language/classes#lifecycle-categories) is the weakest of its payload fields' categories
+(COPY, then MOVE, then NON_TRANSFER), and it is trivially copyable or destructible only when every
+payload is. A plain enum is COPY.
 
 ---
 
@@ -216,7 +279,10 @@ enum <K, V> LookupResult {
     Error    { message: string },
 }
 
-var r = LookupResult<string, i32>::Found { key: "count", value: 42 }
+fn main() -> i32 {
+    var r = LookupResult<string, i32>::Found { key: "count", value: 42 }
+    return 0
+}
 ```
 
 Plain enums (no payloads) cannot be generic there is nothing for a type parameter to parameterize.
@@ -224,6 +290,10 @@ Plain enums (no payloads) cannot be generic there is nothing for a type paramete
 Constrain type parameters with `impl` or `derives` bounds:
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> [byte]
+}
+
 enum <T impl Serializable> CacheEntry {
     Valid   { data: T, expires: i64 },
     Expired { last_data: T },
@@ -241,22 +311,86 @@ When the compiler can infer the enum type from context, the `.Variant` shorthand
 construction, `match` cases, comparison, and assignment:
 
 ```kairo
-var dir: Direction = .North
+enum Direction { North, East, South, West }
 
-match dir {
-    case .North { go_up() }
-    case .South { go_down() }
-    case .East  { go_right() }
-    case .West  { go_left() }
+fn go_up() { }
+fn go_down() { }
+fn go_right() { }
+fn go_left() { }
+
+fn main() -> i32 {
+    var dir: Direction = .North
+
+    match dir {
+        case .North { go_up() }
+        case .South { go_down() }
+        case .East  { go_right() }
+        case .West  { go_left() }
+    }
+
+    if dir == .North { go_up() }
+
+    dir = .South
+    return 0
 }
-
-if dir == .North { ... }
-
-dir = .South
 ```
 
 The fully qualified form (`Direction::North`) always works and is required when the type cannot be
 inferred.
+
+`.V` takes its enum from the type expected where it is written:
+
+- an initializer with a declared type: `var d: Dir = .North`
+- a `return` in a function with a declared return type
+- a call argument, which takes the parameter's type
+
+```kairo
+enum Dir { North, East, South, West }
+enum Light { Red, Green }
+
+fn turn(d: Dir) { }
+fn set(l: Light) { }
+fn set(d: Dir) { }
+fn <T> log(x: T) { }
+
+fn opposite(d: Dir) -> Dir {
+    return .South                  // return with a declared return type
+}
+
+fn main() -> i32 {
+    var d: Dir = .North            // initializer with a declared type
+    turn(.West)                    // call argument
+    set(.Green)                    // only Light has Green: picks set(l: Light)
+    set(.East)                     // only Dir has East: picks set(d: Dir)
+    log(Dir::North)                // generic parameter: write the enum in full
+    return 0
+}
+```
+
+As an argument, `.V` matches a parameter only if that parameter's enum has a variant `V`; this is how
+an overload is chosen. If more than one overload's enum has `V`, the call is ambiguous
+([SC064E](/docs/language/diagnostics#call-to-f-is-ambiguous-more-than-one-candidate-matches-at-the-same-rank)). A
+generic parameter `T` gives `.V` no enum to take, so no overload matches (SC063E); write the variant in
+full, `Dir::North`:
+
+```kairo
+enum Dir { North, South }
+enum Pole { North, Equator }
+
+fn go(d: Dir) { }
+fn go(p: Pole) { }
+fn <T> log(x: T) { }
+
+fn main() -> i32 {
+    go(.North)      // error SC064E: both Dir and Pole have North
+    log(.North)     // error SC063E: T gives .North no enum type
+    return 0
+}
+```
+
+A `.V` with nothing to give it an enum type, against a type that is not an enum, or naming a variant the
+enum does not have is
+[SC123E](/docs/language/diagnostics#sc123e-a-variant-name-does-not-fit-the-expected-type).
 
 ---
 
@@ -266,21 +400,21 @@ Enum values support equality comparison and assignment. Ordering operators (`<`,
 not available by default extend them if needed:
 
 ```kairo
-var a = Direction::North
-var b = Direction::South
+enum Direction { North, East, South, West }
 
-if a == b { ... }    // ok
-if a != b { ... }    // ok
-// if a < b { ... }  // compile error: no ordering defined
+fn main() -> i32 {
+    var a = Direction::North
+    var b = Direction::South
+
+    var same = a == b        // ok: false
+    var differ = a != b      // ok: true
+    // var before = a < b    // compile error: no ordering defined
+    return 0
+}
 ```
 
-For ADT enums, `==` compares tags only, unless the enum declares `op ==`. Extend `op ==` to include
-payload comparison if needed. See [Operators](/docs/language/operators#operator-overloading) for operator
-extension.
-
-The synthesized `==` is a real operator, so every enum satisfies an interface that requires
-`fn op ==(const self, other: Self) -> bool` (such as `Equatable`) structurally, without declaring
-anything.
+`==` and `!=` on enums are built in and compare which variant is active, ignoring payloads. They satisfy
+`Equatable` the same way integer comparison does; no operator declaration is involved.
 
 ---
 
@@ -340,13 +474,16 @@ extend LogLevel {
 Enums can implement interfaces through `extend ... impl`:
 
 ```kairo
+enum LogLevel { Debug, Info, Warning, Error, Fatal }
+
 interface Loggable {
     fn to_log_string(const self) -> string
 }
 
 extend LogLevel impl Loggable {
     fn to_log_string(const self) -> string {
-        return self.prefix()
+        if self == .Error || self == .Fatal { return "severe" }
+        return "normal"
     }
 }
 ```
@@ -379,10 +516,15 @@ exclusively for specifying the [underlying type](#underlying-type).
 Plain enum values can be cast to their underlying integer type and back:
 
 ```kairo
-var dir = Direction::North
-var raw = dir as u32           // 0
+enum Direction { North, East, South, West }
 
-var back = raw as Direction    // Direction::North
+fn main() -> i32 {
+    var dir = Direction::North
+    var raw = dir as u32           // 0
+
+    var back = raw as Direction    // Direction::North
+    return 0
+}
 ```
 
 Casting an integer to an enum that has no matching discriminant is undefined behavior.
@@ -399,9 +541,9 @@ See [Casting](/docs/language/casting) for the full casting model.
 Enums can be forward-declared when the underlying type is specified:
 
 ```kairo
-enum Opcode derives u8    // forward declaration size is known
+enum Opcode derives u8    // forward declaration: size is known
 
-fn decode(op: Opcode) { ... }
+fn is_halt(code: Opcode) -> bool { return code == .Halt }
 
 enum Opcode derives u8 {
     Nop  = 0x00,
@@ -447,22 +589,6 @@ enum <K, V> LookupResult {
     Error    { message: string },
 }
 
-// Construction
-var r = LookupResult<string, i32>::Found { key: "count", value: 42 }
-
-// Match with destructuring
-match r {
-    case .Found(var key, var value) {
-        std::println(f"{key} = {value}")
-    }
-    case .NotFound(var key) {
-        std::println(f"{key} not found")
-    }
-    case .Error(var message) {
-        std::println(f"error: {message}")
-    }
-}
-
 // Extended with methods
 extend Direction {
     fn opposite(self) -> Direction {
@@ -473,5 +599,26 @@ extend Direction {
             case .West  { return .East }
         }
     }
+}
+
+fn main() -> i32 {
+    // Construction
+    var r = LookupResult<string, i32>::Found { key: "count", value: 42 }
+
+    // Match with destructuring
+    match r {
+        case .Found(var key, var value) {
+            var line = f"{key} = {value}"
+        }
+        case .NotFound(var key) {
+            var line = f"{key} not found"
+        }
+        case .Error(var message) {
+            var line = f"error: {message}"
+        }
+    }
+
+    var back = Direction::North.opposite()
+    return 0
 }
 ```

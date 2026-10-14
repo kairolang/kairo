@@ -164,19 +164,243 @@ blit(4, scale: 2)            // error SC107E
 
 ## Lifecycle
 
+### SC057E: more than one transfer constructor
+
+A class has exactly one transfer constructor. It is an error to declare both a `@copy` and a `@move`
+transfer constructor, unless both are `= delete` (the non-transferable form), and it is an error to
+declare two transfer constructors of the same kind, such as `@copy` with and without `const`.
+
+```
+'{X}' declares both a '@copy' and a '@move' transfer constructor; pick one (both may be '= delete' together, which makes the class non-transferable)
+'{X}' declares more than one '@copy' transfer constructor; a class has exactly one transfer constructor
+```
+
+```kairo
+class Bad {
+    @copy fn Bad(self, const other: Self) = default
+    @move fn Bad(self, other: Self) = default       // error SC057E
+}
+
+class TwoCopies {
+    @copy fn TwoCopies(self, const other: Self) = default
+    @copy fn TwoCopies(self, other: Self) = default // error SC057E
+}
+```
+
+**Fix:** keep one transfer constructor. See
+[Classes](/docs/language/classes#the-transfer-constructor).
+
 ### SC110E: a constructor has the shape of a transfer constructor but is not declared as one
 
 A constructor that takes `Self` first and defaults every later parameter is a transfer constructor, and is
 written only as `@copy fn X(self, const other: Self)` or `@move fn X(self, other: Self)`.
 
 ```kairo
-fn X(self, other: Self) { }               // error SC110E: no marker
-fn X(self, @move other: Self) { }         // error SC110E: a mode on the parameter
-fn X(self, other: Self, k: i32 = 0) { }   // error SC110E: a defaulted extra parameter
+class A {
+    fn A(self, other: Self) { }               // error SC110E: no marker
+}
+class B {
+    fn B(self, @move other: Self) { }         // error SC110E: a mode on the parameter
+}
+class C {
+    fn C(self, other: Self, k: i32 = 0) { }   // error SC110E: a defaulted extra parameter
+}
 ```
 
 **Fix:** put `@copy` or `@move` on the constructor and write the parameter bare. See
 [Classes](/docs/language/classes#the-transfer-constructor).
+
+### SC129E: a defaulted transfer constructor cannot be generated
+
+A defaulted `@copy` constructor needs every base and field to be copyable; a defaulted `@move` needs every
+base and field to be movable or copyable. The error names the field or base that is not.
+
+```
+'{X}' cannot have a defaulted copy constructor: field '{f}' of type '{T}' is move-only
+'{X}' cannot have a defaulted move constructor: field '{f}' of type '{T}' is not transferable
+'{X}' cannot have a defaulted copy constructor: base '{B}' is not transferable
+```
+
+```kairo
+class Unique {
+    @move fn Unique(self, other: Self) = default
+}
+
+class CopiesUnique {
+    var u: Unique
+    @copy fn CopiesUnique(self, const other: Self) = default   // error SC129E: 'u' is move-only
+}
+```
+
+**Fix:** write the transfer constructor body yourself, change its kind, or `= delete` it. See
+[Classes](/docs/language/classes#defaulted-moves-of-non-movable-members).
+
+---
+
+## Enums
+
+### SC128E: an enum discriminant does not evaluate or does not fit
+
+A discriminant must be an integer constant expression whose value fits the enum's underlying type. The
+message says which part failed.
+
+```
+an enum discriminant must be an integer constant that fits '{T}'; this one does not evaluate: {reason}
+an enum discriminant must be an integer constant that fits '{T}'; it is {n}, which does not fit
+```
+
+```kairo
+enum Small derives u8 {
+    Top = 255,
+    Past,              // error SC128E: 'Past' is one past 'Top', so it is 256
+}
+
+enum Order {
+    A = Late,          // error SC128E: 'Late' is declared below this variant
+    Late = 1,
+}
+```
+
+**Fix:** use only literals, operators, `as` to an integer type, and earlier variants, and keep the value in
+range or widen the underlying type. See [Enums](/docs/language/enums#discriminant-values).
+
+### SC130E: two variants of an enum have the same value
+
+```
+'{V}' has the same value as '{W}' ({n})
+```
+
+```kairo
+enum Flags {
+    A = 1,
+    B = 1,             // error SC130E
+}
+```
+
+Imported C++ enums are exempt.
+
+**Fix:** give each variant a distinct value. See [Enums](/docs/language/enums#discriminant-values).
+
+### SC123E: a variant name does not fit the expected type
+
+A `.V`, or a pattern head, must name a variant of the enum it is checked against. It covers construction
+as well as `match` patterns: `.V` with no expected enum type, `.V` against a type that is not an enum, a
+variant the enum does not have, a variant of another enum, a type that is not the matched type, and a
+name that is not a variant, a constant or a type.
+
+```
+'.{V}' names an enum variant, but nothing here gives it an enum type; write the enum's name before it
+'.{V}' names an enum variant, but the expected type is '{T}', not an enum
+'.{V}' names an enum variant, but the matched value is '{T}', not an enum
+'{E}' has no variant named '{V}'
+'{E}::{V}' is a variant of another enum; the matched value is '{T}'
+this pattern matches '{T}', but the matched value is '{U}'
+'{E}' is an enum; name one of its variants
+'{x}' is not a variant, a constant or a type, so it cannot be matched against; to bind the value to a new name, write 'var {x}'
+```
+
+```kairo
+enum Dir { North, South }
+
+fn main() -> i32 {
+    var a = .North           // error SC123E: nothing gives '.North' an enum type
+    var b: i32 = .North      // error SC123E: 'i32' is not an enum
+    var c: Dir = .East       // error SC123E: 'Dir' has no variant named 'East'
+    match 3 {
+        case .North { }      // error SC123E: the matched value is 'i32', not an enum
+        default { }
+    }
+    return 0
+}
+```
+
+**Fix:** give `.V` an expected enum type, or write the enum's name before it (`Dir::North`). See
+[Enums](/docs/language/enums#shorthand-syntax).
+
+### SC131E: a variant is built with the wrong shape
+
+A variant is built from its own payload: every field once, by name, in braces exactly when it has a
+payload. A field name the payload does not have is SC040E, as for a struct.
+
+```
+'{E}::{V}' carries a payload; give its fields in braces after the name
+'{E}::{V}' carries no payload; write it without braces
+'{E}::{V}' is missing field '{f}'
+field '{f}' of '{E}::{V}' is given twice
+```
+
+```kairo
+enum Shape { Circle { r: i32 }, Rect { w: i32, h: i32 }, Empty }
+
+fn main() -> i32 {
+    var a = Shape::Rect { w: 1 }               // error SC131E: missing field 'h'
+    var b = Shape::Rect { w: 1, w: 2, h: 3 }   // error SC131E: 'w' given twice
+    var c = Shape::Empty { }                   // error SC131E: no payload, no braces
+    var d = Shape::Circle                      // error SC131E: a payload needs braces
+    return 0
+}
+```
+
+**Fix:**
+
+```kairo
+enum Shape { Circle { r: i32 }, Rect { w: i32, h: i32 }, Empty }
+
+fn main() -> i32 {
+    var a = Shape::Rect { h: 2, w: 1 }
+    var c = Shape::Empty
+    var d: Shape = .Circle { r: 3 }
+    return 0
+}
+```
+
+See [Enums](/docs/language/enums#construction).
+
+---
+
+## Not Yet Supported
+
+### SC116E: a feature is not yet supported
+
+The construct is part of the language but the current compiler does not handle it yet. The message names
+it:
+
+```
+{what} is not yet supported
+```
+
+It is reported for:
+
+- iterating a vector, set, map, or string
+- `label!` and `jump!` in user code
+- matching a string against a pattern that isn't a string literal or a constant initialized with one
+- matching a record value against a literal-style pattern
+- a non-generic payload enum whose payload holds a type whose copy, move and destruction are not known
+  until instantiation
+- an initializer on a `static`, `eval` or array-typed field
+- a generic record's field default that reads another field
+
+It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot
+build.
+
+```kairo
+class <T> Box { pub var v: T }
+
+enum W { Has { b: Box<i32> }, Empty }   // error SC116E
+```
+
+> [!NOTE]
+> For the payload enum case, make the variant generic over the payload type:
+>
+> ```kairo
+> class <T> Box { pub var v: T }
+>
+> enum <T> W { Has { b: Box<T> }, Empty }
+>
+> var w: W<i32> = .Empty
+> ```
+
+**Fix:** rewrite around the construct for now. See [Status](/docs/status).
 
 ---
 

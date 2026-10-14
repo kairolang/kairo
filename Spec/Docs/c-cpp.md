@@ -319,6 +319,9 @@ Extension methods are not C++ member functions. Kairo keeps a class's C++ defini
 Member type aliases are visible to C++: a class's `type promise_type = ...` is the C++ member
 `promise_type`, so C++ code that looks a member type up by name finds it.
 
+Names beginning `__kairo_` are reserved. A rendered class may expose public `__kairo_` members; C++ code
+must not read or write them.
+
 ### Generics
 
 Kairo generics are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. Kairo's `impl` bounds are not translated to C++ constraints: instantiating a Kairo generic with a C++ type that does not satisfy the bound fails inside the template body rather than at the call.

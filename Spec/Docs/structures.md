@@ -42,6 +42,9 @@ var red = Color { r: 255, g: 0, b: 0 }         // a defaults to 255
 var blue = Color { r: 0, g: 0, b: 255, a: 128 } // explicit alpha
 ```
 
+A field's default may read fields declared before it, and no others. Defaults run in declaration order,
+so a later field, or the field itself, is not built yet.
+
 Field names are required in the initializer positional initialization is not supported. The order of
 fields in the initializer does not need to match the declaration order.
 

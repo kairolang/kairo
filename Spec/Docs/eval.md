@@ -307,6 +307,9 @@ Eval can be used within class definitions to create compile-time computed values
 If the class contains a non-trivial destructor, it cannot be used in an `eval` context.
 Classes can mix eval functions with regular functions.
 
+> [!NOTE]
+> An initializer on an `eval` field is not compiled yet. See [Status](/docs/status#not-compiled-yet).
+
 ```kairo
 class HashState {
     eval seed: u64    = FNV_OFFSET_BASIS;

@@ -80,12 +80,14 @@ a.handle               // compile error: a has been moved
 b.handle               // ok: b owns the value
 ```
 
-A type cannot define both `@copy` and `@move` pick one. A type with neither is implicitly COPY
-with compiler-generated members.
+A type cannot define both `@copy` and `@move` (unless both are `= delete`) pick one. A type with
+neither takes the weakest category its bases and fields allow: COPY if all of them are, MOVE if any is
+move-only, NON_TRANSFER if any cannot be transferred. Its members are compiler-generated to match.
 
 ### NON_TRANSFER types
 
-A type with both `@copy` and `@move` explicitly deleted cannot be assigned, copied, or moved.
+A type with a deleted transfer constructor (`@copy ... = delete`, `@move ... = delete`, or both)
+cannot be assigned, copied, or moved.
 The auto-derived `op =` is also `= delete`d as a consequence there is no transfer constructor for
 it to be generated from. These are scope-bound values: they live and die in the scope where they
 are created:

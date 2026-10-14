@@ -289,7 +289,11 @@ delete r   // safe: idempotent delete operator
 ## Lifecycle Categories
 
 Every class has a lifecycle category that determines how its instances can be transferred between
-variables. The category is implied by which transfer constructor the class defines.
+variables. A class's category is what its transfer constructors leave usable. If it can be copied, it is
+**COPY**. If it can only be moved, it is **MOVE**. If it can be neither, it is **NON_TRANSFER**. Deleting
+either transfer constructor on its own makes the class NON_TRANSFER: a declared copy constructor, even a
+deleted one, means no move is generated, and a deleted move constructor removes the copy. The canonical form
+deletes both, which says so explicitly.
 
 ### Attribute syntax
 
@@ -361,14 +365,14 @@ A class cannot define both `@copy` and `@move` transfer constructors pick one:
 ```kairo
 class Bad {
     @copy fn Bad(self, const other: Self) = default
-    @move fn Bad(self, other: Self) = default   // compile error
+    @move fn Bad(self, other: Self) = default   // compile error (SC057E)
 }
 ```
 
-The one exception is both being `= delete`, which is the **NON_TRANSFER** form.
+The one exception is both being `= delete`, the canonical **NON_TRANSFER** form.
 
 A class also cannot declare two transfer constructors of the same kind, such as `@copy` with and without
-`const` (SC057E).
+`const` ([SC057E](/docs/language/diagnostics#sc057e-more-than-one-transfer-constructor)).
 
 ### The four categories
 
@@ -376,7 +380,7 @@ A class also cannot declare two transfer constructors of the same kind, such as 
 |---|---|---|
 | **COPY** | `@copy` ctor (explicit or implicit) | Allows copy; Tether may silently elide a copy into a move when the source is unused after the transfer |
 | **MOVE** | `@move` ctor | Allows move only; copying is a compile error |
-| **NON_TRANSFER** | both `@copy` and `@move` are `= delete`d | Stack-only; cannot be assigned, copied, or moved |
+| **NON_TRANSFER** | either transfer constructor `= delete` (canonically both) | Stack-only; cannot be assigned, copied, or moved |
 | **DEFAULT** | no transfer ctor declared | Derived from bases and fields (see above) |
 
 A NON_TRANSFER class is the canonical scope guard:
@@ -404,6 +408,11 @@ The user writes at most three special members:
 3. The destructor (`fn op delete(self)`)
 
 Each may have a user body, `= default`, or `= delete`. Anything not written is compiler-generated.
+
+A `= default` member is what the compiler would have generated: it is trivial when the same member of
+every base and field is. A transfer constructor or destructor with a body makes the class non-trivial,
+and so does a deleted one or a `virtual` destructor. A polymorphic class (a `virtual` method
+or a virtual base) is never trivially copyable, and neither is a NON_TRANSFER class.
 
 ```kairo
 class Buffer {
@@ -436,12 +445,26 @@ compile error.
 
 | Transfer ctor form | Generated `op =` |
 |---|---|
-| `= default` | `= default` |
+| none written | member by member, like the compiler-generated transfer constructor |
+| `= default` | `= default`: member by member |
 | `= delete` | `= delete` |
-| `{ body }` | checks for self-assignment, destroys `self`, runs the ctor body, returns `self` |
+| `{ body }` | checks for self-assignment, destroys `self`, rebuilds it in place through the transfer constructor, returns `self` |
 
-The body case first checks for self-assignment: `x = x` does nothing. Otherwise it destroys `self`, runs
-the transfer constructor body with the right-hand side, and returns `self`.
+The body case first checks for self-assignment: `x = x` does nothing. Otherwise it destroys `self`,
+builds a new value in its place by running the transfer constructor on the right-hand side, and returns
+`self`.
+
+Member-by-member assignment needs every base and field to be assignable. If one is not, the class has
+no `op =`.
+
+A polymorphic class whose transfer constructor has a body has no `op =` either. Rebuilding it in place
+would give the object this class's vtable pointer, which is wrong when the object is really a derived
+class or is the base part of one. A polymorphic class with a `= default` transfer constructor, or with
+none, assigns member by member as usual.
+
+Assigning a value whose class has no `op =` is a compile error (SC071E). When the reason is a
+polymorphic class whose transfer constructor has a body, the error adds: "a polymorphic class whose
+transfer constructor has a body cannot be assigned; construct a new value".
 
 This implies a consistency rule: if the transfer ctor has a body and `op delete` is `= delete`d, the class fails to compile the auto-derived `op =` needs to invoke the destructor and cannot. Fix by providing a destructor or by changing the transfer ctor to `= default` / `= delete`.
 
@@ -451,7 +474,7 @@ This implies a consistency rule: if the transfer ctor has a body and `op delete`
 
 The converse is checked too. A defaulted `@copy` constructor requires every base and field to be copyable, and
 a defaulted `@move` requires every base and field to be movable or copyable. Otherwise it is a compile error
-(SC129E) naming the field. A transfer constructor with a body is exempt; it decides for itself how each field
+([SC129E](/docs/language/diagnostics#sc129e-a-defaulted-transfer-constructor-cannot-be-generated)) naming the field. A transfer constructor with a body is exempt; it decides for itself how each field
 is transferred.
 
 ### Implicit-copy-with-custom-destructor warning
@@ -467,7 +490,7 @@ class UniqueFile {
     // warning: custom destructor with implicit copy constructor
     //   help: declare as @move:
     //           @move fn UniqueFile(self, other: Self) = default
-    //   help: or explicitly delete copy:
+    //   help: or make it non-transferable:
     //           @copy fn UniqueFile(self, const other: Self) = delete
 }
 ```
@@ -553,7 +576,7 @@ class Derived derives Base {
 
 ### Destructors and inheritance
 
-A class with a non-trivial destructor — its own `op delete`, or any field or base that has one — may only
+A class with a non-trivial destructor — its own `op delete` with a body, or any field or base that has one — may only
 derive from a class whose destructor is `virtual`. Otherwise deleting the derived object through a `*Base`
 runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
 
@@ -814,7 +837,7 @@ class <T> Derived derives Base<T> {
 ### Type parameter constraints
 
 A generic body may use only what its bounds grant. The body is checked once, where it is defined,
-against its bounds, not against each type it is instantiated with. Calling a method no bound declares,
+against its bounds, never per instantiation. Calling a method no bound declares,
 copying a `T` without a copy bound, or declaring `var x: T` without a constructor bound is a compile
 error in the generic itself.
 
@@ -863,7 +886,7 @@ Static members belong to the class, not to any instance. They are declared with 
 
 ```kairo
 class Counter {
-    static var count: i32 = 0
+    static count: i32 = 0
 
     fn Counter(self) {
         Counter::count += 1
@@ -879,8 +902,13 @@ var b = Counter()
 Counter::get_count()   // 2
 ```
 
-Static variables require an explicit type annotation. They can be initialized at the declaration site or
-at program startup. Static methods do not take `self` and cannot access instance members.
+Static variables are declared `static name: Type`, with no `var`, and require an explicit type
+annotation. They can be initialized at the declaration site or at program startup. Static methods do
+not take `self` and cannot access instance members.
+
+> [!NOTE]
+> Static fields do not compile yet: an initializer on one is rejected, and without one the program does
+> not link. See [Status](/docs/status#not-compiled-yet).
 
 ---
 

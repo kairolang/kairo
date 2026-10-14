@@ -16,7 +16,7 @@ problems and can be used together on the same type.
 
 ```kairo
 interface Serializable {
-    fn serialize(const self) -> [byte]
+    fn serialize(const self) -> string
     fn byte_size(const self) -> i32
 }
 ```
@@ -36,19 +36,26 @@ A type declares interface conformance with `impl` on a [class](/docs/language/cl
 compiler verifies at declaration time that all required methods are present with matching signatures:
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
 class Document impl Serializable {
     var content: string
+    var size: i32
 
-    fn Document(self, content: string) {
+    fn Document(self, content: string, size: i32) {
         self.content = content
+        self.size = size
     }
 
-    fn serialize(const self) -> [byte] {
-        return self.content.to_bytes()
+    fn serialize(const self) -> string {
+        return self.content
     }
 
     fn byte_size(const self) -> i32 {
-        return self.content.length()
+        return self.size
     }
 }
 ```
@@ -59,14 +66,19 @@ class Document impl Serializable {
 For structs and enums, conformance goes through `extend`:
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
 struct Point {
     var x: f64
     var y: f64
 }
 
 extend Point impl Serializable {
-    fn serialize(const self) -> [byte] {
-        // serialization logic
+    fn serialize(const self) -> string {
+        return f"{self.x},{self.y}"
     }
 
     fn byte_size(const self) -> i32 {
@@ -83,16 +95,24 @@ Explicit `impl` is not required. A type that has all the required methods with m
 satisfies the interface implicitly. The check happens at the point of use:
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
 class Logger {
-    fn serialize(const self) -> [byte] { ... }
-    fn byte_size(const self) -> i32 { ... }
+    fn serialize(const self) -> string { return "log" }
+    fn byte_size(const self) -> i32 { return 3 }
 }
 
 // Logger never mentions Serializable, but satisfies it structurally
 
-fn <T impl Serializable> write_to_disk(data: T) { ... }
+fn <T impl Serializable> write_to_disk(data: T) -> i32 { return data.byte_size() }
 
-write_to_disk(Logger())   // compiles: Logger has serialize() and byte_size()
+fn main() -> i32 {
+    write_to_disk(Logger())   // compiles: Logger has serialize() and byte_size()
+    return 0
+}
 ```
 
 The difference between explicit and implicit conformance is when the check happens at declaration
@@ -101,16 +121,21 @@ time (`class Foo impl Bar`) or at first use (`fn <T impl Bar>`). The runtime beh
 ### Signature matching
 
 A generic method requirement is matched by a
-method with the same number of generic parameters, the same bounds, and the same signature after
-renaming them: `fn <U> liz(self)` satisfies `fn <T> liz(self)`.
+method with the same number of generic parameters and the same bounds, whose signature is identical
+once its parameters are renamed: `fn <U> liz(self)` satisfies `fn <T> liz(self)`.
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
 interface Sink {
     fn <T impl Serializable> push(self, item: T)
 }
 
 class Buffer impl Sink {
-    fn <U impl Serializable> push(self, item: U) { ... }   // ok: same shape, U renamed from T
+    fn <U impl Serializable> push(self, item: U) { }   // ok: same shape, U renamed from T
 }
 ```
 
@@ -127,21 +152,23 @@ interface <T> Container {
     fn size(const self) -> i32
 }
 
-class IntBuffer impl Container<i32> {
-    var data: [i32]
+class IntPair impl Container<i32> {
+    var items: [i32; 2]
+    var count: i32
 
-    fn IntBuffer(self) { self.data = [] }
+    fn IntPair(self) { self.count = 0 }
 
     fn add(self, item: i32) {
-        self.data.push(item)
+        self.items[self.count] = item
+        self.count += 1
     }
 
     fn get(const self, index: i32) -> i32 {
-        return self.data[index]
+        return self.items[index]
     }
 
     fn size(const self) -> i32 {
-        return self.data.length()
+        return self.count
     }
 }
 ```
@@ -149,6 +176,12 @@ class IntBuffer impl Container<i32> {
 Type parameters on interfaces can have constraints:
 
 ```kairo
+interface Comparable {
+    fn op <(const self, other: Self) -> bool
+}
+
+class Base { }
+
 interface <T impl Comparable, U derives Base> Registry {
     fn lookup(const self, key: T) -> U
     fn store(self, key: T, value: U)
@@ -164,6 +197,9 @@ See [Requires Clauses](/docs/language/requires) for the full constraint system.
 ---
 
 ## Associated Types
+
+> [!NOTE]
+> Associated types are not compiled yet. See [Status](/docs/status#not-compiled-yet).
 
 An interface can require a type member. A conforming type supplies it with a type alias:
 
@@ -191,6 +227,8 @@ interface Store {
     fn <K impl Hashable> index(const self) -> Self::Map<K>
 }
 ```
+
+A generic body names a generic associated type with its arguments: `T::Map<K>`.
 
 ### Defaults
 
@@ -267,8 +305,8 @@ interface Defaultable {
     fn Defaultable(self)
 }
 
-interface <T> ConstructibleFrom {
-    fn ConstructibleFrom(self, source: T)
+interface <T> Cloneable {
+    fn Cloneable(self, source: T)
 }
 ```
 
@@ -276,6 +314,10 @@ A conforming type must have a constructor that matches the parameter list. The c
 implementation uses the type's own name, not the interface name:
 
 ```kairo
+interface Defaultable {
+    fn Defaultable(self)
+}
+
 class Config impl Defaultable {
     var timeout: i32
 
@@ -301,8 +343,8 @@ interface Movable {
     fn Movable(self, other: Self)
 }
 
-fn <T impl Copyable> store(item: T) -> T { ... }
-fn <T impl Movable> consume(item: T)     { ... }
+fn <T impl Copyable> store(item: T) -> T { return item }
+fn <T impl Movable> consume(item: T)     { }
 ```
 
 A `@copy` requirement is satisfied only by COPY types. A `@move` requirement is satisfied by COPY and
@@ -371,13 +413,34 @@ needed. In practice this means `Self` returns enable fluent chaining without `->
 dereferencing:
 
 ```kairo
-Pipeline().then(other).then(another).run()
+interface Chainable {
+    fn then(self, next: Self) -> Self
+}
+
+class Pipeline impl Chainable {
+    var steps: i32
+
+    fn Pipeline(self) { self.steps = 0 }
+
+    fn then(self, next: Self) -> Self {
+        self.steps += 1
+        return self
+    }
+
+    fn run(self) -> i32 { return self.steps }
+}
+
+fn main() -> i32 {
+    var other = Pipeline()
+    var another = Pipeline()
+    return Pipeline().then(other).then(another).run()
+}
 ```
 
 To return a pointer to the conforming type, use `*Self`:
 
 ```kairo
-interface Cloneable {
+interface Duplicable {
     fn clone(self) -> *Self
 }
 ```
@@ -408,16 +471,34 @@ interface Stream derives Readable, Seekable {
 A class that `impl Stream` must provide `read`, `seek`, `tell`, `close`, and `flush`:
 
 ```kairo
+interface Readable {
+    fn read(self, buffer: [byte], count: i32) -> i32
+}
+
+interface Seekable {
+    fn seek(self, position: i64)
+    fn tell(const self) -> i64
+}
+
+interface Stream derives Readable, Seekable {
+    fn close(self)
+    fn flush(self)
+}
+
 class FileStream impl Stream {
     var fd: i32
+    var pos: i64
 
-    fn FileStream(self, path: string) { ... }
+    fn FileStream(self, fd: i32) {
+        self.fd = fd
+        self.pos = 0
+    }
 
-    fn read(self, buffer: [byte], count: i32) -> i32 { ... }
-    fn seek(self, position: i64) { ... }
-    fn tell(const self) -> i64 { ... }
-    fn close(self) { ... }
-    fn flush(self) { ... }
+    fn read(self, buffer: [byte], count: i32) -> i32 { return 0 }
+    fn seek(self, position: i64) { self.pos = position }
+    fn tell(const self) -> i64 { return self.pos }
+    fn close(self) { self.fd = -1 }
+    fn flush(self) { }
 }
 ```
 
@@ -429,6 +510,15 @@ implementation or state. Associated type defaults follow a rule that keeps it th
 Multiple inheritance is permitted:
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
+interface Printable {
+    fn print(const self) -> string
+}
+
 interface Loggable derives Serializable, Printable {
     fn log_level(const self) -> i32
 }
@@ -441,9 +531,16 @@ interface Loggable derives Serializable, Printable {
 The primary use of interfaces is constraining generic type parameters with `impl`:
 
 ```kairo
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
+fn write_file(path: string, text: string) { }
+
 fn <T impl Serializable> save(data: T, path: string) {
-    var bytes = data.serialize()
-    write_file(path, bytes)
+    var text = data.serialize()
+    write_file(path, text)
 }
 ```
 
@@ -452,16 +549,24 @@ This is distinct from `derives`, which checks class inheritance. See [Requires C
 for the full constraint system.
 
 ```kairo
-fn <T impl Serializable> save(data: T) { ... }   // T has serialize() and byte_size()
-fn <T derives Base> process(data: T) { ... }     // T is a subclass of Base
+interface Serializable {
+    fn serialize(const self) -> string
+    fn byte_size(const self) -> i32
+}
+
+class Base { }
+
+fn <T impl Serializable> save(data: T) -> i32 { return data.byte_size() }   // T has serialize() and byte_size()
+fn <T derives Base> process(data: T) { }                                    // T is a subclass of Base
 ```
 
 ---
 
 ## Generic Bodies
 
-Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and everything it derives)
-declares, plus destruction and move.
+Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and every interface it derives)
+declares, plus destruction and move, which every type parameter has unless it opts out (see
+[Implicit capabilities](/docs/language/classes#type-parameter-constraints)).
 
 - `x.method()` resolves against `Foo`'s methods.
 - A generic method requirement is called with explicit arguments, `x.liz<i32>()`, or with deduced ones.
@@ -483,6 +588,10 @@ fn <T impl Shape> describe(s: T) -> f64 {
 }
 ```
 
+> [!NOTE]
+> The current compiler does not report `var x: T` without a constructor bound yet. See
+> [Status](/docs/status#not-diagnosed).
+
 See [Generic Classes](/docs/language/classes#type-parameter-constraints) for the implicit destroy and
 move capabilities and how instantiation reports them.
 
@@ -495,6 +604,9 @@ An interface declared `virtual interface` can also be used for runtime dispatch.
 witness table built for each conforming type, so the caller doesn't need to know at compile time which
 type it holds:
 
+> [!NOTE]
+> Virtual interfaces are not compiled yet. See [Status](/docs/status#not-compiled-yet).
+
 ```kairo
 virtual interface Allocator {
     fn alloc(self, size: usize, align: usize) -> unsafe *u8
@@ -502,8 +614,8 @@ virtual interface Allocator {
 }
 
 class LibcAllocator impl Allocator {
-    fn alloc(self, size: usize, align: usize) -> unsafe *u8 { ... }
-    fn free(self, ptr: unsafe *u8, size: usize) { ... }
+    fn alloc(self, size: usize, align: usize) -> unsafe *u8 { return &null }
+    fn free(self, ptr: unsafe *u8, size: usize) { }
 }
 
 fn release(alloc: *Allocator, ptr: unsafe *u8, size: usize) {
@@ -574,7 +686,11 @@ interface Invalid {
 // Basic interface
 interface Drawable {
     fn draw(const self) -> string
-    fn bounds(const self) -> (f64, f64, f64, f64)
+    fn width(const self) -> f64
+}
+
+interface Comparable {
+    fn op <(const self, other: Self) -> bool
 }
 
 // Generic interface with constraints
@@ -604,19 +720,26 @@ interface BufferedWriter derives Flushable {
 // Class conformance
 class Renderer impl Drawable {
     fn draw(const self) -> string { return "rendering" }
-    fn bounds(const self) -> (f64, f64, f64, f64) { return (0.0, 0.0, 100.0, 100.0) }
+    fn width(const self) -> f64 { return 100.0 }
+}
+
+struct Point {
+    var x: f64
+    var y: f64
 }
 
 // Struct conformance via extend
 extend Point impl Drawable {
     fn draw(const self) -> string { return f"({self.x}, {self.y})" }
-    fn bounds(const self) -> (f64, f64, f64, f64) { return (self.x, self.y, self.x, self.y) }
+    fn width(const self) -> f64 { return 0.0 }
 }
 
 // Generic bound
-fn <T impl Drawable> render_all(items: [T]) {
+fn <T impl Drawable> total_width(items: [T;]) -> f64 {
+    var total = 0.0
     for item in items {
-        std::println(item.draw())
+        total += item.width()
     }
+    return total
 }
 ```
