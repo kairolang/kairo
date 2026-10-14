@@ -125,6 +125,21 @@ class TargetOptions {
     /// available. Decides whether a diagnostic may suggest f128.
     pub var has_float128: bool = false;
 
+    // --- C++ `size_t` / `ptrdiff_t` against the fixed-width pair ------------
+    //
+    // `usize` emits as `decltype(sizeof(0))` and `isize` as its signed twin,
+    // so whether `f(usize)` and `f(u64)` are ONE C++ function is whether
+    // size_t spells the same builtin as uint<pointer_width>_t. Pointer width
+    // alone does not answer that: Linux LP64 says `unsigned long` for both,
+    // Windows LLP64 `unsigned long long` for both, but Darwin is LP64 with a
+    // `long long` int64_t, so there size_t (`unsigned long`) and uint64_t are
+    // two types and the pair is two overloads. Asked of clang like int64_is_long.
+
+    /// size_t is the same C++ type as u<pointer_width>.
+    pub var usize_is_fixed: bool = true;
+    /// ptrdiff_t is the same C++ type as i<pointer_width>.
+    pub var isize_is_fixed: bool = true;
+
     /// What a diagnostic should call the target. The effective triple, or an
     /// explicit "not resolved" rather than an empty string, which in an error
     /// message reads as a compiler bug.

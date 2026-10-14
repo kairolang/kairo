@@ -2094,12 +2094,32 @@ class CompilerInstance {
         if ti.get() == &null {
             (t->long_double_is_x87) = t->is_x86;
             (t->int64_is_long)      = (t->pointer_width == 64) && (!tt.isOSWindows());
+            (t->usize_is_fixed)     = !tt.isOSDarwin();
+            (t->isize_is_fixed)     = !tt.isOSDarwin();
             return;
         }
 
         // CanonicalTypes spells i64/u64 from this. Any other answer than
         // `long` is `long long`: no target clang knows makes int64_t an `int`.
         (t->int64_is_long) = ti->getInt64Type() == clang::TargetInfo::SignedLong;
+
+        // RedeclMerge folds usize/isize into the fixed-width pair for the C++
+        // collision check only when size_t / ptrdiff_t ARE that pair. Compared
+        // as clang's IntType against the type kairo SPELLS for u<pw>/i<pw>:
+        // Int64Type for 64 (the same answer int64_is_long came from, so u64's
+        // spelling and size_t's cannot drift apart), `int` and `short` below
+        // that (BuiltinTable's fixed rows). NOT getIntTypeByWidth: that walks
+        // char/short/int/long/long long and answers `long` for 64 on every
+        // LP64 target, Darwin included, where Int64Type is `long long` --
+        // which is exactly the case this exists to tell apart.
+        var pw_bits = ti->getPointerWidth(clang::LangAS::Default);
+        var want_u: clang::TargetInfo::IntType = clang::TargetInfo::NoInt;
+        var want_s: clang::TargetInfo::IntType = clang::TargetInfo::NoInt;
+        if pw_bits == 64 { want_u = ti->getUInt64Type(); want_s = ti->getInt64Type(); }
+        if pw_bits == 32 { want_u = clang::TargetInfo::UnsignedInt;   want_s = clang::TargetInfo::SignedInt;   }
+        if pw_bits == 16 { want_u = clang::TargetInfo::UnsignedShort; want_s = clang::TargetInfo::SignedShort; }
+        (t->usize_is_fixed) = ti->getSizeType() == want_u;
+        (t->isize_is_fixed) = ti->getPtrDiffType(clang::LangAS::Default) == want_s;
 
         var fmt    = &(ti->getLongDoubleFormat());
         var is_x87 = fmt == &(llvm::APFloat::x87DoubleExtended());

@@ -728,12 +728,16 @@ class RedeclMerge {
 
     /// The canonical \p t is identical to once lowered: `usize` / `isize`
     /// become the fixed-width integer of the pointer width, anything else
-    /// is itself.
+    /// is itself. Only where the target says size_t / ptrdiff_t IS that
+    /// integer (target.usize_is_fixed): `usize` emits as `decltype(sizeof(0))`,
+    /// and on Darwin that is `unsigned long` beside a `long long` u64 -- two
+    /// C++ types, two overloads, no collision.
     priv fn _cxx_lowered(self, t: *Type, pw: usize) -> *Type {
         if !isa::<BuiltinType>(t) { return t; }
         var k = cast::<BuiltinType>(t)->builtin;
         if (k != BuiltinKind::USize) && (k != BuiltinKind::ISize) { return t; }
         var sgn   = k == BuiltinKind::ISize;
+        if !self._size_is_fixed(sgn) { return t; }
         var fixed = BuiltinKind::COUNT;
         if pw == 16 { fixed = (BuiltinKind::I16) if (sgn) else (BuiltinKind::U16); }
         if pw == 32 { fixed = (BuiltinKind::I32) if (sgn) else (BuiltinKind::U32); }
@@ -741,6 +745,15 @@ class RedeclMerge {
         if fixed == BuiltinKind::COUNT { return t; }
         var ft = self.sc->builtin(fixed);
         return (ft) if (ft != &null) else (t);
+    }
+
+    /// target.usize_is_fixed / isize_is_fixed. A hand-built invocation never
+    /// filled them and keeps the default (true), matching _pointer_width's
+    /// "treat unfilled as the 64-bit host".
+    priv fn _size_is_fixed(self, sgn: bool) -> bool {
+        var ci = self.sc->ctx->ci;
+        if ci == &null { return true; }
+        return (ci->target.isize_is_fixed) if (sgn) else (ci->target.usize_is_fixed);
     }
 
     /// target.pointer_width, never a literal. 0 (a hand-built invocation)
