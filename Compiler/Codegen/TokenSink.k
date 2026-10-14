@@ -50,12 +50,18 @@ import Codegen::EmitSink::*;
 
 /// One divergent-literal token awaiting its real ExpansionLoc. Recorded at
 /// emit time (phase 1), consumed by patch_pending (phase 2).
+///
+/// Each entry opens an expansion of its own unless \c entry_len is 0: then
+/// the token sits inside the expansion the entry before it opened, at its
+/// own offset there (TokenSink::_pair). An expansion is a FileID, and one
+/// FileID is what clang asks of the two halves of a pair it checks.
 struct PendingArenaTok {
     var tok_index: usize;           ///< index into _tokens
     var arena_off: u32;             ///< offset of the C++ spelling in _arena_text
     var arena_len: u32;             ///< length of the C++ spelling
     var kro_start: SourceLocation;  ///< .kro expansion start
     var kro_len:   u32;             ///< .kro span length
+    var entry_len: u32;             ///< bytes of the expansion this opens; 0 joins the previous one
 }
 
 class TokenSink derives EmitSink {
@@ -76,6 +82,14 @@ class TokenSink derives EmitSink {
     /// at one of them moves within its anchor, or to the arena: see _claim.
     priv var _used:       libcxx::unordered_set::<u32>;
     priv var _sealed:     bool = false;
+    /// The last punctuator, while it is still the last token: one past its
+    /// index (0 for none), its anchor, and the byte it claimed (invalid when
+    /// it went to the arena). _pair reads them to place the second half of
+    /// a checked pair, and may move this token to the arena after the fact.
+    priv var _open_end:  usize = 0;
+    priv var _open_loc:  SourceLocation;
+    priv var _open_len:  u32 = 0;
+    priv var _open_byte: SourceLocation;
     /// System headers the stream needs (system_header), for KairoInject to
     /// enter ahead of it: a token stream has no line for an #include.
     pub var system_headers: vec::<string>;
@@ -275,7 +289,9 @@ class TokenSink derives EmitSink {
     ///          Moving within the anchor comes before the arena: an arena
     ///          token is a MACRO location, and clang warns when the two halves
     ///          of a pair it checks (the `(` `{` opening a statement
-    ///          expression) sit in different expansion contexts.
+    ///          expression) sit in different expansion contexts. Once the
+    ///          bytes run out that cannot be avoided token by token, so _pair
+    ///          places such halves together.
     ///
     ///          Past the anchor, the search walks on through the SAME file:
     ///          synthesized code reuses one source range for many nodes (an
@@ -316,18 +332,119 @@ class TokenSink derives EmitSink {
     }
 
     priv fn _punct(self, k: clang::tok::TokenKind, loc: SourceLocation, len: u32) -> bool {
+        if self._completes_pair(k) { return self._pair(k, loc, len); }
         var at = self._claim(loc, len);
         if !at.is_valid() {
             var p  = clang::tok::getPunctuatorSpelling(k);
             if (p == &null) { self.ice_at(SourceRange::from_bounds(loc, len), "TokenSink::_punct: kind has no punctuator spelling"); }
             var ns = nstring(p, libcxx::strlen(p));
-            return self._arena_tok(k, SourceRange::from_bounds(loc, len), ns);
+            self._arena_tok(k, SourceRange::from_bounds(loc, len), ns);
+            self._opened(loc, len, at);
+            return true;
         }
         var t = self._tokens.slot();
         t->startToken();
         t->setKind(k);
         t->setLocation(self._loc(at));
         t->setLength(self._rest(loc, at, len));
+        self._opened(loc, len, at);
+        return true;
+    }
+
+    /// Remember the punctuator just emitted as a possible first half (see
+    /// _completes_pair); \p at is its claimed byte, invalid for the arena.
+    priv fn _opened(self, loc: SourceLocation, len: u32, at: SourceLocation) {
+        self._open_end  = self._tokens.size();
+        self._open_loc  = loc;
+        self._open_len  = len;
+        self._open_byte = at;
+    }
+
+    /// \brief whether \p k, as the next token, completes a pair with the
+    ///        last one that clang checks for a split across contexts.
+    ///
+    /// \details the pairs of Parser::checkCompoundToken: `(` `{` and `}` `)`
+    ///          around a statement expression, `[` `[` and `]` `]` around an
+    ///          attribute (`[[noreturn]]` comes through spell()), `::` `*` in
+    ///          a pointer to member. The same pairs elsewhere (`f({...})`,
+    ///          `a[b[i]]`) get the same treatment, which costs nothing: it
+    ///          only decides where a token's location lives.
+    priv fn _completes_pair(self, k: clang::tok::TokenKind) -> bool {
+        if (self._open_end == 0) || (self._open_end != self._tokens.size()) { return false; }
+        var first = self._tokens.get(self._open_end - 1)->getKind();
+        if (first == clang::tok::l_paren)    && (k == clang::tok::l_brace)  { return true; }
+        if (first == clang::tok::r_brace)    && (k == clang::tok::r_paren)  { return true; }
+        if (first == clang::tok::l_square)   && (k == clang::tok::l_square) { return true; }
+        if (first == clang::tok::r_square)   && (k == clang::tok::r_square) { return true; }
+        if (first == clang::tok::coloncolon) && (k == clang::tok::star)     { return true; }
+        return false;
+    }
+
+    /// \brief the second half of a checked pair, in the first half's
+    ///        location context.
+    ///
+    /// \details clang warns when either half is a macro location and the
+    ///          two are in different FileIDs, and patch_pending gives every
+    ///          arena token an expansion, so a FileID, of its own. Two file
+    ///          bytes are one FileID: nothing to do. Otherwise both halves
+    ///          become ONE expansion over their joined spelling (`({`), each
+    ///          at its own offset in it: one FileID, and still a unique
+    ///          location apiece (see _claim).
+    ///
+    ///          A first half that took the file's last free byte gives it
+    ///          back and joins the arena: left where it was, it would be a
+    ///          file location paired with a macro one.
+    priv fn _pair(self, k: clang::tok::TokenKind, loc: SourceLocation, len: u32) -> bool {
+        // A second half never opens another pair: `]` `]` `]` is a nested
+        // subscript, not two attribute ends.
+        self._open_end = 0;
+        var first = self._tokens.size() - 1;
+        if self._open_byte.is_valid() {
+            var at = self._claim(loc, len);
+            if at.is_valid() {
+                var t = self._tokens.slot();
+                t->startToken();
+                t->setKind(k);
+                t->setLocation(self._loc(at));
+                t->setLength(self._rest(loc, at, len));
+                return true;
+            }
+            self._used.erase(self._open_byte.raw());
+            var h = self._pending.slot();
+            h->tok_index = first;
+            h->kro_start = self._open_loc;
+            h->kro_len   = self._open_len;
+        }
+
+        var a = clang::tok::getPunctuatorSpelling(self._tokens.get(first)->getKind());
+        var b = clang::tok::getPunctuatorSpelling(k);
+        var alen = static_cast::<u32>(libcxx::strlen(a));
+        var blen = static_cast::<u32>(libcxx::strlen(b));
+        var joined: libcxx::string;
+        joined.append(a);
+        joined.append(b);
+        var ns  = nstring(joined.data(), joined.size());
+        var off = self._intern(ns);
+
+        ICE_IF((self._pending.size() == 0), "TokenSink::_pair: the first half has no arena entry");
+        var head = self._pending.get(self._pending.size() - 1);
+        ICE_IF((head->tok_index != first), "TokenSink::_pair: the first half has no arena entry");
+        head->arena_off = off;
+        head->arena_len = alen;
+        head->entry_len = alen + blen;
+
+        var t = self._tokens.slot();
+        t->startToken();
+        t->setKind(k);
+        t->setLength(blen);
+
+        var p = self._pending.slot();
+        p->tok_index = self._tokens.size() - 1;
+        p->arena_off = off + alen;
+        p->arena_len = blen;
+        p->kro_start = loc;
+        p->kro_len   = len;
+        p->entry_len = 0;
         return true;
     }
 
@@ -387,6 +504,7 @@ class TokenSink derives EmitSink {
         p->arena_len = alen;
         p->kro_start = r.start;
         p->kro_len   = r.size();
+        p->entry_len = alen;
         return true;
     }
 
@@ -400,17 +518,29 @@ class TokenSink derives EmitSink {
     }
 
     /// Spelling loc in the arena, expansion range on the original .kro bytes.
+    /// An entry with entry_len 0 takes no expansion of its own: it is the
+    /// rest of the one the entry before it opened (see _pair).
     fn patch_pending(self, afid: clang::FileID) {
         ICE_IF((!self._sealed) && (!self._pending.empty()), "TokenSink: patch_pending before seal_arena");
+        var entry = clang::SourceLocation();
+        var entry_off: u32 = 0;
         for var i: usize = 0; i < self._pending.size(); ++i {
             var p = self._pending.get(i);
+            var t = self._tokens.get(p->tok_index);
+            if p->entry_len == 0 {
+                ICE_IF(entry.isInvalid(), "TokenSink: joined arena token with no expansion before it");
+                t->setLocation(entry.getLocWithOffset(static_cast::<i32>(p->arena_off - entry_off)));
+                t->setLength(p->arena_len);
+                continue;
+            }
             var spelling = self._csm->getComposedLoc(afid, p->arena_off);
             var end = p->kro_start;
             if p->kro_len > 1 { end = end.advance(static_cast::<usize>(p->kro_len - 1)); }
             var loc = self._csm->createExpansionLoc(
                 spelling, self._loc(p->kro_start), self._loc(end),
-                static_cast::<usize>(p->arena_len), true);
-            var t = self._tokens.get(p->tok_index);
+                static_cast::<usize>(p->entry_len), true);
+            entry     = loc;
+            entry_off = p->arena_off;
             t->setLocation(loc);
             t->setLength(p->arena_len);
         }
