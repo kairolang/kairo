@@ -40,7 +40,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-cfg",          "",  "print-cfg",           "print the --cfg values given on this command line and exit",                false);
     cmd->define::<FlagKind::Bool>  ("print-dirs",         "",  "print-dirs",          "print the toolchain/sysroot directories and exit",                              false);
     cmd->define::<FlagKind::Bool>  ("print-clang-args",   "",  "print-clang-args",    "print the exact clang invocation and exit (does not compile)",             false);
-    cmd->define::<FlagKind::Bool>  ("print-ld-args",      "",  "print-ld-args",       "print the exact kld invocation and exit (does not link)",                  false);
+    cmd->define::<FlagKind::Bool>  ("print-ld-args",      "",  "print-ld-args",       "print the exact ld.lld/ld64.lld/lld-link/wasm-ld invocation instead of linking", false);
     cmd->define::<FlagKind::Bool>  ("print-target-info",  "",  "print-target-info",   "print target ABI, pointer width, endianness for --target and exit",        false);
     cmd->define::<FlagKind::Bool>  ("print-pass-pipeline","",  "print-pass-pipeline", "print the full LLVM pass pipeline that would be applied and exit",         false);
     cmd->define::<FlagKind::Bool>  ("print-stats",        "",  "print-stats",         "print per-phase compilation statistics after compilation",                  false);
@@ -63,24 +63,24 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding: only utf-8 is supported (default: utf-8)",    "utf-8");
     cmd->define::<FlagKind::Bool>     ("no-prelude",      "",  "no-prelude",          "no implicit prelude and builtin is not linked (--no-builtins only skips the import)",                                    false);
     cmd->define::<FlagKind::Bool>     ("no-builtins",     "",  "no-builtins",         "skip the implicit 'import builtin::*' only; builtin is still compiled and linked", false);
-    cmd->define::<FlagKind::Bool>     ("no-stdlib",       "",  "no-stdlib",           "do not include or link the standard library",                              false);
-    cmd->define::<FlagKind::Bool>     ("no-default-libs", "",  "no-default-libs",     "do not link default runtime libraries",                                    false);
-    cmd->define::<FlagKind::Bool>     ("no-crt",          "",  "no-crt",              "do not link CRT startup objects (freestanding targets)",                   false);
-    cmd->define::<FlagKind::Bool>     ("freestanding",    "",  "freestanding",        "assert freestanding environment: implies --no-stdlib --no-crt --no-prelude",false);
+    cmd->define::<FlagKind::Bool>     ("no-stdlib",       "",  "no-stdlib",           "do not import the std root; the link line is unchanged (see --no-default-libs)", false);
+    cmd->define::<FlagKind::Bool>     ("no-default-libs", "",  "no-default-libs",     "do not link libc++, libc++abi, libm, the unwinder, compiler-rt builtins or libc", false);
+    cmd->define::<FlagKind::Bool>     ("no-crt",          "",  "no-crt",              "do not link CRT startup objects; the binary needs its own _start (-e main is injected)", false);
+    cmd->define::<FlagKind::Bool>     ("freestanding",    "",  "freestanding",        "freestanding: implies --no-stdlib --no-crt --no-prelude --no-default-libs and -e main", false);
 
     //  OUTPUT
 
     cmd->define::<FlagKind::String>("output",         "o", "output",         "write the output to this file: the executable or library, or with -c the one object", "");
     cmd->define::<FlagKind::String>("cache-dir",      "",  "cache-dir",      "directory for object files, kept (default: a temp dir removed after linking; . with -c)", "");
     cmd->define::<FlagKind::String>("emit",           "",  "emit",           "comma-separated output types: obj,asm,llvm-ir,llvm-bc (any other value is an error)", "obj");
-    cmd->define::<FlagKind::String>("entry",          "",  "entry",          "override entry point symbol name (default: main)",                                  "main");
+    cmd->define::<FlagKind::String>("entry",          "",  "entry",          "entry symbol; only applies when no CRT is linked (--no-crt/--freestanding) (default: main)", "main");
     cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link",                                  false);
     cmd->define::<FlagKind::Bool>  ("emit-asm",       "S", "emit-asm",       "emit assembly output (sugar for --emit asm)",                                       false);
     cmd->define::<FlagKind::Bool>  ("preprocess",     "",  "preprocess",     "run preprocessor only, then exit (no extra output)",                                false);
     cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","run preprocessor only and print the expanded tokens (space-joined) to stdout",   false);
     cmd->define::<FlagKind::Bool>  ("syntax-only",    "",  "syntax-only",    "stop after parsing and report only syntax errors, no sema or codegen",             false);
     cmd->define::<FlagKind::Bool>  ("type-check-only","",  "type-check-only","stop after type checking, no codegen or linking",                                   false);
-    cmd->define::<FlagKind::Bool>  ("shared",         "",  "shared",         "produce a shared library (.so / .dylib / .dll)",                                    false);
+    cmd->define::<FlagKind::Bool>  ("shared",         "",  "shared",         "produce a shared library (.so / .dylib / .dll); not available on static-only sysroots (musl)", false);
     cmd->define::<FlagKind::Bool>  ("static",         "",  "static",         "produce a statically linked binary or archive",                                     false);
     cmd->define::<FlagKind::Bool>  ("no-entry",       "",  "no-entry",       "no entry point: library / kernel / raw binary output",                              false);
     cmd->define::<FlagKind::Bool>  ("save-temps",     "",  "save-temps",     "keep all intermediate files (.ll, .bc, .o, .s)",                                    false);
@@ -119,7 +119,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool> ("no-debug-info",   "",  "g0",             "explicitly disable debug info emission",                                            false);
     cmd->define::<FlagKind::I32>  ("dwarf-version",   "",  "dwarf-version",  "DWARF version to emit: 2|3|4|5 (default: 5)",                                      5, 2, 5);
     cmd->define::<FlagKind::Bool> ("split-dwarf",     "",  "split-dwarf",    "emit DWARF into separate .dwo files (reduces link-time memory usage)",              false);
-    cmd->define::<FlagKind::Bool> ("strip",           "",  "strip",          "strip all symbols from output",                                                     false);
+    cmd->define::<FlagKind::Bool> ("strip",           "",  "strip",          "strip all symbols from output; wins over --strip-debug", false);
     cmd->define::<FlagKind::Bool> ("strip-debug",     "",  "strip-debug",    "strip only debug symbols, keep exports",                                            false);
     cmd->define::<FlagKind::StringList>("pass-plugin",    "",  "pass-plugin",    "load a custom LLVM pass plugin .so/.dylib (repeatable)");
     cmd->define::<FlagKind::StringList>("disable-llvm-pass","","disable-llvm-pass","disable a specific LLVM pass by name (repeatable)");
@@ -195,24 +195,24 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("sanitize-ub",        "UndefinedBehaviourSanitizer");
 
     // ELF/Linux specific
-    cmd->define::<FlagKind::Feature>("relro",              "mark relocations read-only after startup (ELF RELRO)");
-    cmd->define::<FlagKind::Feature>("eh-frame-hdr",       "emit .eh_frame_hdr section (required for unwinding without frame pointers)");
-    cmd->define::<FlagKind::Feature>("gc-sections",        "enable linker dead section elimination (--gc-sections)");
+    cmd->define::<FlagKind::Feature>("relro",              "partial RELRO: -z relro (ELF only; add --now for full RELRO)");
+    cmd->define::<FlagKind::Feature>("eh-frame-hdr",       "emit .eh_frame_hdr section (ELF only, on by default; -fno-eh-frame-hdr turns it off)");
+    cmd->define::<FlagKind::Feature>("gc-sections",        "linker dead section elimination (ELF/Wasm/MinGW --gc-sections, Mach-O -dead_strip, MSVC -opt:ref)");
 
     // macOS/Darwin specific
-    cmd->define::<FlagKind::Feature>("dead-strip",         "macOS linker dead stripping (Mach-O equivalent of gc-sections)");
-    cmd->define::<FlagKind::Feature>("bitcode",            "embed LLVM bitcode in Mach-O output");
+    cmd->define::<FlagKind::Feature>("dead-strip",         "Mach-O dead stripping (-dead_strip; also implied by -fgc-sections)");
+    cmd->define::<FlagKind::Feature>("bitcode",            "embed LLVM bitcode in Mach-O output (Apple deprecated bitcode)");
 
     // Windows/PE specific
-    cmd->define::<FlagKind::Feature>("high-entropy-va",    "enable 64-bit ASLR in PE output (HIGHENTROPYVA)");
-    cmd->define::<FlagKind::Feature>("dynamicbase",        "enable ASLR in PE output (DYNAMICBASE, on by default on Windows)");
-    cmd->define::<FlagKind::Feature>("nxcompat",           "mark PE binary as NX compatible (on by default on Windows)");
-    cmd->define::<FlagKind::Feature>("guard-cf",           "enable Windows Control Flow Guard");
-    cmd->define::<FlagKind::Feature>("tsaware",            "mark PE binary as terminal-server aware");
+    cmd->define::<FlagKind::Feature>("high-entropy-va",    "64-bit ASLR in PE output (/highentropyva[:no]; lld default on 64-bit)");
+    cmd->define::<FlagKind::Feature>("dynamicbase",        "ASLR in PE output (/dynamicbase[:no]; lld default on)");
+    cmd->define::<FlagKind::Feature>("nxcompat",           "mark PE binary as NX compatible (/nxcompat[:no]; lld default on)");
+    cmd->define::<FlagKind::Feature>("guard-cf",           "Windows Control Flow Guard (/guard:cf, -fno-guard-cf passes /guard:no)");
+    cmd->define::<FlagKind::Feature>("tsaware",            "mark PE binary as terminal-server aware (/tsaware[:no]; lld default on)");
 
     // WASM proposals
     cmd->define::<FlagKind::Feature>("wasm-bulk-memory",   "enable WASM bulk memory operations proposal");
-    cmd->define::<FlagKind::Feature>("wasm-threads",       "enable WASM threads proposal (shared memory + atomics)");
+    cmd->define::<FlagKind::Feature>("wasm-threads",       "WASM threads: link with --shared-memory (needs +atomics in the objects)");
     cmd->define::<FlagKind::Feature>("wasm-tail-calls",    "enable WASM tail calls proposal");
     cmd->define::<FlagKind::Feature>("wasm-simd",          "enable WASM SIMD proposal");
     cmd->define::<FlagKind::Feature>("wasm-sign-ext",      "enable WASM sign extension operators proposal");
@@ -269,53 +269,53 @@ fn register_kairo_flags(cmd: *Command) {
 
     cmd->define::<FlagKind::StringList>("lib-dirs",       "L", "lib-dir",          "add directory to library search path (repeatable)");
     cmd->define::<FlagKind::StringList>("link-libs",      "l", "link",             "link against named library, optionally qualified: -l static:foo or -l dynamic:bar (repeatable)");
-    cmd->define::<FlagKind::StringList>("rpath",          "",  "rpath",            "add runtime library search path (ELF/Mach-O, repeatable)");
+    cmd->define::<FlagKind::StringList>("rpath",          "",  "rpath",            "add runtime library search path (ELF/Mach-O, repeatable; dropped on static links)");
     cmd->define::<FlagKind::StringList>("rpath-link",     "",  "rpath-link",       "link-time-only rpath entries (ELF, repeatable)");
-    cmd->define::<FlagKind::String>    ("linker-script",  "",  "linker-script",    "pass a linker script to kld",                                                 "");
-    cmd->define::<FlagKind::String>    ("version-script", "",  "version-script",   "pass a symbol version script to kld",                                        "");
+    cmd->define::<FlagKind::String>    ("linker-script",  "",  "linker-script",    "pass a linker script to the linker (lld; ELF only)",                       "");
+    cmd->define::<FlagKind::String>    ("version-script", "",  "version-script",   "pass a symbol version script to the linker (lld; ELF only)",              "");
     cmd->define::<FlagKind::String>    ("map-file",       "",  "map-file",         "write a linker map file (symbol -> section -> address) to this path",          "");
     cmd->define::<FlagKind::String>    ("build-id",       "",  "build-id",         "emit build-id note section: none|fast|sha1|uuid (default: fast)",            "fast");
-    cmd->define::<FlagKind::Bool>      ("export-dynamic", "",  "export-dynamic",   "pass -E to linker: export all dynamic symbols (needed for dlopen/plugins)",  false);
+    cmd->define::<FlagKind::Bool>      ("export-dynamic", "",  "export-dynamic",   "pass --export-dynamic to the linker: export all dynamic symbols (dlopen/plugins)", false);
     cmd->define::<FlagKind::Bool>      ("now",            "",  "now",              "full RELRO: resolve all symbols at load time (-z now, ELF)",                  false);
     cmd->define::<FlagKind::Bool>      ("z-noexecstack",  "",  "z-noexecstack",    "mark stack non-executable in ELF PT_GNU_STACK note",                          false);
-    cmd->define::<FlagKind::String>    ("hash-style",     "",  "hash-style",       "ELF hash section style: gnu|sysv|both (default: gnu)",                       "gnu");
-    cmd->define::<FlagKind::String>    ("dynamic-linker", "",  "dynamic-linker",   "override path to the dynamic linker (e.g. /lib/ld-musl-x86_64.so.1)",       "");
+    cmd->define::<FlagKind::String>    ("hash-style",     "",  "hash-style",       "ELF hash section style, dynamic links only: gnu|sysv|both (default: gnu)", "gnu");
+    cmd->define::<FlagKind::String>    ("dynamic-linker", "",  "dynamic-linker",   "override the dynamic linker path, dynamic links only (e.g. /lib/ld-musl-x86_64.so.1)", "");
     cmd->define::<FlagKind::String>    ("emulation",      "",  "emulation",        "linker emulation: elf_x86_64|elf_i386|aarch64elf|... (default: auto)",         "");
     cmd->define::<FlagKind::String>    ("compress-debug", "",  "compress-debug",   "compress DWARF debug sections: none|zlib|zstd (default: none)",              "none");
-    cmd->define::<FlagKind::StringList>("ld-flags",       "",  "ld-flags",         "raw flag passthrough to kld (repeatable)");
+    cmd->define::<FlagKind::StringList>("ld-flags",       "",  "ld-flags",         "raw flag passthrough to the linker (lld; repeatable)");
     cmd->define::<FlagKind::StringList>("cxx-flags",      "",  "cxx-flags",        "raw flag passthrough to clang for C++ interop compilation (repeatable)");
 
     //  PLATFORM: macOS / Darwin
 
-    cmd->define::<FlagKind::String>    ("macos-version-min","","macos-version-min","minimum macOS deployment target (e.g. 14.0)",                                "");
-    cmd->define::<FlagKind::String>    ("ios-version-min",  "","ios-version-min",  "minimum iOS deployment target (e.g. 17.0)",                                  "");
-    cmd->define::<FlagKind::String>    ("macos-sdk",        "","macos-sdk",        "path to MacOSX.sdk",                                                         "");
-    cmd->define::<FlagKind::String>    ("install-name",     "","install-name",     "dylib install name passed to the linker (-install_name)",                    "");
-    cmd->define::<FlagKind::String>    ("rpath-origin",     "","rpath-origin",     "rpath origin shorthand: @loader_path|@executable_path|@rpath",              "");
-    cmd->define::<FlagKind::StringList>("force-load",       "","force-load",       "force load an archive (all symbols, not just referenced, repeatable)");
-    cmd->define::<FlagKind::I32>       ("headerpad",        "","headerpad",        "minimum padding in bytes for Mach-O load commands",                          0, 0, 65536);
+    cmd->define::<FlagKind::String>    ("macos-version-min","","macos-version-min","minimum macOS deployment target, -platform_version (e.g. 14.0); beats the environment and triple", "");
+    cmd->define::<FlagKind::String>    ("ios-version-min",  "","ios-version-min",  "minimum iOS deployment target, -platform_version (e.g. 17.0)",           "");
+    cmd->define::<FlagKind::String>    ("macos-sdk",        "","macos-sdk",        "path to MacOSX.sdk; becomes -syslibroot and beats --sysroot",            "");
+    cmd->define::<FlagKind::String>    ("install-name",     "","install-name",     "dylib install name (-install_name; --shared only, default @rpath/<output>)", "");
+    cmd->define::<FlagKind::String>    ("rpath-origin",     "","rpath-origin",     "add an -rpath anchored at @loader_path or @executable_path (optional /subpath)", "");
+    cmd->define::<FlagKind::StringList>("force-load",       "","force-load",       "force load an archive (-force_load: all members, not just referenced; repeatable)");
+    cmd->define::<FlagKind::I32>       ("headerpad",        "","headerpad",        "extra padding in bytes for Mach-O load commands (-headerpad, 0 = linker default)", 0, 0, 65536);
 
     //  PLATFORM: Windows / PE-COFF
 
-    cmd->define::<FlagKind::String>("subsystem",      "",  "subsystem",      "PE subsystem: console|windows|efi|native|posix (default: console)",               "console");
-    cmd->define::<FlagKind::String>("pdb",            "",  "pdb",            "path for PDB debug info output (Windows)",                                          "");
-    cmd->define::<FlagKind::String>("def",            "",  "def",            "path to .def file for DLL exports",                                                 "");
-    cmd->define::<FlagKind::String>("implib",         "",  "implib",         "path for import library output (.lib)",                                             "");
-    cmd->define::<FlagKind::Bool>  ("manifest",       "",  "manifest",       "embed a Windows application manifest",                                             false);
-    cmd->define::<FlagKind::String>("manifest-file",  "",  "manifest-file",  "path to a custom Windows manifest file",                                           "");
-    cmd->define::<FlagKind::Bool>  ("dll",            "",  "dll",            "produce a DLL (alias for --shared on Windows)",                                    false);
-    cmd->define::<FlagKind::Bool>  ("kill-at",        "",  "kill-at",        "remove @ size suffix from stdcall symbol exports",                                 false);
-    cmd->define::<FlagKind::I32>   ("stack-size",     "",  "stack-size",     "override default stack size in PE header (bytes, 0 = linker default)",            0, 0, 2147483647);
-    cmd->define::<FlagKind::I32>   ("heap-size",      "",  "heap-size",      "override default heap size in PE header (bytes, 0 = linker default)",             0, 0, 2147483647);
+    cmd->define::<FlagKind::String>("subsystem",      "",  "subsystem",      "PE subsystem: console|windows|native|posix|efi_application|efi_boot_service_driver|efi_rom|efi_runtime_driver|boot_application (default: console)", "console");
+    cmd->define::<FlagKind::String>("pdb",            "",  "pdb",            "path for PDB debug info output (/pdb:, Windows)",                                "");
+    cmd->define::<FlagKind::String>("def",            "",  "def",            "module-definition (.def) file for DLL exports (/def:)",                          "");
+    cmd->define::<FlagKind::String>("implib",         "",  "implib",         "path for import library output (/implib:, .lib)",                               "");
+    cmd->define::<FlagKind::Bool>  ("manifest",       "",  "manifest",       "embed a default Windows application manifest (/manifest:embed)",                false);
+    cmd->define::<FlagKind::String>("manifest-file",  "",  "manifest-file",  "embed this manifest file instead of the default (/manifestinput:)",              "");
+    cmd->define::<FlagKind::Bool>  ("dll",            "",  "dll",            "produce a DLL (alias of --shared on every target)",                              false);
+    cmd->define::<FlagKind::Bool>  ("kill-at",        "",  "kill-at",        "remove @n size suffix from stdcall symbol exports (/kill-at, PE only)",          false);
+    cmd->define::<FlagKind::I32>   ("stack-size",     "",  "stack-size",     "stack size in the PE header (/stack:, bytes, 0 = linker default)",            0, 0, 2147483647);
+    cmd->define::<FlagKind::I32>   ("heap-size",      "",  "heap-size",      "heap size in the PE header (/heap:, bytes, 0 = linker default)",             0, 0, 2147483647);
 
     //  PLATFORM: WASM / WASI
 
-    cmd->define::<FlagKind::StringList>("wasm-export",       "",  "wasm-export",       "explicitly export a WASM symbol by name (repeatable)");
-    cmd->define::<FlagKind::Bool>      ("wasm-import-memory","",  "wasm-import-memory","import linear memory from the host instead of defining it",              false);
-    cmd->define::<FlagKind::Bool>      ("wasm-export-memory","",  "wasm-export-memory","export linear memory to the host",                                       false);
-    cmd->define::<FlagKind::I32>       ("wasm-max-memory",   "",  "wasm-max-memory",   "maximum WASM linear memory in bytes (0 = no limit)",                    0, 0, 2147483647);
-    cmd->define::<FlagKind::I32>       ("wasm-initial-memory","", "wasm-initial-memory","initial WASM linear memory in bytes (default: 65536)",                 65536, 65536, 2147483647);
-    cmd->define::<FlagKind::I32>       ("wasm-stack-size",   "",  "wasm-stack-size",   "WASM operand stack size in bytes (default: 65536)",                     65536, 4096, 2147483647);
+    cmd->define::<FlagKind::StringList>("wasm-export",       "",  "wasm-export",       "export a symbol from the wasm module (wasm-ld --export=; repeatable)");
+    cmd->define::<FlagKind::Bool>      ("wasm-import-memory","",  "wasm-import-memory","import linear memory from the host instead of defining it (--import-memory)", false);
+    cmd->define::<FlagKind::Bool>      ("wasm-export-memory","",  "wasm-export-memory","export linear memory to the host (--export-memory)",                    false);
+    cmd->define::<FlagKind::I32>       ("wasm-max-memory",   "",  "wasm-max-memory",   "maximum WASM linear memory in bytes, multiple of 65536 (--max-memory, 0 = no limit)",                    0, 0, 2147483647);
+    cmd->define::<FlagKind::I32>       ("wasm-initial-memory","", "wasm-initial-memory","initial WASM linear memory in bytes, multiple of 65536 (--initial-memory; only passed when given) (default: 65536)",                 65536, 65536, 2147483647);
+    cmd->define::<FlagKind::I32>       ("wasm-stack-size",   "",  "wasm-stack-size",   "WASM shadow stack size in bytes, 16-aligned (-z stack-size=; only passed when given) (default: 65536)",                     65536, 4096, 2147483647);
     cmd->define::<FlagKind::Bool>      ("wasi",              "",  "wasi",              "target WASI ABI (sets default imports/exports for WASI runtime)",        false);
     cmd->define::<FlagKind::String>    ("wasi-version",      "",  "wasi-version",      "WASI ABI version: preview1|preview2 (default: preview1)",               "preview1");
 
@@ -341,7 +341,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("verbose",         "v", "verbose",        "print the linker invocation and INFO log lines",                    false);
     cmd->define::<FlagKind::Bool>  ("quiet",           "",  "quiet",          "suppress warnings, notes and remarks; errors still print",                      false);
     cmd->define::<FlagKind::Bool>  ("suppress",        "",  "suppress",       "route all output to stderr, nothing to stdout",                                  false);
-    cmd->define::<FlagKind::I32>   ("threads",         "",  "threads",        "parallelism for multi-file compilation (0 = logical CPU count)",                0, 0, 1024);
+    cmd->define::<FlagKind::I32>   ("threads",         "",  "threads",        "parallelism for compilation, also the lld --threads count (0 = logical CPU count)",                0, 0, 1024);
     cmd->define::<FlagKind::Bool>  ("time-passes",     "",  "time-passes",    "print per-pass timing breakdown after compilation",                              false);
     cmd->define::<FlagKind::String>("time-trace",      "",  "time-trace",     "emit Chrome-format trace JSON here (implies --time-passes)", "");
 
@@ -445,7 +445,7 @@ fn register_kairo_flags(cmd: *Command) {
                                "", _unmatched_choices(), ""));
     cmd->define::<FlagKind::String>("unwind-tables",         "", "unwind-tables",          "unwind table emission: none|sync|async (default: sync)",                  "sync");
     cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
-    cmd->define::<FlagKind::String>("unwindlib",             "", "unwindlib",              "unwind library: libunwind|libgcc|none (default: platform default)",        "");
+    cmd->define::<FlagKind::String>("unwindlib",             "", "unwindlib",              "unwind library: libunwind|libgcc|none (default: libgcc with --rtlib=libgcc, else libunwind; a sysroot manifest may set it)",        "");
 
     //  debug info
     cmd->define::<FlagKind::Bool>  ("debug-macros",          "", "debug-macros",           "embed macro definitions in DWARF debug info",                             false);
@@ -458,7 +458,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  link-time optimizations
     cmd->define::<FlagKind::Bool>  ("icf",                   "", "icf",                    "identical code folding: merge functions with identical machine code",      false);
-    cmd->define::<FlagKind::String>("icf-mode",              "", "icf-mode",               "ICF aggressiveness: safe|all (default: safe)",                            "safe");
+    cmd->define::<FlagKind::String>("icf-mode",              "", "icf-mode",               "ICF aggressiveness, only with --icf: safe|all (default: safe)",       "safe");
     cmd->define::<FlagKind::Bool>  ("whole-program-vtables", "", "whole-program-vtables",  "whole-program vtable devirtualization, requires --lto",                   false);
     cmd->define::<FlagKind::Bool>  ("devirt",                "", "devirt",                 "dead virtual function elimination, requires --lto=full",                  false);
 
@@ -467,7 +467,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("hot-cold-split",        "", "hot-cold-split",         "split hot/cold function sections using PGO data (ELF x86/aarch64 only)",  false);
 
     //  WASM / WASI
-    cmd->define::<FlagKind::String>("wasm-exec-model",       "", "wasm-exec-model",        "WASM execution model: command|reactor (default: command)",                "command");
+    cmd->define::<FlagKind::String>("wasm-exec-model",       "", "wasm-exec-model",        "WASM execution model: command (_start) or reactor (--no-entry, crt1-reactor.o) (default: command)",                "command");
 
     //  platform-specific / embedded
     cmd->define::<FlagKind::Bool>  ("no-implicit-float",     "", "no-implicit-float",      "disallow implicit generation of float or vector instructions",            false);
