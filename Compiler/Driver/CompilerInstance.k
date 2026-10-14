@@ -271,18 +271,22 @@ class FrontendAction {
 /// it. Same split as clang's CreateFromArgs / setInvocation.
 class CompilerInstance {
     // --- Owned resources -------------------------------------------------
-    //   Listed in construction order; destroyed in reverse.
-    priv var _pool:    *ThreadPool;
-    priv var _vfm:     *VirtualFileManager;
-    priv var _diag:    *DiagEngine;
-    priv var _sm:      *SourceManager;
-    priv var _tcm:     *TokenCacheManager;
-    priv var _pretty:  *PrettyDiagConsumer;
-    priv var _basic:   *BasicDiagConsumer;
-    priv var _cmd:     *Command;
-    priv var _pp:      *PreProcessor;
-    priv var _imp:     *ImportResolver;
-    priv var _g_scope: *GlobalDisambigTable;
+    //   Listed in construction order; destroyed in reverse. Each starts
+    //   null: a run that answers early (--explain, --print-dirs) never
+    //   builds the batch-scoped ones, and the destructor frees whatever is
+    //   not null. Left uninitialized, it freed stack garbage, and whether
+    //   that crashed depended on the environment's size (an unset LANG did).
+    priv var _pool:    *ThreadPool = &null;
+    priv var _vfm:     *VirtualFileManager = &null;
+    priv var _diag:    *DiagEngine = &null;
+    priv var _sm:      *SourceManager = &null;
+    priv var _tcm:     *TokenCacheManager = &null;
+    priv var _pretty:  *PrettyDiagConsumer = &null;
+    priv var _basic:   *BasicDiagConsumer = &null;
+    priv var _cmd:     *Command = &null;
+    priv var _pp:      *PreProcessor = &null;
+    priv var _imp:     *ImportResolver = &null;
+    priv var _g_scope: *GlobalDisambigTable = &null;
     priv var _backend: *ClangBackend = &null; ///< shared clang backend; owned
     priv var _headers: *HeaderSetCache  = &null; ///< phase-A C++ header parses; owned, destroyed BEFORE _backend
     priv var _hindex:  *HeaderIndex     = &null; ///< header set -> Kairo TUs; owned
