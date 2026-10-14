@@ -203,6 +203,17 @@ class Toolchain {
         }
 
         var sr = LinkText::strip_slash(t->sysroot);
+        // --macos-sdk names the SDK directly and beats --sysroot and the
+        // bundled one: it is the more specific request, and -syslibroot must
+        // agree with the SDK the version is read from.
+        if darwin && (!o->macos_sdk.empty()) {
+            if self.platform == "macos" {
+                sr = LinkText::strip_slash(o->macos_sdk);
+            } else {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                    f"--macos-sdk only selects a macOS SDK, and the target platform is {self.platform}; ignored"));
+            }
+        }
         if darwin && (sr.empty() || (sr == "/")) {
             sr = Toolchain::find_sdk(self.platform);
             if sr.empty() {
@@ -245,7 +256,7 @@ class Toolchain {
         self._find_toolchain_lib(t);
 
         if darwin {
-            self._darwin_versions(msgs);
+            self._darwin_versions(o, msgs);
         } else {
             self.emulation = o->emulation;
             if self.emulation.empty() {
@@ -718,11 +729,38 @@ class Toolchain {
     }
 
     /// Deployment target and SDK version for -platform_version.
-    priv fn _darwin_versions(self, msgs: ref!(vec::<LinkMessage>)) {
+    priv fn _darwin_versions(self, o: *LinkerOptions, msgs: ref!(vec::<LinkMessage>)) {
         self.sdk_version = self._sdk_version();
 
+        // Precedence: the flag, then the environment variable, then the
+        // triple's version, then the SDK. The flag is the most explicit and
+        // must not be overridden by an ambient MACOSX_DEPLOYMENT_TARGET.
+        var flag = "";
+        var flag_name = "";
+        if self.platform == "macos" {
+            flag = o->macos_version_min;
+            flag_name = "--macos-version-min";
+        } else if LinkText::starts_with(self.platform, "ios") {
+            flag = o->ios_version_min;
+            flag_name = "--ios-version-min";
+        }
+        if (!o->macos_version_min.empty()) && (self.platform != "macos") {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                f"--macos-version-min only applies to macOS targets, and the target platform is {self.platform}; ignored"));
+        }
+        if (!o->ios_version_min.empty()) && (!LinkText::starts_with(self.platform, "ios")) {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                f"--ios-version-min only applies to iOS targets, and the target platform is {self.platform}; ignored"));
+        }
+        if (!flag.empty()) && (!Toolchain::is_version(flag)) {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                f"{flag_name}={flag}: expected a version like 14.0 or 14.4.1"));
+            return;
+        }
+
         var var_name = Toolchain::deployment_env(self.platform);
-        var v = ("") if (var_name.empty()) else (LinkFS::env(var_name));
+        var v = flag;
+        if v.empty() { v = ("") if (var_name.empty()) else (LinkFS::env(var_name)); }
         if v.empty() { v = self._triple_version(); }
         if v.empty() { v = self.sdk_version; }
         if v.empty() {
@@ -1088,6 +1126,38 @@ class Toolchain {
     }
 
     // --- Apple tables -----------------------------------------------------
+
+    /// The subsystems lld-link (and its MinGW driver) accept. Anything else
+    /// makes lld fail without naming the Kairo flag.
+    static fn pe_subsystem_ok(v: string) -> bool {
+        return (v == "console") || (v == "windows") || (v == "native") || (v == "posix")
+            || (v == "efi_application") || (v == "efi_boot_service_driver")
+            || (v == "efi_rom") || (v == "efi_runtime_driver") || (v == "boot_application");
+    }
+
+    /// `14`, `14.0`, `14.4.1`: one to three dot-separated digit groups, which
+    /// is what -platform_version accepts. Anything else makes ld64.lld fail
+    /// with a message that does not name the flag.
+    static fn is_version(v: string) -> bool {
+        if v.empty() { return false; }
+        var groups = 1;
+        var digits = 0;
+        var i: usize = 0;
+        while i < v.size() {
+            var c = v[i];
+            if c == '.' {
+                if digits == 0 { return false; }
+                groups += 1;
+                digits = 0;
+            } else if (c >= '0') && (c <= '9') {
+                digits += 1;
+            } else {
+                return false;
+            }
+            i += 1;
+        }
+        return (digits > 0) && (groups <= 3);
+    }
 
     /// The -platform_version name, or "" when \p os is not an Apple OS.
     static fn darwin_platform(os: string, env: string) -> string {

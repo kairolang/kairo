@@ -92,9 +92,21 @@ class MachOArgs {
         argv.push_back("-syslibroot");
         argv.push_back(tc.sysroot);
 
+        // Only a dylib has an install name; on an executable ld64 would
+        // accept and ignore it, so say so instead of looking like it worked.
+        if (!o->install_name.empty()) && (!shared) {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                "--install-name only applies to a dylib (--shared); ignored"));
+        }
         if shared && (!MachOArgs::_has_flag(o->ld_flags, "-install_name")) {
             argv.push_back("-install_name");
-            argv.push_back(f"@rpath/{LinkFS::filename(job.output)}");
+            if !o->install_name.empty() { argv.push_back(o->install_name); }
+            else { argv.push_back(f"@rpath/{LinkFS::filename(job.output)}"); }
+        }
+        if o->headerpad > 0 {
+            // ld64.lld reads the size as hex.
+            argv.push_back("-headerpad");
+            argv.push_back(MachOArgs::_hex(o->headerpad));
         }
 
         argv.push_back("-o");
@@ -110,6 +122,25 @@ class MachOArgs {
         }
 
         for r: string in o->rpath { argv.push_back("-rpath"); argv.push_back(r); }
+        if !o->rpath_origin.empty() {
+            // Only the two dyld-relative anchors (optionally followed by a
+            // subpath): @rpath is what -rpath entries are searched through, so
+            // an rpath that is itself @rpath/... would never resolve.
+            var ro = o->rpath_origin;
+            var ok = false;
+            var anchors = MachOArgs::_anchors();
+            for a: string in anchors {
+                if ro == a { ok = true; }
+                if LinkText::starts_with(ro, a + "/") { ok = true; }
+            }
+            if ok {
+                argv.push_back("-rpath");
+                argv.push_back(ro);
+            } else {
+                msgs.push_back(LinkDiag::make(LinkSeverity::Error,
+                    f"--rpath-origin={ro}: expected @loader_path or @executable_path, optionally followed by /<subpath>"));
+            }
+        }
         if (!no_libs) && (!tc.toolchain_lib.empty()) {
             argv.push_back("-rpath");
             argv.push_back(tc.toolchain_lib);
@@ -119,7 +150,14 @@ class MachOArgs {
 
         // --- behavior -------------------------------------------------------
         if o->export_dynamic { argv.push_back("-export_dynamic"); }
-        if o->f_gc_sections == 1 { argv.push_back("-dead_strip"); }
+        // -fdead-strip is the Mach-O spelling; -fgc-sections maps to it too.
+        // An explicit -fno-dead-strip wins over -fgc-sections.
+        if (o->f_dead_strip == 1) || ((o->f_dead_strip == -1) && (o->f_gc_sections == 1)) {
+            argv.push_back("-dead_strip");
+        }
+        // Each archive is loaded whole, so its unreferenced members (plugin
+        // registrars, static initializers) are not dropped by the linker.
+        for a: string in o->force_load { argv.push_back("-force_load"); argv.push_back(a); }
         if o->icf {
             if (o->icf_mode != "safe") && (o->icf_mode != "all") {
                 msgs.push_back(LinkDiag::make(LinkSeverity::Error,
@@ -267,6 +305,25 @@ class MachOArgs {
         for x: string in cxx  { argv.push_back(x); }
         for x: string in libc { argv.push_back(x); }
         if !tc.builtins.empty() { argv.push_back(tc.builtins); }
+    }
+
+    priv static fn _anchors() -> vec::<string> {
+        var v = vec::<string>();
+        v.push_back("@loader_path");
+        v.push_back("@executable_path");
+        return v;
+    }
+
+    priv static fn _hex(n: i32) -> string {
+        var digits = "0123456789abcdef";
+        var out = "";
+        var v = n;
+        while v > 0 {
+            var d = usize(v % 16);
+            out = LinkText::slice(digits, d, d + 1) + out;
+            v = v / 16;
+        }
+        return out;
     }
 
     priv static fn _has_flag(xs: ref!(vec::<string>), f: string) -> bool {

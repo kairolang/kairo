@@ -81,6 +81,7 @@ class LinkerOptions {
 
     // -- Windows / PE-COFF -------------------------------------------------
     pub var subsystem:         string = "console";
+    pub var subsystem_set:     bool   = false;      ///< --subsystem given: unset leaves lld to infer it from main/WinMain
     pub var pdb:               string = "";
     pub var def:               string = "";
     pub var implib:            string = "";
@@ -104,6 +105,8 @@ class LinkerOptions {
     pub var wasm_max_memory:     i32  = 0;
     pub var wasm_initial_memory: i32  = 65536;
     pub var wasm_stack_size:     i32  = 65536;
+    pub var wasm_initial_memory_set: bool = false;  ///< given on the command line; the 65536 default is not a request
+    pub var wasm_stack_size_set:     bool = false;  ///< same: wasm-ld sizes memory from the data when unasked
     pub var wasi:                bool = false;
     pub var f_wasm_bulk_memory:      i32 = -1;
     pub var f_wasm_threads:          i32 = -1;
@@ -178,6 +181,7 @@ class LinkerOptions {
 
         // -- Windows / PE-COFF ---------------------------------------------
         (o.subsystem)         = args.get_string("subsystem");
+        (o.subsystem_set)     = args.is_set("subsystem");
         (o.pdb)               = args.get_string("pdb");
         (o.def)               = args.get_string("def");
         (o.implib)            = args.get_string("implib");
@@ -200,6 +204,8 @@ class LinkerOptions {
         (o.wasm_max_memory)     = args.get_i32("wasm-max-memory");
         (o.wasm_initial_memory) = args.get_i32("wasm-initial-memory");
         (o.wasm_stack_size)     = args.get_i32("wasm-stack-size");
+        (o.wasm_initial_memory_set) = args.is_set("wasm-initial-memory");
+        (o.wasm_stack_size_set)     = args.is_set("wasm-stack-size");
         (o.wasi)                = args.get_bool("wasi");
         for s in args.get_list("wasm-export") { o.wasm_export.push_back(s); }
         (o.f_wasm_bulk_memory)     = args.get_feature("wasm-bulk-memory");

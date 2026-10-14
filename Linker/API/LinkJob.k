@@ -23,6 +23,8 @@ class LinkJob {
     pub var objects:        vec::<string>;   ///< objects and archives, link order
     pub var output:         string;
     pub var threads:        u32  = 0;        ///< lld --threads; 0 = lld's default
+    pub var lto:            string = "off";  ///< --lto: only gates lld's --lto-O<n>; off means no bitcode reaches the link
+    pub var opt_level:      i32  = 0;        ///< the -O level the objects were compiled at; lld's LTO must match it
     pub var kld_path:       string;          ///< out-of-process fallback; "" disables it
     pub var out_of_process: bool = false;    ///< force kld even when in-process is healthy
 
