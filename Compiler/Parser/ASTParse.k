@@ -101,7 +101,7 @@ class ASTParse
     pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input (--cmax-scope-depth).
     pub var expr_depth:        u32  = 0;     ///< current expression recursion depth.
     pub var max_expr_depth:    u32  = 512;   ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
-    pub var _depth_aborted:    bool = false; ///< a depth cap fired and the cursor was parked at EOF; later checks stay silent.
+    pub var _depth_aborted:    bool = false; ///< a depth cap fired; is_eof() now reports true and later checks stay silent.
     pub var error_count_base:  u32  = 0;     ///< error count recorded at parse start.
     pub var nl_depth:          u32  = 0;     ///< if non-zero, the parser ignores newlines.
     pub var _no_comment_skip: bool = false;
@@ -1787,7 +1787,8 @@ class ASTParse
     //  EOF / first-token queries
 
     inline pub fn is_eof(self) -> bool {
-        return (self._current == &null)
+        return (self._depth_aborted)
+            || (self._current == &null)
             || (self._current->kind == TokenKind::TkEof);
     }
 
@@ -2145,19 +2146,17 @@ class ASTParse
     ///          body) re-entered the same construct, failed the same check and
     ///          spun forever. Jumping to EOF guarantees progress and turns the
     ///          cap into exactly one diagnostic instead of a retry storm.
+    /// Stops the parse after a depth cap fires. Only a flag is set: is_eof()
+    /// reads it, so every statement/declaration loop ends on its next check
+    /// no matter which token window it is iterating. Moving the cursor
+    /// instead does not work: a class body is parsed over a swapped-in
+    /// sub-span, so a cursor parked at ITS end is restored to the middle of
+    /// the file, and the refused-without-consuming block then spins the
+    /// outer statement loop forever (the original --cmax-scope-depth hang).
+    /// The cursor stays on the refusing token so callers that read
+    /// current_ptr()->range for their error node never see null.
     fn _abort_to_eof(self) {
         self._depth_aborted = true;
-        if self.span.size() == 0 { return; }
-        var last = self.span.size() - 1;
-        self._prev = (self.span.get(last - 1)) if (last > 0) else (&null);
-        self.c_idx = last;
-        self._sync_cursor();
-        // If the stream does not end in an explicit EOF token the last real
-        // token would still be consumable, so step off the end entirely.
-        if (self._current != &null) && (self._current->kind != TokenKind::TkEof) {
-            self.c_idx = self.span.size();
-            self._sync_cursor();
-        }
     }
 
     /// \brief checks and increments the recursion depth counter.

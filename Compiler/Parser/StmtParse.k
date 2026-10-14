@@ -184,9 +184,14 @@ class <T> StmtParse {
             full_range = lbrace_range | dyn()->current_ptr()->range;
             dyn()->advance(T::SkipNL::Before); // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S057E, lbrace_range.start,
-                "expected '}' to close block"
-            ).first(lbrace_range).emit();
+            // After a depth abort every enclosing block is unclosed by
+            // construction; one S063E already said why, so the cascade of
+            // "expected '}'" from each of them would only bury it.
+            if !dyn()->_depth_aborted {
+                dyn()->diag->report(DiagID::S057E, lbrace_range.start,
+                    "expected '}' to close block"
+                ).first(lbrace_range).emit();
+            }
             full_range = lbrace_range | dyn()->prev().range;
         }
 
