@@ -1487,6 +1487,10 @@ class CompilerInstance {
         job.output   = self._link_out;
         job.threads  = u32(self._pool->get_thread_count());
         job.kld_path = self._kld_path();
+        // lld's LTO backend defaults to -O2 regardless of how the bitcode was
+        // produced; the link must be told the level the objects were built at.
+        job.lto       = self.invocation().codegen.lto;
+        job.opt_level = self.invocation().codegen.opt_level;
 
         for tr: TUResult in result.tu_results {
             for obj: string in tr.objects { job.add_object(obj); }

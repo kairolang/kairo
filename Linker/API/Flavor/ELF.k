@@ -57,7 +57,7 @@ class ELFArgs {
 
         if shared && tc.static_only {
             msgs.push_back(LinkDiag::make(LinkSeverity::Error,
-                f"cannot build a shared library: the sysroot {tc.sysroot} is static-only"));
+                f"cannot build a shared library: the sysroot {tc.sysroot} for {tc.triple} is static-only (no dynamic loader or libc.so); pass --target for a dynamic target, e.g. --target=x86_64-linux-gnu"));
             return false;
         }
         if shared && o->static_link {
@@ -70,10 +70,24 @@ class ELFArgs {
         argv.push_back("--color-diagnostics=never");
         argv.push_back("--error-limit=0");
         if job.threads > 0 { argv.push_back(f"--threads={job.threads}"); }
+        // lld's LTO backend runs at -O2 unless told; mirror the -O the objects
+        // were compiled at. Only when LTO is on: with plain objects it is inert
+        // and would just clutter the line.
+        if (!job.lto.empty()) && (job.lto != "off") {
+            var lvl = job.opt_level;
+            if lvl > 3 { lvl = 3; }
+            if lvl < 0 { lvl = 0; }
+            argv.push_back(f"--lto-O{lvl}");
+        }
         if !tc.emulation.empty() { argv.push_back("-m"); argv.push_back(tc.emulation); }
         if tc.pass_sysroot { argv.push_back(f"--sysroot={tc.sysroot}"); }
         if (!want_stat) && (!o->hash_style.empty()) { argv.push_back(f"--hash-style={o->hash_style}"); }
-        if !o->build_id.empty() { argv.push_back(f"--build-id={o->build_id}"); }
+        // An empty value (--build-id=) means "the default", not "no note": the
+        // note is what debuggers and symbol servers key on, and dropping the
+        // flag would silently turn it off only for people who wrote it.
+        var bid = o->build_id;
+        if bid.empty() { bid = "fast"; }
+        argv.push_back(f"--build-id={bid}");
         if o->f_eh_frame_hdr != 0 { argv.push_back("--eh-frame-hdr"); }
         if o->f_relro == 1 { argv.push_back("-z"); argv.push_back("relro");   }
         if o->f_relro == 0 { argv.push_back("-z"); argv.push_back("norelro"); }
@@ -141,7 +155,16 @@ class ELFArgs {
         if !tc.gcc_dir.empty()       { argv.push_back(f"-L{tc.gcc_dir}"); }
         for d: string in tc.lib_dirs { argv.push_back(f"-L{d}"); }
 
-        for r: string in o->rpath { argv.push_back("-rpath"); argv.push_back(r); }
+        // A static image has no dynamic section to carry a DT_RUNPATH, and lld
+        // would leave an unused one in a static PIE; say so instead of emitting
+        // a flag that does nothing.
+        if want_stat && (!o->rpath.empty()) {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning,
+                "--rpath has no effect on a static link (there is no dynamic section); dropped"));
+        }
+        if !want_stat {
+            for r: string in o->rpath { argv.push_back("-rpath"); argv.push_back(r); }
+        }
         if (!want_stat) && (!no_libs) && (!tc.toolchain_lib.empty()) {
             argv.push_back("-rpath");
             argv.push_back(tc.toolchain_lib);
