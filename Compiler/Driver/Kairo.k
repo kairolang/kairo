@@ -33,6 +33,7 @@ import Support::TimeReport::*;
 import Tooling::ParseAPI::*;
 import AST::Visitor::ASTWriter::*;
 
+ffi "c++" import "Native/KLocale.hh";      // init_process_locale
 ffi "c++" import "Native/KTimeReport.hh";  // strcmp/strncmp for _scan_timing_flags
 ffi "c++" import "llvm/Support/InitLLVM.h";
 ffi "c++" import "llvm/Support/Locale.h";
@@ -58,15 +59,11 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
         r"PLEASE submit a bug report to https://github.com/kairolang/kairo/issues and include the crash backtrace.\n"
     );
 
-    // Force eager locale initialisation on the main thread before any workers
-    // start. Wide-string machinery on Linux resolves lazily and will segfault
-    // if first called from a worker thread with a shallow stack.
+    // Locale from the environment, LC_CTYPE forced to UTF-8 if that did not
+    // give one (Native/KLocale.hh says why), eagerly on the main thread
+    // before any worker starts.
     inline "c++" {
-        // only reason this is in inline c++
-        // stage0 doesnt like accessing global namespaces
-        // ::foo simply doesnt parse in stage0
-        ::setlocale(LC_ALL, "");
-        (void)::wcslen(WIDE_STR(""));
+        ::kairo::init_process_locale();
     }
 
     libcxx::use_facet::<libcxx::ctype::<char>>(libcxx::locale());
