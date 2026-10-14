@@ -1224,24 +1224,11 @@ class CompilerInstance {
         }
         if cgo.instrument_functions { o.push_back("-finstrument-functions"); }
 
-        // -- coverage / PGO --------------------------------------------------
-        if cgo.f_coverage == 1 {
-            o.push_back("-fprofile-instrument=clang");
-            o.push_back("-fcoverage-mapping");
-        } else if cgo.f_profile_generate == 1 {
-            o.push_back("-fprofile-instrument=clang");
-        }
-        if !cgo.profile_use.empty() {
-            // Checked here, not left to cc1: its message names neither the
-            // flag nor says the file is what is missing.
-            if !LinkFS::is_file(cgo.profile_use) {
-                self._diag->report(DiagID::U001E,
-                    f"--profile-use: no such profile data file '{cgo.profile_use}\x27").emit();
-            } else {
-                o.push_back("-fprofile-instrument-use=clang");
-                o.push_back(f"-fprofile-instrument-use-path={cgo.profile_use}");
-            }
-        }
+        // Coverage and PGO (-fcoverage, -fprofile-generate, --profile-use) are
+        // deliberately NOT forwarded: the instrumented objects need
+        // libclang_rt.profile on the link line, which no bundled sysroot
+        // ships, so a cc1-only wiring would only move the failure to the
+        // linker. They stay marked unimplemented in the registry.
 
         // -- reproducible builds ---------------------------------------------
         // --remap-path-prefix is clang's -ffile-prefix-map, which cc1 only

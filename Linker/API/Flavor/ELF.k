@@ -70,15 +70,8 @@ class ELFArgs {
         argv.push_back("--color-diagnostics=never");
         argv.push_back("--error-limit=0");
         if job.threads > 0 { argv.push_back(f"--threads={job.threads}"); }
-        // lld's LTO backend runs at -O2 unless told; mirror the -O the objects
-        // were compiled at. Only when LTO is on: with plain objects it is inert
-        // and would just clutter the line.
-        if (!job.lto.empty()) && (job.lto != "off") {
-            var lvl = job.opt_level;
-            if lvl > 3 { lvl = 3; }
-            if lvl < 0 { lvl = 0; }
-            argv.push_back(f"--lto-O{lvl}");
-        }
+        // No --lto-O<n>: the backend always emits native objects (EmitObjAction),
+        // so no bitcode reaches lld and --lto is marked unimplemented.
         if !tc.emulation.empty() { argv.push_back("-m"); argv.push_back(tc.emulation); }
         if tc.pass_sysroot { argv.push_back(f"--sysroot={tc.sysroot}"); }
         if (!want_stat) && (!o->hash_style.empty()) { argv.push_back(f"--hash-style={o->hash_style}"); }
