@@ -194,17 +194,17 @@ class <T> ExprParse {
     fn parse_expr(self, stop: ExprStopKind = ExprStopKind::Default) -> *Expr {
         if dyn()->is_eof() { return &null; }
         if self._should_stop(stop) { return &null; }
-        if !dyn()->enter_depth() { return &null; }
+        if !dyn()->enter_expr_depth() { return &null; }
 
         var lhs = self._parse_cast_expr(stop);
         if lhs == &null {
-            dyn()->exit_depth();
+            dyn()->exit_expr_depth();
             return &null;
         }
 
         lhs = self._parse_expr_prec(lhs, Precedence::None, stop);
 
-        dyn()->exit_depth();
+        dyn()->exit_expr_depth();
         return lhs;
     }
 
@@ -2937,7 +2937,7 @@ class <T> ExprParse {
     ///
     /// precondition: current token is `{`.
     priv fn _parse_init_braces(self, path: *Expr, start_range: SourceRange) -> *Expr {
-        if !dyn()->enter_depth() {
+        if !dyn()->enter_expr_depth() {
             return static_cast::<*Expr>(NamedInitializerExpr::create_error(dyn()->ctx, start_range));
         }
 
@@ -2988,7 +2988,7 @@ class <T> ExprParse {
         var node = NamedInitializerExpr::create(dyn()->ctx, full_range, path);
         node->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
 
-        dyn()->exit_depth();
+        dyn()->exit_expr_depth();
         return static_cast::<*Expr>(node);
     }
 
@@ -3379,7 +3379,7 @@ class <T> ExprParse {
     priv fn _parse_if_expr(self, stop: ExprStopKind) -> *Expr {
         var start_range = dyn()->current_ptr()->range;
 
-        if !dyn()->enter_depth() {
+        if !dyn()->enter_expr_depth() {
             return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range));
         }
 
@@ -3388,13 +3388,13 @@ class <T> ExprParse {
         // primary condition
         var condition = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
         if (condition == &null) || is_recovery(condition) {
-            dyn()->exit_depth();
+            dyn()->exit_expr_depth();
             return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
         self._require_parens(condition);
 
         var node = self._finish_if_expr(start_range, condition, stop);
-        dyn()->exit_depth();
+        dyn()->exit_expr_depth();
         return node;
     }
 
@@ -3517,7 +3517,7 @@ class <T> ExprParse {
         var start_range = dyn()->current_ptr()->range;
         var nested_bare = (dyn()->c_idx + 1) == self._bare_try_at;
 
-        if !dyn()->enter_depth() {
+        if !dyn()->enter_expr_depth() {
             return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range));
         }
 
@@ -3535,7 +3535,7 @@ class <T> ExprParse {
                 dyn()->diag->report(DiagID::S052E, start_range.start,
                     "expected an expression after 'try\x27"
                 ).first(start_range).emit();
-                dyn()->exit_depth();
+                dyn()->exit_expr_depth();
                 return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
             }
         }
@@ -3559,14 +3559,14 @@ class <T> ExprParse {
                     "no catch arm may follow a default 'catch' (the default is terminal)"
                 ).first(r).emit();
                 self._sync_to_brace_or_catch();
-                dyn()->exit_depth();
+                dyn()->exit_expr_depth();
                 return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
             }
 
             var arm = self._parse_catch_arm_expr(stop);
             if arm.body == &null {
                 self._sync_to_brace_or_catch();
-                dyn()->exit_depth();
+                dyn()->exit_expr_depth();
                 return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
             }
             if arm.filter == &null {
@@ -3581,7 +3581,7 @@ class <T> ExprParse {
                     "'try' expression requires at least one 'catch' arm"
                 ).first(start_range).emit();
             }
-            dyn()->exit_depth();
+            dyn()->exit_expr_depth();
             return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
 
@@ -3601,7 +3601,7 @@ class <T> ExprParse {
         var node = TryCatchExpr::create(dyn()->ctx, start_range | dyn()->prev().range, try_expr);
         node->catch_arms.from_buf(arms.data(), arms.size(), dyn()->ctx);
 
-        dyn()->exit_depth();
+        dyn()->exit_expr_depth();
         return static_cast::<*Expr>(node);
     }
 
@@ -4000,7 +4000,7 @@ class <T> ExprParse {
     priv fn _parse_closure_expr(self) -> *Expr {
         var start = dyn()->current_ptr()->range;
 
-        if !dyn()->enter_depth() {
+        if !dyn()->enter_expr_depth() {
             return static_cast::<*Expr>(ClosureExpr::create_error(dyn()->ctx, start));
         }
 
@@ -4068,7 +4068,7 @@ class <T> ExprParse {
                     "expected expression after '=' in closure body"
                 ).first(start).emit();
                 dyn()->exit_scope();
-                dyn()->exit_depth();
+                dyn()->exit_expr_depth();
                 return static_cast::<*Expr>(
                     ClosureExpr::create_error(dyn()->ctx,
                     (start | dyn()->prev().range)
@@ -4084,7 +4084,7 @@ class <T> ExprParse {
                     "expected expression after '=' in closure body"
                 ).first(start).emit();
                 dyn()->exit_scope();
-                dyn()->exit_depth();
+                dyn()->exit_expr_depth();
                 return static_cast::<*Expr>(
                     ClosureExpr::create_error(dyn()->ctx,
                     (start | dyn()->prev().range)
@@ -4095,7 +4095,7 @@ class <T> ExprParse {
                 "expected '{' or '=' to begin closure body"
             ).first(start).emit();
             dyn()->exit_scope();
-            dyn()->exit_depth();
+            dyn()->exit_expr_depth();
             return static_cast::<*Expr>(
                 ClosureExpr::create_error(dyn()->ctx,
                 (start | dyn()->prev().range)
@@ -4104,7 +4104,7 @@ class <T> ExprParse {
 
         ce->range = start | dyn()->prev().range;
         dyn()->exit_scope();
-        dyn()->exit_depth();
+        dyn()->exit_expr_depth();
         return static_cast::<*Expr>(ce);
     }
 }

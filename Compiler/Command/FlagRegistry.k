@@ -401,7 +401,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  type system
     cmd->define_cfg::<FlagKind::I32>("max-struct-fields",         "maximum fields in a single struct or class (0 = unlimited)",               0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-function-params",       "maximum parameters in a single function declaration (0 = unlimited)",      255,     0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-tuple-arity",           "maximum elements in a tuple type (0 = unlimited, default = 128)",          128,     0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-tuple-arity",           "maximum elements in a tuple type (0 = unlimited)",                         128,     0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-enum-variants",         "maximum variants in a single enum (0 = unlimited)",                        0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-match-arms",            "maximum arms in a single match block (0 = unlimited)",                     0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-union-width",           "maximum number of types in a union type (0 = unlimited)",                  64,      2,    65536);

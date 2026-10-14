@@ -98,7 +98,10 @@ class ASTParse
     // --- Recovery state -----------------------------------------------------
     pub var _fatal_sentinels:  u32 = 0;      ///< special marker type used to signal unrecoverable errors during type parsing.
     pub var depth:             u32  = 0;     ///< current recursion depth.
-    pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input.
+    pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input (--cmax-scope-depth).
+    pub var expr_depth:        u32  = 0;     ///< current expression recursion depth.
+    pub var max_expr_depth:    u32  = 512;   ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
+    pub var _depth_aborted:    bool = false; ///< a depth cap fired and the cursor was parked at EOF; later checks stay silent.
     pub var error_count_base:  u32  = 0;     ///< error count recorded at parse start.
     pub var nl_depth:          u32  = 0;     ///< if non-zero, the parser ignores newlines.
     pub var _no_comment_skip: bool = false;
@@ -253,6 +256,7 @@ class ASTParse
         self._peek    = (self.span.get(1)) if (self.span.size() > 1) else (&null);
 
         self.max_depth        = ctx->ci->frontend.max_scope_depth;
+        self.max_expr_depth   = ctx->ci->frontend.max_expr_depth;
         self.error_count_base = self.diag->error_count();
     }
 
@@ -1457,7 +1461,12 @@ class ASTParse
     ///          wrapper owns the parser policy: emit I002F on a truncated
     ///          chain and degrade to TkUnknown.
     inline pub fn resolve_deep(self, tok: *Token) -> Token {
-        var u = unwrap_expansion(*tok, self.ctx->tcm, self.ctx->ci->pp.max_depth);
+        // The cap is a malformed-chain backstop, NOT --cmax-macro-depth: that
+        // flag belongs to the preprocessor (it reports R008E itself). Reusing
+        // it here made a low value truncate every tail-position chain the
+        // preprocessor had already accepted, printing an I002F/S063N pair per
+        // token instead of one error. 65536 is the flag's own registry ceiling.
+        var u = unwrap_expansion(*tok, self.ctx->tcm, 65536);
 
         if u.hit_limit {
             self.diag->report(DiagID::I002F, tok->range.start,
@@ -2129,8 +2138,31 @@ class ASTParse
         self._sync_cursor();
     }
 
+    /// \brief parks the cursor on the final token so every enclosing loop sees
+    ///        EOF and unwinds.
+    /// \details a depth-cap failure used to return an error node WITHOUT
+    ///          consuming anything, so the caller's loop (top level, block
+    ///          body) re-entered the same construct, failed the same check and
+    ///          spun forever. Jumping to EOF guarantees progress and turns the
+    ///          cap into exactly one diagnostic instead of a retry storm.
+    fn _abort_to_eof(self) {
+        self._depth_aborted = true;
+        if self.span.size() == 0 { return; }
+        var last = self.span.size() - 1;
+        self._prev = (self.span.get(last - 1)) if (last > 0) else (&null);
+        self.c_idx = last;
+        self._sync_cursor();
+        // If the stream does not end in an explicit EOF token the last real
+        // token would still be consumable, so step off the end entirely.
+        if (self._current != &null) && (self._current->kind != TokenKind::TkEof) {
+            self.c_idx = self.span.size();
+            self._sync_cursor();
+        }
+    }
+
     /// \brief checks and increments the recursion depth counter.
     fn enter_depth(self) -> bool {
+        if self._depth_aborted { return false; }
         if self.depth >= self.max_depth {
             var cur_range = self.current_ptr()->range;
             self.diag->report(DiagID::S063E, cur_range.start,
@@ -2138,6 +2170,7 @@ class ASTParse
             ).first(cur_range)
              .note(DiagID::S063N, "this is likely caused by excessively deep or infinite recursion while parsing. consider refactoring to reduce nesting depth or changing `--cmax-scope-depth` to a higher value if necessary.")
              .emit();
+            self._abort_to_eof();
             return false;
         }
 
@@ -2148,6 +2181,30 @@ class ASTParse
     /// \brief decrements the recursion depth counter.
     fn exit_depth(self) {
         if self.depth > 0 { --self.depth; }
+    }
+
+    /// \brief expression-recursion twin of enter_depth, bounded by
+    ///        --cmax-expr-depth rather than the scope cap.
+    fn enter_expr_depth(self) -> bool {
+        if self._depth_aborted { return false; }
+        if self.expr_depth >= self.max_expr_depth {
+            var cur_range = self.current_ptr()->range;
+            self.diag->report(DiagID::S063E, cur_range.start,
+                "exceeded maximum expression nesting depth"
+            ).first(cur_range)
+             .note(DiagID::S063N, "this is likely caused by excessively deep or infinite recursion while parsing an expression. consider simplifying the expression or changing `--cmax-expr-depth` to a higher value if necessary.")
+             .emit();
+            self._abort_to_eof();
+            return false;
+        }
+
+        ++self.expr_depth;
+        return true;
+    }
+
+    /// \brief decrements the expression recursion depth counter.
+    fn exit_expr_depth(self) {
+        if self.expr_depth > 0 { --self.expr_depth; }
     }
 
     //  Scope primitives

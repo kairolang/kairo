@@ -674,7 +674,10 @@ class <T> TypeParse {
             return TupleType::create_error(dyn()->ctx, full_range | dyn()->prev().range);
         }
 
-        if vals.size() > dyn()->ctx->ci->frontend.max_tuple_arity {
+        // 0 means unlimited (the flag's documented meaning); comparing against 0
+        // directly rejected every tuple.
+        if (dyn()->ctx->ci->frontend.max_tuple_arity > 0)
+           && (vals.size() > static_cast::<usize>(dyn()->ctx->ci->frontend.max_tuple_arity)) {
             var range = vals[(dyn()->ctx->ci->frontend.max_tuple_arity)]->range;
             var endr  = vals[vals.size() - 1]->range;
 
