@@ -5028,6 +5028,7 @@ enum DiagID derives u32 {
   U002E = compute_hash::<r"U002E">(),
   U003E = compute_hash::<r"U003E">(),
   U004E = compute_hash::<r"U004E">(),
+  U005W = compute_hash::<r"U005W">(),
 }
 
 fn diag_meta(id: DiagID) -> DiagMeta;

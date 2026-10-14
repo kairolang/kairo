@@ -554,8 +554,117 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("no-implicit-float",     "", "no-implicit-float",      "disallow implicit generation of float or vector instructions",            false);
     cmd->define::<FlagKind::Bool>  ("kernel-mode",           "", "kernel-mode",            "kernel code model: no red zone, no implicit float, no SSE (x86 only)",   false);
 
-    // Flags parsed and stored but consumed by nothing yet; the orchestrator fills this list.
+    // Parsed into the invocation and consumed by nothing. Each one warns
+    // (U005W) when given and renders as [not implemented] in --help, so a
+    // user never believes a flag did something it did not. Remove an entry
+    // here in the same commit that adds the consumer. Keys: the registry key
+    // (cfg flags as "c:<name>", features by bare name).
+
+    // driver / dumps: no pass pipeline, BCIR, IR verifier, regalloc or
+    // generic-instantiation dump exists; --dump-type-info has no per-expr dump.
     cmd->mark_unimplemented("print-pass-pipeline");
+    cmd->mark_unimplemented("print-bcir");
+    cmd->mark_unimplemented("print-generics");
+    cmd->mark_unimplemented("print-regalloc");
+    cmd->mark_unimplemented("dump-type-info");
+    cmd->mark_unimplemented("verify-ir");
+    cmd->mark_unimplemented("verify-bcir");
+    cmd->mark_unimplemented("bcir-verbose");
+    cmd->mark_unimplemented("bcir-stats");
+    cmd->mark_unimplemented("suppress");
+    // incremental compilation / module cache: no cache exists (KairoWatch.k).
+    cmd->mark_unimplemented("incremental");
+    cmd->mark_unimplemented("incremental-dir");
+    cmd->mark_unimplemented("force-recompile");
+    cmd->mark_unimplemented("module-name");
+    cmd->mark_unimplemented("module-cache-dir");
+    cmd->mark_unimplemented("no-module-cache");
+    // test runner: none exists.
+    cmd->mark_unimplemented("test");
+    cmd->mark_unimplemented("test-list");
+    cmd->mark_unimplemented("test-filter");
+    cmd->mark_unimplemented("test-format");
+    cmd->mark_unimplemented("test-threads");
+    cmd->mark_unimplemented("test-no-capture");
+    cmd->mark_unimplemented("test-timeout");
+    cmd->mark_unimplemented("test-exit-code");
+    // target: --host is never read; the C++ ABI follows the triple.
+    cmd->mark_unimplemented("host");
+    cmd->mark_unimplemented("cxx-abi");
+    // borrow checker / AMT / cfg / panic handler: the subsystems do not exist.
+    // --borrow-check and --amt-mode values are still validated.
+    cmd->mark_unimplemented("borrow-check");
+    cmd->mark_unimplemented("amt-mode");
+    cmd->mark_unimplemented("amt-report-file");
+    cmd->mark_unimplemented("panic-handler");
+    cmd->mark_unimplemented("cfg");
+    cmd->mark_unimplemented("edition"); // validated (2025|2026) but nothing reads it
+    // language gates with no lowering or check point to hang them on.
+    cmd->mark_unimplemented("no-assert");
+    cmd->mark_unimplemented("no-finally");
+    cmd->mark_unimplemented("no-exceptions");
+    cmd->mark_unimplemented("no-overflow");
+    cmd->mark_unimplemented("strict-const");
+    cmd->mark_unimplemented("no-eval");
+    cmd->mark_unimplemented("no-generics");
+    cmd->mark_unimplemented("verify-interfaces");
+    cmd->mark_unimplemented("const-checks");
+    cmd->mark_unimplemented("overflow-checks");
+    cmd->mark_unimplemented("strict-null");
+    cmd->mark_unimplemented("union-inference");
+    // codegen features with no cc1 spelling, or that need a runtime archive
+    // the bundled sysroots do not ship (sanitizers, xray, coverage, PGO).
+    cmd->mark_unimplemented("force-inline");
+    cmd->mark_unimplemented("tail-call");
+    cmd->mark_unimplemented("dead-code-elim");
+    cmd->mark_unimplemented("export-all");
+    cmd->mark_unimplemented("coverage");
+    cmd->mark_unimplemented("profile-generate");
+    cmd->mark_unimplemented("sanitize-address");
+    cmd->mark_unimplemented("sanitize-thread");
+    cmd->mark_unimplemented("sanitize-memory");
+    cmd->mark_unimplemented("sanitize-ub");
+    cmd->mark_unimplemented("profile-use");
+    cmd->mark_unimplemented("coverage-format");
+    cmd->mark_unimplemented("xray");
+    cmd->mark_unimplemented("xray-threshold");
+    cmd->mark_unimplemented("lto");                    // objects are never bitcode, so lld has nothing to optimise
+    cmd->mark_unimplemented("whole-program-vtables");
+    cmd->mark_unimplemented("devirt");
+    cmd->mark_unimplemented("split-dwarf");
+    cmd->mark_unimplemented("disable-llvm-pass");
+    cmd->mark_unimplemented("unsigned-trap");
+    cmd->mark_unimplemented("strict-aliasing");        // TBAA is already on at -O1+; nothing to add
+    cmd->mark_unimplemented("cxx-flags");
+    // linker: no lld spelling, or deprecated by the platform.
+    cmd->mark_unimplemented("bitcode");
+    cmd->mark_unimplemented("wasi");
+    cmd->mark_unimplemented("wasi-version");
+    cmd->mark_unimplemented("no-stack-check");
+    cmd->mark_unimplemented("fixed-stack-size");
+    cmd->mark_unimplemented("wasm-bulk-memory");
+    cmd->mark_unimplemented("wasm-tail-calls");
+    cmd->mark_unimplemented("wasm-simd");
+    cmd->mark_unimplemented("wasm-sign-ext");
+    cmd->mark_unimplemented("wasm-reference-types");
+    cmd->mark_unimplemented("wasm-exceptions");
+    // diagnostics: byte columns only; cascade suppression has no switch.
+    cmd->mark_unimplemented("c:tab-width");
+    cmd->mark_unimplemented("diag-cascade");
+    // --c* limits nothing enforces.
+    cmd->mark_unimplemented("c:max-generic-depth");
+    cmd->mark_unimplemented("c:max-generic-backtrace");
+    cmd->mark_unimplemented("c:max-generic-instantiations");
+    cmd->mark_unimplemented("c:max-const-eval-steps");
+    cmd->mark_unimplemented("c:max-const-eval-depth");
+    cmd->mark_unimplemented("c:max-const-backtrace");
+    cmd->mark_unimplemented("c:max-for-unroll-count");
+    cmd->mark_unimplemented("c:max-inline-depth");
+    cmd->mark_unimplemented("c:max-lambda-capture-size");
+    cmd->mark_unimplemented("c:max-codegen-passes");
+    cmd->mark_unimplemented("c:max-object-size-mb");
+    cmd->mark_unimplemented("c:max-borrow-depth");
+    cmd->mark_unimplemented("c:max-amt-smartptr-rewrites");
 }
 
 fn register_test_flags(cmd: *Command) {
