@@ -116,10 +116,11 @@ CX_VISIT_IMPL(LiteralExpr) {
                         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "float", tok);
                         ADD_TOKEN(CXX_LPAREN);
                         break;
+                    // An unsuffixed float literal is f64: the literal's text is a
+                    // double in C++, and wrapping a value that merely fits in
+                    // f32 as f32(...) rounded it first (f64(0.1) became
+                    // f64(f32(0.1))). An f32 destination still converts as usual.
                     case FloatRange::F32:
-                        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "f32", tok);
-                        ADD_TOKEN(CXX_LPAREN);
-                        break;
                     case FloatRange::F64:
                         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "f64", tok);
                         ADD_TOKEN(CXX_LPAREN);
