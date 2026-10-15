@@ -101,13 +101,13 @@ class TextSink derives EmitSink {
         return true;
     }
 
-    override fn create_int(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
-        self._word(string(cxx), false);
+    override fn create_int(self, at: SourceRange, cxx: ref!(string)) -> bool {
+        self._word(cxx, false);
         return true;
     }
 
-    override fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
-        self._word(string(cxx), false);
+    override fn create_str(self, at: SourceRange, cxx: ref!(string)) -> bool {
+        self._word(cxx, false);
         return true;
     }
 

@@ -384,7 +384,7 @@ class ASTContext {
         tok = range;
         // token = lexer->intern_ident(s_p, length, h);
         // fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32
-        var str = self.string_alloc.alloc_init::<nstring>(s);
+        var str = self.string_alloc.alloc_init::<string>(s);
         if str == &null {
             self.diags->report(DiagID::I002F, range.start,
                 f"internal error: ASTContext::make_token failed to allocate string for token \x27{s}\x27"

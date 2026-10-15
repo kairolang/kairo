@@ -230,12 +230,12 @@ class TokenSink derives EmitSink {
         return true;
     }
 
-    override fn create_int(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
+    override fn create_int(self, at: SourceRange, cxx: ref!(string)) -> bool {
         return self._arena_tok(clang::tok::numeric_constant, at, cxx);
     }
 
     /// \p cxx INCLUDES the quotes.
-    override fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
+    override fn create_str(self, at: SourceRange, cxx: ref!(string)) -> bool {
         return self._arena_tok(clang::tok::string_literal, at, cxx);
     }
 
@@ -337,7 +337,7 @@ class TokenSink derives EmitSink {
         if !at.is_valid() {
             var p  = clang::tok::getPunctuatorSpelling(k);
             if (p == &null) { self.ice_at(SourceRange::from_bounds(loc, len), "TokenSink::_punct: kind has no punctuator spelling"); }
-            var ns = nstring(p, libcxx::strlen(p));
+            var ns = string(p, libcxx::strlen(p));
             self._arena_tok(k, SourceRange::from_bounds(loc, len), ns);
             self._opened(loc, len, at);
             return true;
@@ -423,7 +423,7 @@ class TokenSink derives EmitSink {
         var joined: libcxx::string;
         joined.append(a);
         joined.append(b);
-        var ns  = nstring(joined.data(), joined.size());
+        var ns  = string(joined.data(), joined.size());
         var off = self._intern(ns);
 
         ICE_IF((self._pending.size() == 0), "TokenSink::_pair: the first half has no arena entry");
@@ -458,7 +458,7 @@ class TokenSink derives EmitSink {
             // Clang reads an identifier's spelling from its IdentifierInfo,
             // and TokenLexer re-kinds it from the same (`decltype` becomes
             // kw_decltype), so the arena copy only buys the location.
-            var ns = nstring(name.data(), name.size());
+            var ns = string(name.data(), name.size());
             self._arena_tok(clang::tok::identifier, SourceRange::from_bounds(loc, len), ns);
             self._tokens.get(self._tokens.size() - 1)->setIdentifierInfo(self._pp->getIdentifierInfo(name));
             return true;
@@ -472,7 +472,7 @@ class TokenSink derives EmitSink {
         return true;
     }
 
-    priv fn _intern(self, s: ref!(nstring)) -> u32 {
+    priv fn _intern(self, s: ref!(string)) -> u32 {
         ICE_IF(self._sealed, "TokenSink: intern after arena registration");
         var key = s.std_string();
         var it = self._dedup.find(key);
@@ -489,7 +489,7 @@ class TokenSink derives EmitSink {
         return off;
     }
 
-    priv fn _arena_tok(self, k: clang::tok::TokenKind, r: SourceRange, spelling: ref!(nstring)) -> bool {
+    priv fn _arena_tok(self, k: clang::tok::TokenKind, r: SourceRange, spelling: ref!(string)) -> bool {
         var alen = static_cast::<u32>(spelling.size());
         var aoff = self._intern(spelling);
 

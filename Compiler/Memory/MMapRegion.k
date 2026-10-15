@@ -158,8 +158,8 @@ class MMapRegion {
             self._size = (fsize.QuadPart) as usize;
             self._valid = true;
         } else {
-            var nstring = *path;
-            var fd: i32 = ::open(nstring.c_str(), O_RDONLY);
+            var path_str = *path;
+            var fd: i32 = ::open(path_str.c_str(), O_RDONLY);
             if fd < 0 { return false; }
 
             // INLINE(cxx-feature: elaborated type specifier)

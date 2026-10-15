@@ -66,8 +66,8 @@ class EmitSink {
     virtual fn literal(self, at: SourceRange, k: clang::tok::TokenKind) -> bool { self.ice_at(at, "EmitSink::literal: abstract"); return false; }
 
     /// DIVERGENT literals: the C++ spelling differs from the Kairo bytes.
-    virtual fn create_int(self, at: SourceRange, cxx: ref!(nstring)) -> bool { self.ice_at(at, "EmitSink::create_int: abstract"); return false; }
-    virtual fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool { self.ice_at(at, "EmitSink::create_str: abstract"); return false; }
+    virtual fn create_int(self, at: SourceRange, cxx: ref!(string)) -> bool { self.ice_at(at, "EmitSink::create_int: abstract"); return false; }
+    virtual fn create_str(self, at: SourceRange, cxx: ref!(string)) -> bool { self.ice_at(at, "EmitSink::create_str: abstract"); return false; }
 
     /// A preprocessor line (`#pragma once`, `#include "..."`). Text sinks
     /// only; a token stream has no line to put it on.
@@ -105,8 +105,8 @@ class EmitSink {
         return self.synth(SourceRange::from_bounds(last, u32(1)), k);
     }
 
-    fn create_int(self, t: Token, cxx: ref!(nstring)) -> bool { return self.create_int(t.range, cxx); }
-    fn create_str(self, t: Token, cxx: ref!(nstring)) -> bool { return self.create_str(t.range, cxx); }
+    fn create_int(self, t: Token, cxx: ref!(string)) -> bool { return self.create_int(t.range, cxx); }
+    fn create_str(self, t: Token, cxx: ref!(string)) -> bool { return self.create_str(t.range, cxx); }
 
     fn kw_auto(self, t: Token) -> bool      { return self.synth(t, clang::tok::kw_auto);      }
     fn kw_return(self, t: Token) -> bool    { return self.synth(t, clang::tok::kw_return);    }

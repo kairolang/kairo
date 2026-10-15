@@ -907,7 +907,7 @@ class ImmediateTable {
     var string_literals:   own::<ArenaList::<Immediate::StringData>>;
     var macro_expansions:  own::<ArenaList::<Immediate::MacroExpansionInfo>>;
     var ident_descs:       own::<ArenaList::<Immediate::IdentData>>;   ///< idx -> (offset,len) into ident_blob
-    var synth_names:       own::<ArenaList::<nstring>>;                ///< owned bytes for synthesized identifiers
+    var synth_names:       own::<ArenaList::<string>>;                ///< owned bytes for synthesized identifiers
                                                                        ///  (no backing source buffer); ArenaList
                                                                        ///  never moves, so raw() ptrs stay stable.
     var ident_buckets:     vec::<Immediate::InternBucket>;             ///< open-addressed (hash -> idx) table
@@ -933,7 +933,7 @@ class ImmediateTable {
         self.string_literals  = std::create::<ArenaList::<Immediate::StringData>>(64);
         self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(256);
         self.ident_descs      = std::create::<ArenaList::<Immediate::IdentData>>(512);
-        self.synth_names      = std::create::<ArenaList::<nstring>>(64);
+        self.synth_names      = std::create::<ArenaList::<string>>(64);
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::initialize: initialized with source manager at {sm}");
     }
 
@@ -1163,7 +1163,7 @@ class ImmediateTable {
     ///        Returns \c u32(-1) on miss. NON-MUTATING.
     ///
     /// \details `string` is wchar-backed; identifiers were interned from UTF-8
-    ///          source bytes. Convert to a nstring (UTF-8) FIRST so the hash and
+    ///          source bytes. Convert to a string (UTF-8) FIRST so the hash and
     ///          byte-compare match what the lexer produced this mirrors
     ///          intern_ident_copy exactly, minus the synth_names store (a probe
     ///          needs no persistent copy). Cold path (import boundary only).
@@ -1187,7 +1187,7 @@ class ImmediateTable {
     ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
     fn intern_ident_copy(self, s: string) -> u32 {
         if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+            self.synth_names = std::create::<ArenaList::<string>>(64);
         }
         var stored = self.synth_names->push(s);
         var r = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
@@ -1210,7 +1210,7 @@ class ImmediateTable {
     ///       the text also happens to be a contiguous source slice.
     fn intern_string_copy(self, s: string) -> u32 {
         if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+            self.synth_names = std::create::<ArenaList::<string>>(64);
         }
         var idx  = self.create::<Immediate::StringData>();
         var data = self.get::<Immediate::StringData>(idx);
@@ -1228,13 +1228,13 @@ class ImmediateTable {
     ///        is wide and would re-encode anything past 0x7F.
     fn intern_bytes_copy(self, data: std::ConstPtr::<u8>, len: usize) -> u32 {
         if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+            self.synth_names = std::create::<ArenaList::<string>>(64);
         }
         var idx  = self.create::<Immediate::StringData>();
         var slot = self.get::<Immediate::StringData>(idx);
 
         var stored = self.synth_names->push(
-            nstring(reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(data), len));
+            string(reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(data), len));
         slot->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
         slot->owned_len   = static_cast::<u32>(stored->size());
         slot->prefix_kind = Immediate::TextPrefixKind::None;
