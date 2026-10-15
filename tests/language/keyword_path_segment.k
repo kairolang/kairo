@@ -5,6 +5,7 @@ fn main() -> i32 {
     print(N > 0);
     var t = Thread(fn () {});
     t.join();
+    libcxx::this_thread::yield();
     print("joined");
     return 0;
 }

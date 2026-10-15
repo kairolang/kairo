@@ -1079,13 +1079,15 @@ LINE910_PARSE_SCOPE_PATH_EXPR:
         CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_SCOPE) {
             iter.advance();  // skip '::'
 
-            // `thread`, `spawn` and `await` are keywords, but after `::` they
-            // can only be a name (`libcxx::thread::id`). Left as keywords,
+            // `thread`, `spawn`, `await` and `yield` are keywords, but after
+            // `::` they can only be a name (`libcxx::thread::id`,
+            // `this_thread::yield()`). Left as keywords,
             // parse_primary made an AsyncThreading node of them, whose
             // codegen aborts with "Not implemented yet".
             if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_THREAD) ||
                 CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_SPAWN) ||
-                CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_AWAIT)) {
+                CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_AWAIT) ||
+                CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_YIELD)) {
                 iter.current().get().set_kind(__TOKEN_N::IDENTIFIER);
             }
 
