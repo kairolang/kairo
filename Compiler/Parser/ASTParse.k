@@ -2295,40 +2295,36 @@ class ASTParse
     ///
     
     fn <T> fatal_ptr(self) -> *T {
-        // INLINE(cxx-feature: if constexpr on a template parameter)
-        inline "c++" {
-            auto base = reinterpret_cast<uint8_t*>(&this->_fatal_sentinels);
-            if constexpr (libcxx::is_same_v<T, Type>) {
-                return reinterpret_cast<T*>(base + 0);
-            } else if constexpr (libcxx::is_same_v<T, Expr>) {
-                return reinterpret_cast<T*>(base + 1);
-            } else if constexpr (libcxx::is_same_v<T, Stmt>) {
-                 return reinterpret_cast<T*>(base + 2);
-            } else if constexpr (libcxx::is_same_v<T, Decl>) {
-                 return reinterpret_cast<T*>(base + 3);
-            } else {
-                static_assert(false, "unsupported sentinel type");
-                return nullptr;
-            }
+        var base = reinterpret_cast::<*u8>(&self._fatal_sentinels);
+        eval if libcxx::is_same_v::<T, Type> {
+            return reinterpret_cast::<*T>(base + 0);
+        } else if libcxx::is_same_v::<T, Expr> {
+            return reinterpret_cast::<*T>(base + 1);
+        } else if libcxx::is_same_v::<T, Stmt> {
+            return reinterpret_cast::<*T>(base + 2);
+        } else if libcxx::is_same_v::<T, Decl> {
+            return reinterpret_cast::<*T>(base + 3);
+        } else {
+            // INLINE(cxx-feature: static_assert)
+            __inline_cpp("static_assert(false, \"unsupported sentinel type\")");
+            return &null;
         }
     }
     
     fn <T> is_fatal(self, ptr: *T) -> bool {
-        // INLINE(cxx-feature: if constexpr on a template parameter)
-        inline "c++" {
-            auto base = reinterpret_cast<uint8_t*>(&this->_fatal_sentinels);
-            if constexpr (libcxx::is_same_v<T, Type>) {
-                return reinterpret_cast<T*>(base + 0) == ptr;
-            } else if constexpr (libcxx::is_same_v<T, Expr>) {
-                return reinterpret_cast<T*>(base + 1) == ptr;
-            } else if constexpr (libcxx::is_same_v<T, Stmt>) {
-                return reinterpret_cast<T*>(base + 2) == ptr;
-            } else if constexpr (libcxx::is_same_v<T, Decl>) {
-                return reinterpret_cast<T*>(base + 3) == ptr;
-            } else {
-                static_assert(false, "unsupported sentinel type");
-                return false;
-            }
+        var base = reinterpret_cast::<*u8>(&self._fatal_sentinels);
+        eval if libcxx::is_same_v::<T, Type> {
+            return reinterpret_cast::<*T>(base + 0) == ptr;
+        } else if libcxx::is_same_v::<T, Expr> {
+            return reinterpret_cast::<*T>(base + 1) == ptr;
+        } else if libcxx::is_same_v::<T, Stmt> {
+            return reinterpret_cast::<*T>(base + 2) == ptr;
+        } else if libcxx::is_same_v::<T, Decl> {
+            return reinterpret_cast::<*T>(base + 3) == ptr;
+        } else {
+            // INLINE(cxx-feature: static_assert)
+            __inline_cpp("static_assert(false, \"unsupported sentinel type\")");
+            return false;
         }
     }
 }
