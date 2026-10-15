@@ -53,10 +53,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_StringLowering ASTWriter<StringLowering>
-");
-
 class StringLowering derives ASTWriter::<StringLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -72,11 +68,11 @@ class StringLowering derives ASTWriter::<StringLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_StringLowering::run(self.sc->tu);
+        ASTWriter::<StringLowering>::run(self.sc->tu);
     }
 
     fn transform_string_literal_expr(self, n: *StringLiteralExpr) -> *Expr {
-        var out = ASTWriter_StringLowering::transform_string_literal_expr(n);
+        var out = ASTWriter::<StringLowering>::transform_string_literal_expr(n);
         ICE_IF(n->is_format(), "StringLowering: f-string survived FStringLowering; check Sema::_stage_lowerings order");
         if n->is_poisoned() || (n->imm == &null) { return out; }
         if (n->type_ == &null) || (!self.tu.is_string(n->type_)) { return out; }   // a minted byte literal.
@@ -118,7 +114,3 @@ class StringLowering derives ASTWriter::<StringLowering> {
         n->imm->next = u32(-1);   // one literal now; the chain is spent.
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_StringLowering
-");

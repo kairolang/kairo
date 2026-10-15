@@ -80,10 +80,6 @@ import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 import AST::Context::InstantiationRegistry::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_ChainBinding RecursiveASTVisitor<ChainBinding>
-");
-
 /// \enum AnchorKind
 /// \brief What the LEFT side of a step denotes.
 enum AnchorKind derives u8 {
@@ -164,7 +160,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     fn traverse_chain_expr(self, n: *ChainExpr) -> *ChainExpr {
         if n == &null { return n; }
         // Base + generic args first (nested chains inside args bind too).
-        var out = RecursiveASTVisitor_ChainBinding::traverse_chain_expr(n);
+        var out = RecursiveASTVisitor::<ChainBinding>::traverse_chain_expr(n);
 
         var a = self._anchor_of_base(n);
         for var i: usize = 0; i < n->steps.size(); ++i {

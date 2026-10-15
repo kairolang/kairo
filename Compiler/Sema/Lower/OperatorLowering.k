@@ -71,10 +71,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_OperatorLowering ASTWriter<OperatorLowering>
-");
-
 class OperatorLowering derives ASTWriter::<OperatorLowering> {
     pub var sc: *SemaContext;
     priv var synth: LowerSynth;
@@ -93,7 +89,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_OperatorLowering::run(self.sc->tu);
+        ASTWriter::<OperatorLowering>::run(self.sc->tu);
     }
 
     // --- the rewrites ---------------------------------------------------------
@@ -103,7 +99,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         // place operator returns its own values, not a place.
         var saved = self._place_fn;
         self._place_fn = (n) if (OperatorFacts::is_place(n)) else (&null);
-        var out = ASTWriter_OperatorLowering::transform_function_decl(n);
+        var out = ASTWriter::<OperatorLowering>::transform_function_decl(n);
         if (self._place_fn != &null) && (n->body_kind == FnBodyKind::Expr) && (n->body_expr != &null) {
             n->body_expr = self._place_value(n->body_expr);
         }
@@ -112,7 +108,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     fn transform_return_stmt(self, n: *ReturnStmt) -> vec::<*Stmt> {
-        var out = ASTWriter_OperatorLowering::transform_return_stmt(n);
+        var out = ASTWriter::<OperatorLowering>::transform_return_stmt(n);
         if (self._place_fn != &null) && (n->value != &null) && (!n->value->is_poisoned()) {
             n->value = self._place_value(n->value);
         }
@@ -138,7 +134,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
-        var out = ASTWriter_OperatorLowering::transform_binary_operator_expr(n);
+        var out = ASTWriter::<OperatorLowering>::transform_binary_operator_expr(n);
         // Before the builtin test: a tag `==` binds no operator either.
         if n->tag_eq { return self._tag_eq(n); }
         if n->resolved_op == &null { return out; }   // builtin, or `===` (the nullable trio's).
@@ -169,7 +165,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     fn transform_unary_operator_expr(self, n: *UnaryOperatorExpr) -> *Expr {
-        var out = ASTWriter_OperatorLowering::transform_unary_operator_expr(n);
+        var out = ASTWriter::<OperatorLowering>::transform_unary_operator_expr(n);
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
         var args = vec::<*Expr>();
@@ -180,7 +176,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     fn transform_assign_operator_expr(self, n: *AssignOperatorExpr) -> *Expr {
-        var out = ASTWriter_OperatorLowering::transform_assign_operator_expr(n);
+        var out = ASTWriter::<OperatorLowering>::transform_assign_operator_expr(n);
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
         var args = vec::<*Expr>();
@@ -194,7 +190,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     fn transform_subscript_expr(self, n: *SubscriptExpr) -> *Expr {
-        var out = ASTWriter_OperatorLowering::transform_subscript_expr(n);
+        var out = ASTWriter::<OperatorLowering>::transform_subscript_expr(n);
         if n->resolved_op == &null { return out; }
         // `op []` is two tokens; the receiver's own range anchors the step.
         var args = vec::<*Expr>();
@@ -215,7 +211,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     fn transform_type_cast_expr(self, n: *TypeCastExpr) -> *Expr {
-        var out = ASTWriter_OperatorLowering::transform_type_cast_expr(n);
+        var out = ASTWriter::<OperatorLowering>::transform_type_cast_expr(n);
         if n->resolved_ctor != &null { return self._ctor_cast(n); }
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
@@ -464,7 +460,3 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         return fl;
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_OperatorLowering
-");

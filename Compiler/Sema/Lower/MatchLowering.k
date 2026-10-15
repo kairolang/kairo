@@ -112,10 +112,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_MatchLowering ASTWriter<MatchLowering>
-");
-
 /// What one arm needs from the rendering.
 struct ArmPlan {
     var reached: bool  = false;
@@ -174,7 +170,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_MatchLowering::run(self.sc->tu);
+        ASTWriter::<MatchLowering>::run(self.sc->tu);
     }
 
     // --- entry points -----------------------------------------------------------
@@ -183,20 +179,20 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
         var saved = self._fn_matches;
         self._fn_matches = 0;
-        var out = ASTWriter_MatchLowering::transform_function_decl(n);
+        var out = ASTWriter::<MatchLowering>::transform_function_decl(n);
         self._fn_matches = saved;
         return out;
     }
 
     fn transform_match_stmt(self, n: *MatchStmt) -> vec::<*Stmt> {
-        ASTWriter_MatchLowering::transform_match_stmt(n);   // inner matches, guards, bodies first.
+        ASTWriter::<MatchLowering>::transform_match_stmt(n);   // inner matches, guards, bodies first.
         var out = self._lower(n->scrutinee, &(n->cases), n->decision, n->range, false, &null);
         if out == &null { return self._one_stmt(n); }
         return self._one_stmt(static_cast::<*Stmt>(out));
     }
 
     fn transform_match_expr(self, n: *MatchExpr) -> *Expr {
-        ASTWriter_MatchLowering::transform_match_expr(n);
+        ASTWriter::<MatchLowering>::transform_match_expr(n);
         var out = self._lower(n->scrutinee, &(n->cases), n->decision, n->range, true, n->type_);
         if out == &null { return n; }
         var se = cast::<StmtExpr>(cast::<ExpressionStmt>(cast::<CompoundStmt>(out)->body[0])->expr);
@@ -210,8 +206,8 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     /// no arm index, no ternary.
     fn transform_expression_stmt(self, n: *ExpressionStmt) -> vec::<*Stmt> {
         var m = dyn_cast::<MatchExpr>(self.tu.strip_parens(n->expr));
-        if m == &null { return ASTWriter_MatchLowering::transform_expression_stmt(n); }
-        ASTWriter_MatchLowering::transform_match_expr(m);
+        if m == &null { return ASTWriter::<MatchLowering>::transform_expression_stmt(n); }
+        ASTWriter::<MatchLowering>::transform_match_expr(m);
         var out = self._lower(m->scrutinee, &(m->cases), m->decision, m->range, false, &null);
         if out == &null { return self._one_stmt(n); }
         return self._one_stmt(static_cast::<*Stmt>(out));
@@ -1280,7 +1276,3 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         return static_cast::<*Expr>(u);
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_MatchLowering
-");

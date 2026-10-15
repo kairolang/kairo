@@ -87,10 +87,6 @@ import AST::Context::InstantiationRegistry::*;
 import Sema::Type::ArgumentDeduction::*;
 import AST::ParamMode::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_TypeResolution RecursiveASTVisitor<TypeResolution>
-");
-
 ///
 /// \class GenericFrame
 /// \brief One generic-parameter scope on T's lexical stack. Generic params are
@@ -198,7 +194,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     fn dispatch_type(self, e: *Type) -> *Type {
         if e == &null { return e; }
         if self.stop  { return e; }
-        var out = RecursiveASTVisitor_TypeResolution::dispatch_type(e);
+        var out = RecursiveASTVisitor::<TypeResolution>::dispatch_type(e);
         self.resolve(out);
         return out;
     }
@@ -1628,7 +1624,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // and must not be looked up. Pre-mark them done so dispatch skips.
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
 
-        var out = RecursiveASTVisitor_TypeResolution::traverse_function_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_function_decl(n);
 
         self._refine_spec_kind(static_cast::<*Decl>(n), n->generic_params, n->spec_args);
 
@@ -1660,7 +1656,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
         if n == &null { return n; }
         self._push_frame(&null, n->generic_params);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_closure_expr(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_closure_expr(n);
         self._pop_frame();
         return out;
     }
@@ -1672,7 +1668,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_class_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_class_decl(n);
         self._refine_spec_kind(static_cast::<*Decl>(n), n->generic_params, n->spec_args);
         // A Primary the parser could not tell from a spec (#68) is only
         // classified now. Register it late; a use that already minted an
@@ -1695,7 +1691,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_struct_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_struct_decl(n);
         self._refine_spec_kind(static_cast::<*Decl>(n), n->generic_params, n->spec_args);
         // A Primary the parser could not tell from a spec (#68) is only
         // classified now. Register it late; a use that already minted an
@@ -1718,7 +1714,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_union_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_union_decl(n);
         self._refine_spec_kind(static_cast::<*Decl>(n), n->generic_params, n->spec_args);
         // A Primary the parser could not tell from a spec (#68) is only
         // classified now. Register it late; a use that already minted an
@@ -1740,7 +1736,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_interface_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_interface_decl(n);
         self._pop_frame();
         self._selfs.pop_back();
         self.cur_dc = saved;
@@ -1753,7 +1749,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         self._selfs.push_back(self._self_record(NameLookup::representative(static_cast::<*Decl>(n))));
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_enum_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_enum_decl(n);
         self._check_enum_underlying(n);
         self._pop_frame();
         self._selfs.pop_back();
@@ -1783,7 +1779,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         }
 
         self.cur_dc = static_cast::<*DeclContext>(n);
-        var out = RecursiveASTVisitor_TypeResolution::traverse_extension_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_extension_decl(n);
 
         if pushed { self._selfs.pop_back(); }
         self._pop_frame();
@@ -1804,7 +1800,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n == &null { return n; }
         var saved = self.cur_dc;
         if !n->is_anonymous { self.cur_dc = static_cast::<*DeclContext>(n); }
-        var out = RecursiveASTVisitor_TypeResolution::traverse_module_decl(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_module_decl(n);
         self.cur_dc = saved;
         return out;
     }
@@ -2108,7 +2104,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     fn traverse_compound_stmt(self, n: *CompoundStmt) -> *CompoundStmt {
         if n == &null { return n; }
         self.ltypes.push_back(LocalTypeFrame{});
-        var out = RecursiveASTVisitor_TypeResolution::traverse_compound_stmt(n);
+        var out = RecursiveASTVisitor::<TypeResolution>::traverse_compound_stmt(n);
         self.ltypes.pop_back();
         return out;
     }

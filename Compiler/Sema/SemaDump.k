@@ -96,10 +96,6 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Location::SourceManager::*;
 import Token::Token::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_SemaDump RecursiveASTVisitor<SemaDump>
-");
-
 /// \brief `line:col` for a location, or `?:?` when unmapped. Every row in the
 ///        dump is anchored this way so a reader can jump straight to it.
 fn sema_dump_loc(ctx: *ASTContext, loc: SourceLocation) -> string {
@@ -1125,7 +1121,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         // Through sema_dump_decl_name, not get_spelling(n->name): an operator
         // has no name token, and spelling the empty one asserts in debug.
         self._scope = f"{self._scope}::{sema_dump_decl_name(self.ctx, n)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_function_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_function_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1134,7 +1130,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_class_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_class_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1143,7 +1139,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_struct_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_struct_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1152,7 +1148,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_enum_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_enum_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1161,7 +1157,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_union_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_union_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1170,7 +1166,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_interface_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_interface_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1183,7 +1179,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::<closure @ {sema_dump_loc(self.ctx, n->range.start)}>";
-        var out = RecursiveASTVisitor_SemaDump::traverse_closure_expr(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_closure_expr(n);
         self._scope = saved;
         return out;
     }
@@ -1192,7 +1188,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if n == &null { return n; }
         var saved = self._scope;
         self._scope = f"{self._scope}::{self.ctx->get_spelling(n->name)}";
-        var out = RecursiveASTVisitor_SemaDump::traverse_module_decl(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_module_decl(n);
         self._scope = saved;
         return out;
     }
@@ -1201,7 +1197,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// binding of every step is visible here, not only N's decision log.
     fn traverse_chain_expr(self, n: *ChainExpr) -> *ChainExpr {
         if n == &null { return n; }
-        var out = RecursiveASTVisitor_SemaDump::traverse_chain_expr(n);
+        var out = RecursiveASTVisitor::<SemaDump>::traverse_chain_expr(n);
         if self._expr_mode { return out; }
         for var i: usize = 0; i < n->steps.size(); ++i {
             var st = n->steps.get(i);

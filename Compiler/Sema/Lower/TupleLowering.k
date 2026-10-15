@@ -70,10 +70,6 @@ import AST::Kind::TypeKind::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_TupleLowering ASTWriter<TupleLowering>
-");
-
 class TupleLowering derives ASTWriter::<TupleLowering> {
     pub var sc: *SemaContext;
     priv var tu:    TypeUtil;
@@ -93,14 +89,14 @@ class TupleLowering derives ASTWriter::<TupleLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_TupleLowering::run(self.sc->tu);
+        ASTWriter::<TupleLowering>::run(self.sc->tu);
     }
 
     // --- literals -------------------------------------------------------------
 
     fn transform_tuple_literal_expr(self, n: *TupleLiteralExpr) -> *Expr {
         // Children first: a nested tuple is lowered on its own.
-        var out = ASTWriter_TupleLowering::transform_tuple_literal_expr(n);
+        var out = ASTWriter::<TupleLowering>::transform_tuple_literal_expr(n);
         if n->is_poisoned() || (n->type_ == &null) { return out; }
         if static_cast::<*Expr>(n) == self._scrutinee { return out; }
 
@@ -134,7 +130,7 @@ class TupleLowering derives ASTWriter::<TupleLowering> {
     /// spell, since an ordinal is not an identifier. Rewritten in place: the
     /// node keeps its identity for every record keyed on it (move_sites).
     fn transform_chain_expr(self, n: *ChainExpr) -> *Expr {
-        var out = ASTWriter_TupleLowering::transform_chain_expr(n);
+        var out = ASTWriter::<TupleLowering>::transform_chain_expr(n);
         if n->is_poisoned() { return out; }
         for var i: usize = 0; i < n->steps.size(); ++i {
             var st = n->steps.get(i);
@@ -152,7 +148,7 @@ class TupleLowering derives ASTWriter::<TupleLowering> {
     // --- destructuring --------------------------------------------------------
 
     fn transform_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> vec::<*Stmt> {
-        var out = ASTWriter_TupleLowering::transform_destructuring_decl_stmt(n);
+        var out = ASTWriter::<TupleLowering>::transform_destructuring_decl_stmt(n);
         if n->kind_ != DestructureKind::Tuple { return out; }   // Struct: FeatureGateCheck rejected it.
         if (n->value == &null) || n->value->is_poisoned() || (n->value->type_ == &null) { return out; }
 
@@ -216,7 +212,7 @@ class TupleLowering derives ASTWriter::<TupleLowering> {
     fn transform_match_stmt(self, n: *MatchStmt) -> vec::<*Stmt> {
         var saved = self._scrutinee;
         self._scrutinee = self.tu.strip_parens(n->scrutinee);
-        var out = ASTWriter_TupleLowering::transform_match_stmt(n);
+        var out = ASTWriter::<TupleLowering>::transform_match_stmt(n);
         self._scrutinee = saved;
         return out;
     }
@@ -224,12 +220,8 @@ class TupleLowering derives ASTWriter::<TupleLowering> {
     fn transform_match_expr(self, n: *MatchExpr) -> *Expr {
         var saved = self._scrutinee;
         self._scrutinee = self.tu.strip_parens(n->scrutinee);
-        var out = ASTWriter_TupleLowering::transform_match_expr(n);
+        var out = ASTWriter::<TupleLowering>::transform_match_expr(n);
         self._scrutinee = saved;
         return out;
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_TupleLowering
-");

@@ -68,10 +68,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_ListLiteralLowering ASTWriter<ListLiteralLowering>
-");
-
 class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -98,7 +94,7 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_ListLiteralLowering::run(self.sc->tu);
+        ASTWriter::<ListLiteralLowering>::run(self.sc->tu);
     }
 
     // --- the one statement a backing array can precede ------------------------
@@ -110,7 +106,7 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         self._window      = !saved_scalar;
         self._scalar_slot = false;      // statements nested in the initializer are lists again.
 
-        var body = ASTWriter_ListLiteralLowering::transform_decl_stmt(n);
+        var body = ASTWriter::<ListLiteralLowering>::transform_decl_stmt(n);
 
         self._window      = saved_window;
         self._scalar_slot = saved_scalar;
@@ -141,7 +137,7 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     fn transform_list_literal_expr(self, n: *ListLiteralExpr) -> *Expr {
         // Children first: nested literals are already lowered, and an inner
         // Extended backing is already pending ahead of this one.
-        var out = ASTWriter_ListLiteralLowering::transform_list_literal_expr(n);
+        var out = ASTWriter::<ListLiteralLowering>::transform_list_literal_expr(n);
         if n->is_poisoned() || (n->type_ == &null) { return out; }
 
         var c = canon_unqual(n->type_);
@@ -260,6 +256,3 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     }
 }
 
-__inline_cpp("
-#undef ASTWriter_ListLiteralLowering
-");

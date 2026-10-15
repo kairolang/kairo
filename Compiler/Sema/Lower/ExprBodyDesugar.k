@@ -49,10 +49,6 @@ import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 
-__inline_cpp("
-#define ASTWriter_ExprBodyDesugar ASTWriter<ExprBodyDesugar>
-");
-
 class ExprBodyDesugar derives ASTWriter::<ExprBodyDesugar> {
     pub var sc: *SemaContext;
 
@@ -64,11 +60,11 @@ class ExprBodyDesugar derives ASTWriter::<ExprBodyDesugar> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_ExprBodyDesugar::run(self.sc->tu);
+        ASTWriter::<ExprBodyDesugar>::run(self.sc->tu);
     }
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
-        var out = ASTWriter_ExprBodyDesugar::transform_function_decl(n);
+        var out = ASTWriter::<ExprBodyDesugar>::transform_function_decl(n);
         if (n->body_kind != FnBodyKind::Expr) || (n->body_expr == &null) { return out; }
 
         var e = n->body_expr;

@@ -95,10 +95,6 @@ import AST::Kind::TypeKind::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_FieldInitLowering ASTWriter<FieldInitLowering>
-");
-
 class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     pub var sc: *SemaContext;
     priv var tu:    TypeUtil;
@@ -116,19 +112,19 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_FieldInitLowering::run(self.sc->tu);
+        ASTWriter::<FieldInitLowering>::run(self.sc->tu);
     }
 
     // --- the records that carry defaults ------------------------------------------
 
     fn transform_class_decl(self, n: *ClassDecl) -> vec::<*Decl> {
-        var out = ASTWriter_FieldInitLowering::transform_class_decl(n);
+        var out = ASTWriter::<FieldInitLowering>::transform_class_decl(n);
         self._lower_fields(static_cast::<*Decl>(n), n->fields, &(n->methods));
         return out;
     }
 
     fn transform_struct_decl(self, n: *StructDecl) -> vec::<*Decl> {
-        var out = ASTWriter_FieldInitLowering::transform_struct_decl(n);
+        var out = ASTWriter::<FieldInitLowering>::transform_struct_decl(n);
         self._lower_fields(static_cast::<*Decl>(n), n->fields, &(n->methods));
         return out;
     }
@@ -239,6 +235,3 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     }
 }
 
-__inline_cpp("
-#undef ASTWriter_FieldInitLowering
-");

@@ -87,10 +87,6 @@ import Location::SourceRange::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_MoveCheck RecursiveASTVisitor<MoveCheck>
-");
-
 /// One moved part: a binding, and the field path under it that was moved
 /// out ("" for the whole binding, "a.b" for `p.a.b`).
 class MovedPart {
@@ -236,7 +232,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         var saved_loops = self._loops;
         self._st    = MoveState{};
         self._loops = vec::<LoopFrame>();
-        var out = RecursiveASTVisitor_MoveCheck::traverse_function_decl(n);
+        var out = RecursiveASTVisitor::<MoveCheck>::traverse_function_decl(n);
         self._st    = saved_st;
         self._loops = saved_loops;
         return out;
@@ -268,7 +264,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// says nothing about this one.
     fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
         if n == &null { return n; }
-        var out = RecursiveASTVisitor_MoveCheck::traverse_variable_decl(n);
+        var out = RecursiveASTVisitor::<MoveCheck>::traverse_variable_decl(n);
         if n->init != &null {
             self._transfer(n->init, f"into '{self.sc->ctx->get_spelling(n->name)}\x27");
         }
@@ -280,7 +276,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// from its value, as a variable is.
     fn traverse_named_initializer_expr(self, n: *NamedInitializerExpr) -> *NamedInitializerExpr {
         if n == &null { return n; }
-        var out = RecursiveASTVisitor_MoveCheck::traverse_named_initializer_expr(n);
+        var out = RecursiveASTVisitor::<MoveCheck>::traverse_named_initializer_expr(n);
         for var i: usize = 0; i < n->fields.size(); ++i {
             var fl = n->fields.get(i);
             if fl->value != &null { self._transfer(fl->value, f"into the field '{self.sc->ctx->get_spelling(fl->name)}\x27"); }
@@ -290,7 +286,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
 
     fn traverse_anon_initializer_expr(self, n: *AnonInitializerExpr) -> *AnonInitializerExpr {
         if n == &null { return n; }
-        var out = RecursiveASTVisitor_MoveCheck::traverse_anon_initializer_expr(n);
+        var out = RecursiveASTVisitor::<MoveCheck>::traverse_anon_initializer_expr(n);
         for var i: usize = 0; i < n->fields.size(); ++i {
             var fl = n->fields.get(i);
             if fl->value != &null { self._transfer(fl->value, "into a field"); }
@@ -307,7 +303,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         switch e->kind {
             case ExprKind::NamedIdentExpr {
                 self._read(cast::<NamedIdentExpr>(e));
-                return RecursiveASTVisitor_MoveCheck::dispatch_expr(e);
+                return RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
             }
             case ExprKind::ChainExpr {
                 // `p.a.b` reads the part `a.b` of `p`, not all of it: a moved
@@ -319,7 +315,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 var path = "";
                 var all  = false;
                 var d    = self._chain_root(c, &path, &all);
-                if d == &null { return RecursiveASTVisitor_MoveCheck::dispatch_expr(e); }
+                if d == &null { return RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e); }
                 self._read_part(cast::<NamedIdentExpr>(self._tu.strip_parens(c->base)), d, path);
                 return e;
             }
@@ -341,7 +337,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                     self._transfer(asn->rhs, f"into '{self._spelled(asn->lhs)}\x27");
                     return e;
                 }
-                return RecursiveASTVisitor_MoveCheck::dispatch_expr(e);
+                return RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
             }
             case ExprKind::BinaryOperatorExpr {
                 var bo = cast::<BinaryOperatorExpr>(e);
@@ -354,7 +350,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                     self._st = move_join(before, self._st);
                     return e;
                 }
-                var out = RecursiveASTVisitor_MoveCheck::dispatch_expr(e);
+                var out = RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e);
                 if bo->resolved_op != &null { self._operator_operands(bo); }
                 return out;
             }
@@ -390,7 +386,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 self._st = acc;
                 return e;
             }
-            default { return RecursiveASTVisitor_MoveCheck::dispatch_expr(e); }
+            default { return RecursiveASTVisitor::<MoveCheck>::dispatch_expr(e); }
         }
     }
 
@@ -555,7 +551,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 self._st.dead = true;
                 return s;
             }
-            default { return RecursiveASTVisitor_MoveCheck::dispatch_stmt(s); }
+            default { return RecursiveASTVisitor::<MoveCheck>::dispatch_stmt(s); }
         }
     }
 

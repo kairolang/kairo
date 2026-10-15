@@ -108,10 +108,6 @@ import AST::Kind::TypeKind::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_CallLowering ASTWriter<CallLowering>
-");
-
 /// One default: minted once per (entity, parameter index).
 class ThunkSlot {
     pub var entity:  *Decl         = &null;   ///< the callee's representative.
@@ -155,7 +151,7 @@ class CallLowering derives ASTWriter::<CallLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_CallLowering::run(self.sc->tu);
+        ASTWriter::<CallLowering>::run(self.sc->tu);
         for var i: usize = 0; i < self._slots.size(); ++i {
             ICE_IF(!self._slots[i].spliced,
                 "CallLowering: a default thunk was minted but the declaration that wrote the default was never visited");
@@ -168,7 +164,7 @@ class CallLowering derives ASTWriter::<CallLowering> {
         self._entered.push_back(n);
         // Params (their defaults), then the body: a call inside either is
         // lowered before this function's own thunks are minted from them.
-        var out = ASTWriter_CallLowering::transform_function_decl(n);
+        var out = ASTWriter::<CallLowering>::transform_function_decl(n);
         if n->is_poisoned() { return out; }
 
         for var i: usize = 0; i < n->params.size(); ++i {
@@ -357,7 +353,7 @@ class CallLowering derives ASTWriter::<CallLowering> {
     // --- calls ------------------------------------------------------------------------
 
     fn transform_call_expr(self, n: *CallExpr) -> *Expr {
-        var out = ASTWriter_CallLowering::transform_call_expr(n);   // arguments first.
+        var out = ASTWriter::<CallLowering>::transform_call_expr(n);   // arguments first.
         if n->is_poisoned() { return out; }
         var f = self._callee(n);
         if n->arg_map.size() == 0 {
@@ -655,7 +651,3 @@ class CallLowering derives ASTWriter::<CallLowering> {
         for var i: usize = 0; i < l->elements.size(); ++i { self._mark_extended(l->elements[i]); }
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_CallLowering
-");

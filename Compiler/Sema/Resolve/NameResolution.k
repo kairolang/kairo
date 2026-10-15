@@ -103,10 +103,6 @@ import Diagnostic::Registry::*;
 import Sema::Foreign::BuiltinImport::*;
 import AST::OperatorFacts::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_NameResolution RecursiveASTVisitor<NameResolution>
-");
-
 ///
 /// \class LocalScope
 /// \brief One executable-scope frame of the N(b) lexical stack: the
@@ -1074,7 +1070,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         self._suppress_next_block_frame = true;
         self._fn_depth += 1;
-        var out = RecursiveASTVisitor_NameResolution::traverse_function_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_function_decl(n);
         self._fn_depth -= 1;
 
         self.sc->trace.close_scope();
@@ -1123,7 +1119,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         self._suppress_next_block_frame = true;
         self._fn_depth += 1;
-        var out = RecursiveASTVisitor_NameResolution::traverse_closure_expr(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_closure_expr(n);
         self._fn_depth -= 1;
 
         self.sc->trace.close_scope();
@@ -1145,7 +1141,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             self.locals.push_back(LocalScope{});
             self.sc->trace.open_scope(TraceScopeKind::Block, &null, n->range, self.cur_dc);
         }
-        var out = RecursiveASTVisitor_NameResolution::traverse_compound_stmt(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_compound_stmt(n);
         if push {
             self.sc->trace.close_scope();
             self.locals.pop_back();
@@ -1192,7 +1188,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         var saved_depth = self._fn_depth;
         self._fn_depth  = 0;                 // a type body is not executable code.
-        var out = RecursiveASTVisitor_NameResolution::traverse_class_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_class_decl(n);
         self._fn_depth = saved_depth;
         self.cur_dc = saved;
         self._close_type_generics(pushed);
@@ -1207,7 +1203,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         var saved_depth = self._fn_depth;
         self._fn_depth  = 0;                 // a type body is not executable code.
-        var out = RecursiveASTVisitor_NameResolution::traverse_struct_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_struct_decl(n);
         self._fn_depth = saved_depth;
         self.cur_dc = saved;
         self._close_type_generics(pushed);
@@ -1222,7 +1218,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         var saved_depth = self._fn_depth;
         self._fn_depth  = 0;                 // a type body is not executable code.
-        var out = RecursiveASTVisitor_NameResolution::traverse_union_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_union_decl(n);
         self._fn_depth = saved_depth;
         self.cur_dc = saved;
         self._close_type_generics(pushed);
@@ -1237,7 +1233,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         var saved_depth = self._fn_depth;
         self._fn_depth  = 0;                 // a type body is not executable code.
-        var out = RecursiveASTVisitor_NameResolution::traverse_enum_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_enum_decl(n);
         self._fn_depth = saved_depth;
         self.cur_dc = saved;
         self._close_type_generics(pushed);
@@ -1252,7 +1248,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         var saved_depth = self._fn_depth;
         self._fn_depth  = 0;                 // a type body is not executable code.
-        var out = RecursiveASTVisitor_NameResolution::traverse_interface_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_interface_decl(n);
         self._fn_depth = saved_depth;
         self.cur_dc = saved;
         self._close_type_generics(pushed);
@@ -1269,7 +1265,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.cur_dc = static_cast::<*DeclContext>(n);
         var saved_depth = self._fn_depth;
         self._fn_depth  = 0;                 // a type body is not executable code.
-        var out = RecursiveASTVisitor_NameResolution::traverse_extension_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_extension_decl(n);
         self._fn_depth = saved_depth;
         self.cur_dc = saved;
         self._ext_target = saved_ext;
@@ -1282,7 +1278,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if n == &null { return n; }
         var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
                                               n->range, self.cur_dc);
-        var out = RecursiveASTVisitor_NameResolution::traverse_type_alias_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_type_alias_decl(n);
         self._close_type_generics(pushed);
         return out;
     }
@@ -1293,7 +1289,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // An anonymous module owns no table; its decls were keyed into the
         // enclosing scope, so the cursor must NOT move into it.
         if !n->is_anonymous { self.cur_dc = static_cast::<*DeclContext>(n); }
-        var out = RecursiveASTVisitor_NameResolution::traverse_module_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_module_decl(n);
         self.cur_dc = saved;
         return out;
     }
@@ -1306,7 +1302,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
         if n == &null { return n; }
 
-        var out = RecursiveASTVisitor_NameResolution::traverse_variable_decl(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_variable_decl(n);
 
         // Only body locals go on the stack. A file/type-scope `var` was
         // keyed into a real SymbolTable at parse time and is found by the
@@ -2011,7 +2007,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         // Base first, so the base's own `use` row lands before the steps that
         // hang off it and the section reads left-to-right like the source.
-        var out = RecursiveASTVisitor_NameResolution::traverse_chain_expr(n);
+        var out = RecursiveASTVisitor::<NameResolution>::traverse_chain_expr(n);
         if !self.sc->trace.enabled { return out; }
 
         for var i: usize = 0; i < n->steps.size(); ++i {

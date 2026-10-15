@@ -60,10 +60,6 @@ import AST::Node::Casting::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_LabelLowering ASTWriter<LabelLowering>
-");
-
 /// A labeled loop being walked.
 struct LoopLabel {
     var name:      string;
@@ -89,13 +85,13 @@ class LabelLowering derives ASTWriter::<LabelLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_LabelLowering::run(self.sc->tu);
+        ASTWriter::<LabelLowering>::run(self.sc->tu);
     }
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
         var saved = self._count;
         self._count = 0;
-        var out = ASTWriter_LabelLowering::transform_function_decl(n);
+        var out = ASTWriter::<LabelLowering>::transform_function_decl(n);
         self._count = saved;
         return out;
     }
@@ -175,7 +171,3 @@ class LabelLowering derives ASTWriter::<LabelLowering> {
         else                           { cast::<IndexedForStmt>(loop)->body = outer; }
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_LabelLowering
-");

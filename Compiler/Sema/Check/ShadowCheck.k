@@ -94,10 +94,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_ShadowCheck RecursiveASTVisitor<ShadowCheck>
-");
-
 /// One executable-scope frame: the names declared so far in this
 /// block/function, in declaration order. Mirrors NameResolution::LocalScope;
 /// see the dedup FIXME in the file header.
@@ -245,7 +241,7 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
         }
 
         self._suppress_next_block_frame = true;
-        var out = RecursiveASTVisitor_ShadowCheck::traverse_function_decl(n);
+        var out = RecursiveASTVisitor::<ShadowCheck>::traverse_function_decl(n);
 
         self._frames.pop_back();
         self._suppress_next_block_frame = saved_suppress;
@@ -264,7 +260,7 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
         }
 
         self._suppress_next_block_frame = true;
-        var out = RecursiveASTVisitor_ShadowCheck::traverse_closure_expr(n);
+        var out = RecursiveASTVisitor::<ShadowCheck>::traverse_closure_expr(n);
 
         self._frames.pop_back();
         self._suppress_next_block_frame = saved_suppress;
@@ -277,7 +273,7 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
         self._suppress_next_block_frame = false;
 
         if push { self._frames.push_back(ShadowFrame{}); }
-        var out = RecursiveASTVisitor_ShadowCheck::traverse_compound_stmt(n);
+        var out = RecursiveASTVisitor::<ShadowCheck>::traverse_compound_stmt(n);
         if push { self._frames.pop_back(); }
         return out;
     }
@@ -286,7 +282,7 @@ class ShadowCheck derives RecursiveASTVisitor::<ShadowCheck> {
     /// the shadow check runs against the world this name is about to hide.
     fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
         if n == &null { return n; }
-        var out = RecursiveASTVisitor_ShadowCheck::traverse_variable_decl(n);
+        var out = RecursiveASTVisitor::<ShadowCheck>::traverse_variable_decl(n);
         if !self._frames.empty() {
             self._declare(self._name_imm(n->name), static_cast::<*Decl>(n), n->range);
         }

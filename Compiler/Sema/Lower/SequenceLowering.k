@@ -73,10 +73,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_SequenceLowering ASTWriter<SequenceLowering>
-");
-
 class SequenceLowering derives ASTWriter::<SequenceLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -92,7 +88,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_SequenceLowering::run(self.sc->tu);
+        ASTWriter::<SequenceLowering>::run(self.sc->tu);
     }
 
     // --- the rewrite ----------------------------------------------------------
@@ -100,7 +96,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     fn transform_call_expr(self, n: *CallExpr) -> *Expr {
         // Children first: an inner call `f(g(h(), k()))` is sequenced on its
         // own, and this call then sees it as one impure argument.
-        var out = ASTWriter_SequenceLowering::transform_call_expr(n);
+        var out = ASTWriter::<SequenceLowering>::transform_call_expr(n);
         if n->is_poisoned() || n->is_instantiation_dependent() { return out; }
         if !self._result_sequenceable(n) { return out; }
 
@@ -152,7 +148,7 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     /// ->
     ///   ({ i32 __kairo_arg0 = g(); i32 __kairo_arg1 = f(); Shape::Rect { w: __kairo_arg1, h: __kairo_arg0 }; })
     fn transform_variant_init_expr(self, n: *VariantInitExpr) -> *Expr {
-        var out = ASTWriter_SequenceLowering::transform_variant_init_expr(n);
+        var out = ASTWriter::<SequenceLowering>::transform_variant_init_expr(n);
         if n->is_poisoned() || (n->type_ == &null) { return out; }
         var count = n->fields.size();
         var in_order = true;
@@ -257,7 +253,3 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         for var i: usize = 0; i < n->elements.size(); ++i { self._mark_extended(n->elements[i]); }
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_SequenceLowering
-");

@@ -45,10 +45,6 @@ import AST::Node::Casting::*;
 import AST::Node::CanonicalNodes::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_RangeLowering ASTWriter<RangeLowering>
-");
-
 class RangeLowering derives ASTWriter::<RangeLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -64,11 +60,11 @@ class RangeLowering derives ASTWriter::<RangeLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_RangeLowering::run(self.sc->tu);
+        ASTWriter::<RangeLowering>::run(self.sc->tu);
     }
 
     fn transform_range_expr(self, n: *RangeExpr) -> *Expr {
-        var out = ASTWriter_RangeLowering::transform_range_expr(n);
+        var out = ASTWriter::<RangeLowering>::transform_range_expr(n);
         if n->is_poisoned() || (n->type_ == &null) { return out; }
         ICE_IF(((n->begin == &null) || (n->end == &null)) && (!n->as_index),
                "RangeLowering: an open range outside a subscript index; ControlTyping::type_range must reject it");
@@ -108,7 +104,3 @@ class RangeLowering derives ASTWriter::<RangeLowering> {
         return f;
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_RangeLowering
-");

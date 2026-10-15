@@ -161,10 +161,6 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_ClassLifecycle RecursiveASTVisitor<ClassLifecycle>
-");
-
 enum LifecycleCategory derives u8 {
     Copy = 0,      ///< @copy, explicit or implicit; DEFAULT reads as this.
     Move,          ///< @move.

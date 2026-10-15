@@ -117,10 +117,6 @@ import Location::SourceManager::*;
 import Location::FullSourceLocation::*;
 import AST::ParamMode::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_ExprTyper RecursiveASTVisitor<ExprTyper>
-");
-
 /// `path:line:col` for an ICE message. The I011W reported just before an
 /// ICE is buffered and dies with the abort; this is what reaches the user.
 fn ice_source_loc(sc: *SemaContext, loc: SourceLocation) -> string {
@@ -129,10 +125,6 @@ fn ice_source_loc(sc: *SemaContext, loc: SourceLocation) -> string {
     var full: FullSourceLocation = sm->get_line_col(loc);
     return f"{full.path.full_path()}:{full.line}:{full.column}";
 }
-
-__inline_cpp("
-#define RecursiveASTVisitor_ExprBodyVerifier RecursiveASTVisitor<ExprBodyVerifier>
-");
 
 ///
 /// \class ExprBodyVerifier

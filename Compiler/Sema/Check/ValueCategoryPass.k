@@ -44,10 +44,6 @@ import AST::Kind::ExprKind::*;
 import AST::Printer::ASTPrinter::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 
-__inline_cpp("
-#define RecursiveASTVisitor_ValueCategoryPass RecursiveASTVisitor<ValueCategoryPass>
-");
-
 class ValueCategoryPass derives RecursiveASTVisitor::<ValueCategoryPass> {
     pub var sc: *SemaContext;
     pub var n_checked: usize = 0;

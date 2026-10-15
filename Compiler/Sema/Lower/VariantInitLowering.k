@@ -62,10 +62,6 @@ import AST::Node::Casting::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_VariantInitLowering ASTWriter<VariantInitLowering>
-");
-
 class VariantInitLowering derives ASTWriter::<VariantInitLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -81,25 +77,25 @@ class VariantInitLowering derives ASTWriter::<VariantInitLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_VariantInitLowering::run(self.sc->tu);
+        ASTWriter::<VariantInitLowering>::run(self.sc->tu);
     }
 
     // --- entry points: the three nodes a construction is written as ----------------
 
     fn transform_named_initializer_expr(self, n: *NamedInitializerExpr) -> *Expr {
-        var out = ASTWriter_VariantInitLowering::transform_named_initializer_expr(n);
+        var out = ASTWriter::<VariantInitLowering>::transform_named_initializer_expr(n);
         if n->variant_decl == &null { return out; }
         return self._lower(static_cast::<*Expr>(n), n->variant_decl, n->fields);
     }
 
     fn transform_chain_expr(self, n: *ChainExpr) -> *Expr {
-        var out = ASTWriter_VariantInitLowering::transform_chain_expr(n);
+        var out = ASTWriter::<VariantInitLowering>::transform_chain_expr(n);
         if n->variant_decl == &null { return out; }
         return self._lower(static_cast::<*Expr>(n), n->variant_decl, create_empty_frozen_list::<InitField>());
     }
 
     fn transform_named_ident_expr(self, n: *NamedIdentExpr) -> *Expr {
-        var out = ASTWriter_VariantInitLowering::transform_named_ident_expr(n);
+        var out = ASTWriter::<VariantInitLowering>::transform_named_ident_expr(n);
         if n->variant_decl == &null { return out; }
         return self._lower(static_cast::<*Expr>(n), n->variant_decl, create_empty_frozen_list::<InitField>());
     }
@@ -165,6 +161,3 @@ class VariantInitLowering derives ASTWriter::<VariantInitLowering> {
     }
 }
 
-__inline_cpp("
-#undef ASTWriter_VariantInitLowering
-");

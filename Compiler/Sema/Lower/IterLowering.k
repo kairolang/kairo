@@ -98,10 +98,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_IterLowering ASTWriter<IterLowering>
-");
-
 class IterLowering derives ASTWriter::<IterLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -117,7 +113,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_IterLowering::run(self.sc->tu);
+        ASTWriter::<IterLowering>::run(self.sc->tu);
     }
 
     // --- entry points -----------------------------------------------------------
@@ -134,7 +130,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
     /// The label stays on the loop: `{ locals; label: while ... }`.
     fn transform_labeled_stmt(self, n: *LabeledStmt) -> vec::<*Stmt> {
         var rf = dyn_cast::<RangedForStmt>(n->inner);
-        if rf == &null { return ASTWriter_IterLowering::transform_labeled_stmt(n); }
+        if rf == &null { return ASTWriter::<IterLowering>::transform_labeled_stmt(n); }
         self._children(rf);
         var pre  = self.list_builder::<*Stmt>();
         var loop = self._lower(rf, &pre);
@@ -577,7 +573,3 @@ class IterLowering derives ASTWriter::<IterLowering> {
         for var i: usize = 0; i < l->elements.size(); ++i { self._extend(l->elements[i]); }
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_IterLowering
-");

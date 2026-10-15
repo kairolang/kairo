@@ -101,10 +101,6 @@ import AST::Kind::DeclKind::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_EnumLayoutLowering ASTWriter<EnumLayoutLowering>
-");
-
 class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -120,7 +116,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_EnumLayoutLowering::run(self.sc->tu);
+        ASTWriter::<EnumLayoutLowering>::run(self.sc->tu);
     }
 
     // --- entry point --------------------------------------------------------------
@@ -128,7 +124,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// Wherever the walk finds one: at file scope, in a module, nested in a
     /// record.
     fn transform_enum_decl(self, n: *EnumDecl) -> vec::<*Decl> {
-        var out = ASTWriter_EnumLayoutLowering::transform_enum_decl(n);
+        var out = ASTWriter::<EnumLayoutLowering>::transform_enum_decl(n);
         if self._wants_layout(n) { self._build(n); }
         return out;
     }
@@ -406,6 +402,3 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     }
 }
 
-__inline_cpp("
-#undef ASTWriter_EnumLayoutLowering
-");

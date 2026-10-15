@@ -65,10 +65,6 @@ import Token::TokenKind::*;
 import Location::SourceLocation::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_FStringLowering ASTWriter<FStringLowering>
-");
-
 class FStringLowering derives ASTWriter::<FStringLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -84,14 +80,14 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_FStringLowering::run(self.sc->tu);
+        ASTWriter::<FStringLowering>::run(self.sc->tu);
     }
 
     // --- the rewrite ----------------------------------------------------------
 
     fn transform_string_literal_expr(self, n: *StringLiteralExpr) -> *Expr {
         // Holes first: an f-string inside a hole lowers inside its parent.
-        var out = ASTWriter_FStringLowering::transform_string_literal_expr(n);
+        var out = ASTWriter::<FStringLowering>::transform_string_literal_expr(n);
         if !n->is_format() { return out; }
         if n->is_poisoned() || (n->type_ == &null) { return out; }
         ICE_IF(n->imm == &null, "FStringLowering: f-string with no immediate data");
@@ -369,7 +365,3 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
         }
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_FStringLowering
-");

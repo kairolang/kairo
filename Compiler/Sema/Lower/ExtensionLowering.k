@@ -90,10 +90,6 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
-__inline_cpp("
-#define ASTWriter_ExtensionLowering ASTWriter<ExtensionLowering>
-");
-
 class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     pub var sc: *SemaContext;
     priv var tu:    TypeUtil;
@@ -109,13 +105,13 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     fn run(self) {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
-        ASTWriter_ExtensionLowering::run(self.sc->tu);
+        ASTWriter::<ExtensionLowering>::run(self.sc->tu);
     }
 
     // --- the rewrite ----------------------------------------------------------
 
     fn transform_call_expr(self, n: *CallExpr) -> *Expr {
-        ASTWriter_ExtensionLowering::transform_call_expr(n);   // receiver and arguments first.
+        ASTWriter::<ExtensionLowering>::transform_call_expr(n);   // receiver and arguments first.
         if n->is_poisoned() { return static_cast::<*Expr>(n); }
         var ch = dyn_cast::<ChainExpr>(self.tu.strip_parens(n->callee));
         if (ch == &null) || (ch->steps.size() == 0) { return static_cast::<*Expr>(n); }
@@ -336,7 +332,3 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         return (canon_unqual(t)) if (t != &null) else (&null);
     }
 }
-
-__inline_cpp("
-#undef ASTWriter_ExtensionLowering
-");
