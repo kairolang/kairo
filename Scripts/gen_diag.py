@@ -7,7 +7,7 @@ Usage:
     python3 gen_diag.py <folder with .diag.toml files> --lib-output=<path.o> --output=<Registry.k path>
 """
 
-import sys, tomllib, textwrap, os, subprocess, argparse, hashlib
+import sys, tomllib, textwrap, os, subprocess, argparse, hashlib, shutil
 
 CAT_MAP = {
     "S": "Syntax", "U": "Uncategorized", "C": "CodeGen",
@@ -219,11 +219,40 @@ def gen_temp_registry(diags, registry_module_name):
     return "\n".join(lines) + "\n"
 
 
+def registry_hash(merged_toml):
+    """Hash of everything registry.o depends on, not just the .diag.toml.
+
+    The object is compiled by Stage 0 against its runtime headers (the
+    `core/` copy installed beside the kairo binary, which every TU gets via
+    `-include core.hh`). A corelib or Stage 0 change used to leave a stale
+    registry.o compiled against the old `string`, surfacing much later as a
+    link error. The kairo binary and every file under its core/ are hashed in.
+    """
+    h = hashlib.sha256(merged_toml.encode("utf-8"))
+
+    kairo = shutil.which("kairo")
+    if kairo is not None:
+        kairo = os.path.realpath(kairo)
+        with open(kairo, "rb") as f:
+            h.update(hashlib.sha256(f.read()).digest())
+
+        core = os.path.join(os.path.dirname(os.path.dirname(kairo)), "core")
+        for root, dirs, files in os.walk(core):
+            dirs.sort()
+            for name in sorted(files):
+                path = os.path.join(root, name)
+                h.update(os.path.relpath(path, core).encode("utf-8"))
+                with open(path, "rb") as f:
+                    h.update(hashlib.sha256(f.read()).digest())
+
+    return h.hexdigest()
+
+
 def main():
     args = parse_args()
 
     diags, merged_toml = load_diags(args.folder)
-    content_hash = hashlib.sha256(merged_toml.encode("utf-8")).hexdigest()
+    content_hash = registry_hash(merged_toml)
 
     output_path = args.output
     lib_output_path = args.lib_output
