@@ -37,16 +37,9 @@ class WaveExecutor {
             for fid in ready {
                 var mod_path = graph->mod_paths[fid];
                 
-                __inline_cpp("
-                {
-                    u32 captured_fid      = fid;
-                    ModulePath captured_mod_path = mod_path;
-                    auto captured_task_fn = &task_fn;
-                    _pool->enqueue([captured_fid, captured_mod_path, captured_task_fn]() {
-                        (*captured_task_fn)(captured_fid, captured_mod_path);
-                    }, static_cast<u8>(1));
-                }
-                ");
+                self._pool->enqueue(fn () |fid, mod_path, *task_fn| {
+                    (*task_fn)(fid, mod_path);
+                }, static_cast::<u8>(1));
             }
 
             // drain this wave - worker_loop decrements group 1 after each task
