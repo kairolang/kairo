@@ -80,7 +80,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     // $KPARSE_VIA_ARGV exercises the delegating overload instead: it hands our
     // own argv straight to CompilerInvocation::from_args. Same result, and it
     // proves the two entry points agree.
-    var via_argv: bool = __inline_cpp("::getenv(\"KPARSE_VIA_ARGV\") != nullptr");
+    var via_argv: bool = libcxx::getenv(r"KPARSE_VIA_ARGV") != &null;
 
     var owned = OwnedUnit();
     if via_argv {
