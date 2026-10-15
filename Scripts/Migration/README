@@ -215,3 +215,25 @@ libcxx_to_cxx_std.py      libcxx::X -> cxx::std::X. Stage 1.5 work, not yet
                           refuses to guess them. Sites inside inline "c++"
                           blocks are reported MANUAL and never rewritten --
                           cxx::std is not valid C++ there.
+
+
+Hand-written Stage 0 shapes to revisit
+--------------------------------------
+
+Not scripted: sites written in a deliberately roundabout form because of a
+Stage 0 limit or an LLVM API gap. Each is correct as is; revisit when the
+tree builds under Stage 1.
+
+Compiler/Interop/Clang/BuiltinsSet.k (build)
+    Walks the llvm::StringMap with an explicit
+    `for var e = m.begin(); e != m.end(); ++e { e->getKey() ... }` instead of
+    `for e in m`. A StringMapEntry cannot be copied, and it is not verified
+    how Stage 0 binds a range-for variable (by value would not compile). Once
+    range-for binds by reference, `for e in self._ids` is the form.
+
+Compiler/Sema/Foreign/ForeignRegistry.k (constructor)
+    Pre-sizes `_by_usr` as `self._by_usr = llvm::StringMap::<*Decl>(4096)`.
+    StringMap has no reserve(); the sizing constructor is the only way in,
+    and Stage 0 has no member-initializer form, so it is a move-assign in
+    the body. Fold into the field declaration once a field initializer can
+    call a constructor with arguments.

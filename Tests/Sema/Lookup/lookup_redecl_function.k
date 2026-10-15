@@ -85,8 +85,14 @@ fn use_module_and_file() -> i32 {
 // --- bindings ----------------------------------------------------------
 // SEMA: ===== SEMA fid {{[0-9]+}}: {{.*}}lookup_redecl_function.k =====
 
-// The "multi-decl names" section lists cells ALPHABETICALLY, not in source
-// order, so `exact_dup` (CASE 2) is dumped before `overloaded` (CASE 1).
+// The "multi-decl names" section lists cells in DECLARATION order (the
+// symbol table is insertion-ordered), so `overloaded` (CASE 1, line 36) is
+// dumped before `exact_dup` (CASE 2, line 49).
+
+// CASE 1: both arities survive as one 2-candidate overload set.
+// SEMA:      <tu>::overloaded   [overload set x2]
+// SEMA-NEXT:   - fn overloaded @ 36:1  [definition]
+// SEMA-NEXT:   - fn overloaded @ 37:1  [definition]
 
 // CASE 2: RedeclMerge links the identical-signature pair into ONE chain
 // rather than leaving it as a 2-candidate overload set, and poisons the loser
@@ -95,11 +101,6 @@ fn use_module_and_file() -> i32 {
 // SEMA:      <tu>::exact_dup   [redecl chain x2]
 // SEMA-NEXT:   - fn exact_dup @ 49:1  [definition]  [canonical]
 // SEMA-NEXT:   - fn exact_dup @ 50:1  [poisoned]  [definition]
-
-// CASE 1: both arities survive as one 2-candidate overload set.
-// SEMA:      <tu>::overloaded   [overload set x2]
-// SEMA-NEXT:   - fn overloaded @ 36:1  [definition]
-// SEMA-NEXT:   - fn overloaded @ 37:1  [definition]
 
 // CASE 1's use: 2 candidates, deferred.
 // SEMA:      overloaded  {{.*}} -> 2 candidate(s), awaiting overload resolution

@@ -168,17 +168,20 @@ fn same_frame_redefinition() -> i32 {
 // SEMA: ===== SEMA fid {{[0-9]+}}: {{.*}}name_resolution.k =====
 // SEMA: phase: NamesResolved
 
-// CASE 10: forward decl + definition form ONE chain, and canonical is the
-// DEFINITION (line 46), not the first-seen forward decl (line 44).
-// SEMA:      <tu>::Shape   [redecl chain x2]
-// SEMA-NEXT:   - class Shape @ 44:1
-// SEMA-NEXT:   - class Shape @ 46:1  [definition]  [canonical]
+// The multi-decl section lists cells in DECLARATION order (the symbol table
+// is insertion-ordered), so `overloaded` (line 32) precedes `Shape` (44).
 
 // CASE 1: both arities land in one cell, and N hands the cell through WITHOUT
 // selecting -- 2 candidates survive to overload resolution.
 // SEMA:      <tu>::overloaded   [overload set x2]
 // SEMA-NEXT:   - fn overloaded @ 32:1
 // SEMA-NEXT:   - fn overloaded @ 33:1
+
+// CASE 10: forward decl + definition form ONE chain, and canonical is the
+// DEFINITION (line 46), not the first-seen forward decl (line 44).
+// SEMA:      <tu>::Shape   [redecl chain x2]
+// SEMA-NEXT:   - class Shape @ 44:1
+// SEMA-NEXT:   - class Shape @ 46:1  [definition]  [canonical]
 // The lexical-scope trace shows the same use as "deferred to overload
 // resolution"; anchor on the BINDINGS row so the two SEMA-NEXTs below
 // attach to the candidate list and not to that earlier line.
