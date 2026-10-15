@@ -72,6 +72,14 @@ CX_VISIT_IMPL(Type) {  // TODO Modifiers
         return;
     }
 
+    // `const *T` / `const T`: the specifier was parsed but never emitted, so
+    // a pointer-to-const silently became a mutable pointer (and const
+    // overloads collided with the mutable ones). A leading `const` on the
+    // whole C++ type gives `const T *` for the pointer form.
+    if (node.specifiers.contains(token::tokens::KEYWORD_CONST)) {
+        ADD_TOKEN(CXX_CONST);
+    }
+
     ADD_NODE_PARAM(value);
     ADD_NODE_PARAM(generics);
 }
