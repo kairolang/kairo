@@ -515,8 +515,8 @@ CX_VISIT_IMPL(LambdaExpr) {
     ADD_TOKEN_AT_LOC(CXX_LBRACKET, node.marker);
 
     switch (node.capture_mode) {
-        case __AST_NODE::CaptureMode::Default:
-            ADD_TOKEN(CXX_AMPERSAND);
+        case __AST_NODE::CaptureMode::Default:  // by copy, matching stage1's semantics
+            ADD_TOKEN(CXX_EQUAL);
             break;
 
         case __AST_NODE::CaptureMode::None:

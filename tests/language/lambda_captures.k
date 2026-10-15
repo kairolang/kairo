@@ -32,7 +32,7 @@ fn main() -> i32 {
 --------- do not remove this comment, it is used by the test script to validate the output ---------
 // START TEST
 2
-50
+1
 5
 9
 42

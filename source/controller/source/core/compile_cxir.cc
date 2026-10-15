@@ -602,6 +602,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         "-D_CRT_SECURE_NO_WARNINGS",
         "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
         "-Wno-parentheses-equality",
+        // lambdas default to `[=]`; in a member function that copies `this`
+        // implicitly, which C++20 deprecates. Stage1 handles self capture.
+        "-Wno-deprecated-this-capture",
 
         // sanitizer in debug mode
         (action.flags.contains(flag::types::CompileFlags::Debug)
