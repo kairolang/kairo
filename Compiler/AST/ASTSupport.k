@@ -49,6 +49,7 @@ import Token::TokenText::*;
 class <T> FrozenList {
     pub var items: *T    = &null;
     pub var count: usize = 0;
+    // INLINE(macro)
     pub var MAX:   usize = inline "c++" { (libcxx::numeric_limits<usize>::max)() };
 
     ///
@@ -201,9 +202,7 @@ class <T> FrozenList {
 }
 
 fn <T> create_empty_frozen_list() -> FrozenList::<T> {
-    inline "c++" {
-        return FrozenList<T>::empty();
-    }
+    return FrozenList::<T>::empty();
 }
 
 /// ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ///

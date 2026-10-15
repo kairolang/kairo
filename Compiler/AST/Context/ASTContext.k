@@ -140,6 +140,7 @@ class ASTContext {
     fn <T> alloc(self) -> *T {
         var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
         libcxx::memset(mem, 0, sizeof(T));
+        // INLINE(placement)
         inline "c++" {
             static_assert(libcxx::is_default_constructible_v<T>,
                 "ASTContext::alloc<T>: T must be default-constructible");
@@ -156,7 +157,8 @@ class ASTContext {
         // design for the AST's lifetime.
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         private:
         template <typename T, typename ...Args>
         T *placement_new(void *mem, Args &&...args) {
@@ -164,7 +166,8 @@ class ASTContext {
         }
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init(Args &&...args) {
             void *mem = this->ast_alloc.alloc(sizeof(T), alignof(T));
@@ -201,7 +204,8 @@ class ASTContext {
         list->clear();
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_cleanup(Args &&...args) {
             void *mem = this->ast_alloc.alloc(sizeof(T), alignof(T));
@@ -214,7 +218,8 @@ class ASTContext {
         }
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_sema_cleanup(Args &&...args) {
             void *mem = this->sema_alloc.alloc(sizeof(T), alignof(T));
@@ -227,7 +232,8 @@ class ASTContext {
         }
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_pp_cleanup(Args &&...args) {
             void *mem = this->pp_alloc.alloc(sizeof(T), alignof(T));
@@ -240,7 +246,8 @@ class ASTContext {
         }
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_index_cleanup(Args &&...args) {
             void *mem = this->index_alloc.alloc(sizeof(T), alignof(T));
@@ -264,7 +271,8 @@ class ASTContext {
         return static_cast::<*T>(mem);
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_pp(Args &&...args) {
             void *mem = this->pp_alloc.alloc(sizeof(T), alignof(T));
@@ -272,7 +280,8 @@ class ASTContext {
         }
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_index(Args &&...args) {
             void *mem = this->index_alloc.alloc(sizeof(T), alignof(T));
@@ -280,7 +289,8 @@ class ASTContext {
         }
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T, typename ...Args>
         T *alloc_init_scratch(Args &&...args) {
             void *mem = this->scratch_alloc.alloc(sizeof(T), alignof(T));

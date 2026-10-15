@@ -78,6 +78,7 @@ fn <T> isa(ptr: *Pattern) -> bool {
     return T::classof(ptr);
 }
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline const T *cast(const Expr *ptr) {
@@ -187,6 +188,7 @@ fn <T> dyn_cast(ptr: *Pattern) -> *T {
 }
 
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline const T *dyn_cast(const Expr *ptr) {
@@ -276,6 +278,7 @@ fn <T> dyn_cast_recovery(ptr: *Expr) -> *T {
 }
 
 // const overloads for Expr recovery
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline bool isa_recovery(const Expr *ptr) {
@@ -329,6 +332,7 @@ fn <T> dyn_cast_recovery(ptr: *Stmt) -> *T {
     return &null;
 }
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline bool isa_recovery(const Stmt *ptr) {
@@ -382,6 +386,7 @@ fn <T> dyn_cast_recovery(ptr: *Decl) -> *T {
     return &null;
 }
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline bool isa_recovery(const Decl *ptr) {
@@ -435,6 +440,7 @@ fn <T> dyn_cast_recovery(ptr: *Type) -> *T {
     return &null;
 }
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline bool isa_recovery(const Type *ptr) {
@@ -488,6 +494,7 @@ fn <T> dyn_cast_recovery(ptr: *Pattern) -> *T {
     return &null;
 }
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     template <typename T>
     inline bool isa_recovery(const Pattern *ptr) {
@@ -532,6 +539,7 @@ fn is_recovery(ptr: *Pattern) -> bool {
     return (ptr != &null) && (ptr->kind == PatternKind::RecoveryPattern);
 }
 
+// INLINE(cxx-feature: pointer-to-const parameter overloads)
 inline "c++" {
     inline bool is_recovery(const Expr *ptr) {
         return ptr != nullptr && ptr->kind == ExprKind::RecoveryExpr;

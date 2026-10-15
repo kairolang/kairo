@@ -167,6 +167,7 @@ enum FnModifier derives u16 {
     IsInline   = 1 << 7,
 }
 
+// INLINE(cxx-feature: operators on an enum type)
 inline "c++" {
     FnModifier  operator|(FnModifier a, FnModifier b) { return static_cast<FnModifier>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b)); }
     FnModifier  operator&(FnModifier a, FnModifier b) { return static_cast<FnModifier>(static_cast<uint16_t>(a) & static_cast<uint16_t>(b)); }

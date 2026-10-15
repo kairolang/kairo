@@ -295,9 +295,7 @@ enum BuiltinKind derives u8 {
     COUNT,   ///< keep last.
 }
 
-inline "c++" { // PORT(trivial) stage0 does not have a way to reprenst a constexpr variable.
-    constexpr u8 TOTAL_BUILTINS_COUNT = static_cast<u8>(BuiltinKind::COUNT);
-}
+const TOTAL_BUILTINS_COUNT: u8 = static_cast::<u8>(BuiltinKind::COUNT);;
 
 /// \enum FloatImpl
 /// \brief How a float type's operations are implemented. ORTHOGONAL to bit
@@ -512,7 +510,8 @@ class BuiltinInfo {
 ///      TU has no way to include. BuiltinType_decl carries the decl so
 ///      EmitPlan declares it wherever `types::byte` appears.
 ///      `Char` maps to `char32_t`, distinct from U32 despite equal width.
-inline "c++" { // PORT(trivial): reason for this inline c++, stage0 does not have any way to reprenst an initlizer list, and here we reuire it.
+// INLINE(cxx-feature: aggregate array initializer)
+inline "c++" {
     static BuiltinInfo BuiltinTable[TOTAL_BUILTINS_COUNT] = {
         BuiltinInfo(BuiltinKind::Void,   TokenKind::AtVoid,    "void",    "void",                  0,   0,                        float_layout_none()),
         BuiltinInfo(BuiltinKind::Never,  TokenKind::OpExclaim, "!",       "void",                  0,   0,                        float_layout_none()),

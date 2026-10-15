@@ -101,6 +101,7 @@ class TupleRecords {
     priv fn <T> _alloc(self) -> *T {
         var mem: *void = self._arena.alloc(sizeof(T), alignof(T));
         libcxx::memset(mem, 0, sizeof(T));
+        // INLINE(placement)
         inline "c++" {
             ::new (mem) T();
         }

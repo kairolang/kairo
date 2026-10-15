@@ -233,7 +233,8 @@ class InstantiationRegistry {
         return e;
     }
 
-    inline "c++" { // PORT(trivial)
+    // INLINE(placement)
+    inline "c++" {
         template <typename T>
         T *_placement(void *mem) { return ::new (mem) T(); }
     }

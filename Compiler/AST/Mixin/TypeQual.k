@@ -140,6 +140,7 @@ class <T> TypeQual {
         EffectMask = (IsAsync | IsYield | IsPanic),
     }
 
+    // INLINE(cxx-feature: operators on an enum type)
     inline "c++" {
         friend Flags operator|(Flags a, Flags b) { return static_cast<Flags>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b)); }
         friend Flags operator&(Flags a, Flags b) { return static_cast<Flags>(static_cast<uint16_t>(a) & static_cast<uint16_t>(b)); }
