@@ -203,8 +203,21 @@ CX_VISIT_IMPL_VA(ScopePathExpr, bool access) {
         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
     }
 
-    for (const __AST_N::NodeT<__AST_NODE::IdentExpr> &ident : node.path) {
-        ident->accept(*this);
+    for (size_t i = 0; i < node.path.size(); ++i) {
+        const auto &g = (i < node.seg_generics.size()) ? node.seg_generics[i] : nullptr;
+
+        // `::template X<..>::` is legal whether or not X is dependent (CWG
+        // 468), so it is always emitted rather than guessed.
+        if (g != nullptr && (i > 0 || node.global_scope)) {
+            ADD_TOKEN(CXX_TEMPLATE);
+        }
+
+        node.path[i]->accept(*this);
+
+        if (g != nullptr) {
+            g->accept(*this);
+        }
+
         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
     }
 
@@ -499,7 +512,52 @@ CX_VISIT_IMPL(ObjInitExpr) {
 CX_VISIT_IMPL(LambdaExpr) {
     NO_EMIT_FORWARD_DECL;
 
-    BRACKET_DELIMIT(ADD_TOKEN_AT_LOC(CXX_AMPERSAND, node.marker););
+    ADD_TOKEN_AT_LOC(CXX_LBRACKET, node.marker);
+
+    switch (node.capture_mode) {
+        case __AST_NODE::CaptureMode::Default:
+            ADD_TOKEN(CXX_AMPERSAND);
+            break;
+
+        case __AST_NODE::CaptureMode::None:
+            break;
+
+        case __AST_NODE::CaptureMode::AllByPtr:
+            // C++ has no capture-all-by-pointer; emulating it needs every
+            // outer-local reference in the body rewritten, which needs a
+            // scope stack CX-IR does not keep.
+            CODEGEN_ERROR(node.marker,
+                          "'|*|' is not supported by stage0; list pointer captures "
+                          "explicitly (|*a, *b|)");
+            return;
+
+        case __AST_NODE::CaptureMode::List:
+            for (size_t i = 0; i < node.captures.size(); ++i) {
+                if (i != 0) {
+                    ADD_TOKEN(CXX_COMMA);
+                }
+
+                const auto &c = node.captures[i];
+
+                if (c.name.value() == "self") {
+                    ADD_TOKEN_AT_LOC(CXX_THIS, c.name);
+                    continue;
+                }
+
+                ADD_TOKEN_AS_TOKEN(CXX_CORE_IDENTIFIER, c.name);
+
+                // `*b` → init-capture `b = &b`: inside the body `b` is then a
+                // pointer to the outer variable, so `*b += a` needs no rewrite.
+                if (c.by_ptr) {
+                    ADD_TOKEN(CXX_EQUAL);
+                    ADD_TOKEN(CXX_AMPERSAND);
+                    ADD_TOKEN_AS_TOKEN(CXX_CORE_IDENTIFIER, c.name);
+                }
+            }
+            break;
+    }
+
+    ADD_TOKEN(CXX_RBRACKET);
 
     if (node.generics) {
         ANGLE_DELIMIT(                         //
@@ -511,10 +569,11 @@ CX_VISIT_IMPL(LambdaExpr) {
         COMMA_SEP(params);  // (params)
     );
 
-    ADD_TOKEN(CXX_PTR_ACC);
     if (node.returns) {
+        ADD_TOKEN(CXX_PTR_ACC);
         ADD_NODE_PARAM(returns);
-    } else {
+    } else if (!node.expr_body) {  // `fn (..) = e` deduces its return type
+        ADD_TOKEN(CXX_PTR_ACC);
         ADD_TOKEN_AT_LOC(CXX_VOID, node.marker);
     }
 

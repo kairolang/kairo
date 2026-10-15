@@ -1009,6 +1009,69 @@ AST_NODE_IMPL(Declaration,
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_PAREN);
     iter.advance();  // skip ')'
 
+    // capture list: `||`, `|*|`, `|a, *b|`. The lexer already splits invalid
+    // operator runs, so `|*|` arrives as `|` `*` `|`.
+    if (CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_LOGICAL_OR) ||
+        CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_BITWISE_OR)) {
+        if (force_name) {
+            return std::unexpected(
+                PARSE_ERROR(CURRENT_TOK, "capture lists are only valid on lambdas"));
+        }
+
+        if (CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_LOGICAL_OR)) {
+            node->capture_mode = CaptureMode::None;
+            iter.advance();  // skip '||'
+        } else {
+            iter.advance();  // skip '|'
+
+            // `const` before a capture (`|const *|`, `|const *b|`, `|const a|`)
+            // is stage1 grammar; stage0 accepts it and ignores it.
+            if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_CONST)) {
+                iter.advance();  // skip 'const'
+            }
+
+            if (CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_MUL) && HAS_NEXT_TOK &&
+                NEXT_TOK.token_kind() == __TOKEN_N::OPERATOR_BITWISE_OR) {
+                node->capture_mode = CaptureMode::AllByPtr;
+                // two single steps: advance(n) only moves one token per frame
+                // when it is near the end of the list
+                iter.advance();  // skip '*'
+                iter.advance();  // skip '|'
+            } else {
+                node->capture_mode = CaptureMode::List;
+
+                bool first = true;
+
+                while (true) {
+                    bool by_ptr = false;
+
+                    if (!first && CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_CONST)) {
+                        iter.advance();  // skip 'const' (the first one is skipped above)
+                    }
+                    first = false;
+
+                    if (CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_MUL)) {
+                        by_ptr = true;
+                        iter.advance();  // skip '*'
+                    }
+
+                    IS_EXCEPTED_TOKEN(__TOKEN_N::IDENTIFIER);
+                    node->captures.push_back({CURRENT_TOK, by_ptr});
+                    iter.advance();  // skip name
+
+                    if (!CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_COMMA)) {
+                        break;
+                    }
+
+                    iter.advance();  // skip ','
+                }
+
+                IS_EXCEPTED_TOKEN(__TOKEN_N::OPERATOR_BITWISE_OR);
+                iter.advance();  // skip '|'
+            }
+        }
+    }
+
     if (node->is_op) {
         // we can have an alias name
         if CURRENT_TOKEN_IS (__TOKEN_N::PUNCTUATION_OPEN_BRACKET) {
@@ -1073,12 +1136,24 @@ AST_NODE_IMPL(Declaration,
     } else if (CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_ASSIGN)) {
         iter.advance();  // skip '='
 
-        while (node->qualifiers.find_add(CURRENT_TOK)) {
-            iter.advance();  // skip qualifier
-        }
+        if (!force_name && !CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_DEFAULT) &&
+            !CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_DELETE)) {
+            // expression body: `fn (x: i32) = x * 2`. No ';' here, it
+            // belongs to the enclosing statement.
+            ParseResult<> e = expr_parser.parse();
+            RETURN_IF_ERROR(e);
 
-        IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_SEMICOLON);
-        iter.advance();  // skip ';'
+            node->body = make_node<SuiteState>(
+                make_node<BlockState>(NodeV<>{make_node<ReturnState>(e.value())}));
+            node->expr_body = true;
+        } else {
+            while (node->qualifiers.find_add(CURRENT_TOK)) {
+                iter.advance();  // skip qualifier
+            }
+
+            IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_SEMICOLON);
+            iter.advance();  // skip ';'
+        }
     } else if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_BRACE)) {
         ParseResult<SuiteState> body = state_parser.parse<SuiteState>();
         RETURN_IF_ERROR(body);

@@ -156,12 +156,17 @@ __AST_NODE_BEGIN {
         /// TODO: add support for generics
         BASE_CORE_METHODS(ScopePathExpr);
 
-        explicit ScopePathExpr(NodeT<IdentExpr> full) { path.emplace_back(std::move(full)); }
+        explicit ScopePathExpr(NodeT<IdentExpr> full) {
+            path.emplace_back(std::move(full));
+            seg_generics.emplace_back(nullptr);
+        }
         explicit ScopePathExpr(bool /* unused */) {}
         explicit ScopePathExpr(NodeV<IdentExpr> path, NodeT<> access, bool global_scope)
             : path(std::move(path))
             , access(std::move(access))
-            , global_scope(global_scope) {}
+            , global_scope(global_scope) {
+            seg_generics.resize(this->path.size());
+        }
 
         // -- Helper Functions -- //
 
@@ -177,8 +182,12 @@ __AST_NODE_BEGIN {
 
 
         NodeV<IdentExpr> path;
-        NodeT<>          access;
-        bool             global_scope = false;
+        /// Parallel to `path`: the generics on that segment (`T::<V>::x`), or
+        /// nullptr. Code that edits `path` after parsing may not keep this in
+        /// step, so readers must bounds-check rather than assume equal length.
+        NodeV<GenericInvokeExpr> seg_generics;
+        NodeT<>                  access;
+        bool                     global_scope = false;
     };
 
     class DotPathExpr final : public Node {  // := E '.' E
@@ -385,6 +394,16 @@ __AST_NODE_BEGIN {
         NodeT<>                  path;
     };
 
+    /// One entry of a lambda capture list: `x` (by copy) or `*x` (by pointer).
+    struct LambdaCapture {
+        __TOKEN_N::Token name;
+        bool             by_ptr = false;
+    };
+
+    /// `fn (..)` (Default), `fn (..) ||` (None), `fn (..) |*|` (AllByPtr),
+    /// `fn (..) |a, *b|` (List). Parsed on FuncDecl, owned by LambdaExpr.
+    enum class CaptureMode : u8 { Default, None, AllByPtr, List };
+
     class LambdaExpr final : public Node {
         BASE_CORE_METHODS(LambdaExpr);
 
@@ -396,6 +415,10 @@ __AST_NODE_BEGIN {
         NodeT<RequiresDecl> generics;
         NodeT<Type>         returns;
         NodeT<SuiteState>   body;
+
+        CaptureMode                capture_mode = CaptureMode::Default;
+        std::vector<LambdaCapture> captures;
+        bool                       expr_body = false;  // `fn (..) = expr`
     };
 
     class TernaryExpr final : public Node {  // := (E '?' E ':' E) | (E 'if' E 'else' E)
@@ -476,6 +499,10 @@ __AST_NODE_BEGIN {
         bool                     nullable  = false;
         token::Token             nullable_marker;
         bool                     is_fn_ptr = false;
+        /// `typename!(T)`: emit C++ `typename` before `value`. Stage 0 has no
+        /// dependent-name analysis, and a type node can also be a value
+        /// template argument, so this cannot be inferred.
+        bool                     typename_prefix = false;
         FnPtr                    fn_ptr{};  // never set unless is_fn_ptr is true
         Modifiers                specifiers = Modifiers(Modifiers::ExpectedModifier::TypeSpec);
     };

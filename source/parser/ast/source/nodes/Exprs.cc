@@ -1055,8 +1055,27 @@ LINE910_PARSE_SCOPE_PATH_EXPR:
             }
 
             if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE)) {
+                // `::<` is either generics on the last segment (`T::<V>::x`,
+                // followed by another `::`) or a generic call on it
+                // (`f::<U>(...)`). Only the token after the matching `>` tells.
+                auto after       = after_generic_args();
+                bool seg_generic = after.has_value() && !path->path.empty() &&
+                                   iter.peek(*after).has_value() &&
+                                   iter.peek(*after)->get().token_kind() ==
+                                       __TOKEN_N::OPERATOR_SCOPE;
+
+                if (seg_generic) {
+                    ParseResult<GenericInvokeExpr> g = parse<GenericInvokeExpr>();
+                    RETURN_IF_ERROR(g);
+
+                    path->seg_generics.resize(path->path.size());
+                    path->seg_generics.back() = g.value();
+                    continue;  // CURRENT is '::'; the loop advances past it
+                }
+
                 path->access = path->path.back();
                 path->path.pop_back();
+                path->seg_generics.resize(path->path.size());
 
                 iter.reverse();
 
@@ -1076,6 +1095,7 @@ LINE910_PARSE_SCOPE_PATH_EXPR:
             RETURN_IF_ERROR(rhs);
 
             path->path.push_back(rhs.value());
+            path->seg_generics.resize(path->path.size());
         }
 
     return path;
@@ -1088,8 +1108,15 @@ AST_NODE_IMPL_VISITOR(Jsonify, ScopePathExpr) {
         path.push_back(get_node_json(p));
     }
 
+    std::vector<neo::json> seg_generics;
+
+    for (const auto &g : node.seg_generics) {
+        seg_generics.push_back(get_node_json(g));
+    }
+
     json.section("ScopePathExpr")
         .add("path", path)
+        .add("seg_generics", seg_generics)
         .add("access", get_node_json(node.access))
         .add("global_scope", node.global_scope ? "true" : "false");
 }
@@ -1596,6 +1623,10 @@ AST_NODE_IMPL(Expression, LambdaExpr) {
     lambda->generics = func_decl->generics;
     lambda->returns  = func_decl->returns;
 
+    lambda->capture_mode = func_decl->capture_mode;
+    lambda->captures     = func_decl->captures;
+    lambda->expr_body    = func_decl->expr_body;
+
     return lambda;
 }
 
@@ -1611,7 +1642,9 @@ AST_NODE_IMPL_VISITOR(Jsonify, LambdaExpr) {
         .add("body", get_node_json(node.body))
         .add("params", args)
         .add("generics", get_node_json(node.generics))
-        .add("returns", get_node_json(node.returns));
+        .add("returns", get_node_json(node.returns))
+        .add("capture_mode", static_cast<int>(node.capture_mode))
+        .add("expr_body", node.expr_body ? "true" : "false");
 }
 
 // ---------------------------------------------------------------------------------------------- //
@@ -1955,6 +1988,23 @@ AST_NODE_IMPL(Expression, Type) {  // TODO - REMAKE using the new Modifiers and 
 
                 auto cur_tok = iter.peek_back().value().get();  // get the current token again
 
+                if (cur_tok.get_value() == "typename") {
+                    iter.advance();  // skip '!'
+
+                    IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_OPEN_PAREN);
+                    iter.advance();  // skip '('
+
+                    ParseResult<Type> inner = parse<Type>();
+                    RETURN_IF_ERROR(inner);
+
+                    IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_PAREN);
+                    iter.advance();  // skip ')'
+
+                    node->typename_prefix = true;
+                    EXPR                  = inner.value();
+                    break;
+                }
+
                 if (cur_tok.get_value() == "ref" || cur_tok.get_value() == "mref") {
                     iter.advance();  // skip '!'
 
@@ -2079,6 +2129,7 @@ AST_NODE_IMPL_VISITOR(Jsonify, Type) {
         .add("generics", get_node_json(node.generics))
         .add("specifiers", node.specifiers.to_json())
         .add("is_fn_ptr", node.is_fn_ptr ? "true" : "false")
+        .add("typename_prefix", node.typename_prefix ? "true" : "false")
         .add("nullable", node.nullable ? "true" : "false");
 }
 

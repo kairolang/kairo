@@ -259,6 +259,11 @@ __AST_NODE_BEGIN {
         
         bool is_op = false;  // if this is an operator function
         std::vector<__TOKEN_N::Token> op;
+
+        // only ever set on lambdas (force_name == false); see LambdaExpr
+        CaptureMode                capture_mode = CaptureMode::Default;
+        std::vector<LambdaCapture> captures;
+        bool                       expr_body = false;
     };
 
     class VarDecl final : public Node {

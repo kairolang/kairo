@@ -123,6 +123,47 @@ __AST_NODE_BEGIN {
         ParseResult<ArgumentExpr>          parse_ArgumentExpr();
         ParseResult<DotPathExpr>           parse_DotPathExpr(ParseResult<> lhs = nullptr);
         ParseResult<IdentExpr>             parse_IdentExpr();
+        /// iter is at '<'. Returns the peek-offset of the token after the
+        /// matching '>' (or '>>'), or nullopt if ';' '{' '}' or EOF comes
+        /// first. A '>>' that closes this level and an enclosing one returns
+        /// the offset of the '>>' itself: what follows this level is then the
+        /// second '>', never '::'.
+        std::optional<i32> after_generic_args() const {
+            i32 depth = 0;
+            for (i32 off = 0;; ++off) {
+                auto t = (off == 0) ? std::optional{iter.current()} : iter.peek(off);
+                if (!t.has_value()) {
+                    return std::nullopt;
+                }
+                switch (t->get().token_kind()) {
+                    case __TOKEN_N::PUNCTUATION_OPEN_ANGLE:
+                        ++depth;
+                        break;
+                    case __TOKEN_N::PUNCTUATION_CLOSE_ANGLE:
+                        if (--depth == 0) {
+                            return off + 1;
+                        }
+                        break;
+                    case __TOKEN_N::OPERATOR_BITWISE_R_SHIFT:
+                        if (depth == 1) {
+                            return off;
+                        }
+                        depth -= 2;
+                        if (depth <= 0) {
+                            return off + 1;
+                        }
+                        break;
+                    case __TOKEN_N::PUNCTUATION_SEMICOLON:
+                    case __TOKEN_N::PUNCTUATION_OPEN_BRACE:
+                    case __TOKEN_N::PUNCTUATION_CLOSE_BRACE:
+                    case __TOKEN_N::EOF_TOKEN:
+                        return std::nullopt;
+                    default:
+                        break;
+                }
+            }
+        }
+
         ParseResult<ScopePathExpr>         parse_ScopePathExpr(ParseResult<> lhs = nullptr, bool global_scope = false, bool is_import = false);
         ParseResult<ArrayAccessExpr>       parse_ArrayAccessExpr(ParseResult<> lhs = nullptr);
         ParseResult<ArgumentListExpr>      parse_ArgumentListExpr();

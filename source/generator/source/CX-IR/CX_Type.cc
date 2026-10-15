@@ -13,6 +13,10 @@
 #include "utils.hh"
 
 CX_VISIT_IMPL(Type) {  // TODO Modifiers
+    if (node.typename_prefix) {
+        ADD_TOKEN(CXX_TYPENAME);
+    }
+
     if (node.specifiers.contains(token::tokens::KEYWORD_YIELD)) {
         auto marker = node.specifiers.get(token::tokens::KEYWORD_YIELD);
 
