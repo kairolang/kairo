@@ -722,20 +722,22 @@ class <T> LiteralTyping {
 
     fn type_tuple_literal(self, n: *TupleLiteralExpr, expected: *Type) -> *Type {
         var ex = canon_unqual(dyn()->tu.strip_nullable(expected));
-        var et: *TupleType = &null;
-        if (ex != &null) && isa::<TupleType>(ex) && (cast::<TupleType>(ex)->elements.size() == n->elements.size()) {
-            et = cast::<TupleType>(ex);
-        }
+        // An expected tuple of the same arity types each element; any other
+        // expectation is left for the conversion check at the use.
+        var have_expected = (ex != &null) && dyn()->tu.is_tuple(ex) && (dyn()->tu.tuple_arity(ex) == n->elements.size());
+        var ex_elems = dyn()->tu.tuple_elems(ex);
         var elems = vec::<*Type>();
         var ok = true;
         for var i: usize = 0; i < n->elements.size(); ++i {
-            var e_exp: *Type = (et->elements[i]) if (et != &null) else (&null);
+            var e_exp: *Type = (ex_elems[i]) if (have_expected) else (&null);
             var t = dyn()->type_of(n->elements[i], e_exp);
             if t == &null { ok = false; continue; }
             if e_exp != &null { dyn()->check_convertible(n->elements[i], e_exp); }
             elems.push_back(t);
         }
         if !ok { return &null; }
-        return dyn()->sc->types->tuple(&elems);
+        var t = dyn()->tu.tuple_of(&elems);
+        if t == &null { dyn()->missing_lang_item(n, tuple_record_name(elems.size())); return &null; }
+        return t;
     }
 }

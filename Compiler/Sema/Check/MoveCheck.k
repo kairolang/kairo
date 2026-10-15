@@ -750,14 +750,18 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             var c  = canon_unqual(e->type_);
             var rd = self._tu.record_decl(c);
             if rd != &null {
-                var facts = lifecycle_of(self.sc)->facts_of(rd);
+                // A tuple's facts are its elements' folded (ClassLifecycle::
+                // facts_of_type); its pattern's hang on the parameters.
+                var is_tup = self._tu.is_tuple(c);
+                var tf = lifecycle_of(self.sc)->facts_of_type(c);
+                var facts = (&tf) if (is_tup) else (lifecycle_of(self.sc)->facts_of(rd));
                 // A definite No only: Unknown facts are resolved per instance at M2, which does not exist yet.
                 if facts->movable == LifecycleTri::No {
                     var b = self.sc->diag->report(DiagID::SC051E, e->range.start,
                         f"cannot move a value of type '{self._tu.str(c)}': {facts->why_not_movable}"
                     );
                     b.first(e->range);
-                    b.note(rd->range.start, "type declared here").first(rd->range);
+                    if !is_tup { b.note(rd->range.start, "type declared here").first(rd->range); }   // a tuple is declared nowhere.
                     b.emit();
                     e->poison();
                     self.n_errored += 1;
@@ -845,7 +849,9 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             var fd = dyn_cast::<FieldDecl>(st->resolved_decl);
             if (fd == &null) || fd->is_static() { break; }
             if p.size() > 0 { p += "."; }
-            p += self.sc->ctx->get_spelling(st->name->name);
+            // `t.1` is bound to the tuple's field `_1` but has no name node
+            // (an ordinal is not an identifier): the path spells the ordinal.
+            if st->is_tuple_index() { p += f"{st->index}"; } else { p += self.sc->ctx->get_spelling(st->name->name); }
             i += 1;
         }
         (*path) = p;

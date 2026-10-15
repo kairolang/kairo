@@ -210,13 +210,6 @@ class Deduction {
                 var pm = cast::<MapType>(param); var am = cast::<MapType>(arg);
                 if self.unify(pm->key, am->key, false) == ImplicitRank::None { return ImplicitRank::None; }
                 return self._inner(self.unify(pm->value, am->value, false));
-            } case TypeKind::TupleType {
-                var pt = cast::<TupleType>(param); var at = cast::<TupleType>(arg);
-                if pt->elements.size() != at->elements.size() { return ImplicitRank::None; }
-                for var i: usize = 0; i < pt->elements.size(); ++i {
-                    if self.unify(pt->elements[i], at->elements[i], false) == ImplicitRank::None { return ImplicitRank::None; }
-                }
-                return ImplicitRank::Exact;
             } case TypeKind::FunctionPointerType {
                 var pf = cast::<FunctionPointerType>(param); var af = cast::<FunctionPointerType>(arg);
                 if pf->params.size() != af->params.size() { return ImplicitRank::None; }
@@ -305,15 +298,6 @@ class Deduction {
                 var e = self.substitute(a->element);
                 if e == &null { return &null; }
                 return self.sc->types->array(e, static_cast::<u64>(a->size_bits));
-            } case TypeKind::TupleType {
-                var tt = cast::<TupleType>(t);
-                var elems = vec::<*Type>();
-                for var i: usize = 0; i < tt->elements.size(); ++i {
-                    var e = self.substitute(tt->elements[i]);
-                    if e == &null { return &null; }
-                    elems.push_back(e);
-                }
-                return self.sc->types->tuple(&elems);
             } case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
                 var ps = vec::<*Type>();
@@ -438,16 +422,6 @@ class Deduction {
                 var v  = self.replace_self(mt->value, iface, with);
                 if (k == mt->key) && (v == mt->value) { return t; }
                 return self.tu.map_of(k, v);
-            } case TypeKind::TupleType {
-                var tt      = cast::<TupleType>(t);
-                var elems   = vec::<*Type>();
-                var changed = false;
-                for var i: usize = 0; i < tt->elements.size(); ++i {
-                    var e = self.replace_self(tt->elements[i], iface, with);
-                    if e != tt->elements[i] { changed = true; }
-                    elems.push_back(e);
-                }
-                return (t) if (!changed) else (self.sc->types->tuple(&elems));
             } case TypeKind::QualifiedType {
                   var q = cast::<QualifiedType>(t);
                   var i = self.replace_self(q->inner, iface, with);

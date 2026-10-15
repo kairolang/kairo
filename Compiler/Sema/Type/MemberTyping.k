@@ -167,22 +167,24 @@ class <T> MemberTyping {
 
             // -- tuple index --
             if st->is_tuple_index() {
-                if (cur_kind != 0) || (val == &null) || (!isa::<TupleType>(val)) {
+                if (cur_kind != 0) || (val == &null) || (!dyn()->tu.is_tuple(val)) {
                     dyn()->fail(n, DiagID::SC101E, "tuple index on a non-tuple");
                     return &null;
                 }
-                var tt = cast::<TupleType>(val);
-                if static_cast::<usize>(st->index) >= tt->elements.size() {
+                var elems = dyn()->tu.tuple_elems(val);
+                if static_cast::<usize>(st->index) >= elems.size() {
                     dyn()->fail(n, DiagID::SC101E, f"tuple index {st->index} is out of range for '{dyn()->tu.str(val)}\x27");
                     return &null;
                 }
-                cur = tt->elements[static_cast::<usize>(st->index)];
+                // The element is the record's argument at that position: the
+                // pattern's field `_i` is typed `Ti`, which is args[i] in
+                // this instance by construction. The step is bound to the
+                // field so TupleLowering has a name to spell for it.
+                cur = elems[static_cast::<usize>(st->index)];
                 st->resolved_type = cur;
+                st->resolved_decl = static_cast::<*Decl>(dyn()->tu.tuple_field(val, static_cast::<usize>(st->index)));
                 cur_kind = 0;
-                // What the typer has always said (the old blanket default):
-                // `t.0 = x` is not assignable today. Making it an lvalue is a
-                // tuple-semantics decision, not this one.
-                n->value_category = Expr::ValueCategory::RValue;
+                n->value_category = Expr::ValueCategory::LValue;   // a field: `t.0 = x` assigns through.
                 continue;
             }
 
@@ -356,7 +358,7 @@ class <T> MemberTyping {
         // user `op []`
         if dyn()->tu.kind_of(bt) == BuiltinKind::COUNT {
             var is_container = dyn()->tu.is_vector_like(bt) || dyn()->tu.is_map_like(bt) || dyn()->tu.is_string(bt)
-                            || (dyn()->tu.element_of(bt) != &null) || isa::<TupleType>(bt) || (dyn()->tu.pointee(bt) != &null);
+                            || (dyn()->tu.element_of(bt) != &null) || dyn()->tu.is_tuple(bt) || (dyn()->tu.pointee(bt) != &null);
             if (!is_container) || array_range {
                 var cands = vec::<*Decl>();
                 dyn()->ml.lookup(recv, DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &cands);
@@ -409,7 +411,7 @@ class <T> MemberTyping {
         }
 
         // builtin shapes
-        if isa::<TupleType>(bt) {
+        if dyn()->tu.is_tuple(bt) {
             dyn()->type_of(n->index, &null);
             dyn()->fail(n, DiagID::SC103E, "tuples are indexed with '.0', '.1', ..., not '[]\x27");
             return &null;

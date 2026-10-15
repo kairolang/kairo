@@ -348,20 +348,31 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             return out;
         }
 
+        // A tuple is its arity's record, but its facts are its ELEMENTS'
+        // folded, not the pattern's: the record's fields are typed by its
+        // parameters, and facts_of(instance) reads the pattern until M2
+        // fills instances -- which would make `(i32, i32)` Unknown in every
+        // fact and trip the non-generic-ADT gate on a payload that holds one.
+        if self._tu.is_tuple(t) {
+            var elems = self._tu.tuple_elems(t);
+            for var i: usize = 0; i < elems.size(); ++i {
+                var ef = self.facts_of_type(elems[i]);
+                self._absorb(&out, &ef, f"element {i}");
+                self._absorb_assign(&out, &ef, f"element {i}");
+            }
+            // The record declares no transfer, so its category is the
+            // weakest its elements allow, as a user record's fold is:
+            // `(Mv, i32)` is MOVE and `var u = t` moves it.
+            out.category = self._folded_category(&out);
+            self._settle_non_transfer(&out);
+            return out;
+        }
+
         switch t->kind {
             case TypeKind::RecordType {
                 var d = cast::<RecordType>(t)->decl;
                 if d == &null { return out; }
                 return *(self.facts_of(d));
-            }
-            case TypeKind::TupleType {
-                var tt = cast::<TupleType>(t);
-                for var i: usize = 0; i < tt->elements.size(); ++i {
-                    var ef = self.facts_of_type(tt->elements[i]);
-                    self._absorb(&out, &ef, f"element {i}");
-                    self._absorb_assign(&out, &ef, f"element {i}");
-                }
-                return out;
             }
             case TypeKind::FixedArrayType { return self.facts_of_type(cast::<FixedArrayType>(t)->element); }
             case TypeKind::VectorType     { out.trivially_copyable = LifecycleTri::No; out.trivial_dtor = LifecycleTri::No; return out; }
@@ -1286,7 +1297,11 @@ fn lifecycle_of(sc: *SemaContext) -> *ClassLifecycle {
 /// not MOVE here; the instance decides.
 fn moves_on_pass(sc: *SemaContext, t: *Type) -> bool {
     if t == &null { return false; }
-    var d = TypeUtil(sc).record_decl(t);
+    var tu = TypeUtil(sc);
+    var d = tu.record_decl(t);
     if (d == &null) || isa::<InterfaceDecl>(d) { return false; }
+    // A tuple's facts are its elements' (facts_of_type), not its pattern's,
+    // which hang on the parameters and would read Unknown.
+    if tu.is_tuple(t) { return lifecycle_of(sc)->facts_of_type(t).category == LifecycleCategory::Move; }
     return lifecycle_of(sc)->facts_of(d)->category == LifecycleCategory::Move;
 }

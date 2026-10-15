@@ -372,6 +372,52 @@ class TypeUtil {
 
     fn is_string(self, t: *Type) -> bool { return self.is_lang(t, WellKnownType::String); }
 
+    // === tuples =============================================================
+    //
+    // `(A, B, ..)` is the record `TupleN<A, B, ..>` (TupleRecords): no
+    // canonical is a TupleType after T. Tuple-ness is the pattern's
+    // `tuple_arity`, by identity -- a user's own `Tuple2` is not one.
+
+    /// The tuple record decl \p d is (its pattern has an arity), else false.
+    fn is_tuple_decl(self, d: *Decl) -> bool {
+        if d == &null { return false; }
+        var s = dyn_cast::<StructDecl>(self.pattern_of(NameLookup::representative(d)));
+        return (s != &null) && (s->tuple_arity > 0);
+    }
+
+    /// The arity of a tuple canonical, 0 for anything else.
+    fn tuple_arity(self, t: *Type) -> usize {
+        var d = self.record_decl(t);
+        if d == &null { return 0; }
+        var s = dyn_cast::<StructDecl>(self.pattern_of(NameLookup::representative(d)));
+        if s == &null { return 0; }
+        return static_cast::<usize>(s->tuple_arity);
+    }
+
+    fn is_tuple(self, t: *Type) -> bool { return self.tuple_arity(t) > 0; }
+
+    /// The element types of a tuple canonical: the record's arguments, in
+    /// element order (the pattern's field `_i` is typed `Ti`, which is
+    /// args[i] in the instance -- by construction, no substitution needed).
+    fn tuple_elems(self, t: *Type) -> FrozenList::<*Type> { return self.record_args(t); }
+
+    /// `record(TupleN, elems)`, or null when there is no record for that
+    /// arity (no builtin root, or past TUPLE_MAX_ARITY; the caller diagnoses
+    /// -- TypeParse already rejects it at a written type).
+    fn tuple_of(self, elems: *vec::<*Type>) -> *Type {
+        return self.sc->tuple_record(elems);
+    }
+
+    /// Field \p i of a tuple canonical, read off the PATTERN (an instance
+    /// shell has no fields until M2); null when out of range.
+    fn tuple_field(self, t: *Type, i: usize) -> *FieldDecl {
+        var d = self.record_decl(t);
+        if d == &null { return &null; }
+        var s = dyn_cast::<StructDecl>(self.pattern_of(NameLookup::representative(d)));
+        if (s == &null) || (s->tuple_arity == 0) || (i >= s->fields.size()) { return &null; }
+        return s->fields[i];
+    }
+
     /// Element type of a vector/set/array/slice, whichever canonical form.
     fn container_elem(self, t: *Type) -> *Type {
         var e = self.element_of(t);
@@ -527,6 +573,17 @@ class TypeUtil {
                     if ma.size() >= 2 { return "{" + self.str(ma[0]) + ": " + self.str(ma[1]) + "}"; }
                 }
                 if self.is_string(t) { return "string"; }
+                // A tuple prints as it is written, `(i32, f64)`: every
+                // golden and every message that quotes one reads so.
+                if self.is_tuple(t) {
+                    var ta = self.record_args(t);
+                    var s = "(";
+                    for var i: usize = 0; i < ta.size(); ++i {
+                        if i > 0 { s += ", "; }
+                        s += self.str(ta[i]);
+                    }
+                    return s + ")";
+                }
 
                 var r = cast::<RecordType>(t);
                 var s = self.decl_name(r->decl);
@@ -557,15 +614,8 @@ class TypeUtil {
                 if a->is_incomplete { return "[" + self.str(a->element) + ";]"; }
                 return f"[{self.str(a->element)}; {a->size_bits}]";
             }
-            case TypeKind::TupleType {
-                var tt = cast::<TupleType>(t);
-                var s = "(";
-                for var i: usize = 0; i < tt->elements.size(); ++i {
-                    if i > 0 { s += ", "; }
-                    s += self.str(tt->elements[i]);
-                }
-                return s + ")";
-            }
+            // No TupleType arm: a tuple canonical is its record (above);
+            // a syntax TupleType falls to the default and prints its canonical.
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
                 var s = "fn (";

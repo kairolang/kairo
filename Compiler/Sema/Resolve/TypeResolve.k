@@ -387,7 +387,22 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             elems.push_back(e->canonical);
         }
         if !ok { return; }
-        n->canonical = self.sc->types->tuple(&elems);
+        // A tuple is its arity's record, `Tuple2<A, B>` (TupleRecords): the
+        // one builder every tuple canonical goes through, so this written
+        // type and the one a literal takes are one identity.
+        var t = self.sc->tuple_record(&elems);
+        if t == &null {
+            // TypeParse caps arity at the written type (S055E) and a
+            // one-element tuple cannot be parsed, so the record is missing
+            // only when there is no builtin root to home it in -- the
+            // same failure as any unbound lang item.
+            self.sc->diag->report(DiagID::R055E, n->range.start,
+                f"a tuple of {elems.size()} elements has no record; the builtin root is not loaded"
+            ).first(n->range).emit();
+            n->poison();
+            return;
+        }
+        n->canonical = t;
     }
 
     /// `[T; N]` has an identity only once N is a known constant. The parser

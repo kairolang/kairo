@@ -699,7 +699,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if dyn()->tu.map_key_value(t, &k, &v) {
             (*kind) = IterKind::Map;
             var e = vec::<*Type>(); e.push_back(k); e.push_back(v);
-            return dyn()->sc->types->tuple(&e);
+            return dyn()->tu.tuple_of(&e);
         }
 
         if dyn()->tu.is_string(t) { (*kind) = IterKind::String; return dyn()->tu.builtin(BuiltinKind::Char); }
@@ -983,18 +983,18 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
     priv fn _bind_list(self, list: *FrozenList::<Binding>, t: *Type, at: *Expr) {
         if list->size() == 1 { self._bind_one(list->get(0), t); return; }
-        var tt: *TupleType = &null;
-        var tu_ = canon_unqual(t);
-        if (tu_ != &null) && isa::<TupleType>(tu_) { tt = cast::<TupleType>(tu_); }
-        if (tt != &null) && (tt->elements.size() != list->size()) {
-            dyn()->fail(at, DiagID::SC042E, f"{list->size()} binding(s) but '{dyn()->tu.str(t)}' has {tt->elements.size()} element(s)");
-            tt = &null;
+        var tu_  = canon_unqual(t);
+        var have = (tu_ != &null) && dyn()->tu.is_tuple(tu_);
+        var elems = dyn()->tu.tuple_elems(tu_);
+        if have && (elems.size() != list->size()) {
+            dyn()->fail(at, DiagID::SC042E, f"{list->size()} binding(s) but '{dyn()->tu.str(t)}' has {elems.size()} element(s)");
+            have = false;
         }
-        if (tt == &null) && (tu_ != &null) && (!isa::<TupleType>(tu_)) {
+        if (tu_ != &null) && (!dyn()->tu.is_tuple(tu_)) {
             dyn()->fail(at, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' into {list->size()} bindings");
         }
         for var i: usize = 0; i < list->size(); ++i {
-            self._bind_one(list->get(i), (tt->elements[i]) if (tt != &null) else (&null));
+            self._bind_one(list->get(i), (elems[i]) if (have) else (&null));
         }
     }
 

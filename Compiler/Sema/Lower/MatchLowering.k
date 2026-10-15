@@ -65,11 +65,12 @@
 ///       opaque         `if` on `==`, or a range's two compares.
 ///
 ///   \par Not lowered here
-///     A tuple that is not a literal is left as it is; EmitIR's ICE names
-///     the owner. It appears in type-check-only tests that must keep
-///     passing, so no gate reports it yet. An ADT's tag and payloads always
-///     have their record by the time this runs: EnumLayoutLowering runs
-///     before every body rewrite.
+///     Nothing of a tuple's: a tuple VALUE is its arity's record and reads
+///     through the Field path like any struct (TupleLowering gives the
+///     index step a field name later); a tuple LITERAL scrutinee is never
+///     built (above). An ADT's tag and payloads always have their record
+///     by the time this runs: EnumLayoutLowering runs before every body
+///     rewrite.
 ///
 ///   Phase: LOWER, after IterLowering and RangeLowering; before
 ///   SequenceLowering (which orders the scrutinee local) and StringLowering
@@ -318,9 +319,13 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var e = self.tu.strip_parens(e0);
         var tl = dyn_cast::<TupleLiteralExpr>(e);
         if tl != &null {
+            // PatternCompilation opened element i as the record's field
+            // `_i` (a tuple is its arity's record); the element's own local
+            // stands in for that occurrence.
+            var tt = canon_unqual(self._referee(tl->type_));
             for var i: usize = 0; i < tl->elements.size(); ++i {
                 var child: i32 = -1;
-                if occ >= 0 { child = self._find_occ(u32(occ), OccKind::Elem, u32(i)); }
+                if occ >= 0 { child = self._find_occ_field(u32(occ), self.tu.tuple_field(tt, i)); }
                 self._bind_scrutinee(tl->elements[i], child, pre);
             }
             return;
@@ -341,6 +346,17 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         vd->init  = e;
         pre->push_back(static_cast::<*Stmt>(DeclStmt::create(self.ctx, self._at, static_cast::<*Decl>(vd))));
         if occ >= 0 { self._locals[usize(occ)] = vd; }
+    }
+
+    /// The Field occurrence of \p f under \p parent, or -1 when no pattern
+    /// reached it (its element is still evaluated, into a local nothing reads).
+    priv fn _find_occ_field(self, parent: u32, f: *FieldDecl) -> i32 {
+        if f == &null { return -1; }
+        for var i: usize = 0; i < self._t->occs.size(); ++i {
+            var o = self._t->occs[i];
+            if (o.parent == i32(parent)) && (o.kind == OccKind::Field) && (o.field == f) { return i32(i); }
+        }
+        return -1;
     }
 
     priv fn _find_occ(self, parent: u32, kind: OccKind, index: u32) -> i32 {
@@ -399,7 +415,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
                 var v = self._variant_of(u32(d.parent), d.index);
                 return (v != &null) && (v->adt_member != &null);
             }
-            default { return false; }   // the root of a tuple literal, or an element of a tuple value.
+            default { return false; }   // the root of a tuple literal: never bound, its elements are.
         }
         return false;
     }

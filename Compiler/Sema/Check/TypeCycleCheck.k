@@ -220,15 +220,14 @@ class TypeCycleCheck {
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
                 self._visit(r->decl, site);
+                // Which arguments the record stores by value is a question
+                // for the PATTERN: an instance shell has no fields until M2
+                // fills it, and would answer "none" for every `(i32, Arr)`.
+                var pat = decl_pattern(r->decl);
                 for var i: usize = 0; i < r->args.size(); ++i {
-                    if self._param_by_value(r->decl, i, 0) {
+                    if self._param_by_value(pat, i, 0) {
                         self._type_edges(*(r->args.get(i)), site);
                     }
-                }
-            } case TypeKind::TupleType {
-                var tup = cast::<TupleType>(c);
-                for var i: usize = 0; i < tup->elements.size(); ++i {
-                    self._type_edges(*(tup->elements.get(i)), site);
                 }
             } case TypeKind::FixedArrayType {
                 self._type_edges(cast::<FixedArrayType>(c)->element, site);
@@ -322,14 +321,6 @@ class TypeCycleCheck {
                 for var i: usize = 0; i < r->args.size(); ++i {
                     if !self._param_by_value(r->decl, i, depth + 1) { continue; }
                     if self._type_uses_param(*(r->args.get(i)), rec, index, depth + 1) {
-                        return true;
-                    }
-                }
-                return false;
-            } case TypeKind::TupleType {
-                var tup = cast::<TupleType>(c);
-                for var i: usize = 0; i < tup->elements.size(); ++i {
-                    if self._type_uses_param(*(tup->elements.get(i)), rec, index, depth) {
                         return true;
                     }
                 }

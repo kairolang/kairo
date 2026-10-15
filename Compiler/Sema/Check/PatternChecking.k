@@ -416,11 +416,6 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
                 var c = segs[usize(hole)];
                 missing = self._ps.range_str(d, c.lo, c.hi);
             }
-            case DomainKind::Tuple {
-                var c = Ctor{};
-                c.kind = CtorKind::Tuple; c.arity = d.arity;
-                return self._useful_ctor(&rows, q, c, d, closed, want);
-            }
             case DomainKind::Record {
                 var c = Ctor{};
                 c.kind = CtorKind::Record; c.arity = d.arity;

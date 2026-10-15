@@ -21,7 +21,8 @@
 ///     distinct heads; then the leftmost.
 ///
 ///     Branching, by the column's domain:
-///       Tuple / Record   no test: the column is replaced by its fields.
+///       Record           no test: the column is replaced by its fields
+///                        (a tuple is its arity's record).
 ///       ClosedEnum       Switch on the variant. Complete when every variant
 ///                        heads some row; the default edge then exists only
 ///                        when wildcard rows remain, which is where an
@@ -103,6 +104,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::PatternKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
+import AST::Context::DeclContext::*;
 import AST::Visitor::ASTWriter::*;
 import Lexer::Immediate::*;
 import Location::SourceRange::*;
@@ -113,8 +115,7 @@ import Diagnostic::Registry::*;
 /// How an occurrence is reached from its parent.
 enum OccKind derives u8 {
     Root = 0,   ///< the scrutinee.
-    Elem,       ///< element `index` of a tuple.
-    Field,      ///< `field` of a record.
+    Field,      ///< `field` of a record; a tuple's element is its field `_i`.
     Payload,    ///< `field` of variant `index`'s payload.
 }
 
@@ -420,18 +421,18 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     priv fn _sub_occs(self, occ: u32, c: Ctor, d: Domain) -> vec::<u32> {
         var out = vec::<u32>();
         switch c.kind {
-            case CtorKind::Tuple {
-                var tt = self._tuple_type(self._occs[usize(occ)].type_);
-                for var i: u32 = 0; i < c.arity; ++i {
-                    var et: *Type = &null;
-                    if (tt != &null) && (usize(i) < tt->elements.size()) { et = tt->elements[usize(i)]; }
-                    out.push_back(self._occ(occ, OccKind::Elem, i, &null, et));
-                }
-            }
             case CtorKind::Record {
                 var fs = self._ps.instance_fields(d.rec);
+                // A tuple's field is declared `Ti`; the element is the
+                // instance's argument i, so a wildcard column still has a
+                // concrete domain to classify.
+                var ot = self._occs[usize(occ)].type_;
+                var te = self._tu.tuple_elems(canon_unqual(self._tu.as_value(ot)));
+                var is_tup = self._tu.is_tuple(canon_unqual(self._tu.as_value(ot)));
                 for var i: usize = 0; (i < fs.size()) && (i < usize(c.arity)); ++i {
-                    out.push_back(self._occ(occ, OccKind::Field, 0, fs[i], self._canon(fs[i]->type_)));
+                    var ft = self._canon(fs[i]->type_);
+                    if is_tup && (i < te.size()) { ft = te[i]; }
+                    out.push_back(self._occ(occ, OccKind::Field, 0, fs[i], ft));
                 }
             }
             case CtorKind::Variant {
@@ -451,13 +452,6 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     priv fn _canon(self, t: *Type) -> *Type {
         if t == &null { return &null; }
         return t->canonical;
-    }
-
-    priv fn _tuple_type(self, t: *Type) -> *TupleType {
-        if t == &null { return &null; }
-        var u = canon_unqual(self._tu.as_value(t));
-        if (u == &null) || (!isa::<TupleType>(u)) { return &null; }
-        return cast::<TupleType>(u);
     }
 
     // === nodes ============================================================
@@ -545,11 +539,6 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
 
         var d = self._head_domain(&rows2);
         switch d.kind {
-            case DomainKind::Tuple {
-                var c = Ctor{};
-                c.kind = CtorKind::Tuple; c.arity = d.arity;
-                return self._through(&rows2, &o, c, d);
-            }
             case DomainKind::Record {
                 var c = Ctor{};
                 c.kind = CtorKind::Record; c.arity = d.arity;
@@ -1134,7 +1123,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
 
         var d = self._ps.domain_of(p->type_);
         var c = self._ps.ctor_of(p);
-        if (c.kind == CtorKind::Tuple) || (c.kind == CtorKind::Record) {
+        if c.kind == CtorKind::Record {
             var sub  = self._sub_occs(occ, c, d);
             var cols = self._ps.sub_columns(p, c.arity);
             for var k: usize = 0; k < cols.size(); ++k { self._flatten_into(cols[k], sub[k], rows); }
@@ -1196,8 +1185,14 @@ fn decision_occ(sc: *SemaContext, t: *DecisionTree, o: u32) -> string {
     var d = t->occs[usize(o)];
     switch d.kind {
         case OccKind::Root  { return "$"; }
-        case OccKind::Elem  { return decision_occ(sc, t, u32(d.parent)) + f".{d.index}"; }
-        case OccKind::Field { return decision_occ(sc, t, u32(d.parent)) + "." + tu.decl_name(static_cast::<*Decl>(d.field)); }
+        case OccKind::Field {
+            // A tuple's element prints as it is indexed, `$.0`, not `$._0`.
+            var owner = reinterpret_cast::<*DeclContext>(static_cast::<*Decl>(d.field)->semantic_dc);
+            if (owner != &null) && tu.is_tuple_decl(owner->dc_owner) {
+                return decision_occ(sc, t, u32(d.parent)) + f".{d.field->index}";
+            }
+            return decision_occ(sc, t, u32(d.parent)) + "." + tu.decl_name(static_cast::<*Decl>(d.field));
+        }
         case OccKind::Payload {
             var ps = PatternSpace(sc);
             var pd = ps.domain_of(t->occs[usize(d.parent)].type_);

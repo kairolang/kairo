@@ -363,6 +363,47 @@ class SemaContext {
         return self.types->record(inst, &trimmed);
     }
 
+    /// The tuple pattern of \p arity (TupleRecords, minted on first use),
+    /// or null: no builtin root to home it in, or an arity outside
+    /// [2, TUPLE_MAX_ARITY]. The root TU is the DeclContext the record
+    /// is scoped in; found through the global table, never this TU's.
+    fn tuple_pattern(self, arity: usize) -> *Decl {
+        if self.g == &null { return &null; }
+        var fid = self.g->builtin_fid();
+        if fid == 0 { return &null; }
+        var rctx = self.g->get_context(fid);
+        if (rctx == &null) || (rctx->tu == &null) { return &null; }
+        var rtu = reinterpret_cast::<*TranslationUnit>(rctx->tu);
+        return self.g->tuple_pattern(arity, static_cast::<*DeclContext>(rtu));
+    }
+
+    /// `(A, B, ..)` as `record(TupleN, [A, B, ..])`: THE canonical builder
+    /// for a tuple, the same way lang_record is for a lang item. TypeResolve,
+    /// LiteralTyping, StmtTyping and ArgumentDeduction all build through
+    /// here, so a written `(i32, f64)`, one a literal takes and one a
+    /// substitution produces are one identity with one registry entry
+    /// (home TU, explicit instantiation). Null when the pattern is (see
+    /// tuple_pattern) or an element is.
+    fn tuple_record(self, args: *vec::<*Type>) -> *Type {
+        if (args == &null) || (self.types == &null) { return &null; }
+        var rep = self.tuple_pattern(args->size());
+        if rep == &null { return &null; }
+        var trimmed = vec::<*Type>();
+        var dep = false;
+        for var i: usize = 0; i < args->size(); ++i {
+            var a = (*args)[i];
+            if a == &null { return &null; }
+            if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }
+            trimmed.push_back(a);
+        }
+        var inst = rep;
+        if (!dep) && (self.instances != &null) && (self.ctx != &null) {
+            var e = self.instances->instance_for(rep, &trimmed, self.ctx->fid, NameLookup::ctx_of(rep));
+            if e != &null { inst = e->decl; }
+        }
+        return self.types->record(inst, &trimmed);
+    }
+
     /// Errors produced since sema began.
     fn error_delta(self) -> u32 {
         return self.diag->error_count() - self.error_count_base;

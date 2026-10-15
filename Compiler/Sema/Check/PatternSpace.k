@@ -24,8 +24,9 @@
 ///                    value biased so the type's minimum is 0, which keeps
 ///                    signed and unsigned in one u64 order. Wider integers
 ///                    are Opaque.
-///       Tuple        one constructor of the tuple's arity.
-///       Record       one constructor; arity = instance fields.
+///       Record       one constructor; arity = instance fields. A tuple is
+///                    its arity's record (TupleRecords), so `(a, b)` and
+///                    `P(a, b)` are one domain; only the rendering differs.
 ///       Opaque       everything else (strings, chars, floats, nullables,
 ///                    pointers, wide integers): values compare by identity
 ///                    and no finite set of them is complete.
@@ -79,7 +80,6 @@ enum DomainKind derives u8 {
     OpenEnum,
     Bool,
     Int,
-    Tuple,
     Record,
     Opaque,
 }
@@ -91,7 +91,7 @@ struct Domain {
     var bits:    u32        = 0;       ///< Int.
     var signed:  bool       = false;   ///< Int.
     var max_key: u64        = 0;       ///< Int: the largest key (2^bits - 1).
-    var arity:   u32        = 0;       ///< Tuple / Record.
+    var arity:   u32        = 0;       ///< Record.
 }
 
 /// What a pattern's head tests. `Wild` matches every value of the column.
@@ -100,7 +100,6 @@ enum CtorKind derives u8 {
     Variant,    ///< `index` = position in the enum's variant list.
     Bool,       ///< `lo` = 0 (false) or 1 (true).
     Int,        ///< `lo..=hi` in key space.
-    Tuple,
     Record,
     Opaque,     ///< `key` = identity; equal keys are the same value.
 }
@@ -155,12 +154,6 @@ class PatternSpace {
             d.bits    = u32(bits);
             d.signed  = self.tu.is_signed_int(u);
             d.max_key = (u64(0) - u64(1)) if (bits == 64) else ((u64(1) << u64(bits)) - u64(1));
-            return d;
-        }
-
-        if isa::<TupleType>(u) {
-            d.kind  = DomainKind::Tuple;
-            d.arity = u32(cast::<TupleType>(u)->elements.size());
             return d;
         }
 
@@ -336,7 +329,8 @@ class PatternSpace {
             }
 
             case PatternKind::TupleDestructurePattern {
-                c.kind  = CtorKind::Tuple;
+                // Positional over the tuple's record: field i is element i.
+                c.kind  = CtorKind::Record;
                 c.arity = u32(cast::<TupleDestructurePattern>(p)->elements.size());
                 return c;
             }
@@ -426,7 +420,6 @@ class PatternSpace {
             case CtorKind::Bool    { return h.lo == c.lo; }
             case CtorKind::Int     { return (h.lo <= c.lo) && (c.hi <= h.hi); }
             case CtorKind::Opaque  { return h.key == c.key; }
-            case CtorKind::Tuple   { return true; }
             case CtorKind::Record  { return true; }
             default { return false; }
         }
@@ -600,8 +593,9 @@ class PatternSpace {
                 if self._all_wild(subs) { return name; }
                 return name + "(" + self._join(subs) + ")";
             }
-            case CtorKind::Tuple  { return "(" + self._join(subs) + ")"; }
             case CtorKind::Record {
+                // A tuple's witness reads as a tuple is written: `(false, _)`.
+                if (d.rec != &null) && self.tu.is_tuple_decl(d.rec) { return "(" + self._join(subs) + ")"; }
                 var name = "_";
                 if d.rec != &null { name = self.tu.decl_name(d.rec); }
                 if self._all_wild(subs) { return name; }

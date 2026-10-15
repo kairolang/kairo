@@ -1128,7 +1128,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         }
         if isa::<CXXRValueRefType>(t) { return f"{self._type_name_str(cast::<CXXRValueRefType>(t)->referee)}&&"; }
         if isa::<VectorType>(t)  { return f"[{self._type_name_str(cast::<VectorType>(t)->element)}]"; }
-        if isa::<TupleType>(t)   { return "a tuple"; }
+        if TypeUtil(self.sc).is_tuple(t) { return "a tuple"; }
         if isa::<MapType>(t)     { return "a map"; }
         if isa::<SetType>(t)     { return "a set"; }
         if isa::<FunctionPointerType>(t) { return "a function pointer"; }

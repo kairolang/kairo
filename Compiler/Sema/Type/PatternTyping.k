@@ -105,23 +105,23 @@ class <T> PatternTyping {
             }
             case PatternKind::TupleDestructurePattern {
                 var tp = cast::<TupleDestructurePattern>(p);
-                var tt: *TupleType = &null;
-                if (st != &null) && isa::<TupleType>(st) { tt = cast::<TupleType>(st); }
-                if (st != &null) && (tt == &null) && (!st->is_dependent()) {
+                var have  = (st != &null) && dyn()->tu.is_tuple(st);
+                var elems = dyn()->tu.tuple_elems(st);
+                if (st != &null) && (!have) && (!st->is_dependent()) {
                     dyn()->sc->diag->report(DiagID::SC041E, p->range.start,
                         f"a tuple pattern cannot match a value of type '{dyn()->tu.str(st)}\x27"
                     ).first(p->range).emit();
                     p->poison();
                 }
-                if (tt != &null) && (tt->elements.size() != tp->elements.size()) {
+                if have && (elems.size() != tp->elements.size()) {
                     dyn()->sc->diag->report(DiagID::SC042E, p->range.start,
-                        f"tuple pattern has {tp->elements.size()} element(s) but '{dyn()->tu.str(st)}' has {tt->elements.size()}"
+                        f"tuple pattern has {tp->elements.size()} element(s) but '{dyn()->tu.str(st)}' has {elems.size()}"
                     ).first(p->range).emit();
                     p->poison();
-                    tt = &null;
+                    have = false;
                 }
                 for var i: usize = 0; i < tp->elements.size(); ++i {
-                    self.type_pattern(tp->elements[i], (tt->elements[i]) if (tt != &null) else (&null));
+                    self.type_pattern(tp->elements[i], (elems[i]) if (have) else (&null));
                 }
             }
             case PatternKind::AlternationPattern {
