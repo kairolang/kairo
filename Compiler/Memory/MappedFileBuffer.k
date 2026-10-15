@@ -183,9 +183,7 @@ fn Test() -> i32 {
     
     timer.stop();
 
-    __inline_cpp("
-        string content((char const*)ptr, size);
-    ");
+    var content = string(ptr, size);
 
     std::print(f"file: {path}\ncontent size: {size} bytes\n");
     std::print(f"content:\n{content}\n");

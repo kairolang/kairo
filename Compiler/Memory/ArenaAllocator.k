@@ -148,6 +148,7 @@ class ArenaAllocator {
         return self.expand(sz, align);
     }
 
+    // INLINE(placement)
     __inline_cpp("
         template <typename T, typename ...Args>
         inline T *create(Args &&...args) {
@@ -156,6 +157,7 @@ class ArenaAllocator {
         }
     ");
 
+    // INLINE(placement)
     __inline_cpp("
         template <typename T, typename ...Args>
         T *alloc_init(Args &&...args) {
@@ -223,6 +225,7 @@ class ArenaAllocator {
     }
 
     priv fn expand(self, sz: usize, align: usize) -> *void {
+        // INLINE(macro)
         var req = __inline_cpp("(libcxx::max)(this->block_size, (libcxx::bit_ceil)(sz))");
         var blk = std::create::<ArenaBlock>(req);
 

@@ -113,13 +113,14 @@ class MMapRegion {
                 return false;
             }
 
-            if (((fsize.QuadPart)) as u64) > __inline_cpp("__NumData<usize>::max") {
+            if (((fsize.QuadPart)) as u64) > __NumData::<usize>::max {
                 CloseHandle(hFile);
                 return false;
             }
 
             if (fsize.QuadPart) == 0 { // empty file, map to a non-null zero-length region
                 CloseHandle(hFile);
+                // INLINE(cxx-feature: pointer-to-const cast)
                 self._data = __inline_cpp("(u8*)\"\"");
                 self._size = 0;
                 _valid = true;
@@ -159,18 +160,23 @@ class MMapRegion {
             self._valid = true;
         } else {
             var nstring = *path;
+            // INLINE(cxx-feature: global-scope qualifier)
             var fd: i32 = __inline_cpp("::open(nstring.c_str(), O_RDONLY)");
             if fd < 0 { return false; }
 
+            // INLINE(cxx-feature: elaborated type specifier)
             __inline_cpp("struct stat st{}");
 
             if fstat(fd, &st) != 0 {
+                // INLINE(cxx-feature: global-scope qualifier)
                 __inline_cpp("::close(fd)");
                 return false;
             }
 
             if st.st_size == 0 {
+                // INLINE(cxx-feature: global-scope qualifier)
                 __inline_cpp("::close(fd)");
+                // INLINE(cxx-feature: pointer-to-const cast)
                 self._data = __inline_cpp("(u8*)\"\"");
                 self._size = 0;
                 _valid = true;
@@ -186,6 +192,7 @@ class MMapRegion {
                 0
             ) as unsafe *u8;
 
+            // INLINE(cxx-feature: global-scope qualifier)
             __inline_cpp("::close(fd)");
 
             if mapping == MAP_FAILED as unsafe *u8 {

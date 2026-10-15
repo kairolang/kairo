@@ -90,6 +90,7 @@ class <T> ArenaList {
     priv var _chunk_cap:   usize                 = 0;
     priv var _slab_size:   usize                 = 0;
 
+    // INLINE(cxx-feature: static constexpr member)
     __inline_cpp("static constexpr usize DESCRIPTOR_INIT = 8");
 
     ///
@@ -151,6 +152,7 @@ class <T> ArenaList {
     fn push(self, val: T) -> *T {
         self.ensure_space();
         var chunk = &self._chunks[self._chunk_count - 1];
+        // INLINE(placement)
         __inline_cpp("::new (static_cast<void*>(&chunk->base[chunk->count])) T(std::Memory::move(val))");
         chunk->count += 1;
         self._total  += 1;
@@ -170,6 +172,7 @@ class <T> ArenaList {
         self.ensure_space();
         var chunk = &self._chunks[self._chunk_count - 1];
         var slot  = &chunk->base[chunk->count];
+        // INLINE(placement)
         __inline_cpp("::new (static_cast<void*>(slot)) T()");
         chunk->count += 1;
         self._total  += 1;
@@ -269,6 +272,7 @@ class <T> ArenaList {
             return;
         }
 
+        // INLINE(cxx-feature: if constexpr on a template parameter)
         __inline_cpp("
             if constexpr (!libcxx::is_trivially_destructible_v<T>) {
                 for (usize c = 0; c < this->_chunk_count; ++c) {
@@ -292,6 +296,7 @@ class <T> ArenaList {
     }
 
     fn destroy(self) {
+        // INLINE(cxx-feature: if constexpr on a template parameter)
         __inline_cpp("
             if constexpr (!libcxx::is_trivially_destructible_v<T>) {
                 for (usize c = 0; c < this->_chunk_count; ++c) {
