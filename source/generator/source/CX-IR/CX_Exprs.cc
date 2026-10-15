@@ -69,6 +69,30 @@ CX_VISIT_IMPL(BinaryExpr) {
 
     ADD_NODE_PARAM(lhs);
     ADD_TOKEN_AS_TOKEN(CXX_CORE_OPERATOR, node.op);
+
+    // `a->f::<T>(x)` parses as `a -> (f<T>(x))`, so FunctionCallExpr never
+    // sees the receiver and cannot add the disambiguator itself. In a
+    // dependent context `a->f<T>(x)` is a compile error; `->template` is
+    // legal either way (CWG 468), so emit it for every generic call here.
+    if (node.op.token_kind() == token::OPERATOR_ARROW &&
+        node.rhs->getNodeType() == __AST_NODE::nodes::FunctionCallExpr) {
+        auto call = __AST_NODE::Node::as<__AST_NODE::FunctionCallExpr>(node.rhs);
+
+        // a turbofish call `f::<T>(...)` reaches here as a Scope path with no
+        // segments (access = f); a qualified `B::f::<T>` already gets its
+        // own `::template` from FunctionCallExpr.
+        bool bare = call->path->type == __AST_NODE::PathExpr::PathType::Identifier;
+
+        if (call->path->type == __AST_NODE::PathExpr::PathType::Scope) {
+            auto scope = __AST_N::as<__AST_NODE::ScopePathExpr>(call->path->path);
+            bare       = scope->path.empty() && !scope->global_scope;
+        }
+
+        if (call->generic != nullptr && bare) {
+            ADD_TOKEN(CXX_TEMPLATE);
+        }
+    }
+
     ADD_NODE_PARAM(rhs);
 }
 
