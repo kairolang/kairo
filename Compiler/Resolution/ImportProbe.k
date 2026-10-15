@@ -855,16 +855,7 @@ class ImportResolver {
 
     /// `file` relative to `base`, or "" when `file` is not under `base`.
     priv fn _relative_to(self, file: Path, base: Path) -> string {
-        var rel = string();
-        var r = file.path_data.lexically_relative(base.path_data);
-        if !r.empty() {
-            var s = from_generic_path(r);
-            // "..", "../x", "" all mean: not contained.
-            if (s != ".") && (!((s.size() >= 2) && (s[0] == '.') && (s[1] == '.'))) {
-                rel = s;
-            }
-        }
-        return rel;
+        return file.relative_to(base);
     }
 
     // --- module-name collision sweep (module discovery) ----------------------
@@ -1170,21 +1161,20 @@ class ImportResolver {
     {
         self.wait_for_index();
 
-        var parent_path  = from_file.path_data.parent_path();
-        var candidate_fs = parent_path / to_path(rel_path);
+        var candidate = Path::join_str(from_file.parent_path(), rel_path);
 
-        if libcxx::filesystem::exists(candidate_fs) {
+        if Path::exists_at(candidate) {
             return (
-                Path(from_generic_path(candidate_fs), false)
+                Path(candidate, false)
             );
         }
 
         for root: *SearchRoot in self._roots {
-            candidate_fs = root->base_path.path_data / to_path(rel_path);
+            candidate = root->base_path.join(rel_path);
 
-            if libcxx::filesystem::exists(candidate_fs) {
+            if Path::exists_at(candidate) {
                 return (
-                    Path(from_generic_path(candidate_fs), false)
+                    Path(candidate, false)
                 );
             }
         }
@@ -1197,9 +1187,9 @@ class ImportResolver {
     /// \return true if the path exists
     fn path_exists(self, rel_path: string) -> bool {
         for root: *SearchRoot in self._roots {
-            var candidate = root->base_path.path_data / to_path(rel_path);
+            var candidate = root->base_path.join(rel_path);
 
-            if libcxx::filesystem::exists(candidate) {
+            if Path::exists_at(candidate) {
                 return true;
             }
         }

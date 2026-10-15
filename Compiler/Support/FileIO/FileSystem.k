@@ -27,11 +27,10 @@
 /// \see Path, VirtualFileManager
 ///
 
-/// filesystem path alias (based on libc++ std::filesystem::path)
-type FilePath = libcxx::filesystem::path;
+ffi "c++" import "llvm/Support/FileSystem.h";
 
-/// filesystem entry type alias
-type FileType = libcxx::filesystem::file_type;
+/// filesystem entry type alias (llvm::sys::fs, what Path stats with)
+type FileType = llvm::sys::fs::file_type;
 
 /// file output modes used for low-level i/o operations
 enum FileOutMode {

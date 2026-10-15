@@ -2204,6 +2204,52 @@ class CompilerInstance {
         self._diag->set_policy(key, action);
     }
 
+    /// Every input-side path option made absolute, once, before anything
+    /// reads one. A relative spelling that survives into the pipeline gets
+    /// resolved against whatever directory the reader happens to be in:
+    /// headers under a relative --sysroot are re-included from
+    /// /kairo/pch/<id>.h and resolve against the PCH's directory, and
+    /// --working-dir only chdirs AFTER this runs (apply_input_options), so
+    /// -I and --sysroot used to resolve against two different directories.
+    ///
+    /// Relative paths are taken against --working-dir when given, else the
+    /// cwd -- the directory the user meant, on the CLI and programmatic paths
+    /// alike. Only paths that EXIST are rewritten (Path::absolute_if_exists):
+    /// a missing one keeps the user's spelling for the diagnostic that
+    /// rejects it. Output paths and --rpath are deliberately absent -- the
+    /// first may not exist yet, the second names a directory on the TARGET.
+    priv fn _absolutize_paths(self) {
+        var inv  = &(self.invocation());
+        var base = Path::absolute_if_exists(inv->working_dir);
+
+        CompilerInstance::_absolutize_all(&(inv->input_files),  base);
+        CompilerInstance::_absolutize_all(&(inv->include_dirs), base);
+        CompilerInstance::_absolutize_all(&(inv->ffi_includes), base);
+        CompilerInstance::_absolutize_all(&(inv->cxx_includes), base);
+        CompilerInstance::_absolutize_all(&(inv->macro_paths),  base);
+
+        CompilerInstance::_absolutize_all(&(inv->pp.force_includes), base);
+        (inv->pp.prelude_path) = Path::absolute_if_exists(inv->pp.prelude_path, base);
+        (inv->pp.builtins_dir) = Path::absolute_if_exists(inv->pp.builtins_dir, base);
+        (inv->pp.std_dir)      = Path::absolute_if_exists(inv->pp.std_dir,      base);
+
+        (inv->target.sysroot)      = Path::absolute_if_exists(inv->target.sysroot,      base);
+        (inv->target.resource_dir) = Path::absolute_if_exists(inv->target.resource_dir, base);
+
+        CompilerInstance::_absolutize_all(&(inv->linker.lib_dirs), base);
+        (inv->linker.linker_script)  = Path::absolute_if_exists(inv->linker.linker_script,  base);
+        (inv->linker.version_script) = Path::absolute_if_exists(inv->linker.version_script, base);
+        (inv->linker.macos_sdk)      = Path::absolute_if_exists(inv->linker.macos_sdk,      base);
+
+        (inv->codegen.profile_use) = Path::absolute_if_exists(inv->codegen.profile_use, base);
+    }
+
+    priv static fn _absolutize_all(list: *vec::<string>, base: string) {
+        for var i: usize = 0; i < list->size(); ++i {
+            ((*list)[i]) = Path::absolute_if_exists((*list)[i], base);
+        }
+    }
+
     /// Maps invocation fields to live subsystem setters. Called once after
     /// the invocation is built. Fields whose subsystem does not yet exist are
     /// silently accepted stored in the invocation for future use.
@@ -2286,12 +2332,12 @@ class CompilerInstance {
             return;
         }
 
-        // Both roots absolute from here on. Headers resolved under a relative
-        // --sysroot come back as relative paths, and the header set re-includes
-        // them from /kairo/pch/<id>.h, where a relative path resolves against
-        // the PCH's directory, not the cwd. The linker gets the same strings.
-        // real() leaves a path that does not exist unchanged; the resolvers
-        // report it.
+        self._absolutize_paths();
+
+        // Both roots also symlink-free from here on, on top of absolute:
+        // clang reports headers under the real path, and the header set keys
+        // on clang's spelling. real() leaves a path that does not exist
+        // unchanged; the resolvers report it.
         var tg = &(self.invocation().target);
         if !tg->sysroot.empty()      { (tg->sysroot)      = LinkFS::real(tg->sysroot); }
         if !tg->resource_dir.empty() { (tg->resource_dir) = LinkFS::real(tg->resource_dir); }

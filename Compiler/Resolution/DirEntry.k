@@ -86,7 +86,7 @@ class DirEntry {
 
         var found = false;
         var child_path: Path;
-        var cand = (*self.fs_path).path_data / to_path(name);
+        var cand = to_path((*self.fs_path).join(name));
         var ec: libcxx::error_code;
         if libcxx::filesystem::is_directory(cand, ec) {
             found = true;
@@ -115,7 +115,7 @@ class DirEntry {
         var fname = key;
         var found = false;
         var full_path: Path;
-        var cand = (*self.fs_path).path_data / to_path(fname);
+        var cand = to_path((*self.fs_path).join(fname));
         var ec: libcxx::error_code;
         if libcxx::filesystem::is_regular_file(cand, ec) {
             found = true;
@@ -138,8 +138,9 @@ class DirEntry {
         if !self.fs_path { return; }
 
         var ec: libcxx::error_code;
-        if !libcxx::filesystem::is_directory((*self.fs_path).path_data, ec) { return; }
-        var it  = libcxx::filesystem::directory_iterator((*self.fs_path).path_data, ec);
+        var dir = to_path((*self.fs_path).path_data);
+        if !libcxx::filesystem::is_directory(dir, ec) { return; }
+        var it  = libcxx::filesystem::directory_iterator(dir, ec);
         var end = libcxx::filesystem::directory_iterator();
         for (; (!ec) && (it != end); it.increment(ec)) {
             var entry    = *it;

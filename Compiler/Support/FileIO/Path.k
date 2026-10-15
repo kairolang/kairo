@@ -11,25 +11,35 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+
 import Support::FileIO::FileSystem::*;
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/ADT/SmallString.h";
+ffi "c++" import "llvm/ADT/StringRef.h";
+ffi "c++" import "llvm/ADT/Twine.h";
+ffi "c++" import "llvm/ADT/iterator_range.h";
+ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "llvm/Support/Path.h";
 
 ///
 /// \file Path.k
-/// \brief high-level abstraction over libc++ filesystem paths.
+/// \brief high-level abstraction over llvm::sys::path / llvm::sys::fs.
 ///
 /// \details
-/// `Path` wraps around `libcxx::filesystem::path` to provide a safer,
-/// higher-level interface for working with file and directory paths.
-/// it automatically canonicalizes input paths, validates existence,
-/// and exposes lightweight query functions for file attributes.
+/// `Path` holds an absolute path as a plain UTF-8 string and answers every
+/// query through LLVM's path library, the same one clang and the linker
+/// API (Linker/API/FS.k) use. Sharing it is the point: a path Kairo
+/// spells and a path clang spells for the same file come out of one
+/// normaliser, so they compare equal as strings.
 ///
 /// key behaviors:
-///   - converts input into an absolute path on construction.
+///   - converts input into an absolute path on construction ('.' segments
+///     dropped; '..' kept, since folding it lexically is wrong through a
+///     symlink).
 ///   - performs validation unless `mustExist = false`.
 ///   - caches file type for faster attribute lookups.
-///   - provides uniform UTF-8-compatible string output.
+///   - stores and returns the generic ('/'-separated) form on every host.
 ///
 /// \note this class is designed as a thin wrapper and does not perform
 /// any I/O beyond filesystem metadata queries.
@@ -38,7 +48,7 @@ ffi "c++" import "Native/Types.hh";
 ///
 
 default class Path {
-    pub var path_data:  FilePath; ///< underlying filesystem path object.
+    pub var path_data:  string;   ///< absolute, generic-form path.
     pub var entry_type: FileType; ///< cached type of the path entry.
 
     ///
@@ -53,49 +63,49 @@ default class Path {
     /// \param mustExist if true, ensures the path exists on disk.
     ///
     /// \details
-    /// - converts `input` into an absolute canonical path.
+    /// - converts `input` into an absolute path against the process cwd.
     /// - crashes if the path is empty or non-existent when `mustExist` is true.
     ///
     /// \warning
     /// this constructor performs a system call to check existence.
     ///
     fn Path(self, input: string, mustExist: bool = false) {
-        self.path_data = libcxx::filesystem::absolute(to_path(input));
+        self.path_data = Path::_normalize(input);
 
         if self.path_data.empty() {
             std::crash(std::Error::RuntimeError("Path: empty path string"));
         }
 
-        if libcxx::filesystem::exists(self.path_data) {
-            // INLINE(cxx-feature: member named with a Kairo keyword)
-            self.entry_type = libcxx::filesystem::status(self.path_data)
-                            .__inline_cpp("type()");
-        } else {
-            self.entry_type = FileType::not_found;
-        }
+        // Follows symlinks, as the libc++ status() this replaced did: a link
+        // to a file reports regular_file, never symlink_file.
+        self.entry_type = llvm::sys::fs::get_file_type(llvm::Twine(sref(self.path_data)), true);
 
-        if mustExist && (self.entry_type == FileType::not_found) {
+        if mustExist && (!self._entry_exists()) {
             std::crash(std::Error::RuntimeError(
-                f"Path: path does not exist: {from_generic_path(self.path_data)}"
+                f"Path: path does not exist: {self.path_data}"
             ));
         }
     }
 
     static fn cwd() -> Path {
-        return Path(from_generic_path(libcxx::filesystem::current_path()));
+        var buf: llvm::SmallString::<256>;
+        llvm::sys::fs::current_path(buf);
+        return Path(string(buf.data(), buf.size()));
     }
 
     static fn home() -> Path {
-        var home_env = libcxx::getenv(r"HOME");
-        if home_env == &null {
-            std::crash(std::Error::RuntimeError("Path::home: HOME environment variable not set"));
+        var buf: llvm::SmallString::<256>;
+        if !llvm::sys::path::home_directory(buf) {
+            std::crash(std::Error::RuntimeError("Path::home: no home directory (HOME not set)"));
         }
 
-        return Path(string(home_env));
+        return Path(string(buf.data(), buf.size()));
     }
 
     static fn temp_dir() -> Path {
-        return Path(from_generic_path(libcxx::filesystem::temp_directory_path()));
+        var buf: llvm::SmallString::<256>;
+        llvm::sys::path::system_temp_directory(true, buf);
+        return Path(string(buf.data(), buf.size()));
     }
 
     static fn root() -> Path {
@@ -103,38 +113,138 @@ default class Path {
     }
 
     ///
+    /// \brief \p p made absolute against \p base, IF it names something on
+    ///        disk; otherwise \p p exactly as given.
+    ///
+    /// \details For option values (-I, --sysroot, --resource-dir, inputs):
+    ///          resolving them once, up front, means nothing downstream
+    ///          re-resolves a relative spelling against a different
+    ///          directory (a PCH's, a chdir'd cwd). A path that does not exist
+    ///          is left alone so the diagnostic that rejects it later quotes
+    ///          what the user typed. No stat beyond the one existence check;
+    ///          symlinks are NOT resolved.
+    ///
+    /// \param base directory a relative \p p is taken against; "" means the
+    ///             process cwd.
+    ///
+    static fn absolute_if_exists(p: string, base: string = "") -> string {
+        if p.empty() { return p; }
+
+        var cand = p;
+        if (!base.empty()) && (!llvm::sys::path::is_absolute(llvm::Twine(sref(p)))) {
+            cand = Path::join_str(base, p);
+        }
+
+        if !Path::exists_at(cand) { return p; }
+        return Path::_normalize(cand);
+    }
+
+    ///
+    /// \brief \p rel appended to \p base, purely lexically (no stat).
+    ///
+    /// \details An absolute \p rel replaces \p base, matching
+    ///          filesystem::path's operator/ that the callers were written
+    ///          against; llvm's append() would glue the two together instead.
+    ///
+    static fn join_str(base: string, rel: string) -> string {
+        if base.empty() || llvm::sys::path::is_absolute(llvm::Twine(sref(rel))) {
+            return rel;
+        }
+        var buf = llvm::SmallString::<256>(sref(base));
+        llvm::sys::path::append(buf, llvm::Twine(sref(rel)));
+        return string(buf.data(), buf.size());
+    }
+
+    ///
+    /// \brief whether \p p names something on disk. One stat, no Path built
+    ///        -- for probes that only need the answer.
+    ///
+    static fn exists_at(p: string) -> bool {
+        return llvm::sys::fs::exists(llvm::Twine(sref(p)));
+    }
+
+    ///
     /// \brief checks if path exists.
     ///
     const fn exists(self) -> bool {
-        return libcxx::filesystem::exists(self.path_data);
+        return Path::exists_at(self.path_data);
     }
 
     ///
     /// \brief returns file extension (including the dot).
     ///
     const fn extension(self) -> string {
-        return from_generic_path(self.path_data.extension());
+        var sr = llvm::sys::path::extension(sref(self.path_data));
+        return string(sr.data(), sr.size());
     }
 
     ///
     /// \brief returns the final filename component.
     ///
     const fn filename(self) -> string {
-        return from_generic_path(self.path_data.filename());
+        var sr = llvm::sys::path::filename(sref(self.path_data));
+        return string(sr.data(), sr.size());
     }
 
     ///
     /// \brief returns the final filename component without its extension.
     ///
     const fn stem(self) -> string {
-        return from_generic_path(self.path_data.stem());
+        var sr = llvm::sys::path::stem(sref(self.path_data));
+        return string(sr.data(), sr.size());
+    }
+
+    ///
+    /// \brief the containing directory as a string; "" for a root or an
+    ///        empty Path. No stat.
+    ///
+    const fn parent_path(self) -> string {
+        var sr = llvm::sys::path::parent_path(sref(self.path_data));
+        return string(sr.data(), sr.size());
+    }
+
+    ///
+    /// \brief \p rel under this path, as a string. No stat -- for probes
+    ///        that stat the result themselves; `/` builds a full Path.
+    ///
+    const fn join(self, rel: string) -> string {
+        return Path::join_str(self.path_data, rel);
+    }
+
+    ///
+    /// \brief this path relative to \p base, or "" when it is not strictly
+    ///        under \p base (equal, a sibling, or above it).
+    ///
+    /// \details Component-wise prefix match on the normalised strings, so
+    ///          `/a/bc` is not under `/a/b`. Lexical, like the
+    ///          lexically_relative() it replaces.
+    ///
+    const fn relative_to(self, base: Path) -> string {
+        var it   = llvm::sys::path::begin(sref(self.path_data));
+        var end  = llvm::sys::path::end(sref(self.path_data));
+        var bit  = llvm::sys::path::begin(sref(base.path_data));
+        var bend = llvm::sys::path::end(sref(base.path_data));
+
+        while (bit != bend) {
+            if (it == end) || ((*it) != (*bit)) { return ""; }
+            ++it;
+            ++bit;
+        }
+        if it == end { return ""; }
+
+        var buf: llvm::SmallString::<256>;
+        while (it != end) {
+            llvm::sys::path::append(buf, llvm::sys::path::Style::posix, llvm::Twine(*it));
+            ++it;
+        }
+        return string(buf.data(), buf.size());
     }
 
     ///
     /// \brief returns the absolute normalized path as string.
     ///
     const fn full_path(self) -> string {
-        return from_generic_path(self.path_data);
+        return self.path_data;
     }
 
     ///
@@ -148,82 +258,71 @@ default class Path {
     /// \brief true if the path refers to a directory.
     ///
     const fn is_directory(self) -> bool {
-        return self.entry_type == FileType::directory;
+        return self.entry_type == FileType::directory_file;
     }
 
     ///
     /// \brief true if the path refers to a regular file.
     ///
     const fn is_regular_file(self) -> bool {
-        return self.entry_type == FileType::regular;
+        return self.entry_type == FileType::regular_file;
     }
 
     ///
     /// \brief true if the path refers to a symbolic link.
     ///
     const fn is_symlink(self) -> bool {
-        return self.entry_type == FileType::symlink;
+        return self.entry_type == FileType::symlink_file;
     }
 
     ///
     /// \brief true if the path refers to a fifo node.
     ///
     const fn is_fifo(self) -> bool {
-        return self.entry_type == FileType::fifo;
+        return self.entry_type == FileType::fifo_file;
     }
 
     ///
     /// \brief true if the path refers to a unix domain socket.
     ///
     const fn is_socket(self) -> bool {
-        return self.entry_type == FileType::socket;
+        return self.entry_type == FileType::socket_file;
     }
 
     ///
     /// \brief true if the path refers to a block device.
     ///
     const fn is_block_device(self) -> bool {
-        return self.entry_type == FileType::block;
+        return self.entry_type == FileType::block_file;
     }
 
     ///
     /// \brief true if the path refers to a character device.
     ///
     const fn is_character_device(self) -> bool {
-        return self.entry_type == FileType::character;
+        return self.entry_type == FileType::character_file;
     }
 
     const fn as_qualified_path(self) -> vec::<string> {
         /// returns a vector of path components from root to leaf.
         /// like for foo/bar/baz.txt, returns [abs .. "foo", "bar", "baz"].
         var components = vec::<string>();
-        
-        for component in self.path_data {
-            components.emplace_back(from_generic_path(component));
+        var range = llvm::make_range(llvm::sys::path::begin(sref(self.path_data)),
+                                     llvm::sys::path::end(sref(self.path_data)));
+
+        for component in range {
+            components.emplace_back(string(component.data(), component.size()));
         }
 
         return components;
     }
 
-    ///
-    /// \brief implicit conversion to underlying FilePath pointer.
-    ///
-    fn op as (self) -> *FilePath {
-        return &self.path_data;
-    }
-
     fn op / (self, other: string) -> Path {
-        return Path(
-            from_generic_path(self.path_data / to_path(other))
-        );
+        return Path(self.join(other));
     }
 
     fn op / (self, other: Path) -> Path {
-        return Path(from_generic_path(self.path_data / other.path_data));
-    }
-
-    fn op / (self, other: FilePath) -> Path {
-        return Path(from_generic_path(self.path_data / other));
+        return Path(self.join(other.path_data));
     }
 
     ///
@@ -233,6 +332,24 @@ default class Path {
     ///         `"Path(path_data: <abs_path>, entry_type: <numeric_type>)"`.
     ///
     fn op as (self) -> string {
-        return f"Path(path_data: {from_generic_path(self.path_data)}, entry_type: {static_cast::<u32>(self.entry_type)})";
+        return f"Path(path_data: {self.path_data}, entry_type: {static_cast::<u32>(self.entry_type)})";
+    }
+
+    /// get_file_type() reports a failed stat as file_not_found (ENOENT) or
+    /// status_error (anything else); both mean "nothing usable is there".
+    priv const fn _entry_exists(self) -> bool {
+        return (self.entry_type != FileType::file_not_found)
+            && (self.entry_type != FileType::status_error);
+    }
+
+    /// Absolute against the process cwd, '.' segments dropped, generic
+    /// separators. '..' survives: folding it lexically walks out of the
+    /// wrong directory when the segment before it is a symlink.
+    priv static fn _normalize(input: string) -> string {
+        var buf = llvm::SmallString::<256>(sref(input));
+        llvm::sys::fs::make_absolute(buf);
+        llvm::sys::path::remove_dots(buf, false);
+        var generic = llvm::sys::path::convert_to_slash(llvm::StringRef(buf.data(), buf.size()));
+        return string(generic.data(), generic.size());
     }
 }

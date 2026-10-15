@@ -624,8 +624,8 @@ class SourceManager {
         }
 
         var full = self._files[file_id]->path;
-        var parent = full.path_data.parent_path();
-        if !parent.empty() { out = Path(from_generic_path(parent), false); }
+        var parent = full.parent_path();
+        if !parent.empty() { out = Path(parent, false); }
         return out;
     }
 
