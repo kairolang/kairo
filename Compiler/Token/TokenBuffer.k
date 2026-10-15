@@ -60,6 +60,7 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
     var _chunk_capacity: usize          = 0;     // entries the table can hold
     var _total_length:   usize          = 0;     // number of tokens in all chunks
 
+    // INLINE(cxx-feature: move constructor)
     __inline_cpp("public:
     TokenBuffer(TokenBuffer&& other) noexcept {
         this->_allocator      = std::Memory::move(other._allocator);

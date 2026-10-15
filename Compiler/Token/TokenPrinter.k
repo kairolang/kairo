@@ -94,9 +94,7 @@ class TokenPrinter {
 
     priv fn _detect_tty(self) -> bool {
         var result: i32 = 0;
-        inline "c++" {
-            result = ::isatty(1); // STDOUT_FILENO
-        }
+        result = isatty(1); // STDOUT_FILENO
         return result != 0;
     }
 
