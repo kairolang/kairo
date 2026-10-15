@@ -102,12 +102,12 @@ class TextSink derives EmitSink {
     }
 
     override fn create_int(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
-        self._word(std::nstring_to_string(cxx), false);
+        self._word(string(cxx), false);
         return true;
     }
 
     override fn create_str(self, at: SourceRange, cxx: ref!(nstring)) -> bool {
-        self._word(std::nstring_to_string(cxx), false);
+        self._word(string(cxx), false);
         return true;
     }
 

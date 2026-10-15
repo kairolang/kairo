@@ -105,7 +105,7 @@ class Command {
         self._table.reserve(64); // typical CLI has ~20 flags, reserve a bit more
         self._args.reserve(usize(argc));
         for var i: i32 = 0; i < argc; ++i {
-            self._args.emplace_back(std::nptr_to_string(argv[i], libcxx::strlen(argv[i])));
+            self._args.emplace_back(string(argv[i], libcxx::strlen(argv[i])));
         }
     }
 

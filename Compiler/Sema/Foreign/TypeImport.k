@@ -95,7 +95,7 @@ class TypeImport {
         pol.SuppressUnwrittenScope = true;
         pol.AnonymousTagLocations = false;
         var s = clang::TypeName::getFullyQualifiedName(qt, *(self.cctx), pol, true);
-        return std::nstring_to_string(s);
+        return string(s);
     }
 
     static fn usr_of(d: const_obs::<clang::Decl>) -> libcxx::string {
@@ -175,7 +175,7 @@ class TypeImport {
         var key = string(sp.raw_string().substr(0, 160)) + f"...#{h}";
         // A prefix of non-ASCII identifiers could still be over the cap once
         // encoded; the hash alone is always short enough.
-        if std::string_to_nstring(key).size() >= 255 { return f"opaque#{h}"; }
+        if key.size() >= 255 { return f"opaque#{h}"; }
         return key;
     }
 

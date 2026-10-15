@@ -127,7 +127,7 @@ class BuiltinsSet {
     }
 
     fn count(self) -> usize { return self._sorted.size(); }
-    fn name_at(self, i: usize) -> string { return std::nstring_to_string(self._sorted[i].first); }
+    fn name_at(self, i: usize) -> string { return string(self._sorted[i].first); }
     fn id_at(self, i: usize) -> u32 { return self._sorted[i].second; }
 
     /// BuiltinImport only, under its lock.

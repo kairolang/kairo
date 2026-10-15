@@ -539,7 +539,7 @@ class CompilerInstance {
             triple.setVendor(llvm::Triple::PC);
         }
 
-        return std::nstring_to_string(triple.getTriple());
+        return string(triple.getTriple());
     }
 
     /// No-op when the instance was built from an invocation: there is no flag

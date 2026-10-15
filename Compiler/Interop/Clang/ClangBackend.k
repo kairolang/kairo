@@ -464,7 +464,7 @@ class ClangBackend {
         self._shared_argv(&argv);
         var out = vec::<string>();
         for var i: usize = 0; i < argv.size(); ++i {
-            out.push_back(std::nstring_to_string(libcxx::string(argv[i])));
+            out.push_back(string(argv[i]));
         }
         for inc: string in self._cfg.includes {
             out.push_back("-include");
@@ -572,12 +572,12 @@ class ClangBackend {
         joined.push_back("-fdebug-compilation-dir=");
 
         for var i: usize = 0; i < cc1.size(); ++i {
-            var a = std::nstring_to_string(cc1[i]);
+            var a = string(cc1[i]);
             var took = false;
             for p: string in paired {
                 if (a == p) && (i + 1 < cc1.size()) {
                     self._target_args.push_back(a);
-                    self._target_args.push_back(std::nstring_to_string(cc1[i + 1]));
+                    self._target_args.push_back(string(cc1[i + 1]));
                     i += 1;
                     took = true;
                     break;
@@ -706,7 +706,7 @@ class ClangBackend {
         var av: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         self._arg(&av, "kairo (LLVM option parsing)");
         for var i: usize = 0; i < n; ++i {
-            self._arg(&av, std::nstring_to_string(self._cinv.get()->getFrontendOpts().LLVMArgs[i]));
+            self._arg(&av, string(self._cinv.get()->getFrontendOpts().LLVMArgs[i]));
         }
         // Errors go to a stream and come back as false: without one LLVM calls
         // exit(1), here on a pool thread, for a mistyped --mllvm word.

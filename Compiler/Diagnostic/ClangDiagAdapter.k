@@ -86,7 +86,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         if (!kloc.is_valid()) && info.hasSourceManager() && info.getLocation().isValid() {
             var pl = info.getSourceManager().getPresumedLoc(info.getLocation());
             if pl.isValid() {
-                var file = std::nstring_to_string(llvm::StringRef(pl.getFilename()).str());
+                var file = string(llvm::StringRef(pl.getFilename()).str());
                 msg = f"{file}:{pl.getLine()}:{pl.getColumn()}: {msg}";
             }
         }
@@ -143,7 +143,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     priv fn _format(self, info: cref::<clang::Diagnostic>) -> string {
         var s: llvm::SmallString::<256>;
         info.FormatDiagnostic(s);
-        return std::nstring_to_string(s.str().str());
+        return string(s.str().str());
     }
 
     /// clang loc -> Kairo SourceRange via EXPANSION loc (never spelling loc:
@@ -235,7 +235,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         if de != &null {
             var wopt = de->getDiagnosticIDs()->getWarningOptionForDiag(info.getID());
             if !wopt.empty() {
-                var num = clang_diag_number(std::nstring_to_string(wopt.str()));
+                var num = clang_diag_number(string(wopt.str()));
                 if num != 0 {
                     return DiagCode(Diag::C(num, sev));
                 }
@@ -278,7 +278,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         for var i: u32 = 0; i < nf; ++i {
             var h    = info.getFixItHint(i);
             var rr   = self._range_in_kfid(h.RemoveRange, info);
-            var text = std::nstring_to_string(h.CodeToInsert);
+            var text = string(h.CodeToInsert);
             var msg  = "apply the change suggested by the backend";
             if text.length() == 0 {
                 b->remove(rr, msg);

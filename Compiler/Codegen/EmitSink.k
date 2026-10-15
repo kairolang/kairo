@@ -156,7 +156,7 @@ class EmitSink {
             if self._is_digit(c) {
                 var j = i + 1;
                 while (j < n) && (self._is_ident_char(text[j]) || (text[j] == '.')) { j += 1; }
-                var lit = std::string_to_nstring(string(text.raw_string().substr(i, j - i)));
+                var lit = string(text.raw_string().substr(i, j - i));
                 self.create_int(at, lit);
                 after_operator = false;
                 any = true;
@@ -173,7 +173,7 @@ class EmitSink {
                     j += 1;
                 }
                 if (j >= n) { self.ice_at(at, f"EmitSink::spell: unterminated string literal in C++ fragment: {text}"); }
-                var lit = std::string_to_nstring(string(text.raw_string().substr(i, j + 1 - i)));
+                var lit = string(text.raw_string().substr(i, j + 1 - i));
                 self.create_str(at, lit);
                 after_operator = false;
                 any = true;

@@ -70,7 +70,7 @@ priv fn _host_triple() -> string {
     if (t.getVendor()) == (llvm::Triple::UnknownVendor) && (t.isOSLinux()) {
         t.setVendor(llvm::Triple::PC);
     }
-    return std::nstring_to_string(t.getTriple());
+    return string(t.getTriple());
 }
 
 /// \param argv[1] optional directory holding the fixtures. Fixture paths are
@@ -79,7 +79,7 @@ priv fn _host_triple() -> string {
 ///        then passes vacuously. Defaults to the in-tree location.
 fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     var root: string = "Tests/Clang/Inputs";
-    if argc > 1 { root = std::nstring_to_string(nstring(argv[1])); }
+    if argc > 1 { root = string(argv[1]); }
 
     std::print("=== ClangLocMap round-trip test ===");
     std::print(f"fixtures: {root}");

@@ -66,12 +66,12 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     // argv is read HERE, by this program, into ordinary strings. It is never
     // handed to the compiler   compare kwatch, which passes argc/argv straight
     // through to CompilerInstance and lets it parse.
-    var target = std::nptr_to_string(argv[1], libcxx::strlen(argv[1]));
+    var target = string(argv[1], libcxx::strlen(argv[1]));
 
     var inv = CompilerInvocation();
     for var i: i32 = 2; i < argc; ++i {
         inv.include_dirs.push_back(
-            std::nptr_to_string(argv[i], libcxx::strlen(argv[i])));
+            string(argv[i], libcxx::strlen(argv[i])));
     }
 
     // Typed option, not a flag string. This is the whole point of the split.

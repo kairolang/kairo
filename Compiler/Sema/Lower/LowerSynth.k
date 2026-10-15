@@ -329,7 +329,7 @@ class LowerSynth {
 
     /// A compiler string (wide) as UTF-8 bytes.
     static fn push_string(s: string, out: *vec::<u8>) {
-        var ns = std::string_to_nstring(s);
+        var ns = s;
         var r  = reinterpret_cast::<std::ConstPtr::<u8>>(ns.raw());
         for var i: usize = 0; i < ns.size(); ++i { out->push_back(r[i]); }
     }

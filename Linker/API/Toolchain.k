@@ -786,9 +786,9 @@ class Toolchain {
             // darwinNN -> macOS version. LLVM owns the mapping.
             var v: llvm::VersionTuple;
             if !tr.getMacOSXVersion(v) { return ""; }
-            return std::nstring_to_string(v.getAsString());
+            return string(v.getAsString());
         }
-        return std::nstring_to_string(tr.getOSVersion().getAsString());
+        return string(tr.getOSVersion().getAsString());
     }
 
     /// SDKSettings.json's Version; else the version in the SDK's real name

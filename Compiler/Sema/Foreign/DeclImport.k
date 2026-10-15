@@ -211,7 +211,7 @@ class DeclImport {
         var os = llvm::raw_string_ostream(s);
         d->printQualifiedName(os, pol);
         os.flush();
-        return "::" + std::nstring_to_string(s);
+        return "::" + string(s);
     }
 
     // === tables ===================================================================
@@ -376,7 +376,7 @@ class DeclImport {
         if (tag != &null) && (tag->getTypedefNameForAnonDecl() != &null) {
             return self._str(tag->getTypedefNameForAnonDecl()->getName());
         }
-        return std::nstring_to_string(nd->getNameAsString());
+        return string(nd->getNameAsString());
     }
 
     /// The empty Kairo node of the right kind, parented, no slots filled.
@@ -521,7 +521,7 @@ class DeclImport {
         // A hidden friend has no qualified spelling: qualified lookup never
         // finds it, only ADL does. Its bare name is what C++ calls it by.
         if self._friend_scope != &null { sp = self._display_name(nd); }
-        var us   = std::nstring_to_string(usr);
+        var us   = string(usr);
         var vset = reinterpret_cast::<*void>(self._set);
         var vd   = reinterpret_cast::<*void>(d);
         decl_set_imported(kd, vd, us, sp, vset, t->fid);
@@ -1024,7 +1024,7 @@ class DeclImport {
             if self._op_kinds(fd->getOverloadedOperator(), &k0, &k1) {
                 var toks = vec::<Token>();
                 var at = self.name_range_of(fd);
-                toks.push_back(self._tok(t, at, k0, std::nstring_to_string(libcxx::string(clang::getOperatorSpelling(fd->getOverloadedOperator())))));
+                toks.push_back(self._tok(t, at, k0, string(clang::getOperatorSpelling(fd->getOverloadedOperator()))));
                 if k1 != TokenKind::TkUnknown { toks.push_back(self._tok(t, at, k1, "")); }
                 kf->op_token.from_vec(&toks, t->ctx);
             }

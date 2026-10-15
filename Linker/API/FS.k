@@ -68,7 +68,7 @@ class LinkFS {
         var end = llvm::sys::fs::directory_iterator();
         while (!ec) && (it != end) {
             var p = it->path();
-            out.push_back(LinkFS::filename(std::nstring_to_string(p)));
+            out.push_back(LinkFS::filename(string(p)));
             it.increment(ec);
         }
         return out;
@@ -136,6 +136,6 @@ class LinkFS {
         var nn = name;
         var v  = llvm::sys::Process::GetEnv(sref(nn));
         if !v { return ""; }
-        return std::nstring_to_string(v.value());
+        return string(v.value());
     }
 }

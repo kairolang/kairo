@@ -236,7 +236,7 @@ class ForeignInstantiate {
         //    USR to it so a later import naming the spec finds this node.
         var usr = TypeImport::usr_of(spec);
         var sp  = ti.spelling(clang::QualType(cctx->getCanonicalTagType(spec)));
-        decl_set_imported(shell, reinterpret_cast::<*void>(spec), std::nstring_to_string(usr),
+        decl_set_imported(shell, reinterpret_cast::<*void>(spec), string(usr),
                           sp, reinterpret_cast::<*void>(hs), t->fid);
         if !usr.empty() { self._reg->put(usr, shell); }
 
@@ -294,7 +294,7 @@ class ForeignInstantiate {
             var def = rd->getDefinition();
             if incomplete || (diags->getNumErrors() > before) || (def == &null) {
                 Logger::warn(Logger::Stage::Driver,
-                    f"ForeignInstantiate: nested {std::nstring_to_string(rd->getQualifiedNameAsString())} not completed; left without members");
+                    f"ForeignInstantiate: nested {string(rd->getQualifiedNameAsString())} not completed; left without members");
                 continue;
             }
             self._hindex->walk_declare(def, di, pairs);

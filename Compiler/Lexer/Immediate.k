@@ -1168,7 +1168,7 @@ class ImmediateTable {
     ///          intern_ident_copy exactly, minus the synth_names store (a probe
     ///          needs no persistent copy). Cold path (import boundary only).
     fn find_ident(self, s: string) -> u32 {
-        var ns = std::string_to_nstring(s);
+        var ns = s;
         var r  = reinterpret_cast::<std::ConstPtr::<u8>>(ns.raw());
         var l  = ns.size();
         var h  = compute_hash(r, l);
@@ -1189,7 +1189,7 @@ class ImmediateTable {
         if self.synth_names == &null {
             self.synth_names = std::create::<ArenaList::<nstring>>(64);
         }
-        var stored = self.synth_names->push(std::string_to_nstring(s));
+        var stored = self.synth_names->push(s);
         var r = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
         var l = stored->size();
         var h = compute_hash(r, l);
@@ -1215,7 +1215,7 @@ class ImmediateTable {
         var idx  = self.create::<Immediate::StringData>();
         var data = self.get::<Immediate::StringData>(idx);
 
-        var stored = self.synth_names->push(std::string_to_nstring(s));
+        var stored = self.synth_names->push(s);
         data->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
         data->owned_len   = static_cast::<u32>(stored->size());
         data->prefix_kind = Immediate::TextPrefixKind::None;

@@ -420,7 +420,7 @@ fn release(ci: *CompilerInstance, unit: ref!(ParsedUnit), from: TUStage) -> bool
 ///          raw_string() would hand over wide characters. Convert once at the
 ///          call site and keep it alive:
 ///
-///              var owned = libcxx::string(std::string_to_nstring(src));
+///              var owned = src.std_string();
 ///              var u     = parse_string(ci, owned, "<snippet>", opts);
 fn parse_string(
     ci:    *CompilerInstance,

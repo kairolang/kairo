@@ -127,8 +127,8 @@ class LLDRunner {
         err_os.flush();
 
         res.ret         = r.retCode;
-        res.stdout_text = std::nstring_to_string(out_buf);
-        res.stderr_text = std::nstring_to_string(err_buf);
+        res.stdout_text = string(out_buf);
+        res.stderr_text = string(err_buf);
         if !r.canRunAgain {
             LLDRunner::_poison()->store(true);
             res.poisoned_now = true;
@@ -216,7 +216,7 @@ class LLDRunner {
             0, 0, &emsg, &failed);
 
         if failed {
-            res.spawn_error = f"cannot run {kld_path}: {std::nstring_to_string(emsg)}";
+            res.spawn_error = f"cannot run {kld_path}: {string(emsg)}";
             return res;
         }
 

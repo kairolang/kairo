@@ -174,7 +174,7 @@ fn _env_usize(name: *kairo::std::Legacy::char, fallback: usize) -> usize {
 fn _skipped(want: string) -> bool {
     var s = getenv(r"KBENCH_ONLY");
     if s == &null { return false; }
-    var have = std::nptr_to_string(s, libcxx::strlen(s));
+    var have = string(s, libcxx::strlen(s));
     if have.empty() { return false; }
     return have != want;
 }
@@ -352,11 +352,11 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         return 1;
     }
 
-    var target = std::nptr_to_string(argv[1], libcxx::strlen(argv[1]));
+    var target = string(argv[1], libcxx::strlen(argv[1]));
 
     var inv = CompilerInvocation();
     for var i: i32 = 2; i < argc; ++i {
-        inv.include_dirs.push_back(std::nptr_to_string(argv[i], libcxx::strlen(argv[i])));
+        inv.include_dirs.push_back(string(argv[i], libcxx::strlen(argv[i])));
     }
 
     // Single-threaded on purpose. The pool makes wall time a function of how

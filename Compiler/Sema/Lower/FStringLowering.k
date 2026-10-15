@@ -326,7 +326,7 @@ class FStringLowering derives ASTWriter::<FStringLowering> {
             case FormatKind::Char   { m = 6; }        // quoted, escaped.
             case FormatKind::Byte   { m = 4; }
             case FormatKind::String { m = 2; }        // the quotes of `?`; bytes are runtime.
-            case FormatKind::Ptr    { m = static_cast::<u64>(std::string_to_nstring(self._ptr_name(h, e)).size()) + 22; }
+            case FormatKind::Ptr    { m = static_cast::<u64>(self._ptr_name(h, e).size()) + 22; }
             case FormatKind::I8:    case FormatKind::U8     { m = self._int_max(8, base);   }
             case FormatKind::I16:   case FormatKind::U16    { m = self._int_max(16, base);  }
             case FormatKind::I32:   case FormatKind::U32    { m = self._int_max(32, base);  }

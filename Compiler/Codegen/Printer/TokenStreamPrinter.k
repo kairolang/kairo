@@ -44,7 +44,7 @@ class TokenStreamPrinter {
         if sink->is_divergent(i) { return sink->divergent_spelling(i); }
         if t->getKind() == clang::tok::identifier {
             var ii = t->getIdentifierInfo();
-            if ii != &null { return std::nstring_to_string(ii->getName().str()); }
+            if ii != &null { return string(ii->getName().str()); }
             return "";
         }
         if t->isLiteral() {

@@ -869,7 +869,7 @@ class EmitIR {
             s += static_cast::<char>('0' + (b & 7));
         }
         s += "\"";
-        var cxx = std::string_to_nstring(s);   // all ASCII, so the wide round trip is exact.
+        var cxx = s;
         self._cg->sink->create_str(n->token, cxx);
     }
 
@@ -1231,7 +1231,7 @@ class EmitIR {
         if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
         var d = tbl->get::<Immediate::IntData>(t.imm);
         if (d != &null) && (!d->body.is_valid()) {
-            var cxx = std::string_to_nstring(f"{d->value_lo}");
+            var cxx = f"{d->value_lo}";
             self._cg->sink->create_int(t.range, cxx);
             return;
         }
