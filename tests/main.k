@@ -313,7 +313,7 @@ class ABC {
     }
 
     fn print(self) -> void {
-        ::print(f"a: {self.a}, b: {self.b}, c: {self.c}");
+        kairo::print(f"a: {self.a}, b: {self.b}, c: {self.c}");
     }
 }
 

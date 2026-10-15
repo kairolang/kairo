@@ -221,9 +221,10 @@ CX_VISIT_IMPL(GenericInvokeExpr) { ANGLE_DELIMIT(COMMA_SEP(args);); }
 CX_VISIT_IMPL_VA(ScopePathExpr, bool access) {
     // -> path ('::' path)*
 
+    // a leading `::` is the global namespace, emitted as-is. It used to be
+    // rewritten to `::kairo::`, which made it impossible to name a C global
+    // (`::open`) from a class that has a member of the same name.
     if (node.global_scope) {
-        ADD_TOKEN(CXX_SCOPE_RESOLUTION);
-        ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "kairo");
         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
     }
 

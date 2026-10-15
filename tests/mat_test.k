@@ -115,7 +115,7 @@ class <T> Matrix /* requires Arithmetic in T || T derives Point */ {
     fn print(self) {
         for i in range(self.rows) {
             for j in range(self.cols) {
-                ::print(f"({self(i, j)}) ");
+                kairo::print(f"({self(i, j)}) ");
             }
         }
     }
