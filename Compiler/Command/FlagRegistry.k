@@ -478,7 +478,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  type system
     cmd->define_cfg::<FlagKind::I32>("max-struct-fields",         "error when a struct or class declares more fields than this (0 = unlimited)",    0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-function-params",       "error when a function declares more parameters than this (0 = unlimited)",       255,     0,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-tuple-arity",           "maximum elements in a tuple type (0 = unlimited)",                         128,     0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-tuple-arity",           "maximum elements in a tuple type, at most 128 (0 = no cap below 128)",       128,     0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-enum-variants",         "error when an enum declares more variants than this (0 = unlimited)",            0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-match-arms",            "error when a match has more arms than this (0 = unlimited)",                     0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-union-width",           "error when a union declares more members than this (0 = unlimited)",             64,      0,    65536);

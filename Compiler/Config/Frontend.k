@@ -94,7 +94,7 @@ class FrontendOptions {
 
     // parser / sema
     pub var max_generic_instantiations: i32 = 16384; ///< matches the --cmax-generic-instantiations help; not read yet
-    pub var max_tuple_arity:            i32 = 128;
+    pub var max_tuple_arity:            i32 = 128;  ///< a tuple is its arity's record, minted up to LangItems::TUPLE_MAX_ARITY; the flag only lowers (0 = no flag cap)
 
     // incremental compilation
     pub var incremental:         bool   = false;

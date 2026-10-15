@@ -27,6 +27,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
 import AST::Mixin::TypeQual::*;
+import AST::LangItems::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Location::SourceRange::*;
@@ -674,19 +675,25 @@ class <T> TypeParse {
             return TupleType::create_error(dyn()->ctx, full_range | dyn()->prev().range);
         }
 
-        // 0 means unlimited (the flag's documented meaning); comparing against 0
-        // directly rejected every tuple.
-        if (dyn()->ctx->ci->frontend.max_tuple_arity > 0)
-           && (vals.size() > static_cast::<usize>(dyn()->ctx->ci->frontend.max_tuple_arity)) {
-            var range = vals[(dyn()->ctx->ci->frontend.max_tuple_arity)]->range;
+        // The cap is the flag's, under the compiler's own
+        // (LangItems::TUPLE_MAX_ARITY: a tuple is the record of its arity,
+        // and TupleRecords mints none wider). 0 means "no flag cap" (the
+        // flag's documented meaning); comparing against 0 directly rejected
+        // every tuple. Past the compiler's cap the fix-it does not offer the
+        // flag, which cannot raise it.
+        var flag_cap = dyn()->ctx->ci->frontend.max_tuple_arity;
+        var cap = TUPLE_MAX_ARITY();
+        if (flag_cap > 0) && (static_cast::<usize>(flag_cap) < cap) { cap = static_cast::<usize>(flag_cap); }
+        if vals.size() > cap {
+            var range = vals[cap]->range;
             var endr  = vals[vals.size() - 1]->range;
+            var hint  = "reduce the number of elements in this tuple type";
+            if cap < TUPLE_MAX_ARITY() { hint += " or increase the limit with --cmax-tuple-arity"; }
 
             dyn()->diag->report(DiagID::S055E, range.start,
-                f"tuple arity exceeds the maximum of {dyn()->ctx->ci->frontend.max_tuple_arity} (got {vals.size()})"
+                f"tuple arity exceeds the maximum of {cap} (got {vals.size()})"
             ).first(range)
-            .fix(range | endr, "remove", "reduce the number of elements in "
-                                "this tuple type or increase the limit with "
-                                "--cmax-tuple-arity")
+            .fix(range | endr, "remove", hint)
             .strike(SourceRange::from_bounds(range.end, full_range.end))
             .emit();
 

@@ -2418,6 +2418,7 @@ class <T> ExprParse {
         var elements: std::StackBuf::<*Expr, 8>;
         elements.push_back(first);
 
+        var first_comma = dyn()->current_ptr()->range;
         while dyn()->check(TokenKind::OpComma) {
             dyn()->advance(T::SkipNL::After); // consume `,`
 
@@ -2449,6 +2450,16 @@ class <T> ExprParse {
         }
 
         var full_range = start_range | end_range;
+
+        // `(a,)`: a one-element tuple does not exist (no record has arity
+        // one, and `(T)` is a parenthesized type). The parentheses group.
+        if elements.size() == 1 {
+            dyn()->diag->report(DiagID::S054E, first_comma.start,
+                "a one-element tuple does not exist; remove the trailing comma to parenthesize the expression"
+            ).first(first_comma).strike(first_comma).emit();
+            return first;
+        }
+
         var tuple = TupleLiteralExpr::create(dyn()->ctx, full_range);
         tuple->elements.from_buf(elements.data(), elements.size(), dyn()->ctx);
         return tuple;
