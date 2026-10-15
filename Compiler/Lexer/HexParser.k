@@ -19,6 +19,7 @@ class HexParser {
 
     /// lookup table for hex digit to value conversion
     /// 0xFF indicates invalid digit
+    // INLINE(cxx-feature: constexpr lambda)
     __inline_cpp("static constexpr array<u8, 256> hex_lut = [] {
         array<u8, 256> lut;
         lut.fill(0xFF);

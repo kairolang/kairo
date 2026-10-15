@@ -36,6 +36,7 @@ module Int128 {
             var result_lo: u64;
             var carry: u8;
 
+            // INLINE(simd)
             __inline_cpp("
                 result_lo = _umul128(val, factor, &result_hi);
                 carry = _addcarry_u64(0, result_lo, addend, &result_lo);
@@ -50,6 +51,7 @@ module Int128 {
             var result_lo: u64;
             var result_hi: u64;
 
+            // INLINE(cxx-feature: __int128)
             __inline_cpp("
                 unsigned __int128 prod = (unsigned __int128)val * factor + addend;
                 result_lo = (uint64_t)prod;
@@ -115,11 +117,13 @@ module Int128 {
             var addend_carry: u8;
 
             // step 1: multiply lo * factor -> 128-bit result
+            // INLINE(simd)
             __inline_cpp("
                 mul_lo = _umul128(lo, factor, &mul_hi);
             ");
 
             // step 2: add addend to mul_lo, propagate carry
+            // INLINE(simd)
             __inline_cpp("
                 carry = _addcarry_u64(0, mul_lo, addend, &mul_lo);
             ");
@@ -133,6 +137,7 @@ module Int128 {
             // mul_hi at 15, so it can never be all-ones and can never carry out
             // -- but the signature accepts any u64 factor and the discard was a
             // real hole for any other use.
+            // INLINE(simd)
             __inline_cpp("
                 addend_carry = _addcarry_u64(carry, mul_hi, 0, &mul_hi);
             ");
@@ -141,6 +146,7 @@ module Int128 {
             var hi_mul_lo: u64;
             var hi_mul_hi: u64;
 
+            // INLINE(simd)
             __inline_cpp("
                 hi_mul_lo = _umul128(hi, factor, &hi_mul_hi);
             ");
@@ -151,6 +157,7 @@ module Int128 {
             // limb (step 3), this add carried out, or hi * factor did not fit
             // 64 bits to begin with.
             var overflow: bool;
+            // INLINE(simd)
             __inline_cpp("
                 carry = _addcarry_u64(0, mul_hi, hi_mul_lo, &mul_hi);
                 overflow = (carry != 0) || (hi_mul_hi != 0) || (addend_carry != 0);
@@ -177,6 +184,7 @@ module Int128 {
             // the BigInt phase was skipped, and the literal became 0. Because
             // the wrap always happens on the last digit, the wrong value was
             // always a single digit -- 2^128 read as 0, 2^128+1 as 1.
+            // INLINE(cxx-feature: __int128)
             __inline_cpp("
                 unsigned __int128 val = ((unsigned __int128)hi << 64) | lo;
                 unsigned __int128 factor_128 = (unsigned __int128)factor;
@@ -273,6 +281,7 @@ module Int128 {
             var prod_hi: u64;
             var prod_lo: u64;
 
+            // INLINE(simd)
             __inline_cpp("
                 prod_lo = _umul128(limb, factor, &prod_hi);
                 unsigned char c = _addcarry_u64(0, prod_lo, carry, &prod_lo);
@@ -286,6 +295,7 @@ module Int128 {
             var new_limb: u64;
             var new_carry: u64;
 
+            // INLINE(cxx-feature: __int128)
             __inline_cpp("
                 unsigned __int128 prod = (unsigned __int128)limb * factor + carry;
                 new_limb = (uint64_t)prod;
@@ -442,6 +452,7 @@ class BigFloat {
 class ImmediateTable;
 
 module Immediate {
+    // INLINE(cxx-feature: aggregate array initializer)
     static var DIGIT_TABLE: array::<u8, 128> = __inline_cpp("{
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0-7
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 8-15
@@ -955,6 +966,7 @@ class ImmediateTable {
     }
 
     fn <T> create(self) -> u32 {
+        // INLINE(cxx-feature: concept-id expression)
         eval if __inline_cpp("std::Meta::is_same_as<T, Immediate::IntData>") {
             if (self.int_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
@@ -964,6 +976,7 @@ class ImmediateTable {
             self.int_literals->push(Immediate::IntData());
             return static_cast::<u32>((self.int_literals->size()) - 1);
 
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
             if (self.float_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
@@ -973,6 +986,7 @@ class ImmediateTable {
             self.float_literals->push(Immediate::FloatData());
             return static_cast::<u32>((self.float_literals->size()) - 1);
 
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
             if (self.char_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
@@ -982,6 +996,7 @@ class ImmediateTable {
             self.char_literals->push(Immediate::CharData());
             return static_cast::<u32>((self.char_literals->size()) - 1);
 
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
             if (self.string_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
@@ -991,6 +1006,7 @@ class ImmediateTable {
             self.string_literals->push(Immediate::StringData());
             return static_cast::<u32>((self.string_literals->size()) - 1);
 
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
             if (self.macro_expansions->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
@@ -1006,16 +1022,22 @@ class ImmediateTable {
     }
 
     fn <T> get(self, idx: u32) -> *T {
+        // INLINE(cxx-feature: concept-id expression)
         eval if __inline_cpp("std::Meta::is_same_as<T, Immediate::IntData>") {
             return self.int_literals->get(static_cast::<usize>(idx));
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
             return self.float_literals->get(static_cast::<usize>(idx));
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
             return self.char_literals->get(static_cast::<usize>(idx));
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
             return self.string_literals->get(static_cast::<usize>(idx));
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
             return self.macro_expansions->get(static_cast::<usize>(idx));
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::IdentData>") {
             return self.ident_descs->get(static_cast::<usize>(idx));
         } else {
@@ -1024,14 +1046,19 @@ class ImmediateTable {
     }
 
     fn <T> pop(self) -> T {
+        // INLINE(cxx-feature: concept-id expression)
         eval if __inline_cpp("std::Meta::is_same_as<T, Immediate::IntData>") {
             return self.int_literals->pop();
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
             return self.float_literals->pop();
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
             return self.char_literals->pop();
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
             return self.string_literals->pop();
+        // INLINE(cxx-feature: concept-id expression)
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
             return self.macro_expansions->pop();
         } else {

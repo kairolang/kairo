@@ -3171,17 +3171,17 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)5");
+        const expected_count: usize = usize(5);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<u64>();
-        expected_values.push_back(__inline_cpp("(uint64_t)0"));
-        expected_values.push_back(__inline_cpp("(uint64_t)1"));
-        expected_values.push_back(__inline_cpp("(uint64_t)42"));
-        expected_values.push_back(__inline_cpp("(uint64_t)12345"));
-        expected_values.push_back(__inline_cpp("(uint64_t)999999"));
+        expected_values.push_back(u64(0));
+        expected_values.push_back(u64(1));
+        expected_values.push_back(u64(42));
+        expected_values.push_back(u64(12345));
+        expected_values.push_back(u64(999999));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3191,14 +3191,14 @@ fn Test() -> i32 {
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const base_10: u8 = __inline_cpp("(uint8_t)10");
+            const base_10: u8 = u8(10);
             if imm->base != base_10 {
                 return f"token {i}: expected base 10, got base {imm->base}";
             }
             if imm->value_lo != expected_values[i] {
                 return f"token {i}: expected value {expected_values[i]}, got {imm->value_lo}";
             }
-            const zero_u64: u64 = __inline_cpp("(uint64_t)0");
+            const zero_u64: u64 = u64(0);
             if imm->value_hi != zero_u64 {
                 return f"token {i}: expected value_hi 0, got {imm->value_hi}";
             }
@@ -3221,16 +3221,16 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<u64>();
-        expected_values.push_back(__inline_cpp("(uint64_t)0x0"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0xFF"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0xDEADBEEF"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0x123ABC"));
+        expected_values.push_back(u64(0x0));
+        expected_values.push_back(u64(0xFF));
+        expected_values.push_back(u64(0xDEADBEEF));
+        expected_values.push_back(u64(0x123ABC));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3239,14 +3239,14 @@ fn Test() -> i32 {
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const base_16: u8 = __inline_cpp("(uint8_t)16");
+            const base_16: u8 = u8(16);
             if imm->base != base_16 {
                 return f"token {i}: expected base 16, got base {imm->base}";
             }
             if imm->value_lo != expected_values[i] {
                 return f"token {i}: expected value 0x{to_hex_string(expected_values[i])}, got 0x{to_hex_string(imm->value_lo)}";
             }
-            const has_prefix_flag: u8 = __inline_cpp("(uint8_t)0b00010000");
+            const has_prefix_flag: u8 = u8(0b00010000);
             if (imm->flags & has_prefix_flag) == 0 {
                 return f"token {i}: expected has_prefix flag (bit4) to be set";
             }
@@ -3269,16 +3269,16 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<u64>();
-        expected_values.push_back(__inline_cpp("(uint64_t)0b0"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0b1"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0b1010"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0b11110000"));
+        expected_values.push_back(u64(0b0));
+        expected_values.push_back(u64(0b1));
+        expected_values.push_back(u64(0b1010));
+        expected_values.push_back(u64(0b11110000));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3287,7 +3287,7 @@ fn Test() -> i32 {
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const base_2: u8 = __inline_cpp("(uint8_t)2");
+            const base_2: u8 = u8(2);
             if imm->base != base_2 {
                 return f"token {i}: expected base 2, got base {imm->base}";
             }
@@ -3313,16 +3313,16 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<u64>();
-        expected_values.push_back(__inline_cpp("(uint64_t)0"));
-        expected_values.push_back(__inline_cpp("(uint64_t)7"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0755"));      // octal literal in C++
-        expected_values.push_back(__inline_cpp("(uint64_t)01234567")); // octal literal in C++
+        expected_values.push_back(u64(0));
+        expected_values.push_back(u64(7));
+        expected_values.push_back(u64(0755));      // octal literal in C++
+        expected_values.push_back(u64(01234567)); // octal literal in C++
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3331,7 +3331,7 @@ fn Test() -> i32 {
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const base_8: u8 = __inline_cpp("(uint8_t)8");
+            const base_8: u8 = u8(8);
             if imm->base != base_8 {
                 return f"token {i}: expected base 8, got base {imm->base}";
             }
@@ -3357,22 +3357,22 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<u64>();
-        expected_values.push_back(__inline_cpp("(uint64_t)1000"));
-        expected_values.push_back(__inline_cpp("(uint64_t)1000000"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0xFFFF"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0b10101010"));
+        expected_values.push_back(u64(1000));
+        expected_values.push_back(u64(1000000));
+        expected_values.push_back(u64(0xFFFF));
+        expected_values.push_back(u64(0b10101010));
         
         var expected_bases = vec::<u8>();
-        expected_bases.push_back(__inline_cpp("(uint8_t)10"));
-        expected_bases.push_back(__inline_cpp("(uint8_t)10"));
-        expected_bases.push_back(__inline_cpp("(uint8_t)16"));
-        expected_bases.push_back(__inline_cpp("(uint8_t)2"));
+        expected_bases.push_back(u8(10));
+        expected_bases.push_back(u8(10));
+        expected_bases.push_back(u8(16));
+        expected_bases.push_back(u8(2));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3406,20 +3406,20 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)3");
+        const expected_count: usize = usize(3);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<u64>();
-        expected_values.push_back(__inline_cpp("(uint64_t)42"));
-        expected_values.push_back(__inline_cpp("(uint64_t)100"));
-        expected_values.push_back(__inline_cpp("(uint64_t)0xFF"));
+        expected_values.push_back(u64(42));
+        expected_values.push_back(u64(100));
+        expected_values.push_back(u64(0xFF));
         
         var expected_bits = vec::<u16>();
-        expected_bits.push_back(__inline_cpp("(uint16_t)8"));
-        expected_bits.push_back(__inline_cpp("(uint16_t)32"));
-        expected_bits.push_back(__inline_cpp("(uint16_t)64"));
+        expected_bits.push_back(u16(8));
+        expected_bits.push_back(u16(32));
+        expected_bits.push_back(u16(64));
         
         var expected_unsigned = vec::<bool>();
         expected_unsigned.push_back(true);   // u8
@@ -3432,7 +3432,7 @@ fn Test() -> i32 {
             }
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
             
-            const has_suffix_flag: u8 = __inline_cpp("(uint8_t)0b00001000");
+            const has_suffix_flag: u8 = u8(0b00001000);
             if (imm->flags & has_suffix_flag) == 0 {
                 return f"token {i}: expected has_suffix flag (bit3) to be set, flags={imm->flags}";
             }
@@ -3446,7 +3446,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected bits {expected_bits[i]}, got {imm->bits}";
             }
             
-            const unsigned_flag: u8 = __inline_cpp("(uint8_t)0b00000001");
+            const unsigned_flag: u8 = u8(0b00000001);
             var is_unsigned = (imm->flags & unsigned_flag) != 0;
             if is_unsigned != expected_unsigned[i] {
                 return f"token {i}: expected unsigned={expected_unsigned[i]}, got unsigned={is_unsigned}";
@@ -3470,7 +3470,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)1");
+        const expected_count: usize = usize(1);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -3478,15 +3478,15 @@ fn Test() -> i32 {
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
         imm->evaluate(sm, lexer->get_imm_tbl());
         
-        const u64_max: u64 = __inline_cpp("(uint64_t)0xFFFFFFFFFFFFFFFFULL");
+        const u64_max: u64 = u64(0xFFFFFFFFFFFFFFFF);
         if imm->value_lo != u64_max {
             return f"expected u64 max (0xFFFFFFFFFFFFFFFF), got 0x{to_hex_string(imm->value_lo)}";
         }
-        const zero_u64: u64 = __inline_cpp("(uint64_t)0");
+        const zero_u64: u64 = u64(0);
         if imm->value_hi != zero_u64 {
             return f"expected value_hi 0, got {imm->value_hi}";
         }
-        const bits_64: u16 = __inline_cpp("(uint16_t)64");
+        const bits_64: u16 = u16(64);
         if imm->bits != bits_64 {
             return f"expected bits 64, got {imm->bits}";
         }
@@ -3509,7 +3509,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)1");
+        const expected_count: usize = usize(1);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -3517,15 +3517,15 @@ fn Test() -> i32 {
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
         imm->evaluate(sm, lexer->get_imm_tbl());
         
-        const zero_u64: u64 = __inline_cpp("(uint64_t)0");
-        const one_u64: u64 = __inline_cpp("(uint64_t)1");
+        const zero_u64: u64 = u64(0);
+        const one_u64: u64 = u64(1);
         if imm->value_lo != zero_u64 {
             return f"expected value_lo 0, got 0x{to_hex_string(imm->value_lo)}";
         }
         if imm->value_hi != one_u64 {
             return f"expected value_hi 1, got 0x{to_hex_string(imm->value_hi)}";
         }
-        const bits_128: u16 = __inline_cpp("(uint16_t)128");
+        const bits_128: u16 = u16(128);
         if imm->bits != bits_128 {
             return f"expected bits 128, got {imm->bits}";
         }
@@ -3548,7 +3548,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)1");
+        const expected_count: usize = usize(1);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -3556,14 +3556,14 @@ fn Test() -> i32 {
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
         imm->evaluate(sm, lexer->get_imm_tbl());
         
-        const u64_max: u64 = __inline_cpp("(uint64_t)0xFFFFFFFFFFFFFFFFULL");
+        const u64_max: u64 = u64(0xFFFFFFFFFFFFFFFF);
         if imm->value_lo != u64_max {
             return f"expected value_lo 0xFFFFFFFFFFFFFFFF, got 0x{to_hex_string(imm->value_lo)}";
         }
         if imm->value_hi != u64_max {
             return f"expected value_hi 0xFFFFFFFFFFFFFFFF, got 0x{to_hex_string(imm->value_hi)}";
         }
-        const bits_128: u16 = __inline_cpp("(uint16_t)128");
+        const bits_128: u16 = u16(128);
         if imm->bits != bits_128 {
             return f"expected bits 128, got {imm->bits}";
         }
@@ -3586,7 +3586,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)1");
+        const expected_count: usize = usize(1);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -3595,7 +3595,7 @@ fn Test() -> i32 {
         imm->evaluate(sm, lexer->get_imm_tbl());
         
         // should have is_big flag set
-        const is_big_flag: u8 = __inline_cpp("(uint8_t)0b00000100");
+        const is_big_flag: u8 = u8(0b00000100);
         if (imm->flags & is_big_flag) == 0 {
             return f"expected is_big flag (bit2) to be set, flags={imm->flags}";
         }
@@ -3604,8 +3604,8 @@ fn Test() -> i32 {
         }
         
         // value_lo and value_hi should be the lower 128 bits (which are 0)
-        const zero_u64: u64 = __inline_cpp("(uint64_t)0");
-        const one_u64: u64 = __inline_cpp("(uint64_t)1");
+        const zero_u64: u64 = u64(0);
+        const one_u64: u64 = u64(1);
         if imm->value_lo != zero_u64 {
             return f"expected value_lo 0, got 0x{to_hex_string(imm->value_lo)}";
         }
@@ -3614,7 +3614,7 @@ fn Test() -> i32 {
         }
         
         // check BigInt has correct structure
-        const min_limbs: usize = __inline_cpp("(size_t)3");
+        const min_limbs: usize = usize(3);
         if imm->big->limbs.size() < min_limbs {
             return f"expected at least 3 limbs, got {imm->big->limbs.size()}";
         }
@@ -3628,7 +3628,7 @@ fn Test() -> i32 {
             return f"expected limb[2] = 1, got 0x{to_hex_string(imm->big->limbs[2])}";
         }
         
-        const min_bits: u16 = __inline_cpp("(uint16_t)129");
+        const min_bits: u16 = u16(129);
         if imm->bits < min_bits {
             return f"expected bits >= 129, got {imm->bits}";
         }
@@ -3650,18 +3650,18 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)6");
+        const expected_count: usize = usize(6);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_bits = vec::<u16>();
-        expected_bits.push_back(__inline_cpp("(uint16_t)8"));   // 255 fits in 8 bits
-        expected_bits.push_back(__inline_cpp("(uint16_t)16")); // 256 needs 9 bits -> 16
-        expected_bits.push_back(__inline_cpp("(uint16_t)16")); // 65535 fits in 16 bits
-        expected_bits.push_back(__inline_cpp("(uint16_t)32")); // 65536 needs 17 bits -> 32
-        expected_bits.push_back(__inline_cpp("(uint16_t)32")); // 0xFFFFFFFF fits in 32 bits
-        expected_bits.push_back(__inline_cpp("(uint16_t)64")); // 0x100000000 needs 33 bits -> 64
+        expected_bits.push_back(u16(8));   // 255 fits in 8 bits
+        expected_bits.push_back(u16(16)); // 256 needs 9 bits -> 16
+        expected_bits.push_back(u16(16)); // 65535 fits in 16 bits
+        expected_bits.push_back(u16(32)); // 65536 needs 17 bits -> 32
+        expected_bits.push_back(u16(32)); // 0xFFFFFFFF fits in 32 bits
+        expected_bits.push_back(u16(64)); // 0x100000000 needs 33 bits -> 64
         
         for var i: usize = 0; i < expected_count; ++i {
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
@@ -3691,15 +3691,19 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)0.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.5"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)3.14159"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)123.456"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -3710,22 +3714,24 @@ fn Test() -> i32 {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const base_10: u8 = __inline_cpp("(uint8_t)10");
+            const base_10: u8 = u8(10);
             if imm->base != base_10 {
                 return f"token {i}: expected base 10, got base {imm->base}";
             }
             
             // compare with small epsilon for floating point
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             if diff < zero_f80 { diff = -diff; }
+            // INLINE(cxx-feature: exact floating literal)
             const epsilon: f80 = __inline_cpp("(long double)0.00001");
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
             
             // default bit width should be 64
-            const bits_64: u32 = __inline_cpp("(uint32_t)64");
+            const bits_64: u32 = u32(64);
             if imm->bits != bits_64 {
                 return f"token {i}: expected bits 64 (default), got {imm->bits}";
             }
@@ -3748,14 +3754,17 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)3");
+        const expected_count: usize = usize(3);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)0.5"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)0.123"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)0.0"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -3767,8 +3776,10 @@ fn Test() -> i32 {
             imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             if diff < zero_f80 { diff = -diff; }
+            // INLINE(cxx-feature: exact floating literal)
             const epsilon: f80 = __inline_cpp("(long double)0.00001");
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
@@ -3792,16 +3803,21 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)5");
+        const expected_count: usize = usize(5);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1e10"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1e10"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.5e-3"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)2.0e5"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1e3"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -3810,7 +3826,7 @@ fn Test() -> i32 {
             }
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             
-            const has_exponent_flag: u8 = __inline_cpp("(uint8_t)0b00000001");
+            const has_exponent_flag: u8 = u8(0b00000001);
             if (imm->flags & has_exponent_flag) == 0 {
                 return f"token {i}: expected has_exponent flag (bit0) to be set, flags={imm->flags}";
             }
@@ -3820,7 +3836,9 @@ fn Test() -> i32 {
             // relative comparison for large values
             var expected = static_cast::<f80>(expected_values[i]);
             var ratio = imm->value_ieee / expected;
+            // INLINE(cxx-feature: exact floating literal)
             const low_bound: f80 = __inline_cpp("(long double)0.999999");
+            // INLINE(cxx-feature: exact floating literal)
             const high_bound: f80 = __inline_cpp("(long double)1.000001");
             if ratio < low_bound || ratio > high_bound {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
@@ -3844,7 +3862,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)3");
+        const expected_count: usize = usize(3);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -3853,8 +3871,11 @@ fn Test() -> i32 {
         // 0x1.0p4 = 1.0 * 2^4 = 16.0
         // 0x1.0p-4 = 1.0 * 2^-4 = 0.0625
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)16.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)0.0625"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -3863,21 +3884,23 @@ fn Test() -> i32 {
             }
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             
-            const is_hex_flag: u8 = __inline_cpp("(uint8_t)0b00000100");
+            const is_hex_flag: u8 = u8(0b00000100);
             if (imm->flags & is_hex_flag) == 0 {
                 return f"token {i}: expected is_hex_float flag (bit2) to be set, flags={imm->flags}";
             }
             
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const base_16: u8 = __inline_cpp("(uint8_t)16");
+            const base_16: u8 = u8(16);
             if imm->base != base_16 {
                 return f"token {i}: expected base 16, got base {imm->base}";
             }
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             if diff < zero_f80 { diff = -diff; }
+            // INLINE(cxx-feature: exact floating literal)
             const epsilon: f80 = __inline_cpp("(long double)0.00001");
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
@@ -3901,7 +3924,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)2");
+        const expected_count: usize = usize(2);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -3909,7 +3932,9 @@ fn Test() -> i32 {
         // 0xA.Bp+2 = (10 + 11/16) * 2^2 = 10.6875 * 4 = 42.75
         // 0xC.8p-1 = (12 + 8/16) * 2^-1 = 12.5 * 0.5 = 6.25
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)42.75"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)6.25"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -3917,8 +3942,10 @@ fn Test() -> i32 {
             imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             if diff < zero_f80 { diff = -diff; }
+            // INLINE(cxx-feature: exact floating literal)
             const epsilon: f80 = __inline_cpp("(long double)0.001");
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
@@ -3942,19 +3969,22 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)3");
+        const expected_count: usize = usize(3);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         var expected_bits = vec::<u32>();
-        expected_bits.push_back(__inline_cpp("(uint32_t)32"));
-        expected_bits.push_back(__inline_cpp("(uint32_t)64"));
-        expected_bits.push_back(__inline_cpp("(uint32_t)128"));
+        expected_bits.push_back(u32(32));
+        expected_bits.push_back(u32(64));
+        expected_bits.push_back(u32(128));
         
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)2.5"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)3.14"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -3963,7 +3993,7 @@ fn Test() -> i32 {
             }
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             
-            const has_suffix_flag: u8 = __inline_cpp("(uint8_t)0b00010000");
+            const has_suffix_flag: u8 = u8(0b00010000);
             if (imm->flags & has_suffix_flag) == 0 {
                 return f"token {i}: expected has_suffix flag (bit4) to be set, flags={imm->flags}";
             }
@@ -3975,8 +4005,10 @@ fn Test() -> i32 {
             }
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             if diff < zero_f80 { diff = -diff; }
+            // INLINE(cxx-feature: exact floating literal)
             const epsilon: f80 = __inline_cpp("(long double)0.00001");
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
@@ -4038,7 +4070,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -4060,10 +4092,13 @@ fn Test() -> i32 {
         var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(3)->imm);
         imm->evaluate(sm, lexer->get_imm_tbl()); // removing evaluation step only adds 1MB/s to perf
         
+        // INLINE(cxx-feature: exact floating literal)
         const expected_val: f80 = __inline_cpp("(long double)0.5");
         var diff = imm->value_ieee - expected_val;
+        // INLINE(cxx-feature: exact floating literal)
         const zero_f80: f80 = __inline_cpp("(long double)0.0");
         if diff < zero_f80 { diff = -diff; }
+        // INLINE(cxx-feature: exact floating literal)
         const epsilon: f80 = __inline_cpp("(long double)0.00001");
         if diff > epsilon {
             return f"token 3: expected value 0.5, got {imm->value_ieee}";
@@ -4086,16 +4121,20 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)4");
+        const expected_count: usize = usize(4);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
         
         // all should evaluate to their base value (exponent is 0)
         var expected_values = vec::<f64>();
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)1.0"));
+        // INLINE(cxx-feature: exact floating literal)
         expected_values.push_back(__inline_cpp("(double)0.0"));
         
         for var i: usize = 0; i < expected_count; ++i {
@@ -4103,8 +4142,10 @@ fn Test() -> i32 {
             imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             if diff < zero_f80 { diff = -diff; }
+            // INLINE(cxx-feature: exact floating literal)
             const epsilon: f80 = __inline_cpp("(long double)0.00001");
             if diff > epsilon {
                 return f"token {i}: expected value {expected_values[i]}, got {imm->value_ieee}";
@@ -4131,7 +4172,7 @@ fn Test() -> i32 {
         // 0..10 -> LitInt OpRange LitInt
         // 0.5   -> LitFloat
         // 1..2  -> LitInt OpRange LitInt
-        const expected_count: usize = __inline_cpp("(size_t)7");
+        const expected_count: usize = usize(7);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -4161,24 +4202,27 @@ fn Test() -> i32 {
         // verify values
         var int0 = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
         int0->evaluate(sm, lexer->get_imm_tbl());
-        const zero_u64: u64 = __inline_cpp("(uint64_t)0");
+        const zero_u64: u64 = u64(0);
         if int0->value_lo != zero_u64 {
             return f"token 0: expected value 0, got {int0->value_lo}";
         }
         
         var int2 = lexer->get_imm::<Immediate::IntData>(tokens->get(2)->imm);
         int2->evaluate(sm, lexer->get_imm_tbl());
-        const ten_u64: u64 = __inline_cpp("(uint64_t)10");
+        const ten_u64: u64 = u64(10);
         if int2->value_lo != ten_u64 {
             return f"token 2: expected value 10, got {int2->value_lo}";
         }
         
         var float3 = lexer->get_imm::<Immediate::FloatData>(tokens->get(3)->imm);
         float3->evaluate(sm, lexer->get_imm_tbl());
+        // INLINE(cxx-feature: exact floating literal)
         const expected_float: f80 = __inline_cpp("(long double)0.5");
         var diff = float3->value_ieee - expected_float;
+        // INLINE(cxx-feature: exact floating literal)
         const zero_f80: f80 = __inline_cpp("(long double)0.0");
         if diff < zero_f80 { diff = -diff; }
+        // INLINE(cxx-feature: exact floating literal)
         const epsilon: f80 = __inline_cpp("(long double)0.00001");
         if diff > epsilon {
             return f"token 3: expected value 0.5, got {float3->value_ieee}";
@@ -4201,7 +4245,7 @@ fn Test() -> i32 {
         if !lexer->lex(fid) { return "lexer failed to lex"; }
         
         var tokens = lexer->tokens();
-        const expected_count: usize = __inline_cpp("(size_t)2");
+        const expected_count: usize = usize(2);
         if content_count(tokens) != expected_count {
             return dump_tokens(tokens, expected_count);
         }
@@ -4214,10 +4258,13 @@ fn Test() -> i32 {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
-            const zero_u: usize = __inline_cpp("(size_t)0");
-            const one_u: usize = __inline_cpp("(size_t)1");
+            const zero_u: usize = usize(0);
+            const one_u: usize = usize(1);
+            // INLINE(cxx-feature: exact floating literal)
             const large_threshold: f80 = __inline_cpp("(long double)1e307");
+            // INLINE(cxx-feature: exact floating literal)
             const small_threshold: f80 = __inline_cpp("(long double)1e-307");
+            // INLINE(cxx-feature: exact floating literal)
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
             
             // just verify it parsed without becoming infinity or zero incorrectly
@@ -5488,6 +5535,7 @@ fn Test() -> i32 {
     fn measure_timer_overhead() -> i64 {
         const var iterations = 1000;
         var total = libcxx::chrono::nanoseconds(0);
+        // INLINE(cxx-feature: volatile)
         __inline_cpp("volatile i64 dummy = 0");
 
         for (var i = 0; i < iterations; ++i) {
