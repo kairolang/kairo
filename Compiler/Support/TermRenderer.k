@@ -68,7 +68,7 @@ class TermRenderer {
             w += cols;
             i += step;
         }
-        return s.raw_string().substr(0, i);
+        return s.subslice(0, i);
     }
 
     priv fn visible_width(self, s: string) -> u32 {
@@ -221,7 +221,7 @@ class TermRenderer {
             }
 
             if self.starts_with(trimmed, "- ") {
-                var content = trimmed.raw_string().substr(2, trimmed.length() - 2);
+                var content = trimmed.subslice(2, trimmed.length() - 2);
                 out += self.wrap_inline(content, 4, "  • ");
                 i += 1;
                 continue;
@@ -229,7 +229,7 @@ class TermRenderer {
 
             var num_prefix = self.numbered_prefix(trimmed);
             if num_prefix.length() > 0 {
-                var content = trimmed.raw_string().substr(num_prefix.length(), trimmed.length() - num_prefix.length());
+                var content = trimmed.subslice(num_prefix.length(), trimmed.length() - num_prefix.length());
                 var pad = string();
                 for _ in usize(0) .. usize(num_prefix.length() + 2) {
                     pad += " ";
@@ -262,7 +262,7 @@ class TermRenderer {
             if text[i] == '`' {
                 var close = self.find_char(text, '`', i + 1);
                 if close > i {
-                    var code_text = text.raw_string().substr(i + 1, close - i - 1);
+                    var code_text = text.subslice(i + 1, close - i - 1);
                     var styled = self.style(CYAN) + code_text + self.style(RESET);
 
                     if col + static_cast::<u32>(code_text.length()) + 2 > self._width && col > indent {
@@ -341,7 +341,7 @@ class TermRenderer {
 
             // line comment
             if c == '/' && i + 1 < n && line[i + 1] == '/' {
-                var rest = line.raw_string().substr(i, n - i);
+                var rest = line.subslice(i, n - i);
                 out += self.style(HL_COMMENT) + rest + self.style(RESET);
                 i = n;
                 continue;
@@ -352,7 +352,7 @@ class TermRenderer {
                 var j = i + 2;
                 while j + 1 < n && !(line[j] == '*' && line[j + 1] == '/') { j += 1; }
                 var end = (j + 2) if (j + 1 < n) else n;
-                var seg = line.raw_string().substr(i, end - i);
+                var seg = line.subslice(i, end - i);
                 out += self.style(HL_COMMENT) + seg + self.style(RESET);
                 i = end;
                 continue;
@@ -363,7 +363,7 @@ class TermRenderer {
                 var j = i + 2;
                 while j < n && line[j] != '\x22' { j += 1; }
                 if j < n { j += 1; }
-                var seg = line.raw_string().substr(i, j - i);
+                var seg = line.subslice(i, j - i);
                 out += self.style(HL_STRING) + seg + self.style(RESET);
                 i = j;
                 continue;
@@ -377,7 +377,7 @@ class TermRenderer {
                     j += 1;
                 }
                 if j < n { j += 1; }
-                var seg = line.raw_string().substr(i, j - i);
+                var seg = line.subslice(i, j - i);
                 out += self.style(HL_STRING) + seg + self.style(RESET);
                 i = j;
                 continue;
@@ -391,7 +391,7 @@ class TermRenderer {
                     j += 1;
                 }
                 if j < n { j += 1; }
-                var seg = line.raw_string().substr(i, j - i);
+                var seg = line.subslice(i, j - i);
                 out += self.style(HL_STRING) + seg + self.style(RESET);
                 i = j;
                 continue;
@@ -401,7 +401,7 @@ class TermRenderer {
             if self.is_digit(c) {
                 var j = i;
                 while j < n && (self.is_ident_char(line[j]) || line[j] == '.') { j += 1; }
-                var seg = line.raw_string().substr(i, j - i);
+                var seg = line.subslice(i, j - i);
                 out += self.style(HL_NUMBER) + seg + self.style(RESET);
                 i = j;
                 continue;
@@ -411,7 +411,7 @@ class TermRenderer {
             if c == '@' {
                 var j = i + 1;
                 while j < n && self.is_ident_char(line[j]) { j += 1; }
-                var seg = line.raw_string().substr(i, j - i);
+                var seg = line.subslice(i, j - i);
                 out += self.style(HL_ATTRIBUTE) + seg + self.style(RESET);
                 i = j;
                 continue;
@@ -421,14 +421,14 @@ class TermRenderer {
             if self.is_ident_start(c) {
                 var j = i;
                 while j < n && self.is_ident_char(line[j]) { j += 1; }
-                var word = line.raw_string().substr(i, j - i);
+                var word = line.subslice(i, j - i);
 
                 // peek next non-space for '(' -> function call
                 var k = j;
                 while k < n && (line[k] == ' ' || line[k] == '\t') { k += 1; }
                 var is_call = k < n && line[k] == '(';
 
-                if (word == "true".raw_string()) || (word == "false".raw_string()) || (word == "null".raw_string()) || (word == "self".raw_string()) || (word == "Self".raw_string()) {
+                if (word == "true") || (word == "false") || (word == "null") || (word == "self") || (word == "Self") {
                     out += self.style(HL_NUMBER) + word + self.style(RESET);
                 } else if self.is_keyword(word) {
                     out += self.style(HL_KEYWORD) + word + self.style(RESET);
@@ -511,12 +511,12 @@ class TermRenderer {
         var start: usize = 0;
         for i in usize(0) .. usize(text.length()) {
             if text[i] == '\n' {
-                lines.push_back(text.raw_string().substr(start, i - start));
+                lines.push_back(text.subslice(start, i - start));
                 start = i + 1;
             }
         }
         if start <= text.length() {
-            lines.push_back(text.raw_string().substr(start, text.length() - start));
+            lines.push_back(text.subslice(start, text.length() - start));
         }
         return lines;
     }
@@ -534,7 +534,7 @@ class TermRenderer {
         var end: usize = s.length();
         while start < end && (s[start] == ' ' || s[start] == '\t') { start += 1; }
         while end > start && (s[end - 1] == ' ' || s[end - 1] == '\t') { end -= 1; }
-        return s.raw_string().substr(start, end - start);
+        return s.subslice(start, end - start);
     }
 
     fn starts_with(self, s: string, prefix: string) -> bool {
@@ -559,7 +559,7 @@ class TermRenderer {
     fn after_prefix(self, s: string, skip: u32) -> string {
         var start = static_cast::<usize>(skip);
         if start >= s.length() { return ""; }
-        return s.raw_string().substr(start, s.length() - start);
+        return s.subslice(start, s.length() - start);
     }
 
     fn numbered_prefix(self, line: string) -> string {
@@ -569,7 +569,7 @@ class TermRenderer {
             i += 1;
         }
         if i > 0 && i + 1 < line.length() && line[i] == '.' && line[i + 1] == ' ' {
-            return line.raw_string().substr(0, i + 2);
+            return line.subslice(0, i + 2);
         }
         return "";
     }
@@ -591,7 +591,7 @@ class TermRenderer {
 
     priv fn parse_fence(self, line: string) -> CodeBlockInfo {
         var info = CodeBlockInfo();
-        var rest = self.trim(line.raw_string().substr(3, line.length() - 3));
+        var rest = self.trim(line.subslice(3, line.length() - 3));
 
         // split on spaces: ```kairo file=a.k
         var i: usize = 0;
@@ -600,19 +600,19 @@ class TermRenderer {
         while i < rest.length() && rest[i] != ' ' {
             i += 1;
         }
-        info.lang = rest.raw_string().substr(0, i);
+        info.lang = rest.subslice(0, i);
 
         // remaining key=value pairs
         while i < rest.length() {
             while i < rest.length() && rest[i] == ' ' { i += 1; }
             var kv_start = i;
             while i < rest.length() && rest[i] != ' ' { i += 1; }
-            var kv = string(rest.raw_string().substr(kv_start, i - kv_start));
+            var kv = rest.subslice(kv_start, i - kv_start);
 
             var eq = self.find_char(kv, '=', 0);
             if eq > 0 && eq < kv.length() - 1 {
-                var key = string(kv.raw_string().substr(0, eq));
-                var val = string(kv.raw_string().substr(eq + 1, kv.length() - eq - 1));
+                var key = kv.subslice(0, eq);
+                var val = kv.subslice(eq + 1, kv.length() - eq - 1);
                 if key == "file" {
                     info.file = val;
                 }

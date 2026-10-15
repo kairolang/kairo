@@ -2384,10 +2384,10 @@ class PreProcessor {
 
             var name:  string;
             var value: string;
-            var eq = raw.raw_string().find('=');
+            var eq = raw.view().find('=');
             if eq != string::npos {
-                name  = string(raw.raw_string().substr(0, eq));
-                value = string(raw.raw_string().substr(eq + 1));
+                name  = raw.subslice(0, eq);
+                value = raw.subslice(eq + 1, raw.size());
             } else {
                 name  = raw;
                 value = "1";

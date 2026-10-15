@@ -235,7 +235,7 @@ class Command {
             if def->kind == FlagKind::Feature {
                 nm = (f"-f{def->key}") if (result->get_feature(def->key) == 1) else (f"-fno-{def->key}");
             } else if (def->key.length() > 2) && (def->key[0] == 'c') && (def->key[1] == ':') {
-                var bare = def->key.raw_string().substr(2);
+                var bare = def->key.subslice(2, def->key.size());
                 nm = f"--c{bare}";
             } else if def->long_.length() > 0 {
                 nm = f"--{def->long_}";
@@ -292,8 +292,8 @@ class Command {
 
         var split: i32 = i32(name.length()) - 1;
         while split >= 1 {
-            var prefix = name.raw_string().substr(usize(0), usize(split));
-            var suffix = name.raw_string().substr(usize(split));
+            var prefix = name.subslice(usize(0), usize(split));
+            var suffix = name.subslice(usize(split), name.size());
             var def    = self._find(prefix);
             if (def != &null) && (def->kind != FlagKind::Bool) {
                 (*out_value) = suffix;
@@ -355,8 +355,8 @@ class Command {
             }
 
             // config flags are stored as key = "c:{name}" and typed as --c{name}
-            if (def->key.length() > 2) && (def->key.raw_string().substr(0, 2) == "c:".raw_string()) {
-                var bare = def->key.raw_string().substr(2);
+            if (def->key.length() > 2) && (def->key.subslice(0, 2) == "c:") {
+                var bare = def->key.subslice(2, def->key.size());
                 out_names->push_back(f"c{bare}");
                 out_disp->push_back(f"--c{bare}");
                 continue;
@@ -387,12 +387,11 @@ class Command {
 
     /// split a flag name on '-' into its words, dropping empties
     priv fn _split_words(self, s: string, out: *vec::<string>) {
-        var raw = s.raw_string();
         var n   = s.length();
         var b: usize = 0;
         for var i: usize = 0; i <= n; ++i {
-            if (i == n) || (raw[i] == '-') {
-                if i > b { out->push_back(raw.substr(b, i - b)); }
+            if (i == n) || (s[i] == '-') {
+                if i > b { out->push_back(s.subslice(b, i - b)); }
                 b = i + 1;
             }
         }
@@ -400,7 +399,7 @@ class Command {
 
     priv fn _starts_with(self, hay: string, pre: string) -> bool {
         if pre.length() > hay.length() { return false; }
-        return hay.raw_string().substr(0, pre.length()) == pre.raw_string();
+        return hay.subslice(0, pre.length()) == pre;
     }
 
     /// how close is `cand` to what the user typed? lower is better,
@@ -544,7 +543,7 @@ class Command {
     /// bare `'-'` for every long-only flag.
     priv fn _flag_name(self, def: *FlagDef) -> string {
         if (def->key.length() > 2) && (def->key[0] == 'c') && (def->key[1] == ':') {
-            var bare = def->key.raw_string().substr(2);
+            var bare = def->key.subslice(2, def->key.size());
             return f"'--c{bare}\x27";
         }
         if def->kind == FlagKind::Feature { return f"'-f{def->key}\x27"; }
@@ -604,7 +603,7 @@ class Command {
         var m = needle.length();
         if m > n { return false; }
         for var i: usize = 0; i + m <= n; ++i {
-            if hay.raw_string().substr(i, m) == needle.raw_string() { return true; }
+            if hay.subslice(i, m) == needle { return true; }
         }
         return false;
     }
@@ -766,12 +765,12 @@ class Command {
                     var j: usize = 2;
                     while j < elen && elem[j] != '=' { j += 1; }
 
-                    var name = elem.raw_string().substr(2, j - 2);
+                    var name = elem.subslice(2, j - 2);
                     var def  = self._find(name);
 
                     // try config flag: --cmax-recursion-depth=128
                     if (def == &null) && (name.length() > 1) && (name[0] == 'c') {
-                        def = self._find_cfg(name.substr(1));
+                        def = self._find_cfg(name.subslice(1, name.size()));
                     }
 
                     if def == &null {
@@ -786,9 +785,9 @@ class Command {
 
                     if j < elen { // '--flag=value'
                         if def->kind == FlagKind::Bool {
-                            self._apply_bool_value(def, elem.raw_string().substr(j + 1), &result);
+                            self._apply_bool_value(def, elem.subslice(j + 1, elem.size()), &result);
                         } else {
-                            self._apply(def, elem.raw_string().substr(j + 1), &result);
+                            self._apply(def, elem.subslice(j + 1, elem.size()), &result);
                         }
                     } else if def->kind == FlagKind::Bool {
                         self._apply(def, "", &result);
@@ -801,23 +800,23 @@ class Command {
                     var j: usize = 1;
                     while j < elen && elem[j] != '=' { j += 1; }
 
-                    var name    = elem.raw_string().substr(1, j - 1);
+                    var name    = elem.subslice(1, j - 1);
                     var joined: string;
                     var def     = self._find_split(name, &joined);
 
                     // try feature flag: -funsafe  -fno-unsafe
-                    if (def == &null) && (name.length() > 4) && (name.substr(0, 4) == "fno-".raw_string()) {
-                        var feat = self._find_feature(name.substr(4));
+                    if (def == &null) && (name.length() > 4) && (name.subslice(0, 4) == "fno-") {
+                        var feat = self._find_feature(name.subslice(4, name.size()));
                         if feat != &null {
-                            if j < elen { self._reject_feature_value(feat, elem.raw_string().substr(j + 1), &result); i += 1; continue; }
+                            if j < elen { self._reject_feature_value(feat, elem.subslice(j + 1, elem.size()), &result); i += 1; continue; }
                             self._apply_feature(feat, false, &result); // -fno-X -> disable
                             i += 1; continue;
                         }
                     }
                     if (def == &null) && (name.length() > 1) && (name[0] == 'f') {
-                        var feat = self._find_feature(name.substr(1));
+                        var feat = self._find_feature(name.subslice(1, name.size()));
                         if feat != &null {
-                            if j < elen { self._reject_feature_value(feat, elem.raw_string().substr(j + 1), &result); i += 1; continue; }
+                            if j < elen { self._reject_feature_value(feat, elem.subslice(j + 1, elem.size()), &result); i += 1; continue; }
                             self._apply_feature(feat, true, &result); // -fX -> enable
                             i += 1; continue;
                         }
@@ -834,7 +833,7 @@ class Command {
                     }
 
                     if j < elen { // explicit '=value'
-                        var evalue: string = elem.raw_string().substr(j + 1);
+                        var evalue: string = elem.subslice(j + 1, elem.size());
                         if def->kind == FlagKind::Bool {
                             self._apply_bool_value(def, evalue, &result);
                         } else if (joined.length() > 0) && ((def->kind == FlagKind::String) || (def->kind == FlagKind::StringList) || (def->kind == FlagKind::Path)) {
@@ -858,7 +857,7 @@ class Command {
                 } else { // short cluster: '-abc' = -a -b -c
                     var j: usize = 1;
                     while j < elen {
-                        var ch  = elem.raw_string().substr(j, 1);
+                        var ch  = elem.subslice(j, 1);
                         var def = self._find(ch);
 
                         if def == &null {
@@ -875,7 +874,7 @@ class Command {
                         } else {
                             // remaining chars are the inline value, or next element
                             if j + 1 < elen {
-                                self._apply(def, elem.raw_string().substr(j + 1), &result);
+                                self._apply(def, elem.subslice(j + 1, elem.size()), &result);
                             } else {
                                 pending = def;
                                 gstate  = GlobalState::AwaitValue;
@@ -899,7 +898,7 @@ class Command {
                 if IS_LONG_FLAG[u8(elem[1])] {
                     var j: usize = 1;
                     while j < elen && elem[j] != '=' { j += 1; }
-                    var name    = elem.raw_string().substr(1, j - 1);
+                    var name    = elem.subslice(1, j - 1);
                     var joined: string;
                     var def     = self._find_split(name, &joined);
 
@@ -911,7 +910,7 @@ class Command {
                         self._diag->report(DiagCode(DiagID::U002E), msg).emit();
                         result.ok = false;
                     } else if j < elen {
-                        var evalue: string = elem.raw_string().substr(j + 1);
+                        var evalue: string = elem.subslice(j + 1, elem.size());
                         if def->kind == FlagKind::Bool {
                             self._apply_bool_value(def, evalue, &result);
                         } else if (joined.length() > 0) && ((def->kind == FlagKind::String) || (def->kind == FlagKind::StringList) || (def->kind == FlagKind::Path)) {
@@ -933,7 +932,7 @@ class Command {
                 } else { // '/g' '/c' short cluster
                     var j: usize = 1;
                     while j < elen {
-                        var ch  = elem.raw_string().substr(j, 1);
+                        var ch  = elem.subslice(j, 1);
                         var def = self._find(ch);
 
                         if def == &null {
@@ -948,7 +947,7 @@ class Command {
                             j += 1;
                         } else {
                             if j + 1 < elen {
-                                self._apply(def, elem.raw_string().substr(j + 1), &result);
+                                self._apply(def, elem.subslice(j + 1, elem.size()), &result);
                             } else {
                                 pending = def;
                                 gstate  = GlobalState::AwaitValue;
@@ -1026,7 +1025,7 @@ class Command {
             var is_sep = (!at_end) && (cmdline[i] == ' ');
             if at_end || is_sep {
                 if i > start {
-                    args.push_back(cmdline.raw_string().substr(start, i - start));
+                    args.push_back(cmdline.subslice(start, i - start));
                 }
                 start = i + 1;
             }
@@ -1065,7 +1064,7 @@ class Command {
                 lhs += f"-f[no-]{def->key}";
             } else if (def->key.length() > 2) && (def->key[0] == 'c') && (def->key[1] == ':') {
                 // config flag: --c<name>=<type>
-                var name = def->key.raw_string().substr(2);
+                var name = def->key.subslice(2, def->key.size());
                 lhs += f"--c{name}";
                 switch def->kind {
                     case FlagKind::String { lhs += "=<value>"; }

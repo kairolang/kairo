@@ -94,7 +94,7 @@ class MMapRegion {
 
         const eval if defined(_WIN32) {
             var hFile: HANDLE = CreateFileW(
-                path->raw_string().c_str(),
+                to_path(*path).c_str(),
                 GENERIC_READ,
                 FILE_SHARE_READ,
                 &null,

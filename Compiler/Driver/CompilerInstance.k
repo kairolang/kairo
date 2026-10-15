@@ -261,7 +261,7 @@ class FrontendAction {
 /// it, otherwise in single quotes, each quote inside spelled '\''.
 fn _shell_quote(s: string) -> string {
     if s.empty() { return "\x27\x27"; }
-    var r = s.raw_string();
+    var r = s;
     var plain = true;
     for var i: usize = 0; i < r.size(); ++i {
         var c = r[i];
@@ -274,7 +274,7 @@ fn _shell_quote(s: string) -> string {
     var out: string = "\x27";
     for var i: usize = 0; i < r.size(); ++i {
         if r[i] == static_cast::<char>(39) { out = out + "\x27\\\x27\x27"; continue; }
-        var one: string = r.substr(i, 1);
+        var one: string = r.subslice(i, 1);
         out = out + one;
     }
     return out + "\x27";
@@ -565,10 +565,10 @@ class CompilerInstance {
     fn run_explain(self) -> i32 {
         var code = self.invocation().args.get_string("explain");
 
-        var first: usize = code.raw_string().find_first_not_of(" \t\n\r\f\v".raw());
+        var first: usize = code.view().find_first_not_of(r" \t\n\r\f\v");
         if !(string::npos == first) {
-            var last: usize = code.raw_string().find_last_not_of(" \t\n\r\f\v".raw());
-            code = code.raw_string().substr(first, (last - first + 1));
+            var last: usize = code.view().find_last_not_of(r" \t\n\r\f\v");
+            code = code.subslice(first, (last - first + 1));
         }
 
         var diag_id = diag_from_code(code);
@@ -1065,11 +1065,10 @@ class CompilerInstance {
         var name = string();
         var dir  = string();
         var split = false;
-        var raw = spec.raw_string();
-        var pos = raw.find('=');
-        if (pos != usize(-1)) && (pos > 0) && ((pos + 1) < raw.size()) {
-            name  = string(raw.substr(0, pos));
-            dir   = string(raw.substr(pos + 1));
+        var pos = spec.view().find('=');
+        if (pos != usize(-1)) && (pos > 0) && ((pos + 1) < spec.size()) {
+            name  = spec.subslice(0, pos);
+            dir   = spec.subslice(pos + 1, spec.size());
             split = true;
         }
         if !split {

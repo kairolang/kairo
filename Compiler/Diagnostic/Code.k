@@ -106,7 +106,7 @@ fn diag_from_code(text: string) -> DiagID {
 
     // [category letters][digits][one severity letter]; anything else is not
     // a code, and the exact match above was its only chance.
-    var r = text.raw_string();
+    var r = text;
     var n = r.size();
     var i: usize = 0;
     while (i < n) && (r[i] >= 'A') && (r[i] <= 'Z') { i += 1; }
@@ -117,9 +117,9 @@ fn diag_from_code(text: string) -> DiagID {
     // Strip the padding, keeping one digit of an all-zero number.
     var lead = i;
     while (lead + 1 < j) && (r[lead] == '0') { lead += 1; }
-    var prefix: string = r.substr(0, i);
-    var digits: string = r.substr(lead, j - lead);
-    var sev: string    = r.substr(j, 1);
+    var prefix: string = r.subslice(0, i);
+    var digits: string = r.subslice(lead, j - lead);
+    var sev: string    = r.subslice(j, 1);
     for var width: usize = 3; width <= 4; ++width {
         if digits.size() > width { continue; }
         var pad: string = "";

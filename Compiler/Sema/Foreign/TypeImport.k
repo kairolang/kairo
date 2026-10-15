@@ -172,7 +172,7 @@ class TypeImport {
         var ns = sp;
         if ns.size() < 200 { return sp; }
         var h = llvm::xxh3_64bits(sref(ns));
-        var key = string(sp.raw_string().substr(0, 160)) + f"...#{h}";
+        var key = sp.subslice(0, 160) + f"...#{h}";
         // A prefix of non-ASCII identifiers could still be over the cap once
         // encoded; the hash alone is always short enough.
         if key.size() >= 255 { return f"opaque#{h}"; }

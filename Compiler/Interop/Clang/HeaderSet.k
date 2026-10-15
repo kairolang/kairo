@@ -233,10 +233,10 @@ class HeaderSet {
     static fn unquote(lit: string) -> string {
         var s = lit;
         if (s.size() >= 2) && (s[0] == '\x22') && (s[s.size() - 1] == '\x22') {
-            s = string(s.raw_string().substr(1, s.size() - 2));
+            s = s.subslice(1, s.size() - 2);
         }
         if (s.size() >= 2) && (s[0] == '<') && (s[s.size() - 1] == '>') {
-            s = string(s.raw_string().substr(1, s.size() - 2));
+            s = s.subslice(1, s.size() - 2);
         }
         return s;
     }
@@ -285,7 +285,7 @@ class HeaderSet {
         // `"c1.h"` vs `/abs/dir/c1.h`: suffix match on a path boundary.
         if path.size() < spelled.size() { return false; }
         var off = path.size() - spelled.size();
-        if path.raw_string().compare(off, spelled.size(), spelled.raw_string()) != 0 { return false; }
+        if path.view().compare(off, spelled.size(), spelled.view()) != 0 { return false; }
         if off == 0 { return true; }
         var c = path[off - 1];
         return (c == '/') || (c == '\\');

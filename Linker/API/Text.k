@@ -18,7 +18,7 @@ class LinkText {
         var end = e;
         if end > s.size() { end = s.size(); }
         if (end <= b) || (b >= s.size()) { return ""; }
-        return string(s.raw_string().substr(b, end - b));
+        return s.subslice(b, end - b);
     }
 
     static fn starts_with(s: string, p: string) -> bool {

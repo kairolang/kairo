@@ -707,7 +707,7 @@ class ImportResolver {
         // strip the extension off the leaf
         var leaf     = parts[parts.size() - 1];
         var dot_pos  = leaf.rfind(".");
-        if dot_pos != null { leaf = leaf.raw_string().substr(0, (*dot_pos)); }
+        if dot_pos != null { leaf = leaf.subslice(0, (*dot_pos)); }
         parts[parts.size() - 1] = leaf;
 
         // `Foo/module.k` IS module `Foo`; the leaf names the directory entry.
@@ -1042,8 +1042,8 @@ class ImportResolver {
         var ext     = string();
 
         if dot_pos != null {
-            stem = last.raw_string().substr(0, (*dot_pos));
-            ext  = last.raw_string().substr((*dot_pos) + 1);
+            stem = last.subslice(0, (*dot_pos));
+            ext  = last.subslice((*dot_pos) + 1, last.size());
         }
 
         for root: *SearchRoot in self._roots {
@@ -1827,7 +1827,7 @@ fn Test() -> i32 {
         if result {
             var p = (*result).full_path();
             // should resolve to cwd version, not include path
-            if (p.raw_string().find("hlx_import_test")) != string::npos {
+            if p.view().find(r"hlx_import_test") != string::npos {
                 return 1;
             } else {
                 return 0;
