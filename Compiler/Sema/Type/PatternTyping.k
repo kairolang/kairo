@@ -55,6 +55,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseSet.h";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
@@ -76,7 +77,7 @@ import Diagnostic::Registry::*;
 
 class <T> PatternTyping {
     /// Binder decls already typed by an earlier alternative, by address.
-    priv var _binder_seen: libcxx::unordered_map::<u64, u8>;
+    priv var _binder_seen: llvm::DenseSet::<u64>;
 
     priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
 
@@ -173,8 +174,7 @@ class <T> PatternTyping {
         if t == &null { return; }
 
         var key = reinterpret_cast::<u64>(vd);
-        if self._binder_seen.count(key) == 0 {
-            self._binder_seen[key] = 1;
+        if self._binder_seen.insert(key).second {
             vd->type_ = t;
             return;
         }

@@ -99,6 +99,7 @@
 ///     DiagEngine writes will be replaced by a per-action capture + merge step.
 ///
 
+ffi "c++" import "llvm/ADT/DenseSet.h";
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Diagnostic::Code::*;
@@ -3100,15 +3101,18 @@ fn FrontendAction::_tu_is_empty(fid: u32) -> bool {
 fn FrontendAction::_import_order() -> vec::<u32> {
     var n      = self._fids.size();
     var order  = vec::<u32>();
-    var placed = libcxx::unordered_set::<u32>();
-    var in_set = libcxx::unordered_set::<u32>();
-    for var i: usize = 0; i < n; ++i { in_set.insert(self._fids[i]); }
+    // Membership only (order comes from the _fids walk). Keyed by the fid
+    // WIDENED: an import edge's target_fid can be u32(-1), DenseSet<u32>'s
+    // empty key, and even a find with it asserts.
+    var placed = llvm::DenseSet::<u64>();
+    var in_set = llvm::DenseSet::<u64>();
+    for var i: usize = 0; i < n; ++i { in_set.insert(static_cast::<u64>(self._fids[i])); }
 
     while order.size() < n {
         var progressed = false;
         for var i: usize = 0; i < n; ++i {
             var fid = self._fids[n - 1 - i];
-            if placed.find(fid) != placed.end() { continue; }
+            if placed.contains(static_cast::<u64>(fid)) { continue; }
             var ready = true;
             var ctx = self._global_scope->get_context(fid);
             var tu: *TranslationUnit = &null;
@@ -3118,13 +3122,13 @@ fn FrontendAction::_import_order() -> vec::<u32> {
                     var e = tu->import_edges.get(j);
                     if e == &null { continue; }
                     var t = e->target_fid;
-                    if (t == fid) || (in_set.find(t) == in_set.end()) { continue; }
-                    if placed.find(t) == placed.end() { ready = false; break; }
+                    if (t == fid) || (!in_set.contains(static_cast::<u64>(t))) { continue; }
+                    if !placed.contains(static_cast::<u64>(t)) { ready = false; break; }
                 }
             }
             if !ready { continue; }
             order.push_back(fid);
-            placed.insert(fid);
+            placed.insert(static_cast::<u64>(fid));
             progressed = true;
         }
         if !progressed {

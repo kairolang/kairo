@@ -18,6 +18,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/MapVector.h";
 import AST::Node::Base::*;
 import Token::TokenKind::*;
 import AST::Context::ASTContext::*;
@@ -199,15 +200,24 @@ class OverloadCell {
 ///           names through the same maps.
 ///
 /// \par Container
-///   Backed by libcxx::unordered_map for now. This API is the contract; a
-///   flat open-addressing u64 map can replace the container later without
-///   touching any caller.
+///   MapVector: collect_entries walks the cells in INSERTION order, which is
+///   declaration order. That walk feeds import folding and the redecl /
+///   name / operator checks, where "the first one" is observable -- it is
+///   a language rule, not an accident of bucket order (which differed
+///   between standard libraries). Keys are DeclName::as_key, whose top 24
+///   bits are 0, so DenseMap's reserved ~0 / ~0-1 are unreachable.
+///
+///   Cells live in the owning ASTContext's arena, the map holds their
+///   address: lookup() hands out an *OverloadCell that must survive later
+///   appends, and MapVector's values move as it grows. One arena per
+///   context, not per table -- there is a table per DeclContext.
 class SymbolTable {
-    priv var _cells:  libcxx::unordered_map::<u64, OverloadCell>;
+    priv var _cells:  llvm::MapVector::<u64, *OverloadCell>;
+    priv var _ctx:    obs::<ASTContext>;      ///< arena the cells come from.
     priv var _frozen: bool = false;
 
-    fn SymbolTable(self) {
-        self._cells.reserve(16);
+    fn SymbolTable(self, ctx: *ASTContext) {
+        self._ctx    = ctx;
         self._frozen = false;
     }
 
@@ -216,7 +226,9 @@ class SymbolTable {
     fn append(self, name: DeclName, d: *Decl) {
         assert((!self._frozen) && r"SymbolTable::append after freeze: post-parse source tables take no inserts (RESOLUTION.md hard invariant #1)");
         if !name.is_valid() { return; }
-        self._cells[name.as_key()].append(d);
+        var slot = &(self._cells[name.as_key()]);
+        if (*slot) == &null { (*slot) = self._ctx->alloc::<OverloadCell>(); }
+        (*slot)->append(d);
     }
 
     fn append_ident(self, imm: u32, d: *Decl) {
@@ -235,7 +247,7 @@ class SymbolTable {
     fn lookup(self, name: DeclName) -> *OverloadCell {
         var it = self._cells.find(name.as_key());
         if it == self._cells.end() { return &null; }
-        return &it->second;
+        return it->second;
     }
 
     fn lookup_ident(self, imm: u32) -> *OverloadCell {
@@ -297,7 +309,7 @@ class SymbolTable {
             var e = Entry{};
             e.name.kind    = static_cast::<DeclNameKind>(static_cast::<u8>((it->first >> 32) & 0xFF));
             e.name.payload = static_cast::<u32>(it->first & 0xFFFFFFFF);
-            e.cell         = &(it->second);
+            e.cell         = it->second;
             out.push_back(e);
         }
     }

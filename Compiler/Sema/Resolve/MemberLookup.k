@@ -49,6 +49,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Foreign::ForeignInstantiate::*;
@@ -70,9 +71,13 @@ class MemberLookup {
     pub var sc: *SemaContext;
 
     /// record decl (canonical link) -> extensions targeting it.
-    priv var _ext_by_decl: libcxx::unordered_map::<u64, vec::<*ExtensionDecl>>;
+    // extensions_of_* hand out a pointer INTO these maps' values. Safe under
+    // DenseMap only because index_extensions() fills both once, behind
+    // _indexed, before any lookup: a lazy or mid-lookup insert would rehash
+    // and dangle every pointer a caller is holding.
+    priv var _ext_by_decl: llvm::DenseMap::<u64, vec::<*ExtensionDecl>>;
     /// canonical non-record type -> extensions targeting it.
-    priv var _ext_by_type: libcxx::unordered_map::<u64, vec::<*ExtensionDecl>>;
+    priv var _ext_by_type: llvm::DenseMap::<u64, vec::<*ExtensionDecl>>;
     priv var _indexed: bool = false;
     /// This TU's spelling of the name the current lookup() is walking. See
     /// in_scope: a foreign scope's table cannot be probed with our imm.

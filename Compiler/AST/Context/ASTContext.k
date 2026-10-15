@@ -14,6 +14,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/MapVector.h";
 import Memory::ArenaList::*;
 import Driver::TUStage::*;   // standalone enum, no imports of its own; no cycle
 import Location::SourceManager::*;
@@ -517,62 +518,64 @@ class DisambigEntry {
 /// \c entries holds names declared at this scope level.
 /// \c children holds nested scopes (modules, classes, enums with variants).
 ///
-/// Keyed on the u32 imm ident index so all comparisons and hashes are O(1)
-/// integer ops. Memory is arena-owned the destructor intentionally leaks child
-/// pointers since the arena reclaims everything at once.
+/// Keyed on the u32 imm ident index, WIDENED to u64: lookups arrive
+/// unguarded, and u32(-1) is DenseMap<u32>'s empty key, which asserts even
+/// on a find. Memory is arena-owned; the destructor intentionally leaks
+/// child pointers since the arena reclaims everything at once.
+///
+/// MapVector, in declaration (insertion) order: _collect_extensions and the
+/// dumps walk these, and which extension comes first is observable. Each
+/// name's entry list lives in the context arena, the map holds its address
+/// -- lookup() hands it out as LookupResult.entries, and MapVector's values
+/// move as it grows.
 class DisambigNode {
-    pub var entries:  libcxx::unordered_map::<u32, vec::<DisambigEntry>>;
-    pub var children: libcxx::unordered_map::<u32, *DisambigNode>;
+    pub var entries:  llvm::MapVector::<u64, *vec::<DisambigEntry>>;
+    pub var children: llvm::MapVector::<u64, *DisambigNode>;
 
-    fn DisambigNode(self) {
-        self.entries.reserve(16);
-        self.children.reserve(8);
-    }
+    fn DisambigNode(self) { }
 
     // NOTE: no op delete here. The arena reclaims the NODE STRUCT, but
-    // `entries` and `children` are libcxx::unordered_maps with heap buckets
-    // (and `entries` values are heap vecs on top of that). Their destructors
+    // `entries` and `children` are MapVectors with heap storage (the entry
+    // vecs are cleanup-registered on their own). Their destructors
     // must still run, so DisambigNode is allocated via
     // alloc_init_index_cleanup() and torn down through ASTContext's cleanup
     // registry. Defining a no-op op delete here would silently defeat that.
 
     /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
     /// Sema will catch redefinition errors with full source context.
-    fn insert(self, name: u32, entry: DisambigEntry) {
-        self.entries[name].push_back(entry);
+    fn insert(self, name: u32, entry: DisambigEntry, ctx: *ASTContext) {
+        var slot = &(self.entries[static_cast::<u64>(name)]);
+        if (*slot) == &null { (*slot) = ctx->alloc_init_index_cleanup::<vec::<DisambigEntry>>(); }
+        (*slot)->push_back(entry);
     }
 
     /// Returns the child scope for \p name, creating it if absent.
     fn get_or_create_child(self, name: u32, ctx: *ASTContext) -> *DisambigNode {
-        var it = self.children.find(name);
-        if it != self.children.end() {
-            return it->second;
-        }
-        var child = ctx->alloc_init_index_cleanup::<DisambigNode>();
-        self.children.insert(libcxx::make_pair(name, child));
-        return child;
+        var slot = &(self.children[static_cast::<u64>(name)]);
+        if (*slot) == &null { (*slot) = ctx->alloc_init_index_cleanup::<DisambigNode>(); }
+        return *slot;
     }
 
     /// Returns the child scope for \p name, or null if absent.
     fn get_child(self, name: u32) -> *DisambigNode {
-        var it = self.children.find(name);
+        var it = self.children.find(static_cast::<u64>(name));
         if it == self.children.end() { return &null; }
         return it->second;
     }
 
     /// Looks up \p name at this scope level only. Does not search children.
     fn lookup(self, name: u32) -> *vec::<DisambigEntry> {
-        var it = self.entries.find(name);
+        var it = self.entries.find(static_cast::<u64>(name));
         if it == self.entries.end() { return &null; }
-        return &it->second;
+        return it->second;
     }
 
     fn has_child(self, name: u32) -> bool {
-        return self.children.count(name) > 0;
+        return self.children.count(static_cast::<u64>(name)) > 0;
     }
 
     fn has_entry(self, name: u32) -> bool {
-        return self.entries.count(name) > 0;
+        return self.entries.count(static_cast::<u64>(name)) > 0;
     }
 }
 
@@ -693,7 +696,7 @@ class DisambigTable {
     fn insert(self, name: string, entry: DisambigEntry) {
         var key        = self.intern(name);
         entry.name     = key;
-        self._root.insert(key, entry);
+        self._root.insert(key, entry, self._ctx);
     }
 
     /// Inserts \p entry at the scope reached by walking \p scope_path from root.
@@ -707,7 +710,7 @@ class DisambigTable {
         }
         var key    = self.intern(name);
         entry.name = key;
-        node->insert(key, entry);
+        node->insert(key, entry, self._ctx);
     }
 
     // --- Parser API ----------------------------------------------------------
@@ -812,8 +815,8 @@ class DisambigTable {
 
     priv fn _collect_extensions(self, node: *DisambigNode, type_name: u32, result: *vec::<*DisambigEntry>) {
         for var it = node->entries.begin(); it != node->entries.end(); ++it {
-            for var i: usize = 0; i < it->second.size(); ++i {
-                var entry = &it->second[i];
+            for var i: usize = 0; i < it->second->size(); ++i {
+                var entry = &((*it->second)[i]);
                 if entry->extended {
                     if entry->extend_of_name == type_name {
                         result->push_back(entry);
@@ -846,8 +849,8 @@ class DisambigTable {
             var connector  = (("└── ") if (is_last) else ("├── "));
             var child_pfx  = (("    ") if (is_last) else ("│   "));
 
-            var name = self.str(it->first);
-            var vec  = it->second;
+            var name = self.str(static_cast::<u32>(it->first));
+            var vec  = *(it->second);
 
             if vec.size() == 1 {
                 std::print(f"{prefix}{connector}{name}  [{self._kind_str(vec[0].kind)}]{self._flags_str(vec[0])}");
@@ -868,7 +871,7 @@ class DisambigTable {
             var connector = (("└── ") if (is_last) else ("├── "));
             var child_pfx = (("    ") if (is_last) else ("│   "));
 
-            var name = self.str(it->first);
+            var name = self.str(static_cast::<u32>(it->first));
             std::print(f"{prefix}{connector}{name}/");
             self._dump_node(it->second, prefix + child_pfx, false);
         }

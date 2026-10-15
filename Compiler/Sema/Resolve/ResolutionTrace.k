@@ -40,6 +40,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
 import Location::SourceLocation::*;
@@ -188,7 +189,7 @@ class ResolutionTrace {
     /// every call so the pass cannot drift from the log.
     priv var _depth: usize = 0;
     /// step location id -> outcome. Written by ChainBinding, read by SemaDump.
-    pub var member_results: libcxx::unordered_map::<u32, MemberResult>;
+    pub var member_results: llvm::DenseMap::<u64, MemberResult>;   ///< loc id (widened) -> result. Never iterated; read after resolution only.
 
     fn ResolutionTrace(self) { }
 
@@ -279,11 +280,11 @@ class ResolutionTrace {
         r.decl     = decl;
         r.ncand    = ncand;
         r.found_in = found_in;
-        self.member_results[loc_id] = r;
+        self.member_results[static_cast::<u64>(loc_id)] = r;
     }
 
     fn member_result_for(self, loc_id: u32) -> *MemberResult {
-        var it = self.member_results.find(loc_id);
+        var it = self.member_results.find(static_cast::<u64>(loc_id));
         if it == self.member_results.end() { return &null; }
         return &(it->second);
     }

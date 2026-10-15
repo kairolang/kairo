@@ -138,6 +138,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
+ffi "c++" import "llvm/Support/Allocator.h";
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
@@ -261,7 +263,13 @@ fn lifecycle_open(f: *LifecycleFacts) -> bool {
 class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     pub var sc: *SemaContext;
     priv var _tu:    TypeUtil;
-    priv var _facts: libcxx::unordered_map::<u64, LifecycleFacts>;
+    /// Facts live in _facts_arena, the map holds their address: facts_of
+    /// hands out a *LifecycleFacts that _compute keeps writing while it
+    /// recurses into bases and fields -- each recursion inserts here, and a
+    /// DenseMap rehash moves its values. Keyed by decl address, never a
+    /// reserved key; never iterated.
+    priv var _facts: llvm::DenseMap::<u64, *LifecycleFacts>;
+    priv var _facts_arena: llvm::SpecificBumpPtrAllocator::<LifecycleFacts>;
     pub var n_checked: usize = 0;
     pub var n_errored: usize = 0;
 
@@ -272,7 +280,12 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         self.sc = &null;
     }
 
-    fn ClassLifecycle(self, sc: *SemaContext) {
+    fn ClassLifecycle(self, sc: *SemaContext) { self.bind(sc); }
+
+    /// Wire an already-constructed instance to \p sc. The way an owner
+    /// that holds this by value sets it up: _facts_arena cannot be
+    /// assigned, so `x = ClassLifecycle(sc)` does not compile.
+    fn bind(self, sc: *SemaContext) {
         self.sc  = sc;
         self._tu = TypeUtil(sc);
     }
@@ -310,9 +323,12 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         }
         var key = reinterpret_cast::<u64>(d);
         var it  = self._facts.find(key);
-        if it != self._facts.end() { return &(it->second); }
-        self._facts[key] = LifecycleFacts{};
-        var f = &(self._facts[key]);
+        if it != self._facts.end() { return it->second; }
+        var f = self._facts_arena.Allocate(1);
+        libcxx::construct_at(f);
+        // Published BEFORE _compute: its in_progress mark is how a cyclic
+        // recursion back to \p d is caught.
+        self._facts[key] = f;
         self._compute(d, f);
         return f;
     }

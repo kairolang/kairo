@@ -7,6 +7,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "clang/Basic/Diagnostic.h";
 ffi "c++" import "clang/Basic/DiagnosticIDs.h";
@@ -46,7 +47,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// (HeaderSet::cfid_to_kfid). Set instead of `locmap` for that instance;
     /// a raw table rather than the set so this layer never imports Interop's
     /// HeaderSet (which imports the backend, which imports this).
-    pub var fidmap: const_obs::<libcxx::unordered_map::<u32, u32>> = &null;
+    pub var fidmap: const_obs::<llvm::DenseMap::<u64, u32>> = &null;   ///< HeaderSet::cfid_to_kfid (u64 key: see there).
     priv var _lo: const_obs::<clang::LangOptions> = &null; ///< owned by the CI, valid for the action.
 
     /// Note-attachment state: clang emits notes as separate HandleDiagnostic
@@ -131,7 +132,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// header set's table when one is set, else the backend's locmap.
     priv fn _kfid_of(self, cfid: clang::FileID) -> FileID {
         if self.fidmap != &null {
-            var it = self.fidmap->find(cfid.getHashValue());
+            var it = self.fidmap->find(static_cast::<u64>(cfid.getHashValue()));
             if it == self.fidmap->end() { return static_cast::<FileID>(u32(-1)); }
             if it->second == 0 { return static_cast::<FileID>(u32(-1)); }
             return static_cast::<FileID>(it->second);

@@ -37,12 +37,13 @@
 ///
 /// ----------------------------------------------------------------- ///
 
+ffi "c++" import "llvm/ADT/DenseSet.h";
 ffi "c++" import "clang/Basic/TokenKinds.h";
 
 import Lexer::Immediate::*;
 
 class CxxKeywordSet {
-    priv var _idx:   libcxx::unordered_set::<u32>;  ///< table-local ident indices
+    priv var _idx:   llvm::DenseSet::<u32>;  ///< table-local ident indices; never the u32(-1) miss (see build).
     priv var _built: bool = false;
 
     /// Probe every C++ keyword spelling against \p imms. Misses are the
@@ -71,7 +72,10 @@ class CxxKeywordSet {
     }
 
     fn contains(self, imm: u32) -> bool {
-        return self._idx.find(imm) != self._idx.end();
+        // u32(-1) is "no ident" and DenseSet's empty key: a lookup with it
+        // asserts, so answer it before the probe.
+        if imm == static_cast::<u32>(-1) { return false; }
+        return self._idx.contains(imm);
     }
 }
 

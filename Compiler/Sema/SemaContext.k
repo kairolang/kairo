@@ -25,6 +25,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
+ffi "c++" import "llvm/ADT/DenseSet.h";
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::GlobalDisambigTable::*;
@@ -220,7 +222,7 @@ class SemaContext {
     /// Keyed by decl rather than by param because that is the granularity the
     /// clause is written at: one requires clause belongs to one declaration,
     /// and which param each conjunct names is a property of the conjunct.
-    pub var bounds: libcxx::unordered_map::<u64, ConstraintSet>;
+    pub var bounds: llvm::DenseMap::<u64, ConstraintSet>;
 
     /// Demand-driven resolution memo + cycle stack. Per-TU, unsynchronized.
     pub var rstate: ResolutionState;
@@ -239,7 +241,7 @@ class SemaContext {
     /// decides it alongside use-after-move; one reader, CopyMoveLowering,
     /// which casts each to `T&&`. So the move C++ performs is exactly the
     /// one the checker counted.
-    pub var move_sites: libcxx::unordered_set::<u64>;
+    pub var move_sites: llvm::DenseSet::<u64>;
 
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).

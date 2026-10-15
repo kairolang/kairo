@@ -12,6 +12,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
+ffi "c++" import "llvm/ADT/STLExtras.h";
 import AST::Context::ASTContext::*;
 import AST::LangItems::*;    // WellKnownDecls: storage only; the fill is Sema's
 import Driver::TUStage::*;   // standalone enum; no cycle
@@ -41,7 +43,12 @@ class GlobalDisambigTable {
     /// that false the moment two TUs both name `Foo`, which is the common case.
     /// Owns its own arena so canonicals outlive any one fid's ast_alloc reset.
     priv var _types:     CanonicalTypeStore;
-    priv var _by_fid:    libcxx::unordered_map::<u32, GlobalScopeEntry>;
+    /// fid -> entry, the fid WIDENED to u64: lookups take it unguarded and
+    /// u32(-1) is DenseMap<u32>'s empty key. Filled under _mu by TU setup,
+    /// which may run in parallel, so neither bucket nor insertion order
+    /// means anything: everything that walks it (all_fids, dump) sorts by
+    /// fid on the way out.
+    priv var _by_fid:    llvm::DenseMap::<u64, GlobalScopeEntry>;
     priv var _mu:        std::SharedMutex;
     priv var _instances: InstantiationRegistry;
 
@@ -91,7 +98,7 @@ class GlobalDisambigTable {
     ) -> *ASTContext {
         {
             var rlock = std::SharedLock(self._mu);
-            var it = self._by_fid.find(fid);
+            var it = self._by_fid.find(static_cast::<u64>(fid));
             if it != self._by_fid.end() { return it->second.ctx; }
         }
 
@@ -99,7 +106,7 @@ class GlobalDisambigTable {
         ctx->module_base = mod_path;
 
         var lock = std::LockGuard(self._mu);
-        var it2 = self._by_fid.find(fid);
+        var it2 = self._by_fid.find(static_cast::<u64>(fid));
         if it2 != self._by_fid.end() {   // lost the race
             std::destroy(ctx);
             return it2->second.ctx;
@@ -110,7 +117,7 @@ class GlobalDisambigTable {
         entry.ctx      = ctx;
         entry.hoisted  = &null;          // set by finish_index
         entry.mod_path = mod_path;
-        self._by_fid.insert(libcxx::make_pair(fid, entry));
+        self._by_fid.try_emplace(static_cast::<u64>(fid), entry);
         return ctx;
     }
 
@@ -126,7 +133,7 @@ class GlobalDisambigTable {
     ///          a no-op, and an unknown fid returns false rather than faulting.
     fn release_from(self, fid: u32, from: TUStage) -> bool {
         var lock = std::LockGuard(self._mu);
-        var it = self._by_fid.find(fid);
+        var it = self._by_fid.find(static_cast::<u64>(fid));
         if it == self._by_fid.end() { return false; }
         if it->second.ctx == &null  { return false; }
 
@@ -162,7 +169,7 @@ class GlobalDisambigTable {
     ///         indexed.
     fn begin_index(self, fid: u32) -> *ASTContext {
         var rlock = std::SharedLock(self._mu);
-        var it = self._by_fid.find(fid);
+        var it = self._by_fid.find(static_cast::<u64>(fid));
         if it == self._by_fid.end() { return &null; }
         if it->second.hoisted != &null { return &null; } // already indexed
         return it->second.ctx;
@@ -172,7 +179,7 @@ class GlobalDisambigTable {
     /// Index-mode parser's constructor) into the global entry.
     fn finish_index(self, fid: u32) {
         var lock = std::LockGuard(self._mu);
-        var it = self._by_fid.find(fid);
+        var it = self._by_fid.find(static_cast::<u64>(fid));
         if it != self._by_fid.end() { it->second.hoisted = it->second.ctx->hoisted; }
     }
 
@@ -180,14 +187,14 @@ class GlobalDisambigTable {
 
     fn get_scope(self, fid: u32) -> *DisambigTable {
         var rlock = std::SharedLock(self._mu);
-        var it = self._by_fid.find(fid);
+        var it = self._by_fid.find(static_cast::<u64>(fid));
         if it == self._by_fid.end() { return &null; }
         return it->second.hoisted;
     }
 
     fn get_context(self, fid: u32) -> *ASTContext {
         var rlock = std::SharedLock(self._mu);
-        var it = self._by_fid.find(fid);
+        var it = self._by_fid.find(static_cast::<u64>(fid));
         if it == self._by_fid.end() { return &null; }
         return it->second.ctx;
     }
@@ -216,8 +223,11 @@ class GlobalDisambigTable {
         var result = vec::<u32>();
         result.reserve(self._by_fid.size());
         for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
-            result.push_back(it->first);
+            result.push_back(static_cast::<u32>(it->first));
         }
+        // Fid order: callers index per fid (MemberLookup) and "which file
+        // first" must not follow the hash table.
+        llvm::sort(result.begin(), result.end());
         return result;
     }
 
@@ -258,7 +268,7 @@ class GlobalDisambigTable {
     }
 
     fn has_fid(self, fid: u32) -> bool {
-        return self._by_fid.count(fid) > 0;
+        return self._by_fid.count(static_cast::<u64>(fid)) > 0;
     }
 
     fn instances(self) -> *InstantiationRegistry {
@@ -282,9 +292,8 @@ class GlobalDisambigTable {
         std::print(f"Registered files: {self._by_fid.size()}");
         std::print("");
 
-        for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
-            var fid   = it->first;
-            var entry = &it->second;
+        for fid: u32 in self.all_fids() {
+            var entry = &(self._by_fid.find(static_cast::<u64>(fid))->second);
             std::print(f"[fid={fid}]");
 
             if entry->hoisted != &null {

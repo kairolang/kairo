@@ -41,6 +41,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh";
 ffi "c++" import "lld/Common/Driver.h";
 ffi "c++" import "llvm/ADT/ArrayRef.h";
 ffi "c++" import "llvm/ADT/StringRef.h";
@@ -106,14 +107,13 @@ class LLDRunner {
 
         llvm::CrashRecoveryContext::Enable();
 
-        // Narrow copies with stable addresses: lld keeps the char pointers
-        // for the whole link.
-        var owned: libcxx::deque::<libcxx::string>;
+        // Pointers straight into argv's own (NUL-terminated) bytes: lld keeps
+        // them for the whole link, and argv is the caller's and outlives it.
+        // Indexed, not `for a in`: a by-value loop variable would hand lld a
+        // pointer into a copy that dies at the end of each iteration.
         var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
-        for a: string in argv {
-            owned.push_back(a.std_string());
-            cargv.push_back(owned.back().c_str());
-        }
+        cargv.reserve(argv.size());
+        for var i: usize = 0; i < argv.size(); ++i { cargv.push_back(argv[i].c_str()); }
 
         var out_buf: libcxx::string;
         var err_buf: libcxx::string;
@@ -190,12 +190,10 @@ class LLDRunner {
             args.push_back(f"@{rsp_path}");
         }
 
-        var owned: libcxx::deque::<libcxx::string>;
+        // Views of args' own bytes; args is not touched again while refs lives.
         var refs:  libcxx::vector::<llvm::StringRef>;
-        for a: string in args {
-            owned.push_back(a.std_string());
-            refs.push_back(llvm::StringRef(owned.back()));
-        }
+        refs.reserve(args.size());
+        for var i: usize = 0; i < args.size(); ++i { refs.push_back(sref(args[i])); }
 
         var nout = out_path.std_string();
         var nerr = err_path.std_string();
@@ -229,12 +227,10 @@ class LLDRunner {
     }
 
     priv static fn _fits(args: ref!(vec::<string>)) -> bool {
-        var owned: libcxx::deque::<libcxx::string>;
+        // Views of args' own bytes; args is not touched again while refs lives.
         var refs:  libcxx::vector::<llvm::StringRef>;
-        for a: string in args {
-            owned.push_back(a.std_string());
-            refs.push_back(llvm::StringRef(owned.back()));
-        }
+        refs.reserve(args.size());
+        for var i: usize = 0; i < args.size(); ++i { refs.push_back(sref(args[i])); }
         return llvm::sys::commandLineFitsWithinSystemLimits(refs[0], llvm::ArrayRef::<llvm::StringRef>(refs));
     }
 }

@@ -43,6 +43,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/StringMap.h";
+ffi "c++" import "llvm/ADT/STLExtras.h";
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/ASTConsumer.h";
@@ -156,7 +159,13 @@ class HeaderSet {
     /// Phase B: the PCH bytes are in the backend's in-memory VFS at
     /// pch_path(). Once per set for the build; CodegenBackend::run sets it.
     pub var mounted:  bool = false;
-    pub var cfid_to_kfid: libcxx::unordered_map::<u32, u32>;   ///< clang FileID hash -> Kairo fid. THE table.
+    /// clang FileID hash -> Kairo fid. THE table.
+    ///
+    /// The key is the u32 hash WIDENED to u64. A FileID loaded from a PCH is
+    /// negative (-2, -3, ...) and its hash is that int as unsigned, so u32
+    /// keys reach 0xFFFFFFFE / 0xFFFFFFFF -- DenseMap<u32>'s tombstone and
+    /// empty keys. Zero-extended to u64 they can never be ~0 / ~0-1.
+    pub var cfid_to_kfid: llvm::DenseMap::<u64, u32>;
 
     // The live phase-A instance.
     priv var _ci:      opt::<clang::CompilerInstance> = &null;
@@ -243,7 +252,7 @@ class HeaderSet {
 
     /// Kairo fid for a clang FileID in THIS set's SM, or 0.
     fn kfid_for(self, cfid: clang::FileID) -> u32 {
-        var it = self.cfid_to_kfid.find(cfid.getHashValue());
+        var it = self.cfid_to_kfid.find(static_cast::<u64>(cfid.getHashValue()));
         if it == self.cfid_to_kfid.end() { return 0; }
         return it->second;
     }
@@ -446,7 +455,10 @@ class HeaderSet {
 /// \brief key -> HeaderSet, one per build. Owned by CompilerInstance.
 ///
 class HeaderSetCache {
-    priv var _sets: libcxx::unordered_map::<libcxx::string, *HeaderSet>;
+    /// canonical key -> set. StringMap: probed with the key's own bytes.
+    /// Minted from the parallel wave, so neither map nor `id` order is
+    /// stable; all() sorts by key on the way out.
+    priv var _sets: llvm::StringMap::<*HeaderSet>;
     priv var _mu:   std::Mutex;
     priv var _be:   obs::<ClangBackend>;
     priv var _pool: obs::<ThreadPool>;
@@ -478,9 +490,8 @@ class HeaderSetCache {
     /// covers the map, and the build touches only the set it was given.
     fn request(self, headers: vec::<string>, c_linkage: vec::<bool>, import_dir: string) -> *HeaderSet {
         var key = HeaderSetCache::key_of(headers, c_linkage);
-        var nk  = key.std_string();
         var lock = std::LockGuard(self._mu);
-        var it = self._sets.find(nk);
+        var it = self._sets.find(sref(key));
         if it != self._sets.end() { return it->second; }
 
         var hs = std::create::<HeaderSet>();
@@ -489,7 +500,7 @@ class HeaderSetCache {
         hs->c_linkage  = c_linkage;
         hs->import_dir = import_dir;
         hs->id         = static_cast::<u32>(self._sets.size());
-        self._sets.insert(libcxx::make_pair(nk, hs));
+        self._sets.try_emplace(sref(key), hs);
 
         var set = hs;
         var be  = self._be;
@@ -502,9 +513,8 @@ class HeaderSetCache {
     }
 
     fn find(self, key: string) -> *HeaderSet {
-        var nk = key.std_string();
         var lock = std::LockGuard(self._mu);
-        var it = self._sets.find(nk);
+        var it = self._sets.find(sref(key));
         if it == self._sets.end() { return &null; }
         return it->second;
     }
@@ -513,7 +523,12 @@ class HeaderSetCache {
 
     fn all(self, out: ref!(vec::<*HeaderSet>)) {
         var lock = std::LockGuard(self._mu);
+        var first = out.size();
         for var it = self._sets.begin(); it != self._sets.end(); ++it { out.push_back(it->second); }
+        // By canonical key: the one order independent of which wave thread
+        // minted a set first.
+        llvm::sort(out.begin() + first, out.end(),
+            fn (const a: *HeaderSet, const b: *HeaderSet) || -> bool = a->key < b->key);
     }
 
     fn release_all(self) {

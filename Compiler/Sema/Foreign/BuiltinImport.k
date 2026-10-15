@@ -50,6 +50,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/Type.h";
@@ -107,9 +108,9 @@ class BuiltinImport {
     /// lifetime, so they live here, set once, never reassigned.
     priv var _text:      libcxx::string;
 
-    priv var _name_tok:  libcxx::unordered_map::<u32, Token>;   ///< builtin ID -> its line's token.
+    priv var _name_tok:  llvm::DenseMap::<u32, Token>;   ///< builtin ID -> its line's token.
     priv var _arg_tok:   vec::<Token>;                          ///< `__arg0` .. `__arg{MAX-1}`.
-    priv var _done:      libcxx::unordered_map::<u32, BuiltinEntry>;
+    priv var _done:      llvm::DenseMap::<u32, BuiltinEntry>;
     priv var _mu:        std::SharedMutex;
     priv var _ready:     bool = false;
 
@@ -164,7 +165,7 @@ class BuiltinImport {
         // Nothing binds into this TU's table: resolve() is the only way in.
         // It still gets a frozen, empty one, so a probe sees a scope, not a hole.
         if t->tu->dc_symbols == &null {
-            var tbl = t->ctx->alloc_init_cleanup::<SymbolTable>();
+            var tbl = t->ctx->alloc_init_cleanup::<SymbolTable>(t->ctx);
             tbl->freeze();
             t->tu->set_symbols(tbl);
         }

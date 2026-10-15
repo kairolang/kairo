@@ -52,6 +52,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 import AST::Node::Base::*;
 import Location::SourceRange::*;
 
@@ -88,8 +89,8 @@ class ResolveFrame {
 /// \brief The memo table + the active stack.
 ///
 class ResolutionState {
-    priv var _decls: libcxx::unordered_map::<u64, u8>;
-    priv var _types: libcxx::unordered_map::<u64, u8>;
+    priv var _decls: llvm::DenseMap::<u64, u8>;   ///< by address: never a reserved key.
+    priv var _types: llvm::DenseMap::<u64, u8>;
 
     /// The active chain, innermost last. Depth is bounded by _max_depth, not by
     /// the C++ stack: deeply chained aliases recurse hard, and a segfault is a

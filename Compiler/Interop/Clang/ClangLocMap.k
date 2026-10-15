@@ -97,6 +97,8 @@
 ///   longer any off-thread preload to race with.
 ///
 
+ffi "c++" import "llvm/Support/Allocator.h";
+ffi "c++" import "llvm/Support/StringSaver.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "clang/Basic/SourceLocation.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
@@ -125,7 +127,10 @@ class ClangLocMap {
 
     /// Narrow names handed to clang for virtual fids; deque so addresses stay
     /// stable under growth (clang keeps StringRef views into these).
-    priv var _names: libcxx::deque::<libcxx::string>;
+    /// Buffer names the clang SM keeps as StringRefs (it does not copy).
+    /// Bump-allocated so they never move; Reset() with the SM's tables in
+    /// rebind, exactly where the old container was cleared.
+    priv var _names: llvm::BumpPtrAllocator;
 
     /// Set by rebind(); queries before the first successful rebind are a
     /// driver bug. Cleared at the START of every rebind so a failed
@@ -166,7 +171,7 @@ class ClangLocMap {
 
         self._ready = false;
         self._sloc.clear();
-        self._names.clear();
+        self._names.Reset();
         self._cfid0 = clang::FileID();
         self._n     = 0;
 
@@ -234,13 +239,13 @@ class ClangLocMap {
             return clang::FileID();
         }
 
-        self._names.push_back(path.std_string());
+        var name = llvm::StringSaver(self._names).save(sref(path));
 
         var bref = llvm::MemoryBufferRef(
             llvm::StringRef(
                 reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(hview.data),
                 hview.size),
-            llvm::StringRef(self._names.back()));
+            name);
 
         return self._csm->createFileID(bref, clang::SrcMgr::C_User);
     }

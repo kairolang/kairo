@@ -379,7 +379,7 @@ class ASTParse
         // table can be null share an empty frozen table so qualified lookup
         // through the module is a clean miss, not a null deref.
         if self.tu->dc_symbols == &null {
-            var empty = self.ctx->alloc_init_cleanup::<SymbolTable>();
+            var empty = self.ctx->alloc_init_cleanup::<SymbolTable>(self.ctx);
             empty->freeze();
             self.tu->set_symbols(empty);
         }
@@ -628,7 +628,7 @@ class ASTParse
     ///        for the freeze sweep at the end of _build_symbols.
     priv fn _symtab_for(self, dc: *DeclContext) -> *SymbolTable {
         if dc->dc_symbols == &null {
-            var t = self.ctx->alloc_init_cleanup::<SymbolTable>();
+            var t = self.ctx->alloc_init_cleanup::<SymbolTable>(self.ctx);
             dc->set_symbols(t);
             self._sym_tables.push_back(t);
         }

@@ -28,6 +28,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/Decl.h";
 ffi "c++" import "clang/AST/DeclBase.h";
@@ -66,7 +67,7 @@ class HeaderIndex {
     priv var _reg:  obs::<ForeignRegistry>;
 
     /// header fid -> target, across every set indexed by this compiler.
-    priv var _targets: libcxx::unordered_map::<u32, *HeaderTarget>;
+    priv var _targets: llvm::DenseMap::<u32, *HeaderTarget>;   ///< fid -> target; 0 is the invalid fid, never ~0. Iterated only to destroy.
 
     fn HeaderIndex(self, sm: *SourceManager, tcm: *TokenCacheManager, diag: *DiagEngine,
                    res: *ImportResolver, inv: *CompilerInvocation, g: *GlobalDisambigTable,
@@ -142,7 +143,7 @@ class HeaderIndex {
             var fid = self._sm->load_file(Path(f->path));     // a known path answers with its existing fid (VFM cache hit).
             if fid == u32(-1) { continue; }
             f->kfid = fid;
-            hs->cfid_to_kfid.insert(libcxx::make_pair(f->cfid_hash, fid));
+            hs->cfid_to_kfid.try_emplace(static_cast::<u64>(f->cfid_hash), fid);
             var t = self._target(fid, f->path);
             if !t->frozen { fresh.push_back(t); }
         }
@@ -169,7 +170,7 @@ class HeaderIndex {
                 if t->scopes[s]->dc_symbols != &null { t->scopes[s]->dc_symbols->freeze(); }
             }
             if t->tu->dc_symbols == &null {           // a header that declared nothing at file scope still needs a table.
-                var tbl = t->ctx->alloc_init_cleanup::<SymbolTable>();
+                var tbl = t->ctx->alloc_init_cleanup::<SymbolTable>(t->ctx);
                 tbl->freeze();
                 t->tu->set_symbols(tbl);
             }
@@ -202,7 +203,7 @@ class HeaderIndex {
         var t = std::create::<HeaderTarget>();
         t->fid = fid; t->ctx = ctx; t->tu = tu;
         t->frozen = (tu->dc_symbols != &null) && tu->dc_symbols->is_frozen();
-        self._targets.insert(libcxx::make_pair(fid, t));
+        self._targets.try_emplace(fid, t);
         return t;
     }
 

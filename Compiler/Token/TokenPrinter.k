@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/SmallVector.h";
 import Location::SourceManager::*;
 import Token::TokenBuffer::*;
 import Lexer::Immediate::*;
@@ -424,7 +425,7 @@ class TokenPrinter {
     ///        one nesting level deeper than the owning string/char.
     priv fn _print_interp_exprs(
         self,
-        exprs: ref!(libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>),
+        exprs: ref!(llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4>),
         depth: usize
     ) {
         var s = self._sgr;

@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/SmallVector.h";
 import Location::SourceRange::*;
 import Location::SourceManager::*;
 import Token::TokenBuffer::*;
@@ -349,7 +350,7 @@ module Int128 {
 /// \brief arbitrary precision integer for literals exceeding 128 bits
 /// \details uses a limb array with least-significant limb first (little-endian)
 class BigInt {
-    pub var limbs: libcxx::deque::<u64>;
+    pub var limbs: llvm::SmallVector::<u64, 2>;   ///< 1-2 limbs is the common case: inline, no heap.
     pub var bits:  usize;
     pub var sign:  i8;
 
@@ -787,9 +788,9 @@ module Immediate {
         ///
         /// NOLINT (MA1FW) "non owner scope freeing underling memory"
         /// ^^ remember this to implement this error.
-        pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
+        pub var exprs: llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4>; // exprs tokens
                 // along with the start and end from { and }
-        pub var holes: libcxx::deque::<HoleSpec>;   ///< parallel to exprs
+        pub var holes: llvm::SmallVector::<HoleSpec, 4>;   ///< parallel to exprs
 
         pub var body:        SourceRange; // string range excl quotes prefix and suffix
         pub var prefix:      Token;
@@ -827,9 +828,9 @@ module Immediate {
     }
 
     class CharData {
-        pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
+        pub var exprs: llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4>; // exprs tokens
                 // along with the start and end from { and }
-        pub var holes: libcxx::deque::<HoleSpec>;   ///< parallel to exprs
+        pub var holes: llvm::SmallVector::<HoleSpec, 4>;   ///< parallel to exprs
 
         pub var prefix:      Token;
         pub var suffix:      Token;

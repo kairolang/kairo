@@ -46,6 +46,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
+ffi "c++" import "llvm/Support/Allocator.h";
 import Memory::ArenaAllocator::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -75,18 +77,23 @@ class InstantiationRegistry {
     priv var _arena: ArenaAllocator = ArenaAllocator(256 * 1024);
     priv var _mu:    std::SharedMutex;
     /// bucket hash -> entries. Every hit is confirmed by a structural compare.
-    priv var _table: libcxx::unordered_map::<u64, vec::<*InstanceEntry>>;
-    /// primary -> its partial specializations, in registration order.
-    priv var _partials: libcxx::unordered_map::<u64, vec::<*Decl>>;
+    /// Keys are _hash's, which keeps clear of DenseMap's reserved values.
+    /// Its order means nothing -- hashes of pointers, filled from parallel T
+    /// -- and collect() says so: ordering is the output boundary's job.
+    priv var _table: llvm::DenseMap::<u64, vec::<*InstanceEntry>>;
+    /// primary -> its partial specializations, in registration order. The
+    /// lists live in _partials_arena: partials_of() hands one out, and a
+    /// DenseMap rehash would move it.
+    priv var _partials: llvm::DenseMap::<u64, *vec::<*Decl>>;
+    priv var _partials_arena: llvm::SpecificBumpPtrAllocator::<vec::<*Decl>>;
     /// implicit node -> the entry it was minted for. An implicit node's own
     /// `spec_args` stay EMPTY (they are the user-written `<...>` of an
     /// explicit spec, and every printer reads them that way), so this is how
     /// a holder of the node alone gets back its args.
-    priv var _by_node: libcxx::unordered_map::<u64, *InstanceEntry>;
+    priv var _by_node: llvm::DenseMap::<u64, *InstanceEntry>;
 
     fn InstantiationRegistry(self) {
         self._table.reserve(128);
-        self._partials.reserve(16);
     }
 
     // === Lookup / create ======================================================
@@ -164,18 +171,27 @@ class InstantiationRegistry {
     fn register_partial(self, primary: *Decl, spec: *Decl) {
         if (primary == &null) || (spec == &null) { return; }
         var lock = std::LockGuard(self._mu);
-        self._partials[reinterpret_cast::<u64>(primary)].push_back(spec);
+        var slot = &(self._partials[reinterpret_cast::<u64>(primary)]);
+        if (*slot) == &null {
+            var v = self._partials_arena.Allocate(1);
+            libcxx::construct_at(v);
+            (*slot) = v;
+        }
+        (*slot)->push_back(spec);
     }
 
     fn partials_of(self, primary: *Decl) -> *vec::<*Decl> {
         var rlock = std::SharedLock(self._mu);
         var it = self._partials.find(reinterpret_cast::<u64>(primary));
         if it == self._partials.end() { return &null; }
-        return &(it->second);
+        return it->second;
     }
 
     // === Enumeration (M1 / EmitPlan) ===========================================
 
+    /// Every entry, in NO defined order (hash order of pointer hashes,
+    /// filled from parallel T). A caller that emits from this sorts by its
+    /// own stable key -- EmitPlan by mangled name -- before writing anything.
     fn collect(self, out: ref!(vec::<*InstanceEntry>)) {
         var rlock = std::SharedLock(self._mu);
         for var it = self._table.begin(); it != self._table.end(); ++it {
@@ -199,7 +215,11 @@ class InstantiationRegistry {
         for var i: usize = 0; i < n; ++i {
             h = canon_hash_ptr(h, reinterpret_cast::<*void>((*args)[i]));
         }
-        return h;
+        // Top bit cleared: the mix reaches every u64, including the ~0 / ~0-1
+        // DenseMap reserves for empty / tombstone (assert in debug, silent
+        // corruption in release). The bucket compares args, so the extra
+        // collision this folds in costs one comparison, never correctness.
+        return h >> 1;
     }
 
     /// Under the lock (either mode).

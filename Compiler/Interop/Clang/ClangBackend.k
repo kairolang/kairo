@@ -53,6 +53,8 @@
 ///   exactly once for the whole batch.
 ///
 
+ffi "c++" import "llvm/Support/Allocator.h";
+ffi "c++" import "llvm/Support/StringSaver.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "clang/Basic/Diagnostic.h";
 ffi "c++" import "clang/Basic/DiagnosticOptions.h";
@@ -223,7 +225,11 @@ class ClangBackend {
     /// cc1 argv backing store deque: stable addresses under growth,
     /// clang keeps no references past CreateFromArgs but c_str()s must
     /// stay valid for the duration of the call.
-    priv var _owned: libcxx::deque::<libcxx::string>;
+    /// Bytes behind every argv pointer handed to clang. A bump arena, not a
+    /// container of strings: argv keeps raw pointers while more are added,
+    /// and a vector would move its strings (SSO bytes live inside them).
+    /// StringSaver NUL-terminates, which argv needs.
+    priv var _owned: llvm::BumpPtrAllocator;
 
     priv var _target_args:  vec::<string>;  ///< see _driver_target_args
     priv var _target_known: bool = false;
@@ -471,8 +477,7 @@ class ClangBackend {
     }
 
     priv fn _arg(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, s: string) {
-        self._owned.push_back(s.std_string());
-        argv->push_back(self._owned.back().c_str());
+        argv->push_back(llvm::StringSaver(self._owned).save(sref(s)).data());
     }
 
     /// \brief the cc1 arguments clang's own driver derives from the triple
@@ -506,7 +511,7 @@ class ClangBackend {
         if self._target_known { return self._target_args; }
         self._target_known = true;
 
-        var owned: libcxx::deque::<libcxx::string>;
+        var owned: llvm::BumpPtrAllocator;   ///< argv bytes, for this call (see _owned).
         var dargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         var words = vec::<string>();
         words.push_back("clang");
@@ -524,8 +529,7 @@ class ClangBackend {
         words.push_back("c++");
         words.push_back("-");
         for w: string in words {
-            owned.push_back(w.std_string());
-            dargv.push_back(owned.back().c_str());
+            dargv.push_back(llvm::StringSaver(owned).save(sref(w)).data());
         }
 
         var cc1: libcxx::vector::<libcxx::string>;

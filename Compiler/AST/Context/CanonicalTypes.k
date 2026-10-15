@@ -61,6 +61,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 import Memory::ArenaAllocator::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
@@ -109,7 +110,11 @@ class CanonicalTypeStore {
     /// bucket hash -> candidate nodes. One table for every uniqued kind: the
     /// hash already folds in the TypeKind, so cross-kind collisions are as rare
     /// as same-kind ones and are rejected by the same structural compare.
-    priv var _table: libcxx::unordered_map::<u64, vec::<*Type>>;
+    /// Keyed by canon hash >> 1 (_key): the mix reaches every u64, including
+    /// DenseMap's reserved ~0 / ~0-1. Buckets compare structurally, so the
+    /// folded collision costs a comparison, never correctness. Bucket
+    /// pointers from _bucket are used only before the _insert that follows.
+    priv var _table: llvm::DenseMap::<u64, vec::<*Type>>;
 
     /// Pointer width in bits, for usize/isize. Set by init(); 64 until then.
     priv var _ptr_bits: usize = 64;
@@ -521,14 +526,16 @@ class CanonicalTypeStore {
     }
 
     priv fn _insert(self, h: u64, ty: *Type) {
-        self._table[h].push_back(ty);
+        self._table[CanonicalTypeStore::_key(h)].push_back(ty);
     }
 
     priv fn _bucket(self, h: u64) -> *vec::<*Type> {
-        var it = self._table.find(h);
+        var it = self._table.find(CanonicalTypeStore::_key(h));
         if it == self._table.end() { return &null; }
         return &(it->second);
     }
+
+    priv static inline fn _key(h: u64) -> u64 { return h >> 1; }
 
     /// Dependence propagates UP: a composite is dependent iff a component is.
     /// Mirrors propagate_flags in Types.k, but reads through `canonical` since

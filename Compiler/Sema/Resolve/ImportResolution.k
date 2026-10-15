@@ -483,7 +483,7 @@ class ImportResolution {
         tok.range = at;
         tok.imm   = self.sc->imm_table()->intern_ident_copy("cxx");
 
-        var tbl  = self.sc->ctx->alloc_init_cleanup::<SymbolTable>();
+        var tbl  = self.sc->ctx->alloc_init_cleanup::<SymbolTable>(self.sc->ctx);
         var skey = self.sc->imm_table()->intern_ident_copy("std");
         for var i: usize = 0; i < std_mods.size(); ++i {
             tbl->append_ident(skey, std_mods[i]);

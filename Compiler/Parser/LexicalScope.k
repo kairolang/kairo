@@ -11,6 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/ADT/StringMap.h";
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::CodeCompleteConsumer::*;
@@ -104,7 +106,10 @@ class LocalBinding {
 class LexicalScope {
     pub var kind:     ScopeKind;                    ///< determines lookup and shadowing rules.
     pub var parent:   obs::<LexicalScope>;          ///< enclosing scope, or null for global/module scope.
-    pub var bindings: libcxx::unordered_map::<string, LocalBinding>;
+    /// StringMap: lookups take the name's bytes as a StringRef, and every
+    /// entry is its own allocation, so the *LocalBinding lookup_local hands
+    /// out survives a later bind into the same scope.
+    pub var bindings: llvm::StringMap::<LocalBinding>;
     pub var dc:       obs::<DeclContext>;           ///< the declaration context (e.g. FunctionDecl) containing this scope.
 
     /// \brief initializes a new scope with its hierarchy and context links.
@@ -116,7 +121,6 @@ class LexicalScope {
         self.kind   = kind;
         self.parent = parent;
         self.dc     = dc;
-        self.bindings.reserve(8);
     }
 
     /// \brief adds a name-to-declaration mapping to the current scope level.
@@ -132,7 +136,7 @@ class LexicalScope {
         b.name  = name;
         b.decl  = decl;
         b.range = range;
-        self.bindings.insert(libcxx::make_pair(name, b));
+        self.bindings.try_emplace(sref(name), b);   // like insert: an existing name keeps its binding
     }
 
     /// \brief searches only the current scope level for a binding.
@@ -143,7 +147,7 @@ class LexicalScope {
     /// \param name  the identifier to find.
     /// \return pointer to the local binding record, or null if not found.
     fn lookup_local(self, name: string) -> *LocalBinding {
-        var it = self.bindings.find(name);
+        var it = self.bindings.find(sref(name));
         if it == self.bindings.end() { return &null; }
         return &(it->second);
     }

@@ -1130,8 +1130,7 @@ class ImportResolver {
             var file_node = node->find(file_name);
 
             if (file_node == &null) && (file_name.rfind(".") == null) {
-                for entry in node->children {
-                    var child = entry.second;
+                for child: *DirEntry in node->sorted_children() {
                     if (!child->is_dir) && (child->name == file_name) && (child->ext.size() == 0) {
                         file_node = child;
                         break;
@@ -1225,8 +1224,7 @@ class ImportResolver {
             }
         }
 
-        for entry in node->children {
-            var child = entry.second;
+        for child: *DirEntry in node->sorted_children() {
             if child->is_dir {
                 self.collect_recursive(child, cat, result, seen);
             }
@@ -1395,8 +1393,8 @@ class ImportResolver {
             result += f"{indent}       -> {path_str}\n";
         }
 
-        for entry in node->children {
-            result += self.dump_node(entry.second, depth + 1);
+        for child: *DirEntry in node->sorted_children() {
+            result += self.dump_node(child, depth + 1);
         }
 
         return result;

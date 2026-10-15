@@ -13,6 +13,7 @@
 ///
 /// -------------------------------------------------------------------------- ///
 
+ffi "c++" import "llvm/ADT/SmallVector.h";
 import AST::Node::Base::*;
 import AST::Context::ASTContext::*;
 import AST::Context::SymbolTable::*;
@@ -867,13 +868,13 @@ class StringLiteralExpr derives Expr {
         return self.imm->exprs.size() > 0;
     }
 
-    fn get_exprs(self) -> *libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
+    fn get_exprs(self) -> *llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4> {
         assert((self.imm != &null) && r"StringLiteralExpr::get_exprs: imm pointer is null");
         return &(self.imm->exprs);
     }
 
     /// The spec and `=` facts the lexer recorded per hole; parallel to get_exprs().
-    fn get_holes(self) -> *libcxx::deque::<Immediate::HoleSpec> {
+    fn get_holes(self) -> *llvm::SmallVector::<Immediate::HoleSpec, 4> {
         assert((self.imm != &null) && r"StringLiteralExpr::get_holes: imm pointer is null");
         return &(self.imm->holes);
     }
@@ -984,7 +985,7 @@ class CharacterLiteralExpr derives Expr {
         return self.imm->exprs.size() > 0;
     }
 
-    fn get_exprs(self) -> *libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
+    fn get_exprs(self) -> *llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4> {
         assert((self.imm != &null) && r"CharacterLiteralExpr::get_exprs: imm pointer is null");
         return &(self.imm->exprs);
     }

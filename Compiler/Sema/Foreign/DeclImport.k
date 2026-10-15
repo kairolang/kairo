@@ -46,6 +46,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "llvm/ADT/StringMap.h";
 ffi "c++" import "clang/AST/ASTContext.h";
@@ -105,7 +106,7 @@ class DeclImport {
     pub var csm:   obs::<clang::SourceManager>;
 
     /// header fid -> target. Owned by HeaderIndex; borrowed here.
-    pub var targets: obs::<libcxx::unordered_map::<u32, *HeaderTarget>>;
+    pub var targets: obs::<llvm::DenseMap::<u32, *HeaderTarget>>;
 
     // --- fill mode (ForeignInstantiate; all null for a header walk) ----------
     pub var fill_target: *HeaderTarget = &null;   ///< when set: every decl lands here.
@@ -255,7 +256,7 @@ class DeclImport {
 
     fn table_of(self, t: *HeaderTarget, dc: *DeclContext) -> *SymbolTable {
         if dc->dc_symbols == &null {
-            var tbl = t->ctx->alloc_init_cleanup::<SymbolTable>();
+            var tbl = t->ctx->alloc_init_cleanup::<SymbolTable>(t->ctx);
             dc->set_symbols(tbl);
             // A fill's tables are the fill's to freeze: HeaderIndex froze
             // `t->scopes` once, when the set finished, and never reads it again.

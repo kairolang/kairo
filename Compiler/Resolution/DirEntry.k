@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/STLExtras.h";
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "llvm/Support/FileSystem.h";
 ffi "c++" import "llvm/Support/Path.h";
@@ -212,8 +213,7 @@ class DirEntry {
         var k = self.probe_file(stem, "k");
         if k != &null { return k; }
         self.ensure_scanned();
-        for entry in self.children {
-            var child = entry.second;
+        for child: *DirEntry in self.sorted_children() {
             if (!child->is_dir) && (child->name == stem) {
                 return child;
             }
@@ -228,8 +228,7 @@ class DirEntry {
             return &null;
         }
         self.ensure_scanned();
-        for entry in self.children {
-            var child = entry.second;
+        for child: *DirEntry in self.sorted_children() {
             if (!child->is_dir) && (child->name == stem) && (child->category == cat) {
                 return child;
             }
@@ -241,8 +240,7 @@ class DirEntry {
         self.ensure_scanned();
         var result = vec::<*DirEntry>();
 
-        for entry in self.children {
-            var child = entry.second;
+        for child: *DirEntry in self.sorted_children() {
             if (!child->is_dir) && (child->category == cat) {
                 result.push_back(child);
             }
@@ -255,8 +253,7 @@ class DirEntry {
         self.ensure_scanned();
         var result = vec::<*DirEntry>();
 
-        for entry in self.children {
-            var child = entry.second;
+        for child: *DirEntry in self.sorted_children() {
             if (!child->is_dir) && (child->ext == ext) {
                 result.push_back(child);
             }
@@ -265,12 +262,34 @@ class DirEntry {
         return result;
     }
 
+    ///
+    /// \brief the children, sorted by name.
+    ///
+    /// \details Every walk over children goes through this. The map's own
+    ///          order is hash order, and the entries came from readdir, whose
+    ///          order differs between filesystems (ext4, APFS, NTFS): any
+    ///          "first match" or collected list taken straight off the map
+    ///          was platform-dependent. Name is the one order every host
+    ///          agrees on. Names are the map's keys, so they never tie.
+    ///
+    fn sorted_children(self) -> vec::<*DirEntry> {
+        var keyed: libcxx::vector::<libcxx::pair::<string, *DirEntry>>;
+        keyed.reserve(self.children.size());
+        for var it = self.children.begin(); it != self.children.end(); ++it {
+            keyed.push_back(libcxx::make_pair(it->first, it->second));
+        }
+        llvm::sort(keyed.begin(), keyed.end());
+        var out = vec::<*DirEntry>();
+        out.reserve(keyed.size());
+        for var i: usize = 0; i < keyed.size(); ++i { out.push_back(keyed[i].second); }
+        return out;
+    }
+
     fn collect_all_files(self) -> vec::<*DirEntry> {
         self.ensure_scanned();
         var result = vec::<*DirEntry>();
 
-        for entry in self.children {
-            var child = entry.second;
+        for child: *DirEntry in self.sorted_children() {
             if !child->is_dir {
                 result.push_back(child);
             }

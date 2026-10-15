@@ -22,6 +22,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/MapVector.h";
+ffi "c++" import "llvm/Support/Allocator.h";
 import AST::Node::Base::*;
 import AST::Context::SymbolTable::*;
 
@@ -120,21 +122,36 @@ class OverlayEntry {
 ///          Read LAST in unqualified lookup so TU-local decls shadow imports.
 ///          Frozen after I completes (I is the sole writer).
 class ImportOverlay {
-    priv var _entries: libcxx::unordered_map::<u32, OverlayEntry>;
+    /// MapVector: collect_rows walks entries in the order imports folded
+    /// them in, and that walk decides which pair the R016 collision names
+    /// (_fold_reexports) and the --print-imports order. Insertion order is
+    /// the defined rule; bucket order was an accident.
+    ///
+    /// The key is the u32 imm WIDENED to u64: lookups arrive unguarded, and
+    /// u32(-1) is both "no ident" and DenseMap<u32>'s empty key, which
+    /// asserts even on a find. Entries live in _arena; entry_for() hands
+    /// out pointers that _fold_reexports holds across later entry_for()s.
+    priv var _entries: llvm::MapVector::<u64, *OverlayEntry>;
+    priv var _arena:   llvm::SpecificBumpPtrAllocator::<OverlayEntry>;
     priv var _frozen:  bool = false;
 
     fn ImportOverlay(self) {
-        self._entries.reserve(16);
         self._frozen = false;
     }
 
     /// Get-or-create the entry for this-TU imm \p key. Write path (I only).
     fn entry_for(self, key: u32) -> *OverlayEntry {
         assert((!self._frozen) && r"ImportOverlay::entry_for after freeze (I is the sole writer)");
-        return &(self._entries[key]);
+        var slot = &(self._entries[static_cast::<u64>(key)]);
+        if (*slot) == &null {
+            var e = self._arena.Allocate(1);
+            libcxx::construct_at(e);
+            (*slot) = e;
+        }
+        return *slot;
     }
 
-    fn has(self, key: u32) -> bool { return self._entries.count(key) > 0; }
+    fn has(self, key: u32) -> bool { return self._entries.count(static_cast::<u64>(key)) > 0; }
 
     fn freeze(self)           { self._frozen = true; }
     fn is_frozen(self) -> bool { return self._frozen; }
@@ -147,17 +164,17 @@ class ImportOverlay {
     /// was never imported. Returns the entry's `merged` view so the caller
     /// stays cell-shaped; ambiguity was already diagnosed in I.
     fn lookup_ident(self, key: u32) -> *OverloadCell {
-        var it = self._entries.find(key);
+        var it = self._entries.find(static_cast::<u64>(key));
         if it == self._entries.end() { return &null; }
-        return &(it->second.merged);
+        return &(it->second->merged);
     }
 
     /// The full entry (targets + visibility facts) for a key, or null. N reads
     /// this for access diagnostics; dumps read it for --print-imports.
     fn entry(self, key: u32) -> *OverlayEntry {
-        var it = self._entries.find(key);
+        var it = self._entries.find(static_cast::<u64>(key));
         if it == self._entries.end() { return &null; }
-        return &(it->second);
+        return it->second;
     }
 
     // --- Dump support --------------------------------------------------------
@@ -170,8 +187,8 @@ class ImportOverlay {
     fn collect_rows(self, out: ref!(vec::<Row>)) {
         for var it = self._entries.begin(); it != self._entries.end(); ++it {
             var r = Row{};
-            r.key   = it->first;
-            r.entry = &(it->second);
+            r.key   = static_cast::<u32>(it->first);
+            r.entry = it->second;
             out.push_back(r);
         }
     }

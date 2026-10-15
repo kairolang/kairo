@@ -20,6 +20,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "llvm/ADT/StringMap.h";
 ffi "c++" import "llvm/ADT/StringRef.h";
 
@@ -32,7 +33,7 @@ class ForeignRegistry {
     /// hands back -- a lookup allocates nothing.
     priv var _by_usr: llvm::StringMap::<*Decl>;
     priv var _mu:     std::SharedMutex;
-    priv var _spec_of: libcxx::unordered_map::<*Decl, *void>;   ///< see note_spec().
+    priv var _spec_of: llvm::DenseMap::<*Decl, *void>;   ///< see note_spec().
     priv var _ns_head: llvm::StringMap::<*ModuleDecl>;   ///< see link_namespace().
 
     fn ForeignRegistry(self) { self._by_usr = llvm::StringMap::<*Decl>(4096); }
@@ -89,8 +90,7 @@ class ForeignRegistry {
     fn note_spec(self, shell: *Decl, spec: *void) {
         if (shell == &null) || (spec == &null) { return; }
         var lock = std::LockGuard(self._mu);
-        if self._spec_of.find(shell) != self._spec_of.end() { return; }
-        self._spec_of.insert(libcxx::make_pair(shell, spec));
+        self._spec_of.try_emplace(shell, spec);   // first one wins
     }
 
     fn spec_of(self, shell: *Decl) -> *void {

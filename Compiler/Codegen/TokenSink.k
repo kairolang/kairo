@@ -33,6 +33,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/StringMap.h";
+ffi "c++" import "llvm/ADT/DenseSet.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
 ffi "c++" import "clang/Basic/SourceLocation.h";
 ffi "c++" import "clang/Basic/TokenKinds.h";
@@ -77,10 +79,13 @@ class TokenSink derives EmitSink {
     priv var _pending: ArenaList::<PendingArenaTok>;
 
     priv var _arena_text: libcxx::string;
-    priv var _dedup:      libcxx::unordered_map::<libcxx::string, u32>;
+    priv var _dedup:      llvm::StringMap::<u32>;   ///< probed with the spelling's own bytes: a hit allocates nothing.
     /// Kairo raw locations already given to a borrowed token. A second token
     /// at one of them moves within its anchor, or to the arena: see _claim.
-    priv var _used:       libcxx::unordered_set::<u32>;
+    /// Raw locations, WIDENED to u64: the claim walk runs across the raw
+    /// space unfiltered, and a u32 key could land on DenseSet's reserved
+    /// 0xFFFFFFFF / 0xFFFFFFFE. Zero-extended, it never can.
+    priv var _used:       llvm::DenseSet::<u64>;
     priv var _sealed:     bool = false;
     /// The last punctuator, while it is still the last token: one past its
     /// index (0 for none), its anchor, and the byte it claimed (invalid when
@@ -304,9 +309,7 @@ class TokenSink derives EmitSink {
         var avail = self._csm->getBufferData(dec.first).size() - static_cast::<usize>(dec.second);
         for var i: usize = 0; i < avail; ++i {
             var at  = loc.advance(i);
-            var raw = at.raw();
-            if self._used.find(raw) != self._used.end() { continue; }
-            self._used.insert(raw);
+            if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
             return at;
         }
         // Then backward: a closer anchored near the end of a small file
@@ -314,9 +317,7 @@ class TokenSink derives EmitSink {
         var before = static_cast::<usize>(dec.second);
         for var i: usize = 1; i <= before; ++i {
             var at  = loc.with_offset(0 - static_cast::<i64>(i));
-            var raw = at.raw();
-            if self._used.find(raw) != self._used.end() { continue; }
-            self._used.insert(raw);
+            if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
             return at;
         }
         return SourceLocation::invalid();
@@ -408,7 +409,7 @@ class TokenSink derives EmitSink {
                 t->setLength(self._rest(loc, at, len));
                 return true;
             }
-            self._used.erase(self._open_byte.raw());
+            self._used.erase(static_cast::<u64>(self._open_byte.raw()));
             var h = self._pending.slot();
             h->tok_index = first;
             h->kro_start = self._open_loc;
@@ -473,18 +474,17 @@ class TokenSink derives EmitSink {
 
     priv fn _intern(self, s: ref!(string)) -> u32 {
         ICE_IF(self._sealed, "TokenSink: intern after arena registration");
-        var key = s.std_string();
-        var it = self._dedup.find(key);
+        var it = self._dedup.find(sref(s));
         if it != self._dedup.end() { return it->second; }
         var off = static_cast::<u32>(self._arena_text.size());
-        self._arena_text.append(key);
+        self._arena_text.append(s.c_str(), s.size());
         // A separator no pp-number can continue through. NumericLiteralParser
         // reads ONE byte past the token (Sema::ActOnNumericConstant: "wants to
         // overread by one character") and trusts it to end the number; packed
         // back to back, `256` followed by `512` failed to lex. Offsets and
         // lengths are unaffected: the byte is never part of a token.
         self._arena_text.push_back('\n');
-        self._dedup.insert(libcxx::make_pair(key, off));
+        self._dedup.try_emplace(sref(s), off);
         return off;
     }
 

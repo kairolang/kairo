@@ -101,7 +101,7 @@ class Sema {
         // Only now: `sc` was assigned from a temporary, and the instance
         // keeps `&self.sc` while `sc` keeps `&self.lifecycle`, so both have
         // to be the members' final addresses.
-        self.lifecycle    = ClassLifecycle(&self.sc);
+        self.lifecycle.bind(&self.sc);
         self.sc.lifecycle = &self.lifecycle;
     }
 

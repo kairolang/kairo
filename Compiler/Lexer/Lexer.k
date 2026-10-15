@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/SmallVector.h";
 ffi "c++" import "Native/CharTable.hh";
 
 import Token::Token::*;
@@ -145,7 +146,7 @@ class Lexer {
 
         /// \brief returns f-string expression list
         /// \returns deque of token buffers + source ranges
-        fn get_exprs(self) -> ref!(libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>) {
+        fn get_exprs(self) -> ref!(llvm::SmallVector::<(*TokenBuffer::<16>, SourceRange), 4>) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
                 return imm->exprs;
@@ -156,7 +157,7 @@ class Lexer {
         }
 
         /// \brief returns the per-hole spec/self-doc list, parallel to get_exprs()
-        fn get_holes(self) -> ref!(libcxx::deque::<Immediate::HoleSpec>) {
+        fn get_holes(self) -> ref!(llvm::SmallVector::<Immediate::HoleSpec, 4>) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
                 return imm->holes;
@@ -253,7 +254,7 @@ class Lexer {
         var in_format_depth : usize;
         var in_bracket_depth: usize;   ///< `(` `[` nesting inside the hole; a `:` or `=` decides nothing inside one
         var terminators     : libcxx::stack::<SourceLocation>;
-        var fstring_specs   : libcxx::deque::<FormatSpec>;
+        var fstring_specs   : llvm::SmallVector::<FormatSpec, 4>;
 
         var has_error       : bool;
         var is_triple       : bool;
@@ -1872,7 +1873,7 @@ class Lexer {
         ctx.in_format_depth = 0;
         ctx.in_bracket_depth = 0;
         ctx.terminators     = libcxx::stack::<SourceLocation>();
-        ctx.fstring_specs   = libcxx::deque::<TextCtx::FormatSpec>();
+        ctx.fstring_specs   = llvm::SmallVector::<TextCtx::FormatSpec, 4>();
 
         return ctx;
     }

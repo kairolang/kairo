@@ -73,6 +73,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
+ffi "c++" import "llvm/ADT/DenseSet.h";
+ffi "c++" import "llvm/Support/Allocator.h";
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
@@ -225,10 +228,16 @@ class ExprTyper
     pub var variant_head: *Expr = &null;
 
     // --- side tables --------------------------------------------------------
-    priv var _memo:    libcxx::unordered_map::<u64, u8>;
-    priv var _chains:  libcxx::unordered_map::<u64, ChainInfo>;
-    priv var _typeexp: libcxx::unordered_map::<u64, *Type>;   ///< expr -> the type it denotes.
-    priv var _modexp:  libcxx::unordered_map::<u64, u8>;      ///< expr denotes a module.
+    // Keyed by expr address: a pointer can never be DenseMap's reserved
+    // ~0 / ~0-1, and nothing here is iterated, so hash order never shows.
+    priv var _memo:    llvm::DenseMap::<u64, u8>;
+    /// ChainInfo lives in _chain_arena, the map holds its address: callers
+    /// keep a *ChainInfo across type_of() recursion that inserts more chains,
+    /// and a DenseMap rehash moves its values.
+    priv var _chains:  llvm::DenseMap::<u64, *ChainInfo>;
+    priv var _chain_arena: llvm::SpecificBumpPtrAllocator::<ChainInfo>;
+    priv var _typeexp: llvm::DenseMap::<u64, *Type>;   ///< expr -> the type it denotes.
+    priv var _modexp:  llvm::DenseSet::<u64>;          ///< expr denotes a module.
     priv var _panics:  vec::<*Expr>;                          ///< asserting downcasts.
     priv var _lang_reported: vec::<string>;
     priv var _scratch_ded: Deduction;
@@ -339,7 +348,7 @@ class ExprTyper
                 var k = key;
                 if (self._typeexp.find(k) == self._typeexp.end()) && (self._modexp.find(k) == self._modexp.end()) {
                     var ci = self._chains.find(k);
-                    var callable = (ci != self._chains.end()) && (ci->second.callable_cands.size() > 0);
+                    var callable = (ci != self._chains.end()) && (ci->second->callable_cands.size() > 0);
                     if !callable {
                         // Every arm ends typed, poisoned (with its diagnostic) or
                         // mark_unknown'd. A node in none of those reaches EmitIR
@@ -618,7 +627,7 @@ class ExprTyper
     }
 
     fn note_type_expr(self, e: *Expr, t: *Type) { self._typeexp[reinterpret_cast::<u64>(e)] = t; }
-    fn note_module_expr(self, e: *Expr)         { self._modexp[reinterpret_cast::<u64>(e)] = 1; }
+    fn note_module_expr(self, e: *Expr)         { self._modexp.insert(reinterpret_cast::<u64>(e)); }
 
     /// The type \p e denotes, or null when it is a value / unknown.
     fn denoted_type(self, e: *Expr) -> *Type {
@@ -631,27 +640,38 @@ class ExprTyper
 
     fn denotes_module(self, e: *Expr) -> bool {
         if e == &null { return false; }
-        return self._modexp.find(reinterpret_cast::<u64>(e)) != self._modexp.end();
+        return self._modexp.contains(reinterpret_cast::<u64>(e));
     }
 
     // === chain side table ===================================================
 
     fn new_chain_info(self, n: *ChainExpr) -> *ChainInfo {
-        var key = reinterpret_cast::<u64>(static_cast::<*Expr>(n));
-        self._chains[key] = ChainInfo{};
-        return &(self._chains[key]);
+        return self._fresh_chain(reinterpret_cast::<u64>(static_cast::<*Expr>(n)));
     }
 
     fn new_chain_info_for_ident(self, n: *NamedIdentExpr) -> *ChainInfo {
-        var key = reinterpret_cast::<u64>(static_cast::<*Expr>(n));
-        self._chains[key] = ChainInfo{};
-        return &(self._chains[key]);
+        return self._fresh_chain(reinterpret_cast::<u64>(static_cast::<*Expr>(n)));
+    }
+
+    /// A reset ChainInfo for \p key at a stable address. Re-typing an expr
+    /// resets its existing record in place, as the by-value map did, so a
+    /// pointer handed out earlier still names the live one.
+    priv fn _fresh_chain(self, key: u64) -> *ChainInfo {
+        var slot = &(self._chains[key]);
+        if (*slot) != &null {
+            (**slot) = ChainInfo{};
+            return *slot;
+        }
+        var p = self._chain_arena.Allocate(1);
+        libcxx::construct_at(p);
+        (*slot) = p;
+        return p;
     }
 
     fn chain_info(self, n: *ChainExpr) -> *ChainInfo {
         var it = self._chains.find(reinterpret_cast::<u64>(static_cast::<*Expr>(n)));
         if it == self._chains.end() { return &null; }
-        return &(it->second);
+        return it->second;
     }
 
     fn ded_scratch(self) -> *Deduction {

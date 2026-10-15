@@ -63,6 +63,7 @@
 ///
 /// ----------------------------------------------------------------- ///
 
+ffi "c++" import "llvm/ADT/DenseMap.h";
 import Sema::SemaContext::*;
 import Sema::Lower::PatternCompilation::*;
 import Sema::Check::ClassLifecycle::*;
@@ -296,7 +297,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
 
     /// use-site SourceLocation::id -> index into sc->trace.rows. Built once
     /// in run(); empty when the trace was not recorded.
-    priv var _use_index: libcxx::unordered_map::<u32, usize>;
+    priv var _use_index: llvm::DenseMap::<u64, usize>;   ///< loc id (widened: never a reserved key) -> trace row. Never iterated.
 
     // Counters for the summary line.
     priv var _n_bound:      usize = 0;
@@ -994,14 +995,14 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 continue;
             }
             if tr->rows[i].kind != TraceRowKind::Use { continue; }
-            self._use_index[tr->rows[i].at.start.id] = i;
+            self._use_index[static_cast::<u64>(tr->rows[i].at.start.id)] = i;
         }
     }
 
     priv fn _trace_use_for(self, loc: SourceLocation) -> *TraceRow {
         var tr = &(self.sc->trace);
         if !tr->enabled { return &null; }
-        var it = self._use_index.find(loc.id);
+        var it = self._use_index.find(static_cast::<u64>(loc.id));
         if it == self._use_index.end() { return &null; }
         return &(tr->rows[it->second]);
     }

@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/SmallVector.h";
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 import Token::Token::*;
@@ -41,7 +42,7 @@ class BalanceTracker {
     }
     
     var stack           : std::Memory::buffer::<Entry, 512>; // static const and initialized in class is not supported in stage(0)
-    pub var errors      : libcxx::deque::<BalanceError>;
+    pub var errors      : llvm::SmallVector::<BalanceError, 4>;
     var stack_size      : usize = 0;
     const MAX_STACK_SIZE: usize = 512;
     
