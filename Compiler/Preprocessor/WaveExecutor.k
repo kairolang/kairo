@@ -38,7 +38,7 @@ class WaveExecutor {
                 var mod_path = graph->mod_paths[fid];
                 
                 self._pool->enqueue(fn () |fid, mod_path, *task_fn| {
-                    (*task_fn)(fid, mod_path);
+                    libcxx::invoke(*task_fn, fid, mod_path);
                 }, static_cast::<u8>(1));
             }
 
