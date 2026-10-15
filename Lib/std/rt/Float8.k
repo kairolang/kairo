@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------------ Lib/std/rt/Float8.k --- ///
 ///
-///   \brief The two OCP FP8 formats as corelib structs: f8e4m3 and f8e5m2.
+///   \brief The two OCP FP8 formats as corelib structs: F8E4M3 and F8E5M2.
 ///
 ///   \detail
 ///        LLVM has no IR type at 8 bits of float. Verified against the tree:
@@ -59,9 +59,9 @@ pub fn bits_f32(b: u32) -> f32 {
     return b as f32;                 // TODO(stage1): bit_cast, not numeric.
 }
 
-// === f8e4m3 ================================================================
+// === F8E4M3 ================================================================
 
-/// \class f8e4m3
+/// \class F8E4M3
 /// \brief OCP E4M3, finite-only. 1 sign / 4 exponent / 3 mantissa, bias 7.
 ///
 ///        Layout:  S EEEE MMM
@@ -72,19 +72,19 @@ pub fn bits_f32(b: u32) -> f32 {
 ///        Infinity:     none. Overflow saturates to +/-448.
 ///
 ///        Precision, not range. This is the weights-and-activations format.
-pub struct f8e4m3 {
+pub struct F8E4M3 {
     pub var bits: u8 = 0;
 }
 
-extend f8e4m3 {
+extend F8E4M3 {
     pub const BIAS:     i32 = 7;
     pub const MANT:     u32 = 3;
     pub const MAX_FIN:  f32 = 448.0;
     pub const NAN_BITS: u8  = 0x7F;
 
-    pub fn f8e4m3(self) { self.bits = 0; }
+    pub fn F8E4M3(self) { self.bits = 0; }
 
-    pub fn f8e4m3(self, v: f32) { self.bits = f8e4m3::from_f32_bits(v); }
+    pub fn F8E4M3(self, v: f32) { self.bits = F8E4M3::from_f32_bits(v); }
 
     /// f32 -> E4M3FN, round-to-nearest-even, saturating.
     ///
@@ -100,7 +100,7 @@ extend f8e4m3 {
         // NaN in, NaN out. Infinity in ALSO becomes NaN: E4M3FN cannot
         // represent inf, and saturating to 448 would silently turn an
         // overflow signal into a finite number.
-        if exp == 0xFF { return (sign << 7) | f8e4m3::NAN_BITS; }
+        if exp == 0xFF { return (sign << 7) | F8E4M3::NAN_BITS; }
 
         var unb = exp - 127;
 
@@ -112,7 +112,7 @@ extend f8e4m3 {
 
         // Normal range: unbiased exponent in [-6, 8].
         if unb >= -6 {
-            var e8: u32 = (unb + f8e4m3::BIAS) as u32;
+            var e8: u32 = (unb + F8E4M3::BIAS) as u32;
             var m8: u32 = man >> 20;              // 23 -> 3 mantissa bits
             var rem: u32 = man & 0xFFFFF;         // the 20 dropped bits
             var halfway: u32 = 0x80000;
@@ -175,7 +175,7 @@ extend f8e4m3 {
             return bits_f32((sign << 31) | (e32 << 23) | (m << 20));
         }
 
-        var e32: u32 = (e8 as i32 - f8e4m3::BIAS + 127) as u32;
+        var e32: u32 = (e8 as i32 - F8E4M3::BIAS + 127) as u32;
         return bits_f32((sign << 31) | (e32 << 23) | (m8 << 20));
     }
 
@@ -185,9 +185,9 @@ extend f8e4m3 {
     pub fn op as (self) -> f32 { return self.to_f32(); }
 }
 
-// === f8e5m2 ================================================================
+// === F8E5M2 ================================================================
 
-/// \class f8e5m2
+/// \class F8E5M2
 /// \brief OCP E5M2. 1 sign / 5 exponent / 2 mantissa, bias 15. IEEE-shaped:
 ///        infinities AND NaN both present, unlike E4M3FN.
 ///
@@ -201,19 +201,19 @@ extend f8e4m3 {
 ///        Range, not precision. The exponent field is IDENTICAL to f16's,
 ///        which is why f16 <-> e5m2 is a shift rather than a
 ///        renormalization. This is the gradients format.
-pub struct f8e5m2 {
+pub struct F8E5M2 {
     pub var bits: u8 = 0;
 }
 
-extend f8e5m2 {
+extend F8E5M2 {
     pub const BIAS:    i32 = 15;
     pub const MANT:    u32 = 2;
     pub const MAX_FIN: f32 = 57344.0;
     pub const INF_BITS: u8 = 0x7C;
 
-    pub fn f8e5m2(self) { self.bits = 0; }
+    pub fn F8E5M2(self) { self.bits = 0; }
 
-    pub fn f8e5m2(self, v: f32) { self.bits = f8e5m2::from_f32_bits(v); }
+    pub fn F8E5M2(self, v: f32) { self.bits = F8E5M2::from_f32_bits(v); }
 
     /// f32 -> E5M2, round-to-nearest-even. Overflow produces INFINITY here,
     /// not saturation -- E5M2 has inf encodings and IEEE semantics.
@@ -224,16 +224,16 @@ extend f8e5m2 {
         var man  = w & 0x7FFFFF;
 
         if exp == 0xFF {
-            if man == 0 { return (sign << 7) | f8e5m2::INF_BITS; }   // inf
+            if man == 0 { return (sign << 7) | F8E5M2::INF_BITS; }   // inf
             return (sign << 7) | 0x7E;                               // NaN
         }
 
         var unb = exp - 127;
 
-        if unb > 15 { return (sign << 7) | f8e5m2::INF_BITS; }
+        if unb > 15 { return (sign << 7) | F8E5M2::INF_BITS; }
 
         if unb >= -14 {
-            var e8: u32 = (unb + f8e5m2::BIAS) as u32;
+            var e8: u32 = (unb + F8E5M2::BIAS) as u32;
             var m8: u32 = man >> 21;              // 23 -> 2 mantissa bits
             var rem: u32 = man & 0x1FFFFF;
             var halfway: u32 = 0x100000;
@@ -242,7 +242,7 @@ extend f8e5m2 {
                 m8 += 1;
                 if m8 == 4 { m8 = 0; e8 += 1; }
             }
-            if e8 >= 31 { return (sign << 7) | f8e5m2::INF_BITS; }
+            if e8 >= 31 { return (sign << 7) | F8E5M2::INF_BITS; }
             return (sign << 7) | ((e8 as u8) << 2) | (m8 as u8);
         }
 
@@ -283,7 +283,7 @@ extend f8e5m2 {
             return bits_f32((sign << 31) | (e32 << 23) | (m << 21));
         }
 
-        var e32: u32 = (e8 as i32 - f8e5m2::BIAS + 127) as u32;
+        var e32: u32 = (e8 as i32 - F8E5M2::BIAS + 127) as u32;
         return bits_f32((sign << 31) | (e32 << 23) | (m8 << 21));
     }
 
@@ -312,26 +312,26 @@ extend f8e5m2 {
 // fp8 is a storage format, and code that treats it as a general arithmetic
 // type is code that will lose precision.
 
-extend f8e4m3 {
-    pub fn op + (self, const rhs: f8e4m3) -> f32 { return self.to_f32() + rhs.to_f32(); }
-    pub fn op - (self, const rhs: f8e4m3) -> f32 { return self.to_f32() - rhs.to_f32(); }
-    pub fn op * (self, const rhs: f8e4m3) -> f32 { return self.to_f32() * rhs.to_f32(); }
-    pub fn op / (self, const rhs: f8e4m3) -> f32 { return self.to_f32() / rhs.to_f32(); }
+extend F8E4M3 {
+    pub fn op + (self, const rhs: F8E4M3) -> f32 { return self.to_f32() + rhs.to_f32(); }
+    pub fn op - (self, const rhs: F8E4M3) -> f32 { return self.to_f32() - rhs.to_f32(); }
+    pub fn op * (self, const rhs: F8E4M3) -> f32 { return self.to_f32() * rhs.to_f32(); }
+    pub fn op / (self, const rhs: F8E4M3) -> f32 { return self.to_f32() / rhs.to_f32(); }
 
     /// Bitwise equality, NOT numeric. Two encodings of the same value do not
     /// exist in E4M3FN, so this differs from numeric equality only at NaN
     /// (which compares unequal to itself numerically) and signed zero
     /// (-0.0 == +0.0 numerically, different bits here). Compare through
     /// to_f32() when IEEE comparison semantics are what you want.
-    pub fn op == (self, const rhs: f8e4m3) -> bool { return self.bits == rhs.bits; }
+    pub fn op == (self, const rhs: F8E4M3) -> bool { return self.bits == rhs.bits; }
 }
 
-extend f8e5m2 {
-    pub fn op + (self, const rhs: f8e5m2) -> f32 { return self.to_f32() + rhs.to_f32(); }
-    pub fn op - (self, const rhs: f8e5m2) -> f32 { return self.to_f32() - rhs.to_f32(); }
-    pub fn op * (self, const rhs: f8e5m2) -> f32 { return self.to_f32() * rhs.to_f32(); }
-    pub fn op / (self, const rhs: f8e5m2) -> f32 { return self.to_f32() / rhs.to_f32(); }
-    pub fn op == (self, const rhs: f8e5m2) -> bool { return self.bits == rhs.bits; }
+extend F8E5M2 {
+    pub fn op + (self, const rhs: F8E5M2) -> f32 { return self.to_f32() + rhs.to_f32(); }
+    pub fn op - (self, const rhs: F8E5M2) -> f32 { return self.to_f32() - rhs.to_f32(); }
+    pub fn op * (self, const rhs: F8E5M2) -> f32 { return self.to_f32() * rhs.to_f32(); }
+    pub fn op / (self, const rhs: F8E5M2) -> f32 { return self.to_f32() / rhs.to_f32(); }
+    pub fn op == (self, const rhs: F8E5M2) -> bool { return self.bits == rhs.bits; }
 }
 
 // === round-trip verification ===============================================
@@ -347,10 +347,10 @@ extend f8e5m2 {
 ///        conversions can still both be wrong in the same direction.
 pub fn verify_e4m3_roundtrip() -> bool {
     for var i: u32 = 0; i < 256; ++i {
-        var a = f8e4m3{};
+        var a = F8E4M3{};
         a.bits = i as u8;
         if a.is_nan() { continue; }          // NaN payload is not preserved
-        var back = f8e4m3(a.to_f32());
+        var back = F8E4M3(a.to_f32());
         if back.bits != a.bits { return false; }
     }
     return true;
@@ -358,10 +358,10 @@ pub fn verify_e4m3_roundtrip() -> bool {
 
 pub fn verify_e5m2_roundtrip() -> bool {
     for var i: u32 = 0; i < 256; ++i {
-        var a = f8e5m2{};
+        var a = F8E5M2{};
         a.bits = i as u8;
         if a.is_nan() { continue; }
-        var back = f8e5m2(a.to_f32());
+        var back = F8E5M2(a.to_f32());
         if back.bits != a.bits { return false; }
     }
     return true;
@@ -372,21 +372,21 @@ pub fn verify_e5m2_roundtrip() -> bool {
 ///        testing alone cannot, since a consistent off-by-one is still
 ///        self-inverse.
 pub fn verify_e4m3_known() -> bool {
-    if f8e4m3(0.0).bits    != 0x00 { return false; }
-    if f8e4m3(1.0).bits    != 0x38 { return false; }   // exp 7, mant 0
-    if f8e4m3(2.0).bits    != 0x40 { return false; }
-    if f8e4m3(448.0).bits  != 0x7E { return false; }   // max finite
-    if f8e4m3(1000.0).bits != 0x7E { return false; }   // saturates
-    if f8e4m3(-1.0).bits   != 0xB8 { return false; }
+    if F8E4M3(0.0).bits    != 0x00 { return false; }
+    if F8E4M3(1.0).bits    != 0x38 { return false; }   // exp 7, mant 0
+    if F8E4M3(2.0).bits    != 0x40 { return false; }
+    if F8E4M3(448.0).bits  != 0x7E { return false; }   // max finite
+    if F8E4M3(1000.0).bits != 0x7E { return false; }   // saturates
+    if F8E4M3(-1.0).bits   != 0xB8 { return false; }
     return true;
 }
 
 pub fn verify_e5m2_known() -> bool {
-    if f8e5m2(0.0).bits     != 0x00 { return false; }
-    if f8e5m2(1.0).bits     != 0x3C { return false; }  // exp 15, mant 0
-    if f8e5m2(2.0).bits     != 0x40 { return false; }
-    if f8e5m2(57344.0).bits != 0x7B { return false; }  // max finite
-    if f8e5m2(1.0e30).bits  != 0x7C { return false; }  // overflows to inf
-    if f8e5m2(-1.0).bits    != 0xBC { return false; }
+    if F8E5M2(0.0).bits     != 0x00 { return false; }
+    if F8E5M2(1.0).bits     != 0x3C { return false; }  // exp 15, mant 0
+    if F8E5M2(2.0).bits     != 0x40 { return false; }
+    if F8E5M2(57344.0).bits != 0x7B { return false; }  // max finite
+    if F8E5M2(1.0e30).bits  != 0x7C { return false; }  // overflows to inf
+    if F8E5M2(-1.0).bits    != 0xBC { return false; }
     return true;
 }
