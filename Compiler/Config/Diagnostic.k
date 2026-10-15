@@ -50,7 +50,7 @@ class DiagnosticOptions {
     static fn from_args(args: ref!(ParsedArgs)) -> DiagnosticOptions {
         var o = DiagnosticOptions();
         (o.format)             = args.get_string("error-format");
-        var is_tty:   bool     = inline "c++" { ::isatty(1) != 0 };
+        var is_tty:   bool     = isatty(1) != 0;
         var no_color: bool     = args.get_bool("no-color");
         (o.no_color)           = (!is_tty) || no_color;
         (o.show_ids)           = args.get_bool("diag-show-ids");
