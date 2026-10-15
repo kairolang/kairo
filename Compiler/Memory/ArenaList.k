@@ -272,16 +272,13 @@ class <T> ArenaList {
             return;
         }
 
-        // INLINE(cxx-feature: if constexpr on a template parameter)
-        __inline_cpp("
-            if constexpr (!libcxx::is_trivially_destructible_v<T>) {
-                for (usize c = 0; c < this->_chunk_count; ++c) {
-                    for (usize i = 0; i < this->_chunks[c].count; ++i) {
-                        this->_chunks[c].base[i].~T();
-                    }
+        eval if !libcxx::is_trivially_destructible_v::<T> {
+            for var c: usize = 0; c < self._chunk_count; ++c {
+                for var i: usize = 0; i < self._chunks[c].count; ++i {
+                    libcxx::destroy_at(&(self._chunks[c].base[i]));
                 }
             }
-        ");
+        }
         self._chunks[0].count = 0;
         self._chunk_count     = 1;
         self._total           = 0;
@@ -296,16 +293,13 @@ class <T> ArenaList {
     }
 
     fn destroy(self) {
-        // INLINE(cxx-feature: if constexpr on a template parameter)
-        __inline_cpp("
-            if constexpr (!libcxx::is_trivially_destructible_v<T>) {
-                for (usize c = 0; c < this->_chunk_count; ++c) {
-                    for (usize i = 0; i < this->_chunks[c].count; ++i) {
-                        this->_chunks[c].base[i].~T();
-                    }
+        eval if !libcxx::is_trivially_destructible_v::<T> {
+            for var c: usize = 0; c < self._chunk_count; ++c {
+                for var i: usize = 0; i < self._chunks[c].count; ++i {
+                    libcxx::destroy_at(&(self._chunks[c].base[i]));
                 }
             }
-        ");
+        }
 
         self._chunks      = &null;
         self._chunk_count = 0;
