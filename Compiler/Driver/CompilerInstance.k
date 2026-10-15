@@ -766,8 +766,7 @@ class CompilerInstance {
             (*err_out) = string(err.c_str());
         }
 
-        // INLINE(cxx-feature: pointer-to-const cast)
-        inline "c++" { result = const_cast<void*>(static_cast<const void*>(T)); }
+        result = const_cast::<*void>(static_cast::<const *void>(T));
         return result;
     }
 
@@ -2572,6 +2571,19 @@ fn FrontendAction::_preprocess() -> bool {
     return true;
 }
 
+/// Marks one parse task's fid as done when the task ends, however it ends,
+/// so the flusher never waits on a task that threw.
+class PublishOnExit {
+    priv var _d: *std::Atomic::<bool>;
+
+    fn PublishOnExit(self, d: *std::Atomic::<bool>) { self._d = d; }
+
+    delete fn PublishOnExit(self, other: ref!(PublishOnExit));
+    delete fn op = (self, other: ref!(PublishOnExit)) -> ref!(PublishOnExit);
+
+    fn op delete (self) { self._d->store(true, libcxx::memory_order_release); }
+}
+
 fn FrontendAction::_parse() -> bool {
     var _t = TimeRegion("Parse");
 
@@ -2613,65 +2625,57 @@ fn FrontendAction::_parse() -> bool {
     // parallel parse + low-water-mark flush
     {
         var _tp = TimeRegion("Full");
-        // INLINE(cxx-feature: local struct with a destructor)
-        inline "c++" {
-            const size_t N = fids.size();
-            auto* time_rec  = ::kairo::TimeReport::current();
-            auto* time_sm   = _ci->sm();
-            auto* time_flush = ::kairo::TimeReport::region_under(time_rec, "DiagFlush");
-            ::kairo::TimeReport::mark_idle(time_flush);
+        var N          = fids.size();
+        var time_rec   = kairo::TimeReport::current();
+        var time_sm    = self._ci->sm();
+        var time_flush = kairo::TimeReport::region_under(time_rec, r"DiagFlush");
+        kairo::TimeReport::mark_idle(time_flush);
 
-            // done[i] published (release) by the parse task for fids[i];
-            // read (acquire) by the flusher. heap so the flusher thread can hold it.
-            auto* done = new libcxx::atomic<bool>[N];
-            for (size_t i = 0; i < N; ++i) done[i].store(false, libcxx::memory_order_relaxed);
+        // done[i] published (release) by the parse task for fids[i];
+        // read (acquire) by the flusher. Outlives both: the flusher is
+        // joined and the parse group drained before this scope ends.
+        var done      = libcxx::vector::<std::Atomic::<bool>>(N);
+        var done_data = done.data();
 
-            auto* engine = _ci->diag();
-            auto* fids_p = &fids;
-            auto* gs     = _global_scope;
+        var engine = self._ci->diag();
+        var fids_data = fids.data();
+        var gs     = self._global_scope;
 
-            // flusher: drains contiguous done-prefix in fid order, single-threaded.
-            libcxx::thread flusher([=]() {
-                KTIME_ROOT(time_rec);
-                KTIME_REC(time_flush);
-                size_t cursor = 0;
-                while (cursor < N) {
-                    if (done[cursor].load(libcxx::memory_order_acquire)) {
-                        u32 fid = (*fids_p)[cursor];
-                        auto* ctx = gs->get_context(fid);
-                        if (ctx) ctx->diag_sink.drain_into(engine, ctx->sm);
-                        ++cursor;
-                    } else {
-                        libcxx::this_thread::yield();
-                    }
+        // flusher: drains contiguous done-prefix in fid order, single-threaded.
+        var flusher = libcxx::thread(fn () |time_rec, time_flush, N, done_data, fids_data, gs, engine| {
+            var _kr = kairo::TimeReport::ThreadRoot(time_rec);
+            var _kf = kairo::TimeReport::Scope(time_flush);
+            var cursor: usize = 0;
+            while cursor < N {
+                if done_data[cursor].load(libcxx::memory_order_acquire) {
+                    var fid: u32 = fids_data[cursor];
+                    var ctx = gs->get_context(fid);
+                    if ctx != &null { ctx->diag_sink.drain_into(engine, ctx->sm); }
+                    ++cursor;
+                } else {
+                    libcxx::this_thread::yield();
                 }
-            });
-
-
-            for (size_t i = 0; i < N; ++i) {
-                u32 fid = (*fids_p)[i];
-                _ci->pool()->enqueue([gs, fid, done, i, time_rec, time_sm]() {
-                    ::kairo::TimeReport::Worker _kt(time_rec);
-
-                    struct Publish {
-                        libcxx::atomic<bool>* d;
-                        ~Publish() { d->store(true, libcxx::memory_order_release); }
-                    } pub{&done[i]};
-
-                    auto* ctx = gs->get_context(fid);
-                    if (ctx) {
-                        ASTParse parser(ctx, nullptr, gs, ASTParse::ParseMode::Full);
-                        auto* tu = parser.parse();
-                        ctx->tu = reinterpret_cast<void*>(tu);
-                        if (time_sm) { _kt.units(time_sm->get_file_size(fid), "B"); }
-                    }
-                }, u8(6));
             }
+        });
 
-            _ci->pool()->wait_group(u8(6));  // all parses done => all done[i] set
-            flusher.join();                  // flusher drains tail, exits
-            delete[] done;
+        for var i: usize = 0; i < N; ++i {
+            var fid: u32 = fids[i];
+            self._ci->pool()->enqueue(fn () |gs, fid, done_data, i, time_rec, time_sm| {
+                var _kt = kairo::TimeReport::Worker(time_rec);
+                var publish = PublishOnExit(&(done_data[i]));
+
+                var ctx = gs->get_context(fid);
+                if ctx != &null {
+                    var parser = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Full);
+                    var tu     = parser.parse();
+                    ctx->tu = reinterpret_cast::<*void>(tu);
+                    if time_sm != &null { _kt.units(time_sm->get_file_size(fid), r"B"); }
+                }
+            }, u8(6));
         }
+
+        self._ci->pool()->wait_group(u8(6));  // all parses done => all done[i] set
+        flusher.join();                       // flusher drains tail, exits
     }
 
     // --- print-ast / mem stats: unchanged -----------------------------------
