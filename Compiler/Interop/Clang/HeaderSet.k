@@ -491,15 +491,13 @@ class HeaderSetCache {
         hs->id         = static_cast::<u32>(self._sets.size());
         self._sets.insert(libcxx::make_pair(nk, hs));
 
-        inline "c++" {
-            auto* set = hs;
-            auto* be  = _be;
-            auto* rec = ::kairo::TimeReport::region("HeaderSets");
-            _pool->enqueue([set, be, rec]() {
-                KTIME_WORKER(rec);
-                set->build(be);
-            }, HEADER_BUILD_GROUP());
-        }
+        var set = hs;
+        var be  = self._be;
+        var rec = kairo::TimeReport::region(r"HeaderSets");
+        self._pool->enqueue(fn () |set, be, rec| {
+            var _kt = kairo::TimeReport::Worker(rec);
+            set->build(be);
+        }, HEADER_BUILD_GROUP());
         return hs;
     }
 
