@@ -234,6 +234,7 @@ eval fn compute_hash(const str: *string) -> u64 {
 ///
 /// \ref Uses FNV-1a with position mixing.
 ///
+// INLINE(cxx-feature: consteval)
 __inline_cpp("
 template <usize N>
 consteval u64 compute_hash(const char (&str)[N]) {

@@ -48,6 +48,7 @@ class Assert {
     fn measure_timer_overhead(self) -> i64 {
         const var iterations = 1000;
         var total = libcxx::chrono::nanoseconds(0);
+        // INLINE(cxx-feature: volatile)
         __inline_cpp("volatile i64 dummy = 0");
 
         for (var i = 0; i < iterations; ++i) {

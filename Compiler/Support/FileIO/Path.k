@@ -67,6 +67,7 @@ default class Path {
         }
 
         if libcxx::filesystem::exists(self.path_data) {
+            // INLINE(cxx-feature: member named with a Kairo keyword)
             self.entry_type = libcxx::filesystem::status(self.path_data)
                             .__inline_cpp("type()");
         } else {
