@@ -2361,7 +2361,7 @@ class CompilerInstance {
             return;
         }
         if !self._inv.target.mcpu.empty() {
-            var STI = T->createMCSubtargetInfo(tt.getTriple(), r"", r"");
+            var STI = T->createMCSubtargetInfo(tt, r"", r"");
             finally { delete STI; }
             if !STI->isCPUStringValid(sref(self._inv.target.mcpu)) {
                 self._diag->report(DiagID::P006E,
