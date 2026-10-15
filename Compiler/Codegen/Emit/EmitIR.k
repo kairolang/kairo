@@ -475,7 +475,7 @@ class EmitIR {
             }
             case StmtKind::UnsafeBlockStmt        { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
             case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
-            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place (a tuple-valued scrutinee)"); }
+            case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place"); }
             case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
@@ -483,7 +483,7 @@ class EmitIR {
             case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; PanicLowering owns it"); }
             case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
-            case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; its lowering owns it"); }
+            case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; TupleLowering owns a tuple's, FeatureGateCheck rejects a struct's"); }
             case StmtKind::LabeledStmt            { self._ice(s->range, "EmitIR: labeled loop; the label lowering owns it"); }
             case StmtKind::LabelIntrinsicStmt {
                 var n = cast::<LabelIntrinsicStmt>(s);
@@ -751,7 +751,7 @@ class EmitIR {
             case ExprKind::UnsafeExpr           { self.emit(cast::<UnsafeExpr>(e)->operand); }
             case ExprKind::SubscriptExpr        { self._subscript(cast::<SubscriptExpr>(e)); }
             case ExprKind::NamedArgExpr         { self._ice(e->range, "EmitIR: named argument; CallLowering owns it"); }
-            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place (a tuple-valued scrutinee)"); }
+            case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place"); }
             case ExprKind::TryCatchExpr         { self._ice(e->range, "EmitIR: try expression; PanicLowering owns it"); }
             case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
             case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }
@@ -772,7 +772,7 @@ class EmitIR {
             }
             case ExprKind::SetLiteralExpr       { self._ice(e->range, "EmitIR: set literal; the container migration owns it"); }
             case ExprKind::MapLiteralExpr       { self._ice(e->range, "EmitIR: map literal; the container migration owns it"); }
-            case ExprKind::TupleLiteralExpr     { self._ice(e->range, "EmitIR: tuple literal; no lowering yet"); }
+            case ExprKind::TupleLiteralExpr     { self._ice(e->range, "EmitIR: tuple literal; TupleLowering owns it"); }
             case ExprKind::TypeOfExpr           { self._ice(e->range, "EmitIR: typeof; TypeQueryLowering owns it"); }
             case ExprKind::ImplConformanceExpr  { self._ice(e->range, "EmitIR: impl test; TypeQueryLowering owns it"); }
             case ExprKind::DerivesRelationExpr  { self._ice(e->range, "EmitIR: derives test; TypeQueryLowering owns it"); }
@@ -970,7 +970,7 @@ class EmitIR {
                 is_ptr = false;
                 continue;
             }
-            if (st->is_tuple_index()) { self._ice(st->range, "EmitIR: tuple index; no lowering yet"); }
+            if (st->is_tuple_index()) { self._ice(st->range, "EmitIR: tuple index step; TupleLowering owns it"); }
             if (self._is_extension_member(st->resolved_decl)) { self._ice(st->range, "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form"); }
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
             sink->spell(st->range, (("->") if (is_ptr) else (".")));

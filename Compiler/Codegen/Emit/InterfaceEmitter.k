@@ -195,7 +195,20 @@ class InterfaceEmitter {
                 self._ns_close(opened);
                 continue;
             }
+            // A tuple record is defined by every TU and header that reaches
+            // it (EmitPlan::_entry marks it own), so a HEADER's definition
+            // is guarded: two headers in one C++ TU would define it twice.
+            // A preamble includes nothing and is a token stream, which
+            // carries no directive (the helpers above are guarded the same
+            // way).
+            var tup = dyn_cast::<StructDecl>(e->decl);
+            var guard = header && ((tup != &null) && (tup->tuple_arity > 0));
+            if guard {
+                sink->directive(self._tu_at(), "#ifndef " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
+                sink->directive(self._tu_at(), "#define " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
+            }
             self._wrapped(e->decl, fn () { self._type_def(e->decl); });
+            if guard { sink->directive(self._tu_at(), "#endif"); }
         }
 
         // tier 2

@@ -1043,12 +1043,9 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::CXXLValueRefType { self._admit_type(cast::<CXXLValueRefType>(c)->referee, PlanNeed::Fwd); }
         case TypeKind::CXXRValueRefType { self._admit_type(cast::<CXXRValueRefType>(c)->referee, PlanNeed::Fwd); }
         case TypeKind::NullableType     { self._admit_type(cast::<NullableType>(c)->inner, PlanNeed::Fwd); }
-        // No Vector/Set/Map arms: they are RecordTypes now and admit through
-        // the record path, which already walks their generic arguments.
-        case TypeKind::TupleType {
-            var tp = cast::<TupleType>(c);
-            for var i: usize = 0; i < tp->elements.size(); ++i { self._admit_type(*(tp->elements.get(i)), need); }
-        }
+        // No Vector/Set/Map/Tuple arms: they are RecordTypes now and admit
+        // through the record path, which already walks their generic
+        // arguments (a tuple's elements are by value, so at \p need).
         case TypeKind::FixedArrayType { self._admit_type(cast::<FixedArrayType>(c)->element, need); }
         case TypeKind::FunctionPointerType {
             var f = cast::<FunctionPointerType>(c);
@@ -1497,6 +1494,12 @@ fn EmitPlan::_entry(d: *Decl, need: PlanNeed, tier: PlanTier) -> PlanEntry {
     e.fid  = CXXSpell::fid_of(d);
     e.off  = self._off_of(d);
     e.own  = (e.fid == self._home);
+    // A tuple record (TupleRecords) is minted from no file and sits in no
+    // module's header: it is OWN everywhere, so a header defines it (under
+    // InterfaceEmitter's guard) instead of including the builtin root's,
+    // which never declares it.
+    var ts = dyn_cast::<StructDecl>(d);
+    if (ts != &null) && (ts->tuple_arity > 0) { e.own = true; }
     return e;
 }
 

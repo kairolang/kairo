@@ -623,7 +623,7 @@ class CXXSpell {
                 return self._join(self.imm_name(o->name, self._cg->tu->fid), name);
             }
             case TypeKind::NullableType { self._ice(t_in->range, "CXXSpell: T? reached codegen; NullableTypeLowering must reduce it first"); return ""; }
-            case TypeKind::TupleType  { self._ice(t_in->range, "CXXSpell: tuple type reached codegen; no lowering exists yet"); return ""; }
+            case TypeKind::TupleType  { self._ice(t_in->range, "CXXSpell: TupleType canonical reached codegen; TypeResolve canonicalizes every tuple to its TupleN record"); return ""; }
             default {
                 self._ice(t_in->range, f"CXXSpell: {to_string(t->kind)} is not a canonical kind");
                 return "";
