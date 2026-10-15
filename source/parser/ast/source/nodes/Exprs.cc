@@ -147,6 +147,31 @@ bool is_ffi_specifier(const __TOKEN_N::Token &tok);
 
 // ---------------------------------------------------------------------------------------------- //
 
+// A DotPathExpr's rhs is parsed as a whole expression, so `a.b if c else d`
+// arrives as `a . (b if c else d)` and the ternary's operand reordering then
+// emits `a . (c) ? b : d`. Member access binds tighter: re-attach `a.` to the
+// ternary operand that came first in the source and return the ternary.
+static __AST_N::ParseResult<> rotate_dot_ternary(__AST_N::ParseResult<> path) {
+    if (!path.has_value() || path.value() == nullptr ||
+        path.value()->getNodeType() != __AST_NODE::nodes::DotPathExpr) {
+        return path;
+    }
+
+    auto dot = __AST_N::as<__AST_NODE::DotPathExpr>(path.value());
+    if (dot->rhs == nullptr || dot->rhs->getNodeType() != __AST_NODE::nodes::TernaryExpr) {
+        return path;
+    }
+
+    auto tern = __AST_N::as<__AST_NODE::TernaryExpr>(dot->rhs);
+    if (tern->if_form) {
+        tern->if_true = __AST_N::make_node<__AST_NODE::DotPathExpr>(dot->lhs, tern->if_true);
+    } else {
+        tern->condition = __AST_N::make_node<__AST_NODE::DotPathExpr>(dot->lhs, tern->condition);
+    }
+
+    return tern;
+}
+
 AST_BASE_IMPL(Expression, parse_primary) {  // NOLINT(readability-function-cognitive-complexity)
     IS_NOT_EMPTY;
 
@@ -161,7 +186,7 @@ AST_BASE_IMPL(Expression, parse_primary) {  // NOLINT(readability-function-cogni
         if (CURRENT_TOK == __TOKEN_N::OPERATOR_SCOPE) {
             node = parse<ScopePathExpr>(node);
         } else if (CURRENT_TOK == __TOKEN_N::PUNCTUATION_DOT) {
-            node = parse<DotPathExpr>(node);
+            node = rotate_dot_ternary(parse<DotPathExpr>(node));
         }
     } else if (is_excepted(tok, IS_UNARY_OPERATOR)) {
         node = parse<UnaryExpr>();
@@ -299,7 +324,7 @@ parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
                 break;
 
             case __TOKEN_N::PUNCTUATION_DOT:
-                expr = parse<DotPathExpr>(expr);
+                expr = rotate_dot_ternary(parse<DotPathExpr>(expr));
                 RETURN_IF_ERROR(expr);
                 break;
 
@@ -1687,7 +1712,9 @@ AST_NODE_IMPL(Expression, TernaryExpr, ParseResult<> E1) {
         ParseResult<> E3 = parse();
         RETURN_IF_ERROR(E3);
 
-        return make_node<TernaryExpr>(E2.value(), E1.value(), E3.value());
+        NodeT<TernaryExpr> node = make_node<TernaryExpr>(E2.value(), E1.value(), E3.value());
+        node->if_form           = true;
+        return node;
     }
 
     return std::unexpected(PARSE_ERROR(

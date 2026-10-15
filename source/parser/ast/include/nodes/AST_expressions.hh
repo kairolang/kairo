@@ -432,6 +432,11 @@ __AST_NODE_BEGIN {
         NodeT<> condition;
         NodeT<> if_true;
         NodeT<> if_false;
+
+        /// `x if c else y` (true) vs `c ? x : y` (false): which operand came
+        /// first in the source, so a member access that captured the whole
+        /// ternary can be re-attached to it (see DotPathExpr).
+        bool if_form = false;
     };
 
     class ParenthesizedExpr final : public Node {  // := '(' E ')'
