@@ -692,8 +692,8 @@ class Toolchain {
             // ships compiler-rt under armv7-unknown-linux-musl, and the
             // target (now musleabihf) names neither.
             Toolchain::_push_unique(out, self.manifest.triple);
-            var nm = std::string_to_nstring(self.manifest.triple);
-            var norm: libcxx::string = llvm::Triple::normalize(llvm::StringRef(nm.raw(), nm.size()));
+            var nm = self.manifest.triple;
+            var norm: libcxx::string = llvm::Triple::normalize(sref(nm));
             Toolchain::_push_unique(out, string(norm.c_str(), norm.size()));
         }
         Toolchain::_push_unique(out, f"{t->arch_name}-unknown-{t->os_name}{env}");
@@ -779,8 +779,8 @@ class Toolchain {
     }
 
     priv fn _triple_version(self) -> string {
-        var nt = std::string_to_nstring(self.triple);
-        var tr = llvm::Triple(llvm::StringRef(nt.raw(), nt.size()));
+        var nt = self.triple;
+        var tr = llvm::Triple(sref(nt));
         if tr.getOSVersion().getMajor() == 0 { return ""; }
         if self.platform == "macos" {
             // darwinNN -> macOS version. LLVM owns the mapping.
@@ -1029,8 +1029,8 @@ class Toolchain {
     }
 
     static fn is_mingw(triple: string) -> bool {
-        var nt = std::string_to_nstring(triple);
-        var tr = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        var nt = triple;
+        var tr = llvm::Triple(llvm::Triple::normalize(sref(nt)));
         return tr.isWindowsGNUEnvironment();
     }
 
@@ -1044,8 +1044,8 @@ class Toolchain {
     }
 
     static fn is_msvc(triple: string) -> bool {
-        var nt = std::string_to_nstring(triple);
-        var tr = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        var nt = triple;
+        var tr = llvm::Triple(llvm::Triple::normalize(sref(nt)));
         return tr.isWindowsMSVCEnvironment();
     }
 
@@ -1283,8 +1283,8 @@ class Toolchain {
     ///          musleabi is left alone: that is a deliberate soft-float ask.
     ///          Anything else is returned exactly as spelled.
     static fn canonical_triple(triple: string) -> string {
-        var nt = std::string_to_nstring(triple);
-        var tt = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        var nt = triple;
+        var tt = llvm::Triple(llvm::Triple::normalize(sref(nt)));
         if ((!tt.isARM()) && (!tt.isThumb())) || (!tt.isOSLinux()) { return triple; }
         var env = tt.getEnvironment();
         if env == llvm::Triple::GNU       { tt.setEnvironment(llvm::Triple::GNUEABIHF);  }
@@ -1301,10 +1301,10 @@ class Toolchain {
     /// Both sides are canonical_triple'd first, so an armv7-linux-musl
     /// sysroot matches the musleabihf target it is for.
     static fn same_target(a: string, b: string) -> bool {
-        var na = std::string_to_nstring(Toolchain::canonical_triple(a));
-        var nb = std::string_to_nstring(Toolchain::canonical_triple(b));
-        var ta = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(na.raw(), na.size())));
-        var tb = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nb.raw(), nb.size())));
+        var na = Toolchain::canonical_triple(a);
+        var nb = Toolchain::canonical_triple(b);
+        var ta = llvm::Triple(llvm::Triple::normalize(sref(na)));
+        var tb = llvm::Triple(llvm::Triple::normalize(sref(nb)));
         var wasi_a  = (ta.getOS() == llvm::Triple::WASI) || (ta.getOS() == llvm::Triple::WASIp1);
         var wasi_b  = (tb.getOS() == llvm::Triple::WASI) || (tb.getOS() == llvm::Triple::WASIp1);
         var same_os = (ta.getOS() == tb.getOS()) || (ta.isMacOSX() && tb.isMacOSX()) || (wasi_a && wasi_b);

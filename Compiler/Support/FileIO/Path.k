@@ -13,6 +13,8 @@
 
 import Support::FileIO::FileSystem::*;
 
+ffi "c++" import "Native/Types.hh";
+
 ///
 /// \file Path.k
 /// \brief high-level abstraction over libc++ filesystem paths.
@@ -58,8 +60,7 @@ default class Path {
     /// this constructor performs a system call to check existence.
     ///
     fn Path(self, input: string, mustExist: bool = false) {
-        var raw = std::Memory::move(input).raw_string();
-        self.path_data = libcxx::filesystem::absolute(FilePath(raw));
+        self.path_data = libcxx::filesystem::absolute(to_path(input));
 
         if self.path_data.empty() {
             std::crash(std::Error::RuntimeError("Path: empty path string"));
@@ -74,13 +75,13 @@ default class Path {
 
         if mustExist && (self.entry_type == FileType::not_found) {
             std::crash(std::Error::RuntimeError(
-                f"Path: path does not exist: {self.path_data.generic_wstring()}"
+                f"Path: path does not exist: {from_generic_path(self.path_data)}"
             ));
         }
     }
 
     static fn cwd() -> Path {
-        return Path(libcxx::filesystem::current_path().generic_wstring());
+        return Path(from_generic_path(libcxx::filesystem::current_path()));
     }
 
     static fn home() -> Path {
@@ -89,15 +90,15 @@ default class Path {
             std::crash(std::Error::RuntimeError("Path::home: HOME environment variable not set"));
         }
 
-        return Path(libcxx::filesystem::path(home_env).generic_wstring());
+        return Path(string(home_env));
     }
 
     static fn temp_dir() -> Path {
-        return Path(libcxx::filesystem::temp_directory_path().generic_wstring());
+        return Path(from_generic_path(libcxx::filesystem::temp_directory_path()));
     }
 
     static fn root() -> Path {
-        return Path(libcxx::filesystem::path(r"/").generic_wstring());
+        return Path("/");
     }
 
     ///
@@ -111,28 +112,28 @@ default class Path {
     /// \brief returns file extension (including the dot).
     ///
     const fn extension(self) -> string {
-        return self.path_data.extension().generic_wstring();
+        return from_generic_path(self.path_data.extension());
     }
 
     ///
     /// \brief returns the final filename component.
     ///
     const fn filename(self) -> string {
-        return self.path_data.filename().generic_wstring();
+        return from_generic_path(self.path_data.filename());
     }
 
     ///
     /// \brief returns the final filename component without its extension.
     ///
     const fn stem(self) -> string {
-        return self.path_data.stem().generic_wstring();
+        return from_generic_path(self.path_data.stem());
     }
 
     ///
     /// \brief returns the absolute normalized path as string.
     ///
     const fn full_path(self) -> string {
-        return self.path_data.generic_wstring();
+        return from_generic_path(self.path_data);
     }
 
     ///
@@ -197,7 +198,7 @@ default class Path {
         var components = vec::<string>();
         
         for component in self.path_data {
-            components.emplace_back(component.generic_wstring());
+            components.emplace_back(from_generic_path(component));
         }
 
         return components;
@@ -212,18 +213,16 @@ default class Path {
 
     fn op / (self, other: string) -> Path {
         return Path(
-            (
-                (self.path_data) / (FilePath(other.raw_string()))
-            ).generic_wstring()
+            from_generic_path(self.path_data / to_path(other))
         );
     }
 
     fn op / (self, other: Path) -> Path {
-        return Path((self.path_data / other.path_data).generic_wstring());
+        return Path(from_generic_path(self.path_data / other.path_data));
     }
 
     fn op / (self, other: FilePath) -> Path {
-        return Path((self.path_data / other).generic_wstring());
+        return Path(from_generic_path(self.path_data / other));
     }
 
     ///
@@ -233,6 +232,6 @@ default class Path {
     ///         `"Path(path_data: <abs_path>, entry_type: <numeric_type>)"`.
     ///
     fn op as (self) -> string {
-        return f"Path(path_data: {self.path_data.generic_wstring()}, entry_type: {static_cast::<u32>(self.entry_type)})";
+        return f"Path(path_data: {from_generic_path(self.path_data)}, entry_type: {static_cast::<u32>(self.entry_type)})";
     }
 }

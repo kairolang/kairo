@@ -66,7 +66,6 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
         ::kairo::init_process_locale();
     }
 
-    libcxx::use_facet::<libcxx::ctype::<char>>(libcxx::locale());
     libcxx::use_facet::<libcxx::num_put::<std::Legacy::char>>(libcxx::locale());
     libcxx::use_facet::<libcxx::num_get::<std::Legacy::char>>(libcxx::locale());
 
@@ -133,10 +132,10 @@ fn _scan_timing_flags(
 /// \details --stats-file. The report engine takes any FILE*; the Kairo
 ///          wrapper (time_print) only knows stderr, hence the direct call.
 fn _time_print_to(path: string) -> bool {
-    var p  = std::string_to_nstring(path);
+    var p  = path;
     var ok = false;
     inline "c++" {
-        FILE *f = ::fopen(p.raw_string().c_str(), "wb");
+        FILE *f = ::fopen(p.c_str(), "wb");
         if (f != nullptr) {
             ::kairo::TimeReport::print(f);
             ::fclose(f);
@@ -171,7 +170,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
 
     finally {
         Logger::set_dump_path(
-            (((std::get_exe_path()).parent_path()) / r"kairo.log").generic_wstring()
+            from_generic_path(std::get_exe_path().parent_path() / r"kairo.log")
         );
         Logger::dump_to_file();
         Logger::shutdown();

@@ -47,7 +47,7 @@
 ///
 /// Input
 /// -----
-///   Takes vec::<string> (libcxx::vector<wstring>) - the shell already
+///   Takes vec::<string> (libcxx::vector<string>) - the shell already
 ///   split the command line; the driver builds this from argc/argv once.
 
 import Support::Timer::*;
@@ -489,14 +489,16 @@ class Command {
     /// 0 = parsed, 1 = not an integer, 2 = integer outside the i32 range.
     /// The two failures need different messages: "expects an integer" for
     /// 99999999999 sends the user hunting for a typo that is not there.
-    /// wcstoll saturates at the i64 limits on overflow, which the i32 range
+    /// strtoll saturates at the i64 limits on overflow, which the i32 range
     /// check below also rejects, so errno is not needed.
     priv fn _parse_i32(self, s: string, out: *i32) -> i32 {
-        var raw = s.raw_string();
-        var ptr: *char = raw.data();
+        // `char` is a byte (unsigned char); strtoll wants plain char, so parse
+        // a std::string copy and point into that.
+        var raw = s.std_string();
+        var ptr: *std::Legacy::char = raw.data();
 
-        var end: *char = &null;
-        var v: i64 = libcxx::wcstoll(ptr, &end, 10);
+        var end: *std::Legacy::char = &null;
+        var v: i64 = libcxx::strtoll(ptr, &end, 10);
 
         if end == ptr { return 1; }     // nothing parsed
         if (*end) != '\0' { return 1; }   // trailing garbage
@@ -510,12 +512,12 @@ class Command {
     }
 
     priv fn _parse_f64(self, s: string, out: *f64) -> bool {
-        var raw = s.raw_string();
-        var ptr: *char = raw.data();
+        var raw = s.std_string();
+        var ptr: *std::Legacy::char = raw.data();
 
         try {
-            var end: *char = &null;
-            var v: f64 = libcxx::wcstod(ptr, &end);
+            var end: *std::Legacy::char = &null;
+            var v: f64 = libcxx::strtod(ptr, &end);
 
             if end == ptr { return false; }     // nothing parsed
             if (*end) != '\0' { return false; }   // trailing garbage

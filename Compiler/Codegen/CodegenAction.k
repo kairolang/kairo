@@ -128,10 +128,10 @@ class KairoInject {
         var ppo = &(ci.getPreprocessorOpts());
         for var i: usize = 0; i < self.sink->system_headers.size(); ++i {
             var h = self.sink->system_headers[i];
-            ppo->Includes.push_back(libcxx::string(std::string_to_nstring(h).raw_string()));
+            ppo->Includes.push_back(h.std_string());
             var pre  = libcxx::string(pp->getPredefines());
             var line = "#include <" + h + ">\n";
-            pre.append(std::string_to_nstring(line).raw_string());
+            pre.append(line.std_string());
             pp->setPredefines(pre);
         }
 

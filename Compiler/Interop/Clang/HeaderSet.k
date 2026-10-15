@@ -306,7 +306,7 @@ class HeaderSet {
 
         self._main = libcxx::string();
         for var i: usize = 0; i < self.headers.size(); ++i {
-            var h = std::string_to_nstring(self.headers[i]).raw_string();
+            var h = self.headers[i].std_string();
             var c = (i < self.c_linkage.size()) && self.c_linkage[i];
             if c { self._main.append(r"extern \"C\" \x7B\n"); }
             self._main.append(r"#include \"");
@@ -329,7 +329,7 @@ class HeaderSet {
         // "file not found" the moment a sysroot is passed.
         if self.import_dir.size() > 0 {
             var e = clang::HeaderSearchOptions::Entry(
-                std::string_to_nstring(self.import_dir).raw_string(),
+                self.import_dir.std_string(),
                 clang::frontend::Quoted, false, true);
             inv->getHeaderSearchOpts().UserEntries.insert(
                 inv->getHeaderSearchOpts().UserEntries.begin(), e);
@@ -478,7 +478,7 @@ class HeaderSetCache {
     /// covers the map, and the build touches only the set it was given.
     fn request(self, headers: vec::<string>, c_linkage: vec::<bool>, import_dir: string) -> *HeaderSet {
         var key = HeaderSetCache::key_of(headers, c_linkage);
-        var nk  = libcxx::string(std::string_to_nstring(key).raw_string());
+        var nk  = key.std_string();
         var lock = std::LockGuard(self._mu);
         var it = self._sets.find(nk);
         if it != self._sets.end() { return it->second; }
@@ -504,7 +504,7 @@ class HeaderSetCache {
     }
 
     fn find(self, key: string) -> *HeaderSet {
-        var nk = libcxx::string(std::string_to_nstring(key).raw_string());
+        var nk = key.std_string();
         var lock = std::LockGuard(self._mu);
         var it = self._sets.find(nk);
         if it == self._sets.end() { return &null; }

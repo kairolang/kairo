@@ -627,7 +627,7 @@ class SourceManager {
         var full = self._files[file_id]->path;
         inline "c++" {
             auto parent = full.path_data.parent_path();
-            if (!parent.empty()) { out = Path(parent.generic_wstring(), false); }
+            if (!parent.empty()) { out = Path(from_generic_path(parent), false); }
         }
         return out;
     }
@@ -1062,10 +1062,10 @@ fn Test() -> i32 {
     var file0_str = "hello world\nline two\n";
     var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n";
 
-    var nd0 = std::string_to_nstring(file0_str);
-    data0 = libcxx::string(nd0);
-    var nd1 = std::string_to_nstring(file1_str);
-    data1 = libcxx::string(nd1);
+    var nd0 = file0_str;
+    data0 = nd0.std_string();
+    var nd1 = file1_str;
+    data1 = nd1.std_string();
 
     var fid0 = sm->load_virtual(
         Path("test_file0.k", false),

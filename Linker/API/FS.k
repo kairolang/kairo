@@ -24,47 +24,47 @@ ffi "c++" import "llvm/Support/Program.h";
 
 class LinkFS {
     static fn exists(p: string) -> bool {
-        var np = std::string_to_nstring(p);
-        return llvm::sys::fs::exists(llvm::Twine(np.raw()));
+        var np = p;
+        return llvm::sys::fs::exists(llvm::Twine(sref(np)));
     }
 
     static fn is_dir(p: string) -> bool {
-        var np = std::string_to_nstring(p);
-        return llvm::sys::fs::is_directory(llvm::Twine(np.raw()));
+        var np = p;
+        return llvm::sys::fs::is_directory(llvm::Twine(sref(np)));
     }
 
     static fn is_file(p: string) -> bool {
-        var np = std::string_to_nstring(p);
-        return llvm::sys::fs::is_regular_file(llvm::Twine(np.raw()));
+        var np = p;
+        return llvm::sys::fs::is_regular_file(llvm::Twine(sref(np)));
     }
 
     /// Symlinks resolved; \p p unchanged if it cannot be.
     static fn real(p: string) -> string {
-        var np  = std::string_to_nstring(p);
+        var np  = p;
         var out: llvm::SmallString::<256>;
-        var ec  = llvm::sys::fs::real_path(llvm::Twine(np.raw()), out, false);
+        var ec  = llvm::sys::fs::real_path(llvm::Twine(sref(np)), out, false);
         if ec { return p; }
         return string(out.data(), out.size());
     }
 
     static fn parent(p: string) -> string {
-        var np = std::string_to_nstring(p);
-        var sr = llvm::sys::path::parent_path(llvm::StringRef(np.raw(), np.size()));
+        var np = p;
+        var sr = llvm::sys::path::parent_path(sref(np));
         return string(sr.data(), sr.size());
     }
 
     static fn filename(p: string) -> string {
-        var np = std::string_to_nstring(p);
-        var sr = llvm::sys::path::filename(llvm::StringRef(np.raw(), np.size()));
+        var np = p;
+        var sr = llvm::sys::path::filename(sref(np));
         return string(sr.data(), sr.size());
     }
 
     /// Entry NAMES directly in \p dir, unsorted. Empty if unreadable.
     static fn list_dir(dir: string) -> vec::<string> {
         var out = vec::<string>();
-        var nd  = std::string_to_nstring(dir);
+        var nd  = dir;
         var ec: libcxx::error_code;
-        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(nd.raw()), ec, true);
+        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(sref(nd)), ec, true);
         var end = llvm::sys::fs::directory_iterator();
         while (!ec) && (it != end) {
             var p = it->path();
@@ -75,8 +75,8 @@ class LinkFS {
     }
 
     static fn read(path: string, out: ref!(string)) -> bool {
-        var np = std::string_to_nstring(path);
-        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(np.raw()));
+        var np = path;
+        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(sref(np)));
         if !mb { return false; }
         var sr = mb.get()->getBuffer();
         out = string(sr.data(), sr.size());
@@ -84,20 +84,20 @@ class LinkFS {
     }
 
     static fn write(path: string, text: string) -> bool {
-        var np = std::string_to_nstring(path);
-        var nt = std::string_to_nstring(text);
+        var np = path;
+        var nt = text;
         var ec = llvm::sys::writeFileWithEncoding(
-            llvm::StringRef(np.raw(), np.size()), llvm::StringRef(nt.raw(), nt.size()));
+            sref(np), sref(nt));
         return !ec;
     }
 
     /// Creates an empty temp file and returns its path; "" on failure.
     static fn temp_file(prefix: string, suffix: string) -> string {
-        var np  = std::string_to_nstring(prefix);
-        var ns  = std::string_to_nstring(suffix);
+        var np  = prefix;
+        var ns  = suffix;
         var out: llvm::SmallString::<256>;
         var ec  = llvm::sys::fs::createTemporaryFile(
-            llvm::Twine(np.raw()), llvm::StringRef(ns.raw(), ns.size()), out);
+            llvm::Twine(sref(np)), sref(ns), out);
         if ec { return ""; }
         return string(out.data(), out.size());
     }
@@ -106,8 +106,8 @@ class LinkFS {
     static fn temp_dir(prefix: string) -> string {
         var base: llvm::SmallString::<256>;
         llvm::sys::path::system_temp_directory(true, base);
-        var np = std::string_to_nstring(prefix);
-        llvm::sys::path::append(base, llvm::Twine(np.raw()));
+        var np = prefix;
+        llvm::sys::path::append(base, llvm::Twine(sref(np)));
         var out: llvm::SmallString::<256>;
         var ec  = llvm::sys::fs::createUniqueDirectory(llvm::Twine(base), out);
         if ec { return ""; }
@@ -115,26 +115,26 @@ class LinkFS {
     }
 
     static fn make_dirs(p: string) -> bool {
-        var np = std::string_to_nstring(p);
-        var ec = llvm::sys::fs::create_directories(llvm::Twine(np.raw()), true);
+        var np = p;
+        var ec = llvm::sys::fs::create_directories(llvm::Twine(sref(np)), true);
         return !ec;
     }
 
     static fn remove(p: string) {
-        var np = std::string_to_nstring(p);
-        llvm::sys::fs::remove(llvm::Twine(np.raw()), true);
+        var np = p;
+        llvm::sys::fs::remove(llvm::Twine(sref(np)), true);
     }
 
     static fn remove_tree(p: string) {
         if p.empty() { return; }
-        var np = std::string_to_nstring(p);
-        llvm::sys::fs::remove_directories(llvm::Twine(np.raw()), true);
+        var np = p;
+        llvm::sys::fs::remove_directories(llvm::Twine(sref(np)), true);
     }
 
     /// The environment variable \p name; "" when unset.
     static fn env(name: string) -> string {
-        var nn = std::string_to_nstring(name);
-        var v  = llvm::sys::Process::GetEnv(llvm::StringRef(nn.raw(), nn.size()));
+        var nn = name;
+        var v  = llvm::sys::Process::GetEnv(sref(nn));
         if !v { return ""; }
         return std::nstring_to_string(v.value());
     }

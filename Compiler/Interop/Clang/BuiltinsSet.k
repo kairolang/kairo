@@ -121,7 +121,7 @@ class BuiltinsSet {
     /// The builtin ID \p name has here, or 0. Read-only; any thread.
     fn id_of(self, name: string) -> u32 {
         if !self._ready { return 0; }
-        var it = self._ids.find(libcxx::string(std::string_to_nstring(name).raw_string()));
+        var it = self._ids.find(name.std_string());
         if it == self._ids.end() { return 0; }
         return it->second;
     }

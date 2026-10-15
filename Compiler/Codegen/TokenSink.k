@@ -202,8 +202,8 @@ class TokenSink derives EmitSink {
     }
 
     override fn create_ident(self, at: SourceRange, spelling: string) -> bool {
-        var ns = std::string_to_nstring(spelling);
-        return self._ident_lit(llvm::StringRef(ns.raw(), ns.size()), at.start, at.size());
+        var ns = spelling;
+        return self._ident_lit(sref(ns), at.start, at.size());
     }
 
     override fn punct(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {
@@ -474,7 +474,7 @@ class TokenSink derives EmitSink {
 
     priv fn _intern(self, s: ref!(nstring)) -> u32 {
         ICE_IF(self._sealed, "TokenSink: intern after arena registration");
-        var key = libcxx::string(s.raw_string());
+        var key = s.std_string();
         var it = self._dedup.find(key);
         if it != self._dedup.end() { return it->second; }
         var off = static_cast::<u32>(self._arena_text.size());

@@ -104,7 +104,7 @@ struct alignas(64) ArenaBlock {
 
     void destroy() noexcept {
         Logger::debug(Logger::Stage::Driver,
-                      libcxx::format(L"ArenaBlock::destroy: hard-free cap={}B",
+                      libcxx::format("ArenaBlock::destroy: hard-free cap={}B",
                                      capacity));
         libcxx::free(ptr);
         ptr = nullptr;

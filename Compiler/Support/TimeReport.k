@@ -88,8 +88,8 @@ inline fn time_print() { kairo::ktime_print(); }
 ///          trace = true.
 fn time_write_trace(path: string) -> bool {
     if path.empty() { return false; }
-    var p = std::string_to_nstring(path);
-    return kairo::ktime_write_trace(p.raw());
+    var p = path;
+    return kairo::ktime_write_trace(p.c_str());
 }
 
 /// \brief the region active on this thread, for handing to a pool task.
@@ -105,8 +105,8 @@ inline fn time_current() -> *kairo::KTimeRecord {
 ///          resolve once, then construct from the handle. Valid for the life
 ///          of the process.
 fn time_region(name: string) -> *kairo::KTimeRecord {
-    var n = std::string_to_nstring(name);
-    return kairo::ktime_region(n.raw());
+    var n = name;
+    return kairo::ktime_region(n.c_str());
 }
 
 /// \brief interns \p name as a SIBLING of the active region.
@@ -116,8 +116,8 @@ fn time_region(name: string) -> *kairo::KTimeRecord {
 ///          stream is being opened, but lex time is not part of opening the
 ///          stream   it belongs beside it, under the walk.
 fn time_region_beside(name: string) -> *kairo::KTimeRecord {
-    var n = std::string_to_nstring(name);
-    return kairo::ktime_region_beside(n.raw());
+    var n = name;
+    return kairo::ktime_region_beside(n.c_str());
 }
 
 /// \brief marks \p rec a busy-wait: real elapsed time, but not work anyone can
@@ -152,8 +152,8 @@ class TimeRegion {
     /// there.
     inline fn TimeRegion(self, name: string) {
         if !kairo::ktime_enabled() { return; }
-        var n = std::string_to_nstring(name);
-        self._f = kairo::ktime_enter(kairo::ktime_region(n.raw()));
+        var n = name;
+        self._f = kairo::ktime_enter(kairo::ktime_region(n.c_str()));
     }
 
     /// Pre-resolved handle from time_region(). No lookup, no allocation.

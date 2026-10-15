@@ -124,8 +124,9 @@ class BasicDiagConsumer derives DiagConsumer {
         for var i: usize = 0; i < self._diags.size(); ++i {
             out += self.render_diag(self._diags[i]);
         }
-        var f = libcxx::wofstream(libcxx::filesystem::path(path.raw()));
-        f << out.raw();
+        // binary: the bytes are already UTF-8, nothing to translate.
+        var f = libcxx::ofstream(to_path(path), libcxx::ios::binary);
+        f.write(out.c_str(), static_cast::<libcxx::streamsize>(out.size()));
         f.close();
     }
 

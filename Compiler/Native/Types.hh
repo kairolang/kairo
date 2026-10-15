@@ -83,9 +83,47 @@
 #define _simd_available() 0
 #endif
 
+namespace llvm {
+class StringRef;
+}
+
+namespace kairo {
+/// Every string <-> filesystem::path crossing goes through these two. They
+/// are UTF-8 on every platform; `path(std::string)` / `.string()` would use
+/// the ANSI code page on Windows, so don't use those here even though they
+/// compile.
+inline libcxx::filesystem::path to_path(const kairo::string &s) {
+    return libcxx::filesystem::path(
+        libcxx::u8string_view(reinterpret_cast<const char8_t *>(s.raw()), s.size()));
+}
+
+inline kairo::string from_path(const libcxx::filesystem::path &p) {
+    auto u = p.u8string();
+    return kairo::string(reinterpret_cast<const char *>(u.data()), u.size());
+}
+
+/// A string's bytes as an llvm::StringRef (or any (const char*, size)
+/// view type R). The size is passed explicitly: the old `.raw()` crossings
+/// relied on strlen, which stops at an embedded NUL. A template so this
+/// header does not have to include LLVM; only the forward declaration is
+/// needed until a caller instantiates it.
+template <class R = llvm::StringRef>
+inline R sref(const kairo::string &s) {
+    return R(s.c_str(), s.size());
+}
+
+/// from_path on the generic ('/'-separated) form.
+inline kairo::string from_generic_path(const libcxx::filesystem::path &p) {
+    auto u = p.generic_u8string();
+    return kairo::string(reinterpret_cast<const char *>(u.data()), u.size());
+}
+}  // namespace kairo
+
 #include "KLog.hh"
 
-#define WIDE_STR(s) L##s
+/// One byte of a byte string (kairo `char` is `unsigned char`). Replaces the
+/// old WIDE_STR, which is gone so any leftover use fails to compile.
+#define KBYTE(c) static_cast<unsigned char>(c)
 
 namespace kairo {
 /// \brief Owning pointer. This object is responsible for the lifetime of the
@@ -884,13 +922,12 @@ sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
 template <typename... Args>
 void eprint(Args &&...t) {
     if constexpr (sizeof...(t) == 0) {
-        fwprintf(stderr, L"");
         return;
     }
     
     ((([&]() { // fixed so now thers no more UB with large strings
            auto str = std::to_string(t);
-           fwprintf(stderr, L"%ls", str.raw());
+           fwrite(str.raw(), 1, str.size(), stderr);
        }())),
      ...);
 
@@ -900,13 +937,13 @@ void eprint(Args &&...t) {
 template <typename... Args>
 void eprintln(Args &&...t) {
     if constexpr (sizeof...(t) == 0) {
-        fwprintf(stderr, L"\n");
+        fputc('\n', stderr);
         return;
     }
     
     ((([&]() { // fixed so now thers no more UB with large strings
            auto str = std::to_string(t);
-           fwprintf(stderr, L"%ls", str.raw());
+           fwrite(str.raw(), 1, str.size(), stderr);
        }())),
      ...);
     
@@ -916,7 +953,7 @@ void eprintln(Args &&...t) {
         if constexpr (!std::Meta::same_as<
                           std::Meta::const_volatile_removed<LastArg>,
                           std::endl>) {
-            fwprintf(stderr, L"\n");
+            fputc('\n', stderr);
         }
     }
 }
@@ -964,46 +1001,46 @@ inline libcxx::filesystem::path get_exe_path() noexcept {
 inline string get_default_target_triple() noexcept {
 #if defined(__aarch64__) || defined(_M_ARM64)
 #if defined(__APPLE__)
-    return L"aarch64-apple-macosx11.0.0";
+    return "aarch64-apple-macosx11.0.0";
 #elif defined(__linux__)
-    return L"aarch64-unknown-linux-gnu";
+    return "aarch64-unknown-linux-gnu";
 #elif defined(_WIN32)
-    return L"aarch64-pc-windows-msvc";
+    return "aarch64-pc-windows-msvc";
 #else
-    return L"aarch64-unknown-unknown";
+    return "aarch64-unknown-unknown";
 #endif
 #elif defined(__x86_64__) || defined(_M_X64)
 #if defined(__APPLE__)
-    return L"x86_64-apple-macosx10.15.0";
+    return "x86_64-apple-macosx10.15.0";
 #elif defined(__linux__)
-    return L"x86_64-unknown-linux-gnu";
+    return "x86_64-unknown-linux-gnu";
 #elif defined(_WIN32)
-    return L"x86_64-pc-windows-msvc";
+    return "x86_64-pc-windows-msvc";
 #else
-    return L"x86_64-unknown-unknown";
+    return "x86_64-unknown-unknown";
 #endif
 #elif defined(__riscv)
 #if defined(__riscv_xlen) && (__riscv_xlen == 64)
-    return L"riscv64-unknown-linux-gnu";
+    return "riscv64-unknown-linux-gnu";
 #else
-    return L"riscv32-unknown-linux-gnu";
+    return "riscv32-unknown-linux-gnu";
 #endif
 #elif defined(__wasm32__)
-    return L"wasm32-unknown-unknown";
+    return "wasm32-unknown-unknown";
 #elif defined(__wasm64__)
-    return L"wasm64-unknown-unknown";
+    return "wasm64-unknown-unknown";
 #else
-    return L"unknown-unknown-unknown";
+    return "unknown-unknown-unknown";
 #endif
 }
 
 inline string get_thread_model() noexcept {
 #if defined(_WIN32)
-    return L"win32";
+    return "win32";
 #elif defined(__wasm32__) || defined(__wasm64__)
-    return L"single";
+    return "single";
 #else
-    return L"posix";
+    return "posix";
 #endif
 }
 
@@ -1083,7 +1120,7 @@ class StackBuf {
 ///
 /// \warning prefer the KAIRO_ICE macro. Calling this directly constructs \p msg
 ///          before the predicate is tested, and Stage 0 lowers every "..." to
-///          string(L"..."), so a literal here costs a wcslen + malloc + free on
+///          string("..."), so a literal here costs a strlen + malloc + free on
 ///          EVERY call including the ones that pass. That cost is invisible at
 ///          one call per file and ruinous at one per token; it was ~115ns/token
 ///          in the lexer before the macro landed.
@@ -1103,9 +1140,9 @@ inline void INTERNAL_ICE(bool condition, const string& msg, const ::std::source_
 /// \brief guards a compiler invariant. aborts with \p msg if \p cond is false.
 ///
 /// \details the message expression lives inside the branch body, so Stage 0's
-///          string(L"") lowering only materializes on the failing path. The
+///          string("") lowering only materializes on the failing path. The
 ///          success path is a compare and a predicted-not-taken branch, nothing
-///          more   no allocation, no wcslen, no temporary.
+///          more   no allocation, no strlen, no temporary.
 ///
 ///          Deliberately NOT compiled out under NDEBUG. An INTERNAL_ICE means a compiler
 ///          invariant is already broken; running past it in a release build

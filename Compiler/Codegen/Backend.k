@@ -180,7 +180,7 @@ class CodegenBackend derives TokenFiller {
             case EmitKind::LLVMBC { cfe->ProgramAction = clang::frontend::EmitBC;       }
             default               { cfe->ProgramAction = clang::frontend::EmitObj;      }
         }
-        cfe->OutputFile    = std::string_to_nstring(out_obj).raw_string();
+        cfe->OutputFile    = out_obj.std_string();
 
         // Phase B: the headers were parsed once already (HeaderSet). Mount
         // each set's PCH bytes in the backend's in-memory VFS -- once per set
@@ -213,7 +213,7 @@ class CodegenBackend derives TokenFiller {
             ppo->Includes.clear();
             var textual_from: usize = 0;
             if self._sets[0]->mounted {
-                ppo->ImplicitPCHInclude = libcxx::string(std::string_to_nstring(self._sets[0]->pch_path()).raw_string());
+                ppo->ImplicitPCHInclude = self._sets[0]->pch_path().std_string();
                 textual_from = 1;
             }
             for var i: usize = textual_from; i < self._sets.size(); ++i {
@@ -236,12 +236,12 @@ class CodegenBackend derives TokenFiller {
                         if s->includes[e].c_linkage { w += "}\n"; }
                     }
                     self._be->mount_text(s->wrap_path(), w);
-                    ppo->Includes.push_back(libcxx::string(std::string_to_nstring(s->wrap_path()).raw_string()));
+                    ppo->Includes.push_back(s->wrap_path().std_string());
                     continue;
                 }
                 for var e: usize = 0; e < s->includes.size(); ++e {
                     if s->includes[e].from_path.size() != 0 { continue; }   // direct includes; the rest follow.
-                    ppo->Includes.push_back(libcxx::string(std::string_to_nstring(s->includes[e].to_path).raw_string()));
+                    ppo->Includes.push_back(s->includes[e].to_path.std_string());
                 }
             }
         }

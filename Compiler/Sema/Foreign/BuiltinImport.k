@@ -150,7 +150,7 @@ class BuiltinImport {
         // Loaded at most once: a retry after a later failure must not
         // reassign _text under a fid that still points into it.
         if self._fid == 0 {
-            self._text = libcxx::string(std::string_to_nstring(text));
+            self._text = text.std_string();
             self._fid = ksm->load_virtual(Path(BuiltinImport::path()),
                 reinterpret_cast::<std::ConstPtr::<u8>>(self._text.data()), self._text.size());
             if self._fid == u32(-1) { self._fid = 0; return false; }

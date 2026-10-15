@@ -106,15 +106,15 @@ class EmitCXXHeader {
     fn write(self, dir: string) -> bool {
         var text = self.render();
         if text.size() == 0 { return false; }
-        var p  = std::string_to_nstring(self.path_under(dir));
-        var nt = std::string_to_nstring(text);
+        var p  = self.path_under(dir);
+        var nt = text;
         var ok = false;
         inline "c++" {
-            libcxx::filesystem::path fp(p.raw_string());
+            libcxx::filesystem::path fp = to_path(p);
             libcxx::error_code ec;
             libcxx::filesystem::create_directories(fp.parent_path(), ec);
-            libcxx::ofstream ofs(fp);
-            if (ofs) { ofs << nt.raw_string(); ok = bool(ofs); }
+            libcxx::ofstream ofs(fp, libcxx::ios::binary);
+            if (ofs) { ofs.write(nt.c_str(), static_cast<libcxx::streamsize>(nt.size())); ok = bool(ofs); }
         }
         return ok;
     }

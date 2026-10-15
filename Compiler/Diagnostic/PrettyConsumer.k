@@ -178,8 +178,9 @@ class PrettyDiagConsumer derives DiagConsumer {
 
     fn finalize_to_file(self, path: string) {
         var out = self.render_all(false);
-        var f = libcxx::wofstream(libcxx::filesystem::path(path.raw()));
-        f << out.raw();
+        // binary: the bytes are already UTF-8, nothing to translate.
+        var f = libcxx::ofstream(to_path(path), libcxx::ios::binary);
+        f.write(out.c_str(), static_cast::<libcxx::streamsize>(out.size()));
         f.close();
     }
 

@@ -169,9 +169,9 @@ class TypeImport {
     /// prefix plus a hash of the WHOLE spelling: two types may share the
     /// prefix, never the key.
     static fn opaque_key(sp: string) -> string {
-        var ns = std::string_to_nstring(sp);
+        var ns = sp;
         if ns.size() < 200 { return sp; }
-        var h = llvm::xxh3_64bits(llvm::StringRef(ns.raw(), ns.size()));
+        var h = llvm::xxh3_64bits(sref(ns));
         var key = string(sp.raw_string().substr(0, 160)) + f"...#{h}";
         // A prefix of non-ASCII identifiers could still be over the cap once
         // encoded; the hash alone is always short enough.

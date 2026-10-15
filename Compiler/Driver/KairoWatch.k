@@ -363,7 +363,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     }
 
     var path  = Path(target[0]);
-    var fspath = libcxx::filesystem::path(std::string_to_nstring(target[0]).raw());
+    var fspath = to_path(target[0]);
 
     if !libcxx::filesystem::exists(fspath) {
         std::print(f"kwatch: no such file: {target[0]}");

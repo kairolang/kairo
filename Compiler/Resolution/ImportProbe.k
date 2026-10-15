@@ -263,7 +263,7 @@ class ImportResolver {
         /// \return heap-allocated resolver; caller assumes ownership
         fn create_ptr(self, pool: *ThreadPool = &null) -> *ImportResolver {
             var cwd_path = self._cwd.value_or(Path(
-                libcxx::filesystem::current_path().generic_wstring(),
+                from_generic_path(libcxx::filesystem::current_path()),
                 false
             ));
             var resolver = std::create::<ImportResolver>(self._ext_cfg);
@@ -782,7 +782,7 @@ class ImportResolver {
         inline "c++" {
             auto &r = out.raw_string();
             for (size_t i = 0; i < r.size(); ++i) {
-                if (r[i] == WIDE_STR('-')) { r[i] = WIDE_STR('_'); }
+                if (r[i] == KBYTE('-')) { r[i] = KBYTE('_'); }
             }
         }
         return out;
@@ -862,10 +862,10 @@ class ImportResolver {
         inline "c++" {
             auto r = file.path_data.lexically_relative(base.path_data);
             if (!r.empty()) {
-                auto s = r.generic_wstring();
+                auto s = from_generic_path(r);
                 // "..", "../x", "" all mean: not contained.
-                if (s != WIDE_STR(".") &&
-                    !(s.size() >= 2 && s[0] == WIDE_STR('.') && s[1] == WIDE_STR('.'))) {
+                if (s != "." &&
+                    !(s.size() >= 2 && s[0] == KBYTE('.') && s[1] == KBYTE('.'))) {
                     rel = s;
                 }
             }
@@ -926,7 +926,7 @@ class ImportResolver {
         inline "c++" {
             auto &r = out.raw_string();
             for (size_t i = 0; i < r.size(); ++i) {
-                if (r[i] >= WIDE_STR('A') && r[i] <= WIDE_STR('Z')) {
+                if (r[i] >= KBYTE('A') && r[i] <= KBYTE('Z')) {
                     r[i] = static_cast<::std::remove_reference_t<decltype(r[i])>>(r[i] + 32);
                 }
             }
@@ -1180,20 +1180,20 @@ class ImportResolver {
         self.wait_for_index();
 
         var parent_path  = from_file.path_data.parent_path();
-        var candidate_fs = parent_path / libcxx::filesystem::path(rel_path.raw_string());
+        var candidate_fs = parent_path / to_path(rel_path);
 
         if libcxx::filesystem::exists(candidate_fs) {
             return (
-                Path(candidate_fs.generic_wstring(), false)
+                Path(from_generic_path(candidate_fs), false)
             );
         }
 
         for root: *SearchRoot in self._roots {
-            candidate_fs = root->base_path.path_data / libcxx::filesystem::path(rel_path.raw_string());
+            candidate_fs = root->base_path.path_data / to_path(rel_path);
 
             if libcxx::filesystem::exists(candidate_fs) {
                 return (
-                    Path(candidate_fs.generic_wstring(), false)
+                    Path(from_generic_path(candidate_fs), false)
                 );
             }
         }
@@ -1206,7 +1206,7 @@ class ImportResolver {
     /// \return true if the path exists
     fn path_exists(self, rel_path: string) -> bool {
         for root: *SearchRoot in self._roots {
-            var candidate = root->base_path.path_data / libcxx::filesystem::path(rel_path.raw_string());
+            var candidate = root->base_path.path_data / to_path(rel_path);
 
             if libcxx::filesystem::exists(candidate) {
                 return true;
@@ -1511,8 +1511,8 @@ fn Test() -> i32 {
         __inline_cpp("libcxx::ofstream ofs(p); ofs.close();");
     }
 
-    var test_path = Path(test_root.generic_wstring(), false);
-    var include_path = Path(include_root.generic_wstring(), false);
+    var test_path = Path(from_generic_path(test_root), false);
+    var include_path = Path(from_generic_path(include_root), false);
     var includes = vec::<Path>();
     includes.push_back(include_path);
 
@@ -1799,7 +1799,7 @@ fn Test() -> i32 {
     }, 10000);
 
     suite.equal::<i32>("resolve_path relative to source file", 1, fn () -> i32 {
-        var from_file = Path((test_root / libcxx::filesystem::path(r"std/io.k")).generic_wstring(), false);
+        var from_file = Path(from_generic_path(test_root / libcxx::filesystem::path(r"std/io.k")), false);
 
         // resolve sibling file
         var result = resolver->resolve_path("net.k", from_file);

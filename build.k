@@ -41,7 +41,7 @@ fn version(target: string, suffix: string) -> string {
 }
 
 fn version_macro(target: string, suffix: string) -> string {
-    return f"VERSION=L\\\\\\\"{version(target, suffix)}\\\\\\\"";
+    return f"VERSION=\\\\\\\"{version(target, suffix)}\\\\\\\"";
 }
 
 // llvm-config queries (Windows-only)

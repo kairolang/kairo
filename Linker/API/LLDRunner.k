@@ -111,7 +111,7 @@ class LLDRunner {
         var owned: libcxx::deque::<libcxx::string>;
         var cargv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         for a: string in argv {
-            owned.push_back(libcxx::string(std::string_to_nstring(a).raw_string()));
+            owned.push_back(a.std_string());
             cargv.push_back(owned.back().c_str());
         }
 
@@ -193,12 +193,12 @@ class LLDRunner {
         var owned: libcxx::deque::<libcxx::string>;
         var refs:  libcxx::vector::<llvm::StringRef>;
         for a: string in args {
-            owned.push_back(libcxx::string(std::string_to_nstring(a).raw_string()));
+            owned.push_back(a.std_string());
             refs.push_back(llvm::StringRef(owned.back()));
         }
 
-        var nout = libcxx::string(std::string_to_nstring(out_path).raw_string());
-        var nerr = libcxx::string(std::string_to_nstring(err_path).raw_string());
+        var nout = out_path.std_string();
+        var nerr = err_path.std_string();
         var redir: libcxx::vector::<libcxx::optional::<llvm::StringRef>>;
         redir.push_back(libcxx::nullopt);
         if nout.empty() { redir.push_back(libcxx::nullopt); }
@@ -232,7 +232,7 @@ class LLDRunner {
         var owned: libcxx::deque::<libcxx::string>;
         var refs:  libcxx::vector::<llvm::StringRef>;
         for a: string in args {
-            owned.push_back(libcxx::string(std::string_to_nstring(a).raw_string()));
+            owned.push_back(a.std_string());
             refs.push_back(llvm::StringRef(owned.back()));
         }
         return llvm::sys::commandLineFitsWithinSystemLimits(refs[0], llvm::ArrayRef::<llvm::StringRef>(refs));

@@ -232,9 +232,9 @@ class FrontendAction {
     fn ok(self)      -> bool    { return self._stage == TUStage::Done; }
     fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
     priv static fn _ensure_parent_dir(path: string) { // TODO: move to Path.k or FileSystem.k
-        var np = std::string_to_nstring(path);
+        var np = path;
         inline "c++" {
-            libcxx::filesystem::path fp(np.raw_string());
+            libcxx::filesystem::path fp = to_path(np);
             libcxx::error_code ec;
             libcxx::filesystem::create_directories(fp.parent_path(), ec);
         }
@@ -559,7 +559,7 @@ class CompilerInstance {
         std::print(f"target triple:     {self._effective_triple()}");
         std::print(f"host triple:       {self.get_target_triple()}");
         std::print(f"thread model:      {std::get_thread_model()}");
-        std::print(f"installed at:      {((std::get_exe_path()).parent_path()).generic_wstring()}");
+        std::print(f"installed at:      {from_generic_path(std::get_exe_path().parent_path())}");
     }
 
     /// Resolves and renders the long-form explanation for a diagnostic code.
@@ -600,8 +600,8 @@ class CompilerInstance {
         var sr = LinkText::strip_slash(bcfg.sysroot);
         if sr.empty() || (sr == "/") { return; }
 
-        var nt     = std::string_to_nstring(bcfg.triple);
-        var tri    = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+        var nt     = bcfg.triple;
+        var tri    = llvm::Triple(llvm::Triple::normalize(sref(nt)));
         var darwin = tri.isOSDarwin();
 
         var root = sr;
@@ -661,14 +661,14 @@ class CompilerInstance {
 
         var want = tg->triple;
         if tg->m32 || tg->m64 {
-            var nw = std::string_to_nstring(want);
-            var tt = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nw.raw(), nw.size())));
+            var nw = want;
+            var tt = llvm::Triple(llvm::Triple::normalize(sref(nw)));
             tt = (tt.get32BitArchVariant()) if (tg->m32) else (tt.get64BitArchVariant());
             var full: libcxx::string = tt.getTriple();
             want = string(full.c_str(), full.size());
         }
 
-        var prefix = string((((std::get_exe_path()).parent_path()).parent_path()).generic_wstring());
+        var prefix = from_generic_path(std::get_exe_path().parent_path().parent_path());
         var root   = LinkText::join(prefix, "sysroot");
         var dir    = LinkText::join(root, want);
         if !LinkFS::exists(dir) {
@@ -709,10 +709,10 @@ class CompilerInstance {
     /// Whether the bundled sysroot directory \p name is for \p triple.
     priv static fn _same_bundled_target(name: string, triple: string) -> bool {
         if !Toolchain::same_target(name, triple) { return false; }
-        var na = std::string_to_nstring(name);
-        var nb = std::string_to_nstring(triple);
-        var ta = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(na.raw(), na.size())));
-        var tb = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nb.raw(), nb.size())));
+        var na = name;
+        var nb = triple;
+        var ta = llvm::Triple(llvm::Triple::normalize(sref(na)));
+        var tb = llvm::Triple(llvm::Triple::normalize(sref(nb)));
         return ta.getSubArch() == tb.getSubArch();
     }
 
@@ -735,8 +735,8 @@ class CompilerInstance {
         // such variant has pointer width 0 after the rewrite and keeps its
         // own triple instead of becoming "unknown".
         if tg->m32 || tg->m64 {
-            var nw   = std::string_to_nstring(t);
-            var tri0 = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nw.raw(), nw.size())));
+            var nw   = t;
+            var tri0 = llvm::Triple(llvm::Triple::normalize(sref(nw)));
             var wide = tri0;
             wide = (tri0.get32BitArchVariant()) if (tg->m32) else (tri0.get64BitArchVariant());
             if wide.getArchPointerBitWidth() != 0 {
@@ -759,10 +759,10 @@ class CompilerInstance {
     priv fn _lookup_target(self, triple: string, err_out: *string) -> *void {
         var result: *void = &null;
         var err:     libcxx::string;
-        var triple_str = std::string_to_nstring(triple);
+        var triple_str = triple;
 
         inline "c++" {
-            auto llvm_triple = llvm::Triple(llvm::Triple::normalize(triple_str.raw_string()));
+            auto llvm_triple = llvm::Triple(llvm::Triple::normalize(sref(triple_str)));
             const llvm::Target *T = llvm::TargetRegistry::lookupTarget(llvm_triple, err);
         }
 
@@ -814,8 +814,8 @@ class CompilerInstance {
     /// Lists CPUs supported by the effective target. Uses --target if given,
     /// otherwise the host triple. Mirrors `llc -mtriple=X -mcpu=help`.
     fn print_cpus(self) -> i32 {
-        var triple = std::string_to_nstring(self._effective_triple());
-        var llvm_triple = llvm::Triple(llvm::Triple::normalize(triple.raw()));
+        var triple = self._effective_triple();
+        var llvm_triple = llvm::Triple(llvm::Triple::normalize(sref(triple)));
         var err:     libcxx::string;
     
         var T: *llvm::Target = const_cast::<*llvm::Target>(
@@ -919,8 +919,8 @@ class CompilerInstance {
     /// data layout, and default CPU for the effective target. Uses --target if
     /// given, otherwise the host triple.
     fn print_target_info(self) -> i32 {
-        var triple = std::string_to_nstring(self._effective_triple());
-        var llvm_triple = llvm::Triple(llvm::Triple::normalize(triple.raw()));
+        var triple = self._effective_triple();
+        var llvm_triple = llvm::Triple(llvm::Triple::normalize(sref(triple)));
         var err: libcxx::string;
 
         var T: *llvm::Target = const_cast::<*llvm::Target>(
@@ -1077,10 +1077,10 @@ class CompilerInstance {
         var split = false;
         inline "c++" {
             auto raw = spec.raw_string();
-            auto pos = raw.find(WIDE_STR('='));
+            auto pos = raw.find(KBYTE('='));
             if (pos != decltype(raw)::npos && pos > 0 && pos + 1 < raw.size()) {
-                name  = ::kairo::std::String::basic<wchar_t>(raw.substr(0, pos));
-                dir   = ::kairo::std::String::basic<wchar_t>(raw.substr(pos + 1));
+                name  = ::kairo::string(raw.substr(0, pos));
+                dir   = ::kairo::string(raw.substr(pos + 1));
                 split = true;
             }
         }
@@ -1214,8 +1214,8 @@ class CompilerInstance {
             o.push_back("-mrelocation-model"); o.push_back("static");
             o.push_back("-disable-red-zone");
             o.push_back("-no-implicit-float");
-            var nt  = std::string_to_nstring(triple);
-            var tri = llvm::Triple(llvm::Triple::normalize(llvm::StringRef(nt.raw(), nt.size())));
+            var nt  = triple;
+            var tri = llvm::Triple(llvm::Triple::normalize(sref(nt)));
             if tri.isX86() { o.push_back("-target-feature"); o.push_back("-sse"); }
         }
 
@@ -1365,7 +1365,7 @@ class CompilerInstance {
         var wd = self.invocation().working_dir;
         if wd.empty() { return true; }
 
-        var fspath = libcxx::filesystem::path(std::string_to_nstring(wd).raw());
+        var fspath = to_path(wd);
         var ec     = libcxx::error_code();
         libcxx::filesystem::current_path(fspath, ec);
         if ec {
@@ -1511,10 +1511,10 @@ class CompilerInstance {
     }
 
     priv fn _compile_one_native(self, src: string, obj: string) -> bool {
-        var nobj = std::string_to_nstring(obj);
+        var nobj = obj;
         inline "c++" {
             libcxx::error_code ec;
-            libcxx::filesystem::create_directories(libcxx::filesystem::path(nobj.raw_string()).parent_path(), ec);
+            libcxx::filesystem::create_directories(to_path(nobj).parent_path(), ec);
         }
         var is_c = CompilerInstance::_native_lang(Path(src).extension()) == 1;
         if !self._backend->compile_native(src, obj, is_c) { return false; }
@@ -1534,12 +1534,12 @@ class CompilerInstance {
             broot = (Path(self.invocation().target.resource_dir) / "builtin").full_path();
         }
         if broot.empty() { return ""; }
-        var nb = std::string_to_nstring(broot);
-        var bp = libcxx::filesystem::path(nb.raw_string());
+        var nb = broot;
+        var bp = to_path(nb);
         if !bp.has_filename() {
             bp = bp.parent_path(); // tolerate a trailing '/'
         }
-        return string(bp.parent_path().generic_wstring());
+        return from_generic_path(bp.parent_path());
     }
 
     /// \brief the runtime's C/C++ sources: every one directly in
@@ -1549,10 +1549,10 @@ class CompilerInstance {
         var out = vec::<string>();
         var rroot = self._runtime_root();
         if rroot.empty() { return out; }
-        var nr = std::string_to_nstring(rroot);
+        var nr = rroot;
 
         var ec: libcxx::error_code;
-        var root: libcxx::filesystem::path = libcxx::filesystem::path(nr.raw_string()) / r"rt";
+        var root: libcxx::filesystem::path = to_path(nr) / r"rt";
         var found: libcxx::vector::<libcxx::filesystem::path>;
         
         if libcxx::filesystem::is_directory(root, ec) {
@@ -1565,7 +1565,7 @@ class CompilerInstance {
                     continue;
                 }
 
-                var ext = string(it->path().extension().generic_wstring());
+                var ext = from_generic_path(it->path().extension());
                 if (ext == ".c") || (ext == ".cpp") || (ext == ".cc") || (ext == ".cxx") {
                     found.push_back(it->path());
                 }
@@ -1575,17 +1575,16 @@ class CompilerInstance {
         libcxx::sort(found.begin(), found.end());
 
         for f in found {
-            out.push_back(string(f.generic_wstring()));
+            out.push_back(from_generic_path(f));
         }
         
         return out;
     }
 
     priv static fn _parent_dir(path: string) -> string {
-        var np  = std::string_to_nstring(path);
         var res = "";
         inline "c++" {
-            res = string(libcxx::filesystem::path(np.raw_string()).parent_path().generic_wstring());
+            res = from_generic_path(to_path(path).parent_path());
         }
         return res;
     }
@@ -1678,7 +1677,7 @@ class CompilerInstance {
     /// kld beside this binary: the out-of-process fallback, used only after
     /// the in-process linker poisons itself or for an -mllvm link.
     priv fn _kld_path(self) -> string {
-        var dir = string(((std::get_exe_path()).parent_path()).generic_wstring());
+        var dir = from_generic_path(std::get_exe_path().parent_path());
         var exe = "kld";
         if llvm::Triple(llvm::sys::getProcessTriple()).isOSWindows() { exe = "kld.exe"; }
         return dir + "/" + exe;
@@ -2321,10 +2320,10 @@ class CompilerInstance {
         // change WHICH triple we compile for, and the width follows from that.
         // Written onto the invocation so sema reads a plain number and Config/
         // never has to see LLVM.
-        var triple_str = std::string_to_nstring(self._effective_triple());
+        var triple_str = self._effective_triple();
         var width: usize = 64;
         
-        var tt = llvm::Triple(llvm::Triple::normalize(triple_str.raw()));
+        var tt = llvm::Triple(llvm::Triple::normalize(sref(triple_str)));
         if self._inv.target.m32      {
             tt = tt.get32BitArchVariant();
         } else if (self._inv.target.m64) {
@@ -2385,7 +2384,7 @@ class CompilerInstance {
         if !self._inv.target.mcpu.empty() {
             var STI = T->createMCSubtargetInfo(tt.getTriple(), r"", r"");
             finally { delete STI; }
-            if !STI->isCPUStringValid(std::string_to_nstring(self._inv.target.mcpu).raw()) {
+            if !STI->isCPUStringValid(sref(self._inv.target.mcpu)) {
                 self._diag->report(DiagID::P006E,
                     f"unknown target CPU '{self._inv.target.mcpu}' for target '{t->effective_triple}\x27").emit();
                 self._diag->report(DiagID::P006N, // Maybe add a new diagnostic catogery for this? like Driver?

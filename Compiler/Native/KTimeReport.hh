@@ -626,11 +626,9 @@ class TimeReport {
     /// Writes the aggregate report. \p out defaults to stderr, matching
     /// clang's -ftime-report, so it never contaminates -E / --emit output.
     ///
-    /// Wide (fwprintf), like every other stderr writer in the compiler:
-    /// std::eprint and the diagnostic consumers orient stderr wide on first
-    /// use   flush_errors() does it on every run, even with no diagnostics
-    /// and once a FILE is wide-oriented every narrow fprintf on it fails
-    /// silently. `%s` here still takes the narrow char* arguments.
+    /// Narrow (fprintf), like every other stderr writer in the compiler:
+    /// strings are UTF-8 bytes, and a FILE must never mix wide and narrow
+    /// writes (once oriented, the other kind fails silently).
     static void print(FILE *out = nullptr) {
         if (out == nullptr) { out = stderr; }
         finish();
@@ -644,9 +642,9 @@ class TimeReport {
         }
         if (wall == 0) { wall = 1; }
 
-        fwprintf(out, L"\n===-%s-===\n", dashes());
-        fwprintf(out, L"                          Kairo Compilation Timing Report\n");
-        fwprintf(out, L"===-%s-===\n", dashes());
+        fprintf(out, "\n===-%s-===\n", dashes());
+        fprintf(out, "                          Kairo Compilation Timing Report\n");
+        fprintf(out, "===-%s-===\n", dashes());
         // "pool" is what --threads asked for; "recorded" is every thread that
         // entered a region, which additionally includes the driver and the
         // parse diagnostic flusher. Printing only the latter as "threads"
@@ -654,26 +652,26 @@ class TimeReport {
         // same quantity.
         const int pool = pool_size_slot().load(libcxx::memory_order_relaxed);
         if (pool >= 0) {
-            fwprintf(out,
-                    L"  run %.3f ms   regions %zu   pool %d   recorded %zu threads\n\n",
+            fprintf(out,
+                    "  run %.3f ms   regions %zu   pool %d   recorded %zu threads\n\n",
                     double(wall) / 1e6,
                     r.all.size(),
                     pool,
                     r.bufs.size());
         } else {
-            fwprintf(out,
-                    L"  run %.3f ms   regions %zu   recorded %zu threads\n\n",
+            fprintf(out,
+                    "  run %.3f ms   regions %zu   recorded %zu threads\n\n",
                     double(wall) / 1e6,
                     r.all.size(),
                     r.bufs.size());
         }
 
-        fwprintf(out,
-                L"  ----wall----   ----work----   ---self---   calls   ----avg----  "
-                L"----max----  ------rate------  region\n");
-        fwprintf(out,
-                L"      ms      %%       ms   par        ms                    us    "
-                L"       us                      \n");
+        fprintf(out,
+                "  ----wall----   ----work----   ---self---   calls   ----avg----  "
+                "----max----  ------rate------  region\n");
+        fprintf(out,
+                "      ms      %%       ms   par        ms                    us    "
+                "       us                      \n");
 
         libcxx::vector<Record *> roots = root_order_unlocked();
         sort_by_total(roots);
@@ -681,13 +679,13 @@ class TimeReport {
 
         print_hot(out, wall);
 
-        fwprintf(out,
-                L"\n  wall is time on the dispatching thread (latency); work is time "
-                L"summed over\n"
-                L"  pool workers, so it may exceed the run. par = work/wall, the "
-                L"speedup the\n"
-                L"  fan-out achieved. `~` = sampled estimate. [idle] = busy-wait, "
-                L"excluded below.\n");
+        fprintf(out,
+                "\n  wall is time on the dispatching thread (latency); work is time "
+                "summed over\n"
+                "  pool workers, so it may exceed the run. par = work/wall, the "
+                "speedup the\n"
+                "  fan-out achieved. `~` = sampled estimate. [idle] = busy-wait, "
+                "excluded below.\n");
         fflush(out);
     }
 
@@ -846,8 +844,8 @@ class TimeReport {
                           : rec->sampled.load(libcxx::memory_order_relaxed) ? "  ~"
                                                                             : "";
 
-        fwprintf(out,
-                L"  %8s %s  %8s %s  %8s %7llu  %10.1f  %10.1f  %-16s  %s%s%s\n",
+        fprintf(out,
+                "  %8s %s  %8s %s  %8s %7llu  %10.1f  %10.1f  %-16s  %s%s%s\n",
                 wall_ms,
                 pct,
                 work_ms,
@@ -888,11 +886,11 @@ class TimeReport {
         const size_t n = v.size() < 15 ? v.size() : 15;
         if (n == 0) { return; }
 
-        fwprintf(out, L"\n  hottest regions by self time\n");
+        fprintf(out, "\n  hottest regions by self time\n");
         for (size_t i = 0; i < n; ++i) {
             Record *rec = v[i];
-            fwprintf(out,
-                    L"  %9.2f ms %6.1f%%  %8llu calls  %s%s\n",
+            fprintf(out,
+                    "  %9.2f ms %6.1f%%  %8llu calls  %s%s\n",
                     double(rec->self_ns()) / 1e6,
                     100.0 * double(rec->self_ns()) / double(wall),
                     (unsigned long long)rec->calls(),

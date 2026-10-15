@@ -2401,7 +2401,7 @@ class PreProcessor {
                 continue;
             }
 
-            self._define_storage.push_back(libcxx::string(std::string_to_nstring(value)));
+            self._define_storage.push_back(value.std_string());
             var stored = &(self._define_storage[self._define_storage.size() - 1]);
 
             var fid = self._sm->load_virtual(

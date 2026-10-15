@@ -347,19 +347,19 @@ class ClangBackend {
     /// Driver thread only. A generated header, copied in; addFile keeps the
     /// first mount of a path, so a second call is a no-op.
     fn mount_text(self, path: string, text: string) {
-        var np  = std::string_to_nstring(path);
-        var nt  = std::string_to_nstring(text);
+        var np  = path;
+        var nt  = text;
         var buf = llvm::MemoryBuffer::getMemBufferCopy(
-            llvm::StringRef(nt.raw(), nt.size()), llvm::StringRef(np.raw()));
-        self._mem->addFile(llvm::Twine(np.raw()), 0, libcxx::move(buf));
+            sref(nt), sref(np));
+        self._mem->addFile(llvm::Twine(sref(np)), 0, libcxx::move(buf));
     }
 
     /// Driver thread only. Idempotent per path.
     fn mount_pch(self, path: string, data: *llvm::SmallVector::<std::Legacy::char, 0>) {
-        var np  = std::string_to_nstring(path);
+        var np  = path;
         var buf = llvm::MemoryBuffer::getMemBuffer(
-            llvm::StringRef(data->data(), data->size()), llvm::StringRef(np.raw()), false);
-        self._mem->addFile(llvm::Twine(np.raw()), 0, libcxx::move(buf));
+            llvm::StringRef(data->data(), data->size()), sref(np), false);
+        self._mem->addFile(llvm::Twine(sref(np)), 0, libcxx::move(buf));
     }
 
     fn csm(self) -> *clang::SourceManager {
@@ -474,7 +474,7 @@ class ClangBackend {
     }
 
     priv fn _arg(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, s: string) {
-        self._owned.push_back(libcxx::string(std::string_to_nstring(s).raw_string()));
+        self._owned.push_back(s.std_string());
         argv->push_back(self._owned.back().c_str());
     }
 
@@ -527,7 +527,7 @@ class ClangBackend {
         words.push_back("c++");
         words.push_back("-");
         for w: string in words {
-            owned.push_back(libcxx::string(std::string_to_nstring(w).raw_string()));
+            owned.push_back(w.std_string());
             dargv.push_back(owned.back().c_str());
         }
 
@@ -710,10 +710,10 @@ class ClangBackend {
         }
         // Errors go to a stream and come back as false: without one LLVM calls
         // exit(1), here on a pool thread, for a mistyped --mllvm word.
-        var ov = std::string_to_nstring("kairo");
+        var ov = "kairo";
         var es = &(llvm::errs());
         if !llvm::cl::ParseCommandLineOptions(static_cast::<i32>(av.size()), av.data(),
-                                              llvm::StringRef(ov.raw(), ov.size()), es) {
+                                              sref(ov), es) {
             Logger::error(Logger::Stage::Driver, "ClangBackend: an --mllvm word was not accepted by LLVM");
             self._failed = true;
         }
@@ -759,7 +759,7 @@ class ClangBackend {
         // -include names travel via the predefines buffer.
         for inc: string in self._cfg.includes {
             self._cinv.get()->getPreprocessorOpts().Includes.push_back(
-                libcxx::string(std::string_to_nstring(inc).raw_string()));
+                inc.std_string());
         }
 
         self._ci = std::create::<clang::CompilerInstance>(self._cinv);

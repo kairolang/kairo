@@ -2672,10 +2672,10 @@ fn Test() -> i32 {
     var create_lexer_from_string_with_diag = fn (content: string, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) -> (*Lexer, u32) {
         var temp_path = (libcxx::filesystem::temp_directory_path()) / (libcxx::filesystem::path(r"hlx_lexer_test.k"));
         sm->reset();
-        var temp_data = std::string_to_nstring(content);
-        data = libcxx::string(temp_data);
+        var temp_data = content;
+        data = temp_data.std_string();
 
-        var path  = Path(temp_path.generic_wstring(), false);
+        var path  = Path(from_generic_path(temp_path), false);
         var ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(data.data());
         var fid   = sm->load_virtual(path, ptr, data.size());
 
@@ -2693,7 +2693,7 @@ fn Test() -> i32 {
 
     /// Narrow-bytes variant, for the hot-loop benchmark.
     ///
-    /// `string` is wchar_t-backed, so staging a 1 GiB corpus as one costs 4 GiB
+    /// (Historical: `string` was wchar_t-backed.) Staging a 1 GiB corpus as one cost 4 GiB
     /// of wide buffer and then pays a 1 GiB wide->narrow conversion that lands
     /// in profiles as string_to_nstring + wcslen. Neither has anything to do
     /// with lexing   the lexer only ever sees the narrow bytes   but both were
@@ -2703,7 +2703,7 @@ fn Test() -> i32 {
         sm->reset();
         data = std::Memory::move(bytes);
 
-        var path  = Path(temp_path.generic_wstring(), false);
+        var path  = Path(from_generic_path(temp_path), false);
         var ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(data.data());
         var fid   = sm->load_virtual(path, ptr, data.size());
 
@@ -5589,7 +5589,7 @@ fn Test() -> i32 {
             + "\n";
         }
 
-        return libcxx::string(std::string_to_nstring(wide));
+        return wide.std_string();
     };
 
     for var corpus: i32 = 0; corpus < 2; ++corpus {

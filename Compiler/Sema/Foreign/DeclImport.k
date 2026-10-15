@@ -283,7 +283,7 @@ class DeclImport {
     /// ChainBinding's multi-scope Module anchor and ADL both walk.
     fn namespace_for(self, t: *HeaderTarget, ns: const_obs::<clang::NamespaceDecl>) -> *ModuleDecl {
         var q  = self._qual(ns);
-        var nq = libcxx::string(std::string_to_nstring(q).raw_string());
+        var nq = q.std_string();
         var it = t->namespaces.find(nq);
         if it != t->namespaces.end() { return it->second; }
 

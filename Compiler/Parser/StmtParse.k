@@ -1349,7 +1349,7 @@ class <T> StmtParse {
             // default arm: patterns left empty
             dyn()->advance(T::SkipNL::After); // consume `default`
             result.is_default = true;
-            after = "\x27default\x27";
+            after = "\x27" + "default\x27";   // split: Stage 0 reads `\x27de` as one escape.
         } else {
             // case arm
             if !dyn()->check(TokenKind::KwCase) {
