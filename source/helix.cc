@@ -70,5 +70,12 @@ int main(int argc, char **argv) {
         print(string(colors::bold) + string(colors::fg8::yellow) + "warning: " + string(colors::reset) + "unknown... continuing?");
     }
 
+    // diagnostics set HAS_ERRORED without making compile() fail, so the
+    // process exited 0 after "aborting..." and kbld reported the build as
+    // successful against a stale binary.
+    if (result == 0 && error::HAS_ERRORED) {
+        return 1;
+    }
+
     return result;
 }
