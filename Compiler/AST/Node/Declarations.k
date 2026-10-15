@@ -799,6 +799,12 @@ class StructDecl
     pub var assign_from:    *FunctionDecl = &null;
     /// How that `op =` is given to C++. One writer: ClassLifecycle.
     pub var assign_form:    AssignForm    = AssignForm::Implicit;
+    /// N > 0: this record IS the tuple of arity N -- `(A, B)` is
+    /// `Tuple2<A, B>` -- minted by TupleRecords, never parsed from source
+    /// and in no symbol table. Tuple-ness is this flag on the PATTERN, by
+    /// identity, never the name `TupleN` (a user may declare one). One
+    /// writer: TupleRecords.
+    pub var tuple_arity:    u32           = 0;
 
     static fn create(
         ctx:    *ASTContext,

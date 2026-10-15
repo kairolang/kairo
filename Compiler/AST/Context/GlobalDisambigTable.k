@@ -18,6 +18,9 @@ import Driver::TUStage::*;   // standalone enum; no cycle
 import Resolution::ModulePath::*;
 import AST::Context::CanonicalTypes::*;
 import AST::Context::InstantiationRegistry::*;
+import AST::Context::TupleRecords::*;
+import AST::Context::DeclContext::*;
+import AST::Node::Base::*;
 
 /// Aggregates all file-level DisambigTable instances for cross-file lookup.
 /// Owns all ASTContext instances created during the index phase.
@@ -57,6 +60,9 @@ class GlobalDisambigTable {
     /// the lang items are filled by whichever builtin TU DECLARES each one,
     /// because a leaf is type-resolved before the root that re-exports it.
     priv var _builtin_fids: set::<u32>;
+    /// The tuple patterns, ONE set for the build (TupleRecords): a tuple
+    /// written in two TUs must be one record, as a lang item is one decl.
+    priv var _tuples: TupleRecords;
 
     fn GlobalDisambigTable(self) {
         self._by_fid.reserve(128);
@@ -257,6 +263,16 @@ class GlobalDisambigTable {
 
     fn instances(self) -> *InstantiationRegistry {
         return &self._instances;
+    }
+
+    /// The record a tuple of \p arity is, minted on first use into the
+    /// builtin root (TupleRecords). Null without a root or outside
+    /// [2, TUPLE_MAX_ARITY]. \p root_dc: the root TU as a DeclContext --
+    /// the caller (Sema) casts, since this layer cannot name TranslationUnit.
+    fn tuple_pattern(self, arity: usize, root_dc: *DeclContext) -> *Decl {
+        var fid = self.builtin_fid();
+        if fid == 0 { return &null; }
+        return self._tuples.pattern(arity, self.get_context(fid), root_dc, &self._types);
     }
 
     // --- Debug ---------------------------------------------------------------

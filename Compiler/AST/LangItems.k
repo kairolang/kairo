@@ -109,6 +109,24 @@ fn to_string(k: WellKnownType) -> string {
     return "<unknown>";
 }
 
+/// Tuples exist up to this arity. Not a lang item: `(A, B)` is the record
+/// `Tuple2<A, B>` that TupleRecords MINTS on first use (one per arity per
+/// build, no source file behind it), and a written tuple wider than this
+/// is rejected at the type (TypeParse, S055E). --cmax-tuple-arity may only
+/// lower the cap: the arity is a u32 in every node that carries one, and
+/// 128 is where a C++ struct of that many members stops being a type a
+/// backend wants to see.
+eval fn TUPLE_MAX_ARITY() -> usize { return 128; }
+
+/// The ONE spelling of a tuple record and its members, read by TupleRecords
+/// when it mints the pattern and by every message or test note that names
+/// one. Nothing else writes `Tuple2`, `T0` or `_0` as a literal: the names
+/// are a C++-facing ABI (`Tuple2<int, double>` with `._0`), and changing
+/// them is a change here, not a sweep.
+fn tuple_record_name(arity: usize) -> string { return f"Tuple{arity}"; }
+fn tuple_param_name(i: usize)      -> string { return f"T{i}"; }
+fn tuple_field_name(i: usize)      -> string { return f"_{i}"; }
+
 /// \class WellKnownDecls
 /// \brief WellKnownType -> canonical *Decl. ONE per build, owned by
 ///        GlobalDisambigTable and filled once from the builtins fid (lang
@@ -379,6 +397,12 @@ class LowerTargets {
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
     static fn reserved_prefix() -> string { return "__kairo_"; }
+
+    /// The include guard around a tuple record's definition (writer:
+    /// InterfaceEmitter). A tuple record is minted from no file, so no
+    /// header owns it: every TU and header that reaches `Tuple2` defines
+    /// it, and a C++ TU that includes two such headers sees it twice.
+    static fn tuple_guard(arity: usize) -> string { return f"__KAIRO_TUPLE_{arity}"; }
 
     // --- Default arguments (writer: CallLowering) -------------------------------
 

@@ -308,12 +308,13 @@ class CanonicalTypeStore {
         return self._unary(TypeKind::NullableType, inner);
     }
 
-    // No vector()/set_of()/map_of(): `[T]`, `{T}` and `{K: V}` canonicalize to
-    // the Vector/HashSet/HashMap lang RECORDS (TypeResolve::_lang_record), and
-    // a second way to build a structural container canonical would fork the
-    // identity of the same written type. The VectorType/SetType/MapType arms
-    // below stay: those kinds still exist as SYNTAX nodes and pass through
-    // qualified() and the dedup probes.
+    // No vector()/set_of()/map_of()/tuple(): `[T]`, `{T}`, `{K: V}` and
+    // `(A, B)` canonicalize to the Vector/HashSet/HashMap lang RECORDS
+    // (TypeResolve::_lang_record) and the TupleN record (SemaContext::
+    // tuple_record), and a second way to build a structural canonical would
+    // fork the identity of the same written type. The VectorType/SetType/
+    // MapType/TupleType arms below stay: those kinds still exist as SYNTAX
+    // nodes and pass through qualified() and the dedup probes.
 
     /// `const T&` is cxx_lref(qualified(CONST, T)): the reference has no
     /// qualifiers of its own, the referee carries them, and the referee is
@@ -324,37 +325,6 @@ class CanonicalTypeStore {
 
     fn cxx_rref(self, referee: *Type) -> *Type {
         return self._unary(TypeKind::CXXRValueRefType, referee);
-    }
-
-    fn tuple(self, elements: *vec::<*Type>) -> *Type {
-        if elements == &null { return &null; }
-        var n = elements->size();
-
-        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TupleType)));
-        h = canon_hash_u64(h, static_cast::<u64>(n));
-        for var i: usize = 0; i < n; ++i {
-            h = canon_hash_ptr(h, reinterpret_cast::<*void>((*elements)[i]));
-        }
-
-        var lock = std::LockGuard(self._mu);
-        var hit = self._probe_tuple(h, elements, n);
-        if hit != &null { return hit; }
-
-        var tt = self._alloc::<TupleType>();
-        tt->kind  = TypeKind::TupleType;
-        tt->range = SourceRange::invalid();
-        tt->init_annotations(&(self._arena));
-        tt->init_spans(&(self._arena));
-
-        var buf = self._alloc_array::<*Type>(n);
-        for var i: usize = 0; i < n; ++i { buf[i] = (*elements)[i]; }
-        tt->elements.from_raw(buf, n);
-
-        var ty = static_cast::<*Type>(tt);
-        ty->canonical = ty;
-        for var i: usize = 0; i < n; ++i { self._absorb_flags(ty, (*elements)[i]); }
-        self._insert(h, ty);
-        return ty;
     }
 
     /// Fixed array with a KNOWN extent. `[T; N]` where N is not yet a constant
@@ -702,23 +672,6 @@ class CanonicalTypeStore {
             if c->kind != TypeKind::MapType { continue; }
             var m = cast::<MapType>(c);
             if (m->key == key) && (m->value == value) { return c; }
-        }
-        return &null;
-    }
-
-    priv fn _probe_tuple(self, h: u64, elems: *vec::<*Type>, n: usize) -> *Type {
-        var b = self._bucket(h);
-        if b == &null { return &null; }
-        for var i: usize = 0; i < b->size(); ++i {
-            var c = (*b)[i];
-            if c->kind != TypeKind::TupleType { continue; }
-            var t = cast::<TupleType>(c);
-            if t->elements.size() != n { continue; }
-            var same = true;
-            for var j: usize = 0; j < n; ++j {
-                if t->elements[j] != (*elems)[j] { same = false; break; }
-            }
-            if same { return c; }
         }
         return &null;
     }
