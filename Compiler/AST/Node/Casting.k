@@ -78,42 +78,34 @@ fn <T> isa(ptr: *Pattern) -> bool {
     return T::classof(ptr);
 }
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline const T *cast(const Expr *ptr) {
-        assert(ptr != nullptr && "cast<>: null pointer");
-        assert(T::classof(ptr) && "cast<>: incorrect type");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast(ptr: const *Expr) -> const *T {
+    assert((ptr != &null) && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *cast(const Stmt *ptr) {
-        assert(ptr != nullptr && "cast<>: null pointer");
-        assert(T::classof(ptr) && "cast<>: incorrect type");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast(ptr: const *Stmt) -> const *T {
+    assert((ptr != &null) && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *cast(const Decl *ptr) {
-        assert(ptr != nullptr && "cast<>: null pointer");
-        assert(T::classof(ptr) && "cast<>: incorrect type");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast(ptr: const *Decl) -> const *T {
+    assert((ptr != &null) && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *cast(const Type *ptr) {
-        assert(ptr != nullptr && "cast<>: null pointer");
-        assert(T::classof(ptr) && "cast<>: incorrect type");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast(ptr: const *Type) -> const *T {
+    assert((ptr != &null) && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *cast(const Pattern *ptr) {
-        assert(ptr != nullptr && "cast<>: null pointer");
-        assert(T::classof(ptr) && "cast<>: incorrect type");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast(ptr: const *Pattern) -> const *T {
+    assert((ptr != &null) && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<const *T>(ptr);
 }
 
 fn <T> cast(ptr: *Expr) -> *T {
@@ -188,54 +180,45 @@ fn <T> dyn_cast(ptr: *Pattern) -> *T {
 }
 
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline const T *dyn_cast(const Expr *ptr) {
-        if (ptr != nullptr && T::classof(ptr)) {
-            return static_cast<const T*>(ptr);
-        }
-
-        return nullptr;
+fn <T> dyn_cast(ptr: const *Expr) -> const *T {
+    if (ptr != &null) && (T::classof(ptr)) {
+        return static_cast::<const *T>(ptr);
     }
 
-    template <typename T>
-    inline const T *dyn_cast(const Stmt *ptr) {
-        if (ptr != nullptr && T::classof(ptr)) {
-            return static_cast<const T*>(ptr);
-        }
-
-        return nullptr;
-    }
-
-    template <typename T>
-    inline const T *dyn_cast(const Decl *ptr) {
-        if (ptr != nullptr && T::classof(ptr)) {
-            return static_cast<const T*>(ptr);
-        }
-
-        return nullptr;
-    }
-
-    template <typename T>
-    inline const T *dyn_cast(const Type *ptr) {
-        if (ptr != nullptr && T::classof(ptr)) {
-            return static_cast<const T*>(ptr);
-        }
-
-        return nullptr;
-    }
-
-    template <typename T>
-    inline const T *dyn_cast(const Pattern *ptr) {
-        if (ptr != nullptr && T::classof(ptr)) {
-            return static_cast<const T*>(ptr);
-        }
-
-        return nullptr;
-    }
+    return &null;
 }
 
+fn <T> dyn_cast(ptr: const *Stmt) -> const *T {
+    if (ptr != &null) && (T::classof(ptr)) {
+        return static_cast::<const *T>(ptr);
+    }
+
+    return &null;
+}
+
+fn <T> dyn_cast(ptr: const *Decl) -> const *T {
+    if (ptr != &null) && (T::classof(ptr)) {
+        return static_cast::<const *T>(ptr);
+    }
+
+    return &null;
+}
+
+fn <T> dyn_cast(ptr: const *Type) -> const *T {
+    if (ptr != &null) && (T::classof(ptr)) {
+        return static_cast::<const *T>(ptr);
+    }
+
+    return &null;
+}
+
+fn <T> dyn_cast(ptr: const *Pattern) -> const *T {
+    if (ptr != &null) && (T::classof(ptr)) {
+        return static_cast::<const *T>(ptr);
+    }
+
+    return &null;
+}
 // ============================================================================
 //  Recovery casting
 //
@@ -278,32 +261,24 @@ fn <T> dyn_cast_recovery(ptr: *Expr) -> *T {
 }
 
 // const overloads for Expr recovery
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline bool isa_recovery(const Expr *ptr) {
-        if (ptr == nullptr) return false;
-        if (ptr->kind != ExprKind::RecoveryExpr) return false;
-        return ptr->recovery_kind == T::expr_kind();
-    }
+fn <T> isa_recovery(ptr: const *Expr) -> bool {
+    if ptr == &null { return false; }
+    if ptr->kind != ExprKind::RecoveryExpr { return false; }
+    return ptr->recovery_kind == T::expr_kind();
+}
 
-    template <typename T>
-    inline const T *cast_recovery(const Expr *ptr) {
-        assert(ptr != nullptr                       && "cast_recovery<>: null pointer");
-        assert(ptr->kind == ExprKind::RecoveryExpr  && "cast_recovery<>: not a recovery node");
-        assert(ptr->recovery_kind == T::expr_kind() && "cast_recovery<>: wrong recovery_kind");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast_recovery(ptr: const *Expr) -> const *T {
+    assert((ptr != &null) && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == ExprKind::RecoveryExpr) && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::expr_kind()) && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *dyn_cast_recovery(const Expr *ptr) {
-        if (ptr != nullptr
-        &&  ptr->kind == ExprKind::RecoveryExpr
-        &&  ptr->recovery_kind == T::expr_kind()) {
-            return static_cast<const T*>(ptr);
-        }
-        return nullptr;
+fn <T> dyn_cast_recovery(ptr: const *Expr) -> const *T {
+    if (ptr != &null) && (ptr->kind == ExprKind::RecoveryExpr) && (ptr->recovery_kind == T::expr_kind()) {
+        return static_cast::<const *T>(ptr);
     }
+    return &null;
 }
 
 fn <T> isa_recovery(ptr: *Stmt) -> bool {
@@ -332,32 +307,24 @@ fn <T> dyn_cast_recovery(ptr: *Stmt) -> *T {
     return &null;
 }
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline bool isa_recovery(const Stmt *ptr) {
-        if (ptr == nullptr) return false;
-        if (ptr->kind != StmtKind::RecoveryStmt) return false;
-        return ptr->recovery_kind == T::stmt_kind();
-    }
+fn <T> isa_recovery(ptr: const *Stmt) -> bool {
+    if ptr == &null { return false; }
+    if ptr->kind != StmtKind::RecoveryStmt { return false; }
+    return ptr->recovery_kind == T::stmt_kind();
+}
 
-    template <typename T>
-    inline const T *cast_recovery(const Stmt *ptr) {
-        assert(ptr != nullptr                       && "cast_recovery<>: null pointer");
-        assert(ptr->kind == StmtKind::RecoveryStmt  && "cast_recovery<>: not a recovery node");
-        assert(ptr->recovery_kind == T::stmt_kind() && "cast_recovery<>: wrong recovery_kind");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast_recovery(ptr: const *Stmt) -> const *T {
+    assert((ptr != &null) && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == StmtKind::RecoveryStmt) && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::stmt_kind()) && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *dyn_cast_recovery(const Stmt *ptr) {
-        if (ptr != nullptr
-        &&  ptr->kind == StmtKind::RecoveryStmt
-        &&  ptr->recovery_kind == T::stmt_kind()) {
-            return static_cast<const T*>(ptr);
-        }
-        return nullptr;
+fn <T> dyn_cast_recovery(ptr: const *Stmt) -> const *T {
+    if (ptr != &null) && (ptr->kind == StmtKind::RecoveryStmt) && (ptr->recovery_kind == T::stmt_kind()) {
+        return static_cast::<const *T>(ptr);
     }
+    return &null;
 }
 
 fn <T> isa_recovery(ptr: *Decl) -> bool {
@@ -386,32 +353,24 @@ fn <T> dyn_cast_recovery(ptr: *Decl) -> *T {
     return &null;
 }
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline bool isa_recovery(const Decl *ptr) {
-        if (ptr == nullptr) return false;
-        if (ptr->kind != DeclKind::RecoveryDecl) return false;
-        return ptr->recovery_kind == T::decl_kind();
-    }
+fn <T> isa_recovery(ptr: const *Decl) -> bool {
+    if ptr == &null { return false; }
+    if ptr->kind != DeclKind::RecoveryDecl { return false; }
+    return ptr->recovery_kind == T::decl_kind();
+}
 
-    template <typename T>
-    inline const T *cast_recovery(const Decl *ptr) {
-        assert(ptr != nullptr                       && "cast_recovery<>: null pointer");
-        assert(ptr->kind == DeclKind::RecoveryDecl  && "cast_recovery<>: not a recovery node");
-        assert(ptr->recovery_kind == T::decl_kind() && "cast_recovery<>: wrong recovery_kind");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast_recovery(ptr: const *Decl) -> const *T {
+    assert((ptr != &null) && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == DeclKind::RecoveryDecl) && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::decl_kind()) && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *dyn_cast_recovery(const Decl *ptr) {
-        if (ptr != nullptr
-        &&  ptr->kind == DeclKind::RecoveryDecl
-        &&  ptr->recovery_kind == T::decl_kind()) {
-            return static_cast<const T*>(ptr);
-        }
-        return nullptr;
+fn <T> dyn_cast_recovery(ptr: const *Decl) -> const *T {
+    if (ptr != &null) && (ptr->kind == DeclKind::RecoveryDecl) && (ptr->recovery_kind == T::decl_kind()) {
+        return static_cast::<const *T>(ptr);
     }
+    return &null;
 }
 
 fn <T> isa_recovery(ptr: *Type) -> bool {
@@ -440,32 +399,24 @@ fn <T> dyn_cast_recovery(ptr: *Type) -> *T {
     return &null;
 }
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline bool isa_recovery(const Type *ptr) {
-        if (ptr == nullptr) return false;
-        if (ptr->kind != TypeKind::RecoveryType) return false;
-        return ptr->recovery_kind == T::type_kind();
-    }
+fn <T> isa_recovery(ptr: const *Type) -> bool {
+    if ptr == &null { return false; }
+    if ptr->kind != TypeKind::RecoveryType { return false; }
+    return ptr->recovery_kind == T::type_kind();
+}
 
-    template <typename T>
-    inline const T *cast_recovery(const Type *ptr) {
-        assert(ptr != nullptr                       && "cast_recovery<>: null pointer");
-        assert(ptr->kind == TypeKind::RecoveryType  && "cast_recovery<>: not a recovery node");
-        assert(ptr->recovery_kind == T::type_kind() && "cast_recovery<>: wrong recovery_kind");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast_recovery(ptr: const *Type) -> const *T {
+    assert((ptr != &null) && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == TypeKind::RecoveryType) && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::type_kind()) && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *dyn_cast_recovery(const Type *ptr) {
-        if (ptr != nullptr
-        &&  ptr->kind == TypeKind::RecoveryType
-        &&  ptr->recovery_kind == T::type_kind()) {
-            return static_cast<const T*>(ptr);
-        }
-        return nullptr;
+fn <T> dyn_cast_recovery(ptr: const *Type) -> const *T {
+    if (ptr != &null) && (ptr->kind == TypeKind::RecoveryType) && (ptr->recovery_kind == T::type_kind()) {
+        return static_cast::<const *T>(ptr);
     }
+    return &null;
 }
 
 fn <T> isa_recovery(ptr: *Pattern) -> bool {
@@ -494,43 +445,38 @@ fn <T> dyn_cast_recovery(ptr: *Pattern) -> *T {
     return &null;
 }
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    template <typename T>
-    inline bool isa_recovery(const Pattern *ptr) {
-        if (ptr == nullptr) return false;
-        if (ptr->kind != PatternKind::RecoveryPattern) return false;
-        return ptr->recovery_kind == T::pattern_kind();
-    }
+fn <T> isa_recovery(ptr: const *Pattern) -> bool {
+    if ptr == &null { return false; }
+    if ptr->kind != PatternKind::RecoveryPattern { return false; }
+    return ptr->recovery_kind == T::pattern_kind();
+}
 
-    template <typename T>
-    inline const T *cast_recovery(const Pattern *ptr) {
-        assert(ptr != nullptr                       && "cast_recovery<>: null pointer");
-        assert(ptr->kind == PatternKind::RecoveryPattern  && "cast_recovery<>: not a recovery node");
-        assert(ptr->recovery_kind == T::pattern_kind() && "cast_recovery<>: wrong recovery_kind");
-        return static_cast<const T*>(ptr);
-    }
+fn <T> cast_recovery(ptr: const *Pattern) -> const *T {
+    assert((ptr != &null) && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == PatternKind::RecoveryPattern) && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::pattern_kind()) && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<const *T>(ptr);
+}
 
-    template <typename T>
-    inline const T *dyn_cast_recovery(const Pattern *ptr) {
-        if (ptr != nullptr
-        &&  ptr->kind == PatternKind::RecoveryPattern
-        &&  ptr->recovery_kind == T::pattern_kind()) {
-            return static_cast<const T*>(ptr);
-        }
-        return nullptr;
+fn <T> dyn_cast_recovery(ptr: const *Pattern) -> const *T {
+    if (ptr != &null) && (ptr->kind == PatternKind::RecoveryPattern) && (ptr->recovery_kind == T::pattern_kind()) {
+        return static_cast::<const *T>(ptr);
     }
+    return &null;
 }
 
 fn is_recovery(ptr: *Expr) -> bool {
     return (ptr != &null) && (ptr->kind == ExprKind::RecoveryExpr);
 }
+
 fn is_recovery(ptr: *Stmt) -> bool {
     return (ptr != &null) && (ptr->kind == StmtKind::RecoveryStmt);
 }
+
 fn is_recovery(ptr: *Type) -> bool {
     return (ptr != &null) && (ptr->kind == TypeKind::RecoveryType);
 }
+
 fn is_recovery(ptr: *Decl) -> bool {
     return (ptr != &null) && (ptr->kind == DeclKind::RecoveryDecl);
 }
@@ -539,25 +485,22 @@ fn is_recovery(ptr: *Pattern) -> bool {
     return (ptr != &null) && (ptr->kind == PatternKind::RecoveryPattern);
 }
 
-// INLINE(cxx-feature: pointer-to-const parameter overloads)
-inline "c++" {
-    inline bool is_recovery(const Expr *ptr) {
-        return ptr != nullptr && ptr->kind == ExprKind::RecoveryExpr;
-    }
-    
-    inline bool is_recovery(const Stmt *ptr) {
-        return ptr != nullptr && ptr->kind == StmtKind::RecoveryStmt;
-    }
-    
-    inline bool is_recovery(const Type *ptr) {
-        return ptr != nullptr && ptr->kind == TypeKind::RecoveryType;
-    }
-    
-    inline bool is_recovery(const Decl *ptr) {
-        return ptr != nullptr && ptr->kind == DeclKind::RecoveryDecl;
-    }
+fn is_recovery(ptr: const *Expr) -> bool {
+    return (ptr != &null) && (ptr->kind == ExprKind::RecoveryExpr);
+}
 
-    inline bool is_recovery(const Pattern *ptr) {
-        return ptr != nullptr && ptr->kind == PatternKind::RecoveryPattern;
-    }
+fn is_recovery(ptr: const *Stmt) -> bool {
+    return (ptr != &null) && (ptr->kind == StmtKind::RecoveryStmt);
+}
+
+fn is_recovery(ptr: const *Type) -> bool {
+    return (ptr != &null) && (ptr->kind == TypeKind::RecoveryType);
+}
+
+fn is_recovery(ptr: const *Decl) -> bool {
+    return (ptr != &null) && (ptr->kind == DeclKind::RecoveryDecl);
+}
+
+fn is_recovery(ptr: const *Pattern) -> bool {
+    return (ptr != &null) && (ptr->kind == PatternKind::RecoveryPattern);
 }

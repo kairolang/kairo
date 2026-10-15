@@ -295,7 +295,7 @@ enum BuiltinKind derives u8 {
     COUNT,   ///< keep last.
 }
 
-const TOTAL_BUILTINS_COUNT: u8 = static_cast::<u8>(BuiltinKind::COUNT);;
+const TOTAL_BUILTINS_COUNT: u8 = static_cast::<u8>(BuiltinKind::COUNT);
 
 /// \enum FloatImpl
 /// \brief How a float type's operations are implemented. ORTHOGONAL to bit
