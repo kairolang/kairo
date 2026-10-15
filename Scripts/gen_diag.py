@@ -292,6 +292,8 @@ def main():
         "-I", output_dir,
         "-I", "Compiler/",
         "--",
+        "-I", "build/llvm/include",
+        "-I", "Lib/llvm-runtimes/llvm/include",
         "-o", lib_output_path,
         "-c",
         "-fno-lto",
