@@ -19,26 +19,26 @@
 ///
 const eval if defined(__APPLE__) && defined(__aarch64__) {
     // Apple Silicon (M1/M2/M3+) uses 128-byte cache lines
-    const CACHE_LINE: usize = 128;;
+    const CACHE_LINE: usize = 128;
 } else if defined(__powerpc64__) || defined(__ppc64__) {
     // POWER / PPC64 - 128-byte lines
-    const CACHE_LINE: usize = 128;;
+    const CACHE_LINE: usize = 128;
 } else if defined(__s390x__) {
     // IBM Z (s390x) - 256-byte lines
-    const CACHE_LINE: usize = 256;;
+    const CACHE_LINE: usize = 256;
 } else if defined(__x86_64__) || defined(__i386__) {
     // x86 / x86-64 - 64-byte lines
-    const CACHE_LINE: usize = 64;;
+    const CACHE_LINE: usize = 64;
 } else if defined(__aarch64__) || defined(__arm__) {
     // Non-Apple ARM (Cortex, Neoverse, etc.) - 64-byte lines
-    const CACHE_LINE: usize = 64;;
+    const CACHE_LINE: usize = 64;
 } else if defined(__riscv) {
     // RISC-V - 64-byte lines on current profiles
-    const CACHE_LINE: usize = 64;;
+    const CACHE_LINE: usize = 64;
 } else if defined(__wasm__) {
     // WebAssembly - no real cache hierarchy; 64 is a safe neutral
-    const CACHE_LINE: usize = 64;;
+    const CACHE_LINE: usize = 64;
 } else {
     // Conservative fallback
-    const CACHE_LINE: usize = 64;;
+    const CACHE_LINE: usize = 64;
 }

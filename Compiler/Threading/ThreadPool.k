@@ -54,9 +54,9 @@ import Support::Timer::*;
 class ThreadPool {
     /// C++ threading alias for std::thread, the alias is in a __inline_cpp
     /// block to avoid stage(0) parser issues with the 'thread' keyword.
+    type Thread = libcxx::thread;
     // INLINE(cxx-feature: static constexpr member)
     inline "c++" {
-        using Thread = libcxx::thread;
         static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14;
     }
 
@@ -183,10 +183,7 @@ class ThreadPool {
     inline static fn fnv1a64_bytes(const tid: ref!(std::Thread::id)) -> u64 {
         var h: u64 = 0xcbf29ce484222325;
 
-        // INLINE(cxx-feature: static constexpr local)
-        inline "c++" {
-            static constexpr size_t TID_SIZE = sizeof(libcxx::thread::id);
-        }
+        const TID_SIZE: usize = sizeof(libcxx::thread::id);
 
         var buf: std::Memory::buffer::<u8, TID_SIZE>;
         libcxx::memcpy(buf, &tid, TID_SIZE);
