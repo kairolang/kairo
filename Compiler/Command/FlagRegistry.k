@@ -770,6 +770,9 @@ fn Test() -> i32 {
     var diag = DiagEngine();
     var cmd  = Command(&diag);
     register_test_flags(&cmd);
+    // The test lambdas capture by copy (stage1 semantics); parse_string
+    // mutates the fixture, so they share it through this pointer.
+    var cmd_p = &cmd;
 
     // isolated fixture for tests that expect errors
     fn fresh() -> (*DiagEngine, Command) {
@@ -782,25 +785,25 @@ fn Test() -> i32 {
     //  BOOL FLAGS
 
     suite.equal::<string>("--verbose bool flag", "pass", fn () -> string {
-        var r = cmd.parse_string("--verbose main.k");
+        var r = cmd_p->parse_string("--verbose main.k");
         if !r.get_bool("verbose") { return "expected verbose=true"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("-v short form", "pass", fn () -> string {
-        var r = cmd.parse_string("-v main.k");
+        var r = cmd_p->parse_string("-v main.k");
         if !r.get_bool("verbose") { return "expected verbose=true"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("bool default = false", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k");
+        var r = cmd_p->parse_string("main.k");
         if r.get_bool("verbose") { return "verbose should default to false"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("-gc short cluster", "pass", fn () -> string {
-        var r = cmd.parse_string("-gc main.k");
+        var r = cmd_p->parse_string("-gc main.k");
         if !r.get_bool("debug")        { return "expected debug=true"; }
         if !r.get_bool("compile-only") { return "expected compile-only=true"; }
         return "pass";
@@ -809,7 +812,7 @@ fn Test() -> i32 {
     //  STRING FLAGS
 
     suite.equal::<string>("--output=./bin/app", "pass", fn () -> string {
-        var r = cmd.parse_string("--output=./bin/app main.k");
+        var r = cmd_p->parse_string("--output=./bin/app main.k");
         if r.get_string("output") != "./bin/app" {
             return f"got '{r.get_string("output")}\x27";
         }
@@ -817,7 +820,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("-o space-separated", "pass", fn () -> string {
-        var r = cmd.parse_string("-o ./bin/app main.k");
+        var r = cmd_p->parse_string("-o ./bin/app main.k");
         if r.get_string("output") != "./bin/app" {
             return f"got '{r.get_string("output")}\x27";
         }
@@ -825,7 +828,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("-ofoo inline on short", "pass", fn () -> string {
-        var r = cmd.parse_string("-ofoo.k main.k");
+        var r = cmd_p->parse_string("-ofoo.k main.k");
         if r.get_string("output") != "foo.k" {
             return f"got '{r.get_string("output")}\x27";
         }
@@ -835,13 +838,13 @@ fn Test() -> i32 {
     //  CHOICE  (-O2, -O3, -Os, bare -O, last wins, rejected values)
 
     suite.equal::<string>("-O2 joined value", "pass", fn () -> string {
-        var r = cmd.parse_string("-O2 main.k");
+        var r = cmd_p->parse_string("-O2 main.k");
         if r.get_string("opt") != "2" { return f"expected 2, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("-O3 joined value", "pass", fn () -> string {
-        var r = cmd.parse_string("-O3 main.k");
+        var r = cmd_p->parse_string("-O3 main.k");
         if r.get_string("opt") != "3" { return f"expected 3, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
@@ -857,14 +860,14 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("bare -O is -O1 and keeps the next argument", "pass", fn () -> string {
-        var r = cmd.parse_string("-O main.k");
+        var r = cmd_p->parse_string("-O main.k");
         if r.get_string("opt") != "1" { return f"expected 1, got {r.get_string("opt")}"; }
         if r.files.size() != 1        { return "main.k was swallowed as the value"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("-O2 -Os: last wins", "pass", fn () -> string {
-        var r = cmd.parse_string("-O2 -Os main.k");
+        var r = cmd_p->parse_string("-O2 -Os main.k");
         if r.get_string("opt") != "s" { return f"expected s, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
@@ -880,7 +883,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("--opt=2 long-form", "pass", fn () -> string {
-        var r = cmd.parse_string("--opt=2 main.k");
+        var r = cmd_p->parse_string("--opt=2 main.k");
         if r.get_string("opt") != "2" { return f"expected 2, got {r.get_string("opt")}"; }
         return "pass";
     }, 1000);
@@ -897,7 +900,7 @@ fn Test() -> i32 {
     //  F64 WITH BOUNDS
 
     suite.equal::<string>("--threshold=0.5", "pass", fn () -> string {
-        var r = cmd.parse_string("--threshold=0.5 main.k");
+        var r = cmd_p->parse_string("--threshold=0.5 main.k");
         var v = r.get_f64("threshold");
         if (v < 0.49) || (v > 0.51) { return f"expected ~0.5, got {v}"; }
         return "pass";
@@ -915,7 +918,7 @@ fn Test() -> i32 {
     //  LIST FLAGS  (repeatable)
 
     suite.equal::<string>("-I repeatable list", "pass", fn () -> string {
-        var r = cmd.parse_string("-I./include -I/usr/include main.k");
+        var r = cmd_p->parse_string("-I./include -I/usr/include main.k");
         var lst = r.get_list("include-dirs");
         if lst.size() != 2 { return f"expected 2 entries, got {lst.size()}"; }
         if lst[0] != "./include"    { return f"entry 0: '{lst[0]}\x27"; }
@@ -924,14 +927,14 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("-Lpath -lssl -lcrypto", "pass", fn () -> string {
-        var r = cmd.parse_string("-Lpath/to/lib -lssl -lcrypto main.k");
+        var r = cmd_p->parse_string("-Lpath/to/lib -lssl -lcrypto main.k");
         if r.get_list("lib-dirs").size()  != 1 { return "expected 1 lib dir"; }
         if r.get_list("link-libs").size() != 2 { return "expected 2 link libs"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("empty list default", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k");
+        var r = cmd_p->parse_string("main.k");
         if r.get_list("include-dirs").size() != 0 { return "expected empty include list"; }
         return "pass";
     }, 1000);
@@ -939,20 +942,20 @@ fn Test() -> i32 {
     //  POSITIONAL FILES
 
     suite.equal::<string>("single file", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k");
+        var r = cmd_p->parse_string("main.k");
         if r.files.size() != 1     { return f"expected 1, got {r.files.size()}"; }
         if r.files[0] != "main.k" { return f"got '{r.files[0]}\x27"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("multiple files", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k util.k helper.k");
+        var r = cmd_p->parse_string("main.k util.k helper.k");
         if r.files.size() != 3 { return f"expected 3, got {r.files.size()}"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("flags and files interleaved", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k ---g -O2 util.k");
+        var r = cmd_p->parse_string("main.k ---g -O2 util.k");
         if r.files.size() != 2      { return f"files: {r.files.size()}"; }
         if !r.get_bool("debug")     { return "debug"; }
         if r.get_string("opt") != "2"    { return "opt"; }
@@ -962,7 +965,7 @@ fn Test() -> i32 {
     //  END-OF-OPTIONS  (--)
 
     suite.equal::<string>("-- stops flag parsing", "pass", fn () -> string {
-        var r = cmd.parse_string("--verbose -- --not-a-flag file.k");
+        var r = cmd_p->parse_string("--verbose -- --not-a-flag file.k");
         if !r.get_bool("verbose")  { return "verbose before --"; }
         if r.files.size() != 2    { return f"expected 2 files after --, got {r.files.size()}"; }
         return "pass";
@@ -971,13 +974,13 @@ fn Test() -> i32 {
     //  WINDOWS /flag
 
     suite.equal::<string>("/Wall", "pass", fn () -> string {
-        var r = cmd.parse_string("/Wall main.k");
+        var r = cmd_p->parse_string("/Wall main.k");
         if !r.get_bool("wall") { return "expected wall=true from /Wall"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("/g", "pass", fn () -> string {
-        var r = cmd.parse_string("/g main.k");
+        var r = cmd_p->parse_string("/g main.k");
         if !r.get_bool("debug") { return "expected debug=true from /g"; }
         return "pass";
     }, 1000);
@@ -985,7 +988,7 @@ fn Test() -> i32 {
     //  REAL-WORLD INVOCATIONS
 
     suite.equal::<string>("release build", "pass", fn () -> string {
-        var r = cmd.parse_string("-O3 -Wall -Wextra --output=./app --profile=release main.k util.k");
+        var r = cmd_p->parse_string("-O3 -Wall -Wextra --output=./app --profile=release main.k util.k");
         if r.get_string("opt") != "3"             { return "opt"; }
         if !r.get_bool("wall")               { return "wall"; }
         if !r.get_bool("wextra")             { return "wextra"; }
@@ -995,7 +998,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("cross-compile", "pass", fn () -> string {
-        var r = cmd.parse_string("--target=aarch64-linux-gnu --march=armv8-a -O2 -g main.k");
+        var r = cmd_p->parse_string("--target=aarch64-linux-gnu --march=armv8-a -O2 -g main.k");
         if r.get_string("target") != "aarch64-linux-gnu" { return "target"; }
         if r.get_string("march")  != "armv8-a"           { return "march"; }
         if r.get_string("opt") != "2"                          { return "opt"; }
@@ -1004,7 +1007,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("kairo test.k ---I something -Lotherlib", "pass", fn () -> string {
-        var r = cmd.parse_string("test.k ---I something -Lotherlib");
+        var r = cmd_p->parse_string("test.k ---I something -Lotherlib");
         if r.files.size() != 1                      { return f"files: {r.files.size()}"; }
         if r.files[0] != "test.k"                 { return f"file: '{r.files[0]}\x27"; }
         if r.get_list("include-dirs").size() != 1   { return "include-dirs count"; }
@@ -1015,7 +1018,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("asan build", "pass", fn () -> string {
-        var r = cmd.parse_string("-fsanitize=address -fno-omit-frame-pointer -g main.k");
+        var r = cmd_p->parse_string("-fsanitize=address -fno-omit-frame-pointer -g main.k");
         if r.get_list("sanitize").size() == 0         { return "sanitize list empty"; }
         if r.get_list("sanitize")[0] != "address"     { return "sanitize value"; }
         if !r.get_bool("no-omit-fp")                  { return "no-omit-fp"; }
@@ -1080,7 +1083,7 @@ fn Test() -> i32 {
     //  FEATURE FLAGS  (-f{name} / -fno-{name}  ->  get_feature returns -1/0/1)
 
     suite.equal::<string>("-funsafe enables feature", "pass", fn () -> string {
-        var r = cmd.parse_string("-funsafe main.k");
+        var r = cmd_p->parse_string("-funsafe main.k");
         if r.get_feature("unsafe") != 1 {
             return f"expected 1 (enabled), got {r.get_feature("unsafe")}";
         }
@@ -1088,7 +1091,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("-fno-unsafe disables feature", "pass", fn () -> string {
-        var r = cmd.parse_string("-fno-unsafe main.k");
+        var r = cmd_p->parse_string("-fno-unsafe main.k");
         if r.get_feature("unsafe") != 0 {
             return f"expected 0 (disabled), got {r.get_feature("unsafe")}";
         }
@@ -1096,7 +1099,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("feature unset = -1", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k");
+        var r = cmd_p->parse_string("main.k");
         if r.get_feature("unsafe") != -1 {
             return f"expected -1 (unset), got {r.get_feature("unsafe")}";
         }
@@ -1104,19 +1107,19 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("-finline enable", "pass", fn () -> string {
-        var r = cmd.parse_string("-finline main.k");
+        var r = cmd_p->parse_string("-finline main.k");
         if r.get_feature("inline") != 1 { return "expected inline=1"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("-fno-inline disable", "pass", fn () -> string {
-        var r = cmd.parse_string("-fno-inline main.k");
+        var r = cmd_p->parse_string("-fno-inline main.k");
         if r.get_feature("inline") != 0 { return "expected inline=0"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("multiple features in one invocation", "pass", fn () -> string {
-        var r = cmd.parse_string("-funsafe -fno-exceptions -fstrict-null main.k");
+        var r = cmd_p->parse_string("-funsafe -fno-exceptions -fstrict-null main.k");
         if r.get_feature("unsafe")     !=  1 { return "unsafe"; }
         if r.get_feature("exceptions") !=  0 { return "exceptions"; }
         if r.get_feature("strict-null") != 1 { return "strict-null"; }
@@ -1126,7 +1129,7 @@ fn Test() -> i32 {
     //  CONFIG FLAGS  (--c{key}=value  ->  get_cfg_*)
 
     suite.equal::<string>("--cmax-recursion-depth=128", "pass", fn () -> string {
-        var r = cmd.parse_string("--cmax-recursion-depth=128 main.k");
+        var r = cmd_p->parse_string("--cmax-recursion-depth=128 main.k");
         if r.get_cfg_i32("max-recursion-depth") != 128 {
             return f"expected 128, got {r.get_cfg_i32("max-recursion-depth")}";
         }
@@ -1134,7 +1137,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("--cmax-errors=0 (unlimited)", "pass", fn () -> string {
-        var r = cmd.parse_string("--cmax-errors=0 main.k");
+        var r = cmd_p->parse_string("--cmax-errors=0 main.k");
         if r.get_cfg_i32("max-errors") != 0 {
             return f"expected 0, got {r.get_cfg_i32("max-errors")}";
         }
@@ -1142,7 +1145,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("--cinline-cost=2.5", "pass", fn () -> string {
-        var r = cmd.parse_string("--cinline-cost=2.5 main.k");
+        var r = cmd_p->parse_string("--cinline-cost=2.5 main.k");
         var v = r.get_cfg_f64("inline-cost");
         if (v < 2.4) || (v > 2.6) {
             return f"expected ~2.5, got {v}";
@@ -1151,7 +1154,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("--cerror-format=json", "pass", fn () -> string {
-        var r = cmd.parse_string("--cerror-format=json main.k");
+        var r = cmd_p->parse_string("--cerror-format=json main.k");
         if r.get_cfg_str("error-format") != "json" {
             return f"expected 'json', got '{r.get_cfg_str("error-format")}\x27";
         }
@@ -1168,7 +1171,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("config default unchanged when absent", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k");
+        var r = cmd_p->parse_string("main.k");
         if r.get_cfg_i32("max-recursion-depth") != 256 {
             return f"expected default 256, got {r.get_cfg_i32("max-recursion-depth")}";
         }
@@ -1176,13 +1179,13 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("cfg_is_set false when not provided", "pass", fn () -> string {
-        var r = cmd.parse_string("main.k");
+        var r = cmd_p->parse_string("main.k");
         if r.cfg_is_set("max-errors") { return "expected cfg not set"; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("cfg_is_set true when provided", "pass", fn () -> string {
-        var r = cmd.parse_string("--cmax-errors=10 main.k");
+        var r = cmd_p->parse_string("--cmax-errors=10 main.k");
         if !r.cfg_is_set("max-errors") { return "expected cfg to be set"; }
         return "pass";
     }, 1000);

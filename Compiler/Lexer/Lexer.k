@@ -2648,14 +2648,17 @@ fn Test() -> i32 {
     std::print("=== Lexer Test Suite ===\n ");
 
     var test_diag = DiagEngine();
+    // The test lambdas below capture by copy (stage1 semantics), and a
+    // DiagEngine is not copyable: they share the engine through this pointer.
+    var test_diag_p = &test_diag;
     var pool = std::create::<ThreadPool>(4);
-    var vfm  = std::create::<VirtualFileManager>(&test_diag);
+    var vfm  = std::create::<VirtualFileManager>(test_diag_p);
     // the engine is shared across every test case and error-case tests run at
     // ~1000 iterations each; past _error_limit errors go to suppressed_count
     // instead of error_count, which would zero the per-lex deltas the tests
     // assert on. effectively unlimited for the suite.
     test_diag.set_error_limit(u32(-1));
-    var sm   = std::create::<SourceManager>(pool, vfm, &test_diag);
+    var sm   = std::create::<SourceManager>(pool, vfm, test_diag_p);
     var suite = Assert("Lexer Tests");
 
     // HELPER: Create a lexer from string content
@@ -2741,7 +2744,7 @@ fn Test() -> i32 {
     // BASIC TOKENIZATION
 
     suite.equal::<string>("lex empty file", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag(" ", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag(" ", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2764,7 +2767,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex single identifier", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2793,7 +2796,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex keywords", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("fn var const class if else while for return", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("fn var const class if else while for return", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2831,7 +2834,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex all primitive types", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("void bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 usize isize", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("void bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 usize isize", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2876,7 +2879,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex identifier with hash", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo#bar my#ident", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo#bar my#ident", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2906,7 +2909,7 @@ fn Test() -> i32 {
     // OPERATORS AND PUNCTUATION
 
     suite.equal::<string>("lex single-char operators", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("+ - * / % ^ | & ~ < > ! = ? @ : ; , .", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("+ - * / % ^ | & ~ < > ! = ? @ : ; , .", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2954,7 +2957,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex multi-char operators", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("++ -- -> :: .. ... == != <= >= && || << >> += -= *= /= <=> =>", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("++ -- -> :: .. ... == != <= >= && || << >> += -= *= /= <=> =>", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3003,7 +3006,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex brackets", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("{ } ( ) [ ]", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("{ } ( ) [ ]", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3043,7 +3046,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex arrow variants", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("-> ->* ?-> ?->* !-> !->*", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("-> ->* ?-> ?->* !-> !->*", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3080,7 +3083,7 @@ fn Test() -> i32 {
     }, 100);
 
     suite.equal::<string>("lex dot variants", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag(". .* ?. ?.* !. !.*", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag(". .* ?. ?.* !. !.*", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3121,7 +3124,7 @@ fn Test() -> i32 {
     // the identifier-adjacent case the lexer's bang tracking actually has to
     // get right   'foo', '!', '->', 'bar'.
     suite.equal::<string>("lex macro invoke followed by member access", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo!->bar foo!.baz", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo!->bar foo!.baz", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
 
@@ -3159,7 +3162,7 @@ fn Test() -> i32 {
     // INTEGER LITERALS
 
     suite.equal::<string>("lex decimal integers", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0 1 42 12345 999999", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0 1 42 12345 999999", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3209,7 +3212,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex hex integers", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0x0 0xFF 0xDEADBEEF 0X123ABC", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0x0 0xFF 0xDEADBEEF 0X123ABC", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3257,7 +3260,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex binary integers", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0b0 0b1 0b1010 0B11110000", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0b0 0b1 0b1010 0B11110000", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3301,7 +3304,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex octal integers", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0o0 0o7 0o755 0O1234567", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0o0 0o7 0o755 0O1234567", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3345,7 +3348,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex integers with underscores", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("1_000 1_000_000 0xFF_FF 0b1010_1010", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("1_000 1_000_000 0xFF_FF 0b1010_1010", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3394,7 +3397,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex integers with suffixes", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("42u8 100i32 0xFFu64", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("42u8 100i32 0xFFu64", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3458,7 +3461,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex large 64-bit integer", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("18446744073709551615", sm, pool, &test_diag); // u64 max
+        var res = create_lexer_from_string_with_diag("18446744073709551615", sm, pool, test_diag_p); // u64 max
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3497,7 +3500,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("lex 128-bit integer", "pass", fn () -> string {
         // 0x1_00000000_00000000 = 2^64 (requires 128 bits)
-        var res = create_lexer_from_string_with_diag("0x1_00000000_00000000", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0x1_00000000_00000000", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3536,7 +3539,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("lex 128-bit max integer", "pass", fn () -> string {
         // 0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFFF = 2^128 - 1
-        var res = create_lexer_from_string_with_diag("0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFFF", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFFF", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3574,7 +3577,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("lex BigInt integer (>128 bits)", "pass", fn () -> string {
         // 0x1_00000000_00000000_00000000_00000000 = 2^128 (requires BigInt)
-        var res = create_lexer_from_string_with_diag("0x1_00000000_00000000_00000000_00000000", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0x1_00000000_00000000_00000000_00000000", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3638,7 +3641,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex integer bit width inference", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("255 256 65535 65536 0xFFFFFFFF 0x100000000", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("255 256 65535 65536 0xFFFFFFFF 0x100000000", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3679,7 +3682,7 @@ fn Test() -> i32 {
     // FLOAT LITERALS
 
     suite.equal::<string>("lex decimal floats", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0.0 1.5 3.14159 123.456", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0.0 1.5 3.14159 123.456", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3736,7 +3739,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex float with leading dot", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag(".5 .123 .0", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag(".5 .123 .0", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3780,7 +3783,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex floats with exponent", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("1e10 1E10 1.5e-3 2.0E+5 1e3", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("1e10 1E10 1.5e-3 2.0E+5 1e3", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3832,7 +3835,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex hex floats", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0x1.0p0 0x1.0p4 0x1.0p-4", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0x1.0p0 0x1.0p4 0x1.0p-4", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3889,7 +3892,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex hex floats complex", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0xA.Bp+2 0xC.8p-1", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0xA.Bp+2 0xC.8p-1", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3930,7 +3933,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex floats with suffixes", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("1.0f32 2.5f64 3.14f128", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("1.0f32 2.5f64 3.14f128", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3988,7 +3991,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex floats with underscores", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("1_000.0 1.234_567 1_2_3.4_5_6e78", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("1_000.0 1.234_567 1_2_3.4_5_6e78", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4026,7 +4029,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("distinguish dot from float", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo.bar .5", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo.bar .5", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4074,7 +4077,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex float scientific notation edge cases", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("1e0 1e+0 1e-0 0e0", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("1e0 1e+0 1e-0 0e0", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4116,7 +4119,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex range vs float disambiguation", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0..10 0.5 1..2", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0..10 0.5 1..2", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4189,7 +4192,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex extreme float values", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("1e308 1e-308", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("1e308 1e-308", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4241,7 +4244,7 @@ fn Test() -> i32 {
     // STRING LITERALS
 
     suite.equal::<string>("lex simple string", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"hello world\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"hello world\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4265,7 +4268,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex empty string", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4289,7 +4292,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex string with escapes", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"hello\\nworld\\t!\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"hello\\nworld\\t!\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4313,7 +4316,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex string with hex escape", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"\\x41\\x42\\x43\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"\\x41\\x42\\x43\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4337,7 +4340,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex string with unicode escape", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"\\u0041\\u03B1\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"\\u0041\\u03B1\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4361,7 +4364,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex string with large unicode escape", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"\\U0001F600\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"\\U0001F600\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4385,7 +4388,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex f-string simple", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("f\"hello {name}\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("f\"hello {name}\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4414,7 +4417,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex f-string with expression", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("f\"result: {1 + 2}\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("f\"result: {1 + 2}\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4443,7 +4446,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex f-string with nested braces", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("f\"value: {map[key]}\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("f\"value: {map[key]}\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4467,7 +4470,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex raw string", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("r\"hello\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("r\"hello\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4496,7 +4499,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex raw string with octal", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("r\"\\101\\102\\103\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("r\"\\101\\102\\103\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4520,7 +4523,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex fr-string (format + raw)", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("fr\"value: {x}\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("fr\"value: {x}\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4555,7 +4558,7 @@ fn Test() -> i32 {
     // CHAR LITERALS
 
     suite.equal::<string>("lex simple char", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("'a' 'Z' '0\x27", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("'a' 'Z' '0\x27", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4582,7 +4585,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex char with escapes", "pass", fn () -> string {
-        var res   = create_lexer_from_string_with_diag("'\\n' '\\t' '\\'' '\\\\\x27", sm, pool, &test_diag);
+        var res   = create_lexer_from_string_with_diag("'\\n' '\\t' '\\'' '\\\\\x27", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid   = libcxx::get::<1>(res);
         
@@ -4611,7 +4614,7 @@ fn Test() -> i32 {
     // COMMENTS
 
     suite.equal::<string>("lex line comment", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo // this is a comment\nbar", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo // this is a comment\nbar", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4653,7 +4656,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex block comment", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo /* block comment */ bar", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo /* block comment */ bar", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4695,7 +4698,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex nested block comments", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo /* outer /* inner */ still outer */ bar", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo /* outer /* inner */ still outer */ bar", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4737,7 +4740,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("error on unmatched block comment end", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo */ bar", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo */ bar", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4766,7 +4769,7 @@ fn Test() -> i32 {
     // This is now no longer a part of the Lexer PP tracks balance post PP stream.
 
     // suite.equal::<string>("balance tracker - matched braces", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("{ { } }", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("{ { } }", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4786,7 +4789,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - matched parens", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("((()))", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("((()))", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4806,7 +4809,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - matched brackets", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("[[[]]]", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("[[[]]]", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4826,7 +4829,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - mixed matched", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("fn foo() { arr[0] = (x + y); }", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("fn foo() { arr[0] = (x + y); }", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4846,7 +4849,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - unclosed brace", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("{ foo", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("{ foo", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4874,7 +4877,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - unexpected closer", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("foo }", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("foo }", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4902,7 +4905,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - mismatched", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("{ foo )", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("{ foo )", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4924,7 +4927,7 @@ fn Test() -> i32 {
     // }, 1000);
 
     // suite.equal::<string>("balance tracker - macro invocation", "pass", fn () -> string {
-    //     var res = create_lexer_from_string_with_diag("foo!(bar)", sm, pool, &test_diag);
+    //     var res = create_lexer_from_string_with_diag("foo!(bar)", sm, pool, test_diag_p);
     //     var lexer = libcxx::get::<0>(res);
     //     var fid = libcxx::get::<1>(res);
         
@@ -4946,7 +4949,7 @@ fn Test() -> i32 {
     // EDGE CASES
 
     suite.equal::<string>("lex unicode identifier", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("café αβγ 日本語", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("café αβγ 日本語", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4973,7 +4976,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex consecutive operators", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("a+-b", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("a+-b", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5007,7 +5010,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex generics syntax", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("Vec::<i32>", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("Vec::<i32>", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5044,7 +5047,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex range expressions", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("0..10 0..=10", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("0..10 0..=10", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5084,7 +5087,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex exponentiation operator", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("2^^8", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("2^^8", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5115,7 +5118,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex spaceship operator", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("a <=> b", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("a <=> b", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5140,7 +5143,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex triple equals", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("a === b", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("a === b", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5165,7 +5168,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex C++ word operators", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("and or not xor bitand bitor compl", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("and or not xor bitand bitor compl", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5208,7 +5211,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex builtins", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("__file__ __line__ __column__ __function__ __module__", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("__file__ __line__ __column__ __function__ __module__", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5245,7 +5248,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex null literal", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("null", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("null", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5270,7 +5273,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex boolean literals", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("true false", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("true false", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5305,7 +5308,7 @@ fn Test() -> i32 {
     // silently breaks for every synthesized identifier (unique_id!, gensym,
     // sema-generated names).
     suite.equal::<string>("lexed and copied identifiers intern to the same index", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("foo bar foo", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("foo bar foo", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
 
@@ -5354,7 +5357,7 @@ fn Test() -> i32 {
     // ERROR CASES
 
     suite.equal::<string>("error on invalid escape in string", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"hello\\qworld\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"hello\\qworld\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5383,7 +5386,7 @@ fn Test() -> i32 {
     // byte string) and wire TextCtx.is_bytes -> is_valid_escape properly
     // (note: the call site currently passes ctx.is_raw as is_byte).
     suite.equal::<string>("byte string prefix not yet implemented (pin)", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("b\"\\u0041\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("b\"\\u0041\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
 
@@ -5409,7 +5412,7 @@ fn Test() -> i32 {
     }, 10);
 
     suite.equal::<string>("error on surrogate in unicode escape", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("\"\\uD800\"", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("\"\\uD800\"", sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5458,7 +5461,7 @@ fn Test() -> i32 {
         + "    return 0;\n"
         + "}\n";
         
-        var res   = create_lexer_from_string_with_diag(code, sm, pool, &test_diag);
+        var res   = create_lexer_from_string_with_diag(code, sm, pool, test_diag_p);
         var lexer = libcxx::get::<0>(res);
         var fid   = libcxx::get::<1>(res);
         
@@ -5606,7 +5609,7 @@ fn Test() -> i32 {
         }
 
         var hot_size  = hot_code.size();
-        var hot_res   = create_lexer_from_bytes(std::Memory::move(hot_code), sm, pool, &test_diag);
+        var hot_res   = create_lexer_from_bytes(std::Memory::move(hot_code), sm, pool, test_diag_p);
         var hot_lexer = libcxx::get::<0>(hot_res);
         var hot_fid   = libcxx::get::<1>(hot_res);
 

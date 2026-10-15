@@ -558,8 +558,9 @@ class ThreadPool {
         }
 
         for var i: usize = 0; i < self._count; ++i {
-            self.enqueue(fn() {
-                heat_task(&barrier, spins);
+            // the barrier is shared, never copied (atomics are not copyable)
+            self.enqueue(fn() |heat_task, *barrier, spins| {
+                heat_task(barrier, spins);
             }, static_cast::<u8>(i));
         }
 

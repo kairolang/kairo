@@ -481,11 +481,13 @@ class SourceLineTable {
                 var m2: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c2, nl));
                 var m3: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c3, nl));
 
-                var emit = fn (mask: u32, base: u32) {
+                // `count` is the caller's running total: by pointer, so the
+                // increments land on it rather than on a copy.
+                var emit = fn (mask: u32, base: u32) |lines, *count| {
                     while (mask) {
                         var offset: u32 = libcxx::countr_zero(mask);
                         lines->push_back(base + offset + 1);
-                        ++count;
+                        ++(*count);
                         mask &= (mask - 1);
                     }
                 };
