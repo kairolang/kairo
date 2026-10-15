@@ -966,8 +966,7 @@ class ImmediateTable {
     }
 
     fn <T> create(self) -> u32 {
-        // INLINE(cxx-feature: concept-id expression)
-        eval if __inline_cpp("std::Meta::is_same_as<T, Immediate::IntData>") {
+        eval if std::Meta::is_same_as::<T, Immediate::IntData> {
             if (self.int_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
                     f"ImmediateTable::create<IntData>: overflow at {MAX_IMMEDIATES}"));
@@ -976,8 +975,7 @@ class ImmediateTable {
             self.int_literals->push(Immediate::IntData());
             return static_cast::<u32>((self.int_literals->size()) - 1);
 
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::FloatData> {
             if (self.float_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
                     f"ImmediateTable::create<FloatData>: overflow at {MAX_IMMEDIATES}"));
@@ -986,8 +984,7 @@ class ImmediateTable {
             self.float_literals->push(Immediate::FloatData());
             return static_cast::<u32>((self.float_literals->size()) - 1);
 
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::CharData> {
             if (self.char_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
                     f"ImmediateTable::create<CharData>: overflow at {MAX_IMMEDIATES}"));
@@ -996,8 +993,7 @@ class ImmediateTable {
             self.char_literals->push(Immediate::CharData());
             return static_cast::<u32>((self.char_literals->size()) - 1);
 
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::StringData> {
             if (self.string_literals->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
                     f"ImmediateTable::create<StringData>: overflow at {MAX_IMMEDIATES}"));
@@ -1006,8 +1002,7 @@ class ImmediateTable {
             self.string_literals->push(Immediate::StringData());
             return static_cast::<u32>((self.string_literals->size()) - 1);
 
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
+        } else if std::Meta::is_same_as::<T, Immediate::MacroExpansionInfo> {
             if (self.macro_expansions->size()) > MAX_IMMEDIATES {
                 std::crash(std::Error::RuntimeError(
                     f"ImmediateTable::create<MacroExpansionInfo>: overflow at {MAX_IMMEDIATES}"));
@@ -1022,23 +1017,17 @@ class ImmediateTable {
     }
 
     fn <T> get(self, idx: u32) -> *T {
-        // INLINE(cxx-feature: concept-id expression)
-        eval if __inline_cpp("std::Meta::is_same_as<T, Immediate::IntData>") {
+        eval if std::Meta::is_same_as::<T, Immediate::IntData> {
             return self.int_literals->get(static_cast::<usize>(idx));
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::FloatData> {
             return self.float_literals->get(static_cast::<usize>(idx));
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::CharData> {
             return self.char_literals->get(static_cast::<usize>(idx));
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::StringData> {
             return self.string_literals->get(static_cast::<usize>(idx));
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
+        } else if std::Meta::is_same_as::<T, Immediate::MacroExpansionInfo> {
             return self.macro_expansions->get(static_cast::<usize>(idx));
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::IdentData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::IdentData> {
             return self.ident_descs->get(static_cast::<usize>(idx));
         } else {
             std::crash(std::Error::RuntimeError("ImmediateTable::get: unsupported type"));
@@ -1046,20 +1035,15 @@ class ImmediateTable {
     }
 
     fn <T> pop(self) -> T {
-        // INLINE(cxx-feature: concept-id expression)
-        eval if __inline_cpp("std::Meta::is_same_as<T, Immediate::IntData>") {
+        eval if std::Meta::is_same_as::<T, Immediate::IntData> {
             return self.int_literals->pop();
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::FloatData> {
             return self.float_literals->pop();
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::CharData> {
             return self.char_literals->pop();
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
+        } else if std::Meta::is_same_as::<T, Immediate::StringData> {
             return self.string_literals->pop();
-        // INLINE(cxx-feature: concept-id expression)
-        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
+        } else if std::Meta::is_same_as::<T, Immediate::MacroExpansionInfo> {
             return self.macro_expansions->pop();
         } else {
             std::crash(std::Error::RuntimeError("ImmediateTable::pop: unsupported type"));

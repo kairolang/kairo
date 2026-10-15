@@ -3697,14 +3697,10 @@ fn Test() -> i32 {
         }
         
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)0.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.5"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)3.14159"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)123.456"));
+        expected_values.push_back(f64(0.0));
+        expected_values.push_back(f64(1.5));
+        expected_values.push_back(f64(3.14159));
+        expected_values.push_back(f64(123.456));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -3721,11 +3717,9 @@ fn Test() -> i32 {
             
             // compare with small epsilon for floating point
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const zero_f80: f80 = f80(0.0);
             if diff < zero_f80 { diff = -diff; }
-            // INLINE(cxx-feature: exact floating literal)
-            const epsilon: f80 = __inline_cpp("(long double)0.00001");
+            const epsilon: f80 = f80(0.00001);
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
@@ -3760,12 +3754,9 @@ fn Test() -> i32 {
         }
         
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)0.5"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)0.123"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)0.0"));
+        expected_values.push_back(f64(0.5));
+        expected_values.push_back(f64(0.123));
+        expected_values.push_back(f64(0.0));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -3776,11 +3767,9 @@ fn Test() -> i32 {
             imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const zero_f80: f80 = f80(0.0);
             if diff < zero_f80 { diff = -diff; }
-            // INLINE(cxx-feature: exact floating literal)
-            const epsilon: f80 = __inline_cpp("(long double)0.00001");
+            const epsilon: f80 = f80(0.00001);
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
@@ -3809,16 +3798,11 @@ fn Test() -> i32 {
         }
         
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1e10"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1e10"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.5e-3"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)2.0e5"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1e3"));
+        expected_values.push_back(f64(1e10));
+        expected_values.push_back(f64(1e10));
+        expected_values.push_back(f64(1.5e-3));
+        expected_values.push_back(f64(2.0e5));
+        expected_values.push_back(f64(1e3));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -3836,10 +3820,8 @@ fn Test() -> i32 {
             // relative comparison for large values
             var expected = static_cast::<f80>(expected_values[i]);
             var ratio = imm->value_ieee / expected;
-            // INLINE(cxx-feature: exact floating literal)
-            const low_bound: f80 = __inline_cpp("(long double)0.999999");
-            // INLINE(cxx-feature: exact floating literal)
-            const high_bound: f80 = __inline_cpp("(long double)1.000001");
+            const low_bound: f80 = f80(0.999999);
+            const high_bound: f80 = f80(1.000001);
             if ratio < low_bound || ratio > high_bound {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
@@ -3871,12 +3853,9 @@ fn Test() -> i32 {
         // 0x1.0p4 = 1.0 * 2^4 = 16.0
         // 0x1.0p-4 = 1.0 * 2^-4 = 0.0625
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)16.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)0.0625"));
+        expected_values.push_back(f64(1.0));
+        expected_values.push_back(f64(16.0));
+        expected_values.push_back(f64(0.0625));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -3897,11 +3876,9 @@ fn Test() -> i32 {
             }
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const zero_f80: f80 = f80(0.0);
             if diff < zero_f80 { diff = -diff; }
-            // INLINE(cxx-feature: exact floating literal)
-            const epsilon: f80 = __inline_cpp("(long double)0.00001");
+            const epsilon: f80 = f80(0.00001);
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
@@ -3932,21 +3909,17 @@ fn Test() -> i32 {
         // 0xA.Bp+2 = (10 + 11/16) * 2^2 = 10.6875 * 4 = 42.75
         // 0xC.8p-1 = (12 + 8/16) * 2^-1 = 12.5 * 0.5 = 6.25
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)42.75"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)6.25"));
+        expected_values.push_back(f64(42.75));
+        expected_values.push_back(f64(6.25));
         
         for var i: usize = 0; i < expected_count; ++i {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const zero_f80: f80 = f80(0.0);
             if diff < zero_f80 { diff = -diff; }
-            // INLINE(cxx-feature: exact floating literal)
-            const epsilon: f80 = __inline_cpp("(long double)0.001");
+            const epsilon: f80 = f80(0.001);
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
@@ -3980,12 +3953,9 @@ fn Test() -> i32 {
         expected_bits.push_back(u32(128));
         
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)2.5"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)3.14"));
+        expected_values.push_back(f64(1.0));
+        expected_values.push_back(f64(2.5));
+        expected_values.push_back(f64(3.14));
         
         for var i: usize = 0; i < expected_count; ++i {
             if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -4005,11 +3975,9 @@ fn Test() -> i32 {
             }
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const zero_f80: f80 = f80(0.0);
             if diff < zero_f80 { diff = -diff; }
-            // INLINE(cxx-feature: exact floating literal)
-            const epsilon: f80 = __inline_cpp("(long double)0.00001");
+            const epsilon: f80 = f80(0.00001);
             if diff > epsilon {
                 return f"token {i}: expected value ~{expected_values[i]}, got {imm->value_ieee}";
             }
@@ -4092,14 +4060,11 @@ fn Test() -> i32 {
         var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(3)->imm);
         imm->evaluate(sm, lexer->get_imm_tbl()); // removing evaluation step only adds 1MB/s to perf
         
-        // INLINE(cxx-feature: exact floating literal)
-        const expected_val: f80 = __inline_cpp("(long double)0.5");
+        const expected_val: f80 = f80(0.5);
         var diff = imm->value_ieee - expected_val;
-        // INLINE(cxx-feature: exact floating literal)
-        const zero_f80: f80 = __inline_cpp("(long double)0.0");
+        const zero_f80: f80 = f80(0.0);
         if diff < zero_f80 { diff = -diff; }
-        // INLINE(cxx-feature: exact floating literal)
-        const epsilon: f80 = __inline_cpp("(long double)0.00001");
+        const epsilon: f80 = f80(0.00001);
         if diff > epsilon {
             return f"token 3: expected value 0.5, got {imm->value_ieee}";
         }
@@ -4128,25 +4093,19 @@ fn Test() -> i32 {
         
         // all should evaluate to their base value (exponent is 0)
         var expected_values = vec::<f64>();
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)1.0"));
-        // INLINE(cxx-feature: exact floating literal)
-        expected_values.push_back(__inline_cpp("(double)0.0"));
+        expected_values.push_back(f64(1.0));
+        expected_values.push_back(f64(1.0));
+        expected_values.push_back(f64(1.0));
+        expected_values.push_back(f64(0.0));
         
         for var i: usize = 0; i < expected_count; ++i {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
             imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const zero_f80: f80 = f80(0.0);
             if diff < zero_f80 { diff = -diff; }
-            // INLINE(cxx-feature: exact floating literal)
-            const epsilon: f80 = __inline_cpp("(long double)0.00001");
+            const epsilon: f80 = f80(0.00001);
             if diff > epsilon {
                 return f"token {i}: expected value {expected_values[i]}, got {imm->value_ieee}";
             }
@@ -4216,14 +4175,11 @@ fn Test() -> i32 {
         
         var float3 = lexer->get_imm::<Immediate::FloatData>(tokens->get(3)->imm);
         float3->evaluate(sm, lexer->get_imm_tbl());
-        // INLINE(cxx-feature: exact floating literal)
-        const expected_float: f80 = __inline_cpp("(long double)0.5");
+        const expected_float: f80 = f80(0.5);
         var diff = float3->value_ieee - expected_float;
-        // INLINE(cxx-feature: exact floating literal)
-        const zero_f80: f80 = __inline_cpp("(long double)0.0");
+        const zero_f80: f80 = f80(0.0);
         if diff < zero_f80 { diff = -diff; }
-        // INLINE(cxx-feature: exact floating literal)
-        const epsilon: f80 = __inline_cpp("(long double)0.00001");
+        const epsilon: f80 = f80(0.00001);
         if diff > epsilon {
             return f"token 3: expected value 0.5, got {float3->value_ieee}";
         }
@@ -4260,12 +4216,9 @@ fn Test() -> i32 {
             
             const zero_u: usize = usize(0);
             const one_u: usize = usize(1);
-            // INLINE(cxx-feature: exact floating literal)
-            const large_threshold: f80 = __inline_cpp("(long double)1e307");
-            // INLINE(cxx-feature: exact floating literal)
-            const small_threshold: f80 = __inline_cpp("(long double)1e-307");
-            // INLINE(cxx-feature: exact floating literal)
-            const zero_f80: f80 = __inline_cpp("(long double)0.0");
+            const large_threshold: f80 = f80(1e307);
+            const small_threshold: f80 = f80(1e-307);
+            const zero_f80: f80 = f80(0.0);
             
             // just verify it parsed without becoming infinity or zero incorrectly
             if i == zero_u {
