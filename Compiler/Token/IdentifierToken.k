@@ -12,7 +12,7 @@
 import Token::Token::*;
 import Preprocessor::PreprocessorSymbolTable::*;
 
-type SymbolID = u32;;
+type SymbolID = u32;
 
 class IdentifierToken {
     pub var name:  SymbolID;

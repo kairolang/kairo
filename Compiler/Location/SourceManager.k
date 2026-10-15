@@ -26,7 +26,7 @@ import Support::Assert::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 
-type FileID = u32;;
+type FileID = u32;
 
 /// FIXME: change the use of string paths in get_line_col to Path objects.
 

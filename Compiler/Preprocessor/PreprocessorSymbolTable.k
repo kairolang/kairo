@@ -12,7 +12,7 @@
 ffi "c++" import "Native/CharTable.hh";
 ffi "c++" import "Native/Types.hh";
 
-type SymbolID = u32;;
+type SymbolID = u32;
 
 class PreprocessorSymbolTable {
     var table:   map::<string, SymbolID>; ///< identifier name -> symbolId

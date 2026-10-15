@@ -56,46 +56,46 @@
 
 // --- unsigned maxima --------------------------------------------------------
 
-const U8_MAX:  u8  = 255;;
-const U16_MAX: u16 = 65535;;
+const U8_MAX:  u8  = 255;
+const U16_MAX: u16 = 65535;
 
 /// \brief largest value representable in 32 bits.
 /// \details built from small literals; see trap 1. `u32`-typed on purpose, so
 ///          it widens correctly for both range checks (`v > U32_MAX`) and
 ///          low-32 masks (`v & U32_MAX`) on 64-bit operands.
-const U32_MAX: u32 = static_cast::<u32>((static_cast::<u64>(1) << 32) - 1);;
+const U32_MAX: u32 = static_cast::<u32>((static_cast::<u64>(1) << 32) - 1);
 
-const U64_MAX: u64 = 0xFFFFFFFFFFFFFFFF;;
+const U64_MAX: u64 = 0xFFFFFFFFFFFFFFFF;
 
 // --- unsigned minima --------------------------------------------------------
 // present for symmetry, so generic code can name a lower bound per width.
 
-const U8_MIN:  u8  = 0;;
-const U16_MIN: u16 = 0;;
-const U32_MIN: u32 = 0;;
-const U64_MIN: u64 = 0;;
+const U8_MIN:  u8  = 0;
+const U16_MIN: u16 = 0;
+const U32_MIN: u32 = 0;
+const U64_MIN: u64 = 0;
 
 // --- signed maxima ----------------------------------------------------------
 
-const I8_MAX:  i8  = 127;;
-const I16_MAX: i16 = 32767;;
-const I32_MAX: i32 = 2147483647;;
-const I64_MAX: i64 = 0x7FFFFFFFFFFFFFFF;;
+const I8_MAX:  i8  = 127;
+const I16_MAX: i16 = 32767;
+const I32_MAX: i32 = 2147483647;
+const I64_MAX: i64 = 0x7FFFFFFFFFFFFFFF;
 
 // --- signed minima ----------------------------------------------------------
 // direct literals, NOT `-MAX - 1`; see trap 2.
 
-const I8_MIN:  i8  = -128;;
-const I16_MIN: i16 = -32768;;
-const I32_MIN: i32 = -2147483648;;
-const I64_MIN: i64 = -9223372036854775808;;
+const I8_MIN:  i8  = -128;
+const I16_MIN: i16 = -32768;
+const I32_MIN: i32 = -2147483648;
+const I64_MIN: i64 = -9223372036854775808;
 
 // --- pointer-width ----------------------------------------------------------
 // derived rather than assumed, so a 32-bit target stays correct.
 
-const USIZE_MIN: usize = 0;;
-const USIZE_MAX: usize = ~usize(0);;
+const USIZE_MIN: usize = 0;
+const USIZE_MAX: usize = ~usize(0);
 
 /// \note the trailing `- 1` needs the unary minus parenthesised; see trap 2.
-const ISIZE_MAX: isize = static_cast::<isize>((~usize(0)) >> 1);;
-const ISIZE_MIN: isize = (-static_cast::<isize>((~usize(0)) >> 1)) - 1;;
+const ISIZE_MAX: isize = static_cast::<isize>((~usize(0)) >> 1);
+const ISIZE_MIN: isize = (-static_cast::<isize>((~usize(0)) >> 1)) - 1;

@@ -28,10 +28,10 @@
 ///
 
 /// filesystem path alias (based on libc++ std::filesystem::path)
-type FilePath = libcxx::filesystem::path;;
+type FilePath = libcxx::filesystem::path;
 
 /// filesystem entry type alias
-type FileType = libcxx::filesystem::file_type;;
+type FileType = libcxx::filesystem::file_type;
 
 /// file output modes used for low-level i/o operations
 enum FileOutMode {

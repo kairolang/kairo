@@ -11,11 +11,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-const FNV_OFFSET_BASIS:  u64   = 0x14650FB0739D0383;;
-const GOLDEN_RATIO_MIX:  u64   = 0x9e3779b97f4a7c15;;
-const RESERVED_LOW:      u64   = 0x00000000000000FF;;
-const FNV_PRIME:         u64   = 0x00000100000001b3;;
-const HASH_MAX:          usize = 0xFFFFFFFFFFFFFFFF;;
+const FNV_OFFSET_BASIS:  u64   = 0x14650FB0739D0383;
+const GOLDEN_RATIO_MIX:  u64   = 0x9e3779b97f4a7c15;
+const RESERVED_LOW:      u64   = 0x00000000000000FF;
+const FNV_PRIME:         u64   = 0x00000100000001b3;
+const HASH_MAX:          usize = 0xFFFFFFFFFFFFFFFF;
 
 ///
 /// \brief Converts a usize value to a hexadecimal string.
