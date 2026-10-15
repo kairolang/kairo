@@ -246,7 +246,17 @@ CX_VISIT_IMPL_VA(ScopePathExpr, bool access) {
     }
 
     if (access) {
+        // a generic path used as a value: `::template` on a non-first
+        // segment, as for calls (legal whether or not it is dependent)
+        if (node.access_generics != nullptr && (!node.path.empty() || node.global_scope)) {
+            ADD_TOKEN(CXX_TEMPLATE);
+        }
+
         ADD_NODE_PARAM(access);
+
+        if (node.access_generics != nullptr) {
+            ADD_NODE_PARAM(access_generics);
+        }
     }
 }
 

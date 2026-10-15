@@ -335,6 +335,14 @@ parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
                     ParseResult<GenericInvokeExpr> gen_expr = parse<GenericInvokeExpr>();
                     RETURN_IF_ERROR(gen_expr);
 
+                    // no call: the generic path is a value (a variable
+                    // template, a concept-id, a function template's address)
+                    if (CURRENT_TOKEN_IS_NOT(__TOKEN_N::PUNCTUATION_OPEN_PAREN) &&
+                        expr.value()->getNodeType() == nodes::ScopePathExpr) {
+                        as<ScopePathExpr>(expr.value())->access_generics = gen_expr.value();
+                        break;
+                    }
+
                     expr = parse<FunctionCallExpr>(expr, gen_expr.value());
                     RETURN_IF_ERROR(expr);
                 } else {
@@ -1142,6 +1150,7 @@ AST_NODE_IMPL_VISITOR(Jsonify, ScopePathExpr) {
     json.section("ScopePathExpr")
         .add("path", path)
         .add("seg_generics", seg_generics)
+        .add("access_generics", get_node_json(node.access_generics))
         .add("access", get_node_json(node.access))
         .add("global_scope", node.global_scope ? "true" : "false");
 }

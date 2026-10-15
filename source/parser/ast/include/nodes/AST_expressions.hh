@@ -187,6 +187,9 @@ __AST_NODE_BEGIN {
         /// step, so readers must bounds-check rather than assume equal length.
         NodeV<GenericInvokeExpr> seg_generics;
         NodeT<>                  access;
+        /// generics on `access` when the path is used as a value, not called:
+        /// `is_same_as::<T, X>`, `value_v::<T>`. nullptr otherwise.
+        NodeT<GenericInvokeExpr> access_generics;
         bool                     global_scope = false;
     };
 
