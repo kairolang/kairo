@@ -86,14 +86,11 @@ class DirEntry {
 
         var found = false;
         var child_path: Path;
-        inline "c++" {
-            auto cand = (*fs_path).path_data /
-                        to_path(name);
-            libcxx::error_code ec;
-            if (libcxx::filesystem::is_directory(cand, ec)) {
-                found = true;
-                child_path = Path(from_generic_path(cand), false);
-            }
+        var cand = (*self.fs_path).path_data / to_path(name);
+        var ec: libcxx::error_code;
+        if libcxx::filesystem::is_directory(cand, ec) {
+            found = true;
+            child_path = Path(from_generic_path(cand), false);
         }
         if !found { return &null; }
 
@@ -118,14 +115,11 @@ class DirEntry {
         var fname = key;
         var found = false;
         var full_path: Path;
-        inline "c++" {
-            auto cand = (*fs_path).path_data /
-                        to_path(fname);
-            libcxx::error_code ec;
-            if (libcxx::filesystem::is_regular_file(cand, ec)) {
-                found = true;
-                full_path = Path(from_generic_path(cand), false);
-            }
+        var cand = (*self.fs_path).path_data / to_path(fname);
+        var ec: libcxx::error_code;
+        if libcxx::filesystem::is_regular_file(cand, ec) {
+            found = true;
+            full_path = Path(from_generic_path(cand), false);
         }
         if !found { return &null; }
 
@@ -143,37 +137,39 @@ class DirEntry {
         self.scanned = true;
         if !self.fs_path { return; }
 
-        inline "c++" {
-            libcxx::error_code ec;
-            if (!libcxx::filesystem::is_directory((*fs_path).path_data, ec)) return;
-            libcxx::filesystem::directory_iterator it((*fs_path).path_data, ec), end;
-            for (; (!ec) && it != end; it.increment(ec)) {
-                auto& entry = *it;
-                auto name_raw = from_generic_path(entry.path().filename());
-                if (name_raw.starts_with(KBYTE('.'))) continue;
+        var ec: libcxx::error_code;
+        if !libcxx::filesystem::is_directory((*self.fs_path).path_data, ec) { return; }
+        var it  = libcxx::filesystem::directory_iterator((*self.fs_path).path_data, ec);
+        var end = libcxx::filesystem::directory_iterator();
+        for (; (!ec) && (it != end); it.increment(ec)) {
+            var entry    = *it;
+            var name_raw = from_generic_path(entry.path().filename());
+            if name_raw.starts_with('.') { continue; }
 
-                libcxx::error_code ec2;
-                if (entry.is_directory(ec2)) {
-                    if (children.find(name_raw) == children.end()) {
-                        auto* c = std::create<DirEntry>(name_raw, true);
-                        c->fs_path = Path(from_generic_path(entry.path()), false);
-                        c->ext_cfg = ext_cfg;
-                        children[name_raw] = c;
-                    }
-                } else if (entry.is_regular_file(ec2)) {
-                    auto ext_raw = from_generic_path(entry.path().extension());
-                    auto ext     = ext_raw.empty() ? ext_raw :
-                                   (ext_raw[0] == KBYTE('.') ? ext_raw.subslice(1, ext_raw.size() - 1) : ext_raw);
-                    if (ext_cfg->should_index(ext)) {
-                        auto stem = from_generic_path(entry.path().stem());
-                        auto full = Path(from_generic_path(entry.path()), false);
-                        auto cat  = ext_cfg->categorize(ext);
-                        auto key  = ext.empty() ? stem : (stem + "." + ext);
-                        if (children.find(key) == children.end()) {
-                            auto* c = std::create<DirEntry>(stem, full, ext, cat);
-                            c->ext_cfg = ext_cfg;
-                            children[key] = c;
-                        }
+            var ec2: libcxx::error_code;
+            if entry.is_directory(ec2) {
+                if self.children.find(name_raw) == self.children.end() {
+                    var c = std::create::<DirEntry>(name_raw, true);
+                    c->fs_path = Path(from_generic_path(entry.path()), false);
+                    c->ext_cfg = self.ext_cfg;
+                    self.children[name_raw] = c;
+                }
+            } else if entry.is_regular_file(ec2) {
+                var ext_raw = from_generic_path(entry.path().extension());
+                var ext     = ext_raw;
+                if (!ext_raw.empty()) && (ext_raw[0] == '.') {
+                    ext = ext_raw.subslice(1, ext_raw.size() - 1);
+                }
+                if self.ext_cfg->should_index(ext) {
+                    var stem = from_generic_path(entry.path().stem());
+                    var full = Path(from_generic_path(entry.path()), false);
+                    var cat  = self.ext_cfg->categorize(ext);
+                    var key  = stem;
+                    if !ext.empty() { key = stem + "." + ext; }
+                    if self.children.find(key) == self.children.end() {
+                        var c = std::create::<DirEntry>(stem, full, ext, cat);
+                        c->ext_cfg = self.ext_cfg;
+                        self.children[key] = c;
                     }
                 }
             }

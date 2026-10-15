@@ -779,11 +779,8 @@ class ImportResolver {
     ///          leak into mangled names forever.
     fn module_ident(self, name: string) -> string {
         var out = name;
-        inline "c++" {
-            auto &r = out.raw_string();
-            for (size_t i = 0; i < r.size(); ++i) {
-                if (r[i] == KBYTE('-')) { r[i] = KBYTE('_'); }
-            }
+        for var i: usize = 0; i < out.size(); ++i {
+            if out[i] == '-' { out[i] = '_'; }
         }
         return out;
     }
@@ -859,15 +856,12 @@ class ImportResolver {
     /// `file` relative to `base`, or "" when `file` is not under `base`.
     priv fn _relative_to(self, file: Path, base: Path) -> string {
         var rel = string();
-        inline "c++" {
-            auto r = file.path_data.lexically_relative(base.path_data);
-            if (!r.empty()) {
-                auto s = from_generic_path(r);
-                // "..", "../x", "" all mean: not contained.
-                if (s != "." &&
-                    !(s.size() >= 2 && s[0] == KBYTE('.') && s[1] == KBYTE('.'))) {
-                    rel = s;
-                }
+        var r = file.path_data.lexically_relative(base.path_data);
+        if !r.empty() {
+            var s = from_generic_path(r);
+            // "..", "../x", "" all mean: not contained.
+            if (s != ".") && (!((s.size() >= 2) && (s[0] == '.') && (s[1] == '.'))) {
+                rel = s;
             }
         }
         return rel;
@@ -923,12 +917,9 @@ class ImportResolver {
 
     priv fn _lower(self, s: string) -> string {
         var out = s;
-        inline "c++" {
-            auto &r = out.raw_string();
-            for (size_t i = 0; i < r.size(); ++i) {
-                if (r[i] >= KBYTE('A') && r[i] <= KBYTE('Z')) {
-                    r[i] = static_cast<::std::remove_reference_t<decltype(r[i])>>(r[i] + 32);
-                }
+        for var i: usize = 0; i < out.size(); ++i {
+            if (out[i] >= 'A') && (out[i] <= 'Z') {
+                out[i] = static_cast::<char>(out[i] + 32);
             }
         }
         return out;
@@ -1508,7 +1499,8 @@ fn Test() -> i32 {
     files_to_create.emplace_back(include_root / libcxx::filesystem::path(r"extra.k"));
 
     for p: libcxx::filesystem::path in files_to_create {
-        __inline_cpp("libcxx::ofstream ofs(p); ofs.close();");
+        var ofs = libcxx::ofstream(p);
+        ofs.close();
     }
 
     var test_path = Path(from_generic_path(test_root), false);
@@ -1941,7 +1933,8 @@ fn Test() -> i32 {
     suite.equal::<i32>("rebuild picks up new files", 1, fn () -> i32 {
         // add new file after indexing
         var new_file = test_root / libcxx::filesystem::path(r"newmodule.k");
-        __inline_cpp("libcxx::ofstream ofs(new_file); ofs.close();");
+        var ofs = libcxx::ofstream(new_file);
+        ofs.close();
 
         // should NOT find it yet (stale index)
         var segments: vec::<string> = ["newmodule"];
