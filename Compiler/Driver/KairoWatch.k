@@ -41,6 +41,7 @@ import Support::FileIO::Path::*;
 
 ffi "c++" import "llvm/Support/InitLLVM.h";
 ffi "c++" import "llvm/Support/TargetSelect.h";
+ffi "c++" import "llvm/Support/FileSystem.h";
 // mach, not sys/resource.h: getrusage only exposes ru_maxrss, which is a PEAK
 // and cannot decrease. See rss_kib().
 ffi "c++" import "Native/GlobalRecycler.hh";
@@ -80,11 +81,10 @@ fn clear_terminal() {
     std::print("\u001b[2J\u001b[H");
 }
 
-fn mtime_of(p: libcxx::filesystem::path) -> i64 {
-    var ec = libcxx::error_code();
-    var t  = libcxx::filesystem::last_write_time(p, ec);
-    if ec { return 0; }
-    return t.time_since_epoch().count();
+fn mtime_of(p: string) -> i64 {
+    var st: llvm::sys::fs::file_status;
+    if llvm::sys::fs::status(llvm::Twine(sref(p)), st, true) { return 0; }
+    return st.getLastModificationTime().time_since_epoch().count();
 }
 
 /// CURRENT physical footprint, in KiB.
@@ -364,9 +364,9 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     }
 
     var path  = Path(target[0]);
-    var fspath = to_path(target[0]);
+    var fspath = target[0];
 
-    if !libcxx::filesystem::exists(fspath) {
+    if !Path::exists_at(fspath) {
         std::print(f"kwatch: no such file: {target[0]}");
         return 1;
     }

@@ -48,9 +48,10 @@
 //      diagnostic rather than a silent "module not found".
 
 // FIXME(async-indexing): currently the resolver builds the index synchronously
-//      on the calling thread. this is because libcxx::filesystem touches locale
-//      state on first use and throws std::runtime_error when invoked on worker
-//      threads where libc++ locale state is uninitialized. rn in kairo/ the
+//      on the calling thread. this was forced by libcxx::filesystem, which
+//      touched locale state on first use and threw on worker threads; the walk
+//      is on llvm::sys::fs now, so that constraint is gone and async indexing
+//      can be revisited. rn in kairo/ the
 //      walk phase alone takes up seconds of time, since kairo/ has all of llvm
 //      and all of libc source in its search paths its awfully slow to index.
 
@@ -262,16 +263,12 @@ class ImportResolver {
         /// \param pool optional thread pool for async indexing; if null, blocks until done
         /// \return heap-allocated resolver; caller assumes ownership
         fn create_ptr(self, pool: *ThreadPool = &null) -> *ImportResolver {
-            var cwd_path = self._cwd.value_or(Path(
-                from_generic_path(libcxx::filesystem::current_path()),
-                false
-            ));
+            var cwd_path = self._cwd.value_or(Path::cwd());
             var resolver = std::create::<ImportResolver>(self._ext_cfg);
 
-            // Always index synchronously on the calling (main) thread.
-            // libcxx::filesystem::directory_iterator touches locale on first use
-            // and throws std::runtime_error on worker threads where libc++ locale
-            // state is uninitialised. Async indexing bought nothing anyway since
+            // Always index synchronously on the calling (main) thread. (The
+            // original reason, libcxx::filesystem throwing on worker threads,
+            // left with the move to llvm::sys::fs.) Async indexing bought nothing since
             // CompilationBatch::run() calls wait_for_index() before dispatching
             // any TU tasks - the spin was immediate and free-threaded for zero gain.
             resolver->build_index(cwd_path, self._include_paths, &null,
@@ -1421,17 +1418,13 @@ fn Test() -> i32 {
     std::print("=== ImportResolver Test ===\n");
 
     // create a temp test directory structure
-    var test_root = libcxx::filesystem::temp_directory_path() / libcxx::filesystem::path(r"hlx_import_test");
-    var include_root = libcxx::filesystem::temp_directory_path() / libcxx::filesystem::path(r"hlx_include_test");
+    var tmp          = Path::temp_dir();
+    var test_root    = tmp.join("hlx_import_test");
+    var include_root = tmp.join("hlx_include_test");
 
     // clean up if exists from previous run
-    if libcxx::filesystem::exists(test_root) {
-        libcxx::filesystem::remove_all(test_root);
-    }
-
-    if libcxx::filesystem::exists(include_root) {
-        libcxx::filesystem::remove_all(include_root);
-    }
+    Path::remove_tree(test_root);
+    Path::remove_tree(include_root);
 
     // create directory structure:
     // hlx_import_test/
@@ -1457,44 +1450,43 @@ fn Test() -> i32 {
     //   ├-- util.k (conflict - should lose to cwd)
     //   └-- extra.k (unique - should be found)
 
-    libcxx::filesystem::create_directories(test_root / libcxx::filesystem::path(r"std/mem"));
-    libcxx::filesystem::create_directories(test_root / libcxx::filesystem::path(r"cpp"));
-    libcxx::filesystem::create_directories(test_root / libcxx::filesystem::path(r"Assets"));
-    libcxx::filesystem::create_directories(include_root);
+    Path::make_dirs(Path::join_str(test_root, "std/mem"));
+    Path::make_dirs(Path::join_str(test_root, "cpp"));
+    Path::make_dirs(Path::join_str(test_root, "Assets"));
+    Path::make_dirs(include_root);
 
     // create dummy files
-    var files_to_create = vec::<libcxx::filesystem::path>();
+    var files_to_create = vec::<string>();
 
     // kairo files
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"std/io.k"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"std/net.k"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"std/mem/module.k"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"std/mem/alloc.k"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"mylib.hlib"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"util.k"));
+    files_to_create.emplace_back(Path::join_str(test_root, "std/io.k"));
+    files_to_create.emplace_back(Path::join_str(test_root, "std/net.k"));
+    files_to_create.emplace_back(Path::join_str(test_root, "std/mem/module.k"));
+    files_to_create.emplace_back(Path::join_str(test_root, "std/mem/alloc.k"));
+    files_to_create.emplace_back(Path::join_str(test_root, "mylib.hlib"));
+    files_to_create.emplace_back(Path::join_str(test_root, "util.k"));
 
     // c++ files
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"cpp/helper.hpp"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"cpp/helper.cpp"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"cpp/legacy.h"));
+    files_to_create.emplace_back(Path::join_str(test_root, "cpp/helper.hpp"));
+    files_to_create.emplace_back(Path::join_str(test_root, "cpp/helper.cpp"));
+    files_to_create.emplace_back(Path::join_str(test_root, "cpp/legacy.h"));
 
     // random files (json, txt, no extension)
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"Assets/config.json"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"Assets/data.txt"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"Assets/README"));
-    files_to_create.emplace_back(test_root / libcxx::filesystem::path(r"Makefile"));
+    files_to_create.emplace_back(Path::join_str(test_root, "Assets/config.json"));
+    files_to_create.emplace_back(Path::join_str(test_root, "Assets/data.txt"));
+    files_to_create.emplace_back(Path::join_str(test_root, "Assets/README"));
+    files_to_create.emplace_back(Path::join_str(test_root, "Makefile"));
 
     // include path files
-    files_to_create.emplace_back(include_root / libcxx::filesystem::path(r"util.k"));
-    files_to_create.emplace_back(include_root / libcxx::filesystem::path(r"extra.k"));
+    files_to_create.emplace_back(Path::join_str(include_root, "util.k"));
+    files_to_create.emplace_back(Path::join_str(include_root, "extra.k"));
 
-    for p: libcxx::filesystem::path in files_to_create {
-        var ofs = libcxx::ofstream(p);
-        ofs.close();
+    for p: string in files_to_create {
+        Path::write_file(p, "");
     }
 
-    var test_path = Path(from_generic_path(test_root), false);
-    var include_path = Path(from_generic_path(include_root), false);
+    var test_path = Path(test_root, false);
+    var include_path = Path(include_root, false);
     var includes = vec::<Path>();
     includes.push_back(include_path);
 
@@ -1511,8 +1503,8 @@ fn Test() -> i32 {
 
     finally { // cleanup
         std::destroy(resolver);
-        libcxx::filesystem::remove_all(test_root);
-        libcxx::filesystem::remove_all(include_root);
+        Path::remove_tree(test_root);
+        Path::remove_tree(include_root);
     }
 
     std::print(resolver->dump_full_index());
@@ -1781,7 +1773,7 @@ fn Test() -> i32 {
     }, 10000);
 
     suite.equal::<i32>("resolve_path relative to source file", 1, fn () -> i32 {
-        var from_file = Path(from_generic_path(test_root / libcxx::filesystem::path(r"std/io.k")), false);
+        var from_file = Path(Path::join_str(test_root, "std/io.k"), false);
 
         // resolve sibling file
         var result = resolver->resolve_path("net.k", from_file);
@@ -1922,9 +1914,8 @@ fn Test() -> i32 {
 
     suite.equal::<i32>("rebuild picks up new files", 1, fn () -> i32 {
         // add new file after indexing
-        var new_file = test_root / libcxx::filesystem::path(r"newmodule.k");
-        var ofs = libcxx::ofstream(new_file);
-        ofs.close();
+        var new_file = Path::join_str(test_root, "newmodule.k");
+        Path::write_file(new_file, "");
 
         // should NOT find it yet (stale index)
         var segments: vec::<string> = ["newmodule"];
@@ -1946,7 +1937,7 @@ fn Test() -> i32 {
             return 0;
         }
 
-        libcxx::filesystem::remove(new_file);
+        Path::remove_file(new_file);
     }, 10000);
 
     // EDGE CASES

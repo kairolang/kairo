@@ -79,7 +79,7 @@
 #define _simd_available() 0
 #else
 #include <thread>
-#define _thread_pause() ::std::this_thread::yield()
+#define _thread_pause() libcxx::this_thread::yield()
 #define _simd_available() 0
 #endif
 
@@ -88,20 +88,6 @@ class StringRef;
 }
 
 namespace kairo {
-/// Every string <-> filesystem::path crossing goes through these two. They
-/// are UTF-8 on every platform; `path(std::string)` / `.string()` would use
-/// the ANSI code page on Windows, so don't use those here even though they
-/// compile.
-inline libcxx::filesystem::path to_path(const kairo::string &s) {
-    return libcxx::filesystem::path(
-        libcxx::u8string_view(reinterpret_cast<const char8_t *>(s.raw()), s.size()));
-}
-
-inline kairo::string from_path(const libcxx::filesystem::path &p) {
-    auto u = p.u8string();
-    return kairo::string(reinterpret_cast<const char *>(u.data()), u.size());
-}
-
 /// A string's bytes as an llvm::StringRef (or any (const char*, size)
 /// view type R). The size is passed explicitly: the old `.raw()` crossings
 /// relied on strlen, which stops at an embedded NUL. A template so this
@@ -112,11 +98,6 @@ inline R sref(const kairo::string &s) {
     return R(s.c_str(), s.size());
 }
 
-/// from_path on the generic ('/'-separated) form.
-inline kairo::string from_generic_path(const libcxx::filesystem::path &p) {
-    auto u = p.generic_u8string();
-    return kairo::string(reinterpret_cast<const char *>(u.data()), u.size());
-}
 }  // namespace kairo
 
 #include "KLog.hh"
@@ -958,14 +939,28 @@ void eprintln(Args &&...t) {
     }
 }
 
-inline libcxx::filesystem::path get_exe_path() noexcept {
+/// This binary's absolute path as UTF-8, '/'-separated on every host; ""
+/// when the OS will not say. A string, not a filesystem::path: every caller
+/// hands it to llvm::sys::path, which takes the bytes as they are.
+inline kairo::string get_exe_path() noexcept {
 #if defined(_WIN32)
     wchar_t buf[32768];
     DWORD   len = GetModuleFileNameW(nullptr, buf, 32768);
     if (len == 0 || len == 32768) {
         return {};
     }
-    return libcxx::filesystem::path(buf);
+    int n = WideCharToMultiByte(CP_UTF8, 0, buf, static_cast<int>(len), nullptr, 0, nullptr, nullptr);
+    if (n <= 0) {
+        return {};
+    }
+    libcxx::string out(static_cast<size_t>(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, buf, static_cast<int>(len), out.data(), n, nullptr, nullptr);
+    for (auto &c : out) {
+        if (c == '\\') {
+            c = '/';
+        }
+    }
+    return kairo::string(out.data(), out.size());
 
 #elif defined(__APPLE__)
     char     buf[4096];
@@ -973,7 +968,11 @@ inline libcxx::filesystem::path get_exe_path() noexcept {
     if (_NSGetExecutablePath(buf, &size) != 0) {
         return {};
     }
-    return libcxx::filesystem::canonical(buf);
+    char real[PATH_MAX];
+    if (::realpath(buf, real) == nullptr) {
+        return {};
+    }
+    return kairo::string(real, libcxx::strlen(real));
 
 #elif defined(__linux__)
     char buf[4096];
@@ -981,8 +980,7 @@ inline libcxx::filesystem::path get_exe_path() noexcept {
     if (len == -1) {
         return {};
     }
-    buf[len] = '\0';
-    return libcxx::filesystem::path(buf);
+    return kairo::string(buf, static_cast<size_t>(len));
 
 #elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     char   buf[4096];
@@ -991,7 +989,7 @@ inline libcxx::filesystem::path get_exe_path() noexcept {
     if (sysctl(mib, 4, buf, &size, nullptr, 0) == -1) {
         return {};
     }
-    return libcxx::filesystem::path(buf);
+    return kairo::string(buf, libcxx::strlen(buf));
 
 #else
     return {};
@@ -1104,7 +1102,7 @@ class StackBuf {
 /// \brief prints the ICE banner and aborts. shared by both overloads.
 /// \details not for direct use   go through KAIRO_ICE / KAIRO_ICE_FAIL so the
 ///          message stays out of the hot path (see the macros below).
-[[noreturn]] inline void ice_abort(const string& msg, const ::std::source_location& location) {
+[[noreturn]] inline void ice_abort(const string& msg, const libcxx::source_location& location) {
     std::eprintln("Kairo Internal Compiler Error: ", msg);
     std::eprintln("This is a bug in the Kairo compiler.");
     std::eprintln("Location: ", location.file_name(), ":", location.line(), ":", location.column());
@@ -1124,7 +1122,7 @@ class StackBuf {
 ///          EVERY call including the ones that pass. That cost is invisible at
 ///          one call per file and ruinous at one per token; it was ~115ns/token
 ///          in the lexer before the macro landed.
-inline void INTERNAL_ICE(bool condition, const string& msg, const ::std::source_location location = ::std::source_location::current()) {
+inline void INTERNAL_ICE(bool condition, const string& msg, const libcxx::source_location location = libcxx::source_location::current()) {
     if (condition) [[likely]] { return; }
     ice_abort(msg, location);
 }
@@ -1133,7 +1131,7 @@ inline void INTERNAL_ICE(bool condition, const string& msg, const ::std::source_
 /// \details for unreachable branches and invariants with no boolean form.
 ///          Being [[noreturn]] lets callers omit a trailing return and silences
 ///          "non-void function does not return a value" in switch defaults.
-[[noreturn]] inline void INTERNAL_ICE(const string& msg, const ::std::source_location location = ::std::source_location::current()) {
+[[noreturn]] inline void INTERNAL_ICE(const string& msg, const libcxx::source_location location = libcxx::source_location::current()) {
     ice_abort(msg, location);
 }
 

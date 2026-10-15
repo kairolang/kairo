@@ -26,6 +26,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
 
 import Diagnostic::Diagnostic::*;
 import Diagnostic::Consumer::*;
@@ -120,14 +122,16 @@ class BasicDiagConsumer derives DiagConsumer {
     }
 
     fn finalize_to_file(self, path: string) {
-        var out: string;
+        // Streamed one diagnostic at a time: each renders independently, so
+        // there is no reason to hold the whole report as one string first.
+        // OF_None: binary -- the bytes are already UTF-8.
+        var ec: libcxx::error_code;
+        var f = llvm::raw_fd_ostream(sref(path), ec, llvm::sys::fs::OF_None);
+        if ec { return; }
         for var i: usize = 0; i < self._diags.size(); ++i {
-            out += self.render_diag(self._diags[i]);
+            var line = self.render_diag(self._diags[i]);
+            f.write(line.c_str(), line.size());
         }
-        // binary: the bytes are already UTF-8, nothing to translate.
-        var f = libcxx::ofstream(to_path(path), libcxx::ios::binary);
-        f.write(out.c_str(), static_cast::<libcxx::streamsize>(out.size()));
-        f.close();
     }
 
     fn finalize_to_string(self) -> string {

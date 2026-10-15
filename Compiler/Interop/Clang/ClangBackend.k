@@ -347,19 +347,16 @@ class ClangBackend {
     /// Driver thread only. A generated header, copied in; addFile keeps the
     /// first mount of a path, so a second call is a no-op.
     fn mount_text(self, path: string, text: string) {
-        var np  = path;
-        var nt  = text;
         var buf = llvm::MemoryBuffer::getMemBufferCopy(
-            sref(nt), sref(np));
-        self._mem->addFile(llvm::Twine(sref(np)), 0, libcxx::move(buf));
+            sref(text), sref(path));
+        self._mem->addFile(llvm::Twine(sref(path)), 0, libcxx::move(buf));
     }
 
     /// Driver thread only. Idempotent per path.
     fn mount_pch(self, path: string, data: *llvm::SmallVector::<std::Legacy::char, 0>) {
-        var np  = path;
         var buf = llvm::MemoryBuffer::getMemBuffer(
-            llvm::StringRef(data->data(), data->size()), sref(np), false);
-        self._mem->addFile(llvm::Twine(sref(np)), 0, libcxx::move(buf));
+            llvm::StringRef(data->data(), data->size()), sref(path), false);
+        self._mem->addFile(llvm::Twine(sref(path)), 0, libcxx::move(buf));
     }
 
     fn csm(self) -> *clang::SourceManager {

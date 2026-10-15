@@ -43,13 +43,19 @@ ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "clang/Lex/Preprocessor.h";
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h";
 ffi "c++" import "llvm/ADT/STLExtras.h";
+ffi "c++" import "llvm/ADT/StringMap.h";
 ffi "c++" import "llvm/Support/VirtualFileSystem.h";
 
 class BuiltinsSet {
     priv var _ci:     opt::<clang::CompilerInstance> = &null;
-    /// Every builtin the target and language register, sorted by name.
-    priv var _sorted: libcxx::vector::<libcxx::pair::<libcxx::string, u32>>;
-    priv var _ids:    libcxx::unordered_map::<libcxx::string, u32>;
+    /// name -> builtin ID. The ONE owner of the name bytes: a StringMap
+    /// entry stores its key inline and never moves, so _sorted views into it
+    /// instead of holding a second copy, and id_of probes with a StringRef
+    /// rather than building a std::string per lookup.
+    priv var _ids:    llvm::StringMap::<u32>;
+    /// Every builtin the target and language register, sorted by name;
+    /// keys view _ids' entries.
+    priv var _sorted: libcxx::vector::<libcxx::pair::<llvm::StringRef, u32>>;
     priv var _ready:  bool = false;
 
     fn BuiltinsSet(self) { }
@@ -102,16 +108,15 @@ class BuiltinsSet {
         for var it = idt->begin(); it != idt->end(); ++it {
             var id = it->getValue()->getBuiltinID();
             if id == 0 { continue; }
-            var k = it->getKey();
-            self._sorted.push_back(libcxx::make_pair(libcxx::string(k.data(), k.size()), static_cast::<u32>(id)));
+            self._ids.try_emplace(it->getKey(), static_cast::<u32>(id));
+        }
+        self._sorted.reserve(self._ids.size());
+        for var e = self._ids.begin(); e != self._ids.end(); ++e {
+            self._sorted.push_back(libcxx::make_pair(e->getKey(), e->getValue()));
         }
         // Sorted: the pseudo-header BuiltinImport writes from this is then the
         // same bytes every build, whatever order the StringMap hashed into.
         llvm::sort(self._sorted);
-        self._ids.reserve(self._sorted.size());
-        for var i: usize = 0; i < self._sorted.size(); ++i {
-            self._ids.insert(libcxx::make_pair(self._sorted[i].first, self._sorted[i].second));
-        }
 
         self._ready = true;
         Logger::info(Logger::Stage::Driver, f"BuiltinsSet: {self._sorted.size()} builtin(s) for this target");
@@ -121,13 +126,16 @@ class BuiltinsSet {
     /// The builtin ID \p name has here, or 0. Read-only; any thread.
     fn id_of(self, name: string) -> u32 {
         if !self._ready { return 0; }
-        var it = self._ids.find(name.std_string());
+        var it = self._ids.find(sref(name));
         if it == self._ids.end() { return 0; }
         return it->second;
     }
 
     fn count(self) -> usize { return self._sorted.size(); }
-    fn name_at(self, i: usize) -> string { return string(self._sorted[i].first); }
+    fn name_at(self, i: usize) -> string {
+        var k = self._sorted[i].first;
+        return string(k.data(), k.size());
+    }
     fn id_at(self, i: usize) -> u32 { return self._sorted[i].second; }
 
     /// BuiltinImport only, under its lock.

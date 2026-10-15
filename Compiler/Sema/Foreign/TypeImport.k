@@ -98,10 +98,13 @@ class TypeImport {
         return string(s);
     }
 
-    static fn usr_of(d: const_obs::<clang::Decl>) -> libcxx::string {
+    /// Inline buffer, not std::string: almost every USR fits in 128 bytes,
+    /// and every consumer (ForeignRegistry's StringMap) takes a StringRef,
+    /// so the common case never touches the heap.
+    static fn usr_of(d: const_obs::<clang::Decl>) -> llvm::SmallString::<128> {
         var buf: llvm::SmallString::<128>;
-        if clang::index::generateUSRForDecl(d, buf) { return libcxx::string(); }
-        return buf.str().str();
+        if clang::index::generateUSRForDecl(d, buf) { buf.clear(); }
+        return buf;
     }
 
     // === the mapping ========================================================
@@ -169,9 +172,8 @@ class TypeImport {
     /// prefix plus a hash of the WHOLE spelling: two types may share the
     /// prefix, never the key.
     static fn opaque_key(sp: string) -> string {
-        var ns = sp;
-        if ns.size() < 200 { return sp; }
-        var h = llvm::xxh3_64bits(sref(ns));
+        if sp.size() < 200 { return sp; }
+        var h = llvm::xxh3_64bits(sref(sp));
         var key = sp.subslice(0, 160) + f"...#{h}";
         // A prefix of non-ASCII identifiers could still be over the cap once
         // encoded; the hash alone is always short enough.

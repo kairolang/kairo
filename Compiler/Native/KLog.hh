@@ -16,9 +16,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <format>
-#include <fstream>
 #include <functional>
 #include <include/core.hh>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -133,7 +135,8 @@ class Logger {
         e.thread_id    = current_thread_id();
         e.timestamp_ns = elapsed_ns();
 #ifndef NDEBUG
-        e.file = from_path(libcxx::filesystem::path(loc.file_name()).filename());
+        auto fname = llvm::sys::path::filename(loc.file_name());
+        e.file     = string(fname.data(), fname.size());
         e.line = loc.line();
         e.col  = loc.column();
 #endif
@@ -233,14 +236,16 @@ class Logger {
             return;
         }
         libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
-        libcxx::ofstream out(to_path(get()->dump_path_),
-                             libcxx::ios::trunc | libcxx::ios::binary);
-        if (!out.is_open()) {
+        // OF_None: binary, truncating. Streams entry by entry, so the dump
+        // never holds the whole log as one string.
+        libcxx::error_code   ec;
+        llvm::raw_fd_ostream out(sref(get()->dump_path_), ec, llvm::sys::fs::OF_None);
+        if (ec) {
             return;
         }
         for (const auto &e : get()->entries_) {
             auto line = format_entry(e, false);
-            out.write(line.c_str(), static_cast<libcxx::streamsize>(line.size()));
+            out.write(line.c_str(), line.size());
         }
     }
 

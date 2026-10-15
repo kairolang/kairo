@@ -20,18 +20,24 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/StringMap.h";
+ffi "c++" import "llvm/ADT/StringRef.h";
+
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 
 class ForeignRegistry {
-    priv var _by_usr: libcxx::unordered_map::<libcxx::string, *Decl>;
+    /// StringMap, not a map over std::string: it owns the key bytes in the
+    /// entry, hashes once, and is probed with the StringRef clang already
+    /// hands back -- a lookup allocates nothing.
+    priv var _by_usr: llvm::StringMap::<*Decl>;
     priv var _mu:     std::SharedMutex;
     priv var _spec_of: libcxx::unordered_map::<*Decl, *void>;   ///< see note_spec().
-    priv var _ns_head: libcxx::unordered_map::<libcxx::string, *ModuleDecl>;   ///< see link_namespace().
+    priv var _ns_head: llvm::StringMap::<*ModuleDecl>;   ///< see link_namespace().
 
-    fn ForeignRegistry(self) { self._by_usr.reserve(4096); }
+    fn ForeignRegistry(self) { self._by_usr = llvm::StringMap::<*Decl>(4096); }
 
-    fn find(self, usr: cref::<libcxx::string>) -> *Decl {
+    fn find(self, usr: llvm::StringRef) -> *Decl {
         var rlock = std::SharedLock(self._mu);
         var it = self._by_usr.find(usr);
         if it == self._by_usr.end() { return &null; }
@@ -40,12 +46,11 @@ class ForeignRegistry {
 
     /// Insert if absent; returns the decl that IS registered afterwards
     /// (the existing one on a race or a second set).
-    fn put(self, usr: cref::<libcxx::string>, d: *Decl) -> *Decl {
+    fn put(self, usr: llvm::StringRef, d: *Decl) -> *Decl {
         var lock = std::LockGuard(self._mu);
-        var it = self._by_usr.find(usr);
-        if it != self._by_usr.end() { return it->second; }
-        self._by_usr.insert(libcxx::make_pair(usr, d));
-        return d;
+        // One probe: try_emplace leaves an existing entry alone.
+        var r = self._by_usr.try_emplace(usr, d);
+        return (r.first)->second;
     }
 
     /// Link \p m, a fresh ModuleDecl for the C++ namespace \p qual, into
@@ -58,15 +63,12 @@ class ForeignRegistry {
     /// (NameLookup::module_scopes), so every reader that walks reopenings sees
     /// the whole namespace. Spliced under the lock: a fill can mint a
     /// namespace off the driver thread.
-    fn link_namespace(self, qual: cref::<libcxx::string>, m: *ModuleDecl) {
+    fn link_namespace(self, qual: llvm::StringRef, m: *ModuleDecl) {
         if m == &null { return; }
         var lock = std::LockGuard(self._mu);
-        var it = self._ns_head.find(qual);
-        if it == self._ns_head.end() {
-            self._ns_head.insert(libcxx::make_pair(qual, m));
-            return;
-        }
-        if it->second != m { m->set_prev(it->second); }
+        var r = self._ns_head.try_emplace(qual, m);
+        if (r.second) { return; }
+        if (r.first)->second != m { m->set_prev((r.first)->second); }
     }
 
     fn size(self) -> usize {

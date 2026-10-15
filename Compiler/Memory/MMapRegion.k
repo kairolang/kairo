@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/Support/ConvertUTF.h";
 
 ///
 /// \file MMapRegion.k
@@ -93,8 +94,12 @@ class MMapRegion {
         self.close();
 
         const eval if defined(_WIN32) {
+            // UTF-8 -> UTF-16 for the W API; the narrow CreateFileA would
+            // read the bytes in the ANSI code page.
+            var wide: libcxx::wstring;
+            llvm::ConvertUTF8toWide(sref(*path), wide);
             var hFile: HANDLE = CreateFileW(
-                to_path(*path).c_str(),
+                wide.c_str(),
                 GENERIC_READ,
                 FILE_SHARE_READ,
                 &null,

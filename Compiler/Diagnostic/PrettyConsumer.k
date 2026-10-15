@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
 
 import Diagnostic::Diagnostic::*;
 import Diagnostic::Consumer::*;
@@ -177,11 +179,14 @@ class PrettyDiagConsumer derives DiagConsumer {
     }
 
     fn finalize_to_file(self, path: string) {
+        // render_all coalesces across the whole set, so the text exists only
+        // once it is complete; it goes out in one write. OF_None: binary --
+        // the bytes are already UTF-8, nothing to translate.
         var out = self.render_all(false);
-        // binary: the bytes are already UTF-8, nothing to translate.
-        var f = libcxx::ofstream(to_path(path), libcxx::ios::binary);
-        f.write(out.c_str(), static_cast::<libcxx::streamsize>(out.size()));
-        f.close();
+        var ec: libcxx::error_code;
+        var f = llvm::raw_fd_ostream(sref(path), ec, llvm::sys::fs::OF_None);
+        if ec { return; }
+        f.write(out.c_str(), out.size());
     }
 
     fn finalize_to_string(self) -> string {

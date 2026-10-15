@@ -236,7 +236,7 @@ class ForeignInstantiate {
         //    USR to it so a later import naming the spec finds this node.
         var usr = TypeImport::usr_of(spec);
         var sp  = ti.spelling(clang::QualType(cctx->getCanonicalTagType(spec)));
-        decl_set_imported(shell, reinterpret_cast::<*void>(spec), string(usr),
+        decl_set_imported(shell, reinterpret_cast::<*void>(spec), string(usr.data(), usr.size()),
                           sp, reinterpret_cast::<*void>(hs), t->fid);
         if !usr.empty() { self._reg->put(usr, shell); }
 

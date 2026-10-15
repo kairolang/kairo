@@ -24,47 +24,40 @@ ffi "c++" import "llvm/Support/Program.h";
 
 class LinkFS {
     static fn exists(p: string) -> bool {
-        var np = p;
-        return llvm::sys::fs::exists(llvm::Twine(sref(np)));
+        return llvm::sys::fs::exists(llvm::Twine(sref(p)));
     }
 
     static fn is_dir(p: string) -> bool {
-        var np = p;
-        return llvm::sys::fs::is_directory(llvm::Twine(sref(np)));
+        return llvm::sys::fs::is_directory(llvm::Twine(sref(p)));
     }
 
     static fn is_file(p: string) -> bool {
-        var np = p;
-        return llvm::sys::fs::is_regular_file(llvm::Twine(sref(np)));
+        return llvm::sys::fs::is_regular_file(llvm::Twine(sref(p)));
     }
 
     /// Symlinks resolved; \p p unchanged if it cannot be.
     static fn real(p: string) -> string {
-        var np  = p;
         var out: llvm::SmallString::<256>;
-        var ec  = llvm::sys::fs::real_path(llvm::Twine(sref(np)), out, false);
+        var ec  = llvm::sys::fs::real_path(llvm::Twine(sref(p)), out, false);
         if ec { return p; }
         return string(out.data(), out.size());
     }
 
     static fn parent(p: string) -> string {
-        var np = p;
-        var sr = llvm::sys::path::parent_path(sref(np));
+        var sr = llvm::sys::path::parent_path(sref(p));
         return string(sr.data(), sr.size());
     }
 
     static fn filename(p: string) -> string {
-        var np = p;
-        var sr = llvm::sys::path::filename(sref(np));
+        var sr = llvm::sys::path::filename(sref(p));
         return string(sr.data(), sr.size());
     }
 
     /// Entry NAMES directly in \p dir, unsorted. Empty if unreadable.
     static fn list_dir(dir: string) -> vec::<string> {
         var out = vec::<string>();
-        var nd  = dir;
         var ec: libcxx::error_code;
-        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(sref(nd)), ec, true);
+        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(sref(dir)), ec, true);
         var end = llvm::sys::fs::directory_iterator();
         while (!ec) && (it != end) {
             var p = it->path();
@@ -75,8 +68,7 @@ class LinkFS {
     }
 
     static fn read(path: string, out: ref!(string)) -> bool {
-        var np = path;
-        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(sref(np)));
+        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(sref(path)));
         if !mb { return false; }
         var sr = mb.get()->getBuffer();
         out = string(sr.data(), sr.size());
@@ -84,20 +76,16 @@ class LinkFS {
     }
 
     static fn write(path: string, text: string) -> bool {
-        var np = path;
-        var nt = text;
         var ec = llvm::sys::writeFileWithEncoding(
-            sref(np), sref(nt));
+            sref(path), sref(text));
         return !ec;
     }
 
     /// Creates an empty temp file and returns its path; "" on failure.
     static fn temp_file(prefix: string, suffix: string) -> string {
-        var np  = prefix;
-        var ns  = suffix;
         var out: llvm::SmallString::<256>;
         var ec  = llvm::sys::fs::createTemporaryFile(
-            llvm::Twine(sref(np)), sref(ns), out);
+            llvm::Twine(sref(prefix)), sref(suffix), out);
         if ec { return ""; }
         return string(out.data(), out.size());
     }
@@ -106,8 +94,7 @@ class LinkFS {
     static fn temp_dir(prefix: string) -> string {
         var base: llvm::SmallString::<256>;
         llvm::sys::path::system_temp_directory(true, base);
-        var np = prefix;
-        llvm::sys::path::append(base, llvm::Twine(sref(np)));
+        llvm::sys::path::append(base, llvm::Twine(sref(prefix)));
         var out: llvm::SmallString::<256>;
         var ec  = llvm::sys::fs::createUniqueDirectory(llvm::Twine(base), out);
         if ec { return ""; }
@@ -115,26 +102,22 @@ class LinkFS {
     }
 
     static fn make_dirs(p: string) -> bool {
-        var np = p;
-        var ec = llvm::sys::fs::create_directories(llvm::Twine(sref(np)), true);
+        var ec = llvm::sys::fs::create_directories(llvm::Twine(sref(p)), true);
         return !ec;
     }
 
     static fn remove(p: string) {
-        var np = p;
-        llvm::sys::fs::remove(llvm::Twine(sref(np)), true);
+        llvm::sys::fs::remove(llvm::Twine(sref(p)), true);
     }
 
     static fn remove_tree(p: string) {
         if p.empty() { return; }
-        var np = p;
-        llvm::sys::fs::remove_directories(llvm::Twine(sref(np)), true);
+        llvm::sys::fs::remove_directories(llvm::Twine(sref(p)), true);
     }
 
     /// The environment variable \p name; "" when unset.
     static fn env(name: string) -> string {
-        var nn = name;
-        var v  = llvm::sys::Process::GetEnv(sref(nn));
+        var v  = llvm::sys::Process::GetEnv(sref(name));
         if !v { return ""; }
         return string(v.value());
     }

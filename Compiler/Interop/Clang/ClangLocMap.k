@@ -220,9 +220,8 @@ class ClangLocMap {
     /// SLoc block stays contiguous, which is the only thing the math needs.
     priv fn _register_one(self, fm: *clang::FileManager, kfid: FileID) -> clang::FileID {
         var path = self._ksm->get_filename(kfid);
-        var np   = path;
 
-        var fref = fm->getFileRef(sref(np), true);
+        var fref = fm->getFileRef(sref(path), true);
         if fref {
             return self._csm->createFileID(
                 *fref, clang::SourceLocation(), clang::SrcMgr::C_User);
@@ -235,7 +234,7 @@ class ClangLocMap {
             return clang::FileID();
         }
 
-        self._names.push_back(np.std_string());
+        self._names.push_back(path.std_string());
 
         var bref = llvm::MemoryBufferRef(
             llvm::StringRef(

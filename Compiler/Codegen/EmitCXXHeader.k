@@ -106,17 +106,8 @@ class EmitCXXHeader {
     fn write(self, dir: string) -> bool {
         var text = self.render();
         if text.size() == 0 { return false; }
-        var p  = self.path_under(dir);
-        var nt = text;
-        var ok = false;
-        var fp = to_path(p);
-        var ec: libcxx::error_code;
-        libcxx::filesystem::create_directories(fp.parent_path(), ec);
-        var ofs = libcxx::ofstream(fp, libcxx::ios::binary);
-        if static_cast::<bool>(ofs) {
-            ofs.write(nt.c_str(), static_cast::<libcxx::streamsize>(nt.size()));
-            ok = static_cast::<bool>(ofs);
-        }
-        return ok;
+        var p = self.path_under(dir);
+        Path::make_parent_dirs(p);
+        return Path::write_file(p, text);
     }
 }

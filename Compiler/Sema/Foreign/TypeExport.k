@@ -550,8 +550,7 @@ class TypeExport {
     }
 
     priv fn _ident(self, s: string) -> *clang::IdentifierInfo {
-        var ns = s;
-        return &(self.cctx->Idents.get(sref(ns)));
+        return &(self.cctx->Idents.get(sref(s)));
     }
 
     // builtins

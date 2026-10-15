@@ -202,8 +202,7 @@ class TokenSink derives EmitSink {
     }
 
     override fn create_ident(self, at: SourceRange, spelling: string) -> bool {
-        var ns = spelling;
-        return self._ident_lit(sref(ns), at.start, at.size());
+        return self._ident_lit(sref(spelling), at.start, at.size());
     }
 
     override fn punct(self, at: SourceRange, k: clang::tok::TokenKind) -> bool {

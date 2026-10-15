@@ -47,6 +47,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/ADT/StringMap.h";
 ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/Attr.h";
 ffi "c++" import "clang/AST/Decl.h";
@@ -88,7 +89,7 @@ class HeaderTarget {
     pub var tu:     obs::<TranslationUnit>;
     pub var frozen: bool = false;              ///< already indexed by an earlier set: read-only.
     /// qualified namespace name -> this header's ModuleDecl for it.
-    pub var namespaces: libcxx::unordered_map::<libcxx::string, *ModuleDecl>;
+    pub var namespaces: llvm::StringMap::<*ModuleDecl>;
     /// every DeclContext this header owns whose table must be frozen at the end.
     pub var scopes: vec::<*DeclContext>;
     fn HeaderTarget(self) { }
@@ -283,7 +284,7 @@ class DeclImport {
     /// ChainBinding's multi-scope Module anchor and ADL both walk.
     fn namespace_for(self, t: *HeaderTarget, ns: const_obs::<clang::NamespaceDecl>) -> *ModuleDecl {
         var q  = self._qual(ns);
-        var nq = q.std_string();
+        var nq = sref(q);
         var it = t->namespaces.find(nq);
         if it != t->namespaces.end() { return it->second; }
 
@@ -302,7 +303,7 @@ class DeclImport {
         // Keyed through _ident_key, not the token's imm: the token is interned
         // where its RANGE is (_tok), the key where the TABLE is.
         self.bind(t, parent, self._ident_key(t, parent, nm), static_cast::<*Decl>(m));
-        t->namespaces.insert(libcxx::make_pair(nq, m));
+        t->namespaces.try_emplace(nq, m);
         self.reg->link_namespace(nq, m);
         return m;
     }
@@ -516,12 +517,12 @@ class DeclImport {
     /// The FFILinkage stamp. Every imported kind derives it except
     /// EnumDecl / InterfaceDecl / EnumVariant / Field / Module; those carry
     /// no per-decl foreign facts sema needs.
-    priv fn _stamp(self, kd: *Decl, d: *clang::Decl, nd: *clang::NamedDecl, usr: libcxx::string, t: *HeaderTarget) {
+    priv fn _stamp(self, kd: *Decl, d: *clang::Decl, nd: *clang::NamedDecl, usr: llvm::StringRef, t: *HeaderTarget) {
         var sp   = self._qual(nd);
         // A hidden friend has no qualified spelling: qualified lookup never
         // finds it, only ADL does. Its bare name is what C++ calls it by.
         if self._friend_scope != &null { sp = self._display_name(nd); }
-        var us   = string(usr);
+        var us   = string(usr.data(), usr.size());
         var vset = reinterpret_cast::<*void>(self._set);
         var vd   = reinterpret_cast::<*void>(d);
         decl_set_imported(kd, vd, us, sp, vset, t->fid);

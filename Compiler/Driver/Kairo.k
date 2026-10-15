@@ -164,7 +164,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
 
     finally {
         Logger::set_dump_path(
-            from_generic_path(std::get_exe_path().parent_path() / r"kairo.log")
+            Path::join_str(Path::parent_of(std::get_exe_path()), "kairo.log")
         );
         Logger::dump_to_file();
         Logger::shutdown();

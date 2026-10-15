@@ -21,6 +21,7 @@ ffi "c++" import "llvm/ADT/Twine.h";
 ffi "c++" import "llvm/ADT/iterator_range.h";
 ffi "c++" import "llvm/Support/FileSystem.h";
 ffi "c++" import "llvm/Support/Path.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
 
 ///
 /// \file Path.k
@@ -87,6 +88,20 @@ default class Path {
         }
     }
 
+    ///
+    /// \brief a Path for \p abs whose type the caller already knows -- from
+    ///        a readdir record or a probe's own stat. No syscall.
+    ///
+    /// \details \p abs must already be absolute and generic-form (a
+    ///          Path::join off another Path is); it is stored as given.
+    ///
+    static fn from_known(abs: string, t: FileType) -> Path {
+        var p = Path();
+        p.path_data  = abs;
+        p.entry_type = t;
+        return p;
+    }
+
     static fn cwd() -> Path {
         var buf: llvm::SmallString::<256>;
         llvm::sys::fs::current_path(buf);
@@ -150,9 +165,105 @@ default class Path {
         if base.empty() || llvm::sys::path::is_absolute(llvm::Twine(sref(rel))) {
             return rel;
         }
+        // posix style: Path stores the generic form on every host, and a
+        // native append would splice a '\\' into it on Windows.
         var buf = llvm::SmallString::<256>(sref(base));
-        llvm::sys::path::append(buf, llvm::Twine(sref(rel)));
+        llvm::sys::path::append(buf, llvm::sys::path::Style::posix, llvm::Twine(sref(rel)));
         return string(buf.data(), buf.size());
+    }
+
+    // --- string-level queries (no Path built, no stat) ---------------------
+    //
+    // For callers holding a plain path string: building a Path stats the
+    // disk, and these only need the lexical answer.
+
+    static fn parent_of(p: string) -> string {
+        var sr = llvm::sys::path::parent_path(sref(p));
+        return string(sr.data(), sr.size());
+    }
+
+    static fn filename_of(p: string) -> string {
+        var sr = llvm::sys::path::filename(sref(p));
+        return string(sr.data(), sr.size());
+    }
+
+    static fn stem_of(p: string) -> string {
+        var sr = llvm::sys::path::stem(sref(p));
+        return string(sr.data(), sr.size());
+    }
+
+    static fn extension_of(p: string) -> string {
+        var sr = llvm::sys::path::extension(sref(p));
+        return string(sr.data(), sr.size());
+    }
+
+    // --- filesystem mutations ----------------------------------------------
+
+    /// \p dir and every missing parent. True when it exists afterwards.
+    static fn make_dirs(dir: string) -> bool {
+        if dir.empty() { return true; }
+        return !llvm::sys::fs::create_directories(llvm::Twine(sref(dir)), true);
+    }
+
+    /// The directory \p file will be written into, created if missing.
+    static fn make_parent_dirs(file: string) -> bool {
+        return Path::make_dirs(Path::parent_of(file));
+    }
+
+    /// chdir. False (nothing changed) when \p dir cannot be entered.
+    static fn set_cwd(dir: string) -> bool {
+        return !llvm::sys::fs::set_current_path(llvm::Twine(sref(dir)));
+    }
+
+    /// \p dir and everything under it; a missing \p dir is not an error.
+    static fn remove_tree(dir: string) {
+        if dir.empty() { return; }
+        llvm::sys::fs::remove_directories(llvm::Twine(sref(dir)), true);
+    }
+
+    static fn remove_file(p: string) {
+        llvm::sys::fs::remove(llvm::Twine(sref(p)), true);
+    }
+
+    /// A fresh, uniquely named directory under the system temp dir; "" on
+    /// failure. The caller owns removing it (remove_tree).
+    static fn make_temp_dir(prefix: string) -> string {
+        // createUniqueDirectory takes the prefix relative to the cwd; anchor
+        // it in the temp dir first.
+        var base: llvm::SmallString::<256>;
+        llvm::sys::path::system_temp_directory(true, base);
+        llvm::sys::path::append(base, llvm::Twine(sref(prefix)));
+        var out: llvm::SmallString::<256>;
+        if llvm::sys::fs::createUniqueDirectory(llvm::Twine(base), out) { return ""; }
+        return string(out.data(), out.size());
+    }
+
+    /// Writes \p text to \p p in one go, truncating. False on failure.
+    static fn write_file(p: string, text: string) -> bool {
+        var ec: libcxx::error_code;
+        var os = llvm::raw_fd_ostream(sref(p), ec, llvm::sys::fs::OF_None);
+        if ec { return false; }
+        os.write(text.c_str(), text.size());
+        os.close();
+        return !os.has_error();
+    }
+
+    ///
+    /// \brief the type of a directory_iterator entry, from the readdir
+    ///        record itself where the OS supplies one (d_type).
+    ///
+    /// \details A second stat is paid only for a symlink or an unknown type,
+    ///          and follows the link: a link to a directory must still be
+    ///          walked as one, as filesystem::directory_iterator's
+    ///          is_directory() did.
+    ///
+    static fn type_of_entry(e: cref::<llvm::sys::fs::directory_entry>) -> FileType {
+        // INLINE(cxx-feature: member named with a Kairo keyword)
+        var t: FileType = e.__inline_cpp("type()");
+        if (t == FileType::symlink_file) || (t == FileType::type_unknown) {
+            t = llvm::sys::fs::get_file_type(llvm::Twine(e.path()), true);
+        }
+        return t;
     }
 
     ///

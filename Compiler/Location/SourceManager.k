@@ -13,6 +13,7 @@
 
 ffi "c++" import "Native/Types.hh";
 ffi "c++" import "Native/UTF8Decode.hh";
+ffi "c++" import "llvm/Support/FormatVariadic.h";
 
 import Location::SourceFile::*;
 import Location::SourceLocation::*;
@@ -578,7 +579,7 @@ class SourceManager {
             var off = static_cast::<usize>(run - base);
             var len = static_cast::<usize>(p - run);
             var range = self.get_range(fid, off, len);
-            var hex: string = libcxx::format(r"{:02X}", static_cast::<u32>(run[0])).data();
+            var hex: string = string(llvm::formatv(r"{0:X-2}", static_cast::<u32>(run[0])).str());
             var b = self._diag->report(DiagID::S072E, range.start,
                 f"invalid UTF-8 byte 0x{hex} in source");
             b.first(range);

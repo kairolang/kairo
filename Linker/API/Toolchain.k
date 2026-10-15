@@ -692,9 +692,7 @@ class Toolchain {
             // ships compiler-rt under armv7-unknown-linux-musl, and the
             // target (now musleabihf) names neither.
             Toolchain::_push_unique(out, self.manifest.triple);
-            var nm = self.manifest.triple;
-            var norm: libcxx::string = llvm::Triple::normalize(sref(nm));
-            Toolchain::_push_unique(out, string(norm.c_str(), norm.size()));
+            Toolchain::_push_unique(out, string(llvm::Triple::normalize(sref(self.manifest.triple))));
         }
         Toolchain::_push_unique(out, f"{t->arch_name}-unknown-{t->os_name}{env}");
         Toolchain::_push_unique(out, f"{t->arch_name}-{t->os_name}{env}");
@@ -779,8 +777,7 @@ class Toolchain {
     }
 
     priv fn _triple_version(self) -> string {
-        var nt = self.triple;
-        var tr = llvm::Triple(sref(nt));
+        var tr = llvm::Triple(sref(self.triple));
         if tr.getOSVersion().getMajor() == 0 { return ""; }
         if self.platform == "macos" {
             // darwinNN -> macOS version. LLVM owns the mapping.
@@ -1029,8 +1026,7 @@ class Toolchain {
     }
 
     static fn is_mingw(triple: string) -> bool {
-        var nt = triple;
-        var tr = llvm::Triple(llvm::Triple::normalize(sref(nt)));
+        var tr = llvm::Triple(llvm::Triple::normalize(sref(triple)));
         return tr.isWindowsGNUEnvironment();
     }
 
@@ -1044,8 +1040,7 @@ class Toolchain {
     }
 
     static fn is_msvc(triple: string) -> bool {
-        var nt = triple;
-        var tr = llvm::Triple(llvm::Triple::normalize(sref(nt)));
+        var tr = llvm::Triple(llvm::Triple::normalize(sref(triple)));
         return tr.isWindowsMSVCEnvironment();
     }
 
@@ -1283,15 +1278,13 @@ class Toolchain {
     ///          musleabi is left alone: that is a deliberate soft-float ask.
     ///          Anything else is returned exactly as spelled.
     static fn canonical_triple(triple: string) -> string {
-        var nt = triple;
-        var tt = llvm::Triple(llvm::Triple::normalize(sref(nt)));
+        var tt = llvm::Triple(llvm::Triple::normalize(sref(triple)));
         if ((!tt.isARM()) && (!tt.isThumb())) || (!tt.isOSLinux()) { return triple; }
         var env = tt.getEnvironment();
         if env == llvm::Triple::GNU       { tt.setEnvironment(llvm::Triple::GNUEABIHF);  }
         else if env == llvm::Triple::Musl { tt.setEnvironment(llvm::Triple::MuslEABIHF); }
         else                              { return triple; }
-        var full: libcxx::string = tt.getTriple();
-        return string(full.c_str(), full.size());
+        return string(tt.getTriple());
     }
 
     /// Same arch, OS and environment; vendor and spelling ignored, so

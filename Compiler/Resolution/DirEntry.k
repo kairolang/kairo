@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh";
+ffi "c++" import "llvm/Support/FileSystem.h";
+ffi "c++" import "llvm/Support/Path.h";
 
 import Support::FileIO::Path::*;
 import Support::FileIO::FileSystem::*;
@@ -86,11 +88,10 @@ class DirEntry {
 
         var found = false;
         var child_path: Path;
-        var cand = to_path((*self.fs_path).join(name));
-        var ec: libcxx::error_code;
-        if libcxx::filesystem::is_directory(cand, ec) {
+        var cand = (*self.fs_path).join(name);
+        if llvm::sys::fs::is_directory(llvm::Twine(sref(cand))) {
             found = true;
-            child_path = Path(from_generic_path(cand), false);
+            child_path = Path::from_known(cand, FileType::directory_file);
         }
         if !found { return &null; }
 
@@ -115,11 +116,10 @@ class DirEntry {
         var fname = key;
         var found = false;
         var full_path: Path;
-        var cand = to_path((*self.fs_path).join(fname));
-        var ec: libcxx::error_code;
-        if libcxx::filesystem::is_regular_file(cand, ec) {
+        var cand = (*self.fs_path).join(fname);
+        if llvm::sys::fs::is_regular_file(llvm::Twine(sref(cand))) {
             found = true;
-            full_path = Path(from_generic_path(cand), false);
+            full_path = Path::from_known(cand, FileType::regular_file);
         }
         if !found { return &null; }
 
@@ -137,33 +137,34 @@ class DirEntry {
         self.scanned = true;
         if !self.fs_path { return; }
 
+        // The type comes off the readdir record (Path::type_of_entry), and each
+        // child Path is built from it (from_known): one syscall per directory,
+        // not two stats per entry. A missing directory just ends the loop.
+        var self_path = (*self.fs_path).path_data;
         var ec: libcxx::error_code;
-        var dir = to_path((*self.fs_path).path_data);
-        if !libcxx::filesystem::is_directory(dir, ec) { return; }
-        var it  = libcxx::filesystem::directory_iterator(dir, ec);
-        var end = libcxx::filesystem::directory_iterator();
+        var it  = llvm::sys::fs::directory_iterator(llvm::Twine(sref(self_path)), ec, true);
+        var end = llvm::sys::fs::directory_iterator();
         for (; (!ec) && (it != end); it.increment(ec)) {
-            var entry    = *it;
-            var name_raw = from_generic_path(entry.path().filename());
-            if name_raw.starts_with('.') { continue; }
+            var fname = llvm::sys::path::filename(it->path());
+            if fname.starts_with(r".") { continue; }
+            var name_raw = string(fname.data(), fname.size());
+            var full_raw = Path::join_str(self_path, name_raw);
+            var etype    = Path::type_of_entry(*it);
 
-            var ec2: libcxx::error_code;
-            if entry.is_directory(ec2) {
+            if etype == FileType::directory_file {
                 if self.children.find(name_raw) == self.children.end() {
                     var c = std::create::<DirEntry>(name_raw, true);
-                    c->fs_path = Path(from_generic_path(entry.path()), false);
+                    c->fs_path = Path::from_known(full_raw, etype);
                     c->ext_cfg = self.ext_cfg;
                     self.children[name_raw] = c;
                 }
-            } else if entry.is_regular_file(ec2) {
-                var ext_raw = from_generic_path(entry.path().extension());
-                var ext     = ext_raw;
-                if (!ext_raw.empty()) && (ext_raw[0] == '.') {
-                    ext = ext_raw.subslice(1, ext_raw.size() - 1);
-                }
+            } else if etype == FileType::regular_file {
+                var ext_ref = llvm::sys::path::extension(fname).drop_front(1); // no dot
+                var ext     = string(ext_ref.data(), ext_ref.size());
                 if self.ext_cfg->should_index(ext) {
-                    var stem = from_generic_path(entry.path().stem());
-                    var full = Path(from_generic_path(entry.path()), false);
+                    var stem_ref = llvm::sys::path::stem(fname);
+                    var stem = string(stem_ref.data(), stem_ref.size());
+                    var full = Path::from_known(full_raw, etype);
                     var cat  = self.ext_cfg->categorize(ext);
                     var key  = stem;
                     if !ext.empty() { key = stem + "." + ext; }
