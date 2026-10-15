@@ -62,9 +62,7 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
     // Locale from the environment, LC_CTYPE forced to UTF-8 if that did not
     // give one (Native/KLocale.hh says why), eagerly on the main thread
     // before any worker starts.
-    inline "c++" {
-        ::kairo::init_process_locale();
-    }
+    kairo::init_process_locale();
 
     libcxx::use_facet::<libcxx::num_put::<std::Legacy::char>>(libcxx::locale());
     libcxx::use_facet::<libcxx::num_get::<std::Legacy::char>>(libcxx::locale());
@@ -107,20 +105,18 @@ fn _scan_timing_flags(
     var on = false;
     (*trace_out) = false;
 
-    inline "c++" {
-        for (int i = 1; i < argc; ++i) {
-            const char *a = argv[i];
-            if (a == nullptr) { continue; }
-            if (::strcmp(a, "--time-passes") == 0) { on = true; continue; }
-            // --print-stats / --stats-file reuse the --time-passes report.
-            if (::strcmp(a, "--print-stats") == 0) { on = true; continue; }
-            if (::strncmp(a, "--stats-file", 12) == 0) { on = true; continue; }
-            if (::strncmp(a, "--time-trace", 12) == 0) {
-                // --time-trace, --time-trace=PATH, --time-trace PATH
-                on = true;
-                *trace_out = true;
-                continue;
-            }
+    for var i: i32 = 1; i < argc; ++i {
+        var a = argv[i];
+        if a == &null { continue; }
+        if libcxx::strcmp(a, r"--time-passes") == 0 { on = true; continue; }
+        // --print-stats / --stats-file reuse the --time-passes report.
+        if libcxx::strcmp(a, r"--print-stats") == 0 { on = true; continue; }
+        if libcxx::strncmp(a, r"--stats-file", 12) == 0 { on = true; continue; }
+        if libcxx::strncmp(a, r"--time-trace", 12) == 0 {
+            // --time-trace, --time-trace=PATH, --time-trace PATH
+            on = true;
+            (*trace_out) = true;
+            continue;
         }
     }
 
@@ -134,13 +130,11 @@ fn _scan_timing_flags(
 fn _time_print_to(path: string) -> bool {
     var p  = path;
     var ok = false;
-    inline "c++" {
-        FILE *f = ::fopen(p.c_str(), "wb");
-        if (f != nullptr) {
-            ::kairo::TimeReport::print(f);
-            ::fclose(f);
-            ok = true;
-        }
+    var f = libcxx::fopen(p.c_str(), r"wb");
+    if f != &null {
+        kairo::TimeReport::print(f);
+        libcxx::fclose(f);
+        ok = true;
     }
     return ok;
 }

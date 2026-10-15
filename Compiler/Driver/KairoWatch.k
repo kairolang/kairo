@@ -84,7 +84,7 @@ fn mtime_of(p: libcxx::filesystem::path) -> i64 {
     var ec = libcxx::error_code();
     var t  = libcxx::filesystem::last_write_time(p, ec);
     if ec { return 0; }
-    return __inline_cpp("t.time_since_epoch().count()");
+    return t.time_since_epoch().count();
 }
 
 /// CURRENT physical footprint, in KiB.
@@ -105,6 +105,7 @@ fn mtime_of(p: libcxx::filesystem::path) -> i64 {
 /// pressure macOS will compress a leaked page rather than evict it, and plain
 /// resident_size would show that as a drop.
 fn rss_kib() -> usize {
+    // INLINE(macro)
     return __inline_cpp("
         []() -> unsigned long long {
           task_vm_info_data_t    info {};

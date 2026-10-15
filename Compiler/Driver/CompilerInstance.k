@@ -233,11 +233,9 @@ class FrontendAction {
     fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
     priv static fn _ensure_parent_dir(path: string) { // TODO: move to Path.k or FileSystem.k
         var np = path;
-        inline "c++" {
-            libcxx::filesystem::path fp = to_path(np);
-            libcxx::error_code ec;
-            libcxx::filesystem::create_directories(fp.parent_path(), ec);
-        }
+        var fp = to_path(np);
+        var ec: libcxx::error_code;
+        libcxx::filesystem::create_directories(fp.parent_path(), ec);
     }
 
     priv fn _fatal(self, id: DiagID, msg: string) -> bool;
@@ -761,15 +759,14 @@ class CompilerInstance {
         var err:     libcxx::string;
         var triple_str = triple;
 
-        inline "c++" {
-            auto llvm_triple = llvm::Triple(llvm::Triple::normalize(sref(triple_str)));
-            const llvm::Target *T = llvm::TargetRegistry::lookupTarget(llvm_triple, err);
-        }
+        var llvm_triple = llvm::Triple(llvm::Triple::normalize(sref(triple_str)));
+        var T = llvm::TargetRegistry::lookupTarget(llvm_triple, err);
 
         if T == &null {
             (*err_out) = string(err.c_str());
         }
 
+        // INLINE(cxx-feature: pointer-to-const cast)
         inline "c++" { result = const_cast<void*>(static_cast<const void*>(T)); }
         return result;
     }
@@ -790,11 +787,9 @@ class CompilerInstance {
             max_name = libcxx::max(max_name, libcxx::strlen(T.getName()));
         }
         
-        inline "c++" {
-            libcxx::sort(rows.begin(), rows.end(),
-            // only reason this is in an inline c++ block is auto is not supported in Kairo stage0
-                [](const auto &a, const auto &b) { return a.first < b.first; });
-        }
+        libcxx::sort(rows.begin(), rows.end(),
+            fn (const a: ref!(libcxx::pair::<llvm::StringRef, llvm::StringRef>),
+                const b: ref!(libcxx::pair::<llvm::StringRef, llvm::StringRef>)) || -> bool = a.first < b.first);
 
         for row in rows {
             var out = f"  {string(row.first.data(), row.first.size())}";
@@ -871,10 +866,8 @@ class CompilerInstance {
             max_cpu = libcxx::max(max_cpu, libcxx::strlen(cpu.Key));
         }
 
-        inline "c++" {
-            libcxx::sort(cpu_rows.begin(), cpu_rows.end(),
-                [](const auto &a, const auto &b) { return a < b; });
-        }
+        libcxx::sort(cpu_rows.begin(), cpu_rows.end(),
+            fn (const a: ref!(libcxx::string), const b: ref!(libcxx::string)) || -> bool = a < b);
 
         for row in cpu_rows {
             std::print(f"  {string(row.c_str(), row.size())}");
@@ -886,16 +879,16 @@ class CompilerInstance {
         var feat_rows: libcxx::vector::<libcxx::pair::<libcxx::string, libcxx::string>>;
         var max_feat:  size_t = 0;
 
-        inline "c++" {
-            for (const llvm::SubtargetFeatureKV &feat : STI->getAllProcessorFeatures()) {
-                const char *desc = (feat.Desc && *feat.Desc) ? feat.Desc : "";
-                feat_rows.emplace_back(feat.Key, desc);
-                max_feat = libcxx::max(max_feat, libcxx::strlen(feat.Key));
-            }
-
-            libcxx::sort(feat_rows.begin(), feat_rows.end(),
-                [](const auto &a, const auto &b) { return a.first < b.first; });
+        for feat in STI->getAllProcessorFeatures() {
+            var d    = feat.Desc;
+            var desc = d if ((d != &null) && ((*d) != r'\0')) else r"";
+            feat_rows.emplace_back(feat.Key, desc);
+            max_feat = libcxx::max(max_feat, libcxx::strlen(feat.Key));
         }
+
+        libcxx::sort(feat_rows.begin(), feat_rows.end(),
+            fn (const a: ref!(libcxx::pair::<libcxx::string, libcxx::string>),
+                const b: ref!(libcxx::pair::<libcxx::string, libcxx::string>)) || -> bool = a.first < b.first);
 
         for row in feat_rows {
             var out = f"  {string(row.first.c_str(), row.first.size())}";
@@ -962,18 +955,16 @@ class CompilerInstance {
         else                                     { os_family = "unknown";      }
 
         var obj_format: string;
-        inline "c++" {
-            switch (llvm_triple.getObjectFormat()) {
-                case llvm::Triple::COFF:        obj_format = string("COFF");        break;
-                case llvm::Triple::ELF:         obj_format = string("ELF");         break;
-                case llvm::Triple::MachO:       obj_format = string("Mach-O");      break;
-                case llvm::Triple::Wasm:        obj_format = string("Wasm");        break;
-                case llvm::Triple::XCOFF:       obj_format = string("XCOFF");       break;
-                case llvm::Triple::GOFF:        obj_format = string("GOFF");        break;
-                case llvm::Triple::DXContainer: obj_format = string("DXContainer"); break;
-                case llvm::Triple::SPIRV:       obj_format = string("SPIR-V");      break;
-                default:                        obj_format = string("unknown");     break;
-            }
+        switch llvm_triple.getObjectFormat() {
+            case llvm::Triple::COFF { obj_format = "COFF"; }
+            case llvm::Triple::ELF { obj_format = "ELF"; }
+            case llvm::Triple::MachO { obj_format = "Mach-O"; }
+            case llvm::Triple::Wasm { obj_format = "Wasm"; }
+            case llvm::Triple::XCOFF { obj_format = "XCOFF"; }
+            case llvm::Triple::GOFF { obj_format = "GOFF"; }
+            case llvm::Triple::DXContainer { obj_format = "DXContainer"; }
+            case llvm::Triple::SPIRV { obj_format = "SPIR-V"; }
+            default { obj_format = "unknown"; }
         }
 
         std::print(f"Triple:          {string(full_triple.c_str(), full_triple.size())}");
@@ -1075,14 +1066,12 @@ class CompilerInstance {
         var name = string();
         var dir  = string();
         var split = false;
-        inline "c++" {
-            auto raw = spec.raw_string();
-            auto pos = raw.find(KBYTE('='));
-            if (pos != decltype(raw)::npos && pos > 0 && pos + 1 < raw.size()) {
-                name  = ::kairo::string(raw.substr(0, pos));
-                dir   = ::kairo::string(raw.substr(pos + 1));
-                split = true;
-            }
+        var raw = spec.raw_string();
+        var pos = raw.find('=');
+        if (pos != usize(-1)) && (pos > 0) && ((pos + 1) < raw.size()) {
+            name  = string(raw.substr(0, pos));
+            dir   = string(raw.substr(pos + 1));
+            split = true;
         }
         if !split {
             rb.add_include(Path(spec));
@@ -1433,14 +1422,12 @@ class CompilerInstance {
 
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 
-        inline "c++" {
-            auto* be  = _backend;
-            auto* rec = ::kairo::TimeReport::region("ClangStartup");
-            _pool->enqueue([be, rec]() {
-                KTIME_WORKER(rec);
-                be->startup();
-            }, CLANG_STARTUP_GROUP());
-        }
+        var be  = self._backend;
+        var rec = kairo::TimeReport::region(r"ClangStartup");
+        self._pool->enqueue(fn () |be, rec| {
+            var _kt = kairo::TimeReport::Worker(rec);
+            be->startup();
+        }, CLANG_STARTUP_GROUP());
 
         // C++ header import. Parse on the pool (HeaderSetCache), index on the
         // driver (HeaderIndex writes the SM, the TCM and the global table),
@@ -1512,10 +1499,8 @@ class CompilerInstance {
 
     priv fn _compile_one_native(self, src: string, obj: string) -> bool {
         var nobj = obj;
-        inline "c++" {
-            libcxx::error_code ec;
-            libcxx::filesystem::create_directories(to_path(nobj).parent_path(), ec);
-        }
+        var ec: libcxx::error_code;
+        libcxx::filesystem::create_directories(to_path(nobj).parent_path(), ec);
         var is_c = CompilerInstance::_native_lang(Path(src).extension()) == 1;
         if !self._backend->compile_native(src, obj, is_c) { return false; }
         self._native_objs.push_back(obj);
@@ -1583,9 +1568,7 @@ class CompilerInstance {
 
     priv static fn _parent_dir(path: string) -> string {
         var res = "";
-        inline "c++" {
-            res = from_generic_path(to_path(path).parent_path());
-        }
+        res = from_generic_path(to_path(path).parent_path());
         return res;
     }
 
@@ -2347,18 +2330,16 @@ class CompilerInstance {
         var env:  llvm::StringRef = tt.getEnvironmentName();
 
         var objfmt: string;
-        inline "c++" {
-            switch (tt.getObjectFormat()) {
-                case llvm::Triple::COFF:        objfmt = string("COFF");        break;
-                case llvm::Triple::ELF:         objfmt = string("ELF");         break;
-                case llvm::Triple::MachO:       objfmt = string("Mach-O");      break;
-                case llvm::Triple::Wasm:        objfmt = string("Wasm");        break;
-                case llvm::Triple::XCOFF:       objfmt = string("XCOFF");       break;
-                case llvm::Triple::GOFF:        objfmt = string("GOFF");        break;
-                case llvm::Triple::DXContainer: objfmt = string("DXContainer"); break;
-                case llvm::Triple::SPIRV:       objfmt = string("SPIR-V");      break;
-                default:                        objfmt = string("unknown");     break;
-            }
+        switch tt.getObjectFormat() {
+            case llvm::Triple::COFF { objfmt = "COFF"; }
+            case llvm::Triple::ELF { objfmt = "ELF"; }
+            case llvm::Triple::MachO { objfmt = "Mach-O"; }
+            case llvm::Triple::Wasm { objfmt = "Wasm"; }
+            case llvm::Triple::XCOFF { objfmt = "XCOFF"; }
+            case llvm::Triple::GOFF { objfmt = "GOFF"; }
+            case llvm::Triple::DXContainer { objfmt = "DXContainer"; }
+            case llvm::Triple::SPIRV { objfmt = "SPIR-V"; }
+            default { objfmt = "unknown"; }
         }
 
         var t = &(self.invocation().target);
@@ -2614,21 +2595,17 @@ fn FrontendAction::_parse() -> bool {
         var _ti = TimeRegion("Index");
 
         for fid: u32 in fids {
-            inline "c++" {
-                auto  captured_fid  = fid;
-                auto  captured_self = this;
-                auto* captured_rec  = ::kairo::TimeReport::current();
-                _ci->pool()->enqueue([captured_fid, captured_self, captured_rec]() {
-                    KTIME_WORKER(captured_rec);
-                    auto* gs  = captured_self->_global_scope;
-                    auto* ctx = gs->begin_index(captured_fid);
-                    if (ctx) {
-                        ASTParse indexer(ctx, nullptr, gs, ASTParse::ParseMode::Index);
-                        indexer.index();
-                        gs->finish_index(captured_fid);
-                    }
-                }, u8(5));
-            }
+            var captured_rec = kairo::TimeReport::current();
+            self._ci->pool()->enqueue(fn () |fid, self, captured_rec| {
+                var _kt = kairo::TimeReport::Worker(captured_rec);
+                var gs  = self._global_scope;
+                var ctx = gs->begin_index(fid);
+                if ctx != &null {
+                    var indexer = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Index);
+                    indexer.index();
+                    gs->finish_index(fid);
+                }
+            }, u8(5));
         }
         self._ci->pool()->wait_group(u8(5));
     }
@@ -2636,6 +2613,7 @@ fn FrontendAction::_parse() -> bool {
     // parallel parse + low-water-mark flush
     {
         var _tp = TimeRegion("Full");
+        // INLINE(cxx-feature: local struct with a destructor)
         inline "c++" {
             const size_t N = fids.size();
             auto* time_rec  = ::kairo::TimeReport::current();
@@ -3662,7 +3640,7 @@ priv fn FrontendAction::_dump_symbols_dc(dc: *DeclContext, ctx: *ASTContext, opt
 }
 
 priv fn FrontendAction::_dump_mem_stats() {
-    inline "c++" { if (::getenv("MEM_STATS") == nullptr) return; }
+    if libcxx::getenv(r"MEM_STATS") == &null { return; }
 
     var total_bytes:  usize = 0;
     var total_slabs:  usize = 0;
@@ -3681,9 +3659,7 @@ priv fn FrontendAction::_dump_mem_stats() {
 
     var retained_blocks: usize = 0;
     var retained_bytes:  usize = 0;
-    inline "c++" {
-        kairo::GlobalRecycler::instance().stats(retained_blocks, retained_bytes);
-    }
+    kairo::GlobalRecycler::instance().stats(retained_blocks, retained_bytes);
 
     std::eprintln(f"[mem] TU contexts:        {tu_count}");
     std::eprintln(f"[mem] arena live bytes:   {total_bytes / (1024*1024)} MB ({total_bytes} B)");
