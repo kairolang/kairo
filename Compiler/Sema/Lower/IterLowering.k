@@ -416,12 +416,39 @@ class IterLowering derives ASTWriter::<IterLowering> {
 
     // --- the binder ---------------------------------------------------------------
 
-    /// The binder's declaration, initialized from \p place, the element as an
-    /// lvalue. \p stable: \p place is the element itself, so `*x` may take its
-    /// address; otherwise (a range counter) `*x` points at a copy.
+    /// The binders' declarations, initialized from \p place, the element as
+    /// an lvalue. \p stable: \p place is the element itself, so `*x` may take
+    /// its address; otherwise (a range counter) `*x` points at a copy.
+    ///
+    /// `for (k, v) in xs` destructures a tuple element the way TupleLowering
+    /// destructures a value: the element once, into a hidden local (a
+    /// reference to a stable element, with the element's own constness so
+    /// `*q` can point into a mutable one; a copy of an unstable one), then
+    /// one local per binder off its fields `_i`. The per-binder local is a
+    /// field of a local, so it is stable either way.
     priv fn _bind(self, n: *RangedForStmt, body: *ListBuilder::<*Stmt>, at: SourceRange, place: *Expr, stable: bool) {
-        ICE_IF(n->bindings.size() != 1, "IterLowering: more than one binder (destructuring); the tuple lowering owns it");
-        var b = n->bindings.get(0);
+        if n->bindings.size() == 1 { self._bind_one(n->bindings.get(0), body, at, place, stable); return; }
+        var t = canon_unqual(self.tu.as_value(place->type_));
+        ICE_IF(!self.tu.is_tuple(t), "IterLowering: a binder list over a non-tuple element; StmtTyping::_bind_list gate failure");
+        var elems = self.tu.tuple_elems(t);
+        ICE_IF(elems.size() != n->bindings.size(), "IterLowering: binder count differs from the element's arity; StmtTyping::_bind_list gate failure");
+        var lt = t;
+        if stable && place->is_lvalue() {
+            var rt = (self.sc->types->qualified(t, QUAL_CONST())) if (canon_has_const(place->type_)) else (t);
+            lt = self.sc->types->cxx_lref(rt);
+        }
+        var el = self._local(body, at, "e", lt, place);
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var b = n->bindings.get(i);
+            if (b == &null) || b->is_discard { continue; }
+            var fd = self.tu.tuple_field(t, i);
+            ICE_IF(fd == &null, "IterLowering: tuple record with fewer fields than its arity");
+            var pi = self.synth.field_of(b->range, self._use(el, at), static_cast::<*Decl>(fd), elems[i]);
+            self._bind_one(b, body, at, pi, true);
+        }
+    }
+
+    priv fn _bind_one(self, b: *Binding, body: *ListBuilder::<*Stmt>, at: SourceRange, place: *Expr, stable: bool) {
         if b->is_discard { return; }
 
         var sh = static_cast::<u8>(b->shorthand);

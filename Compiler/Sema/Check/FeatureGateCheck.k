@@ -35,6 +35,9 @@
 ///       - a generic record's field default that reads another field.
 ///         InitCheck reports it (SC116E too): it is the pass that walks what
 ///         a default reads.
+///       - `var {a, b} = s`, destructuring a struct by field name.
+///         TupleLowering renders the positional form only; a struct's
+///         reaching EmitIR is its ICE.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -116,6 +119,11 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
             f"{what} is not yet supported");
         b.first(n->iterable->range);
         b.emit();
+        return true;
+    }
+
+    fn visit_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> bool {
+        if n->kind_ == DestructureKind::Struct { self._gate(n->range, "destructuring a struct by field name"); }
         return true;
     }
 

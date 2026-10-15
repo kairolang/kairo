@@ -480,7 +480,11 @@ ChainBinding's dependent path and ConformanceChecking read.
 
     [DECIDED] TypeCycleCheck / LayoutPass treat a `RecordType::decl` that
     is `is_instance() && !instantiated` as "size unknown until M2", never
-    as empty.
+    as empty. The by-value EDGE question ("does `Box<X>` hold X by
+    value?") is not the size question: it is answered from the PATTERN's
+    fields, which exist before M2, so `class U { var b: Box<U> }` and
+    `struct A { var t: (i32, A) }` (a tuple is the TupleN record) are
+    reported today (type_cycle_generic.k, type_cycle.k).
     [DECIDED] `ShadowCheck` runs after X; it is silent for a binding whose
     type is still null.
 
@@ -881,7 +885,7 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CopyMoveLowering (moves) -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CopyMoveLowering (moves) -> TupleLowering -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
@@ -963,8 +967,10 @@ the loop's operators are chosen like any expression's; IterLowering places
 them and runs OperatorLowering over them, since they enter the tree after that
 pass. A pointer iterator's `++` is minted typed (Kairo has no user `++` on
 pointers). Binders: plain `x` copies, `*x` points at the element (at a
-per-iteration copy over a range or a prvalue `*__it`). Not yet: Vector, set,
-map, string, destructuring binders, nullable binders.
+per-iteration copy over a range or a prvalue `*__it`); `(k, v)` binds the
+tuple element once (a const reference when it is a stable lvalue, a copy
+otherwise) and each binder off its fields. Not yet: Vector, set, map,
+string, nullable binders.
 
 RangeLowering. A range value is `Range<T>{.begin, .end, .inclusive}`; open
 ranges are valid only as a subscript index (X), where `a..` and `..` are
@@ -984,6 +990,32 @@ effects. A plain enum's `.V` becomes a `NamedIdentExpr` bound to the
 enumerator and typed as the enum, which EmitIR spells as it spells
 `Dir::North`. EmitIR spells a `VariantInitExpr` as a constructor of the
 enum's layout record, which EnumLayoutLowering builds.
+
+TupleLowering [DONE]. A tuple is its arity's record: `(A, B)` is
+`Tuple2<A, B>`, a generic struct with fields `_0: T0, _1: T1`, no
+constructor, no methods, MINTED on first use (`AST/Context/TupleRecords`,
+one per arity per build, homed in the builtin root TU, in no table) and
+canonicalized by T through `SemaContext::tuple_record` -- the one builder,
+so a written tuple, a literal's and a substitution's are one identity with
+one registry entry. No canonical is a TupleType after T; `TypeUtil::
+is_tuple` / `tuple_elems` / `tuple_field` key on `StructDecl::tuple_arity`
+of the pattern, by identity, never the name (`LangItems::tuple_record_name`
+spells it; nothing else does). X binds `t.1` to the field `_1` (an lvalue:
+`t.0 = x` assigns through) and types the element as the record's
+argument. The pass then makes the tree say so: a literal becomes the
+record's NamedInitializerExpr (fields in element order; EmitIR renders it
+as any aggregate's), an index step becomes a Name step bound to its field
+(in place: the node keeps its identity for move_sites), and `var (a, _,
+c) = e` becomes one hidden local for the value -- `const T&` to an lvalue,
+by value to a prvalue -- and one local per binder off its fields, moved
+out of the by-value local. A match's tuple-literal scrutinee is left to
+MatchLowering, which binds each element as its own column (PatternSpace
+sees one Record domain; a tuple's witness still renders `(false, _)`).
+`for (k, v) in xs` is IterLowering's, by the same shape. Struct
+destructuring (`var {r, g} = c`) is FeatureGateCheck's SC116E. Codegen:
+EmitPlan marks a tuple record OWN in every plan and InterfaceEmitter
+defines it under `__KAIRO_TUPLE_<N>`, so only the arities a TU names are
+emitted and two headers in one C++ TU agree.
 
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X

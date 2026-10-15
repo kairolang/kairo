@@ -61,6 +61,7 @@ import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::FieldInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
+import Sema::Lower::TupleLowering::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
 import Sema::Lower::IterLowering::*;
@@ -413,6 +414,12 @@ class Sema {
         // SequenceLowering leaves the cast in place, a cast of a name being
         // pure.
         { var _p = TimeRegion("CopyMoveLowering"); CopyMoveLowering(&self.sc).run(); }
+        // A tuple literal becomes its record's initializer, an index step
+        // the field it names, a destructuring one local per binder. After
+        // CopyMoveLowering, whose `T&&` cast stays on the destructured
+        // value; before OperatorLowering, so an operator on `t.0` sees a
+        // field path.
+        { var _p = TimeRegion("TupleLowering"); TupleLowering(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before
