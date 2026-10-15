@@ -173,6 +173,7 @@ CX_VISIT_IMPL(TypeDecl) {
     ADD_NODE_PARAM(name);
     ADD_TOKEN_AS_VALUE(CXX_CORE_OPERATOR, "=");
     ADD_NODE_PARAM(type);
+    ADD_TOKEN(CXX_SEMICOLON);  // same as ConstDecl: nothing else ends it at file scope
 }
 
 CX_VISIT_IMPL(FFIDecl) {

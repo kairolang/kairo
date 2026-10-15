@@ -15,6 +15,9 @@ CX_VISIT_IMPL(ConstDecl) {
     for (const auto &param : node.vars) {
         ADD_TOKEN(CXX_CONST);
         param->accept(*this);
+        // at file scope nothing else terminates the declaration (it used to
+        // need a `;;` in the source); inside a body the extra `;` is empty.
+        ADD_TOKEN(CXX_SEMICOLON);
     };
 }
 
