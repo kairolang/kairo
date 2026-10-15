@@ -218,11 +218,9 @@ class SourceManager {
             return base_fid;
         }
 
-        self._pool->enqueue(__inline_cpp("
-            [entry, bytes, this]() {
-                this->_line_table.run_reserved_build(entry, bytes);
-            }
-        "));
+        self._pool->enqueue(fn () |entry, bytes, self| {
+            self._line_table.run_reserved_build(entry, bytes);
+        });
 
         // std::print(f"load_file: path={path.full_path()}, base_fid={base_fid}, _files.size()={self._files.size()}");
         return base_fid;
@@ -458,6 +456,7 @@ class SourceManager {
         return self.get_text(line_range);
     }
 
+    // INLINE(cxx-feature: variable template)
     __inline_cpp("
         private:
         struct LineUtil {
@@ -625,10 +624,8 @@ class SourceManager {
         }
 
         var full = self._files[file_id]->path;
-        inline "c++" {
-            auto parent = full.path_data.parent_path();
-            if (!parent.empty()) { out = Path(from_generic_path(parent), false); }
-        }
+        var parent = full.path_data.parent_path();
+        if !parent.empty() { out = Path(from_generic_path(parent), false); }
         return out;
     }
 
