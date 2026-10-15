@@ -79,10 +79,6 @@ import Codegen::CodegenICE::*;
 import Token::TokenKind::*;
 import Lexer::Immediate::*;
 
-__inline_cpp("
-#define sink this->_cg->sink
-");
-
 class EmitIR {
     priv var _cg:    obs::<CodegenContext>;
     priv var _spell: CXXSpell;
@@ -232,16 +228,16 @@ class EmitIR {
         var n: u32 = 0;
         var ns = self._spell.ns_segments(d);
         if ns.size() > 0 {
-            sink->spell(at, "namespace " + self._spell.ns_join(ns) + " {");
+            self._cg->sink->spell(at, "namespace " + self._spell.ns_join(ns) + " {");
             n += 1;
         }
-        if CXXSpell::is_anon(d) && (decl_extension_of(d) == &null) { sink->spell(at, "namespace {"); n += 1; }
+        if CXXSpell::is_anon(d) && (decl_extension_of(d) == &null) { self._cg->sink->spell(at, "namespace {"); n += 1; }
         return n;
     }
 
     priv fn _close_ns(self, at: SourceRange, n: u32) {
-        for var i: u32 = 0; i < n; ++i { sink->spell(at, "}"); }
-        if n > 0 { sink->brk(); }
+        for var i: u32 = 0; i < n; ++i { self._cg->sink->spell(at, "}"); }
+        if n > 0 { self._cg->sink->brk(); }
     }
 
     // --- Functions ------------------------------------------------------------------
@@ -276,7 +272,7 @@ class EmitIR {
         head += self._params_text(n, ext);
         head += ")";
         if n->no_unwind { head += " noexcept"; }
-        sink->spell(at, head);
+        self._cg->sink->spell(at, head);
 
         self._body(n, ext);
         self._close_ns(n->range, wrap);
@@ -316,7 +312,7 @@ class EmitIR {
         head += ")";
         if m->is_method() && m->is_const() { head += " const"; }
         if m->no_unwind { head += " noexcept"; }
-        sink->spell(at, head);
+        self._cg->sink->spell(at, head);
 
         self._body(m, &null);
         self._close_ns(m->range, wrap);
@@ -411,19 +407,19 @@ class EmitIR {
         // other extension member uses, and the body emits unchanged.
         var b = f->body_block;
         if (b == &null) { self._ice(f->range, "EmitIR: null block reached codegen"); }
-        sink->synth_at_start(b->range, clang::tok::l_brace);
+        self._cg->sink->synth_at_start(b->range, clang::tok::l_brace);
         if (ext != &null) && f->is_operator {
             var pro = ("const ") if (f->is_const()) else ("");
             pro += self._spell._type(ext->target) + "* self = &" + LowerTargets::ext_self() + ";";
-            sink->spell(b->range, pro);
+            self._cg->sink->spell(b->range, pro);
         }
         for var i: usize = 0; i < b->body.size(); ++i { self.emit(b->body[i]); }
         // A function is a coroutine only when its body holds a coroutine
         // keyword, and a generator with no `yield` (or only a bare `return`
         // the emitter already spelled `co_return`) may have none. X's
         // has_yield says which; EmitIR does not walk the body to find out.
-        if f->is_generator && (!f->has_yield) { sink->spell(b->range, "co_return;"); }
-        sink->synth_at_end(b->range, clang::tok::r_brace);
+        if f->is_generator && (!f->has_yield) { self._cg->sink->spell(b->range, "co_return;"); }
+        self._cg->sink->synth_at_end(b->range, clang::tok::r_brace);
         self._cur_fn  = saved_fn;
         self._cur_ext = saved_ext;
     }
@@ -452,26 +448,26 @@ class EmitIR {
             case StmtKind::ExpressionStmt {
                 var n = cast::<ExpressionStmt>(s);
                 self.emit(n->expr);
-                sink->synth_at_end(n->range, clang::tok::semi);
+                self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             }
             case StmtKind::DeclStmt        { self._decl(cast::<DeclStmt>(s)); }
             case StmtKind::ConditionalStmt { self._if(cast::<ConditionalStmt>(s)); }
             case StmtKind::WhileLoopStmt   { self._while(cast::<WhileLoopStmt>(s)); }
             case StmtKind::LoopStmt {
                 var n = cast::<LoopStmt>(s);
-                sink->spell(n->range, "for (;;)");
+                self._cg->sink->spell(n->range, "for (;;)");
                 self.emit_block(n->body);
             }
             case StmtKind::IndexedForStmt  { self._for(cast::<IndexedForStmt>(s)); }
             case StmtKind::BreakStmt {
                 var n = cast::<BreakStmt>(s);
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled break; LabelLowering must have rewritten it"); }
-                sink->spell(n->range, "break;");
+                self._cg->sink->spell(n->range, "break;");
             }
             case StmtKind::ContinueStmt {
                 var n = cast::<ContinueStmt>(s);
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; LabelLowering must have rewritten it"); }
-                sink->spell(n->range, "continue;");
+                self._cg->sink->spell(n->range, "continue;");
             }
             case StmtKind::UnsafeBlockStmt        { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
             case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
@@ -488,13 +484,13 @@ class EmitIR {
             case StmtKind::LabelIntrinsicStmt {
                 var n = cast::<LabelIntrinsicStmt>(s);
                 self._name(n->name);
-                sink->spell(n->range, ":;");
+                self._cg->sink->spell(n->range, ":;");
             }
             case StmtKind::JumpIntrinsicStmt {
                 var n = cast::<JumpIntrinsicStmt>(s);
-                sink->spell(n->range, "goto");
+                self._cg->sink->spell(n->range, "goto");
                 self._name(n->target);
-                sink->synth_at_end(n->range, clang::tok::semi);
+                self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             }
             case StmtKind::SwitchDispatchStmt { self._switch_dispatch(cast::<SwitchDispatchStmt>(s)); }
             case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }
@@ -505,9 +501,9 @@ class EmitIR {
 
     fn emit_block(self, n: *CompoundStmt) {
         ICE_IF(n == &null, "EmitIR: null block reached codegen");
-        sink->synth_at_start(n->range, clang::tok::l_brace);
+        self._cg->sink->synth_at_start(n->range, clang::tok::l_brace);
         for var i: usize = 0; i < n->body.size(); ++i { self.emit(n->body[i]); }
-        sink->synth_at_end(n->range, clang::tok::r_brace);
+        self._cg->sink->synth_at_end(n->range, clang::tok::r_brace);
     }
 
     priv fn _decl(self, n: *DeclStmt) {
@@ -516,7 +512,7 @@ class EmitIR {
             case DeclKind::VariableDecl { self._var_decl(cast::<VariableDecl>(n->decl)); }
             default { self._ice(n->range, "EmitIR: statement-scope named decls (local fn/class/type) are not emitted yet"); }
         }
-        sink->synth_at_end(n->range, clang::tok::semi);
+        self._cg->sink->synth_at_end(n->range, clang::tok::semi);
     }
 
     /// `[const|static|constexpr] TYPE name [= init]`; no trailing `;`.
@@ -525,9 +521,9 @@ class EmitIR {
     priv fn _var_decl(self, n: *VariableDecl) {
         if (n->kind == DeclKind::RecoveryDecl) { self._ice(n->range, "EmitIR: poisoned VariableDecl reached codegen"); }
         switch n->storage {
-            case StorageClass::Const  { sink->kw_const(n->name);     }
-            case StorageClass::Static { sink->kw_static(n->name);    }
-            case StorageClass::Eval   { sink->kw_constexpr(n->name); }
+            case StorageClass::Const  { self._cg->sink->kw_const(n->name);     }
+            case StorageClass::Static { self._cg->sink->kw_static(n->name);    }
+            case StorageClass::Eval   { self._cg->sink->kw_constexpr(n->name); }
             default { }
         }
         var c: *Type = &null;
@@ -535,18 +531,18 @@ class EmitIR {
         if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
             // `T name[N]`: the name sits inside the declarator.
             var nm = self._spell.imm_name(n->name.imm, self._owning_fid());
-            sink->spell(n->name.range, self._spell.decl(n->type_, nm));
+            self._cg->sink->spell(n->name.range, self._spell.decl(n->type_, nm));
         } else {
             if n->type_ == &null {
                 var nm = self._cg->ctx->get_spelling(n->name);
                 self._cg->ctx->diag_sink.report(DiagCode(DiagID::I011W), n->name.range.start,
                     f"internal: '{nm}' reached codegen with no inferred type; This is a compiler bug; please report it with the source that triggered it"
                 ).first(n->name.range).emit();
-                sink->kw_auto(n->name);
+                self._cg->sink->kw_auto(n->name);
             } else if n->type_->range.is_valid() {
                 self.emit(n->type_);
             } else {
-                sink->spell(n->name.range, self._spell._type(n->type_));
+                self._cg->sink->spell(n->name.range, self._spell._type(n->type_));
             }
             self._name(n->name);
         }
@@ -557,7 +553,7 @@ class EmitIR {
     /// unqualified canonical, or null.
     priv fn _var_init(self, n: *VariableDecl, c: *Type) {
         if n->init == &null { return; }
-        sink->synth_at_end(n->name.range, clang::tok::equal);
+        self._cg->sink->synth_at_end(n->name.range, clang::tok::equal);
         var il = dyn_cast::<InitListExpr>(n->init);
         if (il != &null) && (c != &null) && (c->kind == TypeKind::FixedArrayType) {
             self._init_list(il, true);     // a declarator's initializer: the one place bare braces are legal.
@@ -578,11 +574,11 @@ class EmitIR {
         var at = CXXSpell::at(d);
         var wrap = self._open_ns(d, at);
         var head = ("constexpr ") if (n->is_eval()) else ("");
-        sink->spell(at, head + self._spell.global_var(n));
+        self._cg->sink->spell(at, head + self._spell.global_var(n));
         var c: *Type = &null;
         if n->type_->canonical != &null { c = canon_unqual(n->type_->canonical); }
         self._var_init(n, c);
-        sink->synth_at_end(n->range, clang::tok::semi);
+        self._cg->sink->synth_at_end(n->range, clang::tok::semi);
         self._close_ns(n->range, wrap);
     }
 
@@ -593,11 +589,11 @@ class EmitIR {
         // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
         if (self._cur_fn != &null) && self._cur_fn->is_generator {
             if (n->value != &null) { self._ice(n->range, "EmitIR: generator 'return' with a value; X gate failure"); }
-            sink->spell(n->range, "co_return");
-            sink->synth_at_end(n->range, clang::tok::semi);
+            self._cg->sink->spell(n->range, "co_return");
+            self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             return;
         }
-        sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
+        self._cg->sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
         if n->value != &null {
             var rt: *Type = &null;
             if self._cur_fn != &null { rt = self._cur_fn->return_type; }
@@ -609,7 +605,7 @@ class EmitIR {
             }
             self._value(n->value, rt);
         }
-        sink->synth_at_end(n->range, clang::tok::semi);
+        self._cg->sink->synth_at_end(n->range, clang::tok::semi);
     }
 
     /// `co_yield (e);`. The operand is emitted bare when its canonical is the
@@ -620,11 +616,11 @@ class EmitIR {
     priv fn _yield(self, n: *YieldStmt) {
         if ((self._cur_fn == &null) || (!self._cur_fn->is_generator)) { self._ice(n->range, "EmitIR: yield outside a generator; X gate failure"); }
         if (n->value == &null) { self._ice(n->range, "EmitIR: yield with no value reached codegen"); }
-        sink->spell(n->range, "co_yield");
-        sink->spell(n->range, "(");
+        self._cg->sink->spell(n->range, "co_yield");
+        self._cg->sink->spell(n->range, "(");
         self._value(n->value, self._yield_elem(self._cur_fn));
-        sink->spell(n->range, ")");
-        sink->synth_at_end(n->range, clang::tok::semi);
+        self._cg->sink->spell(n->range, ")");
+        self._cg->sink->synth_at_end(n->range, clang::tok::semi);
     }
 
     /// `T` of a generator's Yield<T> return canonical, or null (nothing to
@@ -639,21 +635,21 @@ class EmitIR {
 
     priv fn _if(self, n: *ConditionalStmt) {
         var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
-        sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), ("if") if (own) else ("if ("));
+        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), ("if") if (own) else ("if ("));
         self.emit(n->cond);
-        if !own { sink->spell(n->cond->range, ")"); }
+        if !own { self._cg->sink->spell(n->cond->range, ")"); }
         self.emit_block(n->then_);
         if n->else_ != &null {
-            sink->spell(n->else_->range, "else");
+            self._cg->sink->spell(n->else_->range, "else");
             self.emit(n->else_);   // a ConditionalStmt (else-if) or a CompoundStmt.
         }
     }
 
     priv fn _while(self, n: *WhileLoopStmt) {
         var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
-        sink->spell(SourceRange::from_bounds(n->range.start, u32(5)), ("while") if (own) else ("while ("));
+        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(5)), ("while") if (own) else ("while ("));
         self.emit(n->cond);
-        if !own { sink->spell(n->cond->range, ")"); }
+        if !own { self._cg->sink->spell(n->cond->range, ")"); }
         self.emit_block(n->body);
     }
 
@@ -661,46 +657,46 @@ class EmitIR {
     /// MatchLowering's dispatch. The cases hold only gotos, so a user
     /// `break` never meets this switch. `...` is clang's case range.
     priv fn _switch_dispatch(self, n: *SwitchDispatchStmt) {
-        sink->spell(n->range, "switch (");
+        self._cg->sink->spell(n->range, "switch (");
         self.emit(n->value);
-        sink->spell(n->range, ") {");
+        self._cg->sink->spell(n->range, ") {");
         for var i: usize = 0; i < n->cases.size(); ++i {
             var c = n->cases.get(i);
-            sink->spell(n->range, "case");
+            self._cg->sink->spell(n->range, "case");
             self.emit(c->lo);
             if c->hi != &null {
-                sink->spell(n->range, " ... ");
+                self._cg->sink->spell(n->range, " ... ");
                 self.emit(c->hi);
             }
-            sink->spell(n->range, ": goto");
+            self._cg->sink->spell(n->range, ": goto");
             self._name(c->target);
-            sink->spell(n->range, ";");
+            self._cg->sink->spell(n->range, ";");
         }
-        sink->spell(n->range, "default:");
+        self._cg->sink->spell(n->range, "default:");
         if n->default_stmt != &null {
             self.emit(n->default_stmt);
         } else {
-            sink->spell(n->range, "goto");
+            self._cg->sink->spell(n->range, "goto");
             self._name(n->default_target);
-            sink->spell(n->range, ";");
+            self._cg->sink->spell(n->range, ";");
         }
-        sink->spell(n->range, "}");
+        self._cg->sink->spell(n->range, "}");
     }
 
     priv fn _for(self, n: *IndexedForStmt) {
         if (n->is_eval) { self._ice(n->range, "EmitIR: eval for; EvalLowering owns it"); }
-        sink->spell(SourceRange::from_bounds(n->range.start, u32(3)), "for (");
+        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(3)), "for (");
         if n->init != &null {
             var ds = dyn_cast::<DeclStmt>(n->init);
             if (ds == &null) { self._ice(n->range, "EmitIR: for-init is not a DeclStmt"); }
             if (!isa::<VariableDecl>(ds->decl)) { self._ice(n->range, "EmitIR: for-init is not a variable"); }
             self._var_decl(cast::<VariableDecl>(ds->decl));
         }
-        sink->spell(n->range, ";");
+        self._cg->sink->spell(n->range, ";");
         if n->cond != &null { self.emit(n->cond); }
-        sink->spell(n->range, ";");
+        self._cg->sink->spell(n->range, ";");
         if n->update != &null { self.emit(n->update); }
-        sink->spell(n->range, ")");
+        self._cg->sink->spell(n->range, ")");
         self.emit_block(n->body);
     }
 
@@ -715,18 +711,18 @@ class EmitIR {
 
         switch e->kind {
             case ExprKind::IntegerLiteralExpr   { self._int_lit(cast::<IntegerLiteralExpr>(e)); }
-            case ExprKind::FloatingLiteralExpr  { sink->synth(cast::<FloatingLiteralExpr>(e)->token, clang::tok::numeric_constant); }
-            case ExprKind::CharacterLiteralExpr { sink->synth(cast::<CharacterLiteralExpr>(e)->token, clang::tok::char_constant); }
-            case ExprKind::BooleanLiteralExpr   { sink->spell(e->range, (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false"))); }
-            case ExprKind::NullLiteralExpr      { sink->spell(e->range, "nullptr"); }
+            case ExprKind::FloatingLiteralExpr  { self._cg->sink->synth(cast::<FloatingLiteralExpr>(e)->token, clang::tok::numeric_constant); }
+            case ExprKind::CharacterLiteralExpr { self._cg->sink->synth(cast::<CharacterLiteralExpr>(e)->token, clang::tok::char_constant); }
+            case ExprKind::BooleanLiteralExpr   { self._cg->sink->spell(e->range, (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false"))); }
+            case ExprKind::NullLiteralExpr      { self._cg->sink->spell(e->range, "nullptr"); }
             case ExprKind::StringLiteralExpr    { self._string(cast::<StringLiteralExpr>(e)); }
             case ExprKind::NamedIdentExpr       { self._name(cast::<NamedIdentExpr>(e)); }
             case ExprKind::ChainExpr            { self._chain(cast::<ChainExpr>(e)); }
             case ExprKind::CallExpr             { self._call(cast::<CallExpr>(e)); }
             case ExprKind::ParenExpr {
-                sink->spell(e->range, "(");
+                self._cg->sink->spell(e->range, "(");
                 self.emit(cast::<ParenExpr>(e)->inner);
-                sink->spell(e->range, ")");
+                self._cg->sink->spell(e->range, ")");
             }
             case ExprKind::UnaryOperatorExpr    { self._unary(cast::<UnaryOperatorExpr>(e)); }
             case ExprKind::BinaryOperatorExpr   { self._binary(cast::<BinaryOperatorExpr>(e)); }
@@ -741,11 +737,11 @@ class EmitIR {
             case ExprKind::NamedInitializerExpr { self._init(e, cast::<NamedInitializerExpr>(e)->fields); }
             case ExprKind::AnonInitializerExpr  { self._init(e, cast::<AnonInitializerExpr>(e)->fields); }
             case ExprKind::IfExpr               { self._if_expr(cast::<IfExpr>(e)); }
-            case ExprKind::SizeOfExpr           { sink->spell(e->range, "sizeof(" + self._spell._type(cast::<SizeOfExpr>(e)->type_arg) + ")"); }
-            case ExprKind::AlignOfExpr          { sink->spell(e->range, "alignof(" + self._spell._type(cast::<AlignOfExpr>(e)->type_arg) + ")"); }
+            case ExprKind::SizeOfExpr           { self._cg->sink->spell(e->range, "sizeof(" + self._spell._type(cast::<SizeOfExpr>(e)->type_arg) + ")"); }
+            case ExprKind::AlignOfExpr          { self._cg->sink->spell(e->range, "alignof(" + self._spell._type(cast::<AlignOfExpr>(e)->type_arg) + ")"); }
             case ExprKind::DeleteExpr {
                 var n = cast::<DeleteExpr>(e);
-                sink->spell(e->range, (("delete[]") if (n->is_array) else ("delete")));
+                self._cg->sink->spell(e->range, (("delete[]") if (n->is_array) else ("delete")));
                 self.emit(n->operand);
             }
             case ExprKind::UnsafeExpr           { self.emit(cast::<UnsafeExpr>(e)->operand); }
@@ -766,9 +762,9 @@ class EmitIR {
             case ExprKind::StmtExpr {
                 // `({ ... })`: clang's statement expression. The block is
                 // emitted as any block; the parens make it a value.
-                sink->spell(e->range, "(");
+                self._cg->sink->spell(e->range, "(");
                 self.emit_block(cast::<StmtExpr>(e)->body);
-                sink->spell(e->range, ")");
+                self._cg->sink->spell(e->range, ")");
             }
             case ExprKind::SetLiteralExpr       { self._ice(e->range, "EmitIR: set literal; the container migration owns it"); }
             case ExprKind::MapLiteralExpr       { self._ice(e->range, "EmitIR: map literal; the container migration owns it"); }
@@ -838,16 +834,16 @@ class EmitIR {
         if (have == &null) || (w == &null) { return false; }
         if (have->kind != TypeKind::FixedArrayType) || (w->kind != TypeKind::RecordType) { return false; }
         if have->is_dependent() || w->is_dependent() { return false; }
-        sink->spell(e->range, self._spell._type(want, subst) + "(&(");
+        self._cg->sink->spell(e->range, self._spell._type(want, subst) + "(&(");
         self.emit(e);
-        sink->spell(e->range, ")[0], " + f"{have->size_bits}" + ")");
+        self._cg->sink->spell(e->range, ")[0], " + f"{have->size_bits}" + ")");
         return true;
     }
 
     priv fn _cast_to(self, t: *Type, e: *Expr, kind: string, subst: *InstanceEntry = &null) {
-        sink->spell(e->range, kind + "<" + self._spell._type(t, subst) + ">(");
+        self._cg->sink->spell(e->range, kind + "<" + self._spell._type(t, subst) + ">(");
         self.emit(e);
-        sink->spell(e->range, ")");
+        self._cg->sink->spell(e->range, ")");
     }
 
     /// What reaches here is the BYTE literal StringLowering or FStringLowering
@@ -874,7 +870,7 @@ class EmitIR {
         }
         s += "\"";
         var cxx = std::string_to_nstring(s);   // all ASCII, so the wide round trip is exact.
-        sink->create_str(n->token, cxx);
+        self._cg->sink->create_str(n->token, cxx);
     }
 
     // --- Names -------------------------------------------------------------------
@@ -895,19 +891,19 @@ class EmitIR {
 
         if self._is_self_decl(d) {
             if self._is_pointer(static_cast::<*Expr>(n)) { self._self_ptr(n); return; }
-            sink->spell(n->range, "(*");
+            self._cg->sink->spell(n->range, "(*");
             self._self_ptr(n);
-            sink->spell(n->range, ")");
+            self._cg->sink->spell(n->range, ")");
             return;
         }
         if self._is_local(d) { self._name(n->name); return; }
-        sink->spell(n->range, self._spell.qual_name(d));
+        self._cg->sink->spell(n->range, self._spell.qual_name(d));
     }
 
     /// `self` as C++ has it: `this` in a method, the receiver parameter in an
     /// extension member. Always the pointer.
     priv fn _self_ptr(self, n: *NamedIdentExpr) {
-        sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
+        self._cg->sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
     }
 
     priv fn _is_self_decl(self, d: *Decl) -> bool {
@@ -947,7 +943,7 @@ class EmitIR {
         if k != usize(-1) {
             var st = n->steps.get(k);
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure"); }
-            sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
+            self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
             is_ptr = self._type_is_pointer(st->resolved_type);
             i = k + 1;
         } else {
@@ -966,14 +962,14 @@ class EmitIR {
             if (st->access_kind == ChainExpr::AccessKind::ColonColon) { self._ice(st->range, "EmitIR: `::` after a value step"); }
             if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; NullTestLowering owns it"); }
             if st->is_operator() {
-                sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
+                self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
                 is_ptr = false;
                 continue;
             }
             if (st->is_tuple_index()) { self._ice(st->range, "EmitIR: tuple index step; TupleLowering owns it"); }
             if (self._is_extension_member(st->resolved_decl)) { self._ice(st->range, "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form"); }
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
-            sink->spell(st->range, (("->") if (is_ptr) else (".")));
+            self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")));
             self._name(st->name->name);
             is_ptr = self._type_is_pointer(st->resolved_type);
         }
@@ -1029,7 +1025,7 @@ class EmitIR {
 
         if self._is_ctor(f) || self._is_type_decl(callee) {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
-            sink->spell(n->callee->range, self._spell._type(n->type_));
+            self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
         } else if n->qualifier != &null {
             // A default thunk of a generic type's method: a static member of a
             // class template, named through the receiver's record so the
@@ -1041,7 +1037,7 @@ class EmitIR {
             } else {
                 s += self._spell.leaf(callee);
             }
-            sink->spell(n->callee->range, s);
+            self._cg->sink->spell(n->callee->range, s);
         } else if (f != &null) && f->is_operator && (!f->is_method()) && decl_is_imported(callee) && self._plain_callee(n->callee) {
             // A free imported operator is spelled as C++ looks `a == b` up:
             // unqualified, so ADL finds it, and with no template arguments.
@@ -1051,16 +1047,16 @@ class EmitIR {
             // spelling Kairo's would round-trip them, and C++ `char` comes
             // back as `i8`'s `signed char`: a std::string iterator's `==`
             // named `operator==<signed char*>`.
-            sink->spell(n->callee->range, self._spell.leaf(callee));
+            self._cg->sink->spell(n->callee->range, self._spell.leaf(callee));
         } else if (inst != &null) && (CXXSpell::template_params(callee).size() > 0) && self._plain_callee(n->callee) {
             // A generic extension member's instance is `<ext args..., member args...>`.
-            sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
+            self._cg->sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
         } else {
             self.emit(n->callee);
         }
-        sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+        self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
         self._args(n, f, bound, inst);
-        sink->synth_at_end(n->range, clang::tok::r_paren);
+        self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
     }
 
     /// CallLowering's postcondition, checked where it matters: every
@@ -1103,7 +1099,7 @@ class EmitIR {
         var params = self._call_params(f, bound);
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
-            if i > 0 { sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
+            if i > 0 { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
             var p: *ParamDecl = &null;
             if i < params.size() { p = params[i]; }
             self._arg(a, p, inst);
@@ -1126,9 +1122,9 @@ class EmitIR {
         if p->mode == ParamMode::Move {
             // An lvalue must be moved explicitly; a prvalue already is.
             if a->is_lvalue() {
-                sink->spell(a->range, "static_cast<" + self._spell._type(pt, inst) + "&&>(");
+                self._cg->sink->spell(a->range, "static_cast<" + self._spell._type(pt, inst) + "&&>(");
                 self.emit(a);
-                sink->spell(a->range, ")");
+                self._cg->sink->spell(a->range, ")");
                 return;
             }
             self.emit(a);
@@ -1184,7 +1180,7 @@ class EmitIR {
     priv fn _name(self, t: Token) {
         var spelled = self._spell.imm_name(t.imm, self._owning_fid());
         if (spelled == "<?>") { self._ice(t.range, "EmitIR: identifier token with no spelling in its owning file's table"); }
-        sink->create_ident(t.range, spelled);
+        self._cg->sink->create_ident(t.range, spelled);
     }
 
     /// An untyped \p e reached codegen: I011W at its source (CodegenICE).
@@ -1225,7 +1221,7 @@ class EmitIR {
         if hi != 0 {
             if (n->type_ == &null) { self._ice(t.range, "EmitIR: untyped wide integer literal reached codegen; ExprTyper gate failure"); }
             var lo = n->get_value_lo();
-            sink->spell(t.range,
+            self._cg->sink->spell(t.range,
                 f"(static_cast<{self._spell._type(n->type_)}>("
                 + f"static_cast<unsigned __int128>({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL))");
             return;
@@ -1236,10 +1232,10 @@ class EmitIR {
         var d = tbl->get::<Immediate::IntData>(t.imm);
         if (d != &null) && (!d->body.is_valid()) {
             var cxx = std::string_to_nstring(f"{d->value_lo}");
-            sink->create_int(t.range, cxx);
+            self._cg->sink->create_int(t.range, cxx);
             return;
         }
-        sink->synth(t, clang::tok::numeric_constant);
+        self._cg->sink->synth(t, clang::tok::numeric_constant);
     }
 
     priv fn _is_ctor(self, f: *FunctionDecl) -> bool {
@@ -1267,29 +1263,29 @@ class EmitIR {
     priv fn _unary(self, n: *UnaryOperatorExpr) {
         if n->is_mode_marker { self.emit(n->operand); return; }
         if n->materialize {
-            sink->spell(n->range, "::" + LowerTargets::tmp_addr() + "(");
+            self._cg->sink->spell(n->range, "::" + LowerTargets::tmp_addr() + "(");
             self.emit(n->operand);
-            sink->spell(n->range, ")");
+            self._cg->sink->spell(n->range, ")");
             return;
         }
         var k = n->op_token.kind;
         var addr_or_deref = (k == TokenKind::OpAmp) || (k == TokenKind::OpStar);
         if (self._record_operand(n->operand) && (!addr_or_deref)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
-        sink->spell(n->range, "(");
-        if n->is_prefix() { sink->create(n->op_token); }
+        self._cg->sink->spell(n->range, "(");
+        if n->is_prefix() { self._cg->sink->create(n->op_token); }
         self.emit(n->operand);
-        if n->is_postfix() { sink->create(n->op_token); }
-        sink->spell(n->range, ")");
+        if n->is_postfix() { self._cg->sink->create(n->op_token); }
+        self._cg->sink->spell(n->range, ")");
     }
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
         if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; NullTestLowering owns it"); }
         if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
-        sink->spell(n->range, "(");
+        self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
-        sink->create(n->op_token);
+        self._cg->sink->create(n->op_token);
         self.emit(n->rhs);
-        sink->spell(n->range, ")");
+        self._cg->sink->spell(n->range, ")");
     }
 
     priv fn _assign(self, n: *AssignOperatorExpr) {
@@ -1298,11 +1294,11 @@ class EmitIR {
         if (n->op_token.kind != TokenKind::OpEqual) {
             if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: compound assignment on a record; OperatorLowering owns it"); }
         }
-        sink->spell(n->range, "(");
+        self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
-        sink->create(n->op_token);
+        self._cg->sink->create(n->op_token);
         self._value(n->rhs, n->lhs->type_);
-        sink->spell(n->range, ")");
+        self._cg->sink->spell(n->range, ")");
     }
 
     /// The written target is the result type (invariant 15). Which C++ cast:
@@ -1333,11 +1329,11 @@ class EmitIR {
         // `const volatile void *` first: from there only the bits survive.
         if (n->mode == CastMode::Unsafe) && self._drops_quals(n->operand->type_, n->target) {
             var bridge = self._record_pointee(n->operand->type_) && self._record_pointee(n->target);
-            sink->spell(n->operand->range, "(" + self._spell._type(n->target, &null) + ")(");
-            if bridge { sink->spell(n->operand->range, "(const volatile void *)("); }
+            self._cg->sink->spell(n->operand->range, "(" + self._spell._type(n->target, &null) + ")(");
+            if bridge { self._cg->sink->spell(n->operand->range, "(const volatile void *)("); }
             self.emit(n->operand);
-            if bridge { sink->spell(n->operand->range, ")"); }
-            sink->spell(n->operand->range, ")");
+            if bridge { self._cg->sink->spell(n->operand->range, ")"); }
+            self._cg->sink->spell(n->operand->range, ")");
             return;
         }
         self._cast_to(n->target, n->operand, kind);
@@ -1375,30 +1371,30 @@ class EmitIR {
     priv fn _subscript(self, n: *SubscriptExpr) {
         if (self._record_operand(n->base)) { self._ice(n->range, "EmitIR: `[]` on a record; OperatorLowering owns it"); }
         self.emit(n->base);
-        sink->spell(n->range, "[");
+        self._cg->sink->spell(n->range, "[");
         self.emit(n->index);
-        sink->spell(n->range, "]");
+        self._cg->sink->spell(n->range, "]");
     }
 
     priv fn _if_expr(self, n: *IfExpr) {
         // (c ? a : (c2 ? b : e)) -- every arm converts to the join type X
         // recorded on the node.
-        sink->spell(n->range, "(");
+        self._cg->sink->spell(n->range, "(");
         self.emit(n->condition);
-        sink->spell(n->range, "?");
+        self._cg->sink->spell(n->range, "?");
         self._value(n->then_expr, n->type_);
-        sink->spell(n->range, ":");
+        self._cg->sink->spell(n->range, ":");
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             var arm = n->else_ifs.get(i);
-            sink->spell(arm->range, "(");
+            self._cg->sink->spell(arm->range, "(");
             self.emit(arm->condition);
-            sink->spell(arm->range, "?");
+            self._cg->sink->spell(arm->range, "?");
             self._value(arm->body, n->type_);
-            sink->spell(arm->range, ":");
+            self._cg->sink->spell(arm->range, ":");
         }
         self._value(n->else_expr, n->type_);
-        for var i: usize = 0; i < n->else_ifs.size(); ++i { sink->spell(n->range, ")"); }
-        sink->spell(n->range, ")");
+        for var i: usize = 0; i < n->else_ifs.size(); ++i { self._cg->sink->spell(n->range, ")"); }
+        self._cg->sink->spell(n->range, ")");
     }
 
     // --- Initializers -------------------------------------------------------------
@@ -1418,17 +1414,17 @@ class EmitIR {
         var elem = at->element;
 
         if bare {
-            sink->spell(n->range, "{");
+            self._cg->sink->spell(n->range, "{");
         } else {
-            sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + f"{at->size_bits}" + ">{");
+            self._cg->sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + f"{at->size_bits}" + ">{");
         }
         for var i: usize = 0; i < n->elements.size(); ++i {
-            if i > 0 { sink->spell(n->range, ","); }
+            if i > 0 { self._cg->sink->spell(n->range, ","); }
             var el = n->elements[i];
             if isa::<InitListExpr>(el) { self._init_list(cast::<InitListExpr>(el), true); }
             else { self._value(el, elem); }
         }
-        sink->spell(n->range, "}");
+        self._cg->sink->spell(n->range, "}");
     }
 
     /// `T{ .a = x, .b = y }` in declaration order. Designated init needs an
@@ -1448,7 +1444,7 @@ class EmitIR {
         var layout = self._layout_of(rd);
         if (self._has_user_ctor(layout)) { self._ice(e->range, "EmitIR: initializer on a record with a constructor; must be lowered to a ctor call"); }
 
-        sink->spell(e->range, self._spell._type(e->type_) + "{");
+        self._cg->sink->spell(e->range, self._spell._type(e->type_) + "{");
         // Declaration order: C++ designated initializers may not reorder.
         var decl_fields = self._fields_of(layout);
         var first = true;
@@ -1459,9 +1455,9 @@ class EmitIR {
             for var i: usize = 0; i < fields.size(); ++i {
                 var f = fields.get(i);
                 if self._spell.imm_name(f->name.imm, self._owning_fid()) != fname { continue; }
-                if !first { sink->spell(f->range, ","); }
+                if !first { self._cg->sink->spell(f->range, ","); }
                 first = false;
-                sink->spell(f->range, "." + fname + " =");
+                self._cg->sink->spell(f->range, "." + fname + " =");
                 // An array member takes bare braces, as a declarator does
                 // (_var_decl): C++ cannot initialize one from the
                 // `__kairo_array<T, N>{...}` prvalue _value would spell.
@@ -1475,7 +1471,7 @@ class EmitIR {
                 }
             }
         }
-        sink->spell(e->range, "}");
+        self._cg->sink->spell(e->range, "}");
     }
 
     /// An ADT variant built in place: the enum's tagged constructor,
@@ -1497,14 +1493,14 @@ class EmitIR {
         var t   = self._spell._type(n->type_);
         var tag = "::" + LowerTargets::adt_variant_tag() + "<" + f"{n->variant}" + ">{}";
         if v->payload.size() == 0 {
-            sink->spell(n->range, t + "(" + tag + ")");
+            self._cg->sink->spell(n->range, t + "(" + tag + ")");
             return;
         }
         var leaf = LowerTargets::adt_payload_type(self._spell.leaf(static_cast::<*Decl>(v)));
         var pt   = self._spell.dependent_member_type(n->type_, leaf);
-        sink->spell(n->range, t + "(" + tag + ", [&]() -> " + pt + " { return {");
+        self._cg->sink->spell(n->range, t + "(" + tag + ", [&]() -> " + pt + " { return {");
         for var i: usize = 0; i < n->fields.size(); ++i {
-            if i > 0 { sink->spell(n->range, ","); }
+            if i > 0 { self._cg->sink->spell(n->range, ","); }
             var fd = v->payload[i];
             var f  = n->fields[i];
             // An array member takes bare braces, as in _init.
@@ -1517,7 +1513,7 @@ class EmitIR {
                 self._value(f, fd->type_);
             }
         }
-        sink->spell(n->range, "}; })");
+        self._cg->sink->spell(n->range, "}; })");
     }
 
     priv fn _layout_of(self, d: *Decl) -> *Decl {
@@ -1549,10 +1545,6 @@ class EmitIR {
     fn emit(self, t: *Type) {
         ICE_IF(t == &null, "EmitIR: null type reached codegen");
         if (t->canonical == &null) { self._ice(t->range, "EmitIR: unresolved type reached codegen; sema gate failure"); }
-        sink->spell(t->range, self._spell._type(t));
+        self._cg->sink->spell(t->range, self._spell._type(t));
     }
 }
-
-__inline_cpp("
-#undef sink
-");

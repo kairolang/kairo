@@ -109,12 +109,13 @@ class EmitCXXHeader {
         var p  = self.path_under(dir);
         var nt = text;
         var ok = false;
-        inline "c++" {
-            libcxx::filesystem::path fp = to_path(p);
-            libcxx::error_code ec;
-            libcxx::filesystem::create_directories(fp.parent_path(), ec);
-            libcxx::ofstream ofs(fp, libcxx::ios::binary);
-            if (ofs) { ofs.write(nt.c_str(), static_cast<libcxx::streamsize>(nt.size())); ok = bool(ofs); }
+        var fp = to_path(p);
+        var ec: libcxx::error_code;
+        libcxx::filesystem::create_directories(fp.parent_path(), ec);
+        var ofs = libcxx::ofstream(fp, libcxx::ios::binary);
+        if static_cast::<bool>(ofs) {
+            ofs.write(nt.c_str(), static_cast::<libcxx::streamsize>(nt.size()));
+            ok = static_cast::<bool>(ofs);
         }
         return ok;
     }

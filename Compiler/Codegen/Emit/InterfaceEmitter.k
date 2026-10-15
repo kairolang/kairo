@@ -84,10 +84,6 @@ import AST::Kind::ExprKind::*;
 import Location::SourceRange::*;
 import Token::TokenKind::*;
 
-__inline_cpp("
-#define sink this->_cg->sink
-");
-
 class InterfaceEmitter {
     priv var _cg:    obs::<CodegenContext>;
     priv var _plan:  obs::<EmitPlan>;
@@ -119,42 +115,42 @@ class InterfaceEmitter {
         // or header that writes one (_needs_new). Outside the guard below:
         // a header that needs it may follow one that defined the guard
         // without it.
-        if self._needs_new() { sink->system_header(self._tu_at(), "new"); }
+        if self._needs_new() { self._cg->sink->system_header(self._tu_at(), "new"); }
         // A header carries the module's inline and template bodies too
         // (EmitPlan::visible_bodies), so it needs these as much as a
         // preamble. Guarded there: one C++ TU may include several Kairo
         // headers, and __kairo_tmp is a DEFINITION.
-        if header { sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
-        if header { sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
+        if header { self._cg->sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
+        if header { self._cg->sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
         // The array-prvalue alias, once per TU, ahead of every body that
         // can name it.
-        sink->spell(self._tu_at(),
+        self._cg->sink->spell(self._tu_at(),
             "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
-        sink->brk();
+        self._cg->sink->brk();
         // The materialized-temporary helper: the one place it is spelled.
         // A forwarding reference binds the prvalue, so the address is the
         // temporary's, which lives to the end of the full-expression.
-        sink->spell(self._tu_at(),
+        self._cg->sink->spell(self._tu_at(),
             "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
-        sink->brk();
+        self._cg->sink->brk();
         // An ADT's variant tags: `E(::__kairo_vt<I>{}, ...)` picks variant I's
         // constructor. The explicit default constructor keeps a bare `{}`
         // from converting into a tag.
-        sink->spell(self._tu_at(),
+        self._cg->sink->spell(self._tu_at(),
             "template <" + builtin_info(BuiltinKind::U32)->cxx + " I> struct " + LowerTargets::adt_variant_tag()
             + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };");
-        sink->brk();
+        self._cg->sink->brk();
         // Construction and destruction in place. `new (p) T(...)` finds T's
         // own placement operator new first (an ADT payload declares one),
         // which needs no <new>, so it is never `::new`.
-        sink->spell(self._tu_at(),
+        self._cg->sink->spell(self._tu_at(),
             "template <class T, class... A> inline void " + LowerTargets::construct_at()
             + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }");
-        sink->brk();
-        sink->spell(self._tu_at(),
+        self._cg->sink->brk();
+        self._cg->sink->spell(self._tu_at(),
             "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
-        sink->brk();
-        if header { sink->directive(self._tu_at(), "#endif"); }
+        self._cg->sink->brk();
+        if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
 
         var i: usize = 0;
         var n = self._plan->entries.size();
@@ -175,7 +171,7 @@ class InterfaceEmitter {
                 if self._entry_anon(f) != anon { break; }
                 if header && (!f->own) && (f->need == PlanNeed::Complete) { i += 1; continue; }   // included.
                 if f->scope != &null {
-                    sink->spell(self._at(f->decl), "struct " + f->scope->name + ";");
+                    self._cg->sink->spell(self._at(f->decl), "struct " + f->scope->name + ";");
                 } else {
                     self._fwd_decl(f->decl);
                 }
@@ -204,11 +200,11 @@ class InterfaceEmitter {
             var tup = dyn_cast::<StructDecl>(e->decl);
             var guard = header && ((tup != &null) && (tup->tuple_arity > 0));
             if guard {
-                sink->directive(self._tu_at(), "#ifndef " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
-                sink->directive(self._tu_at(), "#define " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
+                self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
+                self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
             }
             self._wrapped(e->decl, fn () { self._type_def(e->decl); });
-            if guard { sink->directive(self._tu_at(), "#endif"); }
+            if guard { self._cg->sink->directive(self._tu_at(), "#endif"); }
         }
 
         // tier 2
@@ -255,10 +251,10 @@ class InterfaceEmitter {
     /// own header. Kairo forbids import cycles, so the include graph is a DAG.
     priv fn _header_prologue(self) {
         var at = self._tu_at();
-        sink->directive(at, "#pragma once");
+        self._cg->sink->directive(at, "#pragma once");
         // The module's ffi headers first: its declarations and its inline
         // bodies name what they declare, exactly as the module's own TU did.
-        for var i: usize = 0; i < self._ffi_lines.size(); ++i { sink->directive(at, self._ffi_lines[i]); }
+        for var i: usize = 0; i < self._ffi_lines.size(); ++i { self._cg->sink->directive(at, self._ffi_lines[i]); }
         var seen = vec::<string>();
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
@@ -273,7 +269,7 @@ class InterfaceEmitter {
             var line = "#include \x22";
             line += p;
             line += "\x22";
-            sink->directive(at, line);
+            self._cg->sink->directive(at, line);
         }
     }
 
@@ -294,18 +290,18 @@ class InterfaceEmitter {
             var s = "namespace ";
             s += self._spell->ns_join(ns);
             s += " {";
-            sink->spell(at, s);
+            self._cg->sink->spell(at, s);
             n += 1;
         }
-        if anon { sink->spell(at, "namespace {"); n += 1; }
+        if anon { self._cg->sink->spell(at, "namespace {"); n += 1; }
         return n;
     }
 
     priv fn _ns_close(self, n: u32) {
         // Closing braces anchored on nothing better than the TU: the wrapper
         // has no bytes of its own.
-        for var i: u32 = 0; i < n; ++i { sink->spell(self._tu_at(), "}"); }
-        if n > 0 { sink->brk(); }
+        for var i: u32 = 0; i < n; ++i { self._cg->sink->spell(self._tu_at(), "}"); }
+        if n > 0 { self._cg->sink->brk(); }
     }
 
     priv fn _wrapped(self, d: *Decl, body: fn()) {
@@ -372,7 +368,7 @@ class InterfaceEmitter {
                     s += "struct ";
                     s += self._spell->leaf(d);
                     s += ";";
-                    sink->spell(self._at(d), s);
+                    self._cg->sink->spell(self._at(d), s);
                     return;
                 }
                 s += "enum class ";
@@ -380,14 +376,14 @@ class InterfaceEmitter {
                 s += " : ";
                 s += self._enum_underlying(en);
                 s += ";";
-                sink->spell(self._at(d), s);
+                self._cg->sink->spell(self._at(d), s);
                 return;
             }
             default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
         s += self._spell->leaf(d);
         s += ";";
-        sink->spell(self._at(d), s);
+        self._cg->sink->spell(self._at(d), s);
     }
 
     priv fn _enum_underlying(self, en: *EnumDecl) -> string {
@@ -439,12 +435,12 @@ class InterfaceEmitter {
             }
         }
         s += " {";
-        sink->spell(at, s);
+        self._cg->sink->spell(at, s);
         // An ADT payload is built inside its union by `new (&member) P(...)`,
         // which must not depend on the TU including <new>: this placement
         // form, found in the class before any global one, is what it calls.
         if isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_adt_payload {
-            sink->spell(at, "static void* operator new(" + builtin_info(BuiltinKind::USize)->cxx + ", void* p) noexcept { return p; }");
+            self._cg->sink->spell(at, "static void* operator new(" + builtin_info(BuiltinKind::USize)->cxx + ", void* p) noexcept { return p; }");
         }
 
         // Default access follows the keyword: a Kairo struct's members are
@@ -485,7 +481,7 @@ class InterfaceEmitter {
                 cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
                 var us = self._spell->template_head(nd);
                 us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(ta->aliased, &null, d) + ";";
-                sink->spell(self._at(nd), us);
+                self._cg->sink->spell(self._at(nd), us);
             }
         }
 
@@ -505,14 +501,14 @@ class InterfaceEmitter {
             fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
             fs += self._field_default(f);
             fs += ";";
-            sink->spell(f->name.range, fs);
+            self._cg->sink->spell(f->name.range, fs);
         }
 
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
             if m == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
-            sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
+            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
         // `op =`, derived from the transfer constructor (_derived_assign).
@@ -524,8 +520,8 @@ class InterfaceEmitter {
 
         self._friends(d);
 
-        sink->spell(at, "};");
-        sink->brk();
+        self._cg->sink->spell(at, "};");
+        self._cg->sink->brk();
     }
 
     /// Friends: every same-file extension scope, so an extension member
@@ -537,7 +533,7 @@ class InterfaceEmitter {
         var fs = vec::<*ExtScope>();
         self._plan->friend_scopes_of(d, &fs);
         for var i: usize = 0; i < fs.size(); ++i {
-            sink->spell(self._at(static_cast::<*Decl>(fs[i]->anchor)), "friend struct " + self._scope_qual(fs[i]) + ";");
+            self._cg->sink->spell(self._at(static_cast::<*Decl>(fs[i]->anchor)), "friend struct " + self._scope_qual(fs[i]) + ";");
         }
         if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
             self._ice(self._at(d), "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
@@ -606,16 +602,16 @@ class InterfaceEmitter {
         var bare  = head + self._spell->param_decl(other, "", &null, d) + ")";
         var named = head + self._spell->param_decl(other, "o", &null, d) + ")";
         switch form {
-            case AssignForm::Default { sink->spell(xat, bare + " = default;"); }
-            case AssignForm::Deleted { sink->spell(xat, bare + " = delete;"); }
-            case AssignForm::Body    { sink->spell(xat, named + self._rebuild(d, x)); }
+            case AssignForm::Default { self._cg->sink->spell(xat, bare + " = default;"); }
+            case AssignForm::Deleted { self._cg->sink->spell(xat, bare + " = delete;"); }
+            case AssignForm::Body    { self._cg->sink->spell(xat, named + self._rebuild(d, x)); }
             case AssignForm::Constrained {
                 // Exactly one is viable in an instance, as with a generic
                 // ADT's special members; the deleted one leaves an instance
                 // that fails the constraint unassignable by name.
                 var ok = self._rebuild_constraint(d);
-                sink->spell(xat, named + " requires (" + ok + ")" + self._rebuild(d, x));
-                sink->spell(xat, bare + " requires (!(" + ok + ")) = delete;");
+                self._cg->sink->spell(xat, named + " requires (" + ok + ")" + self._rebuild(d, x));
+                self._cg->sink->spell(xat, bare + " requires (!(" + ok + ")) = delete;");
             }
             default { 0; }
         }
@@ -684,15 +680,15 @@ class InterfaceEmitter {
     priv fn _anon_union_field(self, f: *FieldDecl, owner: *Decl) {
         var u = self._plan->anon_union_of(f);
         var fat = self._at(static_cast::<*Decl>(f));
-        sink->spell(fat, "union {");
+        self._cg->sink->spell(fat, "union {");
         for var i: usize = 0; i < u->fields.size(); ++i {
             var m = u->fields[i];
             if m == &null { continue; }
             var ms = self._spell->decl(m->type_, self._spell->leaf(static_cast::<*Decl>(m)), &null, owner);
             ms += ";";
-            sink->spell(self._at(static_cast::<*Decl>(m)), ms);
+            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), ms);
         }
-        sink->spell(fat, "};");
+        self._cg->sink->spell(fat, "};");
     }
 
     priv fn _is_type(self, d: *Decl) -> bool {
@@ -708,10 +704,10 @@ class InterfaceEmitter {
         var want = want_in;
         if want == VIS_NONE() { want = (VIS_PRIV()) if (default_priv) else (VIS_PUB()); }
         if want == cur { return cur; }
-        if want == VIS_PUB()  { sink->spell(at, "public:"); }
-        if want == VIS_PROT() { sink->spell(at, "protected:"); }
-        if want == VIS_PRIV() { sink->spell(at, "private:"); }
-        sink->brk();
+        if want == VIS_PUB()  { self._cg->sink->spell(at, "public:"); }
+        if want == VIS_PROT() { self._cg->sink->spell(at, "protected:"); }
+        if want == VIS_PRIV() { self._cg->sink->spell(at, "private:"); }
+        self._cg->sink->brk();
         return want;
     }
 
@@ -736,7 +732,7 @@ class InterfaceEmitter {
         s += " : ";
         s += self._enum_underlying(en);
         s += " {";
-        sink->spell(at, s);
+        self._cg->sink->spell(at, s);
         // With no discriminant anywhere every value is its position, which
         // is C++'s own numbering, so the names go out bare. That is also the
         // only form an enum the compiler mints can take: it is built after
@@ -759,10 +755,10 @@ class InterfaceEmitter {
                 if v->value.ok { vs += " = " + self._enum_value(v->value); }
             }
             vs += ",";
-            sink->spell(v->name.range, vs);
+            self._cg->sink->spell(v->name.range, vs);
         }
-        sink->spell(at, "};");
-        sink->brk();
+        self._cg->sink->spell(at, "};");
+        self._cg->sink->brk();
     }
 
     /// An ADT enum: the record EnumLayoutLowering built for it, written
@@ -777,7 +773,7 @@ class InterfaceEmitter {
         var at      = self._at(d);
         var nm      = self._spell->leaf(d);
         var generic = CXXSpell::template_params(d).size() > 0;
-        sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
+        self._cg->sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
 
         // A struct: public unless marked. Only the two helpers the special
         // members call are private. The tag must stay public: `==` on an ADT
@@ -803,23 +799,23 @@ class InterfaceEmitter {
             // A flag: a compile-time constant with no Kairo expression behind
             // it (_adt_flag).
             if f->storage == StorageClass::Eval {
-                sink->spell(f->name.range, "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";");
+                self._cg->sink->spell(f->name.range, "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";");
                 continue;
             }
-            sink->spell(f->name.range, self._spell->decl(f->type_, fnm, &null, d) + ";");
+            self._cg->sink->spell(f->name.range, self._spell->decl(f->type_, fnm, &null, d) + ";");
         }
 
         for var i: usize = 0; i < lay->methods.size(); ++i {
             var m = lay->methods[i];
             if m == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
-            sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
+            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
         }
 
         self._friends(d);
 
-        sink->spell(at, "};");
-        sink->brk();
+        self._cg->sink->spell(at, "};");
+        self._cg->sink->brk();
     }
 
     /// A flag's initializer: its type trait over every payload struct,
@@ -1056,11 +1052,11 @@ class InterfaceEmitter {
     /// `extern` declaration precedes its definition, and a `pub const` has to
     /// be reachable from every module that imports it.
     priv fn _global_var_decl(self, v: *VariableDecl) {
-        sink->spell(self._at(static_cast::<*Decl>(v)), "extern " + self._spell->global_var(v) + ";");
+        self._cg->sink->spell(self._at(static_cast::<*Decl>(v)), "extern " + self._spell->global_var(v) + ";");
     }
 
     priv fn _free_fn_decl(self, f: *FunctionDecl, ext: *ExtensionDecl) {
-        sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
+        self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
     }
 
     /// A function declaration. With \p ext, an extension member: a static
@@ -1095,13 +1091,13 @@ class InterfaceEmitter {
     /// access control's, and the struct must be one text everywhere.
     priv fn _scope_def(self, sc: *ExtScope) {
         var at = self._at(static_cast::<*Decl>(sc->anchor));
-        sink->spell(at, "struct " + sc->name + " {");
+        self._cg->sink->spell(at, "struct " + sc->name + " {");
         for var i: usize = 0; i < sc->members.size(); ++i {
             var m = sc->members[i];
-            sink->spell(self._at(static_cast::<*Decl>(m)), self._free_fn_text(m, sc->exts[i]));
+            self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._free_fn_text(m, sc->exts[i]));
         }
-        sink->spell(at, "};");
-        sink->brk();
+        self._cg->sink->spell(at, "};");
+        self._cg->sink->brk();
         for var i: usize = 0; i < sc->members.size(); ++i {
             var m = sc->members[i];
             if !m->is_operator { continue; }
@@ -1161,7 +1157,7 @@ class InterfaceEmitter {
         s += ")";
         if f->no_unwind { s += " noexcept"; }
         s += " { return " + self._scope_qual(sc) + "::" + self._spell->leaf(static_cast::<*Decl>(f)) + targs + "(" + call + "); }";
-        sink->spell(self._at(static_cast::<*Decl>(f)), s);
+        self._cg->sink->spell(self._at(static_cast::<*Decl>(f)), s);
     }
 
     /// \p scope: the record whose body the declaration is in, or null
@@ -1270,8 +1266,8 @@ class InterfaceEmitter {
             s += self._spell->args_str(&(ie->args));
             s += ";";
         }
-        sink->spell(self._at(d), s);
-        sink->brk();
+        self._cg->sink->spell(self._at(d), s);
+        self._cg->sink->brk();
     }
 
     priv fn _ret_subst(self, f: *FunctionDecl, ie: *InstanceEntry) -> string {
@@ -1279,7 +1275,3 @@ class InterfaceEmitter {
         return self._spell->return_spelling(f, ie);
     }
 }
-
-__inline_cpp("
-#undef sink
-");
