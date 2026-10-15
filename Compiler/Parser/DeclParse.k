@@ -65,9 +65,7 @@ class <T> DeclParse {
     }
 
     pub inline fn is_fatal_decl(self, d: *Decl) -> bool {
-        inline "c++" {
-            return dyn()->template is_fatal<Decl>(d);
-        }
+        return dyn()->is_fatal::<Decl>(d);
     }
 
     /// Switches on the RESOLVED kind, like check(): a token a macro expanded
@@ -171,7 +169,7 @@ class <T> DeclParse {
     fn parse_decl(self, allow_closure_fallback: bool = false) -> *Decl {
         if dyn()->is_eof() { return &null; }
 
-        inline "c++" { typename T::PendingAnnotations annot; }
+        var annot: typename!(T::PendingAnnotations);
         dyn()->consume_leading_annotations(&annot);
 
         if dyn()->is_eof() { return &null; }
@@ -194,7 +192,7 @@ class <T> DeclParse {
     /// param list) is an identifier, `op`, or `self`. Anything else - `(`, `|`,
     /// `||` - is a closure literal. No diagnostics, no allocation, no sync.
     priv fn _fn_is_decl_head(self) -> bool {
-        inline "c++" { using ASTTentativeGuard = typename T::TentativeGuard; }
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
         var t = ASTTentativeGuard(dyn());
         dyn()->advance(T::SkipNL::After);          // past `fn`
         if dyn()->check(TokenKind::OpLess) {
@@ -333,7 +331,7 @@ class <T> DeclParse {
     ///        malformed one down the field path for three confused diagnostics
     ///        instead of one good one.
     pub fn _mods_lead_to_fn(self, require_decl_head: bool = true) -> bool {
-        inline "c++" { using ASTTentativeGuard = typename T::TentativeGuard; }
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
         var t = ASTTentativeGuard(dyn());
 
         while !dyn()->is_eof() {
@@ -499,7 +497,7 @@ class <T> DeclParse {
                 continue;
             }
 
-            inline "c++" { typename T::PendingAnnotations m_annot; }
+            var m_annot: typename!(T::PendingAnnotations);
             dyn()->consume_leading_annotations(&m_annot);
             if dyn()->check(TokenKind::OpRBrace) { break; }
 
@@ -2513,7 +2511,7 @@ class <T> DeclParse {
             }
 
             // leading annotations on a member (doc comments, @attr, visibility)
-            inline "c++" { typename T::PendingAnnotations m_annot; }
+            var m_annot: typename!(T::PendingAnnotations);
             dyn()->consume_leading_annotations(&m_annot);
 
             if dyn()->check(TokenKind::OpRBrace) { break; }
@@ -3130,7 +3128,7 @@ class <T> DeclParse {
                 continue;
             }
 
-            inline "c++" { typename T::PendingAnnotations v_annot; }
+            var v_annot: typename!(T::PendingAnnotations);
             dyn()->consume_leading_annotations(&v_annot);
             if dyn()->check(TokenKind::OpRBrace) { break; }
 

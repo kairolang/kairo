@@ -1367,9 +1367,7 @@ class <T> ExprParse {
 
         // `imm_tbl` is dependent inside this CRTP mixin, so the member template
         // needs an explicit `template` keyword   not expressible in Kairo yet.
-        inline "c++" {
-            auto *idata = imm_tbl->template get<Immediate::IntData>(tok.imm);
-        }
+        var idata = imm_tbl->get::<Immediate::IntData>(tok.imm);
         if idata == &null { return false; }
 
         // bit4 = has_prefix (0x/0b/0o), bit3 = has_suffix
@@ -1420,9 +1418,7 @@ class <T> ExprParse {
         id_range:  SourceRange,
         sep_range: SourceRange
     ) {
-        inline "c++" {
-            using ASTTentativeGuard = typename T::TentativeGuard;
-        }
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
 
         var t = ASTTentativeGuard(dyn());
         var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
@@ -1478,9 +1474,7 @@ class <T> ExprParse {
         op_start:  SourceRange,
         sep_range: SourceRange
     ) -> bool {
-        inline "c++" {
-            using ASTTentativeGuard = typename T::TentativeGuard;
-        }
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
 
         var ll_ptr   = dyn()->current_ptr();
         var ll_range = ll_ptr->range;   // saved for restore on rollback
@@ -1800,9 +1794,7 @@ class <T> ExprParse {
     ///
     /// precondition: current token is `as`.
     inline fn _try_type_cast(self, operand: *Expr) -> *Expr {
-        inline "c++" {
-            using ASTTentativeGuard = typename T::TentativeGuard;
-        }
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
         var t = ASTTentativeGuard(dyn());
 
         dyn()->advance(); // consume `as`
@@ -2080,9 +2072,7 @@ class <T> ExprParse {
     /// Bar<i32>  -> NamedIdentExpr("Bar", generic_args=[i32])
     /// self      -> NamedIdentExpr("self")
     inline fn _parse_ident_expr(self) -> *Expr {
-        inline "c++" {
-            using ASTTentativeGuard = typename T::TentativeGuard;
-        }
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
 
         var id_ptr   = dyn()->current_ptr();
         var id_range = id_ptr->range;
@@ -2531,9 +2521,7 @@ class <T> ExprParse {
         // never lexed; emit a recovery node instead of reading tok.imm as a
         // StringData index (which it isn't, it's the recovery TokenKind).
         
-        inline "c++" {
-            using _StreamGuard = typename T::StreamGuard;
-        }
+        type _StreamGuard = typename!(T::StreamGuard);
 
         var resolved = dyn()->resolve_deep(&tok);
         if resolved.kind == TokenKind::TkError {
@@ -2548,9 +2536,7 @@ class <T> ExprParse {
                                         StringLiteralExpr::StringKind::Plain));
         }
 
-        inline "c++" {
-            auto sdata = imm_tbl->template get<Immediate::StringData>(resolved.imm);
-        }
+        var sdata = imm_tbl->get::<Immediate::StringData>(resolved.imm);
 
         // map prefix_kind flags -> StringKind flags. Both are flag enums now, so
         // raw|format (rf) is representable. prefix_kind: None=0, Format=1<<0, Raw=1<<1.
@@ -2590,9 +2576,7 @@ class <T> ExprParse {
             }
 
             var count = hole_buf->size();
-            inline "c++" {
-                auto flat_tokens = dyn()->ctx->template alloc_array<Token>(count);
-            }
+            var flat_tokens = dyn()->ctx->alloc_array::<Token>(count);
 
             for var k: usize = 0; k < count; ++k {
                 var t_ptr = hole_buf->get(k);

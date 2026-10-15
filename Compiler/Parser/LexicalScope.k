@@ -254,9 +254,7 @@ class ScopeStack {
 /// here, `@deprecated` is stored in `entries` and `pub` is stored in `visibility`
 /// until the `FunctionDecl` for `old_api` is instantiated.
 class PendingAnnotations {
-    inline "c++" {
-        using VisAnnotation = VisibilityAnnotation<Decl>;
-    }
+    type VisAnnotation = VisibilityAnnotation::<Decl>;
 
     pub var visibility: VisibilityKind = VisibilityKind::None;
     pub var vis_range:  SourceRange                    = SourceRange::invalid();

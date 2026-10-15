@@ -88,9 +88,7 @@ class <T> StmtParse {
     }
 
     priv inline fn is_fatal_stmt(self, s: *Stmt) -> bool {
-        inline "c++" {
-            return dyn()->template is_fatal<Stmt>(s);
-        }
+        return dyn()->is_fatal::<Stmt>(s);
     }
 
     //  Statement-boundary helpers
@@ -218,7 +216,7 @@ class <T> StmtParse {
     fn parse_stmt(self) -> *Stmt {
         if dyn()->is_eof() { return &null; }
 
-        inline "c++" { typename T::PendingAnnotations annot; }
+        var annot: typename!(T::PendingAnnotations);
         dyn()->consume_leading_annotations(&annot);
 
         if dyn()->is_eof() { return &null; }
@@ -365,7 +363,7 @@ class <T> StmtParse {
                 if dyn()->_mods_lead_to_fn() {
                     var d = dyn()->parse_decl(true);
                     if d != &null {
-                        inline "c++" { if (dyn()->is_fatal_decl(d)) { return dyn()->template fatal_ptr<Stmt>(); } }
+                        if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
                         return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
                     }
                 }
@@ -398,7 +396,7 @@ class <T> StmtParse {
                 return self._parse_expr_or_context(); // cursor on `fn`
             }
 
-            inline "c++" { if (dyn()->is_fatal_decl(d)) { return dyn()->template fatal_ptr<Stmt>(); } }
+            if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
             return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
         }
 
@@ -1920,9 +1918,7 @@ class <T> StmtParse {
             return FFILang::Cpp;
         }
 
-        inline "c++" {
-            auto imm = dyn()->ctx->get_imm_table()->template get<Immediate::StringData>(tok.imm);
-        }
+        var imm = dyn()->ctx->get_imm_table()->get::<Immediate::StringData>(tok.imm);
 
         // owned-text strings (synthesized by the PP) have no source range
         var spelling = string();

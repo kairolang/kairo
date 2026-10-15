@@ -71,10 +71,8 @@ class ASTParse
           PatternParse::<ASTParse>,
           ImportGrammar::<ASTParse>,
           MacroHeaderGrammar::<ASTParse> {
-    inline "c++" {
-        using PendingAnnotations = PendingAnnotations;
-        using PendingQuals = PendingQuals;
-    }
+    type PendingAnnotations = PendingAnnotations;
+    type PendingQuals = PendingQuals;
 
     // --- Context handles ----------------------------------------------------
     pub var ctx:   obs::<ASTContext>;           ///< owning context for allocations.
@@ -2297,6 +2295,7 @@ class ASTParse
     ///
     
     fn <T> fatal_ptr(self) -> *T {
+        // INLINE(cxx-feature: if constexpr on a template parameter)
         inline "c++" {
             auto base = reinterpret_cast<uint8_t*>(&this->_fatal_sentinels);
             if constexpr (libcxx::is_same_v<T, Type>) {
@@ -2315,6 +2314,7 @@ class ASTParse
     }
     
     fn <T> is_fatal(self, ptr: *T) -> bool {
+        // INLINE(cxx-feature: if constexpr on a template parameter)
         inline "c++" {
             auto base = reinterpret_cast<uint8_t*>(&this->_fatal_sentinels);
             if constexpr (libcxx::is_same_v<T, Type>) {

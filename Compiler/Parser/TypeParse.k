@@ -345,10 +345,8 @@ class <T> TypeParse {
             ).first(mr).emit();
         }
 
-        inline "c++" {
-            typename T::PendingAnnotations annot;
-            typename T::PendingQuals       quals;
-        }
+        var annot: typename!(T::PendingAnnotations);
+        var quals: typename!(T::PendingQuals);
 
         dyn()->consume_leading_annotations(&annot);
         dyn()->consume_leading_quals(&quals);
@@ -1264,7 +1262,7 @@ class <T> TypeParse {
         }
 
         // trailing qualifiers: fn(T) const panic async -> U
-        inline "c++" { typename T::PendingQuals fn_quals; }
+        var fn_quals: typename!(T::PendingQuals);
         dyn()->consume_leading_quals(&fn_quals);
 
         // optional return type
