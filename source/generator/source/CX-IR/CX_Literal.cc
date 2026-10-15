@@ -61,11 +61,10 @@ CX_VISIT_IMPL(LiteralExpr) {
     auto add_literal = [&](const token::Token &tok) {
         /// we now need to cast the token to a specific type to avoid c++ inference issues
         /// all strings must be wrapped in `string()`
-        /// all chars must be wrapped in `char()`
+        /// all chars must be wrapped in `_H_RESERVED$char()` (a byte)
         /// numerics should be size checked and casted to the correct type
         /// bools, nulls, and compiler directives have no special handling
         bool inference = false;
-        bool string_or_char = false;
         bool heap_int  = false;
         switch (tok.token_kind()) {
             case token::LITERAL_STRING:
@@ -74,16 +73,41 @@ CX_VISIT_IMPL(LiteralExpr) {
                 }
 
                 inference = true;
-                string_or_char = true;
                 ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "string", tok);
                 ADD_TOKEN(CXX_LPAREN);
                 break;
-            case token::LITERAL_CHAR:
+            case token::LITERAL_CHAR: {
+                // `char` is a single byte (`_H_RESERVED$char` is `unsigned
+                // char`), so a literal that only fits as a code point - a raw
+                // non-ASCII byte or a \u/\U escape - cannot be represented and
+                // would otherwise be silently truncated by the C++ compiler.
+                const std::string &lex = tok.value();
+                bool               wide = false;
+                for (size_t i = 0; i < lex.size(); ++i) {
+                    if (static_cast<unsigned char>(lex[i]) > 0x7F) {
+                        wide = true;
+                        break;
+                    }
+                    if (lex[i] == '\\' && i + 1 < lex.size()) {
+                        if (lex[i + 1] == 'u' || lex[i + 1] == 'U') {
+                            wide = true;
+                            break;
+                        }
+                        ++i;  // skip the escaped character
+                    }
+                }
+                if (wide) {
+                    CODEGEN_ERROR(tok,
+                                  "char literal " + lex +
+                                      " is not a single byte; use a string literal for "
+                                      "non-ASCII text");
+                }
+
                 inference = true;
-                string_or_char = true;
-                ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "wchar_t", tok);
+                ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "_H_RESERVED$char", tok);
                 ADD_TOKEN(CXX_LPAREN);
                 break;
+            }
             case token::LITERAL_FLOATING_POINT:
                 inference = true;
 
@@ -166,8 +190,6 @@ CX_VISIT_IMPL(LiteralExpr) {
 
         if (tok.value().starts_with("r")) {
             ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, tok.value().substr(1), tok);
-        } else if (string_or_char) {
-            ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_LITERAL, "L" + tok.value(), tok);
         } else {
             ADD_TOKEN_AS_TOKEN(CXX_CORE_LITERAL, tok);
         }

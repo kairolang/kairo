@@ -50,9 +50,9 @@ using _kstr = std::string;
 
 // ─── narrow↔wide helpers ──────────────────────────────────────────────────────
 
-inline auto _w2n(const kairo::string &s) -> _kstr { return kairo::std::string_to_cstring(s); }
+inline auto _w2n(const kairo::string &s) -> _kstr { return _kstr(s.c_str(), s.size()); }
 
-inline auto _n2w(const _kstr &s) -> kairo::string { return kairo::std::cstring_to_string(s); }
+inline auto _n2w(const _kstr &s) -> kairo::string { return kairo::string(s.data(), s.size()); }
 
 inline auto _n2w(const char *s) -> kairo::string {
     if (!s)
@@ -60,7 +60,9 @@ inline auto _n2w(const char *s) -> kairo::string {
     return kairo::string(s);
 }
 
-inline auto _kpath(const kairo::string &s) -> fs::path { return fs::path(s.raw_string()); }
+// TODO: u8string. On Windows fs::path(string_view) goes through the ANSI code
+// page, not UTF-8; fix at this boundary alongside stage1's path helper.
+inline auto _kpath(const kairo::string &s) -> fs::path { return fs::path(s.view()); }
 
 // ─── unique temp file per call ───────────────────────────────────────────────
 // Parallel target builds each capture stderr; a shared filename races.
@@ -187,8 +189,8 @@ inline auto build_dir() -> string { return _kbld_detail::getenv_str("KBLD_BUILD_
 inline auto compiler() -> string { return _kbld_detail::getenv_str("KBLD_COMPILER"); }
 inline auto kbld_version() -> string { return _kbld_detail::getenv_str("KBLD_VERSION"); }
 inline auto num_jobs() -> int { return _kbld_detail::getenv_int("KBLD_JOBS", 1); }
-inline auto is_release() -> bool { return build_mode() == L"release"; }
-inline auto is_debug() -> bool { return build_mode() == L"debug"; }
+inline auto is_release() -> bool { return build_mode() == "release"; }
+inline auto is_debug() -> bool { return build_mode() == "debug"; }
 
 inline auto env(const string &key) -> libcxx::optional<string> {
     const char *v = libcxx::getenv(_w2n(key).c_str());
@@ -235,8 +237,8 @@ inline auto run_or_fail(const vec<string> &args) -> RunResult {
     if (!r.success) {
         if (!r.stderr_str.is_empty())
             libcxx::fprintf(stderr, "%s", _w2n(r.stderr_str).c_str());
-        log::error(string(L"command failed (exit ") + _n2w(libcxx::to_string(r.exit_code)) +
-                   string(L"): ") + _n2w(_kbld_detail::argv_to_cmd(args)));
+        log::error(string("command failed (exit ") + _n2w(libcxx::to_string(r.exit_code)) +
+                   string("): ") + _n2w(_kbld_detail::argv_to_cmd(args)));
         libcxx::exit(1);
     }
     return r;
@@ -320,15 +322,15 @@ inline auto join_path(const vec<string> &parts) -> string {
     fs::path p = _kpath(parts[0]);
     for (libcxx::size_t i = 1; i < parts.size(); ++i)
         p /= _kpath(parts[i]);
-    return string(p.wstring().c_str());
+    return string(p.string().c_str());
 }
 inline auto abs_path(const string &path) -> string {
     if (_kpath(path).is_absolute())
         return path;
     auto root = _kbld_detail::getenv_str("KBLD_ROOT");
     if (root.is_empty())
-        return string(fs::absolute(_kpath(path)).wstring().c_str());
-    return string(fs::absolute(fs::path(root.raw_string()) / _kpath(path)).wstring().c_str());
+        return string(fs::absolute(_kpath(path)).string().c_str());
+    return string(fs::absolute(fs::path(root.view()) / _kpath(path)).string().c_str());
 }
 inline auto glob(const string &pattern) -> vec<string> {
     vec<string> results;
@@ -362,7 +364,7 @@ inline auto glob(const string &pattern) -> vec<string> {
             continue;
         if (!ext.empty() && de.path().extension().string() != ext)
             continue;
-        results.push_back(string(de.path().wstring().c_str()));
+        results.push_back(string(de.path().string().c_str()));
     }
     libcxx::sort(results.begin(), results.end());
     return results;
@@ -377,8 +379,8 @@ namespace _cache_detail {
     inline auto cache_path() -> fs::path {
         auto bd = _kbld_detail::getenv_str("KBLD_BUILD_DIR");
         if (bd.is_empty())
-            bd = string(L"build");
-        return fs::path(bd.raw_string()) / ".kbld" / "cache.json";
+            bd = string("build");
+        return fs::path(bd.view()) / ".kbld" / "cache.json";
     }
 
     inline auto load() -> json {
@@ -597,7 +599,7 @@ class Target {
   private:
     string      _name;
     string      _entry;
-    string      _type = string(L"binary");
+    string      _type = string("binary");
     vec<string> _includes;
     vec<string> _links;
     vec<string> _libs;
@@ -705,10 +707,10 @@ class Project {
   private:
     libcxx::shared_ptr<bool> _emitted;
     string                   _name;
-    string                   _version = string(L"0.0.0");
+    string                   _version = string("0.0.0");
     string                   _author;
     string                   _license;
-    string                   _compiler = string(L"kairo");
+    string                   _compiler = string("kairo");
     vec<string>              _skip_dirs;
     vec<Target>              _targets;
 };

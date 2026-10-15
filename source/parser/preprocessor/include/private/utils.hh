@@ -191,7 +191,7 @@ inline ObjectType is_mangled(const std::string &input) {
     if (input.size() < 4 || input[0] != '_' || input[1] != '$')
         return ObjectType::None;
 
-    std::string prefix = input.substr(0, 3);
+    std::string prefix = input.substr(0, 4);
     if (prefix == "_$M_")
         return ObjectType::Module;
     if (prefix == "_$C_")
