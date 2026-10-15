@@ -47,6 +47,7 @@ class PartitionQueue {
     priv var _enqueue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
     priv var _dequeue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
 
+    // INLINE(cxx-feature: static constexpr member)
     inline "c++" {
         static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14;
     }
@@ -99,6 +100,7 @@ class PartitionQueue {
     ///
     /// \see PartitionQueue, Task, ThreadPool
     ///
+    // INLINE(cxx-feature: alignas)
     inline "c++" {
         struct alignas(CACHE_LINE) Cell {
             std::Atomic<u64> seq {0};

@@ -54,6 +54,7 @@ import Support::Timer::*;
 class ThreadPool {
     /// C++ threading alias for std::thread, the alias is in a __inline_cpp
     /// block to avoid stage(0) parser issues with the 'thread' keyword.
+    // INLINE(cxx-feature: static constexpr member)
     inline "c++" {
         using Thread = libcxx::thread;
         static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14;
@@ -129,6 +130,7 @@ class ThreadPool {
 
         // Now spawn threads all queues are guaranteed present
         const eval if defined(__APPLE__) || defined(__linux__) {
+            // INLINE(hot-path)
             inline "c++" {
             for (size_t i = 0; i < _count; ++i) {
                 pthread_attr_t attr;
@@ -147,6 +149,7 @@ class ThreadPool {
             }
             }
         } else if defined(_WIN32) {
+            // INLINE(hot-path)
             inline "c++" {
             for (size_t i = 0; i < _count; ++i) {
                 auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
@@ -180,6 +183,7 @@ class ThreadPool {
     inline static fn fnv1a64_bytes(const tid: ref!(std::Thread::id)) -> u64 {
         var h: u64 = 0xcbf29ce484222325;
 
+        // INLINE(cxx-feature: static constexpr local)
         inline "c++" {
             static constexpr size_t TID_SIZE = sizeof(libcxx::thread::id);
         }
@@ -222,6 +226,7 @@ class ThreadPool {
         // increment BEFORE task is visible to any worker
         self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
 
+        // INLINE(cxx-feature: thread_local)
         inline "c++" {
             thread_local size_t local_qid = static_cast<size_t>(-1);
         }
@@ -351,10 +356,8 @@ class ThreadPool {
         self._mu.unlock();
         self._cv.notify_all();
 
-        inline "c++" {
-            while (get_total_pending_tasks() > 0) {
-                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
-            }
+        while self.get_total_pending_tasks() > 0 {
+            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
         }
 
         // One notify_all is enough: a worker always re-checks _active while
