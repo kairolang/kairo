@@ -958,6 +958,11 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     if d == &null { return; }
     var c = CXXSpell::rep(d);
     if c == &null { return; }
+    // A record declared in a function body (FinallyLowering's guard) is part
+    // of that body: EmitIR emits it in place, and nothing about it belongs
+    // in the preamble or the header. Its fields' owner and its destructor
+    // land here too and are skipped the same way.
+    if CXXSpell::in_function_scope(c) { return; }
     if decl_is_imported(c) { return; }             // the header declares it (IMPORTS.md §5).
     if isa::<InterfaceDecl>(c) { return; }         // no C++ entity yet (witnesses MISSING).
     // An extension member reached through a use (`l.pos.len()`) is not a

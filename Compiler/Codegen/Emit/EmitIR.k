@@ -510,6 +510,7 @@ class EmitIR {
         if (n->decl == &null) { self._ice(n->range, "EmitIR: DeclStmt with no decl"); }
         switch n->decl->kind {
             case DeclKind::VariableDecl { self._var_decl(cast::<VariableDecl>(n->decl)); }
+            case DeclKind::StructDecl   { self._local_record(cast::<StructDecl>(n->decl)); }
             default { self._ice(n->range, "EmitIR: statement-scope named decls (local fn/class/type) are not emitted yet"); }
         }
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);
@@ -547,6 +548,37 @@ class EmitIR {
             self._name(n->name);
         }
         self._var_init(n, c);
+    }
+
+    /// A record declared in a function body: FinallyLowering's scope guard.
+    /// `struct N { T* a; ~N() { body } }`, the destructor's body IN the
+    /// class: a local class's members can be defined nowhere else
+    /// ([class.local]), so invariant 12 does not reach here -- the whole
+    /// struct is body text already. Nothing is planned for it (EmitPlan
+    /// skips function-scope records), CXXSpell names it by leaf, and every
+    /// member is public: Kairo visibility is AccessCheck's. Only the shape
+    /// the lowering mints is accepted: plain fields and one `op delete`.
+    priv fn _local_record(self, n: *StructDecl) {
+        var d  = static_cast::<*Decl>(n);
+        var at = CXXSpell::at(d);
+        var nm = self._spell.leaf(d);
+        self._cg->sink->spell(at, "struct " + nm + " {");
+        for var i: usize = 0; i < n->fields.size(); ++i {
+            var f = n->fields[i];
+            if f == &null { continue; }
+            if (f->is_static() || (f->init != &null)) { self._ice(f->range, "EmitIR: a function-scope record with a static or initialized field; FinallyLowering mints neither"); }
+            self._cg->sink->spell(f->name.range, self._spell.decl(f->type_, self._spell.leaf(static_cast::<*Decl>(f))) + ";");
+        }
+        for var i: usize = 0; i < n->methods.size(); ++i {
+            var m = n->methods[i];
+            if m == &null { continue; }
+            if ((!m->is_operator) || (m->op_token.size() == 0) || (m->op_token[0].kind != TokenKind::KwDelete) || (m->body_kind != FnBodyKind::Block)) {
+                self._ice(m->range, "EmitIR: a function-scope record with a member that is not a destructor with a body; FinallyLowering mints only that");
+            }
+            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), "~" + nm + "()");
+            self._body(m, &null);
+        }
+        self._cg->sink->spell(at, "}");
     }
 
     /// `= init` for a variable whose declarator is already out; \p c is its

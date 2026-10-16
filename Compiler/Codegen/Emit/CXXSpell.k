@@ -365,6 +365,21 @@ class CXXSpell {
         return (v == VIS_PRIV()) || (v == VIS_INTERNAL());
     }
 
+    /// \p d is declared inside a function body: its semantic scope, or one
+    /// enclosing it, is a function, block or lambda (FinallyLowering's guard
+    /// record, its members and its local). Such a decl has no namespace: it
+    /// is named by leaf, emitted inside the body, and never planned.
+    static fn in_function_scope(d: *Decl) -> bool {
+        if d == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        while dc != &null {
+            if dc->is_function() || (dc->dc_kind == DeclContextKind::Block) || (dc->dc_kind == DeclContextKind::Lambda) { return true; }
+            if dc->is_translation_unit() || (dc->dc_kind == DeclContextKind::Module) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+            dc = dc->dc_parent;
+        }
+        return false;
+    }
+
     /// The scope a decl's NAMESPACE is read from: for an extension member
     /// the extension's parent (its scope struct lives in the enclosing
     /// module; owner_types supplies the struct), otherwise the decl's
@@ -484,6 +499,7 @@ class CXXSpell {
     /// C++'s implicit using-directive reaches into the nested unnamed
     /// namespace `priv` puts it in, and qual_name never has to know.
     fn qual_name(self, d: *Decl) -> string {
+        if CXXSpell::in_function_scope(d) { return self.leaf(d); }
         var r = CXXSpell::rep(d);
         if decl_is_imported(r) { return decl_cxx_spelling(r); }
         var s = "";
@@ -851,6 +867,7 @@ class CXXSpell {
     /// canonicalizes to the pattern's `P` today), and the qualified form
     /// would be just as wrong there.
     priv fn _record_name(self, d_in: *Decl, targs: string, scope: *Decl) -> string {
+        if CXXSpell::in_function_scope(d_in) { return self.leaf(d_in) + targs; }
         var d   = CXXSpell::rep(d_in);
         var own = self._record_owner(d);
         if own == &null { return self.qual_name(d) + targs; }

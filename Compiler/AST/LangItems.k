@@ -423,6 +423,15 @@ class LowerTargets {
         return "__kairo_init_" + field;
     }
 
+    // --- finally (writer: FinallyLowering) -----------------------------------------
+
+    /// `__kairo_FinK` is the record a `finally` becomes, `__kairo_finK` the
+    /// local of it, `k` counting finallys in the TU; the owner field holds
+    /// the enclosing `self`.
+    static fn finally_record(k: usize) -> string { return f"__kairo_Fin{k}"; }
+    static fn finally_local(k: usize)  -> string { return f"__kairo_fin{k}"; }
+    static fn finally_owner()          -> string { return "__kairo_owner"; }
+
     // --- match (writer: MatchLowering) -----------------------------------------
     /// Labels are function-scoped in C++; `n` is the match's number within its function.
     static fn match_scrutinee(n: usize) -> string          { return f"__kairo_m{n}_s"; }
