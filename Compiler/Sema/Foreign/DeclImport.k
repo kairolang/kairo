@@ -417,11 +417,11 @@ class DeclImport {
                 var e = EnumDecl::create(t->ctx, at, name, parent);
                 out = static_cast::<*Decl>(e);
             }
-            case clang::Decl::Function     { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
-            case clang::Decl::CXXMethod    { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
-            case clang::Decl::CXXConstructor { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
-            case clang::Decl::CXXDestructor  { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
-            case clang::Decl::CXXConversion  { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
+            case clang::Decl::Function         { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
+            case clang::Decl::CXXMethod        { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
+            case clang::Decl::CXXConstructor   { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
+            case clang::Decl::CXXDestructor    { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
+            case clang::Decl::CXXConversion    { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
             case clang::Decl::FunctionTemplate {
                 var ft = llvm::cast::<clang::FunctionTemplateDecl>(nd);
                 out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent));

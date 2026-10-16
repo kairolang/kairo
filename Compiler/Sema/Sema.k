@@ -61,6 +61,7 @@ import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::FieldInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
+import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
@@ -380,7 +381,7 @@ class Sema {
 
         // The head of the stage is VariantInitLowering, then
         // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering and
-        // CopyMoveLowering, and the rest after them.
+        // CopyMoveLowering, then FinallyLowering, and the rest after them.
         //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
@@ -414,6 +415,12 @@ class Sema {
         // SequenceLowering leaves the cast in place, a cast of a name being
         // pure.
         { var _p = TimeRegion("CopyMoveLowering"); CopyMoveLowering(&self.sc).run(); }
+        // A `finally` becomes a record in the function body whose destructor
+        // is its body, and a local of it. After CopyMoveLowering, whose
+        // `T&&` cast wraps a node this pass rewrites in place; before every
+        // other body rewrite, so each of them meets the body as a method
+        // body (tuples, operators, f-strings, calls, receivers, sequencing).
+        { var _p = TimeRegion("FinallyLowering"); FinallyLowering(&self.sc).run(); }
         // A tuple literal becomes its record's initializer, an index step
         // the field it names, a destructuring one local per binder. After
         // CopyMoveLowering, whose `T&&` cast stays on the destructured

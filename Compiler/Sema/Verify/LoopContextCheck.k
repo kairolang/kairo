@@ -110,7 +110,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
             if self.finally_depth > 0 {
                 self.sc->diag->report(DiagID::SC014E, n->range.start,
                     "`break` cannot escape a `finally` block; the body runs "
-                    "as a deferred lambda at scope exit, when no enclosing "
+                    "as the destructor of a scope guard, when no enclosing "
                     "loop is live"
                 ).first(n->range).emit();
             } else {
@@ -137,7 +137,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
             if self.finally_depth > 0 {
                 self.sc->diag->report(DiagID::SC014E, n->range.start,
                     "`continue` cannot escape a `finally` block; the body "
-                    "runs as a deferred lambda at scope exit, when no "
+                    "runs as the destructor of a scope guard, when no "
                     "enclosing loop is live"
                 ).first(n->range).emit();
             } else {
@@ -157,15 +157,40 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
         if self.finally_depth > 0 {
             self.sc->diag->report(DiagID::SC014E, n->range.start,
                 "`return` is not allowed inside a `finally` block; the body "
-                "is cleanup code that runs at scope exit and cannot alter "
-                "the function's control flow"
+                "is the destructor of a scope guard and cannot alter the "
+                "function's control flow"
             ).first(n->range).emit();
         }
 
         return true;
     }
 
-    /// finally body = barrier (deferred lambda scope): no outer loops, no
+    /// A `yield` in a finally body would suspend the guard's destructor, not
+    /// the generator; a `panic` there has no error return to produce. Both
+    /// are the destructor rule `return` is, and are reported the same way.
+    fn visit_yield_stmt(self, n: *YieldStmt) -> bool {
+        if self.finally_depth > 0 {
+            self.sc->diag->report(DiagID::SC014E, n->range.start,
+                "`yield` is not allowed inside a `finally` block; the body "
+                "is the destructor of a scope guard and runs outside the "
+                "generator"
+            ).first(n->range).emit();
+        }
+        return true;
+    }
+
+    fn visit_panic_stmt(self, n: *PanicStmt) -> bool {
+        if self.finally_depth > 0 {
+            self.sc->diag->report(DiagID::SC014E, n->range.start,
+                "`panic` is not allowed inside a `finally` block; the body "
+                "is the destructor of a scope guard and has no error to "
+                "return"
+            ).first(n->range).emit();
+        }
+        return true;
+    }
+
+    /// finally body = barrier (a destructor's scope): no outer loops, no
     /// outer labels visible inside.
     fn traverse_finally_stmt(self, n: *FinallyStmt) -> *FinallyStmt {
         if self.dyn()->walkup_finally_stmt(n) == false { return n; }
