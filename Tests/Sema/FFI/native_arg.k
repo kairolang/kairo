@@ -18,7 +18,7 @@ struct Point {
 
 fn use_native() {
     var c: cont<Point>
-    var p: Point
+    var p = Point { x: 0, y: 0 }
     c.push(p)
     var n = c.size()
 }
@@ -32,4 +32,5 @@ fn use_native() {
 // SEMA:      member  .size  {{.*}} -> fn size @ 13:5  [member of cont]  [filled by clang, 16 bytes, align 8]
 // SEMA:      0 unknown, 0 errored
 // SEMA:      -- inferred decls --
+// SEMA-NEXT: p : Point
 // SEMA-NEXT: n : u64

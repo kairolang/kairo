@@ -56,4 +56,10 @@ fn continue_runs_body() {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --error-format=basic 2>&1 || true; } | %FileCheck %s
-// CHECK-COUNT-4: error
+// One error per use, each at the read the exit reaches; no second report
+// from the loop's second pass or a second exit.
+// CHECK: finally_exit.k:17:20: error [SC052E]
+// CHECK: finally_exit.k:25:12: error [SC052E]
+// CHECK: finally_exit.k:41:24: error [SC052E]
+// CHECK: finally_exit.k:50:24: error [SC052E]
+// CHECK-NOT: error

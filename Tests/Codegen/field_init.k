@@ -77,7 +77,7 @@ fn main() -> i32 {
     n += chk(a.c == 7)
     n += chk((a.d == 12) && (calls == 2))    // tick(1) before tick(2)
 
-    var e: A                                 // no initializer: the defaults still run
+    var e = A()                              // the implicit default ctor: the defaults still run
     n += chk((e.x == 5) && (calls == 4))
 
     a.x = 8
