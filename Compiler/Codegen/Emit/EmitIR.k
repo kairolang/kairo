@@ -584,7 +584,15 @@ class EmitIR {
     /// `= init` for a variable whose declarator is already out; \p c is its
     /// unqualified canonical, or null.
     priv fn _var_init(self, n: *VariableDecl, c: *Type) {
-        if n->init == &null { return; }
+        // `var x: T` is default-constructed (InitCheck proved T has one):
+        // `T x{}` value-initializes -- a number or pointer to zero, an array
+        // element-wise, a record through its default constructor. A bare
+        // `T x;` would leave a local scalar indeterminate.
+        if n->init == &null {
+            self._cg->sink->synth_at_end(n->name.range, clang::tok::l_brace);
+            self._cg->sink->synth_at_end(n->name.range, clang::tok::r_brace);
+            return;
+        }
         self._cg->sink->synth_at_end(n->name.range, clang::tok::equal);
         var il = dyn_cast::<InitListExpr>(n->init);
         if (il != &null) && (c != &null) && (c->kind == TypeKind::FixedArrayType) {

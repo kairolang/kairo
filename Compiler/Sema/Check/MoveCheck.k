@@ -45,6 +45,16 @@
 ///     deduplicated by (binding, use). A path that has returned is `dead`
 ///     and contributes nothing to a join.
 ///
+///     A `finally` body is NOT walked where it is written. It runs when its
+///     block is LEFT, so it is recorded as pending on that block and walked
+///     at every exit of it over the state at that exit: the block's end,
+///     and each return, break, continue or panic that leaves it (return and
+///     panic after their operand; every open block, innermost first; break
+///     and continue down to the loop body's). A call that does not return
+///     leaves no block -- the process ends and no destructor runs -- so no
+///     body is walked on that path. The body's own moves and clears persist
+///     past a fallthrough, break or continue, which is where they happen.
+///
 ///   \par Which parameter is `@move`
 ///     The callee is the promoted decl (CallTyping wrote it) or a
 ///     fn-pointer type. Arguments map positionally, skipping a bound
@@ -84,6 +94,7 @@ import AST::Kind::StmtKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Location::SourceRange::*;
+import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 
@@ -187,6 +198,9 @@ fn move_join(a: MoveState, b: MoveState) -> MoveState {
 class LoopFrame {
     pub var breaks:    vec::<MoveState>;
     pub var continues: vec::<MoveState>;
+    pub var block_depth: usize = 0;   ///< _blocks.size() when the loop was entered; its body's block sits at this index.
+    pub var has_label: bool = false;  ///< written `label: loop`; a labeled break/continue finds its frame by it.
+    pub var label:     Token;
     fn LoopFrame(self) { }
 }
 
@@ -195,6 +209,14 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     priv var _tu:    TypeUtil;
     priv var _st:    MoveState;
     priv var _loops: vec::<LoopFrame>;
+    /// Pending finally bodies per open block, innermost block last (file
+    /// header, Flow). Per body: saved and cleared across a nested function
+    /// or closure like _st is.
+    priv var _blocks: vec::<vec::<*FinallyStmt>>;
+    /// The label of the LabeledStmt being entered, for the loop it wraps
+    /// to take onto its frame (_loop); cleared there.
+    priv var _pending_has_label: bool = false;
+    priv var _pending_label:     Token;
     pub var n_moves:   usize = 0;
     pub var n_errored: usize = 0;
 
@@ -230,11 +252,15 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         if n == &null { return n; }
         var saved_st    = self._st;
         var saved_loops = self._loops;
+        var saved_blocks = self._blocks;
         self._st    = MoveState{};
         self._loops = vec::<LoopFrame>();
+        self._blocks = vec::<vec::<*FinallyStmt>>();
         var out = RecursiveASTVisitor::<MoveCheck>::traverse_function_decl(n);
+        ICE_IF(!self._blocks.empty(), "MoveCheck: a block frame outlived its body");
         self._st    = saved_st;
         self._loops = saved_loops;
+        self._blocks = saved_blocks;
         return out;
     }
 
@@ -249,13 +275,17 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         }
         var saved_st    = self._st;
         var saved_loops = self._loops;
+        var saved_blocks = self._blocks;
         self._st    = MoveState{};
         self._loops = vec::<LoopFrame>();
+        self._blocks = vec::<vec::<*FinallyStmt>>();
         for var i: usize = 0; i < n->params.size(); ++i { self.dyn()->dispatch_decl(*(n->params.get(i))); }
         if n->body_block != &null { self.dyn()->traverse_block(n->body_block); }
         if n->body_expr  != &null { self.dispatch_expr(n->body_expr); }
+        ICE_IF(!self._blocks.empty(), "MoveCheck: a block frame outlived its body");
         self._st    = saved_st;
         self._loops = saved_loops;
+        self._blocks = saved_blocks;
         return n;
     }
 
@@ -457,6 +487,26 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         if self.stop  { return s; }
 
         switch s->kind {
+            case StmtKind::CompoundStmt {
+                var n = cast::<CompoundStmt>(s);
+                self._blocks.push_back(vec::<*FinallyStmt>());
+                for var i: usize = 0; i < n->body.size(); ++i {
+                    if self.stop { break; }
+                    self.dispatch_stmt(n->body[i]);
+                }
+                // Fallthrough off the end: the block's bodies run here. A
+                // dead path left the block through a jump that ran them.
+                if !self._st.dead { self._run_block_finallys(self._blocks.size() - 1); }
+                self._blocks.pop_back();
+                return s;
+            }
+            case StmtKind::FinallyStmt {
+                // Recorded, not walked: the body runs when its block is left
+                // (_run_block_finallys), never at its statement.
+                ICE_IF(self._blocks.empty(), "MoveCheck: `finally` outside a block");
+                self._blocks[self._blocks.size() - 1].push_back(cast::<FinallyStmt>(s));
+                return s;
+            }
             case StmtKind::ConditionalStmt {
                 var n = cast::<ConditionalStmt>(s);
                 if n->cond != &null { self.dispatch_expr(n->cond); }
@@ -475,24 +525,24 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             }
             case StmtKind::WhileLoopStmt {
                 var n = cast::<WhileLoopStmt>(s);
-                self._loop(n->cond, n->body, &null);
+                self._loop(n->cond, n->body, &null, !self._is_true_literal(n->cond));
                 return s;
             }
             case StmtKind::LoopStmt {
                 var n = cast::<LoopStmt>(s);
-                self._loop(&null, n->body, &null);
+                self._loop(&null, n->body, &null, false);
                 return s;
             }
             case StmtKind::RangedForStmt {
                 var n = cast::<RangedForStmt>(s);
                 if n->iterable != &null { self.dispatch_expr(n->iterable); }
-                self._loop(&null, n->body, &null);
+                self._loop(&null, n->body, &null, true);
                 return s;
             }
             case StmtKind::IndexedForStmt {
                 var n = cast::<IndexedForStmt>(s);
                 if n->init != &null { self.dispatch_stmt(n->init); }
-                self._loop(n->cond, n->body, n->update);
+                self._loop(n->cond, n->body, n->update, (n->cond != &null) && (!self._is_true_literal(n->cond)));
                 return s;
             }
             case StmtKind::MatchStmt {
@@ -532,22 +582,42 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                     // a field, a dereference -- is a copy unless cast.
                     if !isa::<NamedIdentExpr>(self._tu.strip_parens(n->value)) { self._transfer(n->value, "out of the function"); }
                 }
+                self._run_finallys_to(0);
                 self._st.dead = true;
                 return s;
             }
             case StmtKind::PanicStmt {
                 var n = cast::<PanicStmt>(s);
                 if n->payload != &null { self.dispatch_expr(n->payload); }
+                self._run_finallys_to(0);
                 self._st.dead = true;
                 return s;
             }
+            case StmtKind::LabeledStmt {
+                var n = cast::<LabeledStmt>(s);
+                self._pending_has_label = true;
+                self._pending_label     = n->label;
+                if n->inner != &null { self.dispatch_stmt(n->inner); }
+                self._pending_has_label = false;
+                return s;
+            }
             case StmtKind::BreakStmt {
-                if !self._loops.empty() { self._loops[self._loops.size() - 1].breaks.push_back(self._st); }
+                var n = cast::<BreakStmt>(s);
+                var f = self._target_frame(n->has_label, n->label);
+                if f != usize(-1) {
+                    self._run_finallys_to(self._loops[f].block_depth);
+                    self._loops[f].breaks.push_back(self._st);
+                }
                 self._st.dead = true;
                 return s;
             }
             case StmtKind::ContinueStmt {
-                if !self._loops.empty() { self._loops[self._loops.size() - 1].continues.push_back(self._st); }
+                var n = cast::<ContinueStmt>(s);
+                var f = self._target_frame(n->has_label, n->label);
+                if f != usize(-1) {
+                    self._run_finallys_to(self._loops[f].block_depth);
+                    self._loops[f].continues.push_back(self._st);
+                }
                 self._st.dead = true;
                 return s;
             }
@@ -560,10 +630,22 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// visible to a read on iteration two. `continue` states join the back
     /// edge; `break` states join the exit. The exit is reachable without
     /// entering the body at all (a false condition), so the entry state is
-    /// a path too.
-    priv fn _loop(self, cond: *Expr, body: *CompoundStmt, update: *Expr) {
+    /// a path too -- when \p finite. An infinite loop (`loop`, `while
+    /// true`, a C-style `for` with no condition; ReturnPathCheck's rule) is
+    /// left only by a `break`, so its exit is the join of the breaks alone:
+    /// neither the entry state nor the back edge reaches past it, and with
+    /// no break the code after it is dead.
+    priv fn _loop(self, cond: *Expr, body: *CompoundStmt, update: *Expr, finite: bool) {
         var entry = self._st;
-        self._loops.push_back(LoopFrame{});
+        // The body CompoundStmt is dispatched next and lands at exactly this
+        // index: cond and update are expressions, an IndexedForStmt init a
+        // DeclStmt, and none opens a block.
+        var frame = LoopFrame{};
+        frame.block_depth = self._blocks.size();
+        frame.has_label   = self._pending_has_label;
+        frame.label       = self._pending_label;
+        self._pending_has_label = false;
+        self._loops.push_back(frame);
 
         var exit1 = self._loop_pass(cond, body, update);
         self._st = move_join(entry, exit1);
@@ -573,10 +655,56 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         var fr = self._loops[self._loops.size() - 1];
         self._loops.pop_back();
 
-        var out = move_join(head, exit2);
-        out = move_join(out, entry);
+        var out = MoveState{};
+        out.dead = true;
+        if finite {
+            out = move_join(head, exit2);
+            out = move_join(out, entry);
+        }
         for var i: usize = 0; i < fr.breaks.size(); ++i { out = move_join(out, fr.breaks[i]); }
         self._st = out;
+    }
+
+    /// Walk the pending bodies of block \p i, last declared first -- LIFO
+    /// with the block's locals -- over the current state. Each body is a
+    /// block of its own and opens its own frame on top; block \p i stays
+    /// open, since the caller is still inside it structurally.
+    priv fn _run_block_finallys(self, i: usize) {
+        var k = self._blocks[i].size();
+        while k > 0 {
+            k = k - 1;
+            var fin = self._blocks[i][k];
+            if (fin != &null) && (fin->body != &null) { self.dispatch_stmt(static_cast::<*Stmt>(fin->body)); }
+        }
+    }
+
+    /// A jump out of every block from the innermost down to index \p to:
+    /// their pending bodies run, innermost block first.
+    priv fn _run_finallys_to(self, to: usize) {
+        var i = self._blocks.size();
+        while i > to {
+            i = i - 1;
+            self._run_block_finallys(i);
+        }
+    }
+
+    /// The frame a break/continue jumps to: the innermost loop, or the one
+    /// its label names. A label that names none was LoopContextCheck's
+    /// SC012E; usize(-1) then, and the jump only ends the path.
+    priv fn _target_frame(self, has_label: bool, label: Token) -> usize {
+        var i = self._loops.size();
+        if !has_label { return (i - 1) if (i > 0) else (usize(-1)); }
+        while i > 0 {
+            i = i - 1;
+            if self._loops[i].has_label && (self._loops[i].label.imm == label.imm) { return i; }
+        }
+        return usize(-1);
+    }
+
+    priv fn _is_true_literal(self, e: *Expr) -> bool {
+        if e == &null { return false; }
+        if !isa::<BooleanLiteralExpr>(e) { return false; }
+        return cast::<BooleanLiteralExpr>(e)->value;
     }
 
     /// One walk of cond -> body -> update, from the current state; returns
@@ -880,6 +1008,10 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     /// whole binding while a part of it is gone.
     priv fn _read_part(self, n: *NamedIdentExpr, d: *Decl, path: string) {
         if self._st.dead { return; }                         // unreachable: nothing to say.
+        // One error per USE as well: a loop body's second pass, or a finally
+        // body walked once per exit of its block, reaches the same node again
+        // after a redeclaration re-armed the binding's report.
+        if n->is_poisoned() { return; }
         var i = self._st.overlap_of(d, path);
         if i == usize(-1) { return; }
 

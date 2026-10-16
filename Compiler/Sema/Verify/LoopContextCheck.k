@@ -63,6 +63,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
     var labels:      vec::<Token>;    ///< enclosing loop labels, stack order.
     var label_floor: usize = 0;       ///< labels below this index are behind a fn/closure barrier.
     var finally_depth: u32 = 0;       ///< enclosing finally bodies this side of the barrier.
+    var body_depth: u32 = 0;          ///< enclosing function or closure bodies; 0 is file scope.
 
     fn LoopContextCheck(self, sc: *SemaContext) {
         self.sc = sc;
@@ -194,6 +195,16 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
     /// outer labels visible inside.
     fn traverse_finally_stmt(self, n: *FinallyStmt) -> *FinallyStmt {
         if self.dyn()->walkup_finally_stmt(n) == false { return n; }
+        // A file-scope statement has no enclosing function, so there is no
+        // body for the guard record to be local to and no scope whose exit
+        // runs it; FinallyLowering and MoveCheck both assume one.
+        if self.body_depth == 0 {
+            self.sc->diag->report(DiagID::SC001E, n->range.start,
+                "`finally` outside of a function body; it runs when its "
+                "enclosing scope is left, and file scope is never left"
+            ).first(n->range).emit();
+            return n;
+        }
         var saved_depth = self.loop_depth;
         var saved_floor = self.label_floor;
         self.loop_depth    = 0;
@@ -274,6 +285,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
         self.loop_depth    = 0;
         self.label_floor   = self.labels.size();
         self.finally_depth = 0;
+        self.body_depth    = self.body_depth + 1;
 
         if self.dyn()->walkup_function_decl(n) {
             for var i: usize = 0; i < n->generic_params.size(); i++ {
@@ -310,6 +322,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
 
         self.loop_depth    = saved_depth;
         self.label_floor   = saved_floor;
+        self.body_depth    = self.body_depth - 1;
         self.finally_depth = saved_fin;
         return n;
     }
@@ -321,6 +334,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
         self.loop_depth    = 0;
         self.label_floor   = self.labels.size();
         self.finally_depth = 0;
+        self.body_depth    = self.body_depth + 1;
 
         if self.dyn()->walkup_closure_expr(n) {
             for var i: usize = 0; i < n->generic_params.size(); i++ {
@@ -352,6 +366,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
 
         self.loop_depth    = saved_depth;
         self.label_floor   = saved_floor;
+        self.body_depth    = self.body_depth - 1;
         self.finally_depth = saved_fin;
         return n;
     }
