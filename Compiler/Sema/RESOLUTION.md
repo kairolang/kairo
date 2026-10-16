@@ -885,13 +885,13 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CopyMoveLowering (moves) -> TupleLowering -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
 NullableTypeLowering -> NullTestLowering ->
 CoalesceLowering -> MatchLowering/PatternCompilation ->
-PanicLowering/FinallyLowering -> YieldLowering ->
+PanicLowering -> YieldLowering ->
 TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
 CopyMoveLowering (copies) -> DestructorInsertion. Sugar first, control flow second,
 lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
@@ -922,6 +922,19 @@ the only decider, so the cast and the use-after-move check agree. It runs
 before every pass that rebuilds an expression, so each recorded node is
 still in the tree; SequenceLowering leaves the cast in place (a cast of a
 name is pure). Choosing a @copy constructor stays with the later slot.
+
+FinallyLowering [DONE]. `finally { body }` becomes a StructDecl declared in
+the function body whose `op delete` is the body, plus a local of it where
+the statement stood (`__kairo_FinK` / `__kairo_finK`, LangItems). C++'s
+rule for locals is the doc's `finally`: destroyed at the block's end, every
+exit, LIFO with the block's other locals. Captures (FreeVarScan,
+CaptureAnalysis.k) are the free automatic locals and the enclosing
+function's parameters, every one by address, in first-use order; the
+enclosing `self` is the `__kairo_owner` pointer field. Each use in the body
+is rewritten to `(*self.<field>)`. Statics and globals are not captured.
+EmitIR emits the record in place (`_local_record`), CXXSpell names a
+function-scope record by leaf, EmitPlan never admits one. A `finally` in a
+closure ICEs until lambdas are emitted.
 
 FieldInitLowering [DONE]. A class or struct field's initializer becomes
 its C++ default member initializer. A constant (an integer ConstEval
