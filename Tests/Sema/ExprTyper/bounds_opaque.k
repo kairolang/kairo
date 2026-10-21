@@ -39,11 +39,27 @@ fn <T impl Drawable> missing(x: T) -> i32 {
 }
 // DIAG: bounds_opaque.k:[[@LINE-2]]:14: error [R025E]: no member named 'tag' in the bounds of 'T'
 
-// `::` needs a scope. An interface declares neither statics nor nested types,
-// so an interface-only bound has none to offer.
+// `::` through a bound reaches its statics and nested types. Drawable declares
+// neither a static nor anything named COUNT, so the name is simply missing.
 fn <T impl Drawable> scoped(x: T) -> i32 {
     return T::COUNT
 }
-// DIAG: bounds_opaque.k:[[@LINE-2]]:15: error [R027E]: '::' on 'T': its interface bounds declare no static members or nested types
+// DIAG: bounds_opaque.k:[[@LINE-2]]:15: error [R025E]: no member named 'COUNT' in the bounds of 'T'
+
+// An instance member named through `::` is the wrong separator, not a missing
+// name.
+fn <T impl Drawable> wrong_sep(x: T) -> T {
+    return T::draw(x)
+}
+// DIAG: bounds_opaque.k:[[@LINE-2]]:15: error [R027E]: 'draw' is an instance member of the bounds of 'T'; use '.' on a value of 'T'
+
+// Bounds on a METHOD's own parameters are the method's promise exactly as on
+// a free function's.
+class Holder {
+    fn <T impl Drawable> bad(self, x: T) -> i32 {
+        return x.tag
+    }
+}
+// DIAG: bounds_opaque.k:[[@LINE-3]]:18: error [R025E]: no member named 'tag' in the bounds of 'T'
 
 // DIAG-NOT: error

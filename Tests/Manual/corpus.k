@@ -21,10 +21,6 @@ interface Numeric {
     fn op + (self, other: Self) -> Self
 }
 
-extend i32 impl Numeric {
-    static fn zero() -> i32 { return 0 }
-}
-
 // == generic stubs =========================================================
 
 class <L, R> Pair {
@@ -86,14 +82,11 @@ fn open(path: string) -> File {
 
 // == attrs + visibility on decls ==========================================
 
-@packed
-@deprecated("use NewThing", since: 2)
 pub struct OldThing {
     var a: i32
     var b: u8
 }
 
-@serializable(do_sum: true)
 class Foo derives OldThing impl Printable {
     pub var x: i32
     pub var y: i32 = 10

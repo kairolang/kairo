@@ -546,13 +546,13 @@ ffi "c" fn Reset_Handler() -> ! {
     adc_init()
     buzzer_init()
 
-    var now = now_us()
+    var now     = now_us()
     var display = Display(2, 10)
-    var led = RgbLed()
-    var player = Player()
-    var wav = WavPlayer()
-    var button = Button(15, now)
-    var stick = Stick(0, now)           // ADC0 = GP26 = VRy
+    var led     = RgbLed()
+    var player  = Player()
+    var wav     = WavPlayer()
+    var button  = Button(15, now)
+    var stick   = Stick(0, now)         // ADC0 = GP26 = VRy
 
     var preset = Countdown()            // 00:30
     var count = preset
