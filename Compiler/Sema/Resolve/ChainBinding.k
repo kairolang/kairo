@@ -994,19 +994,6 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             var r = Anchor{}; r.kind = AnchorKind::NeedsInference; r.decl = a.decl; return r;
         }
 
-        if st->access_kind == ChainExpr::AccessKind::ColonColon {
-            // `T::Name`: statics and nested types of a BASE. An interface
-            // declares neither today (no statics, no associated types), so a
-            // parameter bounded only by interfaces has an empty `::` scope.
-            if b.bases.size() == 0 {
-                self._err(DiagID::R027E, at,
-                    f"'::' on '{pname}': its interface bounds declare no static members or nested types");
-                st->name->poison();
-                self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
-                var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
-            }
-        }
-
         var imm = self._name_imm(st->name->name);
         if imm == u32(-1) {
             var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
@@ -1021,6 +1008,26 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         for var i: usize = 0; i < b.bases.size(); ++i {
             self.ml.lookup(self.sc->types->record(b.bases[i], &empty), name, &cands);
         }
+        // `T::Name` names the bounds' statics and nested types only: static
+        // fns, static fields/vars, and type members, from interface and base
+        // bounds alike. An instance member reached by `::` is the wrong
+        // separator, not a missing name, and says so.
+        if st->access_kind == ChainExpr::AccessKind::ColonColon {
+            var inst: *Decl = &null;
+            var keep = vec::<*Decl>();
+            for var i: usize = 0; i < cands.size(); ++i {
+                if self._is_scope_member(cands[i]) { keep.push_back(cands[i]); }
+                else if inst == &null { inst = cands[i]; }
+            }
+            if keep.empty() && (inst != &null) {
+                self._err(DiagID::R027E, at,
+                    f"'{spelled}' is an instance member of the bounds of '{pname}'; use '.' on a value of '{pname}\x27");
+                st->name->poison();
+                self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
+                var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
+            }
+            cands = keep;
+        }
         if cands.empty() {
             self._err(DiagID::R025E, at, f"no member named '{spelled}' in the bounds of '{pname}\x27");
             st->name->poison();
@@ -1031,6 +1038,21 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         // is already right: an interface method yields NeedsInference (a call
         // result), a base field yields that field's declared type.
         return self._commit(st, loc, &cands, self._bound_owner(&b), &null);
+    }
+
+    /// Whether \p d is reachable through `::`: a static fn, a static field or
+    /// variable, or a nested type. Mirrors NameResolution's static/instance
+    /// split (a FunctionDecl that is not a method is static).
+    priv fn _is_scope_member(self, d: *Decl) -> bool {
+        if d == &null { return false; }
+        var f = dyn_cast::<FieldDecl>(d);
+        if f != &null { return f->storage == StorageClass::Static; }
+        var v = dyn_cast::<VariableDecl>(d);
+        if v != &null { return v->is_static(); }
+        var fn_ = dyn_cast::<FunctionDecl>(d);
+        if fn_ != &null { return !fn_->is_method(); }
+        return isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)
+            || isa::<EnumDecl>(d)  || isa::<InterfaceDecl>(d) || isa::<TypeAliasDecl>(d);
     }
 
     /// The decl a bound-resolved member is REPORTED against: the sole bound

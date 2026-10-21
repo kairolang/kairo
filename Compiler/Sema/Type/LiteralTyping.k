@@ -269,17 +269,20 @@ class <T> LiteralTyping {
         var ex = canon_unqual(dyn()->tu.strip_nullable(expected));
         var elem_expected = dyn()->tu.container_elem(ex);
         var elem: *Type = elem_expected;
+        var hole: *Expr = &null;
         for var i: usize = 0; i < n->elements.size(); ++i {
             var t = dyn()->type_of(n->elements[i], elem_expected);
-            if t == &null { continue; }
+            if t == &null { if hole == &null { hole = n->elements[i]; } continue; }
             if elem_expected != &null { dyn()->check_convertible(n->elements[i], elem_expected); continue; }
             var j = dyn()->conv.join(elem, t);
             if j == &null {
                 dyn()->fail(n->elements[i], DiagID::SC077E, f"list element of type '{dyn()->tu.str(t)}' does not match the earlier element type '{dyn()->tu.str(elem)}\x27");
+                dyn()->poison_only(n);
                 return &null;
             }
             elem = j;
         }
+        if hole != &null { self._lift_hole(n, hole); return &null; }
         var count = n->elements.size();
         if elem == &null {
             if count == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the element type of an empty list; annotate the target"); }
@@ -677,14 +680,16 @@ class <T> LiteralTyping {
     fn type_set_literal(self, n: *SetLiteralExpr, expected: *Type) -> *Type {
         var elem_expected = dyn()->tu.container_elem(dyn()->tu.strip_nullable(expected));
         var elem: *Type = elem_expected;
+        var hole: *Expr = &null;
         for var i: usize = 0; i < n->elements.size(); ++i {
             var t = dyn()->type_of(n->elements[i], elem_expected);
-            if t == &null { continue; }
+            if t == &null { if hole == &null { hole = n->elements[i]; } continue; }
             if elem_expected != &null { dyn()->check_convertible(n->elements[i], elem_expected); continue; }
             var j = dyn()->conv.join(elem, t);
-            if j == &null { dyn()->fail(n->elements[i], DiagID::SC077E, "set elements do not share a type"); return &null; }
+            if j == &null { dyn()->fail(n->elements[i], DiagID::SC077E, "set elements do not share a type"); dyn()->poison_only(n); return &null; }
             elem = j;
         }
+        if hole != &null { self._lift_hole(n, hole); return &null; }
         if elem == &null {
             if n->elements.size() == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the element type of an empty set; annotate the target"); }
             return &null;
@@ -696,28 +701,45 @@ class <T> LiteralTyping {
         var ek: *Type = &null; var ev: *Type = &null;
         dyn()->tu.map_key_value(dyn()->tu.strip_nullable(expected), &ek, &ev);
         var k: *Type = ek; var v: *Type = ev;
+        var hole: *Expr = &null;
         for var i: usize = 0; i < n->entries.size(); ++i {
             var en = n->entries.get(i);
             var kt = dyn()->type_of(en->key, ek);
             var vt = dyn()->type_of(en->value, ev);
+            if (kt == &null) && (hole == &null) { hole = en->key; }
+            if (vt == &null) && (hole == &null) { hole = en->value; }
+            if (kt == &null) || (vt == &null) { continue; }
             if ek != &null { dyn()->check_convertible(en->key, ek); }
             else if kt != &null {
                 var j = dyn()->conv.join(k, kt);
-                if j == &null { dyn()->fail(en->key, DiagID::SC077E, "map keys do not share a type"); return &null; }
+                if j == &null { dyn()->fail(en->key, DiagID::SC077E, "map keys do not share a type"); dyn()->poison_only(n); return &null; }
                 k = j;
             }
             if ev != &null { dyn()->check_convertible(en->value, ev); }
             else if vt != &null {
                 var j = dyn()->conv.join(v, vt);
-                if j == &null { dyn()->fail(en->value, DiagID::SC077E, "map values do not share a type"); return &null; }
+                if j == &null { dyn()->fail(en->value, DiagID::SC077E, "map values do not share a type"); dyn()->poison_only(n); return &null; }
                 v = j;
             }
         }
+        if hole != &null { self._lift_hole(n, hole); return &null; }
         if (k == &null) || (v == &null) {
             if n->entries.size() == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the key and value types of an empty map; annotate the target"); }
             return &null;
         }
         return dyn()->tu.map_of(k, v);
+    }
+
+    /// An aggregate literal whose element came back untyped takes the
+    /// element's outcome: poisoned with it, or unknown with it. Returning null
+    /// without one of those leaves the literal in no terminal state, which
+    /// finish() treats as a typer bug. A child that is neither (a type- or
+    /// module-denoting expr used as a value) has no diagnostic of its own, so
+    /// it gets one here.
+    fn _lift_hole(self, n: *Expr, child: *Expr) {
+        if dyn()->propagate(n, child) { return; }
+        dyn()->fail(child, DiagID::SC077E, "this element has no value type");
+        dyn()->poison_only(n);
     }
 
     fn type_tuple_literal(self, n: *TupleLiteralExpr, expected: *Type) -> *Type {
@@ -727,15 +749,15 @@ class <T> LiteralTyping {
         var have_expected = (ex != &null) && dyn()->tu.is_tuple(ex) && (dyn()->tu.tuple_arity(ex) == n->elements.size());
         var ex_elems = dyn()->tu.tuple_elems(ex);
         var elems = vec::<*Type>();
-        var ok = true;
+        var hole: *Expr = &null;
         for var i: usize = 0; i < n->elements.size(); ++i {
             var e_exp: *Type = (ex_elems[i]) if (have_expected) else (&null);
             var t = dyn()->type_of(n->elements[i], e_exp);
-            if t == &null { ok = false; continue; }
+            if t == &null { if hole == &null { hole = n->elements[i]; } continue; }
             if e_exp != &null { dyn()->check_convertible(n->elements[i], e_exp); }
             elems.push_back(t);
         }
-        if !ok { return &null; }
+        if hole != &null { self._lift_hole(n, hole); return &null; }
         var t = dyn()->tu.tuple_of(&elems);
         if t == &null { dyn()->missing_lang_item(n, tuple_record_name(elems.size())); return &null; }
         return t;

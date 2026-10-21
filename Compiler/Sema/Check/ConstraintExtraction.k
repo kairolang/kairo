@@ -107,14 +107,17 @@ class ConstraintExtraction {
                 var n = cast::<StructDecl>(d);
                 self._extract(d, n->requires_clause, false);
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             } case DeclKind::ClassDecl {
                 var n = cast::<ClassDecl>(d);
                 self._extract(d, n->requires_clause, false);
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             } case DeclKind::InterfaceDecl {
                 var n = cast::<InterfaceDecl>(d);
                 self._extract(d, n->requires_clause, false);
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             } case DeclKind::EnumDecl {
                 var n = cast::<EnumDecl>(d);
                 self._extract(d, n->requires_clause, false);
@@ -123,10 +126,12 @@ class ConstraintExtraction {
                 var n = cast::<UnionDecl>(d);
                 self._extract(d, n->requires_clause, false);
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             } case DeclKind::ExtensionDecl {
                 var n = cast::<ExtensionDecl>(d);
                 self._extract(d, n->requires_clause, false);
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             } case DeclKind::TypeAliasDecl {
                 // is_alias=true: a conformance constraint here meaningless
                 var n = cast::<TypeAliasDecl>(d);
@@ -134,6 +139,15 @@ class ConstraintExtraction {
             } default {
                 break; // nothing to do
             }
+        }
+    }
+
+    /// Recurse into a type body's methods. A type body's dc_decls holds only
+    /// nested types and visibility-group wrappers; its methods live in the
+    /// flat `methods` list (grouped ones included), so they are walked here.
+    priv fn _recurse_methods(self, ms: *FrozenList::<*FunctionDecl>) {
+        for var i: usize = 0; i < ms->size(); i++ {
+            self._visit_decl(static_cast::<*Decl>(*(ms->get(i))));
         }
     }
 

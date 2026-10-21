@@ -89,16 +89,19 @@ class RequiresDesugar {
                 var n = cast::<StructDecl>(d);
                 self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             }
             case DeclKind::ClassDecl {
                 var n = cast::<ClassDecl>(d);
                 self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             }
             case DeclKind::InterfaceDecl {
                 var n = cast::<InterfaceDecl>(d);
                 self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             }
             case DeclKind::EnumDecl {
                 var n = cast::<EnumDecl>(d);
@@ -109,11 +112,13 @@ class RequiresDesugar {
                 var n = cast::<UnionDecl>(d);
                 self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             }
             case DeclKind::ExtensionDecl {
                 var n = cast::<ExtensionDecl>(d);
                 self._hoist_bounds(&(n->generic_params), &(n->requires_clause));
                 self._recurse_members(static_cast::<*DeclContext>(n));
+                self._recurse_methods(&(n->methods));
             }
             case DeclKind::TypeAliasDecl {
                 // Alias bounds are meaningless (no body); still normalized so
@@ -126,7 +131,16 @@ class RequiresDesugar {
         }
     }
 
-    /// Recurse into a DeclContext's owned members (nested types, methods).
+    /// Recurse into a DeclContext's owned decls (nested types only for a type body).
+    /// Recurse into a type body's methods. A type body's dc_decls holds only
+    /// nested types and visibility-group wrappers; its methods live in the
+    /// flat `methods` list (grouped ones included), so they are walked here.
+    priv fn _recurse_methods(self, ms: *FrozenList::<*FunctionDecl>) {
+        for var i: usize = 0; i < ms->size(); i++ {
+            self._visit_decl(static_cast::<*Decl>(*(ms->get(i))));
+        }
+    }
+
     priv fn _recurse_members(self, dc: *DeclContext) {
         if dc == &null { return; }
         for var i: usize = 0; i < dc->dc_decls.size(); i++ {
