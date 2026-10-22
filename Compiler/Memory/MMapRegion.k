@@ -125,8 +125,11 @@ class MMapRegion {
 
             if (fsize.QuadPart) == 0 { // empty file, map to a non-null zero-length region
                 CloseHandle(hFile);
+                // Nothing was mapped: the region points at a literal and must
+                // never hand it to UnmapViewOfFile.
                 self._data = const_cast::<*u8>(reinterpret_cast::<const *u8>(r""));
                 self._size = 0;
+                self._owns = false;
                 _valid = true;
                 return true;
             }
@@ -161,6 +164,7 @@ class MMapRegion {
 
             self._data = mapping;
             self._size = (fsize.QuadPart) as usize;
+            self._owns = true;
             self._valid = true;
         } else {
             var path_str = *path;
@@ -177,8 +181,10 @@ class MMapRegion {
 
             if st.st_size == 0 {
                 ::close(fd);
+                // As above: a literal, not a mapping, so never munmap it.
                 self._data = const_cast::<*u8>(reinterpret_cast::<const *u8>(r""));
                 self._size = 0;
+                self._owns = false;
                 _valid = true;
                 return true;
             }
@@ -200,6 +206,7 @@ class MMapRegion {
 
             self._data = mapping;
             self._size = (st.st_size) as usize;
+            self._owns = true;
             _valid = true;
         }
 
@@ -275,5 +282,10 @@ class MMapRegion {
 
         self._data  = parent->_data + offset;
         self._valid = true;
+        // A view never owns: left at the default, this region's destructor
+        // unmapped the PARENT's mapping (the parent then unmapped it again),
+        // and for an empty file the "mapping" is a literal inside the
+        // executable's own image, which UnmapViewOfFile then tore out.
+        self._owns  = false;
     }
 }
