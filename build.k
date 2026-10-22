@@ -281,11 +281,9 @@ fn windows_sdk_paths(t: ref!(Target)) {
 
             if RegQueryValueExA(hkey, r"KitsRoot10", &null, &null,
               reinterpret_cast::<LPBYTE>(buf), &sz) == ERROR_SUCCESS {
-                sdk_lib_root = (
-                    kairo::std::nstring_to_string(
-                        inline "c++" { reinterpret_cast<const char*>(buf) }
-                    )
-                ) + kairo::std::nstring_to_string(r"Lib");
+                sdk_lib_root = string(
+                    inline "c++" { reinterpret_cast<const char*>(buf) }
+                ) + "Lib";
             }
 
             RegCloseKey(hkey);
@@ -296,10 +294,10 @@ fn windows_sdk_paths(t: ref!(Target)) {
         }
 
         var newest_sdk: string = "";
-        for entry in libcxx::filesystem::directory_iterator(sdk_lib_root.raw()) {
+        for entry in libcxx::filesystem::directory_iterator(sdk_lib_root.std_string()) {
             if entry.is_directory() {
-                var name = kairo::std::nstring_to_string(entry.path().filename().string().c_str());
-                if name.starts_with(kairo::std::nstring_to_string(r"10.")) && (name > newest_sdk) {
+                var name = string(entry.path().filename().string());
+                if name.starts_with("10.") && (name > newest_sdk) {
                     newest_sdk = name;
                 }
             }
@@ -325,9 +323,9 @@ fn windows_sdk_paths(t: ref!(Target)) {
                 if path_exists(msvc_tools) {
                     var newest_msvc: string = "";
                     inline "c++" {
-                        for (auto& entry : libcxx::filesystem::directory_iterator(msvc_tools.raw())) {
+                        for (auto& entry : libcxx::filesystem::directory_iterator(msvc_tools.std_string())) {
                             if (entry.is_directory()) {
-                                auto name = kairo::std::nstring_to_string(entry.path().filename().string().c_str());
+                                auto name = kairo::string(entry.path().filename().string());
                                 if (name > newest_msvc) { newest_msvc = name; }
                             }
                         }

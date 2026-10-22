@@ -1048,8 +1048,8 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         if key >= bias { return self.synth.int_literal(self._at, key - bias, kind); }
         var mag = bias - key;
         if (d.bits == 64) && (mag == bias) {
-            var near = self._neg(self.synth.int_literal(self._at, bias - u64(1), kind), t);
-            return self._arith(near, self.synth.int_literal(self._at, 1, kind), TokenKind::OpMinus, t);
+            var adjacent = self._neg(self.synth.int_literal(self._at, bias - u64(1), kind), t);
+            return self._arith(adjacent, self.synth.int_literal(self._at, 1, kind), TokenKind::OpMinus, t);
         }
         return self._neg(self.synth.int_literal(self._at, mag, kind), t);
     }
