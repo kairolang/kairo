@@ -1001,9 +1001,9 @@ inline string get_default_target_triple() noexcept {
 #if defined(__APPLE__)
     return "aarch64-apple-macosx11.0.0";
 #elif defined(__linux__)
-    return "aarch64-unknown-linux-gnu";
+    return "aarch64-unknown-linux-musl";
 #elif defined(_WIN32)
-    return "aarch64-pc-windows-msvc";
+    return "aarch64-pc-windows-gnu";
 #else
     return "aarch64-unknown-unknown";
 #endif
@@ -1011,17 +1011,17 @@ inline string get_default_target_triple() noexcept {
 #if defined(__APPLE__)
     return "x86_64-apple-macosx10.15.0";
 #elif defined(__linux__)
-    return "x86_64-unknown-linux-gnu";
+    return "x86_64-unknown-linux-musl";
 #elif defined(_WIN32)
-    return "x86_64-pc-windows-msvc";
+    return "x86_64-pc-windows-gnu";
 #else
     return "x86_64-unknown-unknown";
 #endif
 #elif defined(__riscv)
 #if defined(__riscv_xlen) && (__riscv_xlen == 64)
-    return "riscv64-unknown-linux-gnu";
+    return "riscv64-unknown-linux-musl";
 #else
-    return "riscv32-unknown-linux-gnu";
+    return "riscv32-unknown-linux-musl";
 #endif
 #elif defined(__wasm32__)
     return "wasm32-unknown-unknown";

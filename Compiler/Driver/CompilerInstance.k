@@ -543,6 +543,30 @@ class CompilerInstance {
         return string(triple.getTriple());
     }
 
+    /// The triple compiled for without --target: the host's arch and OS with
+    /// the C library the compiler ships, not whichever the host was built
+    /// against. The default install bundles only MinGW-w64 and musl (with
+    /// libc++), so Windows is <arch>-pc-windows-gnu, never msvc, and Linux is
+    /// <arch>-...-linux-musl on every arch (the eabi/eabihf float ABI kept on
+    /// 32-bit ARM), never glibc. Any other host keeps its own triple.
+    fn get_default_target_triple(self) -> string {
+        var triple = llvm::Triple(llvm::Triple::normalize(sref(self.get_target_triple())));
+        if triple.isOSWindows() {
+            triple.setVendor(llvm::Triple::PC);
+            triple.setEnvironment(llvm::Triple::GNU);
+        } else if triple.isOSLinux() {
+            var env = triple.getEnvironment();
+            if (env == llvm::Triple::GNUEABIHF) || (env == llvm::Triple::MuslEABIHF) {
+                triple.setEnvironment(llvm::Triple::MuslEABIHF);
+            } else if (env == llvm::Triple::GNUEABI) || (env == llvm::Triple::MuslEABI) {
+                triple.setEnvironment(llvm::Triple::MuslEABI);
+            } else {
+                triple.setEnvironment(llvm::Triple::Musl);
+            }
+        }
+        return string(triple.getTriple());
+    }
+
     /// No-op when the instance was built from an invocation: there is no flag
     /// table to describe and no argv[0] to name in the USAGE line.
     fn print_help(self) {
@@ -647,17 +671,23 @@ class CompilerInstance {
     /// the rest of the driver does: --target=x86_64-linux-musl -m32 finds
     /// i686-linux-musl.
     ///
+    /// Without --target the same lookup runs for the default target
+    /// (get_default_target_triple), unless --sysroot was given: an explicit
+    /// --sysroot outranks only an implicit target.
+    ///
     /// No match is not an error: --sysroot is used if given, and otherwise
-    /// there are no system headers, as without a --target. A match that is
-    /// not a directory holding a loadable SYSROOT.toml is P007E: compiling
-    /// against half a sysroot fails much later, far from the cause.
+    /// there are no system headers. A match that is not a directory holding
+    /// a loadable SYSROOT.toml is P007E: compiling against half a sysroot
+    /// fails much later, far from the cause.
     ///
     /// \return false if a match was malformed (already reported).
     priv fn _use_bundled_sysroot(self) -> bool {
         var tg = &(self.invocation().target);
-        if tg->triple.empty() { return true; }
-
         var want = tg->triple;
+        if want.empty() {
+            if !tg->sysroot.empty() { return true; }
+            want = self.get_default_target_triple();
+        }
         if tg->m32 || tg->m64 {
             var tt = llvm::Triple(llvm::Triple::normalize(sref(want)));
             tt = (tt.get32BitArchVariant()) if (tg->m32) else (tt.get64BitArchVariant());
@@ -710,7 +740,8 @@ class CompilerInstance {
         return ta.getSubArch() == tb.getSubArch();
     }
 
-    /// Returns the effective target triple: --target if given, else host triple.
+    /// Returns the effective target triple: --target if given, else the
+    /// default target (get_default_target_triple).
     ///
     /// Reads the typed option rather than the raw flag so it works on the
     /// invocation path too. TargetOptions::triple is set verbatim from
@@ -719,7 +750,7 @@ class CompilerInstance {
         var tg = &(self.invocation().target);
         var t  = tg->triple;
         var explicit_target = !t.empty();
-        if !explicit_target { t = self.get_target_triple(); }
+        if !explicit_target { t = self.get_default_target_triple(); }
 
         // -m32/-m64 rewrite the ARCH of the triple, as clang does, so the cc1
         // `-triple` agrees with the sysroot _use_bundled_sysroot picked with
