@@ -47,8 +47,16 @@ ffi "c++" import "llvm/Target/TargetMachine.h";
 ffi "c++" import "llvm/Target/TargetOptions.h";
 ffi "c++" import "llvm/Support/CodeGen.h";
 
-fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
-    static var init_llvm = llvm::InitLLVM(argc, argv);
+/// \return the InitLLVM guard; main destroys it before returning.
+///
+/// \details Not a function-local static: its destructor runs llvm_shutdown,
+///          and as a static, built first, it was destroyed LAST -- after the
+///          parallel executor lld's parallelFor creates on first use, a static
+///          built later and so destroyed earlier. llvm_shutdown then stopped
+///          that dead executor and locked its freed mutex: an intermittent
+///          crash at exit, on the runs that linked.
+fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) -> *llvm::InitLLVM {
+    var init_llvm = std::create::<llvm::InitLLVM>(argc, argv);
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
     llvm::InitializeAllTargetMCs();
@@ -80,6 +88,8 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
         // pthread_setattr_default_np(&attr);
         pthread_attr_destroy(&attr);
     }
+
+    return init_llvm;
 }
 
 /// \brief raw argv scan for the timing switches, before any option machinery
@@ -145,6 +155,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     if want_tp { time_enable(true, want_tt); }
 
     var ci: *CompilerInstance = &null;
+    var llvm_init: *llvm::InitLLVM = &null;
 
     {
         var _t_startup = TimeRegion("Startup");
@@ -152,7 +163,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         {
             var _t_rt = TimeRegion("Runtime");
             Logger::init(Logger::Level::Trace);
-            init_runtime(argc, argv);
+            llvm_init = init_runtime(argc, argv);
         }
 
         {
@@ -169,6 +180,9 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         Logger::dump_to_file();
         Logger::shutdown();
         GlobalRecycler::shutdown_allocator_runtime();
+        // llvm_shutdown, while every static it reaches is still alive (see
+        // init_runtime). Last: nothing after this touches LLVM.
+        std::destroy(llvm_init);
     }
 
     finally { std::destroy(ci); }
