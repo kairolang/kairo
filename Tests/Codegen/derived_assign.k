@@ -168,7 +168,7 @@ fn main() -> i32 {
 // CXX:       class Poly {
 // CXX:       Poly& operator=(const{{ ?}}::derived_assign::Poly&) = delete;
 
-// REQUIRES: clang
+// REQUIRES: clang, llvm-nm
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -c --cache-dir %t.d/k
 // RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.exe
@@ -179,4 +179,4 @@ fn main() -> i32 {
 // RUN: %kairo %s -c -O2 --cache-dir %t.d/o2
 // RUN: %clangxx %t.d/o2/*.o %t.d/o2/builtin/*.o %t.d/o2/kairo/*.o -o %t.o2.exe
 // RUN: %t.o2.exe; test $? -eq 127
-// RUN: nm %t.d/k/derived_assign.o %t.d/o2/derived_assign.o | { ! grep -q _Znw; }
+// RUN: %nm %t.d/k/derived_assign.o %t.d/o2/derived_assign.o | { ! grep -q _Znw; }

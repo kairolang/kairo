@@ -4,7 +4,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 // RUN: { %kairo %s --target=x86_64-linux-musl --print-ld-args --shared 2>&1 || true; } | %FileCheck %s --check-prefix=ERR
 // ERR: error [L001E]: cannot build a shared library: the sysroot {{.*}} is static-only
 // ERR: pass --target for a dynamic target

@@ -25,7 +25,7 @@ fn main() -> i32 {
 // CXX: .next()
 // CXX: .current()
 
-// REQUIRES: clang
+// REQUIRES: clang, llvm-objdump
 // RUN: rm -rf %t.d %t.o3
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 13
@@ -33,4 +33,4 @@ fn main() -> i32 {
 // A method generator's frame holds a pointer to self rather than a copy,
 // the case that could defeat clang's escape check: -O3 must still elide it.
 // RUN: %kairo %s -c -O3 --cache-dir %t.o3
-// RUN: objdump -dr --no-show-raw-insn %t.o3/user.o | awk '/<main>:/,/^$/' | { ! grep -q _Znwm; }
+// RUN: %objdump -dr --no-show-raw-insn %t.o3/user.o | awk '/<_?main>:/,/^$/' | { ! grep -q _Znw; }

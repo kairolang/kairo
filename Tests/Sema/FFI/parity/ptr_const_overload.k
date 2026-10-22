@@ -26,7 +26,7 @@ fn use_ptrs() {
 // `-- inferred decls --` of its own: anchor on this file's header first.
 // SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}ptr_const_overload.k =====
 // SEMA:      -- inferred decls --
-// SEMA-NEXT: a : i64
+// SEMA-NEXT: a : [[CLONG]]
 // SEMA-NEXT: b : i32
 // SEMA-NEXT: c : i32
 
@@ -36,5 +36,5 @@ fn use_ptrs() {
 //
 // RUN: %parity %s
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA %datamodel
 // REQUIRES: clang

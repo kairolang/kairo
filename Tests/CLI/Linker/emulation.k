@@ -5,7 +5,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 // RUN: %kairo %s --target=x86_64-linux-musl --emulation=elf_i386 --print-ld-args | %FileCheck %s
 // CHECK:      ld.lld
 // CHECK-SAME: -m elf_i386

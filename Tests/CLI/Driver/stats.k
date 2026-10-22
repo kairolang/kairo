@@ -9,4 +9,5 @@ fn main() -> i32 { return 0 }
 // CHECK: Kairo Compilation Timing Report
 // RUN: %kairo %s --type-check-only --stats-file=%t.stats
 // RUN: %FileCheck %s --input-file=%t.stats
-// RUN: not %kairo %s --type-check-only --stats-file=/proc/no_such_dir/s > /dev/null 2>&1
+// RUN: rm -rf %t.notadir && echo > %t.notadir
+// RUN: not %kairo %s --type-check-only --stats-file=%t.notadir/no_such_dir/s > /dev/null 2>&1

@@ -3,6 +3,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: %kairo %s --z-noexecstack --print-ld-args | %FileCheck %s
+// REQUIRES: sysroot-x86_64-linux-musl
+// RUN: %kairo %s --target=x86_64-linux-musl --z-noexecstack --print-ld-args | %FileCheck %s
 // CHECK: ld.lld
 // CHECK-SAME: -z noexecstack

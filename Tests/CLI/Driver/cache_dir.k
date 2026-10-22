@@ -5,8 +5,8 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: bundled-sysroot
+// REQUIRES: default-sysroot
 // The dir must exist: the builtin objects are compiled into it first.
 // RUN: mkdir -p %t.cd
-// RUN: %kairo %s --target=x86_64-linux-musl --print-ld-args --cache-dir=%t.cd | %FileCheck %s
+// RUN: %kairo %s --print-ld-args --cache-dir=%t.cd | %FileCheck %s
 // CHECK: {{[^ ]*}}cache_dir.k.tmp.cd/{{[^ ]*}}.o

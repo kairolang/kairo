@@ -4,6 +4,6 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 // RUN: %kairo %s --target=x86_64-linux-musl --print-ld-args --build-id= | %FileCheck %s --check-prefix=EMPTY
 // EMPTY: --build-id=fast

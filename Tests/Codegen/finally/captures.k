@@ -182,11 +182,11 @@ fn main() -> i32 {
 // The shape of the captures: pointer fields in first-use order, a `const`
 // parameter as a pointer to const, the global named and never a field,
 // `self` in a const method as a pointer to a const owner.
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      void consts(const signed long c) {
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX %datamodel
+// CXX:      void consts(const [[CXX_I64]] c) {
 // CXX:      struct __kairo_Fin{{[0-9]+}} {
-// CXX-NEXT:   const signed long * c;
-// CXX-NEXT:   const signed long * k;
+// CXX-NEXT:   const [[CXX_I64]] * c;
+// CXX-NEXT:   const [[CXX_I64]] * k;
 // CXX-NEXT:   ~__kairo_Fin
 // CXX:      get() const {
 // CXX:      struct __kairo_Fin{{[0-9]+}} {

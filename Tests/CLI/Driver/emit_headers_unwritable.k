@@ -4,6 +4,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only --emit-headers=/proc/no_such_dir/hdr 2>&1 || true; } | %FileCheck %s
-// RUN: not %kairo %s --type-check-only --emit-headers=/proc/no_such_dir/hdr > /dev/null 2>&1
+// RUN: rm -rf %t.notadir && echo > %t.notadir
+// RUN: { %kairo %s --type-check-only --emit-headers=%t.notadir/no_such_dir/hdr 2>&1 || true; } | %FileCheck %s
+// RUN: not %kairo %s --type-check-only --emit-headers=%t.notadir/no_such_dir/hdr > /dev/null 2>&1
 // CHECK: error [U001E]: cannot write C++ header

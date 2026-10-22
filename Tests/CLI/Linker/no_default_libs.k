@@ -6,7 +6,7 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 // RUN: %kairo --target=x86_64-linux-musl --print-ld-args %s | %FileCheck %s --check-prefix=BASE
 // BASE: --start-group
 // BASE-SAME: -lc++

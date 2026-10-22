@@ -5,4 +5,4 @@ fn main() -> i32 { var a: i32 = u1; return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S && { %kairo diag_absolute_paths.k --type-check-only --diag-absolute-paths 2>&1 || true; } | %FileCheck %s
-// CHECK: {{^}}/{{.*}}diag_absolute_paths.k:{{[0-9]+}}:{{[0-9]+}}: error [R020E]: use of undeclared identifier 'u1'
+// CHECK: {{^([A-Za-z]:)?}}/{{.*}}diag_absolute_paths.k:{{[0-9]+}}:{{[0-9]+}}: error [R020E]: use of undeclared identifier 'u1'

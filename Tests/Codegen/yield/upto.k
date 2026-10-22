@@ -30,7 +30,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR: co_yield(i);
 
-// REQUIRES: clang
+// REQUIRES: clang, llvm-objdump
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 45
@@ -39,4 +39,6 @@ fn main() -> i32 {
 // -O3 folds the whole generator: main is `mov $0x2d,%eax; ret`.
 // RUN: rm -rf %t.o3
 // RUN: %kairo %s -c -O3 --cache-dir %t.o3
-// RUN: objdump -dr --no-show-raw-insn %t.o3/upto.o | awk '/<main>:/,/^$/' | { ! grep -q call; }
+// MinGW's main opens with `call __main` (CRT static init); the sed drops
+// that call and its relocation line.
+// RUN: %objdump -dr --no-show-raw-insn %t.o3/upto.o | awk '/<_?main>:/,/^$/' | sed '/call/{N;/__main/d;}' | { ! grep -qE 'call|[[:space:]]bl[[:space:]]|[[:space:]]jalr[[:space:]]'; }

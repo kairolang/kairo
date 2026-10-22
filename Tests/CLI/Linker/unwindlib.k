@@ -1,6 +1,6 @@
 // --unwindlib rejects unknown values with a linker-category error naming the
 // accepted ones.
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 
 fn main() -> i32 { return 0 }
 

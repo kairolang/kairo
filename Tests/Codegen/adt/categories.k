@@ -160,15 +160,17 @@ fn main() -> i32 {
 // CXX-NEXT:  PinnedSlot& operator=(PinnedSlot&&) = delete;
 // CXX-NEXT:  ~PinnedSlot() {
 
-// REQUIRES: clang
+// REQUIRES: clang, llvm-objdump
 // RUN: rm -rf %t.d %t.o2
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 15
 
 // Opt<i32> is eight bytes and trivially copyable, so twice() returns it in a
 // register: at -O2 no call and no load, store, push or pop (padding nops
-// aside, which are written with a memory operand).
+// aside, which are written with a memory operand). Spelled for x86 (push,
+// pop, `(%` memory operands), AArch64 (ldr/str/ldp/stp) and RISC-V (l*/s*,
+// jalr), so the check holds on whichever arch the host is.
 // RUN: %kairo %s -c -O2 --cache-dir %t.o2
-// RUN: objdump -d --no-show-raw-insn %t.o2/categories.o | awk '/<[^>]*5twice[^>]*>:/,/^$/' | grep -v nop > %t.twice.s
+// RUN: %objdump -d --no-show-raw-insn %t.o2/categories.o | awk '/<[^>]*5twice[^>]*>:/,/^$/' | grep -v nop > %t.twice.s
 // RUN: grep -q ret %t.twice.s
-// RUN: { ! grep -qE 'call|push|pop|\(%' %t.twice.s; }
+// RUN: { ! grep -qE 'call|push|pop|\(%|[[:space:]](bl|ldr|str|ldp|stp|jalr|ld|sd|lw|sw)[[:space:]]' %t.twice.s; }

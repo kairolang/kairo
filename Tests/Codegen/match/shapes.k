@@ -32,15 +32,15 @@ fn main() -> i32 = level(Level::Info) + status(200) + word("abc")
 // chain an if-chain of ranges stays as.
 // Strings: length first, every memcmp inlined.
 //
-// REQUIRES: clang
+// REQUIRES: clang, llvm-objdump
 // RUN: rm -rf %t.o2 %t.o3
 // RUN: %kairo %s -c -O2 --cache-dir %t.o2
 // RUN: %kairo %s -c -O3 --cache-dir %t.o3
 // --show-all-symbols: on Mach-O the assembler's ltmp0 shares the first
 // function's address and would otherwise be the only label printed there.
-// RUN: llvm-objdump --show-all-symbols -d --no-show-raw-insn %t.o2/shapes.o > %t.o2.s
-// RUN: llvm-objdump --show-all-symbols -d --no-show-raw-insn %t.o3/shapes.o > %t.o3.s
-// RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o2.s | grep -qE 'ud2|brk'
-// RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o3.s | { ! grep -qE 'ud2|brk'; }
+// RUN: %objdump --show-all-symbols -d --no-show-raw-insn %t.o2/shapes.o > %t.o2.s
+// RUN: %objdump --show-all-symbols -d --no-show-raw-insn %t.o3/shapes.o > %t.o3.s
+// RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o2.s | grep -qE 'ud2|brk|unimp'
+// RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o3.s | { ! grep -qE 'ud2|brk|unimp'; }
 // RUN: test $(awk '/<[^>]*6status[^>]*>:/,/^$/' %t.o2.s | grep -c cmp) -le 4
-// RUN: awk '/<[^>]*4word[^>]*>:/,/^$/' %t.o2.s | { ! grep -qE 'call|[[:space:]]bl[[:space:]]'; }
+// RUN: awk '/<[^>]*4word[^>]*>:/,/^$/' %t.o2.s | { ! grep -qE 'call|[[:space:]]bl[[:space:]]|[[:space:]]jalr[[:space:]]'; }

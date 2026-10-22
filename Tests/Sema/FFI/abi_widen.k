@@ -1,6 +1,6 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: { %kairo %s --type-check-only --target i686-linux-musl 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-i686-linux-musl
 //
 // Integer widening into an imported signature (Conversion::abi_widen).
 // usize/isize are the width range [32, 64] over 32/64-bit targets, a

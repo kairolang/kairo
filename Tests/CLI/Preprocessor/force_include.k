@@ -8,4 +8,4 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --force-include=/nonexistent/x.k 2>&1 || true; } | %FileCheck %s
-// CHECK: fatal [I005F]: no such file: '/nonexistent/x.k'
+// CHECK: fatal [I005F]: no such file: '{{([A-Za-z]:)?}}/nonexistent/x.k'

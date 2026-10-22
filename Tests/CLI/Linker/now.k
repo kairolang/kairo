@@ -1,6 +1,6 @@
 // --now requests eager (immediate) symbol binding: the link line gets `-z now`.
 // Observed through --print-ld-args so no binary is produced.
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 
 fn main() -> i32 { return 0 }
 

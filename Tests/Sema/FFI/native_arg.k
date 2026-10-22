@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA %datamodel
 //
 // `cont<Point>` with a KAIRO struct as the argument. clang's AST has never
 // heard of `Point`, so TypeExport declares a stand-in for it there first
@@ -33,4 +33,4 @@ fn use_native() {
 // SEMA:      0 unknown, 0 errored
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: p : Point
-// SEMA-NEXT: n : u64
+// SEMA-NEXT: n : [[CULONG]]

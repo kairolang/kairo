@@ -1,12 +1,13 @@
+// REQUIRES: llvm-objdump, llvm-nm
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -c %s -o %t.os.ll --emit llvm-ir
-// RUN: FileCheck %s --input-file=%t.os.ll
-// RUN: FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
+// RUN: %FileCheck %s --input-file=%t.os.ll
+// RUN: %FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Oz -c %s -o %t.oz.ll --emit llvm-ir
-// RUN: FileCheck %s --input-file=%t.oz.ll
-// RUN: FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
+// RUN: %FileCheck %s --input-file=%t.oz.ll
+// RUN: %FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -ffunction-sections -c %s -o %t.o
-// RUN: llvm-objdump -h %t.o | FileCheck %s --check-prefix=SECT
-// RUN: llvm-nm --undefined-only %t.o | FileCheck %s --check-prefix=UNDEF --implicit-check-not="U "
+// RUN: %objdump -h %t.o | %FileCheck %s --check-prefix=SECT
+// RUN: %nm --undefined-only %t.o | %FileCheck %s --check-prefix=UNDEF --implicit-check-not="U "
 
 // CHECK: target triple = "thumbv6m-unknown-none-eabi"
 
@@ -546,13 +547,13 @@ ffi "c" fn Reset_Handler() -> ! {
     adc_init()
     buzzer_init()
 
-    var now     = now_us()
+    var now = now_us()
     var display = Display(2, 10)
-    var led     = RgbLed()
-    var player  = Player()
-    var wav     = WavPlayer()
-    var button  = Button(15, now)
-    var stick   = Stick(0, now)         // ADC0 = GP26 = VRy
+    var led = RgbLed()
+    var player = Player()
+    var wav = WavPlayer()
+    var button = Button(15, now)
+    var stick = Stick(0, now)           // ADC0 = GP26 = VRy
 
     var preset = Countdown()            // 00:30
     var count = preset

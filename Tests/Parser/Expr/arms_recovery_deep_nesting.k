@@ -10,6 +10,7 @@ fn deep(c: bool) -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
+// REQUIRES: shell
 // RUN: timeout 10 %kairo %s --syntax-only --cmax-errors=10000 > %t.out 2>&1; test $? -ne 124
 // RUN: %FileCheck %s --check-prefix=DIAG --input-file=%t.out
 // RUN: grep -c 'error \[S073E\]' %t.out | grep -qx 60

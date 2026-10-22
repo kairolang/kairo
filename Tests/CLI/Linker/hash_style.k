@@ -1,6 +1,6 @@
 // --hash-style reaches the linker line on a glibc target, replacing the
 // default gnu style.
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-gnu
 
 fn main() -> i32 { return 0 }
 

@@ -182,6 +182,8 @@ COMMON_ARGS = [
     f"-DLLVM_PARALLEL_LINK_JOBS={LINK_JOBS}",
 ]
 
+TEST_TOOLS = ["llvm-objdump", "llvm-nm"]  # see build_test_tools()
+
 SHARED_ARGS = [  # Linux/macOS: one libLLVM dylib, everything links it
     "-DLLVM_BUILD_LLVM_DYLIB=ON",
     "-DLLVM_LINK_LLVM_DYLIB=ON",
@@ -632,11 +634,23 @@ def main() -> None:
             if not which(t, env):
                 die(f"'{t}' not found.\nxcode-select --install")
 
+    # The test suite disassembles and lists symbols with llvm-objdump and
+    # llvm-nm on every host (their flags are not GNU binutils'), and
+    # LLVM_BUILD_TOOLS=OFF leaves them out of `all`. Build just those, and
+    # only when missing, so an up-to-date tree pays nothing.
+    def build_test_tools():
+        exe = ".exe" if HOST == "Windows" else ""
+        want = [t for t in TEST_TOOLS if not (LLVM_BUILD / "bin" / (t + exe)).is_file()]
+        if want:
+            log(f"building test tools: {' '.join(want)}")
+            run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}", *want], env, None)
+
     stamp = STAMP.read_text().strip() if STAMP.is_file() else None
     built = MARKER.is_file()
 
     if built and stamp == digest:
         log("patched llvm already built, skipping rebuild.")
+        build_test_tools()
         stage()
         return
     if built and stamp is None:
@@ -647,6 +661,7 @@ def main() -> None:
         # Build made by the old per-platform scripts: adopt it, don't rebuild.
         log("patched llvm already built (adopting existing build), skipping rebuild.")
         STAMP.write_text(digest + "\n")
+        build_test_tools()
         stage()
         return
 
@@ -676,6 +691,7 @@ def main() -> None:
     run([tools["cmake"], *cmake_args], env, logfile)
     log(f"building with {JOBS} jobs...")
     run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}"], env, logfile)
+    build_test_tools()
 
     STAMP.write_text(digest + "\n")
     stage()

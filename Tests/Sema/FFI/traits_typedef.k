@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA %datamodel
 //
 // An instance of an imported template whose member's type is a DEPENDENT
 // member typedef (`size_type` through `traits<A>`). The pattern cannot
@@ -42,10 +42,10 @@ fn width(n: traits<alloc>::size_type) -> traits<alloc>::size_type { return n }
 // alias is what fills it (TypeResolve::_scope_of), and `size_type` is then
 // clang's `unsigned long`.
 // SEMA:      <tu>::use_cont
-// SEMA:      NamedIdentExpr @ 18:12 : u64
+// SEMA:      NamedIdentExpr @ 18:12 : [[CULONG]]
 // SEMA:      <tu>::use_node
 // SEMA:      UnaryOperatorExpr @ 25:22 : *node
 // SEMA:      <tu>::width
-// SEMA:      NamedIdentExpr @ 29:{{[0-9]+}} : u64
+// SEMA:      NamedIdentExpr @ 29:{{[0-9]+}} : [[CULONG]]
 // SEMA:      0 unknown, 0 errored
 // SEMA:      0 of them dependent, 0 errored

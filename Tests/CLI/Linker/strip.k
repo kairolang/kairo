@@ -1,7 +1,7 @@
 // --strip asks the linker to drop all symbols (--strip-all). When --strip-debug
 // is given too, the stronger --strip-all wins and no separate --strip-debug is
 // passed. Observed through --print-ld-args so no binary is produced.
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-musl
 
 fn main() -> i32 { return 0 }
 

@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA %datamodel
 //
 // A member TYPE of the extended instance, named from inside the extension:
 // bare (`size_type`, found through the extended type as in a class body)
@@ -23,7 +23,7 @@ fn use() -> u64 {
 // DIAG-NOT: error
 
 // SEMA:      <tu>::use
-// SEMA:      CallExpr @ 20:12 : u64
-// SEMA:      CallExpr @ 20:23 : u64
+// SEMA:      CallExpr @ 20:12 : [[CULONG]]
+// SEMA:      CallExpr @ 20:23 : [[CULONG]]
 // SEMA:      0 unknown, 0 errored
 // SEMA:      0 of them dependent, 0 errored

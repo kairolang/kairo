@@ -1,12 +1,13 @@
+// REQUIRES: llvm-objdump, llvm-nm
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -c %s -o %t.os.ll --emit llvm-ir
-// RUN: FileCheck %s --input-file=%t.os.ll
-// RUN: FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
+// RUN: %FileCheck %s --input-file=%t.os.ll
+// RUN: %FileCheck %s --input-file=%t.os.ll --check-prefix=NOCTOR
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Oz -c %s -o %t.oz.ll --emit llvm-ir
-// RUN: FileCheck %s --input-file=%t.oz.ll
-// RUN: FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
+// RUN: %FileCheck %s --input-file=%t.oz.ll
+// RUN: %FileCheck %s --input-file=%t.oz.ll --check-prefix=NOCTOR
 // RUN: %kairo_bare --target thumbv6m-none-eabi -mcpu=cortex-m0plus -Os -ffunction-sections -c %s -o %t.o
-// RUN: llvm-objdump -h %t.o | FileCheck %s --check-prefix=SECT
-// RUN: llvm-nm --undefined-only %t.o | count 0
+// RUN: %objdump -h %t.o | %FileCheck %s --check-prefix=SECT
+// RUN: test -z "$(%nm --undefined-only %t.o)"
 
 // CHECK: target triple = "thumbv6m-unknown-none-eabi"
 // CHECK: @{{.*}}IO_AND_PADSE = {{.*}}constant i32 288

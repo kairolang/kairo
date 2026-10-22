@@ -1,5 +1,5 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA %datamodel
 //
 // Qualified type paths into instances of IMPORTED templates, in the shapes
 // clang's own qualified-name tests use: a member typedef through an alias of
@@ -31,10 +31,10 @@ fn <T> gen(x: traits<T>::size_type) -> traits<T>::size_type { return x }
 // `cont<traits<alloc>::size_type>` is `cont<u64>`: the path resolved before
 // it became an argument, so `push` takes `const unsigned long&`.
 // SEMA:      <tu>::use
-// SEMA:      NamedIdentExpr @ 20:5 : cont<u64, alloc>
-// SEMA-NEXT: NamedIdentExpr @ 20:12 : u64
+// SEMA:      NamedIdentExpr @ 20:5 : cont<[[CULONG]], alloc>
+// SEMA-NEXT: NamedIdentExpr @ 20:12 : [[CULONG]]
 // SEMA-NEXT: AssignOperatorExpr @ 21:5 : i32
-// SEMA:      NamedIdentExpr @ 22:12 : u64
+// SEMA:      NamedIdentExpr @ 22:12 : [[CULONG]]
 // `gen`'s parameter is typed by `traits<T>::size_type`, a member of an
 // instance only M2 can fill. No canonical type names it, so its use is
 // unknown: deferred, never errored (RESOLUTION.md invariant #5, as `T::Item`

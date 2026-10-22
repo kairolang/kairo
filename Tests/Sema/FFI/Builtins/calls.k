@@ -6,7 +6,7 @@ fn bits(x: u32) -> i32 {
 }
 
 fn likely(x: i32) -> i64 {
-    return __builtin_expect(x as i64, 1);         // untyped literal takes the param type (i64).
+    return __builtin_expect(x, 1);                // untyped literal takes the param type (C long).
 }
 
 fn scratch(n: usize) -> unsafe *void {

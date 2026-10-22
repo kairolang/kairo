@@ -1,6 +1,6 @@
 // --dynamic-linker overrides the interpreter path on a dynamically linked
 // (gnu) target's ld line.
-// REQUIRES: bundled-sysroot
+// REQUIRES: sysroot-x86_64-linux-gnu
 
 fn main() -> i32 { return 0 }
 

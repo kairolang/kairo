@@ -4,5 +4,6 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: %kairo %s --print-ld-args --rpath-link /r2 | %FileCheck %s
+// REQUIRES: sysroot-x86_64-linux-musl
+// RUN: %kairo %s --target=x86_64-linux-musl --print-ld-args --rpath-link /r2 | %FileCheck %s
 // CHECK: -rpath-link /r2
