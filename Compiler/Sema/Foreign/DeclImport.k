@@ -1005,6 +1005,7 @@ class DeclImport {
             if unnamed { pnm = f"__arg{idx}"; }
             var kp = ParamDecl::create(t->ctx, pat, self.ident(t, pnm, pat), ti->_import(p->getType()), idx, unnamed);
             kp->has_default = p->hasDefaultArg();           // spec: new field; OverloadResolution reads it.
+            kp->cxx_int_alias = ti->is_int_alias(p->getType());
             kf->cxx_param_spellings.push_back(ti->spelling(p->getType()));
             params.push_back(kp);
             idx += 1;

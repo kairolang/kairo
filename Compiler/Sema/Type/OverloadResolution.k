@@ -12,14 +12,20 @@
 ///     arguments, each at rank Converted with no parameter to check against.
 ///
 ///     Ranking (lattice §7): a candidate's rank is the WORST of its argument
-///     ranks. Two ranks, no ordering inside rank 2. Two tiebreaks among the
-///     best-ranked, in C++'s order, and neither is a conversion ordering:
+///     ranks. Two ranks, no ordering inside rank 2. Tiebreaks among the
+///     best-ranked, in C++'s order; only `integer` orders conversions, and
+///     only where Kairo's width mapping hid one:
 ///
 ///       reference kind  on an argument where both bound a C++ reference at
 ///                       Exact, an rvalue prefers `T&&` to `const T&` and a
 ///                       non-const lvalue prefers `T&` to `const T&`
 ///                       (_ref_better). Needs the argument's VALUE CATEGORY,
 ///                       which ExprTyper assigns and ArgInfo carries.
+///       integer         on an argument where both bound a typed integer at
+///                       Exact, the C type the target spells that width
+///                       with beats a same-width alias: i32 prefers `int` to
+///                       LLP64's `long` (_int_better). C maps by width, so
+///                       both are Exact here; to C++ one is a conversion.
 ///       generic         a non-generic candidate beats a generic one,
 ///                       otherwise `fn f(i32)` next to `fn <T> f(T)` is
 ///                       ambiguous on every call.
@@ -179,6 +185,11 @@ class Candidate {
     /// parameter, or not Exact), 1 `const T&`, 2 `T&&`, 3 `T&`. Read only by
     /// the reference tiebreak.
     pub var binds:        vec::<u8>;
+    /// per arg: how a TYPED integer argument bound AT EXACT -- 0 not judged
+    /// (not an integer, not Exact, an untyped literal), 1 its natural C
+    /// type, 2 a same-width C alias (ParamDecl::cxx_int_alias). Read only
+    /// by the integer tiebreak.
+    pub var ints:         vec::<u8>;
     /// per arg: the parameter type it was ranked against, null where nothing
     /// was ranked (a C `...` tail, an assumed argument). Read only by the
     /// ambiguity diagnostic: which enum a `.V` argument took is known only
@@ -356,6 +367,8 @@ class OverloadResolution {
         // orders them so ([over.match.best]: better conversion sequences
         // first, templates after): see _ref_better.
         if winners.size() > 1 { winners = self._ref_tiebreak(&cs, &winners, margs, fargs); }
+        // Integer spelling, also a conversion-sequence ordering: see _int_better.
+        if winners.size() > 1 { winners = self._int_tiebreak(&cs, &winners); }
         // non-generic beats generic.
         if winners.size() > 1 {
             var nongen = vec::<usize>();
@@ -535,6 +548,42 @@ class OverloadResolution {
         return better;
     }
 
+    /// The winners no other winner beats on integer spelling.
+    priv fn _int_tiebreak(self, cs: *vec::<Candidate>, winners: *vec::<usize>) -> vec::<usize> {
+        var keep = vec::<usize>();
+        for var i: usize = 0; i < winners->size(); ++i {
+            var ci = &((*cs)[(*winners)[i]]);
+            var beaten = false;
+            for var j: usize = 0; j < winners->size(); ++j {
+                if i == j { continue; }
+                if self._int_better(&((*cs)[(*winners)[j]]), ci) { beaten = true; break; }
+            }
+            if !beaten { keep.push_back((*winners)[i]); }
+        }
+        if keep.size() == 0 { return *winners; }       // defensive, as _ref_tiebreak.
+        return keep;
+    }
+
+    /// \p x beats \p y on integer spelling: on no argument does \p y bind
+    /// its natural C type where \p x binds an alias, on at least one the
+    /// reverse. Kairo maps C integers by width, so an i32 is EXACT against
+    /// both `int` and, on LLP64, `long`; to C++ only `int` is identity and
+    /// `long` is an integral conversion ([over.ics.rank]/4). Without this,
+    /// `std::cout << x` with x: i32 tied `operator<<(int)` and
+    /// `operator<<(long)` on Windows. Only typed arguments: an untyped
+    /// literal ties every integer overload on purpose (§5), and still does.
+    /// Same alignment rule as _ref_better.
+    priv fn _int_better(self, x: *Candidate, y: *Candidate) -> bool {
+        if x->free != y->free { return false; }
+        if x->ints.size() != y->ints.size() { return false; }
+        var better = false;
+        for var k: usize = 0; k < x->ints.size(); ++k {
+            if (x->ints[k] == 1) && (y->ints[k] == 2) { better = true; continue; }
+            if (x->ints[k] == 2) && (y->ints[k] == 1) { return false; }
+        }
+        return better;
+    }
+
     priv fn _ref_prefers(self, a: *ArgInfo, bx: u8, by: u8) -> bool {
         if by != 1 { return false; }                      // only ever over `const T&`.
         var rvalue = (a->cat == Expr::ValueCategory::RValue) || (a->cat == Expr::ValueCategory::XValue);
@@ -645,7 +694,7 @@ class OverloadResolution {
 
         var filled = vec::<bool>();
         for var i: usize = 0; i < nparams; ++i { filled.push_back(false); }
-        for var i: usize = 0; i < args->size(); ++i { c->arg_to_param.push_back(usize(-1)); c->binds.push_back(0); c->targets.push_back(&null); }
+        for var i: usize = 0; i < args->size(); ++i { c->arg_to_param.push_back(usize(-1)); c->binds.push_back(0); c->ints.push_back(0); c->targets.push_back(&null); }
 
         // 1. NAMED first, then positional. Placement has to know which slots a
         //    name already claimed before it decides where the positionals
@@ -839,6 +888,9 @@ class OverloadResolution {
             if (r == ImplicitRank::Converted) && (c->rank < 1) { c->rank = 1; }
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
             if r == ImplicitRank::Exact { c->binds[i] = (3) if (mode == ParamMode::Inout) else (self._bind_kind(pt)); }
+            if (r == ImplicitRank::Exact) && (a->lit == LitKind::None) && (a->ty != &null) && self.tu.is_integer(a->ty) {
+                c->ints[i] = (2) if (p->cxx_int_alias) else (1);
+            }
             if (mode == ParamMode::Inout) && (!a->marked) {
                 c->inout_unmarked.push_back(i);
                 c->inout_params.push_back(p);

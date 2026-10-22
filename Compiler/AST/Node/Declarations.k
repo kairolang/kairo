@@ -331,6 +331,11 @@ class ParamDecl derives Decl {
     pub var index:       u32 = 0;          ///< position in the parameter list.
     pub var unname:      bool = false;     ///< true for the `unnamed` parameter.
     pub var has_default: bool = false;     ///< imported C++ param with a default arg; no Kairo expr to carry.
+    /// Imported C++ param whose C integer type maps to the same Kairo integer
+    /// as another C type but is not the one the target spells that width
+    /// with (`long` on LLP64 is i32, as `int` is). TypeImport::is_int_alias
+    /// sets it; OverloadResolution's integer tiebreak reads it.
+    pub var cxx_int_alias: bool = false;
 
     /// This parameter carries the `...`. Set by DeclParse on the marked
     /// parameter, which need not be the last one. `FunctionDecl::is_variadic`

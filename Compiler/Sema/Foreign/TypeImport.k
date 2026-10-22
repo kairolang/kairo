@@ -399,6 +399,28 @@ class TypeImport {
         return NameLookup::representative(kd);
     }
 
+    /// Whether \p qt (through a reference) is a C integer that is NOT the one
+    /// the target spells its width with: _builtin maps by width alone, so on
+    /// LLP64 `long` and `int` are both i32 and on LP64 `long long` and `long`
+    /// are both i64. The natural one is getIntTypeForBitwidth's -- `int` for
+    /// 32 bits, int64_t's type for 64 -- which is how TypeExport spells the
+    /// Kairo type back. An argument binding an alias exactly is, to C++,
+    /// an integral conversion, so a tie prefers the natural parameter.
+    /// usize/isize typedefs are their own Kairo types and never aliases.
+    fn is_int_alias(self, qt: clang::QualType) -> bool {
+        if self._pointer_sized(qt.getNonReferenceType()) != &null { return false; }
+        var c  = qt.getNonReferenceType().getCanonicalType().getUnqualifiedType();
+        var bt = c->getAs::<clang::BuiltinType>();
+        if (bt == &null) || (!bt->isInteger()) { return false; }
+        // Bool and char32_t map to their own Kairo types, not an integer.
+        if (bt->getKind() == clang::BuiltinType::Bool) || (bt->getKind() == clang::BuiltinType::Char32) { return false; }
+        var bits = static_cast::<u32>(self.cctx->getTypeSize(c));
+        var sgn: u32 = (1) if (bt->isSignedInteger()) else (0);
+        var nat  = self.cctx->getIntTypeForBitwidth(bits, sgn);
+        if nat.isNull() { return false; }
+        return nat.getCanonicalType() != c;
+    }
+
     // === builtins ===========================================================
 
     priv fn _builtin(self, bt: const_obs::<clang::BuiltinType>) -> *Type {
