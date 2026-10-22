@@ -143,11 +143,12 @@ eval fn <const N: usize> compute_hash(const str: *char) -> u64 {
 /// \return A 64-bit hash value, or HASH_MAX if the string is empty.
 /// \ref Uses FNV-1a with position mixing.
 ///
+/// \note No length cap at runtime: the lexer's HashState hashes identifiers of
+///       any length, and these overloads must agree with it for the same
+///       spelling (C++ headers carry identifiers well past 255 chars). Only
+///       the literal templates bound N, for their eval-time buffers.
+///
 eval fn compute_hash(const str: *u8, const len: usize) -> u64 {
-    if len >= 256 {
-        std::crash(std::Error::RuntimeError("String too long for hashing (max 255 chars)"));
-    }
-    
     if len == 0 {
         return HASH_MAX;
     }
@@ -174,10 +175,6 @@ eval fn compute_hash(const str: *u8, const len: usize) -> u64 {
 /// \ref Uses FNV-1a with position mixing.
 ///
 eval fn compute_hash(const str: *char32_t, const len: usize) -> u64 {
-    if len >= 256 {
-        std::crash(std::Error::RuntimeError("String too long for hashing (max 255 chars)"));
-    }
-    
     if len == 0 {
         return HASH_MAX;
     }
@@ -202,15 +199,10 @@ eval fn compute_hash(const str: *char32_t, const len: usize) -> u64 {
 /// \return A 64-bit hash value, or HASH_MAX if the string is empty.
 ///
 /// \ref Uses FNV-1a with position mixing.
-/// \warning This function must have a string thats less than 256 characters.
 ///
 eval fn compute_hash(const str: *string) -> u64 {
     if (str == &null) || (str->length() == 0) {
         return HASH_MAX;
-    }
-    
-    if str->length() >= 256 {
-        std::crash(std::Error::RuntimeError("String too long for hashing (max 255 chars)"));
     }
 
     var   hash : u64   = FNV_OFFSET_BASIS;
