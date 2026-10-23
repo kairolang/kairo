@@ -160,7 +160,10 @@ class DirEntry {
                     self.children[name_raw] = c;
                 }
             } else if etype == FileType::regular_file {
-                var ext_ref = llvm::sys::path::extension(fname).drop_front(1); // no dot
+                // No dot: an extensionless file (a built binary beside the
+                // sources) has an empty extension, and drop_front(1) on it asserts.
+                var ext_ref = llvm::sys::path::extension(fname);
+                if !ext_ref.empty() { ext_ref = ext_ref.drop_front(1); }
                 var ext     = string(ext_ref.data(), ext_ref.size());
                 if self.ext_cfg->should_index(ext) {
                     var stem_ref = llvm::sys::path::stem(fname);
