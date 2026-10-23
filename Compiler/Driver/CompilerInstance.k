@@ -1394,7 +1394,9 @@ class CompilerInstance {
     /// (an external tool, an empty plan) is reported here.
     priv fn _run_native(self, k: InputKind, words: ref!(vec::<string>)) -> bool {
         var jobs = self._native_jobs();
-        if jobs->run(words) { return true; }
+        var ok = jobs->run(words);
+        jobs->diags.drain_into(self._diag, self._sm);
+        if ok { return true; }
         if !jobs->error.empty() {
             self._diag->report(DiagID::U001E, f"{k.path}: {jobs->error}").emit();
         }

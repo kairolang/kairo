@@ -114,7 +114,14 @@ class HeaderIndex {
         if !hs->built.load(std::MemoryOrder::acquire) { return false; }
         hs->indexed = true;
         if (!hs->ok) || (hs->ast() == &null) {
-            Logger::error(Logger::Stage::Driver, "HeaderIndex: set failed to build; nothing imported");
+            // A bad header already reached the user as clang's own error; this
+            // is a breadcrumb then. Only a failure clang said nothing about
+            // (no target, backend not ready, PCH incomplete) is ours.
+            if hs->diag_buf.error_count() > 0 {
+                Logger::warn(Logger::Stage::Driver, "HeaderIndex: set failed to build; nothing imported");
+            } else {
+                Logger::error(Logger::Stage::Driver, "HeaderIndex: set failed to build; nothing imported (no clang diagnostic)");
+            }
             return false;
         }
         var _t = TimeRegion("HeaderIndex");

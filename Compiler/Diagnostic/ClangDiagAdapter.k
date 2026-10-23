@@ -23,6 +23,7 @@ import Diagnostic::Engine::*;
 import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagLookup::*;
 import Interop::Clang::ClangLocMap::*;
+import Support::FileIO::Path::*;
 
 /// One instance per bridged clang CompilerInstance (i.e. per TU).
 /// Thread-confined: writes only to this TU's BufferedDiagSink, preserving
@@ -48,6 +49,9 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// a raw table rather than the set so this layer never imports Interop's
     /// HeaderSet (which imports the backend, which imports this).
     pub var fidmap: const_obs::<llvm::DenseMap::<u64, u32>> = &null;   ///< HeaderSet::cfid_to_kfid (u64 key: see there).
+    /// A header set's synthesized main buffer: line - 1 -> the .k import
+    /// span that line includes (HeaderSet::_main_locs). Null otherwise.
+    pub var main_locs: const_obs::<vec::<SourceRange>> = &null;
     priv var _lo: const_obs::<clang::LangOptions> = &null; ///< owned by the CI, valid for the action.
 
     /// Note-attachment state: clang emits notes as separate HandleDiagnostic
@@ -130,15 +134,35 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
     /// The Kairo fid behind a clang FileID, or u32(-1) for none: through the
     /// header set's table when one is set, else the backend's locmap.
-    priv fn _kfid_of(self, cfid: clang::FileID) -> FileID {
+    priv fn _kfid_of(self, cfid: clang::FileID, csm: cref::<clang::SourceManager>) -> FileID {
         if self.fidmap != &null {
             var it = self.fidmap->find(static_cast::<u64>(cfid.getHashValue()));
-            if it == self.fidmap->end() { return static_cast::<FileID>(u32(-1)); }
-            if it->second == 0 { return static_cast::<FileID>(u32(-1)); }
-            return static_cast::<FileID>(it->second);
+            if (it != self.fidmap->end()) && (it->second != 0) {
+                return static_cast::<FileID>(it->second);
+            }
+            // The table fills at index(), after the build. A build-time
+            // diagnostic (a bad header) would otherwise render as bare
+            // text with no snippet: load the header by path instead. Same
+            // bytes, so clang's offset is the Kairo offset. load_file is
+            // _load_mu-guarded, so the pool thread may call it.
+            return self._load_by_path(cfid, csm);
         }
-        if self.locmap == &null { return static_cast::<FileID>(u32(-1)); }
+        // Neither: a C/C++ input compiled by clang's own driver (ClangJobs).
+        // Kairo never loaded its files, so load them as they are named.
+        if self.locmap == &null { return self._load_by_path(cfid, csm); }
         return self.locmap->kairo_fid(cfid);
+    }
+
+    priv fn _load_by_path(self, cfid: clang::FileID, csm: cref::<clang::SourceManager>) -> FileID {
+        var none = static_cast::<FileID>(u32(-1));
+        if self.ksm == &null { return none; }
+        var fe = csm.getFileEntryRefForID(cfid);
+        if !fe { return none; }
+        var name = fe->getName();
+        var p = Path(string(name.data(), name.size()));
+        // Checked here: load_file reports a missing path as I005F itself.
+        if (!p.exists()) || (!p.is_regular_file()) { return none; }
+        return self.ksm->load_file(p);
     }
 
     priv fn _format(self, info: cref::<clang::Diagnostic>) -> string {
@@ -165,7 +189,17 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var dec = info.getSourceManager()
                       .getDecomposedExpansionLoc(info.getLocation());
 
-        var kf = self._kfid_of(dec.first);
+        var csm = &(info.getSourceManager());
+        // The set's own `#include` lines: the .k import that wrote them.
+        if (self.main_locs != &null) && (dec.first == csm->getMainFileID()) {
+            var line = static_cast::<usize>(csm->getLineNumber(dec.first, dec.second));
+            if (line > 0) && (line <= self.main_locs->size()) {
+                return (*self.main_locs)[line - 1];
+            }
+            return SourceRange::invalid();
+        }
+
+        var kf = self._kfid_of(dec.first, *csm);
         if kf == static_cast::<FileID>(u32(-1)) { return SourceRange::invalid(); }
 
         // dec.second == byte offset in kf. Single-byte primary span;
@@ -184,9 +218,13 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var b = info.getSourceManager().getDecomposedExpansionLoc(cr.getBegin());
         var e = info.getSourceManager().getDecomposedExpansionLoc(cr.getEnd());
 
-        var kb = self._kfid_of(b.first);
+        // A range in a set's injected main has no Kairo bytes behind it.
+        if (self.main_locs != &null) && (b.first == info.getSourceManager().getMainFileID()) {
+            return SourceRange::invalid();
+        }
+        var kb = self._kfid_of(b.first, info.getSourceManager());
         if kb == static_cast::<FileID>(u32(-1)) { return SourceRange::invalid(); }
-        if self._kfid_of(e.first) != kb { return SourceRange::invalid(); }
+        if self._kfid_of(e.first, info.getSourceManager()) != kb { return SourceRange::invalid(); }
 
         var start: usize = static_cast::<usize>(b.second);
         var end:   usize = static_cast::<usize>(e.second);

@@ -97,6 +97,9 @@ class PPWalker
     /// Parallel to _ffi_headers: written `ffi "c"`. Carried into the set so
     /// the C ones are parsed, and linked, as extern "C".
     priv var _ffi_c:       vec::<bool>;
+    /// Parallel to _ffi_headers: the header string's span. A clang error at
+    /// the set's synthesized `#include` line reports here, not at <injected>.
+    priv var _ffi_locs:    vec::<SourceRange>;
     /// Null in tooling runs with no clang: ffi imports then resolve to nothing.
     priv var _headers:     obs::<HeaderSetCache> = &null;
 
@@ -428,6 +431,7 @@ class PPWalker
                 if (!dup) && (h.size() > 0) {
                     self._ffi_headers.push_back(h);
                     self._ffi_c.push_back(self._ffi_lang_kind(lang_tok) == LinkageKind::C);
+                    self._ffi_locs.push_back(header_tok.range);
                 }
             }
             return;
@@ -2315,7 +2319,7 @@ class PPWalker
         // importing the same headers in the same order shares the set. The
         // quoted-include directory is THIS file's, as for a .cpp beside it.
         if (self._headers != &null) && (self._ffi_headers.size() > 0) {
-            var hs = self._headers->request(self._ffi_headers, self._ffi_c, self._sm->get_file_dir(self._fid).full_path());
+            var hs = self._headers->request(self._ffi_headers, self._ffi_c, self._ffi_locs, self._sm->get_file_dir(self._fid).full_path());
             self._tu->header_set = reinterpret_cast::<*void>(hs);
         }
     }

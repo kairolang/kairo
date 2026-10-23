@@ -105,8 +105,11 @@ class Logger {
     /// live echo covers both. `min_level_` is still the master gate: an entry
     /// filtered out there is never recorded and so never streamed.
     ///
-    /// Default is Error, so an internal failure always reaches the terminal
-    /// instead of sitting in a log file the user was never told about.
+    /// Default is Error in a debug build, so an internal failure always
+    /// reaches the terminal instead of sitting in a log file nobody was told
+    /// about. A release build streams only Fatal: an Error entry there is a
+    /// developer breadcrumb (the user-facing failure is a diagnostic), and
+    /// -v (set_stream_level(Info)) still shows it.
     static void set_stream_level(Level level) { get()->stream_level_ = level; }
 
     static void set_dump_path(const string &path) { get()->dump_path_ = path; }
@@ -412,7 +415,11 @@ class Logger {
     vec<Entry>                                     entries_;
     libcxx::mutex                                  mutex_;
     Level                                          min_level_;
+#ifndef NDEBUG
     Level                                          stream_level_{Level::Error};
+#else
+    Level                                          stream_level_{Level::Fatal};
+#endif
     libcxx::chrono::steady_clock::time_point       start_;
     array<bool, static_cast<size_t>(Stage::Count)> stage_enabled_{};
     string                                         dump_path_;

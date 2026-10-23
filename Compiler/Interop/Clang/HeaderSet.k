@@ -145,6 +145,8 @@ class HeaderSet {
     /// would otherwise get C++ linkage and never link against its C object.
     pub var c_linkage: vec::<bool>;
     pub var import_dir: string;               ///< directory of the first importing file: `-I` for quoted includes.
+    /// Parallel to `headers`: the first importer's header-string span.
+    pub var header_locs: vec::<SourceRange>;
     pub var id:       u32 = 0;                ///< cache-assigned, dense; names the PCH mount.
 
     // Filled by build() on the pool thread.
@@ -183,6 +185,10 @@ class HeaderSet {
     priv var _clients: vec::<*clang::DiagnosticConsumer>;   ///< begin_diag's saved clients, innermost last.
     priv var _diag_opts: clang::DiagnosticOptions;
     priv var _main:    libcxx::string;                ///< the injected buffer; must outlive the parse.
+    /// <injected> line - 1 -> the .k import that line includes; invalid for
+    /// the extern "C" brace lines. The adapter's only way back from the
+    /// buffer to Kairo source: without it every bad include is <injected>:1:10.
+    priv var _main_locs: vec::<SourceRange>;
     /// clang::Sema is single-threaded. Recursive because a foreign fill can
     /// nest: importing one instance's members resolves a type path into
     /// another instance of the same set, and the outer fill still holds this.
@@ -314,14 +320,24 @@ class HeaderSet {
         var inv = libcxx::make_shared::<clang::CompilerInvocation>(*(be->invocation()));
 
         self._main = libcxx::string();
+        self._main_locs.clear();
         for var i: usize = 0; i < self.headers.size(); ++i {
             var h = self.headers[i].std_string();
             var c = (i < self.c_linkage.size()) && self.c_linkage[i];
-            if c { self._main.append(r"extern \"C\" \x7B\n"); }
+            var at = SourceRange::invalid();
+            if i < self.header_locs.size() { at = self.header_locs[i]; }
+            if c {
+                self._main.append(r"extern \"C\" \x7B\n");
+                self._main_locs.push_back(SourceRange::invalid());
+            }
             self._main.append(r"#include \"");
             self._main.append(h);
             self._main.append(r"\"\n");
-            if c { self._main.append(r"\x7D\n"); }
+            self._main_locs.push_back(at);
+            if c {
+                self._main.append(r"\x7D\n");
+                self._main_locs.push_back(SourceRange::invalid());
+            }
         }
         var buf = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(self._main.data(), self._main.size()), r"<injected>", false);
@@ -397,6 +413,7 @@ class HeaderSet {
         a->sink   = sink;
         a->ksm    = self._ksm;
         a->fidmap = &(self.cfid_to_kfid);
+        a->main_locs = &(self._main_locs);
         var de = &(self._ci->getDiagnostics());
         self._clients.push_back(de->getClient());
         de->setClient(a, false);
@@ -488,7 +505,7 @@ class HeaderSetCache {
     /// Get-or-mint. Mint enqueues the build. Any thread: PPWalker::_finalize
     /// calls this from the pool (the wave walks files in parallel); `_mu`
     /// covers the map, and the build touches only the set it was given.
-    fn request(self, headers: vec::<string>, c_linkage: vec::<bool>, import_dir: string) -> *HeaderSet {
+    fn request(self, headers: vec::<string>, c_linkage: vec::<bool>, locs: vec::<SourceRange>, import_dir: string) -> *HeaderSet {
         var key = HeaderSetCache::key_of(headers, c_linkage);
         var lock = std::LockGuard(self._mu);
         var it = self._sets.find(sref(key));
@@ -498,6 +515,7 @@ class HeaderSetCache {
         hs->key        = key;
         hs->headers    = headers;
         hs->c_linkage  = c_linkage;
+        hs->header_locs = locs;
         hs->import_dir = import_dir;
         hs->id         = static_cast::<u32>(self._sets.size());
         self._sets.try_emplace(sref(key), hs);

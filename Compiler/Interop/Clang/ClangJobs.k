@@ -42,6 +42,11 @@
 ///   leak its AST and target machine (fine for a process about to exit);
 ///   this one keeps compiling.
 ///
+///   Diagnostics go through a ClangDiagAdapter into `diags`, so a C/C++
+///   input's errors render like Kairo's (snippet, colour, codes); the caller
+///   drains it into its engine after each run. The driver's own argument
+///   diagnostics still print through the backend's text printer.
+///
 ///   Driver thread only, like ClangBackend::compile_native.
 ///
 
@@ -57,6 +62,9 @@ ffi "c++" import "clang/FrontendTool/Utils.h";
 ffi "c++" import "llvm/Support/Allocator.h";
 ffi "c++" import "llvm/Support/StringSaver.h";
 
+import Location::SourceLocation::*;
+import Diagnostic::BufferedDiagSink::*;
+import Diagnostic::ClangDiagAdapter::*;
 import Interop::Clang::ClangBackend::*;
 
 class ClangJobs {
@@ -70,6 +78,8 @@ class ClangJobs {
     /// external tool, an empty plan); "" when clang's own diagnostics,
     /// already printed, are the reason.
     pub var error: string;
+    /// The cc1 jobs' diagnostics, until the caller drains them.
+    pub var diags: BufferedDiagSink;
 
     fn ClangJobs(self, be: *ClangBackend, clang_exe: string) {
         self._be        = be;
@@ -156,13 +166,23 @@ class ClangJobs {
         (inv.get()->getFrontendOpts().DisableFree) = false;
         (inv.get()->getCodeGenOpts().DisableFree)  = false;
 
+        // The adapter renders, so clang's "N errors generated." trailer
+        // (printed only with carets on) would be a stray second summary.
+        (inv.get()->getDiagnosticOpts().ShowCarets) = false;
+
+        // A fresh adapter per job: ExecuteAction reports failure from the
+        // CLIENT's error count, and a shared client would carry one input's
+        // errors into every later input. No locmap and no fidmap: it loads
+        // each file clang names by path.
+        var a = std::create::<ClangDiagAdapter>();
+        a->sink = &(self.diags);
+        a->ksm  = self._be->ksm();
+        a->kfid = static_cast::<FileID>(u32(-1));
         var ci = std::create::<clang::CompilerInstance>(inv);
-        finally { std::destroy(ci); }
+        // The instance first: its engine borrows the adapter to the end.
+        finally { std::destroy(ci); a->finish(); std::destroy(a); }
         ci->setVirtualFileSystem(self._be->vfs());
-        // Its own printer, owned by the instance: ExecuteAction reports
-        // failure from the CLIENT's error count, and a shared client would
-        // carry one input's errors into every later input.
-        ci->createDiagnostics(&null, true);
+        ci->createDiagnostics(a, false);
         if !ci->hasDiagnostics() { return false; }
         var ok = clang::ExecuteCompilerInvocation(ci);
         return ok && (ci->getDiagnostics().getNumErrors() == 0);
