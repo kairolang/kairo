@@ -55,11 +55,13 @@ import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
 import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
+import Sema::Check::CtorInitCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::FieldInitLowering::*;
+import Sema::Lower::CtorInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
 import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
@@ -351,6 +353,13 @@ class Sema {
         // REQUIRES N's bindings (a bare sibling in a default is a field).
         { var _p = TimeRegion("InitCheck"); InitCheck(&self.sc).run(); }
 
+        // A const field is initialized exactly once, in its record's
+        // constructor, before `self` is used as a whole; the statement that
+        // initializes the last one is where the body is cut (ci_split, for
+        // CtorInitLowering). REQUIRES N's bindings and X's types (a `-> !`
+        // call ends a path). Before FeatureGate, which stays last.
+        { var _p = TimeRegion("CtorInitCheck"); CtorInitCheck(&self.sc).run(); }
+
         // TODO(sema): ConformanceChecking(&self.sc).run();
         // TODO(sema): ConstChecking(&self.sc).run();
 
@@ -380,8 +389,9 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         // The head of the stage is VariantInitLowering, then
-        // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering and
-        // CopyMoveLowering, then FinallyLowering, and the rest after them.
+        // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering,
+        // CtorInitLowering and CopyMoveLowering, then FinallyLowering, and
+        // the rest after them.
         //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
@@ -409,6 +419,11 @@ class Sema {
         // statement expression at class scope; from here on every pass meets
         // the initializer as an ordinary `return`.
         { var _p = TimeRegion("FieldInitLowering"); FieldInitLowering(&self.sc).run(); }
+        // A constructor that initializes a const field is cut into its
+        // S_pre and S_post blocks at CtorInitCheck's frontier. Here, before
+        // any pass inserts a statement: the frontier is a statement COUNT,
+        // true of the tree as checked and of nothing a later pass builds.
+        { var _p = TimeRegion("CtorInitLowering"); CtorInitLowering(&self.sc).run(); }
         // Fifth: a MOVE value passed, initialized from, assigned or returned
         // is cast to `T&&` at each site MoveCheck recorded. Before any pass
         // rebuilds an expression, which would drop the node the record names;

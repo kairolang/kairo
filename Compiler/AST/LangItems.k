@@ -465,4 +465,20 @@ class LowerTargets {
     static fn adt_movable() -> string                { return "__kairo_movable"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
+
+    // --- const fields in a constructor (writers: InterfaceEmitter, EmitIR) ------
+    /// The preamble helpers: `__kairo_slot<T>`, a value S_pre fills that does
+    /// not exist until its first assignment, and `__kairo_lref<T>`, `T&` for
+    /// any parameter spelling (reference collapsing). Their header guard.
+    static fn ctor_slot() -> string       { return "__kairo_slot"; }
+    static fn lref() -> string            { return "__kairo_lref"; }
+    static fn ctor_slot_guard() -> string { return "__KAIRO_CTOR_SLOT_HELPERS"; }
+    /// Per split constructor k of a record (FunctionDecl::ci_index): its slot
+    /// record, its pre-function, and the slot record's parameter name in
+    /// both. A local carried across is slot `__kairo_l<i>_<name>`, i its
+    /// position in ci_slots (two S_pre scopes may reuse a name).
+    static fn ctor_slots(k: u32) -> string { return f"__kairo_ci{k}"; }
+    static fn ctor_pre(k: u32) -> string   { return f"__kairo_ctor_pre{k}"; }
+    static fn ctor_slot_arg() -> string    { return "__kairo_s"; }
+    static fn ctor_local_slot(i: usize, name: string) -> string { return f"__kairo_l{i}_" + name; }
 }

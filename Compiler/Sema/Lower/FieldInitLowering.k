@@ -54,11 +54,21 @@
 ///     parent, so no later pass rewrites it twice, not even for a field in
 ///     a visibility group, which a walk reaches through the group as well.
 ///
+///   \par Statics
+///     A static field is lowered the same two ways, but what C++ does with
+///     the result differs: a static is no part of an object, so it has no
+///     default member initializer. InterfaceEmitter declares it in the class
+///     and defines it after the class, `inline T R::s = <init>;` -- a
+///     constant spelled as it is (and `constinit`), a thunk called. The thunk
+///     takes no `self` (there is no object to read through), which makes it
+///     a static member: the definition's initializer is in the class's
+///     scope, so it calls the thunk by leaf exactly as a default does.
+///
 ///   \par Not lowered
-///     A static or eval field, and an array-typed one, keep `init`.
-///     FeatureGateCheck rejects their initializers (SC116E) before this pass
-///     runs, so reaching one here is a hole in the gate, and InterfaceEmitter
-///     ICEs on it.
+///     An eval field and an array-typed one keep `init`. FeatureGateCheck
+///     rejects their initializers (SC116E) before this pass runs, so
+///     reaching one here is a hole in the gate, and InterfaceEmitter ICEs on
+///     it.
 ///
 ///   Phase: LOWER, after ExprBodyDesugar and before every other pass that
 ///   rewrites a body, so each of them meets the initializer as an ordinary
@@ -150,7 +160,7 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     /// and a poisoned one, which is not this pass's to judge.
     priv fn _kept(self, f: *FieldDecl) -> bool {
         if f->is_poisoned() || f->init->is_poisoned() || (f->type_ == &null) { return true; }
-        if f->is_static() || (f->storage == StorageClass::Eval) { return true; }
+        if f->storage == StorageClass::Eval { return true; }
         var c = canon_unqual(f->type_->canonical);
         return (c != &null) && (c->kind == TypeKind::FixedArrayType);
     }
@@ -181,7 +191,8 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     /// `fn __kairo_init_<f>(self) -> T { return <init> }`, a member of the
     /// field's record, stamped on the field. No generic parameters of its
     /// own: a generic record's are the template head its out-of-line
-    /// definition is written under.
+    /// definition is written under. A static field's thunk has no `self`
+    /// (file header, Statics).
     priv fn _mint(self, f: *FieldDecl) -> *FunctionDecl {
         var e    = f->init;
         var at   = e->range;
@@ -194,7 +205,7 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         th->return_type = f->type_;
 
         var ps = self.list_builder::<*ParamDecl>();
-        ps.push(ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self")));
+        if !f->is_static() { ps.push(ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self"))); }
         ps.freeze_into(&(th->params));
 
         var ret  = ReturnStmt::create(self.ctx, at, e);

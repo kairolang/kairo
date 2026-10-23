@@ -505,6 +505,27 @@ class FunctionDecl
     pub var adt_role:      AdtRole = AdtRole::None;
     pub var adt_form:      AdtForm = AdtForm::Trivial;
     pub var adt_variant:   u32     = 0;
+    /// A constructor that initializes a const field. C++ wants a const
+    /// member's value at the mem-initializer list, before any statement
+    /// runs, so the body is split: S_pre, every top-level statement up to
+    /// and including the last one that assigns a const field, runs before
+    /// the object exists, against slots; the rest runs in it. `ci_split` is
+    /// the number of statements in S_pre, 0 for a constructor emitted as
+    /// written. `ci_index` numbers the split constructors of one record
+    /// (LowerTargets::ctor_slots / ctor_pre). `ci_slots` is what S_pre
+    /// writes that outlives it: every field it assigns, in declaration
+    /// order, then every top-level local of S_pre the rest of the body
+    /// reads (FieldDecl or VariableDecl). `ci_dense` is parallel: assigned
+    /// on every path through S_pre (a const field and a local always are).
+    /// One writer: CtorInitCheck, onto the in-class declaration and its
+    /// definition alike. CtorInitLowering splits the body on `ci_split` and
+    /// sets `ci_cut` (the body is then exactly `{ {S_pre} {S_post} }`);
+    /// InterfaceEmitter and EmitIR render the rest (CODEGEN.md §5, §6).
+    pub var ci_split:      u32     = 0;
+    pub var ci_index:      u32     = 0;
+    pub var ci_slots:      FrozenList::<*Decl>;
+    pub var ci_dense:      FrozenList::<bool>;
+    pub var ci_cut:        bool    = false;
 
     fn has_where(self) -> bool { return self.where_clause != &null; }
 
@@ -524,6 +545,9 @@ class FunctionDecl
         node->adt_role    = AdtRole::None;
         node->adt_form    = AdtForm::Trivial;
         node->adt_variant = 0;
+        node->ci_split    = 0;
+        node->ci_index    = 0;
+        node->ci_cut      = false;
         return node;
     }
 

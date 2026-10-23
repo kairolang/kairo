@@ -615,6 +615,14 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(ff.trivial_dtor));
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
             self._absorb_assign(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
+            // Member by member, a const field cannot be assigned at all (C++
+            // deletes the implicit `op =`). A transfer constructor with a body
+            // rebuilds in place instead, which a const member does not stop;
+            // that branch below overwrites this verdict.
+            if fd->is_const() && (f->assignable != LifecycleTri::No) {
+                f->assignable         = LifecycleTri::No;
+                f->why_not_assignable = f"its field '{self.sc->ctx->get_spelling(fd->name)}' is const";
+            }
         }
 
         // Undo what the folding did to a pinned transfer (see above). The

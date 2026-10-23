@@ -14,7 +14,10 @@
 ///     name a sibling bare, and it runs as a C++ default member initializer
 ///     (FieldInitLowering), in declaration order: a field declared at or
 ///     after the one being initialized is not built yet when it is read.
-///     A static field is no part of an object and is never refused.
+///     A static field is no part of an object and is never refused. A
+///     static's OWN initializer is the reverse case: it runs once, for no
+///     object, so it may read other statics and no instance field at all
+///     (its thunk is a static member function; there is no `this`).
 ///
 ///     A brace initializer (`Foo{...}`, `{...}` against a target) builds an
 ///     aggregate field by field, which a class that declares a constructor
@@ -83,6 +86,18 @@ class FieldReadScan derives RecursiveASTVisitor::<FieldReadScan> {
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
         if (n->resolved_decl == &null) || (!isa::<FieldDecl>(n->resolved_decl)) { return true; }
         var read = cast::<FieldDecl>(n->resolved_decl);
+        if self._field->is_static() {
+            if read->is_static() { return true; }
+            var tu    = TypeUtil(self.sc);
+            var mine  = tu.decl_name(static_cast::<*Decl>(self._field));
+            var other = tu.decl_name(static_cast::<*Decl>(read));
+            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
+                f"the initializer of static field '{mine}' reads instance field '{other}'; a static belongs to no object");
+            b.first(n->range);
+            b.note(read->range.start, f"'{other}' is declared here, without 'static\x27").first(read->range);
+            b.emit();
+            return true;
+        }
         if read->is_static() || (read->semantic_dc != self._field->semantic_dc) { return true; }
         if read->index < self._field->index {
             var odc   = reinterpret_cast::<*DeclContext>(self._field->semantic_dc);
@@ -149,8 +164,8 @@ class InitCheck derives RecursiveASTVisitor::<InitCheck> {
 
     /// Once per field: an instance shares its pattern's fields.
     fn visit_field_decl(self, n: *FieldDecl) -> bool {
+        if (n->init == &null) && n->is_static() && (!n->is_poisoned()) { self._check_static_default(n); return true; }
         if (n->init == &null) || n->is_poisoned() || n->init->is_poisoned() { return true; }
-        if n->is_static() { return true; }
         var odc   = reinterpret_cast::<*DeclContext>(n->semantic_dc);
         var owner = (odc->owner_decl()) if (odc != &null) else (&null);
         if (owner != &null) && decl_is_instance(owner) { return true; }
@@ -221,6 +236,24 @@ class InitCheck derives RecursiveASTVisitor::<InitCheck> {
         b.insert(v->range.end, " = ...", "initialize it");
         b.emit();
         v->poison();
+    }
+
+    /// A static field with no initializer is defined as `T R::s{}`
+    /// (InterfaceEmitter::_static_def): the same default a `var x: T` gets,
+    /// so the same rule. An instance's statics are its pattern's.
+    priv fn _check_static_default(self, f: *FieldDecl) {
+        if (f->type_ == &null) || (f->type_->canonical == &null) { return; }
+        var odc   = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        var owner = (odc->owner_decl()) if (odc != &null) else (&null);
+        if (owner != &null) && decl_is_instance(owner) { return; }
+        var why = self._why_no_default(f->type_->canonical);
+        if why.size() == 0 { return; }
+        var nm = self.sc->ctx->get_spelling(f->name);
+        var b = self.sc->diag->report(DiagID::SC001E, f->range.start,
+            f"static field '{nm}' is declared without an initializer, and {why}; Kairo has no uninitialized variables");
+        b.first(f->name.range);
+        b.insert(f->range.end, " = ...", "initialize it");
+        b.emit();
     }
 
     /// Empty when \p t has a default value; otherwise the reason, phrased

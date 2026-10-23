@@ -408,7 +408,7 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 In order: `ConstraintExtraction`, `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
 `PatternChecking`, `ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`,
-`InitCheck`, `FeatureGateCheck`.
+`InitCheck`, `CtorInitCheck`, `FeatureGateCheck`.
 
 `PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
 non-exhaustive match (statement form too), with a witness; SC121E for an
@@ -432,10 +432,30 @@ only fields declared before it (SC001E naming both, with a note at the
 later one). A default keeps the type body's scope, so it may name a
 sibling bare, and it runs as a C++ default member initializer, in
 declaration order; the field itself and every later one are not built
-yet. A static field is never refused. It also gates (SC116E) an earlier
-sibling read in a GENERIC record's default, which the thunk's qualified
-spelling cannot compile yet: CXXSpell gives the record no template
-arguments there.
+yet. A static field is never refused. A static's own initializer reads
+no instance field (SC001E: it runs for no object), and a static with no
+initializer needs a type with a default (SC001E, as a `var x: T` does:
+it is defined `T R::s{}`). It also gates (SC116E) an earlier sibling read
+in a GENERIC record's default, which the thunk's qualified spelling
+cannot compile yet: CXXSpell gives the record no template arguments
+there.
+
+`CtorInitCheck` [DONE] is the const-field rule (classes.md, Const members
+in constructors), structural like ReturnPathCheck. A const field with no
+declared initializer is assigned on every path through each constructor,
+exactly once (never in a loop); one with an initializer is never
+assigned; outside a constructor of its own record no const field is
+assigned at all. The constructor body is read in two parts at the
+frontier, the last top-level statement that assigns a const field:
+S_pre runs before the object exists, so in it `self` appears only as
+`self.f = e` or as a read of a field already assigned on every path, and
+it holds no `return`. Every rule is SC001E; SC116E gates a generic
+constructor and `try` / `finally` / `inline` / `label!` / `jump!` in
+S_pre, and a static or array local carried across. It writes the cut
+(`FunctionDecl::ci_split`, `ci_index`, `ci_slots`, `ci_dense`) for
+CtorInitLowering and the emitters (CODEGEN.md §6). ClassLifecycle makes
+a record with a const field unassignable member by member (SC071E), as
+C++ does; a transfer constructor with a body still rebuilds it.
 
 `FeatureGateCheck` [DONE] runs last and reports well-typed constructs that
 have no lowering yet, one SC116E each ("<construct> is not yet supported").
@@ -444,8 +464,8 @@ an unfinished feature is said HERE; the error stops the schedule before L
 and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
 `iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
 whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
-its special members from those facts), and an initializer on a static,
-eval or array-typed field (FieldInitLowering lowers every other one). A
+its special members from those facts), and an initializer on an eval or
+array-typed field (FieldInitLowering lowers every other one). A
 gate is removed in the commit that lands its lowering.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
@@ -885,7 +905,7 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
@@ -948,8 +968,18 @@ stamped as `FieldDecl::init_thunk`, and the default calls it. Either way
 out of line like every user-written body (IMPORTS.md invariant 12). It is
 a method, so a bare member the default names (it keeps the type body's
 scope) is read through `this`; InitCheck has made sure that member is
-built by then. Static, eval and array-typed fields keep `init`;
+built by then. A STATIC field folds or thunks the same way, but its thunk
+takes no `self` (a static member: there is no object), and the value is
+its out-of-line definition's, not a default member initializer
+(CODEGEN.md §5). Eval and array-typed fields keep `init`;
 FeatureGateCheck has rejected them.
+
+CtorInitLowering [DONE]. A constructor CtorInitCheck split has its body
+cut into exactly two blocks, `{ {S_pre} {S_post} }`, at `ci_split`, and
+`ci_cut` set; nothing is renamed or minted, so Sema's view of the record
+(its member lists, overload sets) is unchanged. Right after
+FieldInitLowering, because the cut is a statement COUNT and every later
+pass may insert statements (each lands inside its own half).
 
 CallLowering [DONE]. After it every call is one positional argument list in
 parameter order; `NamedArgExpr` is gone and `arg_map` is empty. A default
@@ -1232,7 +1262,8 @@ A pass that needs one asks that file; it never spells the string itself.
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
    `default_thunk` / `pack_type` on ParamDecl: CallLowering.
    `init_fold` / `init_neg` / `init_mag` / `init_thunk` on FieldDecl:
-   FieldInitLowering.
+   FieldInitLowering. `ci_split` / `ci_index` / `ci_slots` / `ci_dense` on
+   FunctionDecl: CtorInitCheck; `ci_cut`: CtorInitLowering.
    `is_generator` / `has_yield` on FunctionDecl: X. A transfer
    constructor's `other` mode stamp: ClassLifecycle. A record's derived
    `op =` (`assign_from`, `assign_form`): ClassLifecycle. Lifecycle facts:

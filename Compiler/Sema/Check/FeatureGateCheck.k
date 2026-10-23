@@ -27,11 +27,12 @@
 ///         EnumLayoutLowering picks its special members from those facts.
 ///         Reported at the enum, with a note at the payload field that left
 ///         the fact open.
-///       - an initializer on a static, eval or array-typed field.
+///       - an initializer on an eval or array-typed field.
 ///         FieldInitLowering turns every other one into a C++ default member
-///         initializer; no definition of a static or eval field is emitted
-///         yet, and a C++ function cannot return an array, so these keep
-///         theirs and codegen would ICE on them.
+///         initializer (or, for a static, the initializer of its out-of-line
+///         definition); an eval field has no constant emission yet, and a C++
+///         function cannot return an array, so these keep theirs and codegen
+///         would ICE on them.
 ///       - a generic record's field default that reads another field.
 ///         InitCheck reports it (SC116E too): it is the pass that walks what
 ///         a default reads.
@@ -189,14 +190,15 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         var owner = (odc->owner_decl()) if (odc != &null) else (&null);
         if (owner != &null) && decl_is_instance(owner) { return true; }
         var what = "";
-        if n->is_static() {
-            what = "a static field";
-        } else if n->storage == StorageClass::Eval {
+        // Array first: a static array keeps its initializer too (no thunk
+        // can return one), so `static` alone does not clear the gate.
+        var c = canon_unqual(n->type_->canonical);
+        if n->storage == StorageClass::Eval {
             what = "an eval field";
-        } else {
-            var c = canon_unqual(n->type_->canonical);
-            if (c == &null) || (c->kind != TypeKind::FixedArrayType) { return true; }
+        } else if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
             what = "an array-typed field";
+        } else {
+            return true;
         }
         self._gate(n->init->range, f"an initializer on {what}");
         return true;
