@@ -73,18 +73,18 @@ pub fn bits_f32(b: u32) -> f32 {
 ///
 ///        Precision, not range. This is the weights-and-activations format.
 pub struct F8E4M3 {
+    pub static BIAS:     i32 = 7;
+    pub static MANT:     u32 = 3;
+    pub static MAX_FIN:  f32 = 448.0;
+    pub static NAN_BITS: u8  = 0x7F;
+
     pub var bits: u8 = 0;
 }
 
 extend F8E4M3 {
-    pub const BIAS:     i32 = 7;
-    pub const MANT:     u32 = 3;
-    pub const MAX_FIN:  f32 = 448.0;
-    pub const NAN_BITS: u8  = 0x7F;
-
     pub fn F8E4M3(self) { self.bits = 0; }
 
-    pub fn F8E4M3(self, v: f32) { self.bits = F8E4M3::from_f32_bits(v); }
+    pub fn F8E4M3(self, v: f32) { self.bits = Self::from_f32_bits(v); }
 
     /// f32 -> E4M3FN, round-to-nearest-even, saturating.
     ///
@@ -100,7 +100,7 @@ extend F8E4M3 {
         // NaN in, NaN out. Infinity in ALSO becomes NaN: E4M3FN cannot
         // represent inf, and saturating to 448 would silently turn an
         // overflow signal into a finite number.
-        if exp == 0xFF { return (sign << 7) | F8E4M3::NAN_BITS; }
+        if exp == 0xFF { return (sign << 7) | Self::NAN_BITS; }
 
         var unb = exp - 127;
 
@@ -112,7 +112,7 @@ extend F8E4M3 {
 
         // Normal range: unbiased exponent in [-6, 8].
         if unb >= -6 {
-            var e8: u32 = (unb + F8E4M3::BIAS) as u32;
+            var e8: u32 = (unb + Self::BIAS) as u32;
             var m8: u32 = man >> 20;              // 23 -> 3 mantissa bits
             var rem: u32 = man & 0xFFFFF;         // the 20 dropped bits
             var halfway: u32 = 0x80000;
@@ -175,7 +175,7 @@ extend F8E4M3 {
             return bits_f32((sign << 31) | (e32 << 23) | (m << 20));
         }
 
-        var e32: u32 = (e8 as i32 - F8E4M3::BIAS + 127) as u32;
+        var e32: u32 = (e8 as i32 - Self::BIAS + 127) as u32;
         return bits_f32((sign << 31) | (e32 << 23) | (m8 << 20));
     }
 
@@ -202,18 +202,18 @@ extend F8E4M3 {
 ///        which is why f16 <-> e5m2 is a shift rather than a
 ///        renormalization. This is the gradients format.
 pub struct F8E5M2 {
+    pub static BIAS:     i32 = 15;
+    pub static MANT:     u32 = 2;
+    pub static MAX_FIN:  f32 = 57344.0;
+    pub static INF_BITS: u8 = 0x7C;
+
     pub var bits: u8 = 0;
 }
 
 extend F8E5M2 {
-    pub const BIAS:    i32 = 15;
-    pub const MANT:    u32 = 2;
-    pub const MAX_FIN: f32 = 57344.0;
-    pub const INF_BITS: u8 = 0x7C;
-
     pub fn F8E5M2(self) { self.bits = 0; }
 
-    pub fn F8E5M2(self, v: f32) { self.bits = F8E5M2::from_f32_bits(v); }
+    pub fn F8E5M2(self, v: f32) { self.bits = Self::from_f32_bits(v); }
 
     /// f32 -> E5M2, round-to-nearest-even. Overflow produces INFINITY here,
     /// not saturation -- E5M2 has inf encodings and IEEE semantics.
@@ -224,16 +224,16 @@ extend F8E5M2 {
         var man  = w & 0x7FFFFF;
 
         if exp == 0xFF {
-            if man == 0 { return (sign << 7) | F8E5M2::INF_BITS; }   // inf
+            if man == 0 { return (sign << 7) | Self::INF_BITS; }   // inf
             return (sign << 7) | 0x7E;                               // NaN
         }
 
         var unb = exp - 127;
 
-        if unb > 15 { return (sign << 7) | F8E5M2::INF_BITS; }
+        if unb > 15 { return (sign << 7) | Self::INF_BITS; }
 
         if unb >= -14 {
-            var e8: u32 = (unb + F8E5M2::BIAS) as u32;
+            var e8: u32 = (unb + Self::BIAS) as u32;
             var m8: u32 = man >> 21;              // 23 -> 2 mantissa bits
             var rem: u32 = man & 0x1FFFFF;
             var halfway: u32 = 0x100000;
@@ -242,7 +242,7 @@ extend F8E5M2 {
                 m8 += 1;
                 if m8 == 4 { m8 = 0; e8 += 1; }
             }
-            if e8 >= 31 { return (sign << 7) | F8E5M2::INF_BITS; }
+            if e8 >= 31 { return (sign << 7) | Self::INF_BITS; }
             return (sign << 7) | ((e8 as u8) << 2) | (m8 as u8);
         }
 
@@ -283,7 +283,7 @@ extend F8E5M2 {
             return bits_f32((sign << 31) | (e32 << 23) | (m << 21));
         }
 
-        var e32: u32 = (e8 as i32 - F8E5M2::BIAS + 127) as u32;
+        var e32: u32 = (e8 as i32 - Self::BIAS + 127) as u32;
         return bits_f32((sign << 31) | (e32 << 23) | (m8 << 21));
     }
 
