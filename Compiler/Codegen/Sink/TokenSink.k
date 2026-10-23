@@ -452,21 +452,29 @@ class TokenSink derives EmitSink {
         return self._ident_lit(self._bytes(loc, len), loc, len);
     }
 
+    /// The kind comes from the IdentifierInfo here (`decltype` is
+    /// kw_decltype), not from the lexer that reads the stream: TokenLexer
+    /// re-kinds an identifier, but the prebuilt-token lexer behind a
+    /// `#include "foo.k"` (Interop/Clang/KairoInclude.k) hands tokens to the
+    /// parser as they are, and a keyword left tok::identifier is a parse
+    /// error there.
     priv fn _ident_lit(self, name: llvm::StringRef, loc: SourceLocation, len: u32) -> bool {
+        var ii = self._pp->getIdentifierInfo(name);
         var at = self._claim(loc, len);
         if !at.is_valid() {
             // Clang reads an identifier's spelling from its IdentifierInfo,
-            // and TokenLexer re-kinds it from the same (`decltype` becomes
-            // kw_decltype), so the arena copy only buys the location.
+            // so the arena copy only buys the location.
             var ns = string(name.data(), name.size());
             self._arena_tok(clang::tok::identifier, SourceRange::from_bounds(loc, len), ns);
-            self._tokens.get(self._tokens.size() - 1)->setIdentifierInfo(self._pp->getIdentifierInfo(name));
+            var last = self._tokens.get(self._tokens.size() - 1);
+            last->setIdentifierInfo(ii);
+            last->setKind(ii->getTokenID());
             return true;
         }
         var t = self._tokens.slot();
         t->startToken();
-        t->setKind(clang::tok::identifier);
-        t->setIdentifierInfo(self._pp->getIdentifierInfo(name));
+        t->setKind(ii->getTokenID());
+        t->setIdentifierInfo(ii);
         t->setLocation(self._loc(at));
         t->setLength(self._rest(loc, at, len));
         return true;
