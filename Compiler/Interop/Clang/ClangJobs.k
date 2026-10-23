@@ -24,8 +24,9 @@
 ///   built, then every job it plans is run HERE, in this process:
 ///
 ///     clang -cc1 ...   CompilerInvocation::CreateFromArgs + a fresh
-///                      CompilerInstance over the backend's shared VFS and
-///                      printer + ExecuteCompilerInvocation.
+///                      CompilerInstance over the backend's shared VFS +
+///                      execute_with_kairo_includes (ExecuteCompilerInvocation
+///                      with the `#include "foo.k"` hook, KairoInclude.k).
 ///     anything else    an error naming the tool. kairo never spawns one.
 ///
 ///   Jobs are read off Compilation::getJobs() and never run through
@@ -66,6 +67,7 @@ import Location::SourceLocation::*;
 import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagAdapter::*;
 import Interop::Clang::ClangBackend::*;
+import Interop::Clang::KairoInclude::*;
 
 class ClangJobs {
     priv var _be:        obs::<ClangBackend>;
@@ -80,6 +82,9 @@ class ClangJobs {
     pub var error: string;
     /// The cc1 jobs' diagnostics, until the caller drains them.
     pub var diags: BufferedDiagSink;
+    /// Answers `#include "foo.k"` in a C++ input (KairoInclude.k); null
+    /// leaves such an include to fail with the reason.
+    pub var includes: obs::<KairoIncludeSource> = &null;
 
     fn ClangJobs(self, be: *ClangBackend, clang_exe: string) {
         self._be        = be;
@@ -184,7 +189,7 @@ class ClangJobs {
         ci->setVirtualFileSystem(self._be->vfs());
         ci->createDiagnostics(a, false);
         if !ci->hasDiagnostics() { return false; }
-        var ok = clang::ExecuteCompilerInvocation(ci);
+        var ok = execute_with_kairo_includes(ci, self.includes);
         return ok && (ci->getDiagnostics().getNumErrors() == 0);
     }
 }

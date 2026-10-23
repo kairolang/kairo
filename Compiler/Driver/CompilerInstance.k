@@ -146,6 +146,7 @@ import Sema::SemaContext::*;
 import AST::Context::ImportOverlay::*;
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::ClangJobs::*;
+import Driver::KairoIncludes::*;
 import Interop::Clang::HeaderSet::*;
 import Sema::Foreign::HeaderIndex::*;
 import Sema::Foreign::ForeignRegistry::*;
@@ -328,6 +329,7 @@ class CompilerInstance {
     /// clang's driver, run in-process, for the C/C++ inputs (made on first
     /// use: a pure-Kairo build never builds a driver).
     priv var _jobs: opt::<ClangJobs> = &null;
+    priv var _kincludes: opt::<DriverIncludeSource> = &null;   ///< owned; _jobs borrows it
     priv var _native_objs: vec::<string>; ///< objects from _compile_sources / _compile_runtime, in order
     priv var _link_inputs: vec::<string>; ///< .o/.a/.so given on the command line, in order
     /// Every command-line input, classified once by _plan_outputs (in
@@ -449,6 +451,7 @@ class CompilerInstance {
     fn op delete (self) {
         // The driver bridge borrows the backend: it goes first.
         if self._jobs != &null { std::destroy(self._jobs); self._jobs = &null; }
+        if self._kincludes != &null { std::destroy(self._kincludes); self._kincludes = &null; }
         // Header sets before the backend: a build in flight is using the
         // backend's invocation and VFS, and a live set's clang instance
         // shares that VFS. Drain the group so no set is mid-parse when it
@@ -1418,6 +1421,10 @@ class CompilerInstance {
         if self._jobs == &null {
             var exe = Path::join_str(Path::parent_of(std::get_exe_path()), "clang");
             self._jobs = std::create::<ClangJobs>(self._backend, exe);
+            self._kincludes = std::create::<DriverIncludeSource>(
+                self._sm, self._g_scope, (self._pp->get_symbol_table()) if (self._pp != &null) else (&null),
+                !self.invocation().frontend.stops_before_codegen());
+            self._jobs->includes = self._kincludes;
         }
         return self._jobs;
     }

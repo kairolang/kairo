@@ -50,6 +50,19 @@ Objects land at `<obj-dir>/<module path>.o` (`--obj-dir`; a single-TU
 build with `-o x.o` uses that). `--print-cxx` runs the same plan into a
 TextSink; `--emit-headers <dir>` runs `EmitPlan(Header)` into
 `<dir>/<module path>.hh`. Both work under `--type-check-only`.
+`#include "foo.k"` from a C++ input runs `EmitPlan(Preamble)` and
+`InterfaceEmitter::run` into a TokenSink bound to the host's preprocessor
+(`IncludeEmitter`): no bodies, no eof.
+
+Layout. Only `Backend/` imports emitters, and only `Backend/` and `Sink/`
+import clang headers:
+
+    CodegenContext.k  CodegenICE.k  EmitPlan.k   shared by every file below
+    Emit/      CXXSpell, InterfaceEmitter, EmitIR      the emitters
+    Sink/      EmitSink (interface), TokenSink, TextSink, TokenStreamPrinter
+    Backend/   the plan's consumers and their clang glue:
+               CodegenBackend (an object), EmitCXXHeader (a header),
+               IncludeEmitter (`#include "foo.k"`), CodegenAction
 
 ## 2. Sinks
 
