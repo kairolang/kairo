@@ -547,7 +547,7 @@ class CompilerInstance {
     /// the C library the compiler ships, not whichever the host was built
     /// against. The default install bundles only MinGW-w64 and musl (with
     /// libc++), so Windows is <arch>-pc-windows-gnu, never msvc, and Linux is
-    /// <arch>-...-linux-musl on every arch (the eabi/eabihf float ABI kept on
+    /// <arch>-unknown-linux-musl on every arch (the eabi/eabihf float ABI kept on
     /// 32-bit ARM), never glibc. Any other host keeps its own triple.
     fn get_default_target_triple(self) -> string {
         var triple = llvm::Triple(llvm::Triple::normalize(sref(self.get_target_triple())));
@@ -555,6 +555,13 @@ class CompilerInstance {
             triple.setVendor(llvm::Triple::PC);
             triple.setEnvironment(llvm::Triple::GNU);
         } else if triple.isOSLinux() {
+            // Vendor `unknown`, not the host's: the bundled musl sysroots are
+            // built for <arch>-unknown-linux-musl (clang's canonical spelling,
+            // and the name of their compiler-rt directory). A host-derived
+            // x86_64-pc-linux-musl names no directory any of them ships, so
+            // every clang that is handed kairo's target -- the tests' link
+            // driver, a user's build system -- misses libclang_rt.builtins.
+            triple.setVendor(llvm::Triple::UnknownVendor);
             var env = triple.getEnvironment();
             if (env == llvm::Triple::GNUEABIHF) || (env == llvm::Triple::MuslEABIHF) {
                 triple.setEnvironment(llvm::Triple::MuslEABIHF);

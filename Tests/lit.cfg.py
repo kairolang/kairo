@@ -475,6 +475,16 @@ def _clangxx_for_bundle(clangxx, triple, sysroot, m):
             flags.append(flag + m[key])
     if m.get("linker"):
         flags.append("-fuse-ld=" + m["linker"])
+    # The C++ runtime exactly as the manifest links it. clang's driver adds a
+    # bare -lc++ for -stdlib=libc++, but a bundle whose libc++abi is its own
+    # archive (operator new, the type_info vtables) needs -lc++abi too, which
+    # kairo's linker takes from libcxx_link. -nostdlib++ drops clang's own
+    # line (and its -lm, restored here). Order is safe: these come before the
+    # objects on the command line, and lld resolves against earlier archives.
+    if m.get("libcxx_link"):
+        flags.append("-nostdlib++")
+        flags += list(m["libcxx_link"])
+        flags.append("-lm")
     # A static-only bundle may still carry import libs (libc++.dll.a), which
     # clang prefers, and the test exe then dies looking for libc++.dll.
     if m.get("static"):
