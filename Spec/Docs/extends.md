@@ -1,8 +1,8 @@
 # Extends
 
 `extend` blocks add methods, operators, and static functions to types declared elsewhere. They are the
-primary way to attach behavior to [structs](/docs/language/structures) and
-[enums](/docs/language/enums), which cannot contain methods in their body. Classes can also be extended.
+primary way to attach behavior to [structs](/docs/language/structures/) and
+[enums](/docs/language/enums/), which cannot contain methods in their body. Classes can also be extended.
 
 ---
 
@@ -36,7 +36,7 @@ Point::origin()  // Point { x: 0.0, y: 0.0 }
 Methods added via `extend` are called the same way as methods defined in a class body there is no
 syntactic distinction at the call site.
 
-An `extend` body is the extended type's scope. Members still need an explicit qualifier `self.x` or `Self::x`, exactly as in a class body (see [Members always need a qualifier](/docs/language/classes#members-always-need-a-qualifier)) and the same one exception applies: the target's nested types and type aliases are visible unqualified.
+An `extend` body is the extended type's scope. Members still need an explicit qualifier `self.x` or `Self::x`, exactly as in a class body (see [Members always need a qualifier](/docs/language/classes/#members-always-need-a-qualifier)) and the same one exception applies: the target's nested types and type aliases are visible unqualified.
 
 ```kairo
 class Tree {
@@ -81,7 +81,7 @@ The rules differ by type:
 | `fn op in` (iteration) | Member-only operators (`as`, `[]`, `->`) |
 
 Structs are trivially copyable. Extending lifecycle operations (destructors, copy/move) would break
-that guarantee. See [Structures](/docs/language/structures#copy-semantics).
+that guarantee. See [Structures](/docs/language/structures/#copy-semantics).
 
 ### Enums
 
@@ -109,7 +109,7 @@ separating interface conformance or adding functionality in a different section 
 > Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type. Neither
 > can the member-only operators `as`, `[]`, `->`, and `delete`; declare them in the type's own body.
 > If you need construction logic on a struct, extend a static factory function instead. If you need
-> a destructor, use a [class](/docs/language/classes).
+> a destructor, use a [class](/docs/language/classes/).
 
 ---
 
@@ -133,7 +133,7 @@ The compiler verifies at the `extend` declaration that all interface requirement
 Missing methods are a compile error.
 
 > [!NOTE]
-> The current compiler does not report missing methods at the `extend` declaration yet. See [Implementation Status](/docs/status#not-diagnosed).
+> The current compiler does not report missing methods at the `extend` declaration yet. See [Implementation Status](/docs/status/#not-diagnosed).
 
 A type can conform to multiple interfaces through separate `extend` blocks:
 
@@ -148,13 +148,13 @@ extend Point impl Serializable {
 }
 ```
 
-See [Interfaces](/docs/language/interfaces) for interface declarations and structural conformance.
+See [Interfaces](/docs/language/interfaces/) for interface declarations and structural conformance.
 
 ---
 
 ## Generic Extends
 
-A generic `extend` declares its own type parameters:
+A generic `extend` declares its own [type parameters](/docs/language/generics/):
 
 ```kairo
 struct <T> Pair {
@@ -191,7 +191,7 @@ extend <T> Wrap<Box<T>> {
 `Wrap<Box<i32>>` has `unbox`; `Wrap<i32>` does not.
 
 Constraints on an extension's parameters are written with `impl`, `derives`, or a
-[`requires` clause](/docs/language/requires):
+[`requires` clause](/docs/language/requires/):
 
 ```kairo
 extend <T impl Comparable> Pair<T> {
@@ -205,7 +205,7 @@ This `max` method is only available on `Pair<T>` when `T` satisfies `Comparable`
 `pair_of_noncomparable.max()` (or `Pair<SomeNonComparable>::max(p)`) is a compile error.
 
 > [!NOTE]
-> The current compiler does not check an extension's bounds at the call site yet. See [Implementation Status](/docs/status#not-diagnosed).
+> The current compiler does not check an extension's bounds at the call site yet. See [Implementation Status](/docs/status/#not-diagnosed).
 
 ### Generic interface conformance
 
@@ -224,7 +224,7 @@ extend <T> Pair<T> impl Container<T> {
 }
 ```
 
-See [Requires Clauses](/docs/language/requires) for the full constraint system.
+See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ---
 
@@ -309,7 +309,7 @@ This prevents conflicts between extensions in different files while still allowi
 conformance to be declared where the interface is defined.
 
 > [!NOTE]
-> The current compiler does not reject an `extend` in the wrong file yet. See [Implementation Status](/docs/status#not-diagnosed).
+> The current compiler does not reject an `extend` in the wrong file yet. See [Implementation Status](/docs/status/#not-diagnosed).
 
 ---
 
@@ -364,7 +364,7 @@ different entities:
 - C++ code calling a Kairo type sees body methods as member functions, and extension members as static
   functions of a companion scope.
 
-Put anything that needs dynamic dispatch, overriding, or lifecycle behavior in the body. Use `extend`
+Put anything that needs [dynamic dispatch](/docs/language/classes-inheritance/#virtual-dispatch), overriding, or [lifecycle behavior](/docs/language/classes-lifecycle/) in the body. Use `extend`
 for the rest, such as interface conformance kept apart from the core type:
 
 ```kairo
@@ -422,3 +422,12 @@ extend <T impl Comparable> Pair<T> {
     fn max(const self) -> T = if self.first > self.second => self.first else => self.second
 }
 ```
+
+## See also
+
+- [Structures](/docs/language/structures/#extends)
+- [Enums](/docs/language/enums/#extends)
+- [Classes](/docs/language/classes/)
+- [Interfaces](/docs/language/interfaces/#conformance)
+- [Generics](/docs/language/generics/)
+- [Requires Clauses](/docs/language/requires/)

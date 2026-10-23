@@ -5,7 +5,7 @@ memory layout tool for hardware registers, binary protocol parsing, and type pun
 for tracking which field is active there is no compiler-managed tag.
 
 For type-safe tagged unions with compiler-enforced variant tracking, use
-[ADT enums](/docs/language/enums#adt-enums).
+[ADT enums](/docs/language/enums-adt/#adt-enums).
 
 ---
 
@@ -26,7 +26,7 @@ any alignment padding.
 
 ## Usage
 
-Read and write fields with plain assignment. No special syntax or `unsafe` block is required:
+Read and write fields with plain assignment. No special syntax or [`unsafe` block](/docs/language/unsafe/#unsafe-blocks) is required:
 
 ```kairo
 var r: Register
@@ -51,16 +51,16 @@ reinterpretation. This is legal but the result depends entirely on the underlyin
 
 Union fields must be trivially copyable. The following types are permitted:
 
-- Integers (`i8`--`i512`, `u8`--`u512`, `isize`, `usize`)
-- Floats (`f16`--`f512`)
+- Integers (`i8`-`i512`, `u8`-`u512`, `isize`, `usize`)
+- Floats (`f16`-`f512`)
 - Booleans (`bool`)
 - Characters (`char`)
 - Bytes (`byte`)
-- Pointers (`*T`, `unsafe *T`)
+- [Pointers](/docs/language/pointers/) (`*T`, `unsafe *T`)
 - Fixed-size arrays of trivial types (`[T; N]`)
-- Structs where all fields are trivially copyable
+- [Structs](/docs/language/structures/) where all fields are trivially copyable
 - Other unions
-- Enums (plain, without ADT payloads)
+- [Enums](/docs/language/enums-plain/) (plain, without ADT payloads)
 
 Non-trivially copyable types are a compile error:
 
@@ -71,7 +71,7 @@ union Bad {
 }
 ```
 
-If you need a union of non-trivial types, use an [ADT enum](/docs/language/enums#adt-enums) the
+If you need a union of non-trivial types, use an [ADT enum](/docs/language/enums-adt/#adt-enums) the
 compiler manages construction, destruction, and active-variant tracking for you.
 
 ---
@@ -91,7 +91,7 @@ union Pixel {           // ok: named union
 
 ## Nesting in Structs and Classes
 
-Unions are commonly embedded in structs or classes for structured access to overlapping data:
+Unions are commonly embedded in [structs](/docs/language/structures/) or [classes](/docs/language/classes/) for structured access to overlapping data:
 
 ```kairo
 struct Packet {
@@ -111,13 +111,13 @@ pkt.payload.as_int = 42
 ```
 
 For a type-safe version of this pattern (where the opcode determines which payload field is valid),
-use an [ADT enum](/docs/language/enums#adt-enums) instead.
+use an [ADT enum](/docs/language/enums-adt/#adt-enums) instead.
 
 ---
 
 ## Generic Unions
 
-Unions can be generic:
+Unions can be [generic](/docs/language/generics/):
 
 ```kairo
 union <T, U> Either {
@@ -142,7 +142,7 @@ Union layout follows the platform's C++ ABI:
 - All fields start at offset 0
 - Alignment is the strictest alignment of any member
 
-Layout attributes work the same as on structs and classes:
+[Layout attributes](/docs/language/attributes/#layout-attributes) work the same as on [structs](/docs/language/structures/#memory-layout) and classes:
 
 ```kairo
 @packed
@@ -162,7 +162,7 @@ union Aligned {
 
 ## Forward Declarations
 
-Unions can be forward-declared for use in pointer types:
+Unions can be forward-declared for use in [pointer types](/docs/language/pointers/):
 
 ```kairo
 union Payload    // forward declaration
@@ -182,8 +182,8 @@ union Payload {
 
 ## No Extends
 
-Unions do not support `extend` blocks. They are raw memory overlays with no behavior adding
-methods would blur the line between unions and [classes](/docs/language/classes). If you need methods
+Unions do not support [`extend` blocks](/docs/language/extends/). They are raw memory overlays with no behavior adding
+methods would blur the line between unions and [classes](/docs/language/classes/). If you need methods
 on overlapping data, wrap the union in a struct or class and add behavior there.
 
 ---
@@ -239,3 +239,15 @@ reg.value.raw = 0xDEAD_BEEF
 reg.value.fields.low    // 0xBEEF (little-endian)
 reg.value.fields.high   // 0xDEAD (little-endian)
 ```
+
+---
+
+## See also
+
+- [ADT Enums](/docs/language/enums-adt/)
+- [Structures](/docs/language/structures/#memory-layout)
+- [Attributes](/docs/language/attributes/#layout-attributes)
+- [Unsafe](/docs/language/unsafe/)
+- [Calling C and C++ from Kairo](/docs/language/c-cpp-calling/)
+- [Classes](/docs/language/classes/)
+- [Generics](/docs/language/generics/)

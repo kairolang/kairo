@@ -10,13 +10,13 @@ following features are planned and referenced across the existing documentation:
 ### Async/Await
 
 The `async` modifier on functions and the `await` keyword for waiting on asynchronous results.
-See [Functions](/docs/language/functions#function-modifiers) for the `async` modifier.
+See [Functions](/docs/language/functions-declarations/#function-modifiers) for the `async` modifier.
 
 ### Coroutines (`yield`)
 
 Functions with a `yield T` return type are generators: they produce values cooperatively. The `yield`
 keyword suspends the function and produces a value to the caller. See
-[Generators](/docs/language/functions#generators) for the rules.
+[Generators](/docs/language/functions-generators/#generators) for the rules.
 
 ### `spawn`
 
@@ -26,12 +26,12 @@ being finalized.
 ### Atomic Types (`atomic T`)
 
 Thread-safe wrapper type for lock-free operations. Referenced in
-[Functions](/docs/language/functions#special-return-types).
+[Functions](/docs/language/functions-generators/#special-return-types).
 
 ### Thread-Local Storage (`thread T`)
 
 Per-thread storage modifier. Referenced in
-[Functions](/docs/language/functions#special-return-types).
+[Functions](/docs/language/functions-generators/#special-return-types).
 
 ### Synchronization Primitives
 
@@ -42,7 +42,7 @@ library concurrency API is finalized.
 
 Classes can define `fn <T> op await(self, obj: std::forward<T>) -> T` to customize the behavior of
 `await` when called on an instance. See
-[Operators](/docs/language/operators#special-operators) for the `op await` overload.
+[Operators](/docs/language/operator-overloading/#special-operators) for the `op await` overload.
 
 ```kairo
 await async_fn()       // syntax sugar for a state machine
@@ -63,3 +63,13 @@ fn get_tokens() -> yield string {
 - `fn op await (self) -> T` overloadable for custom async types
 - `atomic T` thread-safe wrapper type
 - `thread T` thread-local storage type
+
+## See also
+
+- [Threading](/docs/language/tether-threading/)
+- [Generators](/docs/language/functions-generators/)
+- [Function Declarations](/docs/language/functions-declarations/#function-modifiers)
+- [Operator Overloading](/docs/language/operator-overloading/#special-operators)
+- [Closures](/docs/language/closures/)
+- [Ownership](/docs/language/ownership/)
+- [Panic](/docs/language/panic/)

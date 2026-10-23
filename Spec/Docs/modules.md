@@ -2,7 +2,7 @@
 
 Kairo's module system maps source files and directories to namespaces. Every `.k` file is a module. A directory containing a `module.k` entry file is a library. Use the `module` keyword to declare namespaces within a file, similar to C++ `namespace`.
 
-See [Imports](/docs/language/imports) for how to bring names from modules into scope.
+See [Imports](/docs/language/imports/) for how to bring names from modules into scope.
 
 ## File-to-Module Mapping
 
@@ -24,7 +24,7 @@ Nested files create nested module names via `::`. A file at `utils/io.k` is acce
 
 ### Module paths are C++ namespaces
 
-A module's path is exactly its C++ namespace. `utils/strings.k` under a root named `utils` is `utils::strings` in Kairo and `namespace utils::strings` in the emitted C++; a `module codec { }` block inside it is `utils::strings::codec`. The mapping is fixed by the file's location in its root — not by how any importer spelled the import, not by an alias, and not by the directory the root happens to be checked out in — so the C++ name of a declaration is the same in every build of the same tree.
+A module's path is exactly its C++ namespace. `utils/strings.k` under a root named `utils` is `utils::strings` in Kairo and `namespace utils::strings` in the [emitted C++](/docs/language/c-cpp-exposing/#what-a-kairo-declaration-looks-like-in-c); a `module codec { }` block inside it is `utils::strings::codec`. The mapping is fixed by the file's location in its root, not by how any importer spelled the import, not by an alias, and not by the directory the root happens to be checked out in. So the C++ name of a declaration is the same in every build of the same tree.
 
 The entry file is the exception: it has no module path, so its declarations are emitted in a namespace named after the file's stem. `main.k` becomes `namespace main`; a stem that is not a valid C++ identifier is rewritten into one. Within it, `priv` and `internal` declarations sit in an unnamed namespace and cannot be reached from any other translation unit. `main` itself is at global scope. A file-scope declaration with no visibility written is `pub`.
 
@@ -41,7 +41,7 @@ pub import io         // re-export utils/io.k
 priv import internal  // NOT re-exported (implementation detail)
 ```
 
-Imports inside `module.k` are **relative to the directory**. `pub import strings` resolves to `utils/strings.k`.
+Imports inside `module.k` are **relative to the directory**. [`pub import strings`](/docs/language/imports/#re-export-pattern) resolves to `utils/strings.k`.
 
 Consumers of the library see only the public API:
 
@@ -200,9 +200,9 @@ import std::{println, create}
 println("hello")
 ```
 
-**Core language primitives** (`i32`, `string`, `bool`, `[T]`, etc.) and **built-in syntax** (`if`, `for`, `match`, etc.) are always available without any import. Only **standard library functions and types** (`std::println`, `std::Error`, `std::Shared`, etc.) require an explicit import.
+[**Core language primitives**](/docs/language/primitives/) (`i32`, `string`, `bool`, `[T]`, etc.) and **built-in syntax** (`if`, `for`, `match`, etc.) are always available without any import. Only **standard library functions and types** (`std::println`, `std::Error`, `std::Shared`, etc.) require an explicit import.
 
-See [Imports](/docs/language/imports) for import syntax and the `pub import` pattern for re-exporting.
+See [Imports](/docs/language/imports/) for import syntax and the `pub import` pattern for re-exporting.
 
 ## Circular Dependencies
 
@@ -249,4 +249,12 @@ pub eval MAX_CONNECTIONS = 1024
 priv static request_count: i32 = 0
 ```
 
-See [Imports](/docs/language/imports#visibility-on-imports) for how visibility affects what is re-exported via `pub import`.
+See [Imports](/docs/language/imports/#visibility-on-imports) for how visibility affects what is re-exported via `pub import`.
+## See also
+
+- [Imports](/docs/language/imports/)
+- [Re-export Pattern](/docs/language/imports/#re-export-pattern)
+- [Using Kairo in C++](/docs/language/c-cpp-exposing/)
+- [A Note on C++ Modules](/docs/language/c-cpp/#a-note-on-c-modules)
+- [Macro Scoping](/docs/language/macros/#scoping)
+- [Class Visibility](/docs/language/classes/#visibility)

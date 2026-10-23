@@ -10,7 +10,7 @@ hardware-supported representations where possible, falling back to software emul
 All integer types have a fixed, guaranteed size. An integer literal takes the type expected by its context
 (annotation, parameter, return position, the other operand) and must fit it. With no expected type the default
 is `i32`; only if the value does not fit `i32` does the compiler fall back to the smallest signed type that can
-hold it, up to `i512`. See [Literal inference](#5-literal-inference--a-separate-mechanism).
+hold it, up to `i512`. See [Literal inference](#5-literal-inference-a-separate-mechanism).
 
 | Type | Size | Description | C++ Equivalent |
 |---|---|---|---|
@@ -18,16 +18,16 @@ hold it, up to `i512`. See [Literal inference](#5-literal-inference--a-separate-
 | `u16` | 2 bytes | Unsigned 16-bit integer | `uint16_t` |
 | `u32` | 4 bytes | Unsigned 32-bit integer | `uint32_t` |
 | `u64` | 8 bytes | Unsigned 64-bit integer | `uint64_t` |
-| `u128` | 16 bytes | [Unsigned 128-bit integer]((#extended-width-integers-u128u512-i128i512)) | `__uint128_t` |
-| `u256` | 32 bytes | [Unsigned 256-bit integer]((#extended-width-integers-u128u512-i128i512)) |   |
-| `u512` | 64 bytes | [Unsigned 512-bit integer]((#extended-width-integers-u128u512-i128i512)) |   |
+| `u128` | 16 bytes | [Unsigned 128-bit integer](#extended-width-integers-u128-u512-i128-i512) | `__uint128_t` |
+| `u256` | 32 bytes | [Unsigned 256-bit integer](#extended-width-integers-u128-u512-i128-i512) |   |
+| `u512` | 64 bytes | [Unsigned 512-bit integer](#extended-width-integers-u128-u512-i128-i512) |   |
 | `i8` | 1 byte | Signed 8-bit integer | `int8_t` |
 | `i16` | 2 bytes | Signed 16-bit integer | `int16_t` |
 | `i32` | 4 bytes | Signed 32-bit integer | `int32_t` |
 | `i64` | 8 bytes | Signed 64-bit integer | `int64_t` |
-| `i128` | 16 bytes | [Signed 128-bit integer](#extended-width-integers-u128u512-i128i512) | `__int128_t` |
-| `i256` | 32 bytes | [Signed 256-bit integer](#extended-width-integers-u128u512-i128i512) |   |
-| `i512` | 64 bytes | [Signed 512-bit integer](#extended-width-integers-u128u512-i128i512) |   |
+| `i128` | 16 bytes | [Signed 128-bit integer](#extended-width-integers-u128-u512-i128-i512) | `__int128_t` |
+| `i256` | 32 bytes | [Signed 256-bit integer](#extended-width-integers-u128-u512-i128-i512) |   |
+| `i512` | 64 bytes | [Signed 512-bit integer](#extended-width-integers-u128-u512-i128-i512) |   |
 | `usize` | Platform-dependent | Unsigned, pointer-width integer | `size_t` |
 | `isize` | Platform-dependent | Signed, pointer-width integer | `ptrdiff_t` |
 
@@ -112,7 +112,7 @@ Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN`
 | AArch64 and RISC-V Linux | binary128 | not available |
 | Apple ARM, Windows on ARM | binary64 | not available |
 
-Anywhere else, writing `f80` is an error (P003E). The error names the target and what its `long double` is,
+Anywhere else, writing `f80` is an error ([P003E](/docs/language/diagnostics/#p003e-a-primitive-type-is-not-available-on-the-target)). The error names the target and what its `long double` is,
 and suggests `f64` where `long double` is binary64 and `f128` where it is binary128. Kairo never silently
 substitutes another float type for `f80`.
 
@@ -129,7 +129,7 @@ var y: f80 = 1.0    // error P003E: long double is binary128 here; use f128
 ## Implicit Conversions
 
 Integer and float types can be **implicitly widened** `i32` to `i64`, `f32` to `f64` but narrowing
-conversions require an explicit cast. See [Casting](/docs/language/casting) for details.
+conversions require an explicit cast. See [Casting](/docs/language/casting/) for details.
 
 ```kairo
 var a: i32 = 42
@@ -217,7 +217,7 @@ struct string {
 `len` counts bytes, not characters; `cp_len` counts codepoints, and `len == cp_len` means the string is
 ASCII. A string literal is a borrowed view of static storage: it allocates nothing, and its `cap` is `0`. An
 owned string has `cap` bytes of heap memory behind `data`. Both kinds keep a NUL byte after the last byte, so
-`data` can be passed to C as a C string.
+`data` can be [passed to C as a C string](/docs/language/c-cpp-calling/#strings-and-const-char).
 
 ```kairo
 var greeting = "Hello, Kairo! 📣"   // len 18, cp_len 15, no allocation
@@ -269,11 +269,11 @@ var void_t: MyObj<void> = MyObj<void>()  // void is valid here
 | `*T` | 8 bytes | Safe pointer non-null, compiler-tracked |
 | `unsafe *T` | 8 bytes | Raw pointer nullable, no safety checks |
 
-`*T` is a thin pointer (8 bytes). It is non-null by construction and supports pointer arithmetic when the compiler can track its provenance via [Tether](/docs/language/tether). See [Pointers](/docs/language/pointers) for full details.
+`*T` is a thin pointer (8 bytes). It is non-null by construction and supports pointer arithmetic when the compiler can track its provenance via [Tether](/docs/language/tether/). See [Pointers](/docs/language/pointers/) for full details.
 
 `unsafe *T` is a raw C-style pointer with no compiler tracking. It can be null, and dereferencing a null
 
-`unsafe *T` is undefined behavior. Use `unsafe *T` for [C/C++ interop](/docs/language/c-cpp), custom allocators, and other low-level scenarios. See [Pointers](/docs/language/pointers) and [Unsafe](/docs/language/unsafe) for full details.
+`unsafe *T` is undefined behavior. Use `unsafe *T` for [C/C++ interop](/docs/language/c-cpp/), custom allocators, and other low-level scenarios. See [Pointers](/docs/language/pointers/) and [Unsafe](/docs/language/unsafe/) for full details.
 
 ```kairo
 var x = 42
@@ -283,223 +283,7 @@ var q: unsafe *i32 = unsafe &x  // raw pointer, no tracking
 
 ---
 
-## Collections
-
-Collections are built-in generic types with literal syntax. There are three sequence types, which differ in
-who owns the elements:
-
-| Type | Name | Owns its elements | Storage |
-|---|---|---|---|
-| `[T; N]` | Array | yes | `N` elements inline, where the array is |
-| `[T;]` | Slice | no | pointer + length over storage owned by something else |
-| `[T]` | Vector | yes | a heap copy of its elements |
-
-Maps and sets are heap-allocated.
-
-### Arrays `[T; N]`
-
-A contiguous block of `N` elements stored inline (in the local, the enclosing struct, or the enclosing array).
-`N` must be a compile-time constant.
-
-```kairo
-var rgb: [u8; 3] = [255, 128, 0]
-rgb[0] = 10
-// rgb.push(42)  // compile error: fixed size
-```
-
-An array is **not a value type**. It cannot be copied, assigned, passed by value, or returned. It can be a
-local, a field, or an element of another array; it can be viewed by a slice, pointed to, and passed as a
-`const` or `@inout` parameter. Each of the following is a compile error, and each diagnostic names the fix:
-
-```kairo
-var a = [1, 2, 3]              // [i32; 3]
-
-var b = a                      // compile error: an array is not copyable
-b = a                          // compile error: an array is not assignable
-fn f(xs: [i32; 3]) { }         // compile error: takes an array by value
-fn g() -> [i32; 3] { }         // compile error: returns an array
-```
-
-- To copy, copy the elements, or view the source through a slice or a pointer.
-- To assign, assign the elements, or go through a slice.
-- To take an array, write `const xs: [i32; 3]` or `@inout xs: [i32; 3]` (both pass by reference), or take a
-  slice `[i32;]`.
-- To produce one, return a `[T]`, or fill an `@inout` parameter.
-
-```kairo
-fn sum(const xs: [i32; 3]) -> i32 { return xs[0] + xs[1] + xs[2] }
-fn zero(@inout xs: [i32; 3]) { xs[0] = 0; xs[1] = 0; xs[2] = 0 }
-
-var a = [1, 2, 3]
-sum(a)       // 6
-zero(&a)     // a is now [0, 0, 0]
-```
-
-Indexing an array with a range, `a[i..j]`, gives a slice over those elements:
-
-```kairo
-var a = [1, 2, 3, 4]
-var mid = a[1..3]    // [i32;] viewing a[1] and a[2]
-```
-
-### Slices `[T;]`
-
-A view over contiguous elements: a pointer and a length. A slice does not own the storage it points into and
-never frees it.
-
-```kairo
-var s: [i32;] = [1, 2, 3]      // the storage lives as long as s
-s[0]                           // 1
-```
-
-An array converts to a slice implicitly. The slice is a view of the array, so nothing is copied. A `const`
-array converts only to `[const T;]`. A vector also converts to a slice implicitly.
-
-```kairo
-fn total(xs: [i32;]) -> i32 { ... }
-
-var a = [1, 2, 3]
-total(a)                       // a viewed as [i32;]
-```
-
-### Vectors `[T]`
-
-A growable, owning, contiguous array. Layout: `ptr + len + cap` (24 bytes). A vector owns a heap copy of
-its elements.
-
-```kairo
-var nums: [i32] = [1, 2, 3]
-nums.push(4)
-nums[0]    // 1 bounds-checked
-```
-
-A slice never becomes a vector implicitly, because that allocates. Write the conversion:
-
-```kairo
-var s: [i32;] = [1, 2, 3]
-var v = s as [i32]             // copies the elements into a new vector
-```
-
-### List literals
-
-`[a, b, c]` is an array, `[T; 3]`, unless the context asks for a slice or a vector:
-
-```kairo
-var a = [1, 2, 3]              // [i32; 3]
-var s: [i32;] = [1, 2, 3]      // slice over storage that lives as long as s
-var v: [i32]  = [1, 2, 3]      // vector, owns a copy
-f([1, 2, 3])                   // takes the parameter's type: array, slice, or vector
-```
-
-The element type is the target's element type. With no target, it is the join of the element types.
-
-An empty `[]` has no element type to infer. Annotate the target as `[T;]` or `[T]`:
-
-```kairo
-var e = []                     // compile error: cannot infer the type of an empty list here
-var f: [i32] = []              // ok
-```
-
-A literal whose element count does not match `[T; N]` is an error. It never falls back to a slice:
-
-```kairo
-var x: [i32; 4] = [1, 2, 3]    // compile error: array literal has 3 elements, but '[i32; 4]' needs 4
-```
-
-#### How long a slice literal's storage lives
-
-A list literal that becomes a slice is a view of a temporary array. That array lives:
-
-- for the **statement**, when the literal is a function argument;
-- for the **enclosing scope**, when the literal directly initializes a `var`.
-
-So a slice literal is an error anywhere the view would outlive its storage:
-
-```kairo
-fn make() -> [i32;] {
-    return [1, 2]              // compile error: returned from a function
-}
-
-var s: [i32;] = [1]
-s = [1, 2]                     // compile error: assigned to a slice
-
-struct S {
-    var xs: [i32;] = [1]       // compile error: used as a field default
-}
-
-var t = S{ xs: [1, 2] }        // compile error: stored in a field
-```
-
-The fix is the same in every case: use `[T]` so the elements are owned, or bind the literal to a `var` first
-and use that.
-
-> [!WARNING]
-> One case is not caught: passing a slice literal to a function that **stores** the slice. The literal's
-> storage ends with the statement, and the stored slice then points at nothing. Until [Tether](/docs/language/tether)
-> checks this, it is the programmer's responsibility.
-
-#### Slices in fields
-
-A `[T;]` field is a borrowed view; the type holding it does not own the data. A type that keeps its data
-declares `[T]` or `[T; N]`:
-
-```kairo
-struct Packet {
-    var header: [u8; 4]        // owned, inline
-    var payload: [u8]          // owned, heap
-    var source: [u8;]          // borrowed, must outlive the Packet
-}
-```
-
-#### Conversions between the three
-
-| From | To | How |
-|---|---|---|
-| list literal | `[T; N]`, `[T;]`, `[T]` | implicit, when the target asks for it |
-| slice `[T;]` | vector `[T]` | explicit only: `s as [T]` (allocates) |
-| array `[T; N]` | slice `[T;]` | implicit, a view (no copy); a `const` array only to `[const T;]` |
-| vector `[T]` | slice `[T;]` | implicit, a view (no copy) |
-| array `[T; N]` | array `[T; N]` | never: arrays are not copyable |
-
-### Maps `{K: V}`
-
-A hash map from keys of type `K` to values of type `V`.
-
-```kairo
-var ages: {string: i32} = {"Alice": 30, "Bob": 25}
-ages["Charlie"] = 35
-```
-
-### Sets `{T}`
-
-A hash set of unique elements.
-
-```kairo
-var primes: {i32} = {2, 3, 5, 7, 11}
-```
-
-### Tuples `(T1, T2, ...)`
-
-A fixed-size, heterogeneous, ordered group of values. Stored contiguously with padding for alignment.
-
-```kairo
-var point: (f64, f64) = (1.0, 2.0)
-var record: (i32, string, bool) = (42, "Answer", true)
-```
-
-### Function Pointers `fn (T1, T2, ...) -> R`
-
-A pointer to a function with the given signature. Platform-dependent size.
-
-```kairo
-fn add(a: i32, b: i32) -> i32 { return a + b }
-var #op: fn (i32, i32) -> i32 = add
-op(3, 4)  // 7
-```
-
-> [!IMPORTANT]
-> The stdlib API for vectors, maps, and sets is still being finalized. Detailed method documentation will be
-> added in a future update.
+Arrays, slices, vectors, list literals, maps, sets, tuples and function pointers are covered in [Collections](/docs/language/collections/).
 
 ---
 
@@ -555,213 +339,19 @@ fn add(a: i32, b: i32) -> i32 { return a + b }
 var #op: fn (i32, i32) -> i32 = add
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Kairo Primitive Conversion Lattice
-
-Normative specification for implicit and explicit conversions between primitive types.
-This document is the single source of truth for `-f[no-]implicit-conv`, overload resolution
-ranking, and binary operator result typing.
-
 ---
 
-## 1. Conversion classes
+The full conversion rules between primitive types are covered in the [Conversion Lattice](/docs/language/conversion-lattice/).
 
-Every ordered pair `(S, T)` of primitive types falls into exactly one class:
-
-| Class | Meaning | `as` cast | Implicit |
-|---|---|---|---|
-| **I** — identity | `S` and `T` are the same type | no-op | yes |
-| **W** — implicit | value-preserving for every value of `S`; zero or near-zero cost; target-independent | permitted | yes |
-| **E** — explicit | representable but may lose value, sign, or precision, or costs a runtime helper | required | no |
-| **U** — unsafe | requires an `unsafe` context in addition to `as` | required | no |
-| **X** — forbidden | no cast exists; diagnostic suggests a library function | rejected | no |
-
-There is no "warn" class. A conversion is either sound-by-construction or it is not; a
-third state would force the checker to carry a severity through overload resolution, and
-severities do not compose. Lossy-cast detection on known-constant operands is a lint (§8),
-not part of the type relation.
-
-**`-fno-implicit-conv` demotes every W to E.** It changes nothing else. §7 proves this
-cannot alter which overload is selected.
-
----
-
-## 2. The rule set
-
-W membership is decided by five rules. Everything not matched by a rule is E if a
-representation-changing cast is meaningful, X otherwise.
-
-**R1 — integer widening.** `uN → uM` and `iN → iM` are W when `M > N`.
-
-**R2 — sign-crossing.** `uN → iM` is W when `M > N` (value-preserving: the entire
-unsigned range fits). `iN → uM` is **never** W, for any `N`, `M`. Signed-to-unsigned
-loses negatives at every width; there is no widening that repairs it.
-
-**R3 — integer to float.** `S → fM` is W iff every value of `S` is exactly representable
-in `fM`, i.e. `bits(S) ≤ mantissa(fM)` counting the implicit leading bit. This is an
-*exactness* criterion, not a size criterion — `i32 → f32` is same-size and lossy, while
-`i32 → f64` is smaller-to-larger and exact.
-
-| Target | Mantissa bits | Exact integer sources |
-|---|---|---|
-| `f16` | 11 | `u8`, `i8` |
-| `f32` | 24 | `u8`, `i8`, `u16`, `i16` |
-| `f64` | 53 | `u8`, `i8`, `u16`, `i16`, `u32`, `i32` |
-
-**R4 — float widening.** `f16 → f32`, `f16 → f64`, `f32 → f64` are W. All other
-float-to-float pairs are E.
-
-**R5 — extended width is opaque.** No type wider than 64 bits (`u128`–`u512`,
-`i128`–`i512`, `f128`–`f512`) is ever the *target* of a W conversion, and no
-extended-width type is ever the *source* of one. Rationale: on targets without wide
-register support these conversions emit multi-word or software-SIMD sequences. Making
-implicitness depend on the target would mean the same source compiles differently per
-triple. Uniform E on all targets keeps the cost visible in the source text and keeps the
-lattice target-independent.
-
-Everything else — `bool`, `char`, `byte`, `usize`, `isize`, `string`, `void`, pointers,
-aggregates — participates in **no** W conversion in either direction. Reasons in §4.
-The single exception is an argument to an imported C/C++ function, where
-`usize`/`isize` widen by the boundary rule in §4.1.
-
----
-
-## 3. Core integer table
-
-Rows are source, columns are target. `≤64`-bit fixed-width integers only; wider widths
-are E by R5.
-
-| S \ T | `u8` | `u16` | `u32` | `u64` | `i8` | `i16` | `i32` | `i64` |
-|---|---|---|---|---|---|---|---|---|
-| **`u8`**  | I | W | W | W | E | W | W | W |
-| **`u16`** | E | I | W | W | E | E | W | W |
-| **`u32`** | E | E | I | W | E | E | E | W |
-| **`u64`** | E | E | E | I | E | E | E | E |
-| **`i8`**  | E | E | E | E | I | W | W | W |
-| **`i16`** | E | E | E | E | E | I | W | W |
-| **`i32`** | E | E | E | E | E | E | I | W |
-| **`i64`** | E | E | E | E | E | E | E | I |
-
-Read the shape: the unsigned block is upper-triangular, the signed block is
-upper-triangular, the unsigned→signed quadrant is *strictly* upper-triangular (one width
-step is required, so `u32 → i32` is E), and the signed→unsigned quadrant is empty.
-
-## 3.1 Float and cross-domain
-
-| S \ T | `f16` | `f32` | `f64` | `f128`+ | any int | `bool` | `char` | `byte` |
-|---|---|---|---|---|---|---|---|---|
-| `u8`/`i8`   | W | W | W | E | see §3 | E | E | E |
-| `u16`/`i16` | E | W | W | E | see §3 | E | E | E |
-| `u32`/`i32` | E | E | W | E | see §3 | E | E | E |
-| `u64`/`i64` | E | E | E | E | see §3 | E | E | E |
-| `f16` | I | W | W | E | E | X | X | X |
-| `f32` | E | I | W | E | E | X | X | X |
-| `f64` | E | E | I | E | E | X | X | X |
-| `f128`+ | E | E | E | E/I | E | X | X | X |
-| `bool` | X | X | X | X | E | I | X | X |
-| `char` | X | X | X | X | E | X | I | X |
-| `byte` | X | X | X | X | E | X | X | I |
-| `string` | X | X | X | X | X | X | X | X |
-| `void` | X | X | X | X | X | X | X | X |
-
-Float→int is E in all cases. The cast truncates toward zero and saturates on
-out-of-range values; it is never undefined behavior. See
-[Casting](/docs/language/casting#float-to-integer).
-
----
-
-## 4. Non-numeric primitives — rationale
-
-**`usize` / `isize`.** No W conversion to or from any fixed-width type, in either
-direction, including `usize → u64` on 64-bit targets. This is the one place where a
-tempting rule breaks portability outright: if `usize → u64` were W on 64-bit, code would
-compile on `x86_64` and fail on `wasm32`. `usize` and `isize` also do not W-convert to
-each other. Literals still work — `var i: usize = 0` is literal inference (§5), not
-conversion.
-
-**`byte`.** No W conversion to or from `u8`. `byte` is restricted to bitwise operations
-([Byte](#byte)); if `byte → u8` were implicit then `b + mask` would succeed by converting
-both operands and the restriction would be decorative. E in both directions.
-
-**`char`.** `char → u32` is bit-identical and technically widening-free, but a codepoint
-is not a number. E. `u32 → char` is E and range-checks: surrogates and values above
-`0x10FFFF` are not scalar values, and an invalid `char` never exists. Whether the failed
-check traps or yields a `char?` is not yet specified.
-
-**`bool`.** E in both directions. [Bool](#bool) already forbids implicit conversion
-from integers; the reverse is forbidden too. `int → bool` is E with `!= 0` semantics.
-
-**Pointers.** `*T → unsafe *T` is **U**, not W — it is a safety downgrade and Tether loses
-provenance at that point, so it should be visible. `unsafe *T → *T` is U and must be a
-checked or asserted construction, never a silent reinterpretation. `*T → unsafe *void`
-is U. Pointer↔integer is U in both directions. No pointer conversion is ever W.
-
-**Aggregates.** Conversions never recurse into structure. `[i32] → [i64]`,
-`(i32, i32) → (i64, i64)`, `{string: i32} → {string: i64}` are all X. Function pointers
-are invariant in both parameter and return position — no variance, no exceptions. If you
-want element-wise conversion it is a library `map`, not a coercion.
-
-### 4.1 The C/C++ boundary
-
-An argument to an **imported** C/C++ function may widen to or from `usize`/`isize`
-without `as`. Nothing else uses this rule: Kairo functions, assignments, `if`/`match`
-arms and operator operands keep §4 alone.
-
-The rule reads the target only below 32 bits. `usize` and `isize` are taken as
-[32, 64] bits wide, or [P, 64] on a target whose pointer width P is below 32; a
-fixed-width integer of N bits is [N, N]. `S → D` is implicit iff:
-
-- same signedness: `max(S) ≤ min(D)`
-- unsigned → signed: `max(S) < min(D)`
-- signed → unsigned: never
-
-| Accepted | Refused |
-|---|---|
-| `u8`/`u16`/`u32` → `usize` | `u64` → `usize` (narrows on 32-bit) |
-| `i8`/`i16`/`i32` → `isize` | `i64` → `isize` (narrows on 32-bit) |
-| `u8`/`u16` → `isize` | `u32` → `isize` (same width on 32-bit) |
-| `usize` → `u64`, `isize` → `i64` | `usize` → `u32`, `isize` → `i32` (narrow on 64-bit) |
-| | `usize` → `i64` (same width on 64-bit) |
-| | `i32` → `usize`, `isize` → `u64` (signed → unsigned) |
-
-Because the rule judges against the narrowest and widest target at once, every 32- and
-64-bit target accepts the same set of programs; a 16-bit target accepts a subset. This
-keeps the property §4 protects. A conversion accepted by this rule is considered only
-when §3 would require `as`, and ranks like any other implicit conversion in overload
-resolution. Extended-width types (R5), floats and
-non-numeric types never take it, and `-fno-implicit-conv` turns it off like any other W.
-
-The importer reads `size_t`/`uintptr_t` as `usize`, and `ptrdiff_t`/`intptr_t`/`ssize_t`
-as `isize`. A plain `unsigned long` stays a fixed-width type (`u64` on LP64 targets) and
-is judged by §3.
-
----
-
-## 5. Literal inference — a separate mechanism
+## 5. Literal inference: a separate mechanism
 
 Literals are **untyped** until a type is assigned. Literal typing is not conversion and
 does not consult this lattice.
 
 1. If an expected type is available from context (annotation, parameter, return position,
    the other operand of a binop, aggregate element type), the literal takes that type
-   directly, and the compiler checks the value fits. `var b: u8 = 42` — fine. `var b: u8
-   = 300` — error at the literal, with the range in the diagnostic.
+   directly, and the compiler checks the value fits. `var b: u8 = 42` is fine. `var b: u8
+   = 300` is an error at the literal, with the range in the diagnostic.
 2. With no expected type, the default is `i32` for integer literals and `f64` for float
    literals. Only if the value does not fit does the "smallest type that holds it" rule
    from [Integers](#integers) apply.
@@ -773,105 +363,15 @@ it. Expected-type-first removes that whole class of error.
 Suffixed literals (`42u8`) are typed at the literal and then participate in conversion
 normally.
 
----
-
-## 6. Binary operators
-
-No separate "usual arithmetic conversions." Operator operand unification is defined
-*in terms of* the W relation, so there is exactly one conversion concept in the language:
-
-Given operands of type `A` and `B`, `A ≠ B`:
-
-- If `W(A → B)` and not `W(B → A)`: result operand type is `B`.
-- If `W(B → A)` and not `W(A → B)`: result operand type is `A`.
-- Otherwise: **error**, requiring an explicit cast on one side.
-
-Consequences:
-
-| Expression | Result | Why |
-|---|---|---|
-| `i32 + i64` | `i64` | W one way only |
-| `u32 + i32` | error | neither direction is W (R2 blocks `i32→u32`; `u32→i32` fails the width test) |
-| `u32 + i64` | `i64` | R2 |
-| `i32 + f64` | `f64` | R3 |
-| `i64 + f64` | error | R3 exactness fails; force the cast |
-| `usize + i32` | error | §4 |
-| `i64 + i128` | error | R5 — extended width never silent |
-| `byte & u8` | error | §4 |
-
-The `u32 + i32` error is deliberate. C's answer is `u32`, which silently converts every
-negative `i32` into a huge positive number; Kairo refuses rather than guess.
-
-Comparison operators use the same unification. Shift operators are the exception: the
-right operand is unified independently and any integer type is accepted, since the shift
-amount is not in the value domain of the result.
-
-Compound assignment `a op= b` requires `W(typeof(b) → typeof(a))` or an exact match. It
-never converts the left operand.
 
 ---
 
-## 7. Overload resolution, and why `-fno-implicit-conv` is a strict subset
+## See also
 
-Conversion sequences have exactly two ranks:
-
-1. **Exact** — I.
-2. **Converted** — W.
-
-There is deliberately no ordering *within* rank 2. If two candidates are both reachable
-by W, the call is **ambiguous** and errors, even if one conversion is "narrower" in some
-intuitive sense. No `i32 → i64` beats `i32 → f64` tiebreaking. No promotion-vs-conversion
-distinction. The tie-breaks in [Function Overloading](/docs/language/functions#function-overloading)
-(reference binding, non-generic over generic, most specialized generic) never order conversions, so "no
-ordering within rank 2" still holds, and so does the guarantee below. This is the property that makes the
-flag safe:
-
-> Let `C_on` be the candidate selected with W enabled. `-fno-implicit-conv` demotes every
-> W to E, which removes candidates from the viable set but never adds one and never
-> reorders the two ranks. An exact-match winner stays the winner. A rank-2 winner becomes
-> non-viable, so the call errors. Therefore for all programs: the flag either preserves
-> the selection or produces a diagnostic. It can never select a different candidate.
-
-### List literal arguments
-
-A list literal argument uses the same two ranks:
-
-- A `[T; N]` parameter, where `N` equals the literal's element count, is **Exact** when every element is
-  exact for `T`.
-- A `[T;]` or a `[T]` parameter is **Converted**. The two are unordered against each other, like any other
-  pair of rank-2 candidates.
-
-```kairo
-fn f(const xs: [i32; 3]) { }
-fn f(xs: [i32;]) { }
-fn f(xs: [i32]) { }
-
-f([1, 2, 3])            // picks [i32; 3]: Exact beats Converted
-```
-
-With only the slice and vector overloads, both are Converted and the call is ambiguous. Annotate the
-argument to choose:
-
-```kairo
-fn g(xs: [i32;]) { }
-fn g(xs: [i32]) { }
-
-g([1, 2, 3])            // compile error: call to 'g' is ambiguous
-g([1, 2, 3] as [i32])   // ok: vector overload
-var s: [i32;] = [1, 2, 3]
-g(s)                    // ok: slice overload
-```
-
-Literals other than list literals are unaffected.
-
----
-
-## 8. Lints (not part of the type relation)
-
-- **`lint::lossy-cast`** — an `as` cast where the operand is a known constant that does
-  not survive the round trip. Error by default; this is always a bug.
-- **`lint::redundant-cast`** — an `as` cast where the pair is I or W.
-- **`lint::sign-cast`** — any E cast crossing the signedness boundary. Off by default,
-  on under a strict profile.
-
-None of these participate in overload resolution or operand unification.
+- [Collections](/docs/language/collections/)
+- [Conversion Lattice](/docs/language/conversion-lattice/)
+- [Casting](/docs/language/casting/)
+- [Implicit Conversions](/docs/language/casting-implicit/)
+- [Pointers](/docs/language/pointers/)
+- [Type System](/docs/language/type-system/)
+- [Calling C/C++](/docs/language/c-cpp-calling/)

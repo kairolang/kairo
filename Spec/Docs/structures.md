@@ -3,7 +3,7 @@
 Structs are plain data types no constructors, no methods in the body, trivially copyable via `memcpy`.
 They exist for cases where you want a named bag of fields with aggregate initialization and no lifecycle
 management. If you need constructors, destructors, inheritance, or virtual dispatch, use a
-[class](/docs/language/classes).
+[class](/docs/language/classes/).
 
 ---
 
@@ -21,7 +21,7 @@ p.x   // 1.0
 
 The body contains only field declarations (`var`, `const`, `eval`, `static`) and nested type definitions.
 Methods and constructors are not permitted inside the struct body use
-[extends](/docs/language/extends) to add behavior.
+[extends](/docs/language/extends/) to add behavior.
 
 ---
 
@@ -70,7 +70,7 @@ var teal = Color::from_hex(0x008080)
 ## Visibility
 
 All struct members default to `pub`. You can explicitly mark a member `priv` or `prot`, but the compiler
-emits a warning if you need access control on fields, a [class](/docs/language/classes) is the better
+emits a warning if you need access control on fields, a [class](/docs/language/classes/) is the better
 fit.
 
 ```kairo
@@ -113,7 +113,7 @@ fn report(const self: Metrics) {
 }
 ```
 
-See [Classes](/docs/language/classes#mutable-members) for the `mutable` rationale and usage guidance.
+See [Classes](/docs/language/classes/#mutable-members) for the `mutable` rationale and usage guidance.
 
 ---
 
@@ -131,7 +131,7 @@ a.x   // still 1.0
 
 This is a hard guarantee. Extending a destructor (`fn op delete`), copy assignment (`fn op =`), or
 move assignment onto a struct is a compile error. If you need custom lifecycle management, use a
-[class](/docs/language/classes#the-rule-of-three).
+[class](/docs/language/classes-lifecycle/#the-rule-of-three).
 
 ---
 
@@ -191,14 +191,14 @@ extend Vec2 impl Drawable {
 ```
 
 The `extend` block and the struct definition must be in the same file the same restriction as Rust's
-`impl` blocks. See [Extends](/docs/language/extends) for the full `extend` system and
-[Interfaces](/docs/language/interfaces) for interface declarations.
+`impl` blocks. See [Extends](/docs/language/extends/) for the full `extend` system and
+[Interfaces](/docs/language/interfaces/) for interface declarations.
 
 ---
 
 ## Generic Structs
 
-Type parameters are declared in angle brackets before the struct name:
+[Type parameters](/docs/language/generics/) are declared in angle brackets before the struct name:
 
 ```kairo
 struct <T> Pair {
@@ -228,7 +228,7 @@ struct <T impl Comparable> Range {
 }
 ```
 
-See [Requires Clauses](/docs/language/requires) for the full constraint system.
+See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ---
 
@@ -277,7 +277,7 @@ c.base.x   // 10
 ```
 
 This keeps aggregate initialization unambiguous and avoids layout questions that inheritance introduces.
-If you need polymorphism or a type hierarchy, use [classes](/docs/language/classes#inheritance).
+If you need polymorphism or a type hierarchy, use [classes](/docs/language/classes-inheritance/#inheritance).
 
 ---
 
@@ -298,14 +298,14 @@ var { r, g, b } = color
 ```
 
 Use `_` to discard fields you do not need. See
-[Variables](/docs/language/variables#destructuring) for the full destructuring syntax.
+[Variables](/docs/language/variables/#destructuring) for the full destructuring syntax.
 
 ---
 
 ## Memory Layout
 
 Struct layout follows the platform's C++ ABI members in declaration order with standard padding and
-alignment rules. Control layout with attributes:
+alignment rules. Control layout with [attributes](/docs/language/attributes/#layout-attributes):
 
 ```kairo
 @packed
@@ -328,13 +328,13 @@ var local = Point { x: 1.0, y: 2.0 }           // stack
 var *heap = @create Point{ x: 1.0, y: 2.0 }    // heap
 ```
 
-See [Pointers](/docs/language/pointers) and [Tether](/docs/language/tether) for allocation and pointer semantics.
+See [Pointers](/docs/language/pointers/) and [Tether](/docs/language/tether/) for allocation and pointer semantics.
 
 ---
 
 ## Forward Declarations
 
-Structs can be forward-declared for use in pointer types before the full definition is available:
+Structs can be forward-declared for use in [pointer types](/docs/language/pointers/) before the full definition is available:
 
 ```kairo
 struct Node    // forward declaration
@@ -357,7 +357,7 @@ struct Node {
 | | Struct | Class |
 |---|---|---|
 | Member default visibility | `pub` | `priv` for variables |
-| Methods in body | No (use [extends](/docs/language/extends)) | Yes |
+| Methods in body | No (use [extends](/docs/language/extends/)) | Yes |
 | Constructors | No (aggregate init only) | Yes |
 | Destructors | No | Yes |
 | Copy semantics | `memcpy` (trivial) | Rule of Three |
@@ -424,3 +424,16 @@ var r = Rect {
     size: Point { x: 100.0, y: 50.0 },
 }
 ```
+
+---
+
+## See also
+
+- [Classes](/docs/language/classes/)
+- [Extends](/docs/language/extends/#structs)
+- [Pattern Matching](/docs/language/pattern-matching/#struct-matching)
+- [Class Lifecycle](/docs/language/classes-lifecycle/)
+- [Variables](/docs/language/variables/#default-initialization)
+- [Unions](/docs/language/unions/)
+- [Enums](/docs/language/enums/)
+- [Generics](/docs/language/generics/)

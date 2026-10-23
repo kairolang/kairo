@@ -9,7 +9,7 @@ always.
 
 ## Eval Variables
 
-`eval` declares a binding whose value is computed at compile time. The result is baked into the
+`eval` declares a [binding](/docs/language/variables/#compile-time-constants-eval) whose value is computed at compile time. The result is baked into the
 binary as a constant:
 
 ```kairo
@@ -34,7 +34,7 @@ eval N: u64 = 10      // explicitly u64
 ### Usage as generic arguments
 
 `eval` variables can be used wherever a compile-time constant is required, including array sizes
-and generic arguments:
+and [generic arguments](/docs/language/generics/):
 
 ```kairo
 eval BUFFER_SIZE = 256
@@ -161,7 +161,7 @@ fn <T> process(x: T) -> T {
 
 ### Type-based branching
 
-`eval if` combined with `typeof` enables type-specialized code paths in generic functions:
+`eval if` combined with [`typeof`](/docs/language/type-system/#compile-time-typeof) enables type-specialized code paths in generic functions:
 
 ```kairo
 fn <T> serialize(value: T) -> [byte] {
@@ -177,9 +177,9 @@ fn <T> serialize(value: T) -> [byte] {
 
 The unselected branches are not type-checked, so they can contain code that would be invalid for
 the current `T`. This is the mechanism for writing type-specialized generic code without separate
-overloads.
+[overloads](/docs/language/functions-overloading/).
 
-See [Control Flow](/docs/language/control-flow#compile-time-branching) for `eval if` in the context
+See [Control Flow](/docs/language/control-flow/#compile-time-branching) for `eval if` in the context
 of control flow.
 
 ---
@@ -271,7 +271,7 @@ Classes with constructors that are not marked `eval`, classes and function who l
 | Heap allocation in initializer | No | Yes |
 | IO in initializer | No | Yes |
 
-`const` is an immutable binding. `eval` is a compile-time computed value. Use `const` for values
+[`const`](/docs/language/variables/#constants) is an immutable binding. `eval` is a compile-time computed value. Use `const` for values
 that are fixed after initialization but may depend on runtime computation. Use `eval` for values
 that must be known at compile time.
 
@@ -295,20 +295,20 @@ fn <T> stack_alloc() -> T
 ```
 
 > [!WARNING]
-> Using `eval` and `where` will cause a compile error. Only `requires` based bounding is allowed in a `eval` context.
+> Using `eval` and [`where`](/docs/language/where/#what-where-cannot-do) will cause a compile error. Only `requires` based bounding is allowed in a `eval` context.
 
-See [Requires Clauses](/docs/language/requires) for the full constraint system.
+See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ---
 
 ## Eval in Classes
 
 Eval can be used within class definitions to create compile-time computed values, adding eval to class fields, methods, and constructors are valid.
-If the class contains a non-trivial destructor, it cannot be used in an `eval` context.
+If the class contains a non-trivial [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators), it cannot be used in an `eval` context.
 Classes can mix eval functions with regular functions.
 
 > [!NOTE]
-> An initializer on an `eval` field is not compiled yet. See [Status](/docs/status#not-compiled-yet).
+> An initializer on an `eval` field is not compiled yet. See [Status](/docs/status/#not-compiled-yet).
 
 ```kairo
 class HashState {
@@ -379,3 +379,12 @@ eval fn sum_range(n: i32) -> i32 {
 
 eval SUM_100 = sum_range(100)   // 5050
 ```
+## See also
+
+- [Compile-time constants](/docs/language/variables/#compile-time-constants-eval)
+- [Compile-time `typeof`](/docs/language/type-system/#compile-time-typeof)
+- [Conditional macros](/docs/language/macros-builtin/#conditional)
+- [Requires Clauses](/docs/language/requires/)
+- [Generics](/docs/language/generics/)
+- [Macros](/docs/language/macros/)
+- [Attributes](/docs/language/attributes/)

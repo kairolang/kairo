@@ -2,7 +2,14 @@
 
 Classes are Kairo's primary mechanism for encapsulating state and behavior. The object model layout,
 vtables, ABI follows the platform's C++ convention. The surface syntax is cleaner, `self` is always
-explicit, and the copy/move model is expressed through attributes rather than reference qualifiers.
+explicit, and the copy/move model is expressed through [attributes](/docs/language/attributes/) rather than reference qualifiers.
+
+## In this section
+
+- [Class Lifecycle](/docs/language/classes-lifecycle/): destructors and lifecycle categories
+- [Inheritance and Virtual Dispatch](/docs/language/classes-inheritance/): `derives`, `virtual`, abstract classes and `final`
+- [Forward Declarations and Out-of-Line Definitions](/docs/language/classes-out-of-line/)
+- [Generics](/docs/language/generics/): type parameter constraints
 
 ---
 
@@ -79,8 +86,8 @@ class Tree {
 ```
 
 The rule does not depend on where a method is written. It is identical in a `class`, `struct`, `union` or
-`interface` body, in an [`extend`](/docs/language/extends) block, in an out-of-line `fn Type::method`
-definition, and inside a closure in any of those.
+`interface` body, in an [`extend`](/docs/language/extends/) block, in an out-of-line `fn Type::method`
+definition, and inside a [closure](/docs/language/closures/) in any of those.
 
 `Self` (capitalized) is a type alias for the enclosing class. In a generic class `class <T> Foo`, `Self`
 resolves to `Foo<T>`. Use `Self` in parameter types, return types, and anywhere you need the class's own
@@ -155,8 +162,8 @@ class Account {
 ```
 
 Visibility also applies at the top level a `priv class` is only accessible within its file, a `prot
-class` within its module and subclasses. See [Modules](/docs/language/modules) for how top-level
-visibility interacts with imports.
+class` within its module and subclasses. See [Modules](/docs/language/modules/) for how top-level
+visibility interacts with [imports](/docs/language/imports/).
 
 > [!NOTE]
 > Kairo has no `friend` keyword. If external code needs access to internals, expose it through a public
@@ -184,7 +191,7 @@ var p = Point(1.0, 2.0)
 ```
 
 Constructors support all the features of regular functions default parameters, named arguments,
-overloading by parameter types, generic type parameters. See [Functions](/docs/language/functions).
+overloading by parameter types, generic type parameters. See [Functions](/docs/language/functions/).
 
 ### Const members in constructors
 
@@ -227,526 +234,15 @@ var a = Defaults()     // ok: x is zero-initialized
 var b = NoDefault()    // compile error: default constructor is deleted
 ```
 
-See [Variables](/docs/language/variables#default-initialization) for default initialization rules.
+See [Variables](/docs/language/variables/#default-initialization) for default initialization rules.
 
 ---
 
-## Destructors - Delete Operators
+Destructors are covered in [Destructors - Delete Operators](/docs/language/classes-lifecycle/#destructors---delete-operators).
 
-Destructors use the `op delete` operator syntax:
+Lifecycle categories are covered in [Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories).
 
-```kairo
-class Resource {
-    var handle: unsafe *void
-
-    fn Resource(self, h: unsafe *void) {
-        self.handle = h
-    }
-
-    fn op delete(self) {
-        release_handle(self.handle)
-    }
-}
-```
-
-Destructors can be defaulted or deleted:
-
-```kairo
-fn op delete(self) = default   // compiler-generated, memberwise destroy in reverse declaration order
-fn op delete(self) = delete    // prevent destruction (and therefore stack allocation)
-```
-
-Destructors automatically run at the end of the enclosing scope in reverse declaration order. The delete operator can also be called explicitly to clean up a resource before the end of the scope - the recommended design pattern is to make the delete operator idempotent and safe to call multiple times:
-
-```kairo
-class Resource {
-    var handle: unsafe *void
-
-    fn Resource(self, h: unsafe *void) {
-        self.handle = h
-    }
-
-    fn set_new_handle(self, h: unsafe *void) {
-        self.handle = h
-    }
-
-    fn op delete(self) {
-        if self.handle != &null {
-            release_handle(self.handle)
-            self.handle = &null
-        }
-    }
-}
-
-var r = Resource(open_handle())
-delete r   // explicit cleanup
-r.set_new_handle(open_handle())   // safe: previous handle was released
-delete r   // safe: idempotent delete operator
-```
-
----
-
-## Lifecycle Categories
-
-Every class has a lifecycle category that determines how its instances can be transferred between
-variables. A class's category is what its transfer constructors leave usable. If it can be copied, it is
-**COPY**. If it can only be moved, it is **MOVE**. If it can be neither, it is **NON_TRANSFER**. Deleting
-either transfer constructor on its own makes the class NON_TRANSFER: a declared copy constructor, even a
-deleted one, means no move is generated, and a deleted move constructor removes the copy. The canonical form
-deletes both, which says so explicitly.
-
-### Attribute syntax
-
-`@copy` and `@move` are attributes attached to a constructor. The convention is one attribute per line
-above the declaration:
-
-```kairo
-@copy
-fn Buffer(self, const other: Self) = default
-```
-
-Inline placement (`@copy fn Buffer(self, const other: Self) = default`) is permitted but discouraged. See
-[Attributes](/docs/language/attributes) for the full attribute syntax.
-
-### The transfer constructor
-
-The **transfer constructor** governs how instances of the class are passed by value. It is written in
-exactly one of two forms, with the marker on the constructor and the parameter otherwise bare:
-
-| Form | Meaning | C++ |
-|---|---|---|
-| `@copy fn X(self, const other: Self)` | the usual copy | `X(const X&)` |
-| `@move fn X(self, other: Self)` | move | `X(X&&)` |
-
-```kairo
-class Buffer {
-    @copy
-    fn Buffer(self, const other: Self) = default
-}
-
-class UniqueFile {
-    @move
-    fn UniqueFile(self, other: Self) = default
-}
-```
-
-`@copy` without `const` (`@copy fn X(self, other: Self)`, C++ `X(X&)`) is allowed, but it cannot copy from a
-`const` object or from a temporary. `@move` cannot take `const`: a move leaves its source empty.
-
-Any other constructor that takes `Self` first and defaults every later parameter is a compile error
-(SC110E):
-
-```kairo
-class X {
-    fn X(self, other: Self) { }                 // error: no marker
-    fn X(self, @move other: Self) { }           // error: a mode on the parameter is not a marker
-    fn X(self, other: Self, k: i32 = 0) { }     // error: a defaulted extra parameter
-    @move fn X(self, const other: Self) { }     // error: @move cannot take const
-}
-```
-
-A constructor that takes `Self` first and then a parameter **without** a default is an ordinary
-constructor:
-
-```kairo
-class X {
-    fn X(self, other: Self, extra: i32) { }     // ok: not a transfer constructor
-}
-```
-
-A move is written bare at the call site, `X(h)`, with no marker on the argument.
-
-A class with no transfer constructor takes the weakest category its bases and fields allow: **COPY** if all
-of them are COPY, **MOVE** if any is move-only, **NON_TRANSFER** if any cannot be transferred. Its special
-members are compiler-generated to match.
-
-A class cannot define both `@copy` and `@move` transfer constructors pick one:
-
-```kairo
-class Bad {
-    @copy fn Bad(self, const other: Self) = default
-    @move fn Bad(self, other: Self) = default   // compile error (SC057E)
-}
-```
-
-The one exception is both being `= delete`, the canonical **NON_TRANSFER** form.
-
-A class also cannot declare two transfer constructors of the same kind, such as `@copy` with and without
-`const` ([SC057E](/docs/language/diagnostics#sc057e-more-than-one-transfer-constructor)).
-
-### The four categories
-
-| Category | Trigger | Semantics |
-|---|---|---|
-| **COPY** | `@copy` ctor (explicit or implicit) | Allows copy; Tether may silently elide a copy into a move when the source is unused after the transfer |
-| **MOVE** | `@move` ctor | Allows move only; copying is a compile error |
-| **NON_TRANSFER** | either transfer constructor `= delete` (canonically both) | Stack-only; cannot be assigned, copied, or moved |
-| **DEFAULT** | no transfer ctor declared | Derived from bases and fields (see above) |
-
-A NON_TRANSFER class is the canonical scope guard:
-
-```kairo
-class ScopeLock {
-    fn ScopeLock(self) = default
-
-    @copy
-    fn ScopeLock(self, const other: Self) = delete
-
-    @move
-    fn ScopeLock(self, other: Self) = delete
-
-    fn op delete(self) { /* ... */ }
-}
-```
-
-### The Rule of Three
-
-The user writes at most three special members:
-
-1. The default constructor (`fn Class(self)`)
-2. **One** transfer constructor (`@copy` or `@move`, never both)
-3. The destructor (`fn op delete(self)`)
-
-Each may have a user body, `= default`, or `= delete`. Anything not written is compiler-generated.
-
-A `= default` member is what the compiler would have generated: it is trivial when the same member of
-every base and field is. A transfer constructor or destructor with a body makes the class non-trivial,
-and so does a deleted one or a `virtual` destructor. A polymorphic class (a `virtual` method
-or a virtual base) is never trivially copyable, and neither is a NON_TRANSFER class.
-
-```kairo
-class Buffer {
-    var data: unsafe *u8
-    var size: usize
-
-    fn Buffer(self, size: usize) {
-        self.data = std::alloc<u8>(size)
-        self.size = size
-    }
-
-    @move
-    fn Buffer(self, other: Self) {
-        self.data  = other.data
-        self.size  = other.size
-        other.data = null
-        other.size = 0
-    }
-
-    fn op delete(self) {
-        std::free(self.data)
-    }
-}
-```
-
-### Assignment is auto-derived
-
-`op =` is generated from the transfer constructor the user does not write it. Writing it explicitly is a
-compile error.
-
-| Transfer ctor form | Generated `op =` |
-|---|---|
-| none written | member by member, like the compiler-generated transfer constructor |
-| `= default` | `= default`: member by member |
-| `= delete` | `= delete` |
-| `{ body }` | checks for self-assignment, destroys `self`, rebuilds it in place through the transfer constructor, returns `self` |
-
-The body case first checks for self-assignment: `x = x` does nothing. Otherwise it destroys `self`,
-builds a new value in its place by running the transfer constructor on the right-hand side, and returns
-`self`.
-
-Member-by-member assignment needs every base and field to be assignable. If one is not, the class has
-no `op =`.
-
-A polymorphic class whose transfer constructor has a body has no `op =` either. Rebuilding it in place
-would give the object this class's vtable pointer, which is wrong when the object is really a derived
-class or is the base part of one. A polymorphic class with a `= default` transfer constructor, or with
-none, assigns member by member as usual.
-
-Assigning a value whose class has no `op =` is a compile error (SC071E). When the reason is a
-polymorphic class whose transfer constructor has a body, the error adds: "a polymorphic class whose
-transfer constructor has a body cannot be assigned; construct a new value".
-
-This implies a consistency rule: if the transfer ctor has a body and `op delete` is `= delete`d, the class fails to compile the auto-derived `op =` needs to invoke the destructor and cannot. Fix by providing a destructor or by changing the transfer ctor to `= default` / `= delete`.
-
-### Defaulted moves of non-movable members
-
-`= default` on a `@move` ctor performs memberwise move: each member is moved through its own `@move` ctor. If a member is COPY-only (no `@move` available), that member is **copied** as part of the move matching C++ semantics. This is silent and almost always what you want; if a member must be moved or nothing, write the transfer ctor body explicitly and let the compiler error on the COPY-only field.
-
-The converse is checked too. A defaulted `@copy` constructor requires every base and field to be copyable, and
-a defaulted `@move` requires every base and field to be movable or copyable. Otherwise it is a compile error
-([SC129E](/docs/language/diagnostics#sc129e-a-defaulted-transfer-constructor-cannot-be-generated)) naming the field. A transfer constructor with a body is exempt; it decides for itself how each field
-is transferred.
-
-### Implicit-copy-with-custom-destructor warning
-
-A class with a custom destructor but no explicit `@copy` or `@move` transfer constructor compiles, but emits a warning. The class is implicitly copyable, and a custom destructor almost always means the class owns a resource silent copies of that resource cause double-free and aliasing bugs. The warning applies only when the class
-is actually copyable; a class that is move-only or non-transferable because of its fields does not get it.
-
-```kairo
-class UniqueFile {
-    var handle: unsafe *void
-
-    fn op delete(self) { close_file(self.handle) }
-    // warning: custom destructor with implicit copy constructor
-    //   help: declare as @move:
-    //           @move fn UniqueFile(self, other: Self) = default
-    //   help: or make it non-transferable:
-    //           @copy fn UniqueFile(self, const other: Self) = delete
-}
-```
-
-### Tether copy elision
-
-For COPY classes, [Tether](/docs/language/tether) may emit a move instead of a copy when it proves the source is unused after the transfer. This is a pure optimization with no observable semantic difference the source is destroyed either way, just earlier when elided. Tether does not elide if the move constructor is
-deleted. Users do not opt into or out of this optimization.
-
----
-
-## Inheritance
-
-Classes inherit from other classes using `derives`:
-
-```kairo
-class Animal {
-    var name: string
-
-    fn Animal(self, name: string) {
-        self.name = name
-    }
-
-    fn speak(self) {
-        std::println(f"{self.name} makes a sound")
-    }
-}
-
-class Dog derives Animal {
-    var breed: string
-
-    fn Dog(self, name: string, breed: string) {
-        Animal::Animal(self, name)   // call base constructor
-        self.breed = breed
-    }
-
-    fn speak(self) {
-        std::println(f"{self.name} barks")
-    }
-}
-```
-
-### Inheritance visibility
-
-By default, inheritance is public. Append `pub`, `prot`, or `priv` after `derives` to control how base
-members are exposed in the derived class:
-
-```kairo
-class Derived derives pub Base { ... }    // base members keep their visibility
-class Derived derives prot Base { ... }   // all base members become protected
-class Derived derives priv Base { ... }   // all base members become private
-```
-
-### Multiple inheritance
-
-```kairo
-class Serializable {
-    fn serialize(self) -> [byte] { ... }
-}
-
-class Printable {
-    fn print(self) { ... }
-}
-
-class Document derives Serializable, Printable {
-    // inherits both serialize() and print()
-}
-
-class Widget derives pub Drawable, prot EventHandler { ... }
-```
-
-### Calling base class methods
-
-There is no `super` keyword. Call base methods explicitly using the qualified name:
-
-```kairo
-class Derived derives Base {
-    fn method(self) {
-        Base::method(self)
-    }
-}
-```
-
-### Destructors and inheritance
-
-A class with a non-trivial destructor — its own `op delete` with a body, or any field or base that has one — may only
-derive from a class whose destructor is `virtual`. Otherwise deleting the derived object through a `*Base`
-runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
-
-```kairo
-class Base { fn op delete(self) { } }
-class Derived derives Base {          // error: 'Base' has no virtual destructor
-    fn op delete(self) { }
-}
-```
-
-```kairo
-class Base { virtual fn op delete(self) { } }
-class Derived derives Base {          // ok
-    override fn op delete(self) { }
-}
-```
-
-A destructor is virtual when declared `virtual` or `override`, or when any base's is — as with any other
-method, virtualness is inherited. A derived class with a trivial destructor is exempt.
-
-### Diamond and virtual inheritance
-
-If `B` and `C` both derive from `A`, and `D` derives from both `B` and `C`, then `D` contains two copies
-of `A`'s subobject. Disambiguate with qualified names:
-
-```kairo
-class A {
-    fn method(self) { std::println("A") }
-}
-
-class B derives A { fn method(self) { std::println("B") } }
-class C derives A { fn method(self) { std::println("C") } }
-
-class D derives B, C {
-    fn method(self) {
-        B::method(self)
-        C::method(self)
-    }
-}
-```
-
-To share a single `A` subobject, use `derives virtual`. The most-derived class is responsible for
-initializing the virtual base directly; intermediate classes' calls to the virtual base constructor are
-ignored:
-
-```kairo
-class A {
-    var value: i32
-    fn A(self, v: i32) { self.value = v }
-}
-
-class B derives virtual A {
-    fn B(self, v: i32) { A::A(self, v) }
-}
-
-class C derives virtual A {
-    fn C(self, v: i32) { A::A(self, v) }
-}
-
-class D derives B, C {
-    fn D(self, v: i32) {
-        A::A(self, v)    // D initializes the virtual base
-        B::B(self, v)
-        C::C(self, v)
-    }
-}
-```
-
-### Lifecycle category matching
-
-A derived class's lifecycle category must be compatible with its base's:
-
-| Base category | Allowed derived categories |
-|---|---|
-| COPY | COPY, NON_TRANSFER |
-| MOVE | MOVE, NON_TRANSFER |
-| NON_TRANSFER | NON_TRANSFER |
-
-A copyable base with a move-only derived class is a compile error slicing a derived instance through a
-base pointer would otherwise silently copy the base subobject of a class that promised never to be
-copied.
-
-See [Casting](/docs/language/casting) for upcasting and downcasting.
-
----
-
-## Virtual Dispatch
-
-By default, methods are statically dispatched. To enable dynamic dispatch via a vtable, mark the method
-`virtual` in the base class:
-
-```kairo
-class Shape {
-    virtual fn area(const self) -> f64 {
-        return 0.0
-    }
-}
-
-class Circle derives Shape {
-    var radius: f64
-
-    fn Circle(self, radius: f64) {
-        self.radius = radius
-    }
-
-    override fn area(const self) -> f64 {
-        return 3.14159 * self.radius * self.radius
-    }
-}
-
-var shape: *Shape = &Circle(5.0)
-shape->area()   // 78.539... dynamic dispatch
-```
-
-`virtual` creates a vtable slot. `override` in the derived class replaces the entry in that slot. A class
-only has a vtable pointer (8 bytes at offset 0) if it declares or inherits at least one `virtual` method.
-Non-polymorphic classes have no vtable overhead.
-
-### Abstract classes (pure virtual)
-
-A method declared with `= virtual` has no body and must be overridden by any non-abstract derived class:
-
-```kairo
-class Shape {
-    fn area(const self) -> f64 = virtual
-    fn perimeter(const self) -> f64 = virtual
-}
-
-class Circle derives Shape {
-    var radius: f64
-
-    fn Circle(self, radius: f64) { self.radius = radius }
-
-    override fn area(const self) -> f64 {
-        return 3.14159 * self.radius * self.radius
-    }
-
-    override fn perimeter(const self) -> f64 {
-        return 2.0 * 3.14159 * self.radius
-    }
-}
-
-// var s = Shape()   // compile error: Shape has pure virtual methods
-var c = Circle(5.0)  // ok: all pure virtuals overridden
-```
-
-`= virtual` implies vtable participation no `virtual` prefix is needed on the declaration. A class with
-any `= virtual` method cannot be instantiated directly.
-
-### Final
-
-`final` prevents further overriding of a method or derivation from a class:
-
-```kairo
-final class Singleton { /* ... */ }
-
-// class Derived derives Singleton { }   // compile error
-
-class Base {
-    virtual fn process(self) { ... }
-}
-
-class Middle derives Base {
-    final override fn process(self) { ... }   // overrides, then locks
-}
-
-class Bottom derives Middle {
-    // override fn process(self) { ... }   // compile error: final in Middle
-}
-```
+Inheritance and virtual dispatch are covered in [Inheritance and Virtual Dispatch](/docs/language/classes-inheritance/).
 
 ---
 
@@ -790,13 +286,13 @@ fn <T impl Hashable> insert(set: {T}, item: T) { ... }
 insert(my_set, Point(1.0, 2.0))   // compiles: Point has hash()
 ```
 
-See [Interfaces](/docs/language/interfaces) and [Requires Clauses](/docs/language/requires).
+See [Interfaces](/docs/language/interfaces/) and [Requires Clauses](/docs/language/requires/).
 
 ---
 
 ## Generic Classes
 
-Type parameters are declared in angle brackets before the class name:
+[Type parameters](/docs/language/generics/) are declared in angle brackets before the class name:
 
 ```kairo
 class <T> Stack {
@@ -834,48 +330,7 @@ class <T> Derived derives Base<T> {
 }
 ```
 
-### Type parameter constraints
-
-A generic body may use only what its bounds grant. The body is checked once, where it is defined,
-against its bounds, never per instantiation. Calling a method no bound declares,
-copying a `T` without a copy bound, or declaring `var x: T` without a constructor bound is a compile
-error in the generic itself.
-
-**Implicit capabilities.** Every type parameter may be destroyed and moved without saying so.
-Instantiating with a type whose `op delete` is `= delete`, or whose category is NON_TRANSFER, is an
-error at the instantiation site. It names the generic's implicit requirement, not a line inside its
-body. (Opt-out syntax: TBD.)
-
-Two kinds of bounds exist:
-
-**Kind bounds** restrict `T` to a specific category of type declaration:
-
-```kairo
-fn <T: class>  process(item: T)   { ... }
-fn <T: struct> serialize(item: T) { ... }
-fn <T: enum>   stringify(item: T) { ... }
-fn <T: union>  inspect(item: T)   { ... }
-```
-
-**Interface bounds** restrict `T` to types that satisfy a given interface. The standard library will
-provide interfaces describing lifecycle capabilities, allowing constraints like "T must be copyable" or
-"T must be movable" to be written as interface bounds. The exact names and shapes of these interfaces are
-still being finalized in `std` write your own if you need them now:
-
-```kairo
-interface Copyable {
-    @copy
-    fn Copyable(self, const other: Self)
-}
-
-interface Defaultable {
-    fn Defaultable(self)
-}
-
-fn <T impl Copyable> store(item: T) -> T { ... }
-```
-
-See [Requires Clauses](/docs/language/requires) for the full constraint system.
+Type parameter constraints are covered in [Generics](/docs/language/generics/#type-parameter-constraints).
 
 ---
 
@@ -908,14 +363,14 @@ not take `self` and cannot access instance members.
 
 > [!NOTE]
 > Static fields do not compile yet: an initializer on one is rejected, and without one the program does
-> not link. See [Status](/docs/status#not-compiled-yet).
+> not link. See [Status](/docs/status/#not-compiled-yet).
 
 ---
 
 ## Const Methods
 
 A method that takes `const self` promises not to modify the object (except `mutable` members). It is
-the ["can I change the pointee?"](/docs/language/variables#the-const-binding-rule) question asked
+the ["can I change the pointee?"](/docs/language/variables/#the-const-binding-rule) question asked
 about the receiver. Only `const` methods can be called through a `*const T` pointer or on a `const`
 binding:
 
@@ -939,7 +394,7 @@ sensor->value()        // ok: const method
 // sensor->calibrate(1.0)  // compile error: not const
 ```
 
-`const` and non-`const` methods with the same name and parameter types cannot coexist use distinct names like `get()` and `get_mut()`. See [Variables](/docs/language/variables#the-const-binding-rule).
+`const` and non-`const` methods with the same name and parameter types cannot coexist use distinct names like `get()` and `get_mut()`. See [Variables](/docs/language/variables/#the-const-binding-rule).
 
 ### Mutable members
 
@@ -988,7 +443,7 @@ pub class Gate {
 Every module that uses `Gate` compiles `is_open` itself, so a call to it can be inlined there. Every
 `inline` method of a class goes with the class, whether or not Kairo code calls it, because the C++
 compiler may call methods Kairo never sees (`await_ready`, `initial_suspend`, ...). The class definition
-itself is unchanged: the bodies are emitted after it, outside it. See [Functions](/docs/language/functions#inline)
+itself is unchanged: the bodies are emitted after it, outside it. See [Functions](/docs/language/functions-declarations/#inline)
 for the rules.
 
 `inline` is allowed on `virtual` and `override` methods. If every virtual method of a class is `inline`, the
@@ -1020,125 +475,7 @@ class Tree {
 
 ---
 
-## Forward Declarations and Out-of-Line Definitions
-
-A class can be forward-declared without a body sufficient for `*Class` uses, not for `sizeof` or member
-access:
-
-```kairo
-class Parser
-
-class Lexer {
-    var parser: unsafe *Parser   // ok: pointer to incomplete type
-}
-
-class Parser {
-    var lexer: Lexer
-    // full definition
-}
-```
-
-Member methods can also be declared inside the class body without a body and defined out-of-line using
-the `Class::method` qualified-name syntax:
-
-```kairo
-class Parser {
-    var tokens: [Token]
-    var pos: usize
-
-    pub fn Parser(self, tokens: [Token])
-    pub fn advance(self) -> Token
-    pub fn peek(const self) -> Token
-    priv fn error(self, msg: string) panic
-}
-
-fn Parser::Parser(self, tokens: [Token]) {
-    self.tokens = tokens
-    self.pos = 0
-}
-
-fn Parser::advance(self) -> Token {
-    var t = self.tokens[self.pos]
-    self.pos += 1
-    return t
-}
-
-fn Parser::peek(const self) -> Token = self.tokens[self.pos]
-
-fn Parser::error(self, msg: string) panic {
-    panic std::Error::Parse(msg, self.pos)
-}
-```
-
-This pattern keeps the class body small and readable as an API surface, with implementation details
-defined separately.
-
-### Rules
-
-- The qualified definition's signature must exactly match the in-class declaration: parameter types,
-  return type, and all function modifiers (`const`, `unsafe`, `panic`, `eval`, `async`, `inline`,
-  `final`, `virtual`, `override`, `static`).
-- **Visibility is omitted** from the out-of-line definition it is taken from the in-class declaration.
-  Writing `pub fn Parser::advance` is a compile error.
-- **Default arguments** must appear on the in-class declaration, not the out-of-line definition.
-- Parameter names may differ between declaration and definition; the definition's names are used in the
-  body.
-
-### Generic classes
-
-For generic classes, the type parameters are re-declared on the out-of-line definition and the class
-name carries its generic arguments:
-
-```kairo
-class <T> Vec {
-    var data: unsafe *T
-    var len: usize
-    var cap: usize
-
-    pub fn push(self, value: T)
-    pub fn get(const self, i: usize) -> T
-}
-
-fn <T> Vec<T>::push(self, value: T) {
-    if self.len == self.cap { self.grow() }
-    self.data[self.len] = value
-    self.len += 1
-}
-
-fn <T> Vec<T>::get(const self, i: usize) -> T = self.data[i]
-```
-
-### Operators, constructors, destructors
-
-Operator overloads, constructors, and destructors follow the same pattern:
-
-```kairo
-class Vec2 {
-    var x: f64
-    var y: f64
-
-    pub fn Vec2(self, x: f64, y: f64)
-    pub fn op delete(self)
-    pub fn op +(self, other: Vec2) -> Vec2
-}
-
-fn Vec2::Vec2(self, x: f64, y: f64) {
-    self.x = x
-    self.y = y
-}
-
-fn Vec2::op delete(self) { /* ... */ }
-
-fn Vec2::op +(self, other: Vec2) -> Vec2 = Vec2(self.x + other.x, self.y + other.y)
-```
-
-### Nested types
-
-For methods on a nested type, chain the qualifiers:
-
-```kairo
-fn Outer::Inner::method(self) { /* ... */ }
-```
+Forward declarations and out-of-line definitions are covered in [Forward Declarations and Out-of-Line Definitions](/docs/language/classes-out-of-line/).
 
 ---
 
@@ -1179,9 +516,9 @@ Special operators beyond arithmetic:
 | `fn <T> op await(self, obj: std::forward<T>) -> T` | Custom awaitable |
 
 `op =` is **not** user-definable it is auto-derived from the transfer constructor. See
-[Lifecycle Categories](#lifecycle-categories).
+[Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories).
 
-See [Operators](/docs/language/operators#operator-overloading) for the full list of overloadable
+See [Operators](/docs/language/operator-overloading/) for the full list of overloadable
 operators and restrictions.
 
 ---
@@ -1195,7 +532,7 @@ Class layout follows the platform's C++ ABI:
   followed by members.
 - **Inheritance**: base class subobject precedes derived members.
 
-Layout can be controlled with attributes:
+Layout can be controlled with [attributes](/docs/language/attributes/):
 
 ```kairo
 @packed
@@ -1216,14 +553,14 @@ A plain `var` declaration allocates on the stack:
 var obj = Foo(42)   // stack-allocated
 ```
 
-Heap allocation uses `@create T()`, which returns a pointer. [Tether](/docs/language/tether) determines
+Heap allocation uses `@create T()`, which returns a pointer. [Tether](/docs/language/tether/) determines
 whether the returned pointer is raw or promoted to a smart pointer based on usage analysis:
 
 ```kairo
 var ptr = @create Foo(42)
 ```
 
-See [Pointers](/docs/language/pointers) and [Tether](/docs/language/tether).
+See [Pointers](/docs/language/pointers/) and [Tether](/docs/language/tether/).
 
 ---
 
@@ -1234,13 +571,13 @@ Structs and classes are distinct types:
 | | Class | Struct |
 |---|---|---|
 | Member default visibility | `priv` for variables | `pub` for all members |
-| Methods in body | Yes | No (use [extends](/docs/language/extends)) |
-| Aggregate initialization | No (must use constructor) | Yes (`Foo { field: value }`) |
+| Methods in body | Yes | No (use [extends](/docs/language/extends/)) |
+| Aggregate initialization | Only if the class declares no constructor | Yes (`Foo { field: value }`) |
 | Inheritance | `derives` | Not supported |
 | Virtual dispatch | Yes | No |
 | Lifecycle categories | Yes | N/A (no transfer constructors; copyable whenever every field is) |
 
-See [Structures](/docs/language/structures).
+See [Structures](/docs/language/structures/).
 
 ---
 
@@ -1314,3 +651,15 @@ final class Immutable {
     fn Immutable(self, v: i32) { self.value = v }
 }
 ```
+
+---
+
+## See also
+
+- [Structures](/docs/language/structures/)
+- [Interfaces](/docs/language/interfaces/)
+- [Operator Overloading](/docs/language/operator-overloading/)
+- [Extends](/docs/language/extends/)
+- [Generics](/docs/language/generics/)
+- [Pointers](/docs/language/pointers/)
+- [Tether](/docs/language/tether/)

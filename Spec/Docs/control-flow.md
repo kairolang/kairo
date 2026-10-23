@@ -7,6 +7,10 @@ required, though permitted for clarity).
 
 `=>` introduces exactly one value; `{ }` after a control keyword is always a statement block.
 
+## In this section
+
+- [Pattern Matching](/docs/language/pattern-matching/): `match`, guards, destructuring, ranges, and exhaustiveness.
+
 ---
 
 ## Conditionals
@@ -23,7 +27,7 @@ if x > 0 {
 }
 ```
 
-Braces are mandatory on all branches. The condition must evaluate to `bool` no implicit conversion from
+Braces are mandatory on all branches. The condition must evaluate to [`bool`](/docs/language/primitives/#bool) no implicit conversion from
 integers or pointers.
 
 ### `if` as an expression (ternary equivalent)
@@ -41,9 +45,9 @@ final `else` is mandatory. All arms must produce the same type.
 
 #### Arms are expressions, not blocks
 
-A braced arm is an error ([S073E](/docs/language/diagnostics#s073e-braced-value-arm-in-an-if-try-or-match-expression)),
+A braced arm is an error ([S073E](/docs/language/diagnostics/#s073e-braced-value-arm-in-an-if-try-or-match-expression)),
 and the compiler offers a fix-it. An arm needs a value: `=>` with nothing after it is an error. For several
-statements, use a [statement expression](/docs/language/operators#statement-expressions):
+statements, use a [statement expression](/docs/language/operators/#statement-expressions):
 
 ```kairo
 var v = if ready => ({ var t = load(); t.normalize(); (t.value); }) else => 0
@@ -64,7 +68,7 @@ draw(if wide => 80 else => 40, height)
 ```
 
 Using an `if` as the operand of an operator is legal, but it produces a warning
-([S078W](/docs/language/diagnostics#s078w-if-or-try-expression-as-an-operators-operand)). Parenthesize it:
+([S078W](/docs/language/diagnostics/#s078w-if-or-try-expression-as-an-operators-operand)). Parenthesize it:
 
 ```kairo
 var w = base + (if wide => 80 else => 40)
@@ -89,9 +93,9 @@ Inside an arm the ordinary rule applies: break after an operator, not before it.
 
 A nested `if` in any arm except the last must be in parentheses, and so must an `if` used as a condition.
 Otherwise it is a compile error
-([S077E](/docs/language/diagnostics#s077e-nested-if-or-try-expression-must-be-parenthesized)), and the
+([S077E](/docs/language/diagnostics/#s077e-nested-if-or-try-expression-must-be-parenthesized)), and the
 compiler offers a fix-it. A nested `if` in the final `else` arm is allowed, but write it as `else if`:
-`else => if` produces a warning ([S079W](/docs/language/diagnostics#s079w--between-else-and-if-is-redundant)).
+`else => if` produces a warning ([S079W](/docs/language/diagnostics/#s079w--between-else-and-if-is-redundant)).
 
 ```kairo
 var r = if a => (if b => 1 else => 2) else => 3     // ok
@@ -127,259 +131,7 @@ if condition {
 
 ## `match`
 
-`match` is Kairo's multi-way dispatch construct. It handles value matching, enum variant dispatch, ADT
-destructuring, struct field extraction, and range checks all with compiler-enforced exhaustiveness.
-
-```kairo
-match status_code {
-    case 200 { std::println("OK") }
-    case 404 { std::println("Not Found") }
-    case 500 { std::println("Internal Server Error") }
-    default  { std::println(f"Unknown: {status_code}") }
-}
-```
-
-### Value matching
-
-`match` operates on integers, strings, and booleans by comparing against literal values:
-
-```kairo
-match command {
-    case "start" { engine.start() }
-    case "stop"  { engine.stop() }
-    case "reset" { engine.reset() }
-    default      { log_unknown(command) }
-}
-
-match is_valid {
-    case true  { proceed() }
-    case false { abort() }
-}
-```
-
-### Enum variant matching
-
-For plain enums, use the `.Variant` shorthand when the type is inferred from the match operand:
-
-```kairo
-match dir {
-    case .North { go_up() }
-    case .South { go_down() }
-    case .East  { go_right() }
-    case .West  { go_left() }
-}
-```
-
-The fully qualified form `Direction::North` also works. The compiler verifies all variants are covered.
-
-### ADT destructuring
-
-ADT enum variants carry payloads. Destructure them in `match` with `var` or `const` bindings inside
-parentheses. Field names must match the variant declaration:
-
-```kairo
-enum <K, V> LookupResult {
-    Found    { key: K, value: V },
-    NotFound { key: K },
-    Error    { message: string },
-}
-
-match result {
-    case .Found(var key, var value) {
-        std::println(f"{key} = {value}")
-    }
-    case .NotFound(var key) {
-        std::println(f"{key} not found")
-    }
-    case .Error(const message) {
-        // message cannot be reassigned bound as const
-        log_error(message)
-    }
-}
-```
-
-You can omit fields you do not need exhaustive field extraction is not required:
-
-```kairo
-match result {
-    case .Found(var value) {
-        // only value is bound, key is ignored
-        process(value)
-    }
-    default { }
-}
-```
-
-See [Enums](/docs/language/enums#adt-enums) for ADT enum declarations and construction.
-
-### `where` guards
-
-Append `where` followed by a boolean expression to add a condition to a case. The branch only matches
-if both the pattern and the guard are satisfied:
-
-```kairo
-match result {
-    case .Found(var key, var value) where value > 0 {
-        std::println(f"{key} has positive value")
-    }
-    case .Found(var key, var value) {
-        std::println(f"{key} has non-positive value")
-    }
-    default { }
-}
-```
-
-Guards work the same way in a value-form `match`, written before the arrow:
-
-```kairo
-var amount = match result {
-    case .Found(var key, var value) where value > 0 => value
-    default => 0
-}
-```
-
-Guards are evaluated after the pattern matches. A case with a guard that fails falls through to the
-next case this is the only situation where control moves between cases.
-
-### Struct matching
-
-Structs have a single shape (no variants), so `match` on a struct is destructuring combined with
-guards. A struct `case` without a `where` guard always matches and is a compile error unless it is
-the only case or the last case (acting as a catch-all):
-
-```kairo
-struct Response {
-    var status: i32
-    var body: string
-}
-
-match response {
-    case Response(var status, var body) where status == 200 {
-        process(body)
-    }
-    case Response(var status) where status >= 400 {
-        log_error(f"HTTP {status}")
-    }
-    default {
-        // catch-all
-    }
-}
-```
-
-### Range matching
-
-Integer cases can match a range using `..` (exclusive end) or `..=` (inclusive end):
-
-```kairo
-match http_status {
-    case 200..=299 { std::println("success") }
-    case 300..=399 { std::println("redirect") }
-    case 400..=499 { std::println("client error") }
-    case 500..=599 { std::println("server error") }
-    default        { std::println("unknown") }
-}
-```
-
-The same ranges in a value-form `match`:
-
-```kairo
-var kind = match http_status {
-    case 200..=299 => "success"
-    case 300..=399 => "redirect"
-    case 400..=599 => "error"
-    default => "unknown"
-}
-```
-
-### `match` as an expression
-
-```kairo
-var label = match level {
-    case .Debug   => "debug"
-    case .Info    => "info"
-    case .Warning => "warning"
-    case .Error   => "error"
-    case .Fatal   => "fatal"
-}
-
-var priority = match code {
-    case 200..=299 => 0
-    case 400..=499 => 1
-    case 500..=599 => 2
-    default        => -1
-}
-
-var message = match result {
-    case .Found(var key, var value) => f"{key}: {value}"
-    case .NotFound(var key)         => f"{key} not found"
-    case .Error(var message)        => message
-}
-```
-
-Each arm is `case pattern => value` or `default => value`. All arms must produce the same type.
-
-- Arms are not separated by commas. A comma between arms is an error
-  ([S076E](/docs/language/diagnostics#s076e-match-arms-separated-by-a-comma)).
-- Guards come before the arrow: `case .Found(var v) where v > 0 => v`.
-- You may break before or after `=>`.
-- A `match` closes with `}`, so it can be used directly as an operand: `var n = match k { ... } + 1`. The
-  parentheses rule for `if` and `try` does not apply to it.
-- All arms of one `match` use the same form, either all `=>` or all `{ }`. Mixing the two is an error
-  ([S075E](/docs/language/diagnostics#s075e-match-arms-mix--and---forms)).
-- In statement position, a `match` whose arms are all `=>` is an expression, and exhaustiveness is
-  required as for any `match` expression. A `match` with block arms is a statement.
-
-In expression form, exhaustiveness is required every possible value must be covered. For integers
-and strings, this means `default` is mandatory.
-
-### Exhaustiveness
-
-The compiler verifies that all possible values are covered:
-
-| Matched type | Coverage rule |
-|---|---|
-| Plain enum | All variants covered, or `default` present |
-| ADT enum | All variants covered, or `default` present |
-| Integers / strings | `default` always required |
-| Booleans | `true` + `false` covers it |
-| Structs | `default` always required |
-
-A `default` case matches any value not covered by preceding cases. It must be the last case.
-
-A match whose arms are all `=>` is an expression, wherever it appears.
-
-### No fall-through
-
-Each case is an isolated block. There is no fall-through between cases and no `@fallthrough` attribute.
-If you need multiple values to execute the same code, list them in a single case separated by commas:
-
-```kairo
-match priority {
-    case 1, 2, 3 { handle_high() }
-    case 4, 5    { handle_medium() }
-    default      { handle_low() }
-}
-```
-
-### `break` in `match` inside a loop
-
-Inside a `match` nested within a loop, `break` exits the **loop**, not the match. Match cases are
-already isolated blocks with no fall-through, so there is nothing to "break" out of within the match
-itself.
-
-```kairo
-for item in items {
-    match item.kind {
-        case .Sentinel {
-            break   // exits the for loop
-        }
-        case .Data(var payload) {
-            process(payload)
-        }
-        default { }
-    }
-}
-```
+`match` is covered in [Pattern Matching](/docs/language/pattern-matching/).
 
 ---
 
@@ -405,15 +157,15 @@ for item in collection {
 
 The range operators `..` and `..=` produce a `Range` object that implements the iterator protocol. Any type
 that defines `fn op in (self) -> yield T` is iterable. Defining `begin()` and `end()` on a Kairo class does
-not make it iterable. See [Operators](/docs/language/operators#ranges) for the `Steppable` interface and
-[Operators](/docs/language/operators#special-operators) for the `op in` overload.
+not make it iterable. See [Operators](/docs/language/operators/#ranges) for the `Steppable` interface and
+[Operators](/docs/language/operator-overloading/#special-operators) for the `op in` overload.
 
-An imported C++ class iterates the way a C++ range-based `for` does: through its member `begin()` and
+An [imported C++ class](/docs/language/c-cpp-calling/) iterates the way a C++ range-based `for` does: through its member `begin()` and
 `end()`, or else through free `begin()` and `end()` functions found by argument-dependent lookup.
 
 ### Multi-variable iteration
 
-If the collection yields tuples, destructure directly in the loop header:
+If the collection yields [tuples](/docs/language/collections/#tuples-t1-t2-), [destructure](/docs/language/variables/#destructuring) directly in the loop header:
 
 ```kairo
 for (key, value) in some_map {
@@ -480,7 +232,7 @@ outer: for i in 0..10 {
 }
 ```
 
-Labels follow the same naming conventions as variables (`snake_case`). `break` and `continue` without a label
+Labels follow the same [naming conventions](/docs/language/variables/#naming-conventions) as variables (`snake_case`). `break` and `continue` without a label
 target the innermost enclosing loop.
 
 ---
@@ -506,7 +258,7 @@ with no fall-through by default).
 
 `try`/`catch` handles panics from functions annotated with the `panic` specifier. The compiler statically
 verifies that `catch` blocks cover all panic types that can propagate from the `try` body uncovered types
-are a compile error. See [Panic](/docs/language/panic) for the full panic model.
+are a compile error. See [Panic](/docs/language/panic/) for the full panic model.
 
 ```kairo
 try {
@@ -612,7 +364,7 @@ fn process_file(path: string) panic -> void {
 }
 ```
 
-A standalone `finally` behaves like the destructor of a local declared at the same point:
+A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) of a local declared at the same point:
 
 - **It is tied to the enclosing block, not the function.** A `finally` inside an `if` body or a loop body
   runs when that block ends. In a loop it runs at the end of every iteration that reached it.
@@ -690,7 +442,7 @@ fn divide(a: i32, b: i32) panic -> i32 {
 }
 ```
 
-See [Panic](/docs/language/panic) for the full panic model, including `Panickable<T>`, desugaring semantics,
+See [Panic](/docs/language/panic/) for the full panic model, including `Panickable<T>`, desugaring semantics,
 and the zero-cost codegen strategy.
 
 ---
@@ -708,7 +460,7 @@ fn max(a: i32, b: i32) -> i32 {
 ## Blocks and Scope
 
 A block is a brace-delimited sequence of statements. Every block introduces a new lexical scope variables
-declared inside are not visible outside, and destructors run at the closing brace in reverse declaration
+declared inside are not visible outside, and [destructors run at the closing brace](/docs/language/ownership/#destruction-order) in reverse declaration
 order.
 
 ```kairo
@@ -721,7 +473,7 @@ order.
 ```
 
 A plain block does not produce a value. To compute a value with statements, use a
-[statement expression](/docs/language/operators#statement-expressions), whose value is its last expression:
+[statement expression](/docs/language/operators/#statement-expressions), whose value is its last expression:
 
 ```kairo
 var result = ({
@@ -752,14 +504,14 @@ fn process() {
 All control flow constructs (`if`, `match`, `for`, `while`, `loop`, `try`) create implicit blocks
 their bodies follow the same scoping and destruction rules.
 
-See [Variables](/docs/language/variables#scope-and-lifetime) and [Tether](/docs/language/tether) for full lifetime semantics.
+See [Variables](/docs/language/variables/#scope-and-lifetime) and [Tether](/docs/language/tether/) for full lifetime semantics.
 
 ---
 
 ## Jumps
 
 For low-level control flow (state machines, interpreters, hot loops), Kairo provides labeled jumps via
-compiler intrinsics:
+[compiler intrinsics](/docs/language/macros-builtin/#compiler-intrinsic-macros):
 
 ```kairo
 label!(entry)
@@ -778,7 +530,7 @@ control flow guarantees.
 
 Kairo does not have a `goto` keyword. `label!` and `jump!` are compiler intrinsics surfaced with macro
 syntax to make jump usage explicit and greppable in a codebase. They are not user-defined macros see
-[Macros](/docs/language/macros) for the macro system.
+[Macros](/docs/language/macros/) for the macro system.
 
 ---
 
@@ -799,14 +551,14 @@ eval if platform == "linux" {
 ```
 
 This is equivalent to `#if` / `#elif` / `#else` in C/C++, but operates on Kairo's compile-time evaluation
-system rather than a preprocessor. See [Eval](/docs/language/eval) for details on what qualifies as a
+system rather than a preprocessor. See [Eval](/docs/language/eval/) for details on what qualifies as a
 compile-time constant.
 
 ---
 
 ## Branch Hints
 
-Kairo provides attributes to communicate branch likelihood to the compiler's optimizer. These map directly
+Kairo provides [attributes](/docs/language/attributes/#branch-hints) to communicate branch likelihood to the compiler's optimizer. These map directly
 to LLVM's branch weight metadata and `__builtin_expect` semantics in the generated code.
 
 ```kairo
@@ -873,13 +625,13 @@ var x: i32 = if valid => compute() else => fatal("invalid state")
 // fatal() returns ! which coerces to i32
 ```
 
-See [Functions](/docs/language/functions) for return type syntax and [Type System](/docs/language/type-system) for how `!` interacts with type inference.
+See [Functions](/docs/language/functions/) for return type syntax and [Type System](/docs/language/type-system/) for how `!` interacts with type inference.
 
 ---
 
 ## `return`
 
-`return` exits the current function with a value. See [Functions](/docs/language/functions) for full details
+`return` exits the current function with a value. See [Functions](/docs/language/functions/) for full details
 on return types, `void` returns, and expression-bodied functions.
 
 ---
@@ -908,7 +660,17 @@ For C++ developers the following C++ constructs have no equivalent in Kairo:
 | `? :` (ternary) | `if`/`else` expressions |
 | `goto` | `label!` / `jump!` intrinsics |
 | `do { ... } while` | `loop` with a conditional `break` at the end |
-| `switch` fall-through | `match` but no fall-through |
-| `throw` / C++ exceptions | `panic` / `try`/`catch` (see [Panic](/docs/language/panic)) |
-| `#if` / `#ifdef` | `eval if` (see [Eval](/docs/language/eval)) |
-| `constexpr` / `consteval` | `eval` functions / vars (see [Eval](/docs/language/eval)) |
+| `switch` fall-through | `match` but [no fall-through](/docs/language/pattern-matching/#no-fall-through) |
+| `throw` / C++ exceptions | `panic` / `try`/`catch` (see [Panic](/docs/language/panic/)) |
+| `#if` / `#ifdef` | `eval if` (see [Eval](/docs/language/eval/)) |
+| `constexpr` / `consteval` | `eval` functions / vars (see [Eval](/docs/language/eval/)) |
+
+## See also
+
+- [Pattern Matching](/docs/language/pattern-matching/)
+- [Operators](/docs/language/operators/)
+- [Panic](/docs/language/panic/)
+- [Eval](/docs/language/eval/)
+- [Functions](/docs/language/functions/)
+- [Variables](/docs/language/variables/#scope-and-lifetime)
+- [Attributes](/docs/language/attributes/#branch-hints)

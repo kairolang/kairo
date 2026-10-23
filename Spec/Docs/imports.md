@@ -2,7 +2,7 @@
 
 The `import` statement brings names from other modules and external libraries into the current scope. Imports are how you access code defined in other files and C/C++ headers.
 
-See [Modules](/docs/language/modules) for how files organize into module namespaces and how the module system resolves import paths.
+See [Modules](/docs/language/modules/) for how files organize into module namespaces and how the module system resolves import paths.
 
 ## Import Forms
 
@@ -21,7 +21,7 @@ import module math                       // library-only (skip file lookup)
 When you write `import Foo`, the compiler resolves it in this order:
 
 1. **File first:** look for `Foo.k` as a sibling file.
-2. **Library fallback:** if no `Foo.k` exists, look for `Foo/module.k` (library entry).
+2. **Library fallback:** if no `Foo.k` exists, look for `Foo/module.k` ([library entry](/docs/language/modules/#library-entry-files)).
 3. **Ambiguity warning:** if both `Foo.k` and `Foo/module.k` exist, the import resolves to `Foo.k` and the compiler emits a warning:
    > ambiguous import 'Foo' resolves to Foo.k, but Foo/module.k also exists; rename the file or use `import module Foo` to import the library
 
@@ -139,7 +139,7 @@ If no `math/module.k` exists, this is a compile error, it does not fall back to 
 
 ## FFI Header Imports
 
-C and C++ headers are imported via the `ffi` keyword:
+C and C++ headers are imported via the [`ffi` keyword](/docs/language/c-cpp-calling/#the-ffi-keyword):
 
 ```kairo
 ffi "c++" import "graphics.hh"
@@ -174,7 +174,7 @@ FFI imports of headers that define names in `std` are automatically redirected t
 ffi "c++" import "iostream"  // imported into cxx::std, not std
 ```
 
-See [C/C++ Interop](/docs/language/c-cpp) for the full FFI model.
+See [C/C++ Interop](/docs/language/c-cpp/) for the full FFI model.
 
 ## FFI Linkage Declarations
 
@@ -194,7 +194,7 @@ ffi "c++" {
 }
 ```
 
-Declarations inside an `ffi` block are parsed normally but stamped with C/C++ linkage. See [C/C++ Interop](/docs/language/c-cpp) for details on FFI constraints and capabilities.
+Declarations inside an `ffi` block are parsed normally but stamped with C/C++ linkage. See [C/C++ Interop](/docs/language/c-cpp-calling/#constraints-and-safety) for details on FFI constraints and capabilities.
 
 ## Import Reference
 
@@ -209,3 +209,11 @@ Declarations inside an `ffi` block are parsed normally but stamped with C/C++ li
 | `ffi "c++" import "h.hh"` | C++ header | Optional `as` namespace |
 | `ffi "c++" fn foo(...)` | Single decl with C++ linkage | |
 | `ffi "c++" { ... }` | Block of decls with C++ linkage | |
+## See also
+
+- [Modules](/docs/language/modules/)
+- [Library Entry Files](/docs/language/modules/#library-entry-files)
+- [Module Visibility](/docs/language/modules/#module-visibility)
+- [C & C++ Interoperability](/docs/language/c-cpp/)
+- [The `ffi` keyword](/docs/language/c-cpp-calling/#the-ffi-keyword)
+- [Namespace mapping](/docs/language/c-cpp-calling/#namespace-mapping)

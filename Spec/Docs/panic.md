@@ -5,7 +5,7 @@ an error instead of its declared return type. Callers must handle the error via 
 propagate it by marking themselves `panic`. The compiler statically verifies that all error types are
 accounted for unhandled error types are a compile error.
 
-Unlike C++ exceptions, panics use no unwinding tables and no runtime. The codegen is zero-cost 
+Unlike [C++ exceptions](/docs/language/c-cpp-exceptions/), panics use no unwinding tables and no runtime. The codegen is zero-cost 
 every panic site becomes a tagged return value checked with a branch.
 
 ---
@@ -172,7 +172,7 @@ var port = try parse_port(input)
 `try`/`catch` can produce a value. Each arm is `catch ... => value`, and every arm must produce the same
 type. `finally` is not permitted in expression form.
 
-See [Control Flow](/docs/language/control-flow#trycatch-as-an-expression) for the `=>` arm rules: arm
+See [Control Flow](/docs/language/control-flow/#trycatch-as-an-expression) for the `=>` arm rules: arm
 forms, line breaks, and nesting.
 
 ---
@@ -216,11 +216,11 @@ fn process_file(path: string) panic {
 }
 ```
 
-A standalone `finally` behaves like the destructor of a local declared at the same point. It belongs to
+A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) of a local declared at the same point. It belongs to
 its enclosing block rather than the function, runs only if execution reached it, and runs in reverse
 declaration order (LIFO) together with the scope's destructors.
 
-See [Control Flow](/docs/language/control-flow#finally) for full `finally` semantics.
+See [Control Flow](/docs/language/control-flow/#finally) for full `finally` semantics.
 
 ---
 
@@ -245,18 +245,18 @@ fn fatal(msg: string) -> ! {
 }
 ```
 
-See [Functions](/docs/language/functions#no-return-) and
-[Type System](/docs/language/type-system#the-never-type-) for `!` semantics.
+See [Functions](/docs/language/functions/#no-return-) and
+[Type System](/docs/language/type-system/#the-never-type-) for `!` semantics.
 
 ---
 
 ## Codegen
 
-Panics compile to zero-cost tagged return values. There are no unwinding tables, no runtime
+Panics compile to zero-cost tagged return values. There are no [unwinding tables](/docs/language/attributes/#unwinding), no runtime
 exception handler, and no stack unwinding. A function marked `panic` returns a tagged union
 containing either the success value or an error with source location metadata.
 
-At the call site, the compiler lowers `try`/`catch` to a `match` on the tagged union. If the tag
+At the call site, the compiler lowers `try`/`catch` to a [`match`](/docs/language/pattern-matching/) on the tagged union. If the tag
 indicates an error, the matching catch block executes. If it indicates success, the value is
 extracted and execution continues.
 
@@ -270,7 +270,7 @@ This means:
 
 > [!NOTE]
 > The same `try`/`catch` syntax can also catch an exception thrown by C++ code. That path does use
-> the platform unwinder. See [Exceptions](/docs/language/c-cpp#exceptions) in C/C++ Interop.
+> the platform unwinder. See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) in C/C++ Interop.
 
 > [!NOTE]
 > The `panic` statement inside a function body (`panic SomeError(...)`) does not halt the program.
@@ -362,3 +362,14 @@ fn with_cleanup() panic {
     do_work(resource)
 }
 ```
+
+## See also
+
+- [Control Flow](/docs/language/control-flow/#error-handling)
+- [Assert](/docs/language/control-flow/#assert)
+- [Exceptions & Panics](/docs/language/c-cpp-exceptions/)
+- [Unwinding](/docs/language/attributes/#unwinding)
+- [Requires and Panic](/docs/language/requires/#requires-and-panic)
+- [Where and Panic](/docs/language/where/#where-and-panic)
+- [Closure Modifiers](/docs/language/closures/#modifiers)
+- [Diagnostics](/docs/language/diagnostics/)

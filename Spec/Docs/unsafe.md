@@ -15,7 +15,7 @@ raw, and a raw pointer does not require an `unsafe` block to use.
 
 ## Unsafe Blocks
 
-An `unsafe { ... }` block suspends [Tether](/docs/language/tether) for all operations within its scope.
+An `unsafe { ... }` block suspends [Tether](/docs/language/tether/) for all operations within its scope.
 Inside an unsafe block:
 
 - Tether does not track pointer lifetimes or provenance
@@ -36,7 +36,7 @@ unsafe {
 
 ### When unsafe blocks are required
 
-An `unsafe` block is required when calling a C/C++ function that takes or returns raw pointers:
+An `unsafe` block is required when calling a [C/C++ function](/docs/language/c-cpp-calling/#pointers-and-references) that takes or returns raw pointers:
 
 ```kairo
 ffi "c++" import "native.hh";
@@ -71,13 +71,13 @@ Tether-tracked equivalents automatically. `std::unique_ptr<T>` maps to `std::Uni
 A mismatch between Tether's promotion and the C++ function's expected smart pointer type is a
 compile error.
 
-See [C/C++ Interop](/docs/language/c-cpp) for the full FFI model.
+See [C/C++ Interop](/docs/language/c-cpp/) for the full FFI model.
 
 ---
 
 ## Forget
 
-`forget!()` is a compiler intrinsic that permanently removes a pointer from Tether tracking. It is
+`forget!()` is a [compiler intrinsic](/docs/language/macros-builtin/#compiler-intrinsic-macros) that permanently removes a pointer from Tether tracking. It is
 only valid inside an `unsafe` block:
 
 ```kairo
@@ -91,7 +91,7 @@ unsafe {
 // Tether will not auto-free ptr if nothing else frees it, this is a memory leak
 ```
 
-The primary use case is transferring ownership to C++ code that will manage the pointer's lifetime:
+The primary use case is [transferring ownership to C++ code](/docs/language/c-cpp-memory/) that will manage the pointer's lifetime:
 
 ```kairo
 ffi "c++" import "engine.hh";
@@ -135,13 +135,13 @@ buf[100] = 0x00    // no bounds check UB if out of allocation
 unsafe std::free(buf)
 ```
 
-See [Pointers](/docs/language/pointers) for the full pointer model.
+See [Pointers](/docs/language/pointers/#raw-pointers-unsafe-t) for the full pointer model.
 
 ---
 
 ## Unsafe Function Overloads
 
-The `unsafe` modifier on a function creates a separate overload in its own namespace. The caller
+The `unsafe` modifier on a function creates a [separate overload](/docs/language/functions-overloading/#unsafe-overloads) in its own namespace. The caller
 explicitly selects the unsafe variant with the `unsafe` keyword:
 
 ```kairo
@@ -185,7 +185,7 @@ unsafe process(42)   // calls unsafe version
 
 ### Modifier restrictions
 
-`unsafe` cannot be combined with other function modifiers:
+`unsafe` combines with every other function modifier except [`eval`](/docs/language/eval/#eval-functions):
 
 | Combination | Valid |
 |---|---|
@@ -196,8 +196,8 @@ unsafe process(42)   // calls unsafe version
 | `unsafe` + `inline` | Yes |
 | `unsafe` + `volatile` | Yes |
 
-`unsafe` stands alone as an overload qualifier. See
-[Functions](/docs/language/functions#modifier-compatibility) for the full modifier compatibility
+`unsafe` is an overload qualifier: the other modifiers apply to the safe and unsafe versions alike. See
+[Functions](/docs/language/functions-declarations/#modifier-compatibility) for the full modifier compatibility
 table.
 
 ---
@@ -206,9 +206,13 @@ table.
 
 Kairo's safety model has a clear boundary:
 
-**Inside normal code:** Tether tracks all pointer lifetimes, inserts null checks on safe pointer
-dereference, auto-promotes to smart pointers, and emits compile errors when safety cannot be
-guaranteed. Memory safety is the compiler's responsibility.
+**Inside normal code:** Tether tracks all pointer lifetimes and proves every safe dereference sound.
+`*T` is non-null by construction, so its dereference needs no check; a [`*T?`](/docs/language/nullables/#pointers-and-nullability) must be unwrapped or
+proven non-null. Where a proof is missing, the response depends on the clause (see the
+[Residual Table](/docs/language/tether-proof-model/#the-residual-table)): bounds and epoch residuals get a runtime
+check in both modes, while nullability and ownership residuals are transformed in debug (null guard,
+[smart pointer promotion](/docs/language/tether-promotion/)) and are hard errors in release. Everything else is a compile error. Memory
+safety is the compiler's responsibility.
 
 **Inside `unsafe { }` blocks:** Tether is suspended. The programmer is responsible for pointer
 lifetimes, null safety, and deallocation. The compiler trusts the programmer.
@@ -241,7 +245,7 @@ fn send_to_native(data: Config) {
 
     unsafe {
         forget!(ptr)
-        native_take_ownership(ptr as unsafe *i32)
+        native_take_ownership(ptr as unsafe *Config)
     }
 }
 ```
@@ -259,8 +263,10 @@ fn allocate_aligned(size: usize, align: usize) -> unsafe *void {
 
 ```kairo
 fn write_register(addr: usize, value: u32) {
-    var reg = addr as unsafe *u32
-    *reg = value
+    unsafe {
+        var reg = addr as unsafe *u32   // integer-to-pointer cast fabricates provenance
+        *reg = value
+    }
 }
 ```
 
@@ -308,3 +314,14 @@ unsafe {
     // data is no longer tracked manual management required
 }
 ```
+
+## See also
+
+- [C & C++ Interoperability](/docs/language/c-cpp/)
+- [Inline ASM](/docs/language/c-cpp-calling/#inline-asm)
+- [Pointers and References across the FFI boundary](/docs/language/c-cpp-calling/#pointers-and-references)
+- [Pointers](/docs/language/pointers/)
+- [Tether](/docs/language/tether/)
+- [Ownership](/docs/language/ownership/)
+- [Function Overloading](/docs/language/functions-overloading/#unsafe-overloads)
+- [Allocators & Ownership](/docs/language/c-cpp-memory/)

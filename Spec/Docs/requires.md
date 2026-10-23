@@ -4,7 +4,7 @@
 condition that must hold at compile time if it doesn't, the program does not compile. There is
 no runtime fallback, no dispatch, no branching. `requires` is a static gate.
 
-For runtime-conditional dispatch, see [Where Clauses](/docs/language/where).
+For runtime-conditional dispatch, see [Where Clauses](/docs/language/where/).
 
 | Property | Guarantee |
 |---|---|
@@ -57,8 +57,8 @@ Any expression the compiler can evaluate statically is valid in a `requires` cla
 
 | Expression | Example |
 |---|---|
-| `sizeof T)` | `requires sizeof(T <= 64` |
-| `alignof T)` | `requires alignof(T >= 16` |
+| `sizeof T` | `requires sizeof T <= 64` |
+| `alignof T` | `requires alignof T >= 16` |
 | Arithmetic and comparisons | `requires N > 0 && N <= 1024` |
 | `eval` variables and functions | `requires is_power_of_two(N)` |
 | Type trait checks | `requires T impl Comparable` |
@@ -83,8 +83,8 @@ Either way, the bounds are all a generic body can rely on. The body is checked o
 defined, against its bounds, never per instantiation. Calling a method no
 bound declares is a compile error in the generic itself, even if every type it is ever
 instantiated with happens to have that method. See
-[Type parameter constraints](/docs/language/classes#type-parameter-constraints) and
-[Generic Bodies](/docs/language/interfaces#generic-bodies).
+[Type parameter constraints](/docs/language/generics/#type-parameter-constraints) and
+[Generic Bodies](/docs/language/interfaces/#generic-bodies).
 
 The `requires` form is preferred when constraints are long or involve relationships between
 multiple type parameters:
@@ -101,7 +101,7 @@ fn <T, U> convert(input: T) -> U
 
 ## Requires on Types
 
-`requires` on a class, struct, or enum is checked at instantiation time. A violation is a hard
+`requires` on a [class](/docs/language/classes/), [struct](/docs/language/structures/), or [enum](/docs/language/enums/) is checked at instantiation time. A violation is a hard
 compile error at the point of use:
 
 ```kairo
@@ -132,7 +132,7 @@ either the type is valid or it isn't.
 
 ## Requires on Interface Methods
 
-`requires` on an interface method constrains what conforming types must satisfy. The conforming
+`requires` on an [interface](/docs/language/interfaces/) method constrains what conforming types must satisfy. The conforming
 type must implement the method with an identical `requires` clause:
 
 ```kairo
@@ -200,13 +200,13 @@ clear_aligned<256>(&a)  // ok: 256 is a power of two
 clear_aligned<300>(&b)  // compile error: 300 is not a power of two
 ```
 
-See [Eval](/docs/language/eval) for compile-time evaluation rules.
+See [Eval](/docs/language/eval/) for compile-time evaluation rules.
 
 ---
 
 ## Requires and panic
 
-`requires` and `panic` serve different purposes and can coexist. `requires` filters invalid inputs
+`requires` and [`panic`](/docs/language/panic/) serve different purposes and can coexist. `requires` filters invalid inputs
 before the function body executes. `panic` handles valid inputs that produce errors during
 processing:
 
@@ -262,3 +262,13 @@ struct <T> CacheAligned
     var value: T
 }
 ```
+
+
+## See also
+
+- [Where Clauses](/docs/language/where/)
+- [Generics](/docs/language/generics/#type-parameter-constraints)
+- [Interfaces](/docs/language/interfaces/#using-interfaces-as-bounds)
+- [Compile-Time Eval](/docs/language/eval/)
+- [Panic](/docs/language/panic/)
+- [Generic Functions](/docs/language/functions/#generic-functions)

@@ -9,7 +9,7 @@ This page lists compiler error messages verbatim so they can be searched. Placeh
 
 ### `array literal has {n} element(s), but '[T; M]' needs {m}`
 
-A list literal initializes a fixed array of a different length. The literal is not silently turned into a
+A [list literal](/docs/language/collections/#list-literals) initializes a fixed array of a different length. The literal is not silently turned into a
 slice.
 
 ```kairo
@@ -35,7 +35,7 @@ var f: [i32] = []              // ok
 
 A list literal that becomes a slice `[T;]` is a view of a temporary array. These errors report the positions
 where the view would outlive that array. See
-[Primitives](/docs/language/primitives#how-long-a-slice-literals-storage-lives).
+[Primitives](/docs/language/collections/#how-long-a-slice-literals-storage-lives).
 
 ### `a list literal returned from a function is a view of a temporary array and would outlive it; use '[T]' to own the elements, or bind the literal to a 'var' first`
 
@@ -71,13 +71,13 @@ scope that outlives the slice and use that variable.
 
 > [!NOTE]
 > Passing a slice literal to a function that stores the slice is not diagnosed. Until
-> [Tether](/docs/language/tether) checks it, it is the programmer's responsibility.
+> [Tether](/docs/language/tether/) checks it, it is the programmer's responsibility.
 
 ---
 
 ## Arrays
 
-A fixed array `[T; N]` is not a value type. See [Primitives](/docs/language/primitives#arrays-t-n).
+A fixed array `[T; N]` is not a value type. See [Primitives](/docs/language/collections/#arrays-t-n).
 
 ### `an array is not copyable; initialize it from a list literal, or view the source through a slice or a pointer`
 
@@ -117,7 +117,7 @@ fn g(@inout out: [i32; 3]) { } // ok
 
 ### `call to '{f}' is ambiguous: more than one candidate matches at the same rank`
 
-Two or more overloads are viable and neither is an exact match, so there is nothing to choose between them.
+Two or more [overloads](/docs/language/functions-overloading/#overload-resolution) are viable and neither is an exact match, so there is nothing to choose between them.
 Conversions are not ranked against each other.
 
 ```kairo
@@ -129,7 +129,7 @@ f([1, 2, 3] as [i32])          // ok
 ```
 
 **Fix:** make the argument's type explicit with `as` or a typed local. See
-[Primitives](/docs/language/primitives#list-literal-arguments).
+[Primitives](/docs/language/conversion-lattice/#list-literal-arguments).
 
 ---
 
@@ -145,7 +145,7 @@ fn m(self, y: i32 = self.v) { }       // error SC106E
 ```
 
 **Fix:** add an overload that leaves the parameter out and forwards the value. See
-[Functions](/docs/language/functions#a-default-stands-alone).
+[Functions](/docs/language/functions-parameters/#a-default-stands-alone).
 
 ### SC107E: a named argument skips a defaulted parameter of an imported C++ function
 
@@ -158,7 +158,7 @@ blit(4, scale: 2)            // error SC107E
 ```
 
 **Fix:** pass the earlier arguments explicitly: `blit(4, y: 0, scale: 2)`. See
-[Functions](/docs/language/functions#defaults-on-imported-c-functions).
+[Functions](/docs/language/functions-parameters/#defaults-on-imported-c-functions).
 
 ---
 
@@ -188,7 +188,7 @@ class TwoCopies {
 ```
 
 **Fix:** keep one transfer constructor. See
-[Classes](/docs/language/classes#the-transfer-constructor).
+[Classes](/docs/language/classes-lifecycle/#the-transfer-constructor).
 
 ### SC110E: a constructor has the shape of a transfer constructor but is not declared as one
 
@@ -208,7 +208,7 @@ class C {
 ```
 
 **Fix:** put `@copy` or `@move` on the constructor and write the parameter bare. See
-[Classes](/docs/language/classes#the-transfer-constructor).
+[Classes](/docs/language/classes-lifecycle/#the-transfer-constructor).
 
 ### SC129E: a defaulted transfer constructor cannot be generated
 
@@ -233,7 +233,7 @@ class CopiesUnique {
 ```
 
 **Fix:** write the transfer constructor body yourself, change its kind, or `= delete` it. See
-[Classes](/docs/language/classes#defaulted-moves-of-non-movable-members).
+[Classes](/docs/language/classes-lifecycle/#defaulted-moves-of-non-movable-members).
 
 ---
 
@@ -262,7 +262,7 @@ enum Order {
 ```
 
 **Fix:** use only literals, operators, `as` to an integer type, and earlier variants, and keep the value in
-range or widen the underlying type. See [Enums](/docs/language/enums#discriminant-values).
+range or widen the underlying type. See [Enums](/docs/language/enums-plain/#discriminant-values).
 
 ### SC130E: two variants of an enum have the same value
 
@@ -279,12 +279,12 @@ enum Flags {
 
 Imported C++ enums are exempt.
 
-**Fix:** give each variant a distinct value. See [Enums](/docs/language/enums#discriminant-values).
+**Fix:** give each variant a distinct value. See [Enums](/docs/language/enums-plain/#discriminant-values).
 
 ### SC123E: a variant name does not fit the expected type
 
 A `.V`, or a pattern head, must name a variant of the enum it is checked against. It covers construction
-as well as `match` patterns: `.V` with no expected enum type, `.V` against a type that is not an enum, a
+as well as [`match` patterns](/docs/language/pattern-matching/#enum-variant-matching): `.V` with no expected enum type, `.V` against a type that is not an enum, a
 variant the enum does not have, a variant of another enum, a type that is not the matched type, and a
 name that is not a variant, a constant or a type.
 
@@ -315,7 +315,7 @@ fn main() -> i32 {
 ```
 
 **Fix:** give `.V` an expected enum type, or write the enum's name before it (`Dir::North`). See
-[Enums](/docs/language/enums#shorthand-syntax).
+[Enums](/docs/language/enums/#shorthand-syntax).
 
 ### SC131E: a variant is built with the wrong shape
 
@@ -354,7 +354,7 @@ fn main() -> i32 {
 }
 ```
 
-See [Enums](/docs/language/enums#construction).
+See [Enums](/docs/language/enums-adt/#construction).
 
 ---
 
@@ -400,7 +400,7 @@ enum W { Has { b: Box<i32> }, Empty }   // error SC116E
 > var w: W<i32> = .Empty
 > ```
 
-**Fix:** rewrite around the construct for now. See [Status](/docs/status).
+**Fix:** rewrite around the construct for now. See [Status](/docs/status/).
 
 ---
 
@@ -419,7 +419,7 @@ fn count() -> i32 {
 ```
 
 **Fix:** declare the function `-> yield T`, or remove the `yield`. See
-[Generators](/docs/language/functions#generators).
+[Generators](/docs/language/functions-generators/#generators).
 
 ### SC112E: this kind of function cannot be a generator
 
@@ -442,7 +442,7 @@ fn main() -> yield i32 { }   // error SC112E
 and what its `long double` is.
 
 **Fix:** use `f64` where `long double` is binary64, or `f128` where it is binary128. See
-[Primitives](/docs/language/primitives#f80-follows-the-targets-long-double).
+[Primitives](/docs/language/primitives/#f80-follows-the-targets-long-double).
 
 ### P007E: bundled sysroot for the target is malformed
 
@@ -450,14 +450,14 @@ A `--target` matched a folder under `<prefix>/sysroot/`, but the folder is not a
 `SYSROOT.toml`, or the manifest does not parse. A note says which.
 
 **Fix:** restore the manifest by re-extracting the sysroot, or remove the folder to fall back to `--sysroot`.
-See [Cross-compilation](/docs/language/c-cpp#cross-compilation).
+See [Cross-compilation](/docs/language/c-cpp-toolchain/#cross-compilation).
 
 ---
 
 ## Value Arms
 
 The value forms of `if`, `match`, and `try`. See
-[Control Flow](/docs/language/control-flow#if-as-an-expression-ternary-equivalent).
+[Control Flow](/docs/language/control-flow/#if-as-an-expression-ternary-equivalent).
 
 ### S073E: braced value arm in an 'if', 'try' or 'match' expression
 
@@ -587,7 +587,7 @@ belongs to, so it must be parenthesized. the positions are:
 
 - the `then` arm, or an `else if` arm, of an `if` expression
 - the condition of an `if` or `else if`
-- a `where` guard
+- a [`where` guard](/docs/language/pattern-matching/#where-guards)
 - the operand of a `try` expression, or any catch arm except the last
 - a `match` scrutinee
 
@@ -654,3 +654,14 @@ Messages:
 
 delete the `=>`; the fix-it does this. to keep a nested `if` as the final arm on purpose,
 parenthesize it: `else => (if c => a else => b)`.
+
+## See also
+
+- [Panic](/docs/language/panic/)
+- [Collections](/docs/language/collections/)
+- [Function Overloading](/docs/language/functions-overloading/)
+- [Default Parameters](/docs/language/functions-parameters/#default-parameters)
+- [Class Lifecycle](/docs/language/classes-lifecycle/)
+- [Plain Enums](/docs/language/enums-plain/)
+- [Generators](/docs/language/functions-generators/)
+- [Pattern Matching](/docs/language/pattern-matching/)

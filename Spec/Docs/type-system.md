@@ -4,96 +4,15 @@ Kairo is statically typed with full type inference. Every value has a single con
 time. The type system is nominal two types are the same if they have the same name and generic arguments,
 not if they happen to have the same structure.
 
+## In this section
+
+- [Type Aliases](/docs/language/type-aliases/)
+
 ---
 
 ## Type Aliases
 
-`type` declares a transparent alias for an existing type. The alias and the original type are fully
-interchangeable:
-
-```kairo
-type Byte = u8
-type <T> Matrix = [[T]]
-type <T> TokenVec = [T]
-
-var b: Byte = 42        // Byte and u8 are the same type
-var m: Matrix<f64> = [[1.0, 2.0], [3.0, 4.0]]
-var v: TokenVec<i32> = [1, 2, 3]
-```
-
-Aliases can be generic. Type parameters are declared in angle brackets before the alias name.
-
-### Strict aliasing mode
-
-By default, aliases are transparent. The `-fno-type-aliasing` compiler flag makes aliases into distinct
-types that require explicit construction:
-
-```kairo
-type MyString = string
-
-// With -ftype-aliasing (default):
-var a: string = "hello"
-var b: MyString = a        // ok: transparent alias
-
-// With -fno-type-aliasing:
-var a: string = "hello"
-var b: MyString = MyString(a) // explicit construction required
-b = a                         // compile error: type mismatch
-```
-
-### Aliases cannot widen visibility
-
-An alias introduces a second *name* for a type, not a second type. It may not be more visible than
-the type it names an alias that published a `priv` type under a `pub` name would hand callers a
-type its author never exported:
-
-```kairo
-priv struct Base1 {
-    var x: i32
-}
-
-pub type Base2 = Base1      // compile error: pub alias names a priv type
-pub type Base3 = *Base1     // so does this
-priv type Base4 = Base1     // ok: no wider than its target
-```
-
-Every name the alias mentions counts, not only the outermost one. A pointer, nullable, vector, slice, set,
-tuple, array, map, function-pointer parameter or return, and a generic argument all publish their
-target just as directly, and so does a private module used as a path segment:
-
-```kairo
-priv module M {
-    pub struct T { var a: i32 }
-}
-
-pub type Leak = M::T        // compile error: reaches T through a priv module
-```
-
-The rule applies through chains, since an alias of an alias is still a name for the same type:
-
-```kairo
-priv type Inner = Config
-pub  type Outer = Inner     // compile error: Inner is priv
-```
-
-The error is reported at the alias, not at each use of it. To expose a restricted view of a private
-type rather than the type itself, declare a wrapper with the members you mean to publish an alias
-cannot narrow what it names.
-
-### Restrictions
-
-Type aliases must reference existing named types. Inline anonymous type definitions are not permitted:
-
-```kairo
-type Pair = (i32, i32)                // ok: aliases a tuple type
-// type Anon = struct { var x: i32 }  // compile error: cannot alias anonymous type definitions
-```
-
-If you need a named struct, declare a struct. Type aliases are for giving new names to existing types,
-not for defining new ones.
-
-A chain of aliases may be at most 64 links deep before the compiler stops following it. Raise the
-limit with `--cmax-type-alias-depth=<n>` if a generated or re-exported chain legitimately needs more.
+Type aliases are covered in [Type Aliases](/docs/language/type-aliases/).
 
 ---
 
@@ -112,11 +31,11 @@ var v = [1, 2, 3]       // [i32]
 var p = (1.0, true)     // (f64, bool)
 ```
 
-See [Primitives](/docs/language/primitives) for default literal types.
+See [Primitives](/docs/language/primitives/) for default literal types.
 
 ### Generic argument inference
 
-Generic type arguments are inferred from the arguments at the call site:
+[Generic type arguments](/docs/language/generics/) are inferred from the arguments at the call site:
 
 ```kairo
 fn <T> identity(x: T) -> T { return x }
@@ -160,7 +79,7 @@ fn name() = "Kairo"                // inferred as string
 fn typed(x: i32) -> i64 = x as i64 // explicit still allowed
 ```
 
-See [Functions](/docs/language/functions#expression-bodied-functions)
+See [Functions](/docs/language/functions/#expression-bodied-functions)
 
 ---
 
@@ -180,11 +99,11 @@ var x: f32 = 1.0f32
 var y: f64 = x       // ok: f32 to f64
 ```
 
-Narrowing conversions require an explicit `as` cast. See [Casting](/docs/language/casting).
+Narrowing conversions require an explicit `as` cast. See [Casting](/docs/language/casting/).
 
 ### Integer widening into C/C++ parameters
 
-An argument to an imported C/C++ function widens into a `size_t`/`ptrdiff_t` parameter
+An argument to an [imported C/C++ function](/docs/language/c-cpp-calling/#argument-conversions) widens into a `size_t`/`ptrdiff_t` parameter
 when no 32- or 64-bit target could lose a value:
 
 ```kairo
@@ -197,7 +116,7 @@ fn grow(n: u32) {
 ```
 
 `u64` to `usize` still needs `as`, because it narrows on 32-bit targets; on 16-bit
-targets `u32` to `usize` does too. The full rule is in the [Conversion Lattice §4.1](/docs/language/primitives#41-the-cc-boundary).
+targets `u32` to `usize` does too. The full rule is in the [Conversion Lattice section 4.1](/docs/language/conversion-lattice/#41-the-cc-boundary).
 
 ### `T` to `T?` - Non-nullable to Nullable
 
@@ -211,11 +130,11 @@ maybe_log(s)   // string implicitly converts to string?
 ```
 
 The reverse (`T?` to `T`) requires explicit unwrapping see
-[Variables](/docs/language/variables#nullable-types).
+[Variables](/docs/language/nullables/#nullable-types).
 
 ### Derived-to-base pointer
 
-A pointer to a derived class is implicitly convertible to a pointer to its base class:
+A pointer to a [derived class](/docs/language/classes-inheritance/#inheritance) is implicitly convertible to a pointer to its base class:
 
 ```kairo
 class Animal { ... }
@@ -228,11 +147,11 @@ feed(&dog)   // *Dog implicitly converts to *Animal
 ```
 
 This is always safe the base subobject is at a known offset. The reverse (base-to-derived) requires
-an explicit cast because it can fail at runtime. See [Casting](/docs/language/casting).
+an explicit cast because it can fail at runtime. See [Casting](/docs/language/casting/).
 
 ### List literal to a container
 
-A list literal takes the type its target asks for: an array `[T; N]` with a matching element count, a slice
+A [list literal](/docs/language/collections/#list-literals) takes the type its target asks for: an array `[T; N]` with a matching element count, a slice
 `[T;]`, or a vector `[T]`. With no target it is an array.
 
 ```kairo
@@ -263,15 +182,15 @@ The other direction, `[T;]` to `[T]`, stays explicit because it allocates.
 ### `@implicit` conversion operators
 
 A type's `op as` marked `@implicit` applies without `as` where its exact result type is wanted. See
-[Implicit `op as`](/docs/language/operators#implicit-op-as).
+[Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as).
 
 ### No other implicit conversions
 
 The following conversions are all explicit (require `as`):
 
-- Enum to integer or integer to enum
+- [Enum to integer or integer to enum](/docs/language/casting/#enum-casts)
 - `T?` to `T` (use `unwrap!()`, `??`, or null checking)
-- Base-to-derived pointer (downcast)
+- [Base-to-derived pointer (downcast)](/docs/language/casting/#downcasting-base-to-derived)
 - Any pointer to a different pointer type
 - Integer narrowing or float-to-integer
 - Slice to vector (`s as [T]`; it allocates)
@@ -285,16 +204,16 @@ Kairo has a limited subtyping hierarchy:
 - `!` (never type) is a subtype of every type
 - A derived class is a subtype of its base class(es)
 
-Interface-satisfying types are not subtypes of the interface. Interfaces are constraints checked at
+Interface-satisfying types are not subtypes of the interface. [Interfaces](/docs/language/interfaces/) are constraints checked at
 compile time via `impl` bounds, not runtime-dispatchable types. For runtime polymorphism, use
-base class pointers with [virtual dispatch](/docs/language/classes#virtual-dispatch) or
+base class pointers with [virtual dispatch](/docs/language/classes-inheritance/#virtual-dispatch) or
 `unsafe *void` for type-erased pointers.
 
 ---
 
 ## The Never Type (`!`)
 
-`!` is the return type of functions that never return they panic, loop forever, or call a no-return
+`!` is the return type of functions that never return they [panic](/docs/language/panic/#panic-and-no-return-), loop forever, or call a no-return
 function:
 
 ```kairo
@@ -317,7 +236,7 @@ or in any other type position:
 // var y: Foo<!>     // compile error
 ```
 
-See [Functions](/docs/language/functions#no-return-) for no-return function semantics.
+See [Functions](/docs/language/functions/#no-return-) for no-return function semantics.
 
 ---
 
@@ -336,7 +255,7 @@ var y: Foo<void>  // valid - ok
 var x: void       // compile error
 ```
 
-See [Primitives](/docs/language/primitives#void) for details.
+See [Primitives](/docs/language/primitives/#void) for details.
 
 ---
 
@@ -352,7 +271,7 @@ var y: string? = null
 
 ### Nested nullables
 
-`T??` is a parser error because `??` is the null-coalescing operator. Use parentheses for nested
+`T??` is a parser error because `??` is the [null-coalescing operator](/docs/language/nullables/#null-coalescing-). Use parentheses for nested
 nullables:
 
 ```kairo
@@ -362,7 +281,7 @@ var x: (i32?)? = null   // ok: Nullable<Nullable<i32>>
 
 Nested nullables are rarely useful. If you find yourself writing `(T?)?`, reconsider the data model.
 
-See [Variables](/docs/language/variables#nullable-types) for null checking, safe access, and unwrapping.
+See [Variables](/docs/language/nullables/#nullable-types) for null checking, safe access, and unwrapping.
 
 ---
 
@@ -384,8 +303,8 @@ var x: (i32) = 42   // same as var x: i32 = 42
 
 There is no unit type or empty tuple `()`. Functions that return nothing use `void`.
 
-See [Primitives](/docs/language/primitives#tuples-t1-t2-) for tuple syntax and
-[Variables](/docs/language/variables#destructuring) for tuple destructuring.
+See [Primitives](/docs/language/collections/#tuples-t1-t2-) for tuple syntax and
+[Variables](/docs/language/variables/#destructuring) for tuple destructuring.
 
 ---
 
@@ -398,7 +317,7 @@ var add: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 var log: fn(string) -> void = std::println
 ```
 
-The `panic` modifier can appear on function types to indicate the function may panic. Callers must
+The [`panic` modifier](/docs/language/panic/#the-panic-specifier) can appear on function types to indicate the function may panic. Callers must
 handle the panic via `try`/`catch`:
 
 ```kairo
@@ -416,8 +335,8 @@ is a property of methods (it constrains `self`), not of the function signature. 
 different overload namespace, not a different type. `async` and `eval` require named function
 declarations.
 
-See [Functions](/docs/language/functions#function-pointers) and
-[Closures](/docs/language/closures) for function pointer usage.
+See [Functions](/docs/language/functions/#function-pointers) and
+[Closures](/docs/language/closures/) for function pointer usage.
 
 ---
 
@@ -434,7 +353,7 @@ Collection literal syntax maps to built-in types:
 | `{T}` | Set | Hash set |
 
 These are primitives in the type system, not generic library types. The standard library provides
-type aliases for the explicit names:
+[type aliases](/docs/language/type-aliases/) for the explicit names:
 
 ```kairo
 // In module std:
@@ -448,7 +367,7 @@ The literal syntax and the aliased names are interchangeable.
 
 A list literal `[a, b, c]` is an array `[T; 3]` unless its target is a slice or a vector. Arrays are not
 value types: they cannot be copied, assigned, passed by value, or returned. See
-[Primitives](/docs/language/primitives#collections) for the full rules on arrays, slices, vectors, and list
+[Primitives](/docs/language/collections/) for the full rules on arrays, slices, vectors, and list
 literals.
 
 `N` in `[T; N]` must be a compile-time evaluable expression. Runtime-dependent array sizes are not
@@ -461,7 +380,7 @@ var buffer: [u8; SIZE] = [0; SIZE]    // ok: SIZE is compile-time
 // var dynamic: [u8; runtime_val]     // compile error: N must be compile-time
 ```
 
-See [Eval](/docs/language/eval) for compile-time evaluation rules.
+See [Eval](/docs/language/eval/) for compile-time evaluation rules.
 
 ---
 
@@ -515,7 +434,7 @@ enum TypeKind {
 }
 ```
 
-`get_name()` returns the mangled name following the platform's C++ ABI (Itanium on Unix and MinGW, MSVC on
+`get_name()` returns the [mangled name](/docs/language/c-cpp-abi/#name-mangling) following the platform's C++ ABI (Itanium on Unix and MinGW, MSVC on
 `*-windows-msvc`). `get_pretty_name()` returns a human-readable string including generic arguments.
 
 > [!IMPORTANT]
@@ -537,8 +456,8 @@ fn <T> process(x: T) {
 }
 ```
 
-See [Eval](/docs/language/eval) for compile-time evaluation and
-[Control Flow](/docs/language/control-flow#compile-time-branching) for `eval if`.
+See [Eval](/docs/language/eval/) for compile-time evaluation and
+[Control Flow](/docs/language/control-flow/#compile-time-branching) for `eval if`.
 
 ---
 
@@ -546,9 +465,9 @@ See [Eval](/docs/language/eval) for compile-time evaluation and
 
 `Self` is a type alias that resolves to the enclosing type. It is available in:
 
-- [Class](/docs/language/classes#self-and-self) bodies and methods
-- [Interface](/docs/language/interfaces#operators-in-interfaces) signatures
-- [Extend](/docs/language/extends) blocks
+- [Class](/docs/language/classes/#self-and-self) bodies and methods
+- [Interface](/docs/language/interfaces-requirements/#operators-in-interfaces) signatures
+- [Extend](/docs/language/extends/) blocks
 
 `Self` always refers to a reference to the type. For a pointer, use `*Self`. In a generic class
 `class <T> Foo`, `Self` resolves to `Foo<T>`:
@@ -583,12 +502,11 @@ struct Vec2  { var x: f64; var y: f64 }
 // var p: Point = Vec2 { x: 1.0, y: 2.0 }   // compile error
 ```
 
-Generic types are identified by their monomorphized form. `Foo<i32>` and `Foo<i64>` are different
+[Generic types](/docs/language/generics/) are identified by their monomorphized form. `Foo<i32>` and `Foo<i64>` are different
 types. `Foo<i32>` in one translation unit is the same type as `Foo<i32>` in another identity
 follows the platform's C++ ABI mangling rules.
 
-Type aliases are transparent (unless `-fno-type-aliasing` is set) the alias and the original type
-are the same type for identity purposes.
+Type alias identity is covered in [Type Aliases](/docs/language/type-aliases/).
 
 ---
 
@@ -630,3 +548,14 @@ var arr: [u8; 4] = [0, 0, 0, 0]
 var map: {string: i32} = {"a": 1}
 var set: {i32} = {1, 2, 3}
 ```
+
+## See also
+
+- [Type Aliases](/docs/language/type-aliases/)
+- [Primitives](/docs/language/primitives/)
+- [Casting](/docs/language/casting/)
+- [Nullables](/docs/language/nullables/)
+- [Collections](/docs/language/collections/)
+- [Generics](/docs/language/generics/)
+- [Implicit Conversions](/docs/language/casting-implicit/)
+- [Classes](/docs/language/classes/)

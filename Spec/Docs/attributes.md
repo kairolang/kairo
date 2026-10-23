@@ -2,7 +2,7 @@
 
 Attributes are compile-time AST transformations. They modify the structure of declarations
 renaming fields, injecting code, adding members with full access to the parsed syntax tree and
-type information. Unlike [macros](/docs/language/macros), which operate on raw tokens before parsing,
+type information. Unlike [macros](/docs/language/macros/), which operate on raw tokens before parsing,
 attributes run after parsing and can inspect and modify typed AST nodes.
 
 | Property | Guarantee |
@@ -184,8 +184,8 @@ Kairo provides built-in attributes that are handled directly by the compiler:
 | `@packed` | Remove padding between members | Classes, structs, unions |
 | `@align(N)` | Set minimum alignment to N bytes | Classes, structs, unions |
 
-See [Classes](/docs/language/classes#memory-layout-and-allocation) and
-[Structures](/docs/language/structures#memory-layout) for layout details.
+See [Classes](/docs/language/classes/#memory-layout-and-allocation) and
+[Structures](/docs/language/structures/#memory-layout) for layout details.
 
 ### Branch hints
 
@@ -195,7 +195,7 @@ See [Classes](/docs/language/classes#memory-layout-and-allocation) and
 | `@unlikely` | Condition is expected to be false | `if` statements |
 | `@unreachable` | Branch should never execute (UB if reached) | `match`/`if` branches |
 
-See [Control Flow](/docs/language/control-flow#branch-hints) for branch prediction hints.
+See [Control Flow](/docs/language/control-flow/#branch-hints) for branch prediction hints.
 
 ### Diagnostics
 
@@ -219,8 +219,8 @@ exception passes through it, the program terminates (`std::terminate`).
 fn add(a: i32, b: i32) -> i32 { return a + b }   // C++: int add(int a, int b) noexcept
 ```
 
-Writing `@no_unwind` on any one declaration of a function covers all of them: a forward declaration, the
-declaration inside a class, or the out-of-line definition.
+Writing `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the
+declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
 
 ```kairo
 class Counter {
@@ -231,7 +231,7 @@ class Counter {
 fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition is noexcept too
 ```
 
-See [Exceptions](/docs/language/c-cpp#exceptions) for how C++ exceptions move through Kairo code.
+See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) for how C++ exceptions move through Kairo code.
 
 ### Conversions
 
@@ -239,7 +239,7 @@ See [Exceptions](/docs/language/c-cpp#exceptions) for how C++ exceptions move th
 |---|---|---|
 | `@implicit` | Lets a conversion operator apply without `as` | `fn op as` in a type's body |
 
-See [Implicit `op as`](/docs/language/operators#implicit-op-as) for the rules.
+See [Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as) for the rules.
 
 ### Other
 
@@ -247,7 +247,7 @@ See [Implicit `op as`](/docs/language/operators#implicit-op-as) for the rules.
 |---|---|---|
 | `@core::where_handler` | Custom handler for where-clause failures | Functions |
 
-See [Where Clauses](/docs/language/where) for the where handler system.
+See [Where Clauses](/docs/language/where/) for the where handler system.
 
 ---
 
@@ -287,10 +287,10 @@ Key operations available on AST nodes:
 | Syntax | `name!(args)` | `@name` on declarations |
 | Must preserve node type | N/A | Yes |
 
-Use macros for simple substitutions and conditional compilation. Use attributes for structural
+Use macros for simple substitutions and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for structural
 transformations that need to inspect or modify declarations.
 
-See [Macros](/docs/language/macros) for the token-level macro system.
+See [Macros](/docs/language/macros/) for the token-level macro system.
 
 ---
 
@@ -342,3 +342,14 @@ struct CacheLine {
     fast_operation()
 }
 ```
+
+## See also
+
+- [Macros](/docs/language/macros/)
+- [Built-in Macros](/docs/language/macros-builtin/)
+- [Compile-Time Eval](/docs/language/eval/)
+- [Structures](/docs/language/structures/#memory-layout)
+- [Unions](/docs/language/unions/#memory-layout)
+- [Exceptions & Panics](/docs/language/c-cpp-exceptions/)
+- [Operator Overloading](/docs/language/operator-overloading/#implicit-op-as)
+- [Where Clauses](/docs/language/where/)

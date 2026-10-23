@@ -9,7 +9,7 @@ hold a memory address.
 ## Safe Pointers (`*T`)
 
 `*T` is the default pointer type. The compiler tracks its provenance via
-[Tether](/docs/language/tether). It is never null, so a dereference needs no check:
+[Tether](/docs/language/tether/). It is never null, so a dereference needs no check:
 
 ```kairo
 var x = 42
@@ -68,8 +68,8 @@ ptr->port   // 8080
 
 ## Raw Pointers (`unsafe *T`)
 
-`unsafe *T` is an untracked pointer with no null checks, no bounds checks, and no Tether provenance
-tracking. It is equivalent to a raw C/C++ pointer:
+[`unsafe *T`](/docs/language/unsafe/#raw-pointers-unsafe-t) is an untracked pointer with no null checks, no bounds checks, and no [Tether provenance
+tracking](/docs/language/tether-bounds/). It is equivalent to a raw C/C++ pointer:
 
 ```kairo
 var x = 42
@@ -79,7 +79,7 @@ var p: unsafe *i32 = unsafe &x   // create raw pointer from safe binding
 
 Dereferencing a null `unsafe *T` is undefined behavior. The compiler will not insert a check.
 
-Raw pointers are required for [C/C++ interop](/docs/language/c-cpp), custom allocators, hardware
+Raw pointers are required for [C/C++ interop](/docs/language/c-cpp/), custom allocators, hardware
 register access, and any scenario where Tether tracking is not possible or not desired.
 
 ### Creating raw pointers
@@ -139,7 +139,7 @@ Each question has exactly one place it can be answered. `var ptr: const *const i
 same thing as `const ptr: *const i32`, but it is rejected, because the pointer question belongs to
 the declaration keyword.
 
-See [Variables](/docs/language/variables#the-const-binding-rule) for the full `const` model.
+See [Variables](/docs/language/variables/#the-const-binding-rule) for the full `const` model.
 
 ---
 
@@ -162,7 +162,7 @@ Pointer-to-pointer arithmetic (`p1 - p2`) is not permitted on safe pointers use 
 that.
 
 > [!CAUTION]
-> Safe pointer arithmetic is bounds-checked by Tether only when provenance is trackable. If the pointer
+> Safe pointer arithmetic is bounds-checked by [Tether](/docs/language/tether-bounds/#pointer-arithmetic) only when provenance is trackable. If the pointer
 > originates from a context where Tether cannot determine the allocation bounds, the arithmetic compiles
 > but bounds safety is not guaranteed. Prefer array/vector indexing over pointer arithmetic when
 > possible.
@@ -210,7 +210,7 @@ var typed = handle as unsafe *i32
 var value = *typed     // ok: typed pointer
 ```
 
-Void pointers are used for type-erased APIs, opaque handles, and C interop where the concrete type
+Void pointers are used for type-erased APIs, opaque handles, and [C interop](/docs/language/c-cpp-calling/#pointers-and-references) where the concrete type
 is not known at the Kairo call site.
 
 ---
@@ -240,9 +240,10 @@ const pp: *const *i32 = &p
 
 ## Smart Pointer Promotion
 
-[Tether](/docs/language/tether) analyzes pointer usage and automatically promotes safe pointers to smart
-pointers when needed. The smart pointer types are compiler intrinsics exposed through the standard
-library:
+[Tether](/docs/language/tether-promotion/) analyzes pointer usage and determines when a safe pointer needs smart
+pointer ownership semantics. In **debug** builds it performs the promotion and warns; in **release**
+builds the same situation is a hard error naming the type to annotate. The smart pointer types are
+compiler intrinsics exposed through the standard library:
 
 | Type | Description |
 |---|---|
@@ -250,29 +251,30 @@ library:
 | `std::Shared<T>` | Reference-counted, multiple owners, freed when count reaches zero |
 | `std::Weak<*T>` | Non-owning reference to a `Shared` allocation, does not prevent deallocation |
 
-Tether decides which smart pointer type to use based on how the pointer is used across the program. The
-programmer does not need to annotate or choose Tether handles it automatically:
+Tether picks the smart pointer type from how the pointer is used across the program:
 
 ```kairo
 fn make_config() -> *Config {
     var cfg = @create Config(8080)
-    return cfg   // Tether determines ownership: likely Unique or Shared
+    return cfg
+    // debug: promote cfg -> std::Unique<Config>
+    // release: error, annotate the return type
 }
 ```
 
 If Tether cannot determine a safe promotion path (e.g., the pointer escapes in a way that prevents
-tracking), it emits a compile error rather than allowing unsafe behavior.
+tracking), it emits a compile error in both modes rather than allowing unsafe behavior.
 
-Smart pointer types can be used explicitly to override Tether's decision or to validate compiler
-behavior:
+Release code spells the smart pointer type explicitly, which is also how you override Tether's choice
+in debug:
 
 ```kairo
 var ptr: std::Unique<Config> = @create Config(8080)
 var shared: std::Shared<Config> = @create Config(8080)
 ```
 
-See [Tether](/docs/language/tether) for the full lifetime and promotion model, and
-[Ownership](/docs/language/ownership) for borrowing semantics.
+See [Tether](/docs/language/tether/) for the full lifetime and promotion model, and
+[Ownership](/docs/language/ownership/) for borrowing semantics.
 
 ---
 
@@ -293,7 +295,7 @@ var raw = unsafe std::alloc<i32>(sizeof i32 * 10)   // raw allocation, 10 i32s
 unsafe std::free(raw)
 ```
 
-See [Tether](/docs/language/tether) for how allocation interacts with lifetime tracking.
+See [Tether](/docs/language/tether/) for how allocation interacts with lifetime tracking.
 
 ---
 
@@ -322,7 +324,7 @@ p == r    // true: same address
 dereference them: `*x == *y`. For raw pointers (`unsafe *T`), use `==` for address comparison and
 dereference manually after a null check.
 
-See [Operators](/docs/language/operators#comparison) for the full comparison model.
+See [Operators](/docs/language/operators/#comparison) for the full comparison model.
 
 ---
 
@@ -338,15 +340,15 @@ var f: fn(i32, i32) -> i32 = add
 // var p = f as unsafe *void   // compile error: function pointers are not data pointers
 ```
 
-See [Functions](/docs/language/functions#function-pointers) for function pointer syntax and
-[Closures](/docs/language/closures) for closures as function pointers.
+See [Functions](/docs/language/functions/#function-pointers) for function pointer syntax and
+[Closures](/docs/language/closures/) for closures as function pointers.
 
 ---
 
 ## Pointers and Nullable Types
 
 `*T` is non-null by construction. To represent a pointer that might not exist, use `*T?` which
-wraps the pointer in the standard `Nullable<T>` system:
+wraps the pointer in the standard [`Nullable<T>` system](/docs/language/nullables/#pointers-and-nullability):
 
 | | `*T` | `*T?` | `unsafe *T` |
 |---|---|---|---|
@@ -371,7 +373,7 @@ var val = q ?? &fallback     // use fallback pointer if q is null
 var forced = unwrap!(q)      // panics if null
 ```
 
-See [Variables](/docs/language/variables#nullable-types) for the full nullable type system.
+See [Variables](/docs/language/nullables/#nullable-types) for the full nullable type system.
 
 ---
 
@@ -418,5 +420,15 @@ var pp: **i32 = &p
 // Comparison
 p == q     // address comparison
 *p == *q   // value comparison
-maybe === other   // deep value comparison on nullable pointers
+maybe === other   // pointee equality on nullable pointers (one level)
 ```
+
+## See also
+
+- [Ownership](/docs/language/ownership/)
+- [Unsafe](/docs/language/unsafe/)
+- [Tether](/docs/language/tether/)
+- [Bounds and Provenance](/docs/language/tether-bounds/)
+- [Ownership and Promotion](/docs/language/tether-promotion/)
+- [Nullables](/docs/language/nullables/)
+- [Calling C and C++ from Kairo](/docs/language/c-cpp-calling/#pointers-and-references)

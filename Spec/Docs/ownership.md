@@ -1,12 +1,12 @@
 # Ownership
 
 > [!WARNING]
-> The ownership model is enforced by [Tether](/docs/language/tether), which is not yet implemented.
+> The ownership model is enforced by [Tether](/docs/language/tether/), which is not yet implemented.
 > Tether development begins at **Stage 2** of the compiler roadmap. This page describes the
-> intended design. See [Tether](/docs/language/tether) for the implementation timeline.
+> intended design. See [Tether](/docs/language/tether/) for the implementation timeline.
 
 Kairo's ownership model governs how values are created, transferred, borrowed, and destroyed.
-It works in conjunction with [Tether](/docs/language/tether) to provide memory safety without lifetime
+It works in conjunction with [Tether](/docs/language/tether/) to provide memory safety without lifetime
 annotations and without a separate reference type.
 
 The model has two parts: **transfer semantics** (how values move between bindings) and **pointer
@@ -16,11 +16,11 @@ by the type's lifecycle category. Pointer aliasing is tracked by Tether at compi
 > [!NOTE]
 > This page covers *who owns a value and when it dies*. It does not cover the safety of individual
 > pointer *accesses* (bounds, use-after-free, null, data races) those are dereference obligations
-> discharged by Tether's proof engine, described in [Tether The Dereference Obligation](/docs/language/tether#the-dereference-obligation).
+> discharged by Tether's proof engine, described in [Tether The Dereference Obligation](/docs/language/tether-proof-model/#the-dereference-obligation).
 > The distinction matters: ownership and escape violations are resolved by *transforming the program*
 > (debug) or a *hard error* (release), never by a runtime check. Access violations may fall back to a
 > runtime check. When this page says a violation is "a hard error," it means specifically that no
-> ownership transformation can rescue it see [Tether The Residual Table](/docs/language/tether#the-residual-table)
+> ownership transformation can rescue it see [Tether The Residual Table](/docs/language/tether-proof-model/#the-residual-table)
 > for the full classification.
 
 ---
@@ -30,7 +30,7 @@ by the type's lifecycle category. Pointer aliasing is tracked by Tether at compi
 Every type in Kairo has a lifecycle category that determines what happens when a value is assigned
 to a new binding, passed to a function, or returned. The category is set by which transfer
 constructor the type defines. See
-[Classes Lifecycle Categories](/docs/language/classes#lifecycle-categories) for the declaration
+[Classes Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories) for the declaration
 syntax.
 
 ### COPY types
@@ -55,7 +55,7 @@ a.data.length()       // 0 a is unaffected
 Tether may **elide a copy into a move** when it proves the source is not used after the transfer and
 the elision is unobservable. This is a pure optimization with no observable semantic difference.
 Tether does not elide when the destructor has timing-sensitive side effects see
-[Tether Copy Elision](/docs/language/tether#copy-elision) for the exact rule.
+[Tether Copy Elision](/docs/language/tether/#copy-elision) for the exact rule.
 
 The programmer does not opt into or control copy elision. Tether applies it when safe.
 
@@ -108,7 +108,7 @@ var lock = ScopeLock()
 > [!NOTE]
 > `NON_TRANSFER` types have a specific restriction under threading: they cannot be transfer-captured
 > into a spawned task (there is nothing to transfer), and may only be shared read-only by address.
-> See [Tether Threading](/docs/language/tether#threading).
+> See [Tether Threading](/docs/language/tether-threading/#threading).
 
 ### Structs
 
@@ -123,7 +123,7 @@ b.x = 9.0
 a.x            // 1.0 independent copy
 ```
 
-See [Structures](/docs/language/structures#copy-semantics).
+See [Structures](/docs/language/structures/#copy-semantics).
 
 ---
 
@@ -154,7 +154,7 @@ b.data.length()   // ok: b is still live, inspect got a copy
 ```
 
 To let a callee write to the caller's object, or to take ownership of a generic argument, use the
-`@inout` and `@move` parameter modes. See [Parameter passing modes](/docs/language/functions#parameter-passing-modes).
+`@inout` and `@move` parameter modes. See [Parameter passing modes](/docs/language/functions-parameter-modes/#parameter-passing-modes).
 
 ### Last-use move optimization
 
@@ -181,7 +181,7 @@ only when Tether can prove the by-value semantics are preserved for the duration
   progress i.e. Tether proves no write reaches the same allocation during the call.
 - The parameter is not modified inside the callee (or the function takes it as `const`).
 - The parameter is not stored, returned, or captured.
-- The function is not `async`.
+- The function is not [`async`](/docs/language/concurrency/#asyncawait).
 
 The first condition is stronger than "no other pointer exists." Kairo permits arbitrary mutable
 aliasing in single-threaded code (see [Pointer Aliasing](#pointer-aliasing)), so Tether cannot rely on
@@ -207,10 +207,10 @@ std::println(*q)   // 100 defined behavior
 
 > [!IMPORTANT]
 > This freedom is single-threaded only. The moment an allocation is shared across a thread boundary
-> (captured into a `spawn`/`thread`), Tether switches to a stricter rule: one writer, or many readers,
+> (captured into a [`spawn`](/docs/language/concurrency/#spawn)/`thread`), Tether switches to a stricter rule: one writer, or many readers,
 > never both. Arbitrary mutable aliasing is permitted within one thread because a single-threaded
 > race is impossible; across threads it is undefined behavior that no runtime check can rule out, so
-> the rule tightens exactly at the boundary. See [Tether Threading](/docs/language/tether#threading).
+> the rule tightens exactly at the boundary. See [Tether Threading](/docs/language/tether-threading/#threading).
 
 This applies uniformly regardless of `const`:
 
@@ -223,7 +223,7 @@ std::println(*q)   // 100 *const prevents mutation through q, not through p
 ```
 
 `const` is a **semantic check on the binding**, not an aliasing constraint. Of the
-[two questions a pointer declaration answers](/docs/language/variables#the-const-binding-rule),
+[two questions a pointer declaration answers](/docs/language/variables/#the-const-binding-rule),
 "can I change the pointee?" is asked about one pointer only. `*const T` prevents
 the holder from mutating through that pointer. It does not prevent other pointers from mutating
 the same value. Tether does not change behavior based on `const` qualifiers it tracks provenance
@@ -234,7 +234,7 @@ and lifetime independently of mutability.
 Tether does not restrict aliasing patterns in single-threaded code. What it does enforce:
 
 **Provenance validity.** A pointer must refer to memory that is still live. Using a pointer after
-its target has been destroyed is a hard error. This is clause C1 of the dereference obligation,
+its target has been destroyed is a hard error. This is clause C1 of the [dereference obligation](/docs/language/tether-proof-model/#the-dereference-obligation),
 discharged by epoch tracking Tether proves the allocation has not been freed or relocated since the
 pointer was derived:
 
@@ -249,7 +249,7 @@ var p: *i32
 
 When provenance is intact but the epoch cannot be proven equal statically, this access falls back
 to a runtime epoch check rather than a hard error see
-[Tether Provenance and Epochs](/docs/language/tether#provenance-and-epochs). It is a hard error only when
+[Tether Provenance and Epochs](/docs/language/tether-bounds/#provenance-and-epochs). It is a hard error only when
 provenance is lost entirely.
 
 **Iterator invalidation.** A pointer into a container's buffer is invalidated by operations that
@@ -262,14 +262,14 @@ v.push(4)           // may reallocate v's internal buffer
 std::println(*p)    // hard error: p's provenance is invalidated by push
 ```
 
-Tether detects this through `.amt` summaries: `push`'s summary records that it may reallocate the
+Tether detects this through [`.amt` summaries](/docs/language/tether-internals/#amt-summaries): `push`'s summary records that it may reallocate the
 backing buffer, so any live pointer into that buffer is flagged at the call site. **Invalidation is
 a hard error even when Tether can trace the reallocation** it is not a runtime-check fallback. The
 realloc is provable statically, re-validating every live pointer across every potentially-reallocating
 call would be expensive, and a use-after-realloc is almost always a real bug, so Tether errors rather
 than checks. Where the buffer is mutated through a path Tether cannot trace (an opaque container, a raw
 FFI call), Tether also errors rather than allowing an unprovable access. See
-[Tether Analysis scope](/docs/language/tether#the-dereference-obligation).
+[Tether Analysis scope](/docs/language/tether-proof-model/#the-dereference-obligation).
 
 **Stack escape.** A pointer to a stack-allocated value cannot outlive the value. What happens when
 it tries depends on whether the value is **heap-promotable**:
@@ -289,7 +289,7 @@ A stack escape of a heap-promotable value is **debug-transformable / release-err
 `x` to the heap, which turns the escape into a legal ownership transfer. A stack escape with *no
 value to lift* (a borrow with no owner, an escape into an opaque sink where Tether cannot establish the
 heap-allocation pattern) is a hard error in both modes there is nothing to transform. This is the
-split the [Tether Stack Pointers](/docs/language/tether#stack-pointers) section details in full. Either
+split the [Tether Stack Pointers](/docs/language/tether-promotion/#stack-pointers) section details in full. Either
 way, the fix in release is to allocate explicitly or restructure.
 
 > [!NOTE]
@@ -298,7 +298,7 @@ way, the fix in release is to allocate explicitly or restructure.
 > read-only sharing) and treats a second writer, or any unsynchronized write+read, as a hard error.
 > The synchronization primitives that discharge these obligations depend on Kairo's concurrency
 > runtime, which is not yet finalized the analysis shape is fixed, the runtime seam is not. See
-> [Tether Threading](/docs/language/tether#threading) and [Concurrency](/docs/language/concurrency).
+> [Tether Threading](/docs/language/tether-threading/#threading) and [Concurrency](/docs/language/concurrency/).
 
 ### What Tether does not enforce
 
@@ -320,10 +320,10 @@ behavior is identical with or without the tag.
 
 ## Smart Pointer Promotion and Aliasing
 
-When Tether promotes a heap pointer to a smart pointer (in debug mode), the aliasing pattern
+When Tether promotes a heap pointer to a [smart pointer](/docs/language/pointers/#smart-pointer-promotion) (in debug mode), the aliasing pattern
 determines which smart pointer type is chosen. In release, the same analysis produces a hard error
 naming the type to annotate Tether does not silently change pointer types in a release binary. See
-[Tether Ownership and Promotion](/docs/language/tether#ownership-and-promotion).
+[Tether Ownership and Promotion](/docs/language/tether-promotion/#ownership-and-promotion).
 
 ```kairo
 // Single owner, no aliasing -> Unique
@@ -359,13 +359,13 @@ owner escapes does not force `Shared`.
 Because Tether is whole-program, the cases where promotion is actually needed are narrow. Most
 pointers have fully contained lifetimes and require no promotion at all.
 
-See [Tether Promotion Decision](/docs/language/tether#ownership-and-promotion) for the full decision tree.
+See [Tether Promotion Decision](/docs/language/tether-promotion/#ownership-and-promotion) for the full decision tree.
 
 ---
 
 ## Closure Captures
 
-Closures capture variables from their enclosing scope. The capture mode determines the ownership
+[Closures](/docs/language/closures/#capture-modes) capture variables from their enclosing scope. The capture mode determines the ownership
 relationship between the closure and the captured variable. Kairo has no reference types, so a
 closure holds either its own value or a pointer.
 
@@ -436,7 +436,7 @@ fn make_closure() -> fn() -> i32 {
 > When a closure is captured into a spawned task, pointer captures fall under Tether's threading rules:
 > a `const *` (read-only) capture shares the allocation read-only across the boundary; a mutating
 > `*` capture makes the allocation a shared *mutable* allocation and triggers the single-writer
-> analysis. See [Tether Threading](/docs/language/tether#threading).
+> analysis. See [Tether Threading](/docs/language/tether-threading/#threading).
 
 ### Per-variable capture
 
@@ -453,7 +453,7 @@ var closure = fn ()|a, *b| {
 }
 ```
 
-See [Closures](/docs/language/closures) for the full capture syntax.
+See [Closures](/docs/language/closures/) for the full capture syntax.
 
 ---
 
@@ -479,13 +479,13 @@ For smart pointers promoted by Tether:
   reverse declaration order; the *object* destructor and deallocation run once, when the last
   `Shared` reference's scope ends. The decrement order is lexical and deterministic; the object
   destructor fires at the final owner, which is not necessarily the last-declared binding in any
-  single scope. See [Tether Destruction Timing](/docs/language/tether#destruction-timing).
+  single scope. See [Tether Destruction Timing](/docs/language/tether/#destruction-timing).
 - `std::Weak<*T>`: invalidated at scope exit. Does not affect the reference count.
 
 There is no drop-at-last-use optimization for observable destructors. Destruction of a value whose
 destructor has side effects (file close, lock release, flush) is tied to lexical scope, so the
 effect is predictable from reading the source. A value whose destructor is trivial may be reclaimed
-at last use, since that is unobservable see [Tether Destruction Timing](/docs/language/tether#destruction-timing)
+at last use, since that is unobservable see [Tether Destruction Timing](/docs/language/tether/#destruction-timing)
 for the trivial / non-trivial split.
 
 ---
@@ -527,7 +527,7 @@ which have been moved.
 Escape and ownership violations resolve by *transforming the program* in debug (heap-lift, smart
 pointer promotion) and a *hard error with the fix* in release. They are never runtime checks that
 is reserved for access obligations like bounds. See
-[Tether The Residual Table](/docs/language/tether#the-residual-table).
+[Tether The Residual Table](/docs/language/tether-proof-model/#the-residual-table).
 
 ```kairo
 // COPY: both sides live after transfer
@@ -560,3 +560,13 @@ var g = fn ()|*| { *n += 1 }
 g()
 // n is 1
 ```
+## See also
+
+- [Tether](/docs/language/tether/)
+- [Ownership and Promotion](/docs/language/tether-promotion/)
+- [Threading](/docs/language/tether-threading/)
+- [Pointers](/docs/language/pointers/)
+- [Class Lifecycle](/docs/language/classes-lifecycle/#lifecycle-categories)
+- [Parameter Passing Modes](/docs/language/functions-parameter-modes/)
+- [Closures](/docs/language/closures/)
+- [Structures](/docs/language/structures/#copy-semantics)

@@ -22,7 +22,7 @@ add(3, 4)     // 7
 double(10)    // 20
 ```
 
-Closures have the same type as function pointers `fn(ParamTypes) -> ReturnType`. There is no separate
+Closures have the same type as [function pointers](/docs/language/functions/#function-pointers) `fn(ParamTypes) -> ReturnType`. There is no separate
 closure type:
 
 ```kairo
@@ -33,7 +33,7 @@ var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 
 ## Capture Modes
 
-By default, closures capture variables **by copy**. The closure receives its own copy of each captured
+By default, closures [capture variables](/docs/language/ownership/#closure-captures) **by copy**. The closure receives its own copy of each captured
 variable, mutations inside the closure do not affect the original.
 
 ```kairo
@@ -127,7 +127,7 @@ var no_capture = fn ()|| -> i32 {
 
 ## Default Parameters
 
-Closures support default parameter values, matching the behavior of regular functions:
+Closures support [default parameter values](/docs/language/functions-parameters/#default-parameters), matching the behavior of regular functions:
 
 ```kairo
 var greet = fn (name: string = "world") {
@@ -142,7 +142,7 @@ greet("Alice")   // "Hello, Alice!"
 
 ## Generic Closures
 
-Closures can be generic, declaring type parameters before the parameter list:
+Closures can be [generic](/docs/language/generics/), declaring type parameters before the parameter list:
 
 ```kairo
 var identity = fn <T>(x: T) -> T {
@@ -157,9 +157,9 @@ identity("hello")   // string
 
 ## Modifiers
 
-Closures support the `panic`, `volatile`, and `async` modifiers. Modifiers appear after the capture list
+Closures support the `panic`, `volatile`, and `async` [modifiers](/docs/language/functions-declarations/#function-modifiers). Modifiers appear after the capture list
 (if present) and before the return type. Order between modifiers does not matter. A closure can also
-use `-> !` to indicate it never returns.
+use `-> !` to indicate it [never returns](/docs/language/functions/#no-return-).
 
 ```kairo
 var risky = fn () panic -> i32 {
@@ -185,7 +185,7 @@ var divergent = fn () panic -> ! {
 > [!NOTE]
 > Closures cannot be `eval`, `const`, `unsafe`, `virtual`, `override`, `inline`, or `final`.
 
-See [Panic](/docs/language/panic) for the full panic model.
+See [Panic](/docs/language/panic/) for the full panic model.
 
 ---
 
@@ -213,8 +213,8 @@ var nested_mixed = fn () -> fn(i32) -> i32 {
 
 ## Tether and Lifetime Safety
 
-[Tether](/docs/language/tether) tracks closure captures the same way it tracks any other borrow. If a closure
-captures a variable by pointer and the closure outlives the variable, Tether will attempt to auto-promote the
+[Tether](/docs/language/tether/) tracks closure captures the same way it tracks any other borrow. If a closure
+captures a variable by pointer and the closure outlives the variable, Tether will attempt to [auto-promote](/docs/language/tether-promotion/) the
 capture to a smart pointer (shared, weak, or unique). If promotion is not possible, the compiler emits a
 hard error.
 
@@ -336,3 +336,16 @@ var divergent = fn () panic -> ! { panic std::Error::Runtime("fatal") }
 fn apply(f: fn(i32) -> i32, x: i32) -> i32 = f(x)
 apply(fn (x: i32) -> i32 { return x * 2 }, 5)   // 10
 ```
+
+---
+
+## See also
+
+- [Functions](/docs/language/functions/#function-pointers)
+- [Ownership](/docs/language/ownership/#closure-captures)
+- [Tether](/docs/language/tether/)
+- [Ownership and Promotion](/docs/language/tether-promotion/)
+- [Threading](/docs/language/tether-threading/)
+- [Generators](/docs/language/functions-generators/)
+- [Function Declarations](/docs/language/functions-declarations/#function-modifiers)
+- [Panic](/docs/language/panic/)

@@ -5,7 +5,7 @@ specifies a condition that is checked at the call site if it fails, execution fa
 the next matching overload. The compiler folds multiple `where`-constrained overloads into a
 single function with branch dispatch.
 
-For compile-time constraints, see [Requires Clauses](/docs/language/requires).
+For compile-time constraints, see [Requires Clauses](/docs/language/requires/).
 
 | Property | Guarantee |
 |---|---|
@@ -127,7 +127,7 @@ warning signals that the intent may not match the behavior.
 
 ## Where in Match
 
-The `where` keyword also appears in `match` arms as a guard condition. Match guards are always
+The `where` keyword also appears in [`match`](/docs/language/pattern-matching/) arms as a guard condition. Match guards are always
 evaluated at runtime and are independent of the overload dispatch system they are simple boolean
 filters on a matched pattern, not function overloads:
 
@@ -144,7 +144,7 @@ match result {
 ```
 
 A match guard that fails causes the arm to be skipped and evaluation continues to the next arm.
-See [Control Flow](/docs/language/control-flow#match) for the full `match` syntax.
+See [Control Flow](/docs/language/pattern-matching/#where-guards) for the full `match` syntax.
 
 ---
 
@@ -165,7 +165,7 @@ sensitive data, the branch structure can leak information through execution time
 
 ## Where and panic
 
-`where` clauses and `panic` are orthogonal. `where` selects which overload runs based on a
+`where` clauses and [`panic`](/docs/language/panic/) are orthogonal. `where` selects which overload runs based on a
 runtime condition. `panic` signals an error from within a function body. They can coexist:
 
 ```kairo
@@ -212,7 +212,7 @@ var a = access(data, 5)          // safe dispatch
 var b = unsafe access(data, 5)   // unsafe overload, no where dispatch
 ```
 
-See [Unsafe](/docs/language/unsafe) for the unsafe overload model.
+See [Unsafe](/docs/language/unsafe/) for the unsafe overload model.
 
 ---
 
@@ -234,7 +234,7 @@ interface Validator {
 }
 ```
 
-Type instantiation is always compile-time. Interface conformance is a zero-cost structural
+Type instantiation is always compile-time. [Interface conformance](/docs/language/interfaces/#conformance) is a zero-cost structural
 contract. Neither admits runtime dispatch. Use `requires` for both.
 
 ---
@@ -271,3 +271,11 @@ fn divide(a: i32, b: i32) unsafe -> i32        { return a / b }  // no check
 var result = divide(10, 0)          // 0 (fallback)
 var fast   = unsafe divide(10, 2)   // 5 (unsafe, no dispatch)
 ```
+
+## See also
+
+- [Requires Clauses](/docs/language/requires/)
+- [Pattern Matching](/docs/language/pattern-matching/#where-guards)
+- [Function Overloading](/docs/language/functions-overloading/)
+- [Unsafe](/docs/language/unsafe/)
+- [Panic](/docs/language/panic/)

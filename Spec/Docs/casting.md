@@ -5,22 +5,18 @@ C++'s `static_cast`, `dynamic_cast`, `reinterpret_cast`, and `const_cast` `as` h
 categories, with safety determined by the source and target types.
 
 For implicit conversions (numeric widening, `T` to `T?`, derived-to-base pointers), see
-[Type System](/docs/language/type-system#implicit-conversions).
+[Type System](/docs/language/type-system/#implicit-conversions).
+
+## In this section
+
+- [Implicit Conversions](/docs/language/casting-implicit/): numeric widening and derived-to-base upcasts that need no `as`
+- [Conversion Lattice](/docs/language/conversion-lattice/): the normative rules for primitive conversions
 
 ---
 
 ## Numeric Casts
 
-### Widening
-
-Integer and float widening is implicit no `as` required:
-
-```kairo
-var a: i32 = 42
-var b: i64 = a       // implicit
-```
-
-`as` is permitted but redundant for widening conversions.
+Implicit widening is covered in [Implicit Conversions](/docs/language/casting-implicit/#widening).
 
 ### Narrowing (truncation)
 
@@ -75,24 +71,14 @@ var u: u8 = s as u8    // 255 (same bits, different interpretation)
 
 ## Pointer Casts
 
-### Upcasting (derived to base)
-
-Derived-to-base pointer conversion is implicit no `as` required:
-
-```kairo
-class Animal { ... }
-class Dog derives Animal { ... }
-
-var dog = Dog("Rex", "Labrador")
-var animal: *Animal = &dog   // implicit upcast
-```
+Implicit upcasting is covered in [Implicit Conversions](/docs/language/casting-implicit/#upcasting-derived-to-base).
 
 ### Downcasting (base to derived)
 
 Base-to-derived casts come in two forms:
 
-**Asserting downcast** panics if the runtime type does not match. The function must have the `panic`
-specifier or the cast must be inside a `try` block:
+**Asserting downcast** panics if the runtime type does not match. The function must have the [`panic`
+specifier](/docs/language/panic/#the-panic-specifier) or the cast must be inside a `try` block:
 
 ```kairo
 fn process(animal: *Animal) panic {
@@ -101,7 +87,7 @@ fn process(animal: *Animal) panic {
 }
 ```
 
-**Checked downcast** returns a nullable pointer `*Derived?`, which is null if the runtime type does not match:
+**Checked downcast** returns a [nullable pointer](/docs/language/nullables/#pointers-and-nullability) `*Derived?`, which is null if the runtime type does not match:
 
 ```kairo
 fn process(animal: *Animal) {
@@ -112,7 +98,7 @@ fn process(animal: *Animal) {
 }
 ```
 
-Both forms perform a runtime type check using the vtable (the class must have at least one
+Both forms perform a runtime type check using the [vtable](/docs/language/classes-inheritance/#virtual-dispatch) (the class must have at least one
 `virtual` method). Downcasting a non-polymorphic class is a compile error.
 
 ### Raw pointer cast
@@ -121,7 +107,7 @@ Casting to `unsafe *T` reinterprets the pointer with no type checking equivalent
 `reinterpret_cast`. The compiler performs no validation.
 
 Casting a safe pointer to a raw pointer `*T as unsafe *U` requires an
-[`unsafe` block](/docs/language/unsafe#unsafe-blocks). This is the point where Tether loses provenance:
+[`unsafe` block](/docs/language/unsafe/#unsafe-blocks). This is the point where [Tether](/docs/language/tether-bounds/#provenance-and-epochs) loses provenance:
 after the cast the compiler can no longer relate the pointer to the allocation it came from, so the
 loss is made visible at the source:
 
@@ -140,7 +126,7 @@ result is the same pointer value with a different type no runtime check, no adju
 > [!CAUTION]
 > Raw pointer casts bypass Tether's safety guarantees. Casting to `unsafe *void` erases type information
 > permanently the compiler cannot verify the correctness of a subsequent cast back. Use only for
-> C/C++ interop, custom allocators, and other low-level scenarios.
+> [C/C++ interop](/docs/language/c-cpp/), custom allocators, and other low-level scenarios.
 
 ### Pointer to integer
 
@@ -170,7 +156,7 @@ The second cast is an ordinary [numeric narrowing](#narrowing-truncation) and re
 
 Casting an integer to a pointer fabricates a pointer from a numeric address. The result must be an
 `unsafe` pointer safe pointers require provenance tracking that an integer cannot provide and the
-cast requires an [`unsafe` block](/docs/language/unsafe#unsafe-blocks). The integer carries no
+cast requires an [`unsafe` block](/docs/language/unsafe/#unsafe-blocks). The integer carries no
 provenance, so the cast invents one that Tether has no way to verify:
 
 ```kairo
@@ -208,8 +194,8 @@ The two error rows are deliberate refusals rather than warnings. `ptr as u8` has
 all a safe pointer's guarantees cannot be reconstructed from a number.
 
 `unsafe` blocks appear on exactly the rows where Tether stops being able to reason about the pointer.
-See [Unsafe](/docs/language/unsafe#the-safety-boundary) for the boundary model and
-[Tether](/docs/language/tether) for what provenance tracking buys.
+See [Unsafe](/docs/language/unsafe/#the-safety-boundary) for the boundary model and
+[Tether](/docs/language/tether/) for what provenance tracking buys.
 
 ---
 
@@ -217,7 +203,7 @@ See [Unsafe](/docs/language/unsafe#the-safety-boundary) for the boundary model a
 
 ### Plain enums
 
-Plain enums can be cast to their underlying integer type and back:
+[Plain enums](/docs/language/enums-plain/) can be cast to their underlying integer type and back:
 
 ```kairo
 enum Direction derives u8 {
@@ -239,8 +225,8 @@ backed by `i32`, or an intermediate cast: `Direction::North as u8 as i32`.
 
 ### ADT enums
 
-ADT enums cannot be cast to integers. The discriminant tag is an internal implementation detail. If
-you need the tag value, expose it through an `extend` method:
+[ADT enums](/docs/language/enums-adt/) cannot be cast to integers. The discriminant tag is an internal implementation detail. If
+you need the tag value, expose it through an [`extend` method](/docs/language/extends/):
 
 ```kairo
 enum <T> ParseResult {
@@ -294,7 +280,7 @@ var n = count ?? 0            // explicit: absent means zero
 var m = unwrap!(count)        // explicit: absent is a bug, panic
 ```
 
-See [Variables](/docs/language/variables#nullable-types) for the rest of the nullable operations
+See [Variables](/docs/language/nullables/#nullable-types) for the rest of the nullable operations
 (`?.`, `??`, `unwrap!()`, null checking).
 
 ---
@@ -328,9 +314,9 @@ the target type in the `as` expression. `op as` must take only `self` as a param
 the target type.
 
 Marking an `op as` with `@implicit` lets it apply without `as` where its exact result type is wanted. See
-[Implicit `op as`](/docs/language/operators#implicit-op-as).
+[Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as).
 
-See [Operators](/docs/language/operators#special-operators) for the full operator overloading
+See [Operators](/docs/language/operator-overloading/#special-operators) for the full operator overloading
 reference.
 
 ## Conversion Through a Constructor
@@ -348,7 +334,7 @@ class Celsius {
 var c = 21.5 as Celsius     // calls Celsius(21.5)
 ```
 
-The standing example is slice to vector. A vector has a constructor that takes a slice, so the cast copies the
+The standing example is [slice to vector](/docs/language/collections/#conversions-between-the-three). A vector has a constructor that takes a slice, so the cast copies the
 elements into a new vector:
 
 ```kairo
@@ -395,3 +381,16 @@ If the source type declares `op as` for `T` and `T` also has a matching construc
 | `dynamic_cast<T*>(p)` | `p as *T?` (checked) or `p as *T` (asserting) |
 | `reinterpret_cast<T*>(p)` | `p as unsafe *T` |
 | `const_cast<T*>(p)` | Not supported `const` cannot be stripped at runtime |
+
+---
+
+## See also
+
+- [Implicit Conversions](/docs/language/casting-implicit/)
+- [Conversion Lattice](/docs/language/conversion-lattice/)
+- [Type System](/docs/language/type-system/#implicit-conversions)
+- [Pointers](/docs/language/pointers/)
+- [Unsafe](/docs/language/unsafe/)
+- [Enums](/docs/language/enums/)
+- [Nullables](/docs/language/nullables/)
+- [Operator Overloading](/docs/language/operator-overloading/)

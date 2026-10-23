@@ -1,0 +1,188 @@
+# Interface Requirements
+
+An interface body contains method signatures (including generic methods), static function signatures,
+operator signatures, constructor requirements, and [associated types](/docs/language/interfaces/#associated-types).
+This page covers the operator, constructor, static, and `Self` requirements.
+
+---
+
+## Operators in Interfaces
+
+Interfaces can require operator overloads:
+
+```kairo
+interface Equatable {
+    fn op ==(const self, other: Self) -> bool
+}
+
+interface Convertible {
+    fn op as(self) -> string
+}
+```
+
+`Self` in an interface signature refers to the conforming type. A class that `impl Equatable` must
+provide `fn op ==(const self, other: Self) -> bool` where `Self` resolves to that class.
+
+See [Operators](/docs/language/operator-overloading/) for the full list of overloadable
+operators.
+
+---
+
+## Constructors in Interfaces
+
+Interfaces can require constructor signatures:
+
+```kairo
+interface Defaultable {
+    fn Defaultable(self)
+}
+
+interface <T> Cloneable {
+    fn Cloneable(self, source: T)
+}
+```
+
+A conforming type must have a constructor that matches the parameter list. The constructor name in the
+implementation uses the type's own name, not the interface name:
+
+```kairo
+interface Defaultable {
+    fn Defaultable(self)
+}
+
+class Config impl Defaultable {
+    var timeout: i32
+
+    fn Config(self) {           // satisfies Defaultable's constructor requirement
+        self.timeout = 30
+    }
+}
+```
+
+### Lifecycle attributes on constructor requirements
+
+Constructor requirements can carry `@copy` or `@move` attributes to require a specific lifecycle
+category. This is how you express "T must be copyable" or "T must be movable" as an interface bound:
+
+```kairo
+interface Copyable {
+    @copy
+    fn Copyable(self, const other: Self)
+}
+
+interface Movable {
+    @move
+    fn Movable(self, other: Self)
+}
+
+fn <T impl Copyable> store(item: T) -> T { return item }
+fn <T impl Movable> consume(item: T)     { }
+```
+
+A `@copy` requirement is satisfied only by COPY types. A `@move` requirement is satisfied by COPY and
+MOVE types; a copy is a valid move. NON_TRANSFER types satisfy neither.
+
+Keep lifecycle requirements separate from a default constructor requirement. Putting `fn Copyable(self)`
+in `Copyable` would make "copyable" also mean "default-constructible", and the bound would reject every
+copyable type without a default constructor. Require default construction separately, with
+`Defaultable` above, where a body needs it.
+
+The standard library will provide canonical lifecycle interfaces; these are just examples. See [Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories) for the underlying model.
+
+---
+
+## Static Methods in Interfaces
+
+Interfaces can require static methods:
+
+```kairo
+interface Parseable {
+    static fn from_string(input: string) -> Self
+    static fn from_bytes(data: [byte]) -> Self
+}
+
+class Timestamp impl Parseable {
+    var epoch: i64
+
+    fn Timestamp(self, epoch: i64) {
+        self.epoch = epoch
+    }
+
+    static fn from_string(input: string) -> Timestamp {
+        // parsing logic
+        return Timestamp(0)
+    }
+
+    static fn from_bytes(data: [byte]) -> Timestamp {
+        // parsing logic
+        return Timestamp(0)
+    }
+}
+```
+
+---
+
+## Return Types with `Self`
+
+Interface methods can use `Self` as a return type. `Self` resolves to the conforming type a class
+that `impl Chainable` and returns `Self` returns its own type:
+
+```kairo
+interface Chainable {
+    fn then(self, next: Self) -> Self
+}
+
+class Pipeline impl Chainable {
+    fn then(self, next: Self) -> Self {
+        // Self resolves to Pipeline
+        return self
+    }
+}
+```
+
+Kairo has no user-visible reference types [Tether](/docs/language/tether/) infers reference semantics where
+needed. In practice this means `Self` returns enable fluent chaining without `->` or explicit
+dereferencing:
+
+```kairo
+interface Chainable {
+    fn then(self, next: Self) -> Self
+}
+
+class Pipeline impl Chainable {
+    var steps: i32
+
+    fn Pipeline(self) { self.steps = 0 }
+
+    fn then(self, next: Self) -> Self {
+        self.steps += 1
+        return self
+    }
+
+    fn run(self) -> i32 { return self.steps }
+}
+
+fn main() -> i32 {
+    var other = Pipeline()
+    var another = Pipeline()
+    return Pipeline().then(other).then(another).run()
+}
+```
+
+To return a [pointer](/docs/language/pointers/) to the conforming type, use `*Self`:
+
+```kairo
+interface Duplicable {
+    fn clone(self) -> *Self
+}
+```
+
+---
+
+## See also
+
+- [Interfaces](/docs/language/interfaces/)
+- [Operator Overloading](/docs/language/operator-overloading/)
+- [Classes: Lifecycle](/docs/language/classes-lifecycle/)
+- [Generics](/docs/language/generics/)
+- [Tether](/docs/language/tether/)

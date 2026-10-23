@@ -6,9 +6,13 @@ runtime dispatch, via a witness table, is described in [Virtual Interfaces](#vir
 type conforms to an interface if it has all the required methods with matching signatures, whether or
 not it explicitly declares conformance.
 
-For runtime polymorphism over a class hierarchy, use a base [class](/docs/language/classes) with
+For runtime polymorphism over a class hierarchy, use a base [class](/docs/language/classes/) with
 `virtual` methods and dispatch through a base pointer. Interfaces and virtual dispatch solve different
 problems and can be used together on the same type.
+
+## In this section
+
+- [Interface Requirements](/docs/language/interfaces-requirements/): operators, constructors, static methods, and `Self` return types in interfaces.
 
 ---
 
@@ -31,8 +35,8 @@ has no effect.
 
 ## Conformance
 
-A type declares interface conformance with `impl` on a [class](/docs/language/classes) or through
-`extend ... impl` on a [struct](/docs/language/structures), [enum](/docs/language/enums), or class. The
+A type declares interface conformance with `impl` on a [class](/docs/language/classes/) or through
+`extend ... impl` on a [struct](/docs/language/structures/), [enum](/docs/language/enums/), or class. The
 compiler verifies at declaration time that all required methods are present with matching signatures:
 
 ```kairo
@@ -87,7 +91,7 @@ extend Point impl Serializable {
 }
 ```
 
-See [Extends](/docs/language/extends) for the full `extend` system.
+See [Extends](/docs/language/extends/) for the full `extend` system.
 
 ### Structural conformance
 
@@ -173,7 +177,7 @@ class IntPair impl Container<i32> {
 }
 ```
 
-Type parameters on interfaces can have constraints:
+Type parameters on interfaces can have [constraints](/docs/language/generics/#type-parameter-constraints):
 
 ```kairo
 interface Comparable {
@@ -192,14 +196,14 @@ Generic defaults are not permitted on interface type parameters. (An [associated
 may have a default; that is a different thing, chosen by the conforming type rather than by the user
 of the interface.)
 
-See [Requires Clauses](/docs/language/requires) for the full constraint system.
+See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ---
 
 ## Associated Types
 
 > [!NOTE]
-> Associated types are not compiled yet. See [Status](/docs/status#not-compiled-yet).
+> Associated types are not compiled yet. See [Status](/docs/status/#not-compiled-yet).
 
 An interface can require a type member. A conforming type supplies it with a type alias:
 
@@ -274,176 +278,7 @@ qualified syntax is not fixed yet. It is needed only when the names collide.
 
 ---
 
-## Operators in Interfaces
-
-Interfaces can require operator overloads:
-
-```kairo
-interface Equatable {
-    fn op ==(const self, other: Self) -> bool
-}
-
-interface Convertible {
-    fn op as(self) -> string
-}
-```
-
-`Self` in an interface signature refers to the conforming type. A class that `impl Equatable` must
-provide `fn op ==(const self, other: Self) -> bool` where `Self` resolves to that class.
-
-See [Operators](/docs/language/operators#operator-overloading) for the full list of overloadable
-operators.
-
----
-
-## Constructors in Interfaces
-
-Interfaces can require constructor signatures:
-
-```kairo
-interface Defaultable {
-    fn Defaultable(self)
-}
-
-interface <T> Cloneable {
-    fn Cloneable(self, source: T)
-}
-```
-
-A conforming type must have a constructor that matches the parameter list. The constructor name in the
-implementation uses the type's own name, not the interface name:
-
-```kairo
-interface Defaultable {
-    fn Defaultable(self)
-}
-
-class Config impl Defaultable {
-    var timeout: i32
-
-    fn Config(self) {           // satisfies Defaultable's constructor requirement
-        self.timeout = 30
-    }
-}
-```
-
-### Lifecycle attributes on constructor requirements
-
-Constructor requirements can carry `@copy` or `@move` attributes to require a specific lifecycle
-category. This is how you express "T must be copyable" or "T must be movable" as an interface bound:
-
-```kairo
-interface Copyable {
-    @copy
-    fn Copyable(self, const other: Self)
-}
-
-interface Movable {
-    @move
-    fn Movable(self, other: Self)
-}
-
-fn <T impl Copyable> store(item: T) -> T { return item }
-fn <T impl Movable> consume(item: T)     { }
-```
-
-A `@copy` requirement is satisfied only by COPY types. A `@move` requirement is satisfied by COPY and
-MOVE types; a copy is a valid move. NON_TRANSFER types satisfy neither.
-
-Keep lifecycle requirements separate from a default constructor requirement. Putting `fn Copyable(self)`
-in `Copyable` would make "copyable" also mean "default-constructible", and the bound would reject every
-copyable type without a default constructor. Require default construction separately, with
-`Defaultable` above, where a body needs it.
-
-The standard library will provide canonical lifecycle interfaces; these are just examples. See [Lifecycle Categories](/docs/language/classes#lifecycle-categories) for the underlying model.
-
----
-
-## Static Methods in Interfaces
-
-Interfaces can require static methods:
-
-```kairo
-interface Parseable {
-    static fn from_string(input: string) -> Self
-    static fn from_bytes(data: [byte]) -> Self
-}
-
-class Timestamp impl Parseable {
-    var epoch: i64
-
-    fn Timestamp(self, epoch: i64) {
-        self.epoch = epoch
-    }
-
-    static fn from_string(input: string) -> Timestamp {
-        // parsing logic
-        return Timestamp(0)
-    }
-
-    static fn from_bytes(data: [byte]) -> Timestamp {
-        // parsing logic
-        return Timestamp(0)
-    }
-}
-```
-
----
-
-## Return Types with `Self`
-
-Interface methods can use `Self` as a return type. `Self` resolves to the conforming type a class
-that `impl Chainable` and returns `Self` returns its own type:
-
-```kairo
-interface Chainable {
-    fn then(self, next: Self) -> Self
-}
-
-class Pipeline impl Chainable {
-    fn then(self, next: Self) -> Self {
-        // Self resolves to Pipeline
-        return self
-    }
-}
-```
-
-Kairo has no user-visible reference types [Tether](/docs/language/tether) infers reference semantics where
-needed. In practice this means `Self` returns enable fluent chaining without `->` or explicit
-dereferencing:
-
-```kairo
-interface Chainable {
-    fn then(self, next: Self) -> Self
-}
-
-class Pipeline impl Chainable {
-    var steps: i32
-
-    fn Pipeline(self) { self.steps = 0 }
-
-    fn then(self, next: Self) -> Self {
-        self.steps += 1
-        return self
-    }
-
-    fn run(self) -> i32 { return self.steps }
-}
-
-fn main() -> i32 {
-    var other = Pipeline()
-    var another = Pipeline()
-    return Pipeline().then(other).then(another).run()
-}
-```
-
-To return a pointer to the conforming type, use `*Self`:
-
-```kairo
-interface Duplicable {
-    fn clone(self) -> *Self
-}
-```
+Operator, constructor, static method, and `Self` requirements are covered in [Interface Requirements](/docs/language/interfaces-requirements/).
 
 ---
 
@@ -528,7 +363,7 @@ interface Loggable derives Serializable, Printable {
 
 ## Using Interfaces as Bounds
 
-The primary use of interfaces is constraining generic type parameters with `impl`:
+The primary use of interfaces is constraining [generic type parameters](/docs/language/generics/) with `impl`:
 
 ```kairo
 interface Serializable {
@@ -545,7 +380,7 @@ fn <T impl Serializable> save(data: T, path: string) {
 ```
 
 `impl` checks structural conformance the type satisfies the interface's required method signatures.
-This is distinct from `derives`, which checks class inheritance. See [Requires Clauses](/docs/language/requires)
+This is distinct from `derives`, which checks class inheritance. See [Requires Clauses](/docs/language/requires/)
 for the full constraint system.
 
 ```kairo
@@ -566,7 +401,7 @@ fn <T derives Base> process(data: T) { }                                    // T
 
 Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and every interface it derives)
 declares, plus destruction and move, which every type parameter has unless it opts out (see
-[Implicit capabilities](/docs/language/classes#type-parameter-constraints)).
+[Implicit capabilities](/docs/language/generics/#type-parameter-constraints)).
 
 - `x.method()` resolves against `Foo`'s methods.
 - A generic method requirement is called with explicit arguments, `x.liz<i32>()`, or with deduced ones.
@@ -590,9 +425,9 @@ fn <T impl Shape> describe(s: T) -> f64 {
 
 > [!NOTE]
 > The current compiler does not report `var x: T` without a constructor bound yet. See
-> [Status](/docs/status#not-diagnosed).
+> [Status](/docs/status/#not-diagnosed).
 
-See [Generic Classes](/docs/language/classes#type-parameter-constraints) for the implicit destroy and
+See [Generic Classes](/docs/language/generics/#type-parameter-constraints) for the implicit destroy and
 move capabilities and how instantiation reports them.
 
 ---
@@ -605,7 +440,7 @@ witness table built for each conforming type, so the caller doesn't need to know
 type it holds:
 
 > [!NOTE]
-> Virtual interfaces are not compiled yet. See [Status](/docs/status#not-compiled-yet).
+> Virtual interfaces are not compiled yet. See [Status](/docs/status/#not-compiled-yet).
 
 ```kairo
 virtual interface Allocator {
@@ -644,7 +479,7 @@ class Outer {
 }
 ```
 
-See [Modules](/docs/language/modules) for module organization.
+See [Modules](/docs/language/modules/) for module organization.
 
 ---
 
@@ -661,7 +496,7 @@ interface Hashable {
 
 This keeps interfaces as zero-cost contracts. There is no method resolution order, no inheritance
 of behavior, and no hidden dispatch when an interface is used as a bound. If you need shared implementation, use a base
-[class](/docs/language/classes) with `derives`.
+[class](/docs/language/classes/) with `derives`.
 
 ---
 
@@ -743,3 +578,16 @@ fn <T impl Drawable> total_width(items: [T;]) -> f64 {
     return total
 }
 ```
+
+---
+
+## See also
+
+- [Interface Requirements](/docs/language/interfaces-requirements/)
+- [Generics](/docs/language/generics/)
+- [Requires Clauses](/docs/language/requires/)
+- [Requires on Interfaces](/docs/language/requires/#requires-on-interfaces)
+- [What where Cannot Do](/docs/language/where/#what-where-cannot-do)
+- [Extends](/docs/language/extends/)
+- [Classes](/docs/language/classes/)
+- [Classes: Inheritance](/docs/language/classes-inheritance/)
