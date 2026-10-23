@@ -26,9 +26,14 @@ class Acc {
 }
 
 // --- method on a struct ------------------------------------------------------
+// A struct body holds no named functions (structures.md; S048E): its methods
+// live in an `extend` block, whose methods the bound passes walk too.
 
 struct Pt {
     var x: i32
+}
+
+extend Pt {
     fn <T impl Numeric> twice(self, a: T) -> T { return a.add(a) }
 }
 
