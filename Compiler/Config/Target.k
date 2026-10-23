@@ -26,11 +26,11 @@ class TargetOptions {
     pub var mtune:     string = ""; ///< --mtune
     pub var mabi:      string = ""; ///< --mabi
     pub var mfeatures: string = ""; ///< --mfeatures (e.g. +avx2,-sse4.1); read it through feature_list()
-    pub var cxx_std:   string = "c++20";
+    pub var cxx_std:   string = "c++23";
     pub var c_std:     string = "c17";   ///< --c-std: C inputs (and ObjC)
-    /// Given on the command line. A C/C++ input under clang's driver gets
-    /// clang's own default standard unless the user named one; kairo's
-    /// default above is for its own lowered C++.
+    /// Given on the command line. A C input under clang's driver gets
+    /// clang's own default standard unless the user named one; a C++ input
+    /// always gets cxx_std, the same standard kairo's own TUs compile under.
     pub var cxx_std_set: bool = false;
     pub var c_std_set:   bool = false;
     pub var cxx_abi:   string = "itanium";

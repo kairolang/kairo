@@ -145,8 +145,12 @@ class CompilerInvocation {
     ///
     /// \return the invocation. On a parse failure \c ok is false, \c args holds
     ///         whatever was parsed before the error, and every typed sub-option
-    ///         is left at its default   the same shape the driver has always
-    ///         had on a bad command line.
+    ///         but \c target is left at its default   the same shape the
+    ///         driver has always had on a bad command line. \c target is
+    ///         read anyway: `--version` has no inputs, which fails the parse,
+    ///         and still reports the --target and --sysroot it was given.
+    ///         The rest stay default on purpose: a read --error-format with
+    ///         no consumer attached for it would swallow the flag errors.
     static fn from_args(
         argc: i32,
         argv: *(*kairo::std::Legacy::char),
@@ -168,8 +172,9 @@ class CompilerInvocation {
         if parsed.ok {
             inv = CompilerInvocation::from_args(parsed);
         } else {
-            (inv.args) = parsed;
-            (inv.ok)   = false;
+            (inv.args)   = parsed;
+            (inv.ok)     = false;
+            (inv.target) = TargetOptions::from_args(parsed);
         }
 
         return inv;

@@ -11,6 +11,16 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh";
+ffi "c++" import "clang/Basic/IdentifierTable.h";
+ffi "c++" import "clang/Basic/LangOptions.h";
+ffi "c++" import "clang/Basic/LangStandard.h";
+ffi "c++" import "clang/Basic/TokenKinds.h";
+ffi "c++" import "clang/Frontend/FrontendOptions.h";
+ffi "c++" import "clang/Lex/Lexer.h";
+ffi "c++" import "clang/Lex/Token.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
+
 class TermRenderer {
     priv var _color: bool;
     priv var _width: u32;
@@ -462,6 +472,14 @@ class TermRenderer {
         if !self._color { return line; }
         if lang == "text" || lang == "txt" || lang == "plain" { return line; }
 
+        var cl = TermRenderer::clang_language(lang);
+        // Languages clang takes but does not lex (IR, assembly): plain, not
+        // read as Kairo.
+        if (cl == clang::Language::Asm) || (cl == clang::Language::LLVM_IR) || (cl == clang::Language::CIR) {
+            return line;
+        }
+        if cl != clang::Language::Unknown { return self.highlight_clang(line, cl); }
+
         var out = string();
         var i: usize = 0;
         var n = line.length();
@@ -583,6 +601,164 @@ class TermRenderer {
         }
 
         return out;
+    }
+
+    ///===----------------------------------------------------------------===///
+    /// # Clang languages
+    ///===----------------------------------------------------------------===///
+
+    /// The clang language a code-block tag or a file extension (no dot)
+    /// names, through clang's own extension table (FrontendOptions, where
+    /// -x defaults come from) plus the fence tags and header extensions that
+    /// table lacks. Unknown for Kairo and anything else clang does not take.
+    static fn clang_language(tag: string) -> clang::Language {
+        if (tag == "objc") || (tag == "objective-c")     { return clang::Language::ObjC; }
+        if (tag == "objc++") || (tag == "objective-c++") { return clang::Language::ObjCXX; }
+        if tag == "opencl" { return clang::Language::OpenCL; }
+        if tag == "cuda"   { return clang::Language::CUDA; }
+        // clang files headers by driver type, not here. A .h is as often C++
+        // as C, and C++ is the superset that colours both.
+        if (tag == "h") || (tag == "hh") || (tag == "H") || (tag == "hp") || (tag == "h++")
+            || (tag == "inl") || (tag == "ipp") || (tag == "tcc") {
+            return clang::Language::CXX;
+        }
+        return clang::FrontendOptions::getInputKindForExtension(sref(tag)).getLanguage();
+    }
+
+    /// One line of a clang language, lexed by clang's raw lexer under that
+    /// language's newest standard, so the keyword set is exactly clang's
+    /// (C23's `bool`, C++26's `contract_assert`, OpenCL's address spaces,
+    /// ObjC's @-keywords). The tables are rebuilt per call: a snippet is a
+    /// few lines, and an owned cache would make the renderer unsafe to copy.
+    priv fn highlight_clang(self, line: string, lang: clang::Language) -> string {
+        var lo: clang::LangOptions;
+        var incs: libcxx::vector::<libcxx::string>;
+        var std_kind = clang::LangStandard::lang_unspecified;
+        if (lang == clang::Language::C) || (lang == clang::Language::ObjC) {
+            std_kind = clang::LangStandard::lang_gnu23;
+        }
+        if (lang == clang::Language::CXX) || (lang == clang::Language::ObjCXX)
+            || (lang == clang::Language::CUDA) || (lang == clang::Language::HIP) {
+            std_kind = clang::LangStandard::lang_gnucxx26;
+        }
+        clang::LangOptions::setLangDefaults(lo, lang, llvm::Triple(), incs, std_kind);
+        var ids  = clang::IdentifierTable(lo);
+        var objc = (lang == clang::Language::ObjC) || (lang == clang::Language::ObjCXX);
+
+        // The raw lexer reads one byte past the end, which must be a NUL:
+        // a libc++ string's is.
+        var buf = line.std_string();
+        var lx  = clang::Lexer(clang::SourceLocation(), lo, buf.data(), buf.data(), buf.data() + buf.size());
+        lx.SetCommentRetentionState(true);
+
+        var n = line.length();
+        var out = string();
+        var pos: usize = 0;              ///< bytes of `line` already in `out`
+        var first     = true;
+        var directive = false;           ///< the token after a line-leading `#`
+        var held_at   = false;           ///< an ObjC `@`, held to join what follows
+        var tok: clang::Token;
+        while true {
+            var last = lx.LexFromRawLexer(tok);
+            if tok.is(clang::tok::eof) { break; }
+            var end   = static_cast::<usize>(lx.getCurrentBufferOffset());
+            var len   = static_cast::<usize>(tok.getLength());
+            var start = end - len;
+            var gap   = line.subslice(pos, start - pos);
+            var text  = line.subslice(start, len);
+            var kind  = tok.getKind();
+            pos = end;
+
+            // `@interface`, `@"str"`, `@42`: one token to the eye.
+            if held_at {
+                held_at = false;
+                if gap.length() == 0 {
+                    if kind == clang::tok::raw_identifier {
+                        var ai = &(ids.get(tok.getRawIdentifier()));
+                        if ai->getObjCKeywordID() != clang::tok::objc_not_keyword {
+                            out += self.style(HL_KEYWORD) + "@" + text + self.style(RESET);
+                            first = false;
+                            if last { break; }
+                            continue;
+                        }
+                    } else if clang::tok::isLiteral(kind) {
+                        var hl = (HL_NUMBER) if (kind == clang::tok::numeric_constant) else (HL_STRING);
+                        out += self.style(hl) + "@" + text + self.style(RESET);
+                        first = false;
+                        if last { break; }
+                        continue;
+                    }
+                }
+                out += "@";
+            }
+            out += gap;
+
+            if kind == clang::tok::comment {
+                out += self.style(HL_COMMENT) + text + self.style(RESET);
+            } else if kind == clang::tok::numeric_constant {
+                out += self.style(HL_NUMBER) + text + self.style(RESET);
+            } else if clang::tok::isLiteral(kind) {
+                out += self.style(HL_STRING) + text + self.style(RESET);
+            } else if (kind == clang::tok::hash) && first {
+                out += self.style(HL_KEYWORD) + text + self.style(RESET);
+                directive = true;
+                first = false;
+                if last { break; }
+                continue;
+            } else if (kind == clang::tok::at) && objc {
+                held_at = true;
+            } else if kind == clang::tok::raw_identifier {
+                if directive {
+                    out += self.style(HL_KEYWORD) + text + self.style(RESET);
+                    // The raw lexer splits `<a/b.h>` into punctuation: the
+                    // header name is the rest of the line.
+                    if (text == "include") || (text == "include_next") || (text == "import") || (text == "embed") {
+                        var at = pos;
+                        while (at < n) && ((line[at] == ' ') || (line[at] == '\t')) { at += 1; }
+                        out += line.subslice(pos, at - pos);
+                        if at < n { out += self.style(HL_STRING) + line.subslice(at, n - at) + self.style(RESET); }
+                        pos = n;
+                        break;
+                    }
+                } else {
+                    out += self.clang_word(ids, lo, tok, text, line, end);
+                }
+            } else {
+                out += text;
+            }
+            directive = false;
+            first = false;
+            if last { break; }
+        }
+        if held_at { out += "@"; }
+        if pos < n { out += line.subslice(pos, n - pos); }
+        return out;
+    }
+
+    /// An identifier's colour: literal-valued keywords as values, then
+    /// clang's keywords for the language, then the same call / type-name
+    /// heuristics the Kairo highlighter uses.
+    priv fn clang_word(self, ids: ref!(clang::IdentifierTable), lo: ref!(clang::LangOptions),
+                       tok: ref!(clang::Token), text: string, line: string, end: usize) -> string {
+        if (text == "true") || (text == "false") || (text == "nullptr") || (text == "this")
+            || (text == "NULL") || (text == "nil") || (text == "self") {
+            return self.style(HL_NUMBER) + text + self.style(RESET);
+        }
+        var ii = &(ids.get(tok.getRawIdentifier()));
+        // override/final are C++ keywords only in place, so not in clang's table.
+        var contextual = (lo.CPlusPlus != 0) && ((text == "override") || (text == "final"));
+        if (ii->getTokenID() != clang::tok::identifier) || contextual {
+            return self.style(HL_KEYWORD) + text + self.style(RESET);
+        }
+        var k = end;
+        while (k < line.length()) && ((line[k] == ' ') || (line[k] == '\t')) { k += 1; }
+        if (k < line.length()) && (line[k] == '(') {
+            return self.style(HL_FUNC) + text + self.style(RESET);
+        }
+        if self.is_upper(text[0]) {
+            return self.style(HL_TYPE) + text + self.style(RESET);
+        }
+        return text;
     }
 
     priv fn init_keywords(self) {

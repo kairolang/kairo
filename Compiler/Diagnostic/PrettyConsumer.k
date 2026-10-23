@@ -440,6 +440,7 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         var first_diag = group.diags[0];
         var line_text  = sm->get_full_line(first_diag->loc);
+        var lang       = self.snippet_lang(group.filename);
 
         var spans: vec::<CaretSpan>;
         var span_text: vec::<string>;
@@ -602,9 +603,9 @@ class PrettyDiagConsumer derives DiagConsumer {
             if (ln == group.line_num) && has_primary_fix {
                 out += prefix + self.render_fixed_line(
                     renderer, line_text, fix_start_col, fix_mid_len,
-                    primary_fix.replacement, color) + NL;
+                    primary_fix.replacement, color, lang) + NL;
             } else {
-                out += prefix + renderer.highlight_snippet(text) + NL;
+                out += prefix + renderer.highlight_snippet(text, lang) + NL;
             }
 
             if ln != group.line_num { continue; }
@@ -864,6 +865,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             var ctx_before: u32 = self.ctx_before();
             var res  = sm->resolve(label.range.start);
             var fid  = res.fid;
+            var lang = self.snippet_lang(sm->get_filename(label.range.start));
             var first_line = (start_lc.line - ctx_before) if (start_lc.line > ctx_before) else 1;
 
             while first_line < start_lc.line {
@@ -876,11 +878,11 @@ class PrettyDiagConsumer derives DiagConsumer {
                 var num_str = f"{ln}";
                 var npad    = string(' ', left_pad - num_str.length());
                 out += f"{indent}{npad}{line_col}{num_str} {pipe} {reset_col}"
-                     + renderer.highlight_snippet(t) + NL;
+                     + renderer.highlight_snippet(t, lang) + NL;
             }
             // ------------------------------------------------------------------
 
-            out += prefix_vis + renderer.highlight_snippet(line_text) + NL;
+            out += prefix_vis + renderer.highlight_snippet(line_text, lang) + NL;
 
             // The caret row keeps the gutter rail, exactly like render_group's
             // conn_gutter. Padding with a plain blank run the width of the
@@ -914,6 +916,19 @@ class PrettyDiagConsumer derives DiagConsumer {
 
     // --- Helpers -------------------------------------------------------------
 
+    /// The highlighter language for a snippet of \p path: its extension, so
+    /// a C/C++ input (or a header a clang note points into) is coloured as
+    /// what it is. An extensionless file under an include directory is a
+    /// C++ standard header (<string>, <vector>); anything else without an
+    /// extension, a virtual buffer included, stays Kairo.
+    priv fn snippet_lang(self, path: string) -> string {
+        var ext = Path::extension_of(path);
+        if ext.length() > 1 { return ext.subslice(1, ext.length() - 1); }
+        var inc = "/include/";
+        if sref(path).contains(sref(inc)) { return "c++"; }
+        return "kairo";
+    }
+
     /// Renders the primary source line WITH its fix-it applied inline:
     ///
     ///   head (highlighted) + removed span (red, struck) +
@@ -928,7 +943,7 @@ class PrettyDiagConsumer derives DiagConsumer {
     /// the same kind of string as any normal source line.
     priv fn render_fixed_line(self, renderer: ref!(TermRenderer), line_text: string,
                               start_col: usize, mid_len: usize, ins: string,
-                              color: bool) -> string {
+                              color: bool, lang: string) -> string {
         var head: string;
         var mid:  string;
         var tail: string;
@@ -943,8 +958,8 @@ class PrettyDiagConsumer derives DiagConsumer {
             tail.push_back(line_text[i]);
         }
 
-        var head_hl = renderer.highlight_snippet(head);
-        var tail_hl = renderer.highlight_snippet(tail);
+        var head_hl = renderer.highlight_snippet(head, lang);
+        var tail_hl = renderer.highlight_snippet(tail, lang);
         var del_vis = ( f"{RED}{STRIKE}{mid}{RESET}" ) if ( color ) else ( mid );
         var ins_vis = ( f"{GREEN}{ins}{RESET}" )       if ( color ) else ( ins );
 

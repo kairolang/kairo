@@ -607,6 +607,21 @@ class CompilerInstance {
         std::print(f"host triple:       {self.get_target_triple()}");
         std::print(f"thread model:      {std::get_thread_model()}");
         std::print(f"installed at:      {Path::parent_of(std::get_exe_path())}");
+        var sr = self._version_sysroot();
+        if sr.empty() { sr = "could not find associated sysroot"; }
+        std::print(f"sysroot:           {sr}");
+    }
+
+    /// The sysroot this run would compile against: the bundled one for the
+    /// target (_use_bundled_sysroot's lookup, without its validation), else
+    /// --sysroot, else "".
+    priv fn _version_sysroot(self) -> string {
+        var want = self._sysroot_target();
+        if !want.empty() {
+            var dir = self._bundled_sysroot_dir(want);
+            if !dir.empty() { return dir; }
+        }
+        return self.invocation().target.sysroot;
     }
 
     /// Resolves and renders the long-form explanation for a diagnostic code.
@@ -707,33 +722,10 @@ class CompilerInstance {
     /// \return false if a match was malformed (already reported).
     priv fn _use_bundled_sysroot(self) -> bool {
         var tg = &(self.invocation().target);
-        var want = tg->triple;
-        if want.empty() {
-            if !tg->sysroot.empty() { return true; }
-            want = self.get_default_target_triple();
-        }
-        if tg->m32 || tg->m64 {
-            var tt = llvm::Triple(llvm::Triple::normalize(sref(want)));
-            tt = (tt.get32BitArchVariant()) if (tg->m32) else (tt.get64BitArchVariant());
-            want = string(tt.getTriple());
-        }
-
-        var prefix = Path::parent_of(Path::parent_of(std::get_exe_path()));
-        var root   = LinkText::join(prefix, "sysroot");
-        var dir    = LinkText::join(root, want);
-        if !LinkFS::exists(dir) {
-            var pick = "";
-            for name: string in LinkFS::list_dir(root) {
-                // Only directories can be sysroots: the manifest file beside
-                // them matched an unknown triple and was then reported as a
-                // malformed sysroot instead of the real "unknown target".
-                if !LinkFS::is_dir(LinkText::join(root, name)) { continue; }
-                if !CompilerInstance::_same_bundled_target(name, want) { continue; }
-                if pick.empty() || (name < pick) { pick = name; }
-            }
-            if pick.empty() { return true; }
-            dir = LinkText::join(root, pick);
-        }
+        var want = self._sysroot_target();
+        if want.empty() { return true; }
+        var dir = self._bundled_sysroot_dir(want);
+        if dir.empty() { return true; }
 
         var why = "";
         var mpath = LinkText::join(dir, "SYSROOT.toml");
@@ -754,6 +746,46 @@ class CompilerInstance {
 
         (tg->sysroot) = dir;
         return true;
+    }
+
+    /// The triple whose bundled sysroot this run looks up: --target, else
+    /// the default target unless --sysroot was given (""), switched by
+    /// -m32/-m64.
+    priv fn _sysroot_target(self) -> string {
+        var tg = &(self.invocation().target);
+        var want = tg->triple;
+        if want.empty() {
+            if !tg->sysroot.empty() { return ""; }
+            want = self.get_default_target_triple();
+        }
+        if tg->m32 || tg->m64 {
+            var tt = llvm::Triple(llvm::Triple::normalize(sref(want)));
+            tt = (tt.get32BitArchVariant()) if (tg->m32) else (tt.get64BitArchVariant());
+            want = string(tt.getTriple());
+        }
+        return want;
+    }
+
+    /// <prefix>/sysroot/<want>, or the one directory there naming the same
+    /// target in another spelling; "" for none.
+    priv fn _bundled_sysroot_dir(self, want: string) -> string {
+        var prefix = Path::parent_of(Path::parent_of(std::get_exe_path()));
+        var root   = LinkText::join(prefix, "sysroot");
+        var dir    = LinkText::join(root, want);
+        if !LinkFS::exists(dir) {
+            var pick = "";
+            for name: string in LinkFS::list_dir(root) {
+                // Only directories can be sysroots: the manifest file beside
+                // them matched an unknown triple and was then reported as a
+                // malformed sysroot instead of the real "unknown target".
+                if !LinkFS::is_dir(LinkText::join(root, name)) { continue; }
+                if !CompilerInstance::_same_bundled_target(name, want) { continue; }
+                if pick.empty() || (name < pick) { pick = name; }
+            }
+            if pick.empty() { return ""; }
+            dir = LinkText::join(root, pick);
+        }
+        return dir;
     }
 
     /// Whether the bundled sysroot directory \p name is for \p triple.

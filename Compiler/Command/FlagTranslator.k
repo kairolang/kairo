@@ -527,9 +527,13 @@ class FlagTranslator {
 
     /// \brief the language standard for a C/C++ input of kind \p lang
     ///        (clang's -x name). cc1 always gets one (it has no default
-    ///        worth having for kairo's interop); the driver only when the
-    ///        user named one, so a .cc compiles under clang's default
-    ///        otherwise. IR, OpenCL and the rest take none.
+    ///        worth having for kairo's interop). Through the driver a C++
+    ///        input always gets --cxx-std too: clang's own default
+    ///        (gnu++17) predates the C++20 an interface needs, and a .cc
+    ///        and the Kairo TUs it links with agree on one standard. A C
+    ///        input gets --c-std only when the user named one, so it
+    ///        compiles under clang's default otherwise. IR, OpenCL and the
+    ///        rest take none.
     static fn language_std(tgt: ref!(TargetOptions), lang: string, sp: ClangSpelling) -> vec::<string> {
         var o = vec::<string>();
         var cc1 = sp == ClangSpelling::CC1;
@@ -540,7 +544,7 @@ class FlagTranslator {
         var cxx_like = (lang == "c++") || (lang == "c++-cpp-output") || (lang == "objective-c++") || (lang == "objective-c++-cpp-output")
                     || (lang == "c++-header") || (lang == "objective-c++-header");
         if c_like && (cc1 || tgt.c_std_set) { _fx_push(&o, f"-std={tgt.c_std}"); }
-        if cxx_like && (cc1 || tgt.cxx_std_set) { _fx_push(&o, f"-std={tgt.cxx_std}"); }
+        if cxx_like { _fx_push(&o, f"-std={tgt.cxx_std}"); }
         return o;
     }
 

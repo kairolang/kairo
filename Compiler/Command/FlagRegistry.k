@@ -186,8 +186,8 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("mfeatures",      "",  "mfeatures",      "enable/disable target features: +avx2,+bmi2,-sse4.1",                              "");
     cmd->define::<FlagKind::Bool>  ("m32",            "",  "m32",            "force 32-bit code generation: --target becomes its 32-bit variant (x86_64 -> i386)", false);
     cmd->define::<FlagKind::Bool>  ("m64",            "",  "m64",            "force 64-bit code generation",                                                      false);
-    cmd->define(FlagDef::str_c("cxx-std", "", "cxx-std", "C++ standard for interop: c++20|c++23|c++26, or the gnu++ spelling of each (default: c++20)",
-                               "c++20", _cxx_std_choices(), "c++20"));
+    cmd->define(FlagDef::str_c("cxx-std", "", "cxx-std", "C++ standard for interop: c++20|c++23|c++26, or the gnu++ spelling of each (default: c++23)",
+                               "c++23", _cxx_std_choices(), "c++23"));
     cmd->define(FlagDef::str_c("c-std", "", "c-std", "C standard for C inputs: c89|c99|c11|c17|c23, or the gnu spelling of each (default: c17)",
                                "c17", _c_std_choices(), "c17"));
     cmd->define::<FlagKind::String>("cxx-abi",        "",  "cxx-abi",        "C++ ABI for interop: itanium|msvc (default: itanium)",                             "itanium");
