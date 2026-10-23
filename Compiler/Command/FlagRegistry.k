@@ -33,6 +33,13 @@ fn _cxx_std_choices() -> vec::<string> {
     return c;
 }
 
+fn _c_std_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("c89"); c.push_back("c99"); c.push_back("c11"); c.push_back("c17"); c.push_back("c23");
+    c.push_back("gnu89"); c.push_back("gnu99"); c.push_back("gnu11"); c.push_back("gnu17"); c.push_back("gnu23");
+    return c;
+}
+
 fn _lto_choices() -> vec::<string> {
     var c: vec::<string>;
     c.push_back("off"); c.push_back("thin"); c.push_back("full");
@@ -114,6 +121,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-cfg",          "",  "print-cfg",           "print the --cfg values given on this command line and exit",                false);
     cmd->define::<FlagKind::Bool>  ("print-dirs",         "",  "print-dirs",          "print the toolchain/sysroot directories and exit",                              false);
     cmd->define::<FlagKind::Bool>  ("print-clang-args",   "",  "print-clang-args",    "print the exact clang invocation and exit (does not compile)",             false);
+    cmd->define::<FlagKind::Bool>  ("print-from-clang",   "",  "print-from-clang",    "print what the clang command line after -- means to kairo (kairo flags, and the clang-only words) and exit",   false);
     cmd->define::<FlagKind::Bool>  ("print-ld-args",      "",  "print-ld-args",       "print the exact ld.lld/ld64.lld/lld-link/wasm-ld invocation instead of linking", false);
     cmd->define::<FlagKind::Bool>  ("print-target-info",  "",  "print-target-info",   "print target ABI, pointer width, endianness for --target and exit",        false);
     cmd->define::<FlagKind::Bool>  ("print-pass-pipeline","",  "print-pass-pipeline", "print the full LLVM pass pipeline that would be applied and exit",         false);
@@ -123,9 +131,17 @@ fn register_kairo_flags(cmd: *Command) {
     //  INPUT
 
     cmd->define::<FlagKind::PathList> ("files",                "run --help to see usage");
+    // -x applies to the inputs that FOLLOW it, so the parser tags each input
+    // with the value in force when it is seen (ParsedArgs::file_langs).
+    cmd->define::<FlagKind::String>   ("language",        "x", "language",            "treat the following inputs as <lang>: kairo, or a clang type (c, c++, objective-c, objective-c++, ir, c-header, c++-header, ...); none = by extension", "");
+    cmd->tag_positionals_with("language");
     cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "module search root for .k imports; not passed to clang (repeatable)");
     cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "adds -I for clang, identical to --cxx-include (repeatable)");
     cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "adds -I for clang, identical to --ffi-include (repeatable)");
+    // kairo -D and -U are Kairo macros; these are clang's, for C/C++ inputs
+    // and the ffi headers. What kcc makes of a clang -D/-U.
+    cmd->define::<FlagKind::StringList>("cxx-define",     "",  "cxx-define",          "define a macro for clang (C/C++ inputs and ffi headers): NAME or NAME=VALUE (repeatable)");
+    cmd->define::<FlagKind::StringList>("cxx-undefine",   "",  "cxx-undefine",        "undefine a macro for clang (C/C++ inputs and ffi headers) (repeatable)");
     cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "module search root for .k imports, same as -I (repeatable)");
     cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "import <file>::* into the main file (adds to the prelude; repeatable)");
     cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "system root for headers and linking; a --target with a bundled <prefix>/sysroot/<target> uses that instead", "");
@@ -172,6 +188,8 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("m64",            "",  "m64",            "force 64-bit code generation",                                                      false);
     cmd->define(FlagDef::str_c("cxx-std", "", "cxx-std", "C++ standard for interop: c++20|c++23|c++26, or the gnu++ spelling of each (default: c++20)",
                                "c++20", _cxx_std_choices(), "c++20"));
+    cmd->define(FlagDef::str_c("c-std", "", "c-std", "C standard for C inputs: c89|c99|c11|c17|c23, or the gnu spelling of each (default: c17)",
+                               "c17", _c_std_choices(), "c17"));
     cmd->define::<FlagKind::String>("cxx-abi",        "",  "cxx-abi",        "C++ ABI for interop: itanium|msvc (default: itanium)",                             "itanium");
 
     //  BUILD MODE
@@ -360,7 +378,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>    ("emulation",      "",  "emulation",        "linker emulation: elf_x86_64|elf_i386|aarch64elf|... (default: auto)",         "");
     cmd->define::<FlagKind::String>    ("compress-debug", "",  "compress-debug",   "compress DWARF debug sections: none|zlib|zstd (default: none)",              "none");
     cmd->define::<FlagKind::StringList>("ld-flags",       "",  "ld-flags",         "raw flag passthrough to the linker (lld; repeatable)");
-    cmd->define::<FlagKind::StringList>("cxx-flags",      "",  "cxx-flags",        "raw flag passthrough to clang for C++ interop compilation (repeatable)");
+    cmd->define::<FlagKind::StringList>("cxx-flags",      "",  "cxx-flags",        "clang driver words for C/C++ inputs, passed verbatim and last (repeatable); kairo's own code never sees them");
 
     //  PLATFORM: macOS / Darwin
 
@@ -635,7 +653,6 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->mark_unimplemented("disable-llvm-pass");
     cmd->mark_unimplemented("unsigned-trap");
     cmd->mark_unimplemented("strict-aliasing");        // TBAA is already on at -O1+; nothing to add
-    cmd->mark_unimplemented("cxx-flags");
     // linker: no lld spelling, or deprecated by the platform.
     cmd->mark_unimplemented("bitcode");
     cmd->mark_unimplemented("wasi");

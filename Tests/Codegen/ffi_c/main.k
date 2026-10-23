@@ -19,3 +19,8 @@ fn main() -> i32 {
 // RUN: %kairo %s -c --cache-dir %t.d/k
 // RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o %t.d/c_add.c.o -o %t.exe
 // RUN: %t.exe; test $? -eq 42
+
+// The same program with the C source handed to kairo itself: compiled by the
+// pinned clang on kairo's target and roots, and linked in one step.
+// RUN: rm -rf %t.k2 && %kairo %s %S/c_add.c -o %t.native.exe --cache-dir %t.k2
+// RUN: %t.native.exe; test $? -eq 42

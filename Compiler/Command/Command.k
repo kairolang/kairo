@@ -98,6 +98,14 @@ class Command {
     priv var _args:  vec::<string>; ///< copy of argv for parsing (owned by Command)
     priv var _table: vec::<FlagDef>;
     priv var _diag:  obs::<DiagEngine>;
+    /// The flag whose current value tags every positional input (the -x
+    /// language). "" = no tagging. Positional order is lost once files are a
+    /// flat list, and -x applies to the inputs AFTER it, so the tag is taken
+    /// at the moment each file is seen; see _push_file.
+    priv var _tag_key:   string;
+    /// Set when the tag flag is applied, cleared by the next input: still set
+    /// at the end means a trailing -x that tagged nothing.
+    priv var _tag_dirty: bool = false;
 
 
     fn Command(self, argc: i32, argv: *(*kairo::std::Legacy::char), diag: *DiagEngine) {
@@ -217,6 +225,13 @@ class Command {
     /// flags are stored as "c:{name}", so pass that form for them; a Feature's
     /// key is its bare feature name. An unknown key is ignored on purpose: the
     /// list lives in the registry, and a typo there must not abort the compiler.
+    /// \brief tags every positional input with the value \p key has when the
+    ///        input is seen, in ParsedArgs::file_langs (parallel to files).
+    ///        clang's -x semantics: it applies to the inputs that FOLLOW it.
+    fn tag_positionals_with(self, key: string) {
+        self._tag_key = key;
+    }
+
     fn mark_unimplemented(self, key: string) {
         for var i: usize = 0; i < self._table.size(); ++i {
             var def = &(self._table[i]);
@@ -610,6 +625,7 @@ class Command {
 
     priv fn _apply(self, def: *FlagDef, raw: string, result: *ParsedArgs) {
         var cell = result->_cell(def->key);
+        if (!self._tag_key.empty()) && (def->key == self._tag_key) { self._tag_dirty = true; }
 
         switch def->kind {
             case FlagKind::Bool {
@@ -702,8 +718,20 @@ class Command {
         cell->set_i32(1 if enable else 0);
     }
 
+    /// One positional input, with the tag flag's value at this point.
+    priv fn _push_file(self, result: *ParsedArgs, path: string) {
+        result->files.push_back(path);
+        var lang = "";
+        if (!self._tag_key.empty()) && result->has(self._tag_key) {
+            lang = result->get_string(self._tag_key);
+        }
+        result->file_langs.push_back(lang);
+        self._tag_dirty = false;
+    }
+
     priv fn _parse_impl(self, args: ref!(vec::<string>)) -> ParsedArgs {
         var result  = ParsedArgs();
+        self._tag_dirty = false;
         var gstate: GlobalState = GlobalState::Normal;
         var pending: *FlagDef  = &null;
 
@@ -724,7 +752,7 @@ class Command {
             var elen  = elem.length();
 
             if gstate == GlobalState::PathsOnly {
-                result.files.push_back(elem);
+                self._push_file(&result, elem);
                 i += 1; continue;
             }
 
@@ -755,7 +783,7 @@ class Command {
             if elem[0] == '-' {
 
                 // bare '-' -> stdin file (POSIX convention)
-                if elen == 1 { result.files.push_back("-"); i += 1; continue; }
+                if elen == 1 { self._push_file(&result, "-"); i += 1; continue; }
 
                 if elem[1] == '-' { // '--'
                     // bare '--' -> end of options
@@ -958,10 +986,19 @@ class Command {
                 }
 
             } else {
-                result.files.push_back(elem);
+                self._push_file(&result, elem);
             }
 
             i += 1;
+        }
+
+        // A -x after the last input changes nothing; clang warns the same way
+        // (-Wunused-command-line-argument).
+        if self._tag_dirty {
+            var tv = result.get_string(self._tag_key);
+            self._diag->report(DiagCode(DiagID::U001W),
+                f"'-x {tv}\x27 after the last input has no effect")
+                .emit();
         }
 
         // dangling AwaitValue: ran out before the value arrived
@@ -1014,6 +1051,18 @@ class Command {
         return result;
     }
     
+    /// \brief parse words that did not come from main's argv (no program
+    ///        name in front): the kairo words FlagTranslator::from_driver
+    ///        makes of a clang command line. Same parser, same checks.
+    fn parse_words(self, words: ref!(vec::<string>)) -> ParsedArgs {
+        var args: vec::<string>;
+        args.push_back("kairo");
+        for w: string in words { args.push_back(w); }
+        var result = self._parse_impl(args);
+        self._warn_unimplemented(&result);
+        return result;
+    }
+
     /// \brief split a space-separated string and parse (convenience for tests)
     fn parse_string(self, cmdline: string) -> ParsedArgs {
         var args: vec::<string>;

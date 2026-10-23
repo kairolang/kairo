@@ -109,6 +109,10 @@ class CodeGenOptions {
     pub var pass_plugins:          vec::<string>;  ///< --pass-plugin (repeatable)
     pub var disabled_passes:       vec::<string>;  ///< --disable-llvm-pass (repeatable)
     pub var mllvm_flags:           vec::<string>;  ///< --mllvm (repeatable)
+    /// --cxx-flags: clang DRIVER words for C/C++ inputs, verbatim and last,
+    /// so they win. Kairo's own TUs never see them (they are driver
+    /// spellings, and that line is cc1). What kcc's clang-only words become.
+    pub var cxx_flags:             vec::<string>;
 
     // -- XRay instrumentation ----------------------------------------------
     pub var xray:                  string = "none";
@@ -222,6 +226,7 @@ class CodeGenOptions {
         for s in args.get_list("pass-plugin")       { o.pass_plugins.push_back(s);    }
         for s in args.get_list("disable-llvm-pass") { o.disabled_passes.push_back(s); }
         for s in args.get_list("mllvm")             { o.mllvm_flags.push_back(s);     }
+        for s in args.get_list("cxx-flags")         { o.cxx_flags.push_back(s);       }
 
         // -- XRay ----------------------------------------------------------
         (o.xray)                  = args.get_string("xray");

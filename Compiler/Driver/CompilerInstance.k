@@ -127,6 +127,8 @@ import Config::Invocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;
+import Driver::InputKinds::*;
+import Command::FlagTranslator::*;
 import Preprocessor::Preprocessor::*;
 import Parser::ASTParse::*;
 import AST::Context::GlobalDisambigTable::*;
@@ -143,6 +145,7 @@ import Sema::SemaDump::*;
 import Sema::SemaContext::*;
 import AST::Context::ImportOverlay::*;
 import Interop::Clang::ClangBackend::*;
+import Interop::Clang::ClangJobs::*;
 import Interop::Clang::HeaderSet::*;
 import Sema::Foreign::HeaderIndex::*;
 import Sema::Foreign::ForeignRegistry::*;
@@ -320,8 +323,17 @@ class CompilerInstance {
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
     priv var _obj_tmp:     bool   = false;///< _obj_dir is a temp dir this run owns and removes
     priv var _kairo_inputs: usize = 0;    ///< Kairo (non-native, non-linker) inputs; set by _plan_outputs
-    priv var _native_objs: vec::<string>; ///< objects from _compile_native_inputs, in order
+    priv var _source_inputs: usize = 0;   ///< C/C++/ObjC/IR inputs clang compiles; set by _plan_outputs
+    priv var _header_inputs: usize = 0;   ///< headers clang precompiles (one .pch each); set by _plan_outputs
+    /// clang's driver, run in-process, for the C/C++ inputs (made on first
+    /// use: a pure-Kairo build never builds a driver).
+    priv var _jobs: opt::<ClangJobs> = &null;
+    priv var _native_objs: vec::<string>; ///< objects from _compile_sources / _compile_runtime, in order
     priv var _link_inputs: vec::<string>; ///< .o/.a/.so given on the command line, in order
+    /// Every command-line input, classified once by _plan_outputs (in
+    /// command-line order, with the -x each was given under). execute() and
+    /// the output rules read this; nothing re-derives a kind from a path.
+    priv var _inputs: vec::<InputKind>;
 
     // --- CLI state -------------------------------------------------------
     //   The invocation IS the CLI state. Flag-level queries go through
@@ -435,6 +447,8 @@ class CompilerInstance {
 
     /// Destroys all resources in reverse-construction order.
     fn op delete (self) {
+        // The driver bridge borrows the backend: it goes first.
+        if self._jobs != &null { std::destroy(self._jobs); self._jobs = &null; }
         // Header sets before the backend: a build in flight is using the
         // backend's invocation and VFS, and a live set's clang instance
         // shares that VFS. Drain the group so no set is mid-parse when it
@@ -528,6 +542,7 @@ class CompilerInstance {
             || self.invocation().args.get_bool("print-cpus")
             || self.invocation().args.get_bool("print-dirs")
             || self.invocation().args.get_bool("print-clang-args")
+            || self.invocation().args.get_bool("print-from-clang")
             || self.invocation().args.get_bool("print-target-info")
             || self.invocation().args.get_bool("print-cfg");
     }
@@ -1063,6 +1078,10 @@ class CompilerInstance {
             return self.print_clang_args();
         }
 
+        if self.invocation().args.get_bool("print-from-clang") {
+            return self.print_from_clang();
+        }
+
         if self.invocation().args.get_bool("print-cfg") {
             for s: string in self.invocation().args.get_list("cfg") { std::print(s); }
             return 0;
@@ -1133,176 +1152,6 @@ class CompilerInstance {
     ///          runs once per triple for target defaults, and its keep-list
     ///          would also have to carry a default-on `-ffp-contract=on`
     ///          that Kairo's cc1 line must not have.
-    priv fn _fast_math_cc1(self, complex_range: string) -> vec::<string> {
-        var o = vec::<string>();
-        o.push_back("-menable-no-infs");
-        o.push_back("-menable-no-nans");
-        o.push_back("-fapprox-func");
-        o.push_back("-funsafe-math-optimizations");
-        o.push_back("-fno-signed-zeros");
-        o.push_back("-mreassociate");
-        o.push_back("-freciprocal-math");
-        o.push_back("-ffp-contract=fast");
-        o.push_back("-ffast-math");
-        o.push_back("-ffinite-math-only");
-        o.push_back(f"-complex-range={complex_range}");
-        return o;
-    }
-
-    /// \brief the cc1 tokens for the code-generation flags: target ISA,
-    ///        -f[no-] toggles, floating-point model, instrumentation,
-    ///        reproducible-build maps and -mllvm words. Each is a spelling
-    ///        verified against clang -### / clang -cc1 -help; a flag with no
-    ///        direct cc1 spelling is NOT here (see the audit report).
-    ///
-    /// \details Order is part of the contract (cc1 takes the last of a
-    ///          repeated option, --print-clang-args shows it): the broad
-    ///          switch (-ffast-math, --fp-model) comes before the specific
-    ///          one (--fp-contract) so the explicit flag wins, and --mllvm
-    ///          words come last so a user word can override a lowered one.
-    ///          Anything cc1 does by default is only pushed when the user
-    ///          asked for a different value, so a plain build's line, and
-    ///          every header-set PCH keyed on it, stays as it was.
-    priv fn _codegen_cc1(self, triple: string) -> vec::<string> {
-        var o   = vec::<string>();
-        var cgo = self.invocation().codegen;
-        var tgt = self.invocation().target;
-        var lg  = self.invocation().lang;
-
-        // -- target ISA ----------------------------------------------------
-        // (--march rides the driver probe, see _backend_config; --mcpu is
-        // pushed there too and, coming later, wins over a march's CPU.)
-        if !tgt.mtune.empty() { o.push_back("-tune-cpu");   o.push_back(tgt.mtune); }
-        if !tgt.mabi.empty()  { o.push_back("-target-abi"); o.push_back(tgt.mabi); }
-        for ft: string in tgt.feature_list() { o.push_back("-target-feature"); o.push_back(ft); }
-
-        // -- optimization toggles ------------------------------------------
-        if cgo.f_inline == 0          { o.push_back("-fno-inline"); }
-        if cgo.f_unroll_loops == 1    { o.push_back("-funroll-loops"); }
-        if cgo.f_unroll_loops == 0    { o.push_back("-fno-unroll-loops"); }
-        if cgo.f_merge_functions == 1 { o.push_back("-fmerge-functions"); }
-        if cgo.f_function_sections == 1 { o.push_back("-ffunction-sections"); }
-        if cgo.f_data_sections == 1     { o.push_back("-fdata-sections"); }
-        // cc1 keeps no frame pointer unless told (the driver adds =all on
-        // most Linux targets), so both directions are spelled out.
-        if cgo.f_omit_frame_pointer == 1 { o.push_back("-mframe-pointer=none"); }
-        if cgo.f_omit_frame_pointer == 0 { o.push_back("-mframe-pointer=all"); }
-
-        // -- floating point ------------------------------------------------
-        if cgo.f_fast_math == 1 {
-            for t: string in self._fast_math_cc1("basic") { o.push_back(t); }
-        }
-        if cgo.fp_model == "fast" {
-            for t: string in self._fast_math_cc1("promoted") { o.push_back(t); }
-        } else if cgo.fp_model == "strict" {
-            o.push_back("-ffp-contract=off");
-            o.push_back("-frounding-math");
-            o.push_back("-ffp-exception-behavior=strict");
-            o.push_back("-complex-range=full");
-        }
-        if cgo.fp_contract_set { o.push_back(f"-ffp-contract={cgo.fp_contract}"); }
-        if cgo.signed_wrap     { o.push_back("-fwrapv"); }
-        if cgo.f_soft_float == 1 {
-            o.push_back("-msoft-float");
-            o.push_back("-mfloat-abi");
-            o.push_back("soft");
-        }
-        if cgo.no_implicit_float { o.push_back("-no-implicit-float"); }
-
-        // -- hardening / code model ----------------------------------------
-        if cgo.f_stack_protector == 1 { o.push_back("-stack-protector"); o.push_back("1"); }
-        if cgo.stack_clash            { o.push_back("-fstack-clash-protection"); }
-        if cgo.f_split_stack == 1     { o.push_back("-fsplit-stack"); }
-        // --pic-level is the explicit spelling and wins; -f[no-]pic only
-        // speaks when it was not given (it is pushed in _backend_config).
-        if tgt.pic_level == 0 {
-            if cgo.f_pic == 1 {
-                o.push_back("-mrelocation-model"); o.push_back("pic");
-                o.push_back("-pic-level");         o.push_back("2");
-            } else if cgo.f_pic == 0 {
-                o.push_back("-mrelocation-model"); o.push_back("static");
-            }
-        }
-        if cgo.kernel_mode {
-            // Same set the driver makes of -mkernel, minus the hosted-library
-            // bits (-fapple-kext, -fno-builtin, -ffreestanding) that would
-            // break Kairo's own lowered C++. SSE is only taken away on x86,
-            // where the kernel cannot save FP state; elsewhere there is no
-            // single feature name for it.
-            o.push_back("-mcmodel=kernel");
-            o.push_back("-mrelocation-model"); o.push_back("static");
-            o.push_back("-disable-red-zone");
-            o.push_back("-no-implicit-float");
-            var tri = llvm::Triple(llvm::Triple::normalize(sref(triple)));
-            if tri.isX86() { o.push_back("-target-feature"); o.push_back("-sse"); }
-        }
-
-        // -- language-level C++ switches (Config::Language) -----------------
-        // Exceptions are OFF in a bare cc1 line (the driver is what adds
-        // them), so only -fexceptions has anything to add; RTTI is on by
-        // default, so only -fno-rtti does.
-        if lg.exceptions == 1 { o.push_back("-fcxx-exceptions"); o.push_back("-fexceptions"); }
-        if lg.rtti == 0       { o.push_back("-fno-rtti"); }
-
-        // -- runtime model -------------------------------------------------
-        if cgo.thread_model != "posix" { o.push_back("-mthread-model"); o.push_back(cgo.thread_model); }
-        if cgo.unwind_tables_set {
-            if cgo.unwind_tables == "none"       { o.push_back("-funwind-tables=0"); }
-            else if cgo.unwind_tables == "sync"  { o.push_back("-funwind-tables=1"); }
-            else if cgo.unwind_tables == "async" { o.push_back("-funwind-tables=2"); }
-        }
-        if cgo.instrument_functions { o.push_back("-finstrument-functions"); }
-
-        // Coverage and PGO (-fcoverage, -fprofile-generate, --profile-use) are
-        // deliberately NOT forwarded: the instrumented objects need
-        // libclang_rt.profile on the link line, which no bundled sysroot
-        // ships, so a cc1-only wiring would only move the failure to the
-        // linker. They stay marked unimplemented in the registry.
-
-        // -- reproducible builds ---------------------------------------------
-        // --remap-path-prefix is clang's -ffile-prefix-map, which cc1 only
-        // knows as its three halves.
-        for m: string in cgo.remap_path_prefix {
-            o.push_back(f"-fdebug-prefix-map={m}");
-            o.push_back(f"-fmacro-prefix-map={m}");
-            o.push_back(f"-fcoverage-prefix-map={m}");
-        }
-        for m: string in cgo.debug_prefix_map    { o.push_back(f"-fdebug-prefix-map={m}"); }
-        for m: string in cgo.coverage_prefix_map { o.push_back(f"-fcoverage-prefix-map={m}"); }
-        // Only __DATE__/__TIME__/__TIMESTAMP__ in C and C++ sources read it:
-        // Kairo objects carry no other timestamp.
-        if !cgo.source_date_epoch.empty() {
-            o.push_back("-source-date-epoch"); o.push_back(cgo.source_date_epoch);
-        } else if cgo.no_timestamps {
-            o.push_back("-source-date-epoch"); o.push_back("0");
-        }
-
-        // -- LLVM pass control -----------------------------------------------
-        for pl: string in cgo.pass_plugins {
-            if !LinkFS::is_file(pl) {
-                self._diag->report(DiagID::U001E,
-                    f"--pass-plugin: no such plugin file '{pl}\x27").emit();
-            } else {
-                o.push_back(f"-fpass-plugin={pl}");
-            }
-        }
-
-        // -- -mllvm (applied by ClangBackend::_apply_llvm_args) ----------------
-        if cgo.hot_cold_split          { o.push_back("-mllvm"); o.push_back("-hot-cold-split=true"); }
-        if cgo.f_trap_unreachable == 1 { o.push_back("-mllvm"); o.push_back("-trap-unreachable"); }
-        // Both thresholds differ per level in LLVM itself, so a default value
-        // must not be forwarded: only what the user set.
-        if cgo.inline_cost_set {
-            var thr: i32 = static_cast::<i32>(cgo.inline_cost);
-            o.push_back("-mllvm"); o.push_back(f"-inline-threshold={thr}");
-        }
-        if cgo.max_unroll_count > 0 {
-            o.push_back("-mllvm"); o.push_back(f"-unroll-count={cgo.max_unroll_count}");
-        }
-        for w: string in cgo.mllvm_flags { o.push_back("-mllvm"); o.push_back(w); }
-        return o;
-    }
-
     /// \brief the shared clang backend's configuration, from the
     ///        invocation: target, header roots, optimization and debug
     ///        info, the user's -W policy. initialize builds the backend from
@@ -1310,7 +1159,7 @@ class CompilerInstance {
     priv fn _backend_config(self) -> ClangBackendConfig {
         var bcfg = ClangBackendConfig{};
         (bcfg.triple) = self._effective_triple();
-        (bcfg.wargs)  = _clang_wargs_from_policy(self.invocation().diag);
+        (bcfg.wargs)  = FlagTranslator::warnings(self.invocation().diag, ClangSpelling::CC1);
 
         // The target flags clang has a spelling for. Parsed into the
         // invocation long before this; until they are copied here they reach
@@ -1319,22 +1168,24 @@ class CompilerInstance {
         if !tgt.cxx_std.empty() { (bcfg.cxx_std) = tgt.cxx_std; }
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
         // into -target-cpu and the -target-feature pairs its extensions imply.
-        if !tgt.march.empty() { bcfg.driver_words.push_back(f"-march={tgt.march}"); }
-        if !tgt.mcpu.empty() {
-            bcfg.extra_cc1.push_back("-target-cpu");
-            bcfg.extra_cc1.push_back(tgt.mcpu);
+        for a: string in FlagTranslator::march_driver(tgt) { bcfg.driver_words.push_back(a); }
+        // (bcfg.c_std stays c17: compile_native builds only Lib/rt, Kairo's
+        // own runtime; --c-std is for the user's C inputs.)
+        // Every flag word below is spelled by FlagTranslator, the one home
+        // of the kairo <-> clang mapping; this function only places them.
+        for a: string in FlagTranslator::target(tgt, ClangSpelling::CC1) { bcfg.extra_cc1.push_back(a); }
+        var missing_plugins = vec::<string>();
+        for a: string in FlagTranslator::codegen(self.invocation(), bcfg.triple, ClangSpelling::CC1, &missing_plugins) {
+            bcfg.extra_cc1.push_back(a);
         }
-        if tgt.pic_level > 0 {
-            bcfg.extra_cc1.push_back("-mrelocation-model");
-            bcfg.extra_cc1.push_back("pic");
-            bcfg.extra_cc1.push_back("-pic-level");
-            bcfg.extra_cc1.push_back(f"{tgt.pic_level}");
+        for pl: string in missing_plugins {
+            self._diag->report(DiagID::U001E,
+                f"--pass-plugin: no such plugin file '{pl}\x27").emit();
         }
-        for a: string in self._codegen_cc1(bcfg.triple) { bcfg.extra_cc1.push_back(a); }
-        // User header dirs for C++ interop: both flags name directories clang
-        // searches for an ffi header, ahead of the system roots.
-        for d: string in self.invocation().ffi_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
-        for d: string in self.invocation().cxx_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
+        // User header dirs and macros for C++ interop, ahead of the system
+        // roots: --ffi-include / --cxx-include (-I), --cxx-define (-D),
+        // --cxx-undefine (-U).
+        for a: string in FlagTranslator::preprocessor(self.invocation()) { bcfg.extra_cc1.push_back(a); }
         // The runtime root, after the user's: `rt/fmt.h` names the same file
         // from Lib/builtin/fmt.k (an ffi header set copies this invocation)
         // and from Lib/rt/fmt.c (compile_native shares these arguments).
@@ -1357,10 +1208,10 @@ class CompilerInstance {
         // value (default 5), so it cannot say whether DWARF was asked for;
         // on MSVC it is left out and the driver emits CodeView, which is
         // what link.exe-style PDBs need.
-        (bcfg.debug_info)   = (cgo.debug_info) && (!cgo.no_debug_info);
+        (bcfg.debug_info)   = FlagTranslator::debug_on(cgo);
         (bcfg.debug_macros) = cgo.debug_macros;
         (bcfg.embed_source) = cgo.embed_source;
-        if !Toolchain::is_msvc(bcfg.triple) { (bcfg.dwarf_version) = cgo.dwarf_version; }
+        (bcfg.dwarf_version) = FlagTranslator::dwarf_for(cgo, bcfg.triple);
         return bcfg;
     }
 
@@ -1477,56 +1328,191 @@ class CompilerInstance {
     /// then runs a \c FrontendAction for each input file. A fatal diagnostic
     /// in any file sets \c BatchResult::aborted and skips remaining files.
     /// Results are collected into the returned \c BatchResult.
-    /// \brief 1 for a C source, 2 for C++, 0 for anything else (a Kairo
-    ///        file, a header, an object). By extension, as clang's driver does.
-    priv static fn _native_lang(ext: string) -> u8 {
-        if ext == "c" { return 1; }
-        if (ext == "cpp") || (ext == "cc") || (ext == "cxx") || (ext == "c++") || (ext == "C") || (ext == "CPP") { return 2; }
-        return 0;
+
+    /// \brief the runtime's C/C++ sources (Lib/rt), when Kairo objects were
+    ///        emitted, into <dir>/kairo/<stem>.o beside kairo/std.o.
+    ///
+    /// \details On the hand-built cc1 line (ClangBackend::compile_native),
+    ///          not clang's driver: the runtime is Kairo's own code and is
+    ///          built exactly as Kairo's TUs are (int128, no finite loops,
+    ///          Kairo's exception model). Runtime objects never take -o.
+    priv fn _compile_runtime(self) -> bool {
+        var runtime = self._runtime_sources();
+        if runtime.size() == 0 { return true; }
+        if self._backend == &null {
+            self._diag->report(DiagID::I004F, "cannot compile the runtime: no clang backend").emit();
+            return false;
+        }
+        var dir = self.object_dir();
+        var ok = true;
+        for src: InputKind in runtime {
+            ok = self._compile_one_native(src, dir + "/kairo/" + Path(src.path).stem() + ".o") && ok;
+        }
+        return ok;
     }
 
-    /// \brief compiles the command line's C/C++ inputs, and -- when Kairo
-    ///        objects were emitted -- the runtime's, into the object dir:
-    ///            <dir>/<stem>.o         each C/C++ input
-    ///            <dir>/kairo/<stem>.o   each Lib/rt source, beside kairo/std.o
-    ///        Under -c, -o names the object only when it is the build's one
-    ///        object: a single C/C++ input and no Kairo input.
-    priv fn _compile_native_inputs(self, natives: ref!(vec::<string>), with_runtime: bool) -> bool {
-        var runtime = vec::<string>();
-        if with_runtime { runtime = self._runtime_sources(); }
-        if (natives.size() == 0) && (runtime.size() == 0) { return true; }
+    /// \brief the clang driver words for one C/C++ input, without the
+    ///        action and the input/output: the backend's roots, the runtime
+    ///        root, then everything FlagTranslator::to_driver spells for this
+    ///        invocation (ending in --cxx-flags, so those win).
+    priv fn _native_words(self, k: InputKind) -> vec::<string> {
+        return self._native_words_for(self._backend, k);
+    }
+
+    /// _native_words against a given backend: --print-clang-args builds a
+    /// throwaway one, the compile uses the build's.
+    priv fn _native_words_for(self, be: *ClangBackend, k: InputKind) -> vec::<string> {
+        var w = vec::<string>();
+        // IR and already-preprocessed input search no headers: the roots would
+        // only draw clang's "argument unused" warning, once per root.
+        if k.needs_headers() {
+            w = be->sysroot_words(k.is_c_family_c(), ClangSpelling::Driver);
+            // `rt/fmt.h` resolves for a C/C++ input exactly as for Lib/rt.
+            var rt_root = self._runtime_root();
+            if !rt_root.empty() { w.push_back("-I"); w.push_back(rt_root); }
+        }
+        // Plugins that do not exist were reported when the backend's
+        // configuration was built; here they are only left out.
+        var missing = vec::<string>();
+        for a: string in FlagTranslator::to_driver(self.invocation(), be->triple(), k.type_name(), &missing) {
+            w.push_back(a);
+        }
+        return w;
+    }
+
+    priv fn _native_jobs(self) -> *ClangJobs {
+        if self._jobs == &null {
+            var exe = Path::join_str(Path::parent_of(std::get_exe_path()), "clang");
+            self._jobs = std::create::<ClangJobs>(self._backend, exe);
+        }
+        return self._jobs;
+    }
+
+    /// One driver run for one input; a failure clang did not explain itself
+    /// (an external tool, an empty plan) is reported here.
+    priv fn _run_native(self, k: InputKind, words: ref!(vec::<string>)) -> bool {
+        var jobs = self._native_jobs();
+        if jobs->run(words) { return true; }
+        if !jobs->error.empty() {
+            self._diag->report(DiagID::U001E, f"{k.path}: {jobs->error}").emit();
+        }
+        return false;
+    }
+
+    /// \brief compiles the command line's C, C++, Objective-C and IR inputs
+    ///        through clang's driver, for the run's action:
+    ///
+    ///          --preprocess       -E, to -o or stdout
+    ///          --syntax-only,
+    ///          --type-check-only  -fsyntax-only (C++ has no separate stage)
+    ///          otherwise          each --emit kind: <dir>/<stem>.o .s .ll .bc
+    ///                             (-c / -S / -S -emit-llvm / -c -emit-llvm);
+    ///                             the .o files join the link.
+    ///
+    ///        -o names the output only when it is the build's one output.
+    priv fn _compile_sources(self, natives: ref!(vec::<InputKind>)) -> bool {
+        if natives.size() == 0 { return true; }
         if self._backend == &null {
             self._diag->report(DiagID::I004F, "cannot compile C/C++ sources: no clang backend").emit();
             return false;
         }
-
-        // With a Kairo input -o already names that TU's object, so a native
-        // input beside it has no name left. Runtime objects never take -o:
-        // they always go under the object dir.
+        var fe = &(self.invocation().frontend);
         var single = self.single_object();
-        if (!single.empty()) && (natives.size() > 0) && (with_runtime || (natives.size() != 1)) {
+
+        if fe->stops_at_preprocess() || fe->stops_at_sema() {
+            var pp = fe->stops_at_preprocess();
+            var ok = true;
+            for k: InputKind in natives {
+                // An input with no such phase is skipped with a warning, as
+                // clang does (-E: input unused): IR and .i/.ii for -E, IR for
+                // -fsyntax-only.
+                var skip = (pp && (!k.needs_headers())) || ((!pp) && k.is_ir());
+                if skip {
+                    var what = ("--preprocess") if (pp) else ("a check-only run");
+                    self._diag->report(DiagID::U001W, f"{k.path}: nothing to do for this input under {what}").emit();
+                    continue;
+                }
+                var w = self._native_words(k);
+                w.push_back(("-E") if (pp) else ("-fsyntax-only"));
+                if pp && (!single.empty()) {
+                    if natives.size() != 1 {
+                        self._diag->report(DiagID::I004F,
+                            f"-o {single} names one output, but this build preprocesses {natives.size()} inputs").emit();
+                        return false;
+                    }
+                    w.push_back("-o"); w.push_back(single);
+                }
+                w.push_back("-x"); w.push_back(k.type_name()); w.push_back(k.path);
+                ok = self._run_native(k, w) && ok;
+            }
+            return ok;
+        }
+
+        // What each input writes (--emit), the same kinds and extensions a
+        // Kairo TU writes, one driver run each.
+        var kinds = vec::<EmitKind>();
+        var exts  = vec::<string>();
+        if fe->emit_obj     { kinds.push_back(EmitKind::Obj);    exts.push_back(".o");  }
+        if fe->emit_asm     { kinds.push_back(EmitKind::Asm);    exts.push_back(".s");  }
+        if fe->emit_llvm_ir { kinds.push_back(EmitKind::LLVMIR); exts.push_back(".ll"); }
+        if fe->emit_llvm_bc { kinds.push_back(EmitKind::LLVMBC); exts.push_back(".bc"); }
+
+        // A header writes one .pch whatever --emit says.
+        var n_out = self.kairo_input_count() * kinds.size() + self._header_inputs;
+        if (!single.empty()) && (n_out > 1) {
             self._diag->report(DiagID::I004F,
-                f"-o {single} names one object, but this build emits more than one; use --cache-dir <dir> for the objects").emit();
+                f"-o {single} names one output, but this build emits {n_out}; use --cache-dir <dir> for them").emit();
             return false;
         }
         var dir = self.object_dir();
 
         var ok = true;
-        for src: string in natives {
-            var obj = single;
-            if obj.empty() { obj = dir + "/" + Path(src).stem() + ".o"; }
-            ok = self._compile_one_native(src, obj) && ok;
-        }
-        for src: string in runtime {
-            ok = self._compile_one_native(src, dir + "/kairo/" + Path(src).stem() + ".o") && ok;
+        for k: InputKind in natives {
+            if k.cls == InputClass::Header {
+                // clang's own answer to a header input: a precompiled header,
+                // named after the whole file (foo.h -> foo.h.pch) so foo.h
+                // and foo.c never collide. Never linked.
+                var pch = single;
+                // A linking run's object dir may be a temporary one it
+                // deletes; the .pch is an output the user asked for, so it is
+                // kept: --cache-dir if given, else the working directory.
+                var pdir = dir;
+                if self._obj_tmp { pdir = "."; }
+                if pch.empty() { pch = pdir + "/" + Path(k.path).filename() + ".pch"; }
+                Path::make_parent_dirs(pch);
+                var hw = self._native_words(k);
+                hw.push_back("-c");
+                hw.push_back("-x"); hw.push_back(k.type_name()); hw.push_back(k.path);
+                hw.push_back("-o"); hw.push_back(pch);
+                ok = self._run_native(k, hw) && ok;
+                continue;
+            }
+            for var i: usize = 0; i < kinds.size(); ++i {
+                var out = single;
+                if out.empty() { out = dir + "/" + Path(k.path).stem() + exts[i]; }
+                Path::make_parent_dirs(out);
+                var w = self._native_words(k);
+                var kind = kinds[i];
+                if kind == EmitKind::Asm         { w.push_back("-S"); }
+                else if kind == EmitKind::LLVMIR { w.push_back("-S"); w.push_back("-emit-llvm"); }
+                else if kind == EmitKind::LLVMBC { w.push_back("-c"); w.push_back("-emit-llvm"); }
+                else                             { w.push_back("-c"); }
+                w.push_back("-x"); w.push_back(k.type_name()); w.push_back(k.path);
+                w.push_back("-o"); w.push_back(out);
+                var one = self._run_native(k, w);
+                ok = one && ok;
+                if one && (kind == EmitKind::Obj) {
+                    self._native_objs.push_back(out);
+                    Logger::info(Logger::Stage::Driver, f"emitted object {out}");
+                }
+            }
         }
         return ok;
     }
 
-    priv fn _compile_one_native(self, src: string, obj: string) -> bool {
+    priv fn _compile_one_native(self, src: InputKind, obj: string) -> bool {
         Path::make_parent_dirs(obj);
-        var is_c = CompilerInstance::_native_lang(Path(src).extension()) == 1;
-        if !self._backend->compile_native(src, obj, is_c) { return false; }
+        if !self._backend->compile_native(src.path, obj, src.type_name(), src.is_c_family_c()) { return false; }
         self._native_objs.push_back(obj);
         Logger::info(Logger::Stage::Driver, f"emitted object {obj}");
         return true;
@@ -1551,8 +1537,8 @@ class CompilerInstance {
     /// \brief the runtime's C/C++ sources: every one directly in
     ///        <runtime root>/rt. No root, no runtime. Sorted, so object
     ///        order does not follow readdir.
-    priv fn _runtime_sources(self) -> vec::<string> {
-        var out = vec::<string>();
+    priv fn _runtime_sources(self) -> vec::<InputKind> {
+        var out = vec::<InputKind>();
         var rroot = self._runtime_root();
         if rroot.empty() { return out; }
         var root = Path::join_str(rroot, "rt");
@@ -1562,14 +1548,15 @@ class CompilerInstance {
 
         for (; (!ec) && (it != end); it.increment(ec)) {
             if Path::type_of_entry(*it) != FileType::regular_file { continue; }
-            var p   = it->path();
-            var ext = llvm::sys::path::extension(p);
-            if (ext == r".c") || (ext == r".cpp") || (ext == r".cc") || (ext == r".cxx") {
-                out.push_back(string(p.data(), p.size()));
-            }
+            var p = it->path();
+            // The same classifier as a command-line input: rt holds C and
+            // C++ only, and a stray header or README must not compile.
+            var k = classify_input(string(p.data(), p.size()), "");
+            if k.cls == InputClass::Source { out.push_back(k); }
         }
 
-        llvm::sort(out.begin(), out.end());
+        llvm::sort(out.begin(), out.end(),
+            fn (const a: ref!(InputKind), const b: ref!(InputKind)) || -> bool = a.path < b.path);
         return out;
     }
 
@@ -1596,16 +1583,61 @@ class CompilerInstance {
         self._obj_dir  = lk->cache_dir;
         self._obj_tmp  = false;
 
-        // Counted here, before any TU runs: -o under -c names the one USER
-        // translation unit, and codegen of the first input must already know
-        // whether a second one is coming.
+        // Classified and counted here, before any TU runs: -o under -c names
+        // the one USER translation unit, and codegen of the first input must
+        // already know whether a second one is coming. An input nothing can
+        // build stops the run before anything compiles, every one reported.
         self._kairo_inputs = 0;
-        for path_str: string in self.invocation().input_files {
-            var lext = Path(path_str).extension();
-            if (lext == "o") || (lext == "a") || (lext == "so") { continue; }
-            if CompilerInstance::_native_lang(lext) != 0 { continue; }
-            self._kairo_inputs += 1;
+        self._inputs.clear();
+        var bad = false;
+        var n_in = self.invocation().input_files.size();
+        for var i: usize = 0; i < n_in; ++i {
+            var path_str = self.invocation().input_files[i];
+            var k = classify_input(path_str, self.invocation().input_lang(i));
+            if (k.cls == InputClass::Unsupported) || (k.cls == InputClass::Unknown) || (k.cls == InputClass::BadLanguage) {
+                self._diag->report(DiagID::U001E, f"{path_str}: {k.why}").emit();
+                bad = true;
+            }
+            if k.cls == InputClass::Kairo  { self._kairo_inputs += 1; }
+            if k.cls == InputClass::Source { self._source_inputs += 1; }
+            if k.cls == InputClass::Header { self._header_inputs += 1; }
+            self._inputs.push_back(k);
         }
+        if bad { return false; }
+
+        // A C/C++ input's outputs are named <dir>/<stem>.<ext>, as a Kairo
+        // entry TU's are, and a header's <dir>/<file>.pch. Two inputs that
+        // name one output would write one file; clang silently overwrites,
+        // this says so (a deliberate deviation). Only for runs that write
+        // files: --preprocess goes to stdout, the check-only runs write none.
+        var fe_plan = &(self.invocation().frontend);
+        if !fe_plan->stops_before_codegen() {
+            for var a: usize = 0; a < self._inputs.size(); ++a {
+                var ka = self._inputs[a];
+                var a_hdr = ka.cls == InputClass::Header;
+                if (ka.cls != InputClass::Source) && (!a_hdr) { continue; }
+                var na = (Path(ka.path).filename()) if (a_hdr) else (Path(ka.path).stem());
+                for var b: usize = 0; b < self._inputs.size(); ++b {
+                    if b == a { continue; }
+                    var kb = self._inputs[b];
+                    var b_hdr = kb.cls == InputClass::Header;
+                    var nb = "";
+                    if a_hdr {
+                        if !b_hdr { continue; }
+                        nb = Path(kb.path).filename();
+                    } else {
+                        if (kb.cls != InputClass::Source) && (kb.cls != InputClass::Kairo) { continue; }
+                        nb = Path(kb.path).stem();
+                    }
+                    if nb != na { continue; }
+                    if (kb.cls != InputClass::Kairo) && (b < a) { continue; }  // reported once
+                    self._diag->report(DiagID::U001E,
+                        f"{ka.path} and {kb.path} both write '{na}\x27 outputs; rename one, or compile them in separate runs").emit();
+                    bad = true;
+                }
+            }
+        }
+        if bad { return false; }
 
         if (!out.empty()) && (LinkText::ends_with(out, "/") || LinkFS::is_dir(out)) {
             self._diag->report(DiagID::I004F,
@@ -1627,9 +1659,35 @@ class CompilerInstance {
         }
         if (fe->emit_unknown.size() > 0) || (fe->emit_unsupported.size() > 0) { return false; }
 
-        var links = (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen());
+        // Nothing to link unless an input makes an object or is one: a build
+        // of headers alone writes their .pch files and stops, as under clang,
+        // and its -o names that one output.
+        var linkable = false;
+        for k: InputKind in self._inputs {
+            if (k.cls == InputClass::Kairo) || (k.cls == InputClass::Source) || (k.cls == InputClass::LinkInput) {
+                linkable = true;
+            }
+        }
+        var links = (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen()) && linkable;
         if !links {
             if self._obj_dir.empty() { self._obj_dir = "."; }
+            // -o names this run's one output. Checked here, once, with every
+            // count known: a check inside codegen would already have written
+            // the first TU's object to -o before a later input proved there
+            // were two. A header writes one .pch whatever --emit says.
+            if (!out.empty()) && (!fe->stops_before_codegen()) {
+                var n_kinds: usize = 0;
+                if fe->emit_obj     { n_kinds += 1; }
+                if fe->emit_asm     { n_kinds += 1; }
+                if fe->emit_llvm_ir { n_kinds += 1; }
+                if fe->emit_llvm_bc { n_kinds += 1; }
+                var n_out = (self._kairo_inputs + self._source_inputs) * n_kinds + self._header_inputs;
+                if n_out > 1 {
+                    self._diag->report(DiagID::I004F,
+                        f"-o {out} names one output, but this build emits {n_out}; use --cache-dir <dir> for them").emit();
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -1655,7 +1713,7 @@ class CompilerInstance {
     /// The file -o names when it names an object: a -c run with -o. "" when
     /// this run links (-o is the executable then) or there is no -o. Valid
     /// only if the build emits exactly one object; each emitter checks.
-    fn kairo_input_count(self) -> usize { return self._kairo_inputs; }
+    fn kairo_input_count(self) -> usize { return self._kairo_inputs + self._source_inputs; }
 
     fn single_object(self) -> string {
         if !self._link_out.empty() { return ""; }
@@ -1774,6 +1832,49 @@ class CompilerInstance {
     /// split or expand it. The input is a placeholder; a real compile hands
     /// clang each TU as an in-memory buffer. Builds the backend's
     /// configuration and starts nothing.
+    //  --print-from-clang
+
+    /// \brief the reverse map, made visible: the clang command line given as
+    ///        the inputs (after `--`) as kairo CLI words, and the words kairo
+    ///        has no flag for. The kairo words are then parsed by the real
+    ///        kairo parser, so a row that maps to a flag that does not exist
+    ///        fails here, not first in kcc.
+    ///
+    /// \details Two lines, each word shell-quoted:
+    ///            kairo: <kairo words>
+    ///            clang-only: <clang words>
+    ///          Exit 1 if clang's table or kairo's parser rejected a word.
+    fn print_from_clang(self) -> i32 {
+        var clang_argv = self.invocation().input_files;
+        var kw  = vec::<string>();
+        var cw  = vec::<string>();
+        var err = "";
+        if !FlagTranslator::from_driver(clang_argv, &kw, &cw, &err) {
+            self._diag->report(DiagID::U001E, err).emit();
+            self.flush_errors();
+            return 1;
+        }
+        var line = "kairo:";
+        for w: string in kw { line = line + " " + _shell_quote(w); }
+        std::print(line);
+        var cline = "clang-only:";
+        for w: string in cw { cline = cline + " " + _shell_quote(w); }
+        std::print(cline);
+
+        var cmd = std::create::<Command>(0, &null, self._diag);
+        finally { std::destroy(cmd); }
+        register_kairo_flags(cmd);
+        // Validated, not run: a placeholder input after `--` (from_driver
+        // never emits one) satisfies "at least one input" for a clang line
+        // that names only flags.
+        var check = kw;
+        check.push_back("--");
+        check.push_back("<from-clang>");
+        var parsed = cmd->parse_words(check);
+        self.flush_errors();
+        return (0) if (parsed.ok) else (1);
+    }
+
     fn print_clang_args(self) -> i32 {
         // A failed parse leaves the invocation at its defaults, so the line
         // would show a target and level the user did not ask for.
@@ -1782,10 +1883,30 @@ class CompilerInstance {
             return 1;
         }
         var be   = std::create::<ClangBackend>(self._sm, self._backend_config());
+        finally { std::destroy(be); }
         var line = "clang -cc1";
         for a: string in be->invocation_args() { line = line + " " + _shell_quote(a); }
-        std::destroy(be);
         std::print(line);
+
+        // Then, per C/C++ input, the cc1 line clang's driver plans for it
+        // (its -###), as the input's object would be compiled. Only these
+        // start clang: a Kairo-only line still starts nothing.
+        var n_in = self.invocation().input_files.size();
+        var exe  = Path::join_str(Path::parent_of(std::get_exe_path()), "clang");
+        for var i: usize = 0; i < n_in; ++i {
+            var k = classify_input(self.invocation().input_files[i], self.invocation().input_lang(i));
+            if k.cls != InputClass::Source { continue; }
+            var w = self._native_words_for(be, k);
+            w.push_back("-c"); w.push_back("-x"); w.push_back(k.type_name()); w.push_back(k.path);
+            w.push_back("-o"); w.push_back(Path(k.path).stem() + ".o");
+            var jobs = ClangJobs(be, exe);
+            if !jobs.plan(w) {
+                if !jobs.error.empty() { self._diag->report(DiagID::U001E, f"{k.path}: {jobs.error}").emit(); }
+                self.flush_errors();
+                return 1;
+            }
+            for pl: string in jobs.planned { std::print(pl); }
+        }
         self.flush_errors();
         return 0;
     }
@@ -1826,19 +1947,19 @@ class CompilerInstance {
         // time and Link is not reported as part of a frontend.
 
         // C and C++ inputs are not Kairo TUs: they compile after every Kairo
-        // file, through the same clang backend (_compile_native_inputs).
-        var natives = vec::<string>();
+        // file, through the same clang backend (_compile_sources, through clang's driver).
+        var natives = vec::<InputKind>();
         var kairo_inputs: usize = 0;
 
-        for path_str: string in self.invocation().input_files {
+        for k: InputKind in self._inputs {
             if result.aborted { break; }
-            var lext = Path(path_str).extension();
-            if (lext == "o") || (lext == "a") || (lext == "so") {
+            var path_str = k.path;
+            if k.cls == InputClass::LinkInput {
                 self._link_inputs.push_back(path_str);
                 continue;
             }
-            if CompilerInstance::_native_lang(Path(path_str).extension()) != 0 {
-                natives.push_back(path_str);
+            if (k.cls == InputClass::Source) || (k.cls == InputClass::Header) {
+                natives.push_back(k);
                 continue;
             }
             kairo_inputs += 1;
@@ -1859,12 +1980,16 @@ class CompilerInstance {
             result.tu_results.push_back(action->result);
         }
 
-        // Native and runtime sources compile to objects only: an --emit
-        // without obj asks for none.
-        if (!result.aborted) && (self._diag->error_count() == 0)
-        && (!self.invocation().frontend.stops_before_codegen()) && self.invocation().frontend.emit_obj {
+        // C/C++ inputs follow the run's action (_compile_sources); the
+        // runtime compiles to objects, and only when Kairo objects were
+        // emitted -- an --emit without obj asks for none.
+        if (!result.aborted) && (self._diag->error_count() == 0) {
             var _t = TimeRegion("NativeCompile");
-            if !self._compile_native_inputs(natives, kairo_inputs > 0) { result.aborted = true; }
+            if !self._compile_sources(natives) { result.aborted = true; }
+            var fe_rt = &(self.invocation().frontend);
+            if (!result.aborted) && (kairo_inputs > 0) && (!fe_rt->stops_before_codegen()) && fe_rt->emit_obj {
+                if !self._compile_runtime() { result.aborted = true; }
+            }
         }
 
         // Every set's clang instance dies here, while _backend still lives:

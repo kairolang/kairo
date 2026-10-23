@@ -15,6 +15,9 @@ import Command::FlagUtils::*;
 
 class ParsedArgs {
     pub var files: vec::<string>; ///< positional file paths
+    /// Parallel to files: the -x language in force when each was seen ("" =
+    /// by extension). Filled only when the Command tags positionals.
+    pub var file_langs: vec::<string>;
     pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
 
     priv var _map: map::<string, FlagValue>;

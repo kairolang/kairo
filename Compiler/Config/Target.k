@@ -27,6 +27,12 @@ class TargetOptions {
     pub var mabi:      string = ""; ///< --mabi
     pub var mfeatures: string = ""; ///< --mfeatures (e.g. +avx2,-sse4.1); read it through feature_list()
     pub var cxx_std:   string = "c++20";
+    pub var c_std:     string = "c17";   ///< --c-std: C inputs (and ObjC)
+    /// Given on the command line. A C/C++ input under clang's driver gets
+    /// clang's own default standard unless the user named one; kairo's
+    /// default above is for its own lowered C++.
+    pub var cxx_std_set: bool = false;
+    pub var c_std_set:   bool = false;
     pub var cxx_abi:   string = "itanium";
     pub var sysroot:   string = "";
     pub var resource_dir: string = "";  ///< clang resource dir: its include/ holds the builtin headers (stddef.h).
@@ -183,6 +189,9 @@ class TargetOptions {
         (o.m32)        = args.get_bool("m32");
         (o.m64)        = args.get_bool("m64");
         (o.cxx_std)    = args.get_string("cxx-std");
+        (o.cxx_std_set) = args.is_set("cxx-std");
+        (o.c_std)      = args.get_string("c-std");
+        (o.c_std_set)  = args.is_set("c-std");
         (o.cxx_abi)    = args.get_string("cxx-abi");
         (o.sysroot)    = args.get_string("sysroot");
         (o.resource_dir) = args.get_string("resource-dir");

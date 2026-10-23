@@ -82,94 +82,12 @@ import Diagnostic::ClangDiagAdapter::*;
 import Interop::Clang::ClangLocMap::*;
 import Interop::Clang::BuiltinsSet::*;
 import Config::Diagnostic::*;
+import Command::FlagTranslator::*;
 
 /// ThreadPool group ids used by the driver for backend tasks.
 /// (5 = index, 6 = parse are taken by FrontendAction::_parse.)
 eval fn CLANG_STARTUP_GROUP() -> u8 { return 9;  }
 
-
-/// Extracts the numeric part of a diagnostic code string, used as the
-/// severity-letter-agnostic key into the DiagEngine policy table. Scans for
-/// the run of decimal digits and parses it; category prefix (S, SC, CL, ...)
-/// and trailing severity letter (W, E, F, ...) are ignored. Returns 0 if the
-/// string contains no digits (never a valid diagnostic number).
-///
-///   "S025"  -> 25    "S025W" -> 25    "s025" -> 25    "C889" -> 889
-fn _diag_code_to_number(code: string) -> u32 {
-    var n = code.length();
-    var i: usize = 0;
-    var val: u32 = 0;
-    var seen: bool = false;
-    while i < n {
-        var c = code[i];
-        if c >= '0' && c <= '9' {
-            seen = true;
-            val = val * 10 + static_cast::<u32>(c - '0');
-        } else if seen {
-            break; // digit run ended; ignore any trailing severity letter
-        }
-        i += 1;
-    }
-    return val;
-}
-
-
-/// True if \p code is a clang-sourced C-code (category prefix \c C followed by
-/// a digit, e.g. \c C889 / \c C889W). Excludes \c CL... (Lowering) and native
-/// categories, which have no clang warning group.
-fn _is_clang_c_code(code: string) -> bool {
-    var n = code.length();
-    var i: usize = 0;
-    // skip leading whitespace defensively
-    while i < n && (code[i] == ' ' || code[i] == '\t') { i += 1; }
-    if i >= n { return false; }
-    if !(code[i] == 'C' || code[i] == 'c') { return false; }
-    i += 1;
-    if i >= n { return false; }
-    return code[i] >= '0' && code[i] <= '9'; // C<digit>; 'CL' fails here
-}
-
-/// Translates the user's per-code diagnostic policy into clang cc1 warning
-/// arguments for the subset that maps to clang warning groups (C-codes).
-///   allow  -> -Wno-<grp>   deny/--error -> -Werror=<grp>
-///   forbid -> -Werror=<grp>  warn/enable -> -W<grp>
-/// Native (non-C) codes are skipped here; they are governed by the emit layer.
-/// \p suppress_all adds a bare \c -w so clang also honours global -w.
-fn _clang_wargs_from_policy(d: ref!(DiagnosticOptions)) -> vec::<string> {
-    var out: vec::<string>;
-    if d.suppress_warnings { out.push_back("-w"); }
-    // Warning-group bulk switches map straight to their clang spellings so
-    // clang enables the same group sets it would under a normal driver.
-    if d.Wall     { out.push_back("-Wall");      }
-    if d.Wextra   { out.push_back("-Wextra");    }
-    if d.Wpedantic { out.push_back("-Wpedantic"); }
-    out.push_back("-fexperimental-max-bitint-width=512");
-    for c: string in d.allow_list {
-        if _is_clang_c_code(c) {
-            var g = clang_diag_group(_diag_code_to_number(c));
-            if !g.empty() { out.push_back(f"-Wno-{g}"); }
-        }
-    }
-    for c: string in d.warn_list {
-        if _is_clang_c_code(c) {
-            var g = clang_diag_group(_diag_code_to_number(c));
-            if !g.empty() { out.push_back(f"-W{g}"); }
-        }
-    }
-    for c: string in d.deny_list {
-        if _is_clang_c_code(c) {
-            var g = clang_diag_group(_diag_code_to_number(c));
-            if !g.empty() { out.push_back(f"-Werror={g}"); }
-        }
-    }
-    for c: string in d.forbid_list {
-        if _is_clang_c_code(c) {
-            var g = clang_diag_group(_diag_code_to_number(c));
-            if !g.empty() { out.push_back(f"-Werror={g}"); }
-        }
-    }
-    return out;
-}
 
 struct ClangBackendConfig {
     var triple:       string;              ///< effective target triple
@@ -186,6 +104,7 @@ struct ClangBackendConfig {
     /// prebuilt libc++ was compiled with, which the TU must match to link.
     var defines:          vec::<string>;
     var cxx_std:      string = "c++26";
+    var c_std:        string = "c17";      ///< -std for C inputs (--c-std)
     var includes:     vec::<string>;       ///< -include names (predefines buffer)
     var extra_cc1:    vec::<string>;       ///< platform extras (exception model, PIC, CPU, ...)
     var wargs:        vec::<string>;       ///< diagnostic -W/-Wno-/-Werror= args from user policy, injected pre-CreateFromArgs
@@ -311,21 +230,21 @@ class ClangBackend {
     ///
     ///          Driver thread only. False on any failure, with clang's
     ///          diagnostics already printed.
-    fn compile_native(self, src: string, out: string, is_c: bool) -> bool {
+    fn compile_native(self, src: string, out: string, xlang: string, is_c: bool) -> bool {
         self.startup();
         if !self.ready() { return false; }
 
         var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
         self._cc1_common(&argv, is_c);
-        if is_c {
-            self._arg(&argv, "-std=c17");
-            self._arg(&argv, "-x");
-            self._arg(&argv, "c");
-        } else {
+        // -std only for the languages it names: IR has none, and an ObjC or
+        // OpenCL standard is not a C++ one.
+        if (xlang == "c") || (xlang == "cpp-output") {
+            self._arg(&argv, f"-std={self._cfg.c_std}");
+        } else if (xlang == "c++") || (xlang == "c++-cpp-output") {
             self._arg(&argv, f"-std={self._cfg.cxx_std}");
-            self._arg(&argv, "-x");
-            self._arg(&argv, "c++");
         }
+        self._arg(&argv, "-x");
+        self._arg(&argv, xlang);
         self._arg(&argv, src);
         self._arg(&argv, "-o");
         self._arg(&argv, out);
@@ -518,11 +437,9 @@ class ClangBackend {
         words.push_back(f"--target={self._cfg.triple}");
         words.push_back(f"-std={self._cfg.cxx_std}");
         for w: string in self._cfg.driver_words { words.push_back(w); }
-        if self._cfg.debug_info {
-            words.push_back("-g");
-            if self._cfg.dwarf_version > 0 { words.push_back(f"-gdwarf-{self._cfg.dwarf_version}"); }
-            if self._cfg.debug_macros      { words.push_back("-fdebug-macro"); }
-            if self._cfg.embed_source      { words.push_back("-gembed-source"); }
+        for w: string in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
+                                                      self._cfg.debug_macros, self._cfg.embed_source) {
+            words.push_back(w);
         }
         words.push_back("-fsyntax-only");
         words.push_back("-x");
@@ -542,59 +459,83 @@ class ClangBackend {
             return self._target_args;
         }
 
-        // Flags taking their value as the next word.
-        var paired = vec::<string>();
-        paired.push_back("-target-cpu");
-        paired.push_back("-tune-cpu");
-        paired.push_back("-target-feature");
-        paired.push_back("-target-abi");
-        paired.push_back("-mfloat-abi");
-        var exact = vec::<string>();
-        exact.push_back("-msoft-float");
-        exact.push_back("-fno-signed-char");
-        exact.push_back("-fno-use-cxa-atexit");
-        exact.push_back("-fno-use-init-array");
-        exact.push_back("-fms-extensions");
-        exact.push_back("-fms-compatibility");
-        exact.push_back("-fms-volatile");
-        exact.push_back("-fdelayed-template-parsing");
-        exact.push_back("-gcodeview");
-        exact.push_back("-debug-info-macro");
-        exact.push_back("-gembed-source");
-        // Flags with their value joined by `=`.
-        var joined = vec::<string>();
-        joined.push_back("-exception-model=");
-        joined.push_back("-funwind-tables=");
-        joined.push_back("-fms-compatibility-version=");
-        joined.push_back("-fgnuc-version=");
-        joined.push_back("-debug-info-kind=");
-        joined.push_back("-dwarf-version=");
-        joined.push_back("-debugger-tuning=");
-        joined.push_back("-fdebug-compilation-dir=");
-
-        for var i: usize = 0; i < cc1.size(); ++i {
-            var a = string(cc1[i]);
-            var took = false;
-            for p: string in paired {
-                if (a == p) && (i + 1 < cc1.size()) {
-                    self._target_args.push_back(a);
-                    self._target_args.push_back(string(cc1[i + 1]));
-                    i += 1;
-                    took = true;
-                    break;
-                }
-            }
-            if took { continue; }
-            for p: string in exact {
-                if a == p { self._target_args.push_back(a); took = true; break; }
-            }
-            if took { continue; }
-            for p: string in joined {
-                if a.starts_with(p) { self._target_args.push_back(a); break; }
-            }
-        }
+        // Which of the driver's cc1 words decide the target is the
+        // translator's call (FlagTranslator::probe_filter).
+        for a: string in FlagTranslator::probe_filter(cc1) { self._target_args.push_back(a); }
         return self._target_args;
     }
+
+    /// \brief the header-search model and the sysroot's required macros,
+    ///        in either spelling: kairo's own cc1 line (_cc1_common) and the
+    ///        clang driver line C/C++ inputs compile with (ClangJobs) search
+    ///        exactly the same roots, in the same order.
+    ///
+    /// \details ONE explicit model for every target, the host included.
+    ///          clang is told exactly which roots to search and never falls
+    ///          back to whatever the machine has: the roots are exactly
+    ///          --sysroot and --resource-dir, never discovered
+    ///          (CompilerInstance::initialize copies them), and the same
+    ///          layout is what every kbld SYSROOT.toml declares (include_dirs
+    ///          = include/c++/v1, include; cc_isolation = -nostdlibinc
+    ///          -nostdinc++).
+    ///
+    ///            <sysroot>/include/c++/v1   libc++
+    ///            <resource>/include         clang builtins (stddef.h, intrinsics)
+    ///            <sysroot>/include          libc
+    ///
+    ///          A root that did not resolve is left out rather than guessed;
+    ///          the resolver has already logged which one and why. \p is_c
+    ///          leaves libc++ off: its C-named wrappers (<stdlib.h>,
+    ///          <stddef.h>) are C++ headers, and C must reach the libc and
+    ///          clang builtin ones directly.
+    ///
+    ///          The sysroot's -D macros are here, not per TU: every compile
+    ///          copies this invocation, and the header-set PCH reader rejects
+    ///          a predefines mismatch.
+    fn sysroot_words(self, is_c: bool, sp: ClangSpelling) -> vec::<string> {
+        var o   = vec::<string>();
+        var cc1 = sp == ClangSpelling::CC1;
+        var sr = self._cfg.sysroot;
+        var rd = self._cfg.resource_dir;
+        var declared = (!self._cfg.include_dirs.empty()) || (!self._cfg.cxx_include_dirs.empty());
+        o.push_back(("-nostdsysteminc") if (cc1) else ("-nostdlibinc"));
+        o.push_back("-nostdinc++");
+        if !rd.empty() { o.push_back("-resource-dir"); o.push_back(rd); }
+        if declared {
+            if !is_c {
+                for d: string in self._cfg.cxx_include_dirs { o.push_back("-isystem"); o.push_back(d); }
+            }
+            if !rd.empty() { o.push_back("-isystem"); o.push_back(f"{rd}/include"); }
+            for d: string in self._cfg.include_dirs { o.push_back("-isystem"); o.push_back(d); }
+        } else {
+            if (!sr.empty()) && (!is_c) { o.push_back("-isystem"); o.push_back(f"{sr}/include/c++/v1"); }
+            if !rd.empty() { o.push_back("-isystem"); o.push_back(f"{rd}/include"); }
+            if !sr.empty() { o.push_back("-isystem"); o.push_back(f"{sr}/include"); }
+        }
+        for d: string in self._cfg.framework_dirs { o.push_back("-iframework"); o.push_back(d); }
+        if !sr.empty() { o.push_back("-isysroot"); o.push_back(sr); }
+        // The driver also anchors its toolchain search (crt, gcc install
+        // detection) on --sysroot; without it that search is the host's.
+        if (!cc1) && (!sr.empty()) { o.push_back(f"--sysroot={sr}"); }
+        // The driver adds the builtin directory itself, as an internal
+        // system root; cc1 has to be told (builtin <stdint.h> -> uintptr_t).
+        if cc1 && (!rd.empty()) {
+            o.push_back("-internal-isystem");
+            o.push_back(f"{rd}/include");
+        }
+        for d: string in self._cfg.defines { o.push_back(f"-D{d}"); }
+        return o;
+    }
+
+    /// The effective target triple every compile in this build uses.
+    fn triple(self) -> string { return self._cfg.triple; }
+
+    /// The printer clang's own diagnostics go to (C/C++ inputs have no Kairo
+    /// fid, so they are reported in clang's format). Null before startup().
+    fn printer(self) -> *clang::TextDiagnosticPrinter { return self._printer; }
+
+    /// The engine clang's driver and cc1 argument parsing report through.
+    fn arg_diags(self) -> *clang::DiagnosticsEngine { return self._diags0.get(); }
 
     /// \brief the cc1 arguments every clang compile in this build shares:
     ///        target, object emission, the explicit header-search model,
@@ -619,47 +560,9 @@ class ClangBackend {
         self._arg(argv, "-fno-finite-loops");
         self._arg(argv, "-emit-obj");
 
-        // Header search: ONE explicit model for every target, the host
-        // included. cc1 is told exactly which roots to search and never falls
-        // back to whatever the machine has (the driver's job, and cc1 has no
-        // driver): the roots are exactly --sysroot and --resource-dir, never
-        // discovered (CompilerInstance::initialize copies them), and the same
-        // layout is what every kbld SYSROOT.toml declares (include_dirs =
-        // include/c++/v1, include; cc_isolation = -nostdlibinc -nostdinc++).
-        //
-        //   <sysroot>/include/c++/v1   libc++
-        //   <resource>/include         clang builtins (stddef.h, intrinsics)
-        //   <sysroot>/include          libc
-        //
-        // A root that did not resolve is left out rather than guessed; the
-        // resolver has already logged which one and why.
-        var sr = self._cfg.sysroot;
-        var rd = self._cfg.resource_dir;
-        var declared = (!self._cfg.include_dirs.empty()) || (!self._cfg.cxx_include_dirs.empty());
-        self._arg(argv, "-nostdsysteminc");   // cc1 spelling of -nostdlibinc
-        self._arg(argv, "-nostdinc++");
-        if !rd.empty() { self._arg(argv, "-resource-dir"); self._arg(argv, rd); }
-        if declared {
-            if !is_c {
-                for d: string in self._cfg.cxx_include_dirs { self._arg(argv, "-isystem"); self._arg(argv, d); }
-            }
-            if !rd.empty() { self._arg(argv, "-isystem"); self._arg(argv, f"{rd}/include"); }
-            for d: string in self._cfg.include_dirs { self._arg(argv, "-isystem"); self._arg(argv, d); }
-        } else {
-            if (!sr.empty()) && (!is_c) { self._arg(argv, "-isystem"); self._arg(argv, f"{sr}/include/c++/v1"); }
-            if !rd.empty() { self._arg(argv, "-isystem");      self._arg(argv, f"{rd}/include"); }
-            if !sr.empty() { self._arg(argv, "-isystem");      self._arg(argv, f"{sr}/include"); }
-        }
-        for d: string in self._cfg.framework_dirs { self._arg(argv, "-iframework"); self._arg(argv, d); }
-        if !sr.empty() { self._arg(argv, "-isysroot"); self._arg(argv, sr); }
-        if !rd.empty() {
-            self._arg(argv, "-internal-isystem");   // builtin <stdint.h> -> uintptr_t
-            self._arg(argv, f"{rd}/include");
-        }
-
-        // Here, not per TU: every compile copies this invocation, and the
-        // header-set PCH reader rejects a predefines mismatch.
-        for d: string in self._cfg.defines { self._arg(argv, f"-D{d}"); }
+        // Header search and the sysroot's macros: the one root model,
+        // shared with C/C++ inputs (sysroot_words says why it is explicit).
+        for a: string in self.sysroot_words(is_c, ClangSpelling::CC1) { self._arg(argv, a); }
 
         for a: string in self._cfg.extra_cc1 {
             self._arg(argv, a);
@@ -673,17 +576,12 @@ class ClangBackend {
         // PCHs (whose reader rejects an __OPTIMIZE__ mismatch), the native
         // runtime objects and every TU's codegen run alike -- so builtin,
         // std and the user's code are always built at one level.
-        if self._cfg.opt_size == 2      { self._arg(argv, "-Oz"); }
-        else if self._cfg.opt_size == 1 { self._arg(argv, "-Os"); }
-        else                            { self._arg(argv, f"-O{self._cfg.opt_level}"); }
-        // cc1 leaves both vectorizers off unless asked; the clang driver
-        // asks from the level, and there is no driver here. Kairo turns
-        // them on at every level above -O0 (Oz included, unlike clang's
-        // shouldEnableVectorizerAtOLevel), and -fno-vectorize turns them off.
-        if (self._cfg.vectorize) && ((self._cfg.opt_level > 0) || (self._cfg.opt_size > 0)) {
-            self._arg(argv, "-vectorize-loops");
-            self._arg(argv, "-vectorize-slp");
+        var fvec: i32 = (1) if (self._cfg.vectorize) else (0);
+        for a: string in FlagTranslator::optimization(self._cfg.opt_level, self._cfg.opt_size, fvec, ClangSpelling::CC1) {
+            self._arg(argv, a);
         }
+        // (The vectorizers come with the level: FlagTranslator::optimization
+        // says why kairo asks for them at every level above -O0.)
 
         // User diagnostic policy for clang-sourced diagnostics: -W<grp> (enable),
         // -Wno-<grp> (silence), -Werror=<grp> (promote/forbid). Resolved from

@@ -58,7 +58,6 @@ class LinkerOptions {
     pub var rpath:             vec::<string>;       ///< --rpath (repeatable)
     pub var rpath_link:        vec::<string>;       ///< --rpath-link (repeatable)
     pub var ld_flags:          vec::<string>;       ///< --ld-flags (repeatable)
-    pub var cxx_flags:         vec::<string>;       ///< --cxx-flags (repeatable)
     pub var export_dynamic:    bool   = false;
     pub var now:               bool   = false;      ///< -z now (full RELRO)
     pub var z_noexecstack:     bool   = false;
@@ -161,7 +160,6 @@ class LinkerOptions {
         for s in args.get_list("rpath")      { o.rpath.push_back(s);      }
         for s in args.get_list("rpath-link") { o.rpath_link.push_back(s); }
         for s in args.get_list("ld-flags")   { o.ld_flags.push_back(s);   }
-        for s in args.get_list("cxx-flags")  { o.cxx_flags.push_back(s);  }
 
         // -- ELF/Linux feature toggles -------------------------------------
         (o.f_relro)          = args.get_feature("relro");

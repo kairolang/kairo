@@ -56,9 +56,15 @@ class CompilerInvocation {
     pub var working_dir:    string = "";
     pub var input_encoding: string = "utf-8";
     pub var input_files:    vec::<string>;
+    /// Parallel to input_files: the -x language each was given under ("" =
+    /// classify by extension). May be SHORTER than input_files on the
+    /// programmatic path; input_lang() treats a missing entry as "".
+    pub var input_langs:    vec::<string>;
     pub var include_dirs:   vec::<string>;
     pub var ffi_includes:   vec::<string>;
     pub var cxx_includes:   vec::<string>;
+    pub var cxx_defines:    vec::<string>;   ///< --cxx-define: clang -D
+    pub var cxx_undefines:  vec::<string>;   ///< --cxx-undefine: clang -U
     pub var macro_paths:    vec::<string>;
 
     // -- provenance --------------------------------------------------------
@@ -84,6 +90,12 @@ class CompilerInvocation {
     ///          caller never has to set it.
     pub var ok: bool = true;
 
+    /// The -x language of input \p i, "" when none was given.
+    fn input_lang(self, i: usize) -> string {
+        if i < self.input_langs.size() { return self.input_langs[i]; }
+        return "";
+    }
+
     static fn from_args(args: ref!(ParsedArgs)) -> CompilerInvocation {
         var inv = CompilerInvocation();
         (inv.args)     = args;
@@ -97,12 +109,15 @@ class CompilerInvocation {
         (inv.linker)   = LinkerOptions::from_args(args);
 
         (inv.input_files)    = (args.files);
+        (inv.input_langs)    = (args.file_langs);
         (inv.working_dir)    = (args.get_string("working-dir"));
         (inv.input_encoding) = (args.get_string("input-encoding"));
 
         for s in (args.get_list("include-dirs"))      { (inv.include_dirs.push_back(s)); }
         for s in (args.get_list("ffi-include"))       { (inv.ffi_includes.push_back(s)); }
         for s in (args.get_list("cxx-include"))       { (inv.cxx_includes.push_back(s)); }
+        for s in (args.get_list("cxx-define"))        { (inv.cxx_defines.push_back(s));  }
+        for s in (args.get_list("cxx-undefine"))      { (inv.cxx_undefines.push_back(s)); }
         for s in (args.get_list("macro-search-path")) { (inv.macro_paths.push_back(s));  }
         return inv;
     }
