@@ -40,6 +40,29 @@
 ///     of it (IMPORTS.md §7). Extension members: out-of-line definitions
 ///     of their scope's static members, in its namespace, receiver first.
 ///
+///   \par Constructors that initialize a const field
+///     C++ wants a const member's value at the mem-initializer list, so a
+///     constructor CtorInitCheck split (FunctionDecl::ci_split; the body is
+///     `{ {S_pre} {S_post} }` after CtorInitLowering) becomes four
+///     definitions (_split_ctor):
+///
+///       struct R::__kairo_ciK { ::__kairo_slot<T> x; ... };
+///       auto R::__kairo_ctor_preK(__kairo_ciK&& __kairo_s, P& p) -> __kairo_ciK& { S_pre; return __kairo_s; }
+///       R::R(__kairo_ciK& __kairo_s, P& p) : x(__kairo_s.x.take()) { S_post }
+///       R::R(P p) : R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}
+///
+///     S_pre runs before any object exists, so in it `self.x = e` fills a
+///     slot (`__kairo_s.x.init(e)`, `.put(e)` for a `var` field) and `self.x`
+///     reads one; CtorInitCheck allows `self` nowhere else there. A local of
+///     S_pre that S_post reads is a slot in both halves. The slot record is
+///     the public constructor's temporary, alive to the end of its
+///     mem-initializer, which encloses the whole slot constructor; nothing
+///     copies or moves it. A field S_pre assigns on every path is built from
+///     its slot by mem-initializer, in declaration order; one it assigns on
+///     some paths keeps its default and is assigned from the slot, if set,
+///     before S_post. Parameters reach both halves by reference
+///     (`__kairo_lref`), so what S_pre does to one S_post sees.
+///
 ///   Import law: CodegenContext only. clang::tok is visible transitively.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -85,6 +108,10 @@ class EmitIR {
     /// The function whose body is being emitted. Decides what `self` means.
     priv var _cur_fn:  *FunctionDecl  = &null;
     priv var _cur_ext: *ExtensionDecl = &null;   ///< non-null inside an extension member.
+    /// A split constructor whose slots are live (file header), and whether
+    /// this is its S_pre, where there is no object and `self.x` is a slot.
+    priv var _ci_fn:  *FunctionDecl = &null;
+    priv var _ci_pre: bool = false;
 
     fn EmitIR(self, cg: *CodegenContext) {
         self._cg    = cg;
@@ -282,6 +309,7 @@ class EmitIR {
     priv fn _method(self, m: *FunctionDecl, owner: *Decl) {
         if !m->has_body() { return; }
         if m->body_kind != FnBodyKind::Block { self._unsupported_body(m); return; }
+        if m->ci_split > 0 { self._split_ctor(m, owner); return; }
 
         var at = CXXSpell::at(static_cast::<*Decl>(m));
         var wrap = self._open_ns(owner, at);
@@ -316,6 +344,170 @@ class EmitIR {
 
         self._body(m, &null);
         self._close_ns(m->range, wrap);
+    }
+
+    // --- Constructors that initialize a const field (file header) ----------------
+
+    /// The slot record's definition, the pre-function, the slot constructor
+    /// and the public constructor that delegates to it, for \p m, whose body
+    /// CtorInitLowering cut into `{ {S_pre} {S_post} }`.
+    priv fn _split_ctor(self, m: *FunctionDecl, owner: *Decl) {
+        var b = m->body_block;
+        if ((!m->ci_cut) || (b == &null) || (b->body.size() != 2)) { self._ice(m->range, "EmitIR: a constructor CtorInitCheck split reached codegen uncut; CtorInitLowering owns it"); }
+        var pre  = dyn_cast::<CompoundStmt>(b->body[0]);
+        var post = dyn_cast::<CompoundStmt>(b->body[1]);
+        if ((pre == &null) || (post == &null)) { self._ice(m->range, "EmitIR: a split constructor's body is not its two blocks; CtorInitLowering owns it"); }
+
+        var at   = CXXSpell::at(static_cast::<*Decl>(m));
+        var wrap = self._open_ns(owner, at);
+        var oh   = self._owner_template_head(owner);
+        var q    = self._owner_qual(owner);
+        var inl  = ("inline ") if (m->is_inline()) else ("");
+        var ci   = LowerTargets::ctor_slots(m->ci_index);
+        var sa   = LowerTargets::ctor_slot_arg();
+        var leaf = self._spell.leaf(owner);
+        var ps   = self._lref_params(m);
+        var args = self._param_names(m);
+
+        // The slot record. Its members' types are complete here, which they
+        // need not be where only the class is (InterfaceEmitter declares it).
+        var r = oh + "struct " + q + "::" + ci + " {";
+        for var i: usize = 0; i < m->ci_slots.size(); ++i {
+            r += " ::" + LowerTargets::ctor_slot() + "<" + self._slot_type(i) + "> " + self._slot_name(i) + ";";
+        }
+        r += " };";
+        self._cg->sink->spell(at, r);
+        self._cg->sink->brk();
+
+        var saved_fn  = self._cur_fn;
+        var saved_ext = self._cur_ext;
+        var saved_ci  = self._ci_fn;
+        var saved_pre = self._ci_pre;
+        self._cur_fn  = m;
+        self._cur_ext = &null;
+        self._ci_fn   = m;
+
+        // S_pre, against the slots.
+        self._cg->sink->spell(at, oh + inl + "auto " + q + "::" + LowerTargets::ctor_pre(m->ci_index)
+            + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&");
+        self._ci_pre = true;
+        self._cg->sink->synth_at_start(pre->range, clang::tok::l_brace);
+        for var i: usize = 0; i < pre->body.size(); ++i { self.emit(pre->body[i]); }
+        self._cg->sink->spell(pre->range, "return " + sa + ";");
+        self._cg->sink->synth_at_end(pre->range, clang::tok::r_brace);
+        self._ci_pre = false;
+        self._cg->sink->brk();
+
+        // The object, built from the slots; then S_post in it.
+        var h = oh + inl + q + "::" + leaf + "(" + ci + "& " + sa + ps + ")";
+        var first = true;
+        for var i: usize = 0; i < m->ci_slots.size(); ++i {
+            var f = dyn_cast::<FieldDecl>(m->ci_slots[i]);
+            if (f == &null) || (!m->ci_dense[i]) { continue; }
+            h += (" : ") if (first) else (", ");
+            first = false;
+            h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + sa + "." + self._slot_name(i) + ".take())";
+        }
+        self._cg->sink->spell(at, h);
+        self._cg->sink->synth_at_start(post->range, clang::tok::l_brace);
+        // A `var` field S_pre assigned on some paths only kept its default;
+        // the slot's value replaces it where there is one.
+        for var i: usize = 0; i < m->ci_slots.size(); ++i {
+            var f = dyn_cast::<FieldDecl>(m->ci_slots[i]);
+            if (f == &null) || m->ci_dense[i] { continue; }
+            var nm = self._slot_name(i);
+            self._cg->sink->spell(post->range, "if (" + sa + "." + nm + ".set) { this->" + self._spell.leaf(static_cast::<*Decl>(f)) + " = " + sa + "." + nm + ".take(); }");
+        }
+        for var i: usize = 0; i < post->body.size(); ++i { self.emit(post->body[i]); }
+        self._cg->sink->synth_at_end(post->range, clang::tok::r_brace);
+        self._cg->sink->brk();
+
+        self._cur_fn  = saved_fn;
+        self._cur_ext = saved_ext;
+        self._ci_fn   = saved_ci;
+        self._ci_pre  = saved_pre;
+
+        // The constructor Kairo declared: fill a fresh slot record, then
+        // delegate. The temporary lives to the end of this mem-initializer.
+        var pub_h = oh + inl + q + "::" + leaf + "(" + self._params_text(m, &null) + ")";
+        if m->no_unwind { pub_h += " noexcept"; }
+        pub_h += " : " + leaf + "(" + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "()" + args + ")" + args + ") {}";
+        self._cg->sink->spell(at, pub_h);
+        self._close_ns(m->range, wrap);
+    }
+
+    /// Index of \p d in the live split constructor's slots, or usize(-1). A
+    /// field counts only when \p fields: after S_pre the object exists.
+    priv fn _slot_of(self, d: *Decl, fields: bool) -> usize {
+        if (self._ci_fn == &null) || (d == &null) { return usize(-1); }
+        if isa::<FieldDecl>(d) && (!fields) { return usize(-1); }
+        var sl = self._ci_fn->ci_slots;
+        for var i: usize = 0; i < sl.size(); ++i {
+            if sl[i] == d { return i; }
+        }
+        return usize(-1);
+    }
+
+    /// A field's slot is named as the field; a carried local's by its
+    /// position too (LowerTargets::ctor_local_slot).
+    priv fn _slot_name(self, i: usize) -> string {
+        var d = self._ci_fn->ci_slots[i];
+        if isa::<FieldDecl>(d) { return self._spell.leaf(d); }
+        var v = cast::<VariableDecl>(d);
+        return LowerTargets::ctor_local_slot(i, self._spell.imm_name(v->name.imm, self._owning_fid()));
+    }
+
+    priv fn _slot_type(self, i: usize) -> string {
+        var d = self._ci_fn->ci_slots[i];
+        if isa::<FieldDecl>(d) { return self._spell._type(cast::<FieldDecl>(d)->type_); }
+        return self._spell._type(cast::<VariableDecl>(d)->type_);
+    }
+
+    /// `var n = e` in S_pre, for a local S_post reads: its slot, built.
+    /// `var n: T` alone is `T{}`, the default every local gets (_var_init).
+    priv fn _slot_local_init(self, v: *VariableDecl) {
+        var si = self._slot_of(static_cast::<*Decl>(v), false);
+        self._cg->sink->spell(v->name.range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + ".init(");
+        if v->init == &null {
+            self._cg->sink->spell(v->name.range, self._spell._type(v->type_) + "{}");
+        } else {
+            self._value(v->init, v->type_);
+        }
+        self._cg->sink->spell(v->name.range, ")");
+    }
+
+    /// The field \p e names when it is exactly `self.f`, else null.
+    priv fn _self_field(self, e: *Expr) -> *FieldDecl {
+        var c = dyn_cast::<ChainExpr>(e);
+        if (c == &null) || (c->steps.size() != 1) || (!self._base_is_self(c->base)) { return &null; }
+        var d = c->steps.get(0)->resolved_decl;
+        if (d == &null) || (!isa::<FieldDecl>(d)) { return &null; }
+        return cast::<FieldDecl>(d);
+    }
+
+    /// `, __kairo_lref<P> p` per parameter but `self`: the same text
+    /// InterfaceEmitter::_lref_params declares, spelled for a definition.
+    priv fn _lref_params(self, m: *FunctionDecl) -> string {
+        var s = "";
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var p = m->params[i];
+            if (p == &null) || p->is_self { continue; }
+            s += ", ::" + LowerTargets::lref() + "<" + self._spell.param_type(p) + "> ";
+            s += self._spell.imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(m)));
+        }
+        return s;
+    }
+
+    /// `, p` per parameter but `self`: the public constructor's own, passed
+    /// on as lvalues.
+    priv fn _param_names(self, m: *FunctionDecl) -> string {
+        var s = "";
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var p = m->params[i];
+            if (p == &null) || p->is_self { continue; }
+            s += ", " + self._spell.imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(m)));
+        }
+        return s;
     }
 
     /// `template <class T>` for each generic owner, outermost first.
@@ -509,7 +701,14 @@ class EmitIR {
     priv fn _decl(self, n: *DeclStmt) {
         if (n->decl == &null) { self._ice(n->range, "EmitIR: DeclStmt with no decl"); }
         switch n->decl->kind {
-            case DeclKind::VariableDecl { self._var_decl(cast::<VariableDecl>(n->decl)); }
+            case DeclKind::VariableDecl {
+                // A local S_post reads is its slot's first assignment.
+                if self._slot_of(n->decl, false) != usize(-1) {
+                    self._slot_local_init(cast::<VariableDecl>(n->decl));
+                } else {
+                    self._var_decl(cast::<VariableDecl>(n->decl));
+                }
+            }
             case DeclKind::StructDecl   { self._local_record(cast::<StructDecl>(n->decl)); }
             default { self._ice(n->range, "EmitIR: statement-scope named decls (local fn/class/type) are not emitted yet"); }
         }
@@ -929,6 +1128,15 @@ class EmitIR {
         if ((d == &null) && (n->candidate_cell != &null)) { self._ice(n->range, "EmitIR: unpromoted overload set reached codegen; ExprTyper gate failure"); }
         if (d == &null) { self._ice(n->range, "EmitIR: unbound name reached codegen; NameResolution gate failure"); }
 
+        // A slot of a split constructor: a carried local in either half, a
+        // field (named bare) only in S_pre, where the object does not exist.
+        var si = self._slot_of(d, self._ci_pre);
+        if si != usize(-1) {
+            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + ".get()");
+            return;
+        }
+        if self._ci_pre && self._is_self_decl(d) { self._ice(n->range, "EmitIR: `self` before every const field is initialized; CtorInitCheck gate failure"); }
+
         if self._is_self_decl(d) {
             if self._is_pointer(static_cast::<*Expr>(n)) { self._self_ptr(n); return; }
             self._cg->sink->spell(n->range, "(*");
@@ -989,13 +1197,24 @@ class EmitIR {
         } else {
             if (n->base == &null) { self._ice(n->range, "EmitIR: global-root chain with no `::` step"); }
             // `self.x` is `this->x`: the base is the pointer, not _name's
-            // value form `(*this)`.
-            if self._base_is_self(n->base) {
-                self._self_ptr(cast::<NamedIdentExpr>(n->base));
+            // value form `(*this)`. In a split constructor's S_pre there is
+            // no `this`: `self.x` is x's slot (file header).
+            if self._ci_pre && self._base_is_self(n->base) {
+                if upto == 0 { self._ice(n->range, "EmitIR: `self` before every const field is initialized; CtorInitCheck gate failure"); }
+                var st0 = n->steps.get(0);
+                var s0 = self._slot_of(st0->resolved_decl, true);
+                if s0 == usize(-1) { self._ice(st0->range, "EmitIR: a field S_pre never assigns read before the object exists; CtorInitCheck gate failure"); }
+                self._cg->sink->spell(st0->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(s0) + ".get()");
+                is_ptr = self._type_is_pointer(st0->resolved_type);
+                i = 1;
             } else {
-                self.emit(n->base);
+                if self._base_is_self(n->base) {
+                    self._self_ptr(cast::<NamedIdentExpr>(n->base));
+                } else {
+                    self.emit(n->base);
+                }
+                is_ptr = self._base_is_self(n->base) || self._is_pointer(n->base);
             }
-            is_ptr = self._base_is_self(n->base) || self._is_pointer(n->base);
         }
         for var j: usize = i; j < upto; ++j {
             var st = n->steps.get(j);
@@ -1329,6 +1548,21 @@ class EmitIR {
     }
 
     priv fn _assign(self, n: *AssignOperatorExpr) {
+        // S_pre's `self.x = e` fills x's slot: `init` for a const field (its
+        // one assignment, CtorInitCheck), `put` for a `var` one, which S_pre
+        // may assign again.
+        if self._ci_pre && (n->op_token.kind == TokenKind::OpEqual) {
+            var f = self._self_field(n->lhs);
+            if f != &null {
+                var si = self._slot_of(static_cast::<*Decl>(f), true);
+                if si == usize(-1) { self._ice(n->range, "EmitIR: S_pre assigns a field with no slot; CtorInitCheck gate failure"); }
+                var put_fn = (".init(") if (f->is_const()) else (".put(");
+                self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + put_fn);
+                self._value(n->rhs, f->type_);
+                self._cg->sink->spell(n->range, ")");
+                return;
+            }
+        }
         // Plain `=` on records is copy/move assignment; CopyMoveLowering
         // decides which. Compound assignment on a record is a user operator.
         if (n->op_token.kind != TokenKind::OpEqual) {

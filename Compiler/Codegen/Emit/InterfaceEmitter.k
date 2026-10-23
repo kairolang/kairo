@@ -42,10 +42,26 @@
 ///     body goes out of line like every user-written body (invariant 12: no
 ///     user-written function body is ever emitted in-class).
 ///
+///   \par Static fields
+///     Declared in the class with no initializer (C++ allows one in-class
+///     only on a const static), then DEFINED right after the outermost
+///     record, in its namespace wrapper, as an inline variable:
+///     `inline [constinit] T R::s = <init>;` (_static_defs). Inline, because
+///     every TU that holds the class must also hold the definition of a
+///     static it can odr-use, and the linker keeps one. `constinit` exactly
+///     when FieldInitLowering folded the initializer to a literal: that is a
+///     constant expression for every instantiation, so clang can never
+///     reject it, and it turns cross-TU initialization order from a runtime
+///     surprise into a guarantee. A thunk's call is dynamic initialization,
+///     never `constinit` -- deciding constness per instance needs the
+///     monomorphizer (CODEGEN.md §10). No initializer at all is `{}`: Kairo
+///     has no uninitialized variable. Not inside a nested record's braces:
+///     `T Outer::Inner::s = ...;` is a namespace-scope declaration.
+///
 ///   \par What is NOT emitted (each an ICE naming its owner)
 ///     Named unions (later; an anonymous one is written inline as the field
 ///     that declares it), interfaces (no entity; witnesses MISSING), the
-///     initializer of a static, eval or array-typed field (FeatureGateCheck
+///     initializer of an eval or array-typed field (FeatureGateCheck
 ///     rejects it), packs in expansion position, structural containers (the
 ///     container migration). Parameter defaults are not declared:
 ///     CallLowering's thunks supply them at every call.
@@ -151,6 +167,11 @@ class InterfaceEmitter {
             "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
         self._cg->sink->brk();
         if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+        // A constructor that initializes a const field (_ctor_slot_helpers).
+        // Only when one is planned, so no other TU's text changes; guarded
+        // apart from the helpers above, which an earlier header may have
+        // defined without these.
+        if self._needs_ctor_slots() { self._ctor_slot_helpers(header); }
 
         var i: usize = 0;
         var n = self._plan->entries.size();
@@ -203,7 +224,10 @@ class InterfaceEmitter {
                 self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
                 self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::tuple_guard(static_cast::<usize>(tup->tuple_arity)));
             }
-            self._wrapped(e->decl, fn () { self._type_def(e->decl); });
+            self._wrapped(e->decl, fn () {
+                self._type_def(e->decl);
+                self._static_defs(e->decl);
+            });
             if guard { self._cg->sink->directive(self._tu_at(), "#endif"); }
         }
 
@@ -496,10 +520,13 @@ class InterfaceEmitter {
             if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
             var fs = "";
             if f->is_static()  { fs += "static "; }
+            if f->is_static() && f->is_thread { fs += "thread_local "; }
             if f->is_mutable   { fs += "mutable "; }
             if f->is_const()   { fs += "const "; }
             fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
-            fs += self._field_default(f);
+            // A static's value is its definition's (_static_defs), never an
+            // in-class initializer, which C++ refuses on a non-const static.
+            if !f->is_static() { fs += self._field_default(f); }
             fs += ";";
             self._cg->sink->spell(f->name.range, fs);
         }
@@ -509,6 +536,17 @@ class InterfaceEmitter {
             if m == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
+        }
+
+        // Each constructor that initializes a const field: its slot record,
+        // its pre-function and the constructor that takes the slots
+        // (_split_ctor_decls). Private: only the public constructor calls
+        // them.
+        for var i: usize = 0; i < methods.size(); ++i {
+            var m = methods[i];
+            if (m == &null) || (m->ci_split == 0) { continue; }
+            cur_access = self._access(cur_access, VIS_PRIV(), false, at);
+            self._split_ctor_decls(m, d);
         }
 
         // `op =`, derived from the transfer constructor (_derived_assign).
@@ -986,11 +1024,191 @@ class InterfaceEmitter {
             default { 0; }
         }
         // An initializer still on the field is one FeatureGateCheck rejects
-        // (a static, eval or array-typed field) and FieldInitLowering leaves.
+        // (an eval or array-typed field) and FieldInitLowering leaves.
         if f->init != &null {
-            self._ice(f->name.range, "InterfaceEmitter: initializer of a static, eval or array-typed field reached codegen; FeatureGateCheck rejects it");
+            self._ice(f->name.range, "InterfaceEmitter: initializer of an eval or array-typed field reached codegen; FeatureGateCheck rejects it");
         }
         return "";
+    }
+
+    // --- Const fields in a constructor ----------------------------------------------
+
+    /// True when some record the plan defines has a split constructor.
+    priv fn _needs_ctor_slots(self) -> bool {
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var e = &(self._plan->entries[i]);
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) { continue; }
+            if self._has_split_ctor(e->decl) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _has_split_ctor(self, d: *Decl) -> bool {
+        if (d == &null) || ((!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))) { return false; }
+        var methods = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        for var i: usize = 0; i < methods.size(); ++i {
+            if (methods[i] != &null) && (methods[i]->ci_split > 0) { return true; }
+        }
+        var dc = CXXSpell::dc_of(d);
+        if dc == &null { return false; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var nd = *(dc->dc_decls.get(i));
+            if (nd != &null) && self._has_split_ctor(CXXSpell::rep(nd)) { return true; }
+        }
+        return false;
+    }
+
+    /// `__kairo_lref<T>` is `T&` for every parameter spelling, `T&` and
+    /// `T&&` included (reference collapsing), so the pre-function and the
+    /// slot constructor take each parameter as the public one's lvalue.
+    /// `__kairo_slot<T>` holds a T that does not exist until S_pre first
+    /// assigns it: raw storage in a union, built in place through its box's
+    /// own placement operator new (no <new>, as an ADT payload's), and
+    /// destroyed only if it was built. It is never copied or moved: the
+    /// slot record is a temporary the public constructor passes by
+    /// reference. `init` is a first assignment (a const field, a local);
+    /// `put` may be a later one (a `var` field written twice), so only it
+    /// asks T for `operator=`.
+    priv fn _ctor_slot_helpers(self, header: bool) {
+        var at = self._tu_at();
+        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::ctor_slot_guard()); }
+        if header { self._cg->sink->directive(at, "#define " + LowerTargets::ctor_slot_guard()); }
+        self._cg->sink->spell(at, "template <class T> using " + LowerTargets::lref() + " = T&;");
+        self._cg->sink->brk();
+        var sl = LowerTargets::ctor_slot();
+        var sz = builtin_info(BuiltinKind::USize)->cxx;
+        var t = "template <class T> struct " + sl + " {";
+        t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
+        t += " union { __b b; };";
+        t += " bool set = false;";
+        t += " " + sl + "() noexcept {}";
+        t += " " + sl + "(const " + sl + "&) = delete;";
+        t += " " + sl + "& operator=(const " + sl + "&) = delete;";
+        t += " ~" + sl + "() { if (set) { b.~__b(); } }";
+        t += " void init(T u) { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; set = true; }";
+        t += " void put(T u) { if (set) { b.v = static_cast<T&&>(u); } else { init(static_cast<T&&>(u)); } }";
+        t += " T& get() noexcept { return b.v; }";
+        t += " T&& take() noexcept { return static_cast<T&&>(b.v); }";
+        t += " };";
+        self._cg->sink->spell(at, t);
+        self._cg->sink->brk();
+        if header { self._cg->sink->directive(at, "#endif"); }
+    }
+
+    /// In the class, for split constructor \p m (FunctionDecl::ci_split):
+    ///   struct __kairo_ciK;
+    ///   static auto __kairo_ctor_preK(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...) -> __kairo_ciK&;
+    ///   R(__kairo_ciK& __kairo_s, __kairo_lref<P> p...);
+    /// The slot record is only declared: its members name the types of
+    /// locals the class itself never needs complete, and it is defined
+    /// beside the bodies (EmitIR::_split_ctor). The trailing return keeps a
+    /// generic owner's out-of-line definition free of `typename`.
+    priv fn _split_ctor_decls(self, m: *FunctionDecl, owner: *Decl) {
+        var at = self._at(static_cast::<*Decl>(m));
+        var ci = LowerTargets::ctor_slots(m->ci_index);
+        var sa = LowerTargets::ctor_slot_arg();
+        var ps = self._lref_params(m, owner);
+        self._cg->sink->spell(at, "struct " + ci + ";");
+        self._cg->sink->spell(at, "static auto " + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;");
+        self._cg->sink->spell(at, self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");");
+    }
+
+    /// `, __kairo_lref<P> p` per parameter but `self`, in order.
+    priv fn _lref_params(self, m: *FunctionDecl, owner: *Decl) -> string {
+        var s = "";
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var p = m->params[i];
+            if (p == &null) || p->is_self { continue; }
+            s += ", ::" + LowerTargets::lref() + "<" + self._spell->param_type(p, &null, owner) + "> ";
+            s += self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(m)));
+        }
+        return s;
+    }
+
+    /// The definitions of \p d's static fields and of every nested record's,
+    /// after \p d's closing brace (file header, Static fields). \p d is the
+    /// outermost record of a tier-1 entry; anything else has no statics.
+    priv fn _static_defs(self, d: *Decl) {
+        if (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d)) { return; }
+        var fields = (cast::<ClassDecl>(d)->fields) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->fields);
+        for var i: usize = 0; i < fields.size(); ++i {
+            var f = fields[i];
+            if (f == &null) || (!f->is_static()) || f->is_anonymous_union { continue; }
+            self._static_def(f, d);
+        }
+        var dc = CXXSpell::dc_of(d);
+        if dc == &null { return; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var nd = *(dc->dc_decls.get(i));
+            if nd == &null { continue; }
+            if isa::<ClassDecl>(nd) || isa::<StructDecl>(nd) { self._static_defs(CXXSpell::rep(nd)); }
+        }
+    }
+
+    /// `[template <...>] inline [constinit] [thread_local] T R::s = init;`.
+    /// The initializer of a static member's definition is in its class's
+    /// scope, so a thunk is called by leaf, as a default calls it.
+    priv fn _static_def(self, f: *FieldDecl, owner: *Decl) {
+        var s = self._owner_template_head(owner);
+        s += "inline ";
+        var folded = (f->init_fold == FieldFold::Int) || (f->init_fold == FieldFold::True) || (f->init_fold == FieldFold::False) || (f->init_fold == FieldFold::Null);
+        if folded { s += "constinit "; }
+        if f->is_thread { s += "thread_local "; }
+        var nm = self._owner_qual(owner) + "::" + self._spell->leaf(static_cast::<*Decl>(f));
+        s += self._spell->decl(f->type_, nm);
+        if f->init_fold == FieldFold::None {
+            if f->init != &null { self._ice(f->name.range, "InterfaceEmitter: a static field's initializer reached codegen unlowered; FieldInitLowering lowers every one"); }
+            s += "{}";
+        } else {
+            s += self._field_default(f);
+        }
+        s += ";";
+        self._cg->sink->spell(f->name.range, s);
+    }
+
+    /// `template <class T>` for each generic owner, outermost first. EmitIR's
+    /// rule for an out-of-line member (EmitIR::_owner_template_head).
+    priv fn _owner_template_head(self, owner: *Decl) -> string {
+        var chain = self._owner_chain(owner);
+        var s = "";
+        for var i: usize = 0; i < chain.size(); ++i { s += self._spell->template_head(chain[i]); }
+        return s;
+    }
+
+    /// `Outer<T>::Inner<U>`, each generic owner with its own parameters as
+    /// its arguments, relative to the outermost record's namespace wrapper
+    /// (EmitIR::_owner_qual).
+    priv fn _owner_qual(self, owner: *Decl) -> string {
+        var chain = self._owner_chain(owner);
+        var s = "";
+        for var i: usize = 0; i < chain.size(); ++i {
+            if i > 0 { s += "::"; }
+            s += self._spell->leaf(chain[i]);
+            var gps = decl_generic_params(chain[i]);
+            if gps.size() > 0 {
+                s += "<";
+                for var j: usize = 0; j < gps.size(); ++j {
+                    if j > 0 { s += ", "; }
+                    s += self._spell->imm_name(gps[j]->name.imm, CXXSpell::fid_of(chain[i]));
+                }
+                s += ">";
+            }
+        }
+        return s;
+    }
+
+    /// Type owners from outermost to \p owner inclusive (EmitIR::_owner_chain).
+    priv fn _owner_chain(self, owner: *Decl) -> vec::<*Decl> {
+        var rev = vec::<*Decl>();
+        rev.push_back(CXXSpell::rep(owner));
+        var dc = reinterpret_cast::<*DeclContext>(owner->semantic_dc);
+        while (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) {
+            rev.push_back(CXXSpell::rep(dc->dc_owner));
+            dc = dc->dc_parent;
+        }
+        var out = vec::<*Decl>();
+        for var i: usize = 0; i < rev.size(); ++i { out.push_back(rev[rev.size() - 1 - i]); }
+        return out;
     }
 
     /// A C++ enumerator value. The 64-bit minimum has no literal (its

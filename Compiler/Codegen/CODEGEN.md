@@ -329,10 +329,36 @@ members, nested types, layout edges and by-value parameters off the record
 (`EmitPlan::adt_record`, through `layout_decl`), and sees through the
 anonymous union and the payload structs as through ordinary fields.
 
+A static field is declared in the class (`static [thread_local] T s;`, no
+initializer: C++ takes one in-class only on a const static) and DEFINED
+after the outermost record's `};`, inside its namespace wrapper, as an
+inline variable: `[template <...>] inline [constinit] [thread_local] T
+R::s = <init>;` (`_static_defs`). Inline because every TU that holds the
+class can odr-use the static. `constinit` exactly when FieldInitLowering
+folded the initializer to a literal -- a constant expression for every
+instantiation, so clang never rejects it; a thunk (`= __kairo_init_s()`,
+by leaf: a static member's initializer is in its class's scope) is
+dynamic initialization. No initializer is `{}`.
+
+A constructor CtorInitCheck split (`FunctionDecl::ci_split`) declares
+three private members after the methods, from the same facts in every
+TU: `struct __kairo_ciK;` (declared only; EmitIR defines it beside the
+bodies, where the carried locals' types are complete), `static auto
+__kairo_ctor_preK(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...) ->
+__kairo_ciK&;` (trailing return: no `typename` out of line in a generic
+owner) and `R(__kairo_ciK& __kairo_s, __kairo_lref<P> p...);`. A plan
+holding such a record writes two more preamble helpers (guarded
+`__KAIRO_CTOR_SLOT_HELPERS` in a header): `template <class T> using
+__kairo_lref = T&;` and `__kairo_slot<T>`, a T in union storage built on
+its first assignment through its box's own placement `operator new` (no
+`<new>`), destroyed only if built, never copied: `init` (first
+assignment), `put` (may be a later one; the only use of T's `op =`),
+`get`, `take`, `set`.
+
 V1 refusals (each an ICE naming its owner): named unions, interfaces, the
-initializer of a static, eval or array-typed field (FeatureGateCheck
-rejects it first, SC116E: no definition of a static or eval field is
-emitted yet, and a C++ function cannot return an array). A pack is spelled
+initializer of an eval or array-typed field (FeatureGateCheck rejects it
+first, SC116E: no eval constant is emitted yet, and a C++ function
+cannot return an array). A pack is spelled
 as its
 `Slice<E>` (`ParamDecl::pack_type`).
 
@@ -365,6 +391,23 @@ it to write Kairo's left-to-right argument order into the tree. The block emits 
 block and the parens are what make it a value. Like the array prvalue it is
 clang-only -- it is not C++, it is a GNU extension clang implements -- so it
 carries the same HARD clang dependency.
+
+A split constructor (its body `{ {S_pre} {S_post} }` after
+CtorInitLowering) is four definitions (`_split_ctor`): the slot record
+(`::__kairo_slot<T>` per field S_pre assigns, in declaration order, then
+per carried local); the pre-function, S_pre against the slots, `return
+__kairo_s;`; the slot constructor, mem-initializers `x(__kairo_s.x.take())`
+for every field S_pre assigns on all paths, in declaration order, then
+`if (__kairo_s.y.set) { this->y = __kairo_s.y.take(); }` for one it
+assigns on some, then S_post; and the declared constructor, `R(P p) :
+R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}`. In S_pre (`_ci_pre`)
+`self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field),
+`self.x` and a bare field are `__kairo_s.x.get()`, and any other `self`
+ICEs (CtorInitCheck rejected it). A carried local is `__kairo_s.__kairo_lI_n`
+in both halves, built at its declaration. The temporary slot record lives
+to the end of the public constructor's mem-initializer, which encloses
+the whole slot constructor; parameters reach both halves as the public
+one's lvalues, so a change S_pre makes to one S_post sees.
 
 Definitions it produces: free functions (namespace wrapper per function),
 methods out of line (`RET Owner<T>::name(params) const`), methods defined
@@ -558,13 +601,17 @@ helper, one record-members accessor, `is_ctor` as a decl fact rather than a
 name comparison — goldens for every `Tests/Codegen` test go in FIRST, or
 the refactor has nothing to hold it.
 
-Constructor initializer lists: `FunctionDecl::initializers`, mem-init
-emission, and the const-field init-once rule. A field a mem-initializer
-sets skips its default member initializer, which is C++'s rule and
-Kairo's. Until then a constructor that assigns a defaulted field in its
-body runs the default first, then the assignment. Static data member
-definitions (an initialized `static` field) and `eval` fields as
-constants. AccessCheck. Vector/HashSet/
+Constructor initializer lists for every constructor: only a split one
+(a const field, §6) builds the fields S_pre assigns by mem-initializer; any
+other constructor that assigns a defaulted field in its body still runs
+the default first, then the assignment. The fast path the design allows
+for a split constructor (straight-line S_pre lowered into the
+mem-initializers with statement expressions, no slot record) is not
+written; the slot path is always correct. Per-instance `constinit` for a
+generic record's static whose initializer is a thunk: deciding constness
+per instantiation (and Kairo's own diagnostic when one cannot be
+constant) needs the monomorphizer (M1/M2), so today such a static is
+always dynamically initialized. `eval` fields as constants. AccessCheck. Vector/HashSet/
 HashMap constructor bodies in `Lib/builtin` — vector literals type-check
 and emit today, but do not LINK. Set and map literal lowering, which needs
 `Pair<K, V>` and the Slice constructors on HashSet/HashMap. Static
