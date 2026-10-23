@@ -34,7 +34,7 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo --syntax-only %S/Inputs/native_add.cc
 // RUN: %kairo --type-check-only %S/Inputs/native_add.cc
 // RUN: { %kairo --syntax-only %S/Inputs/native_bad.cc 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
-// BAD: native_bad.cc:1:{{[0-9]+}}: error: use of undeclared identifier 'undeclared_name'
+// BAD: native_bad.cc:1:{{[0-9]+}}: error [CL001E]: use of undeclared identifier 'undeclared_name'
 // RUN: not %kairo --syntax-only %S/Inputs/native_bad.cc > /dev/null 2>&1
 
 // Flags reach the input: --cxx-define is clang's -D, --cxx-flags are
@@ -48,7 +48,7 @@ fn main() -> i32 { return 0 }
 // them off; C gets clang's default standard unless --c-std names one.
 // RUN: %kairo -c %S/Inputs/native_throw.cc --cache-dir %t.d/exc
 // RUN: { %kairo -c -fno-exceptions %S/Inputs/native_throw.cc --cache-dir %t.d/exc 2>&1 || true; } | %FileCheck %s --check-prefix=NOEXC
-// NOEXC: error: cannot use 'throw' with exceptions disabled
+// NOEXC: error [CL001E]: cannot use 'throw' with exceptions disabled
 // RUN: %kairo -c --c-std=c23 %S/Inputs/native_c23.c --cache-dir %t.d/c23
 // RUN: not %kairo -c --c-std=c11 %S/Inputs/native_c23.c --cache-dir %t.d/c11 > /dev/null 2>&1
 
@@ -96,7 +96,7 @@ fn main() -> i32 { return 0 }
 
 // One input's errors do not fail the next one: each compile has its own
 // diagnostics. Exactly one error, and the good input's object is written.
-// RUN: { %kairo -c %S/Inputs/native_bad.cc %S/Inputs/native_add.cc --cache-dir %t.d/two 2>&1 || true; } | grep -c 'error:' | grep -qx 1
+// RUN: { %kairo -c %S/Inputs/native_bad.cc %S/Inputs/native_add.cc --cache-dir %t.d/two 2>&1 || true; } | grep -c 'error \[CL' | grep -qx 1
 // RUN: test -s %t.d/two/native_add.o
 
 // Runs that write no files have no output names to collide.
