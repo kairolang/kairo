@@ -125,6 +125,15 @@ Both lean on the same Kairo-core library. Clang appears as a guest in both,
 in kairo it's invoked at Index (FFI symbols) and at CodeGen (consume tokens
 -> object); in kcc it's the front driver that yields the .k region.
 
+kairo also takes every input kind clang's driver does (C, C++, ObjC/ObjC++,
+preprocessed .i/.ii, LLVM IR .ll/.bc, headers -> .pch, objects and
+libraries), classified by Driver/InputKinds.k or by -x <lang>. A non-.k
+source is compiled by clang's own driver, run in-process
+(Interop/Clang/ClangJobs.k), on the build's target and header roots, and
+joins the same link. Every kairo <-> clang flag spelling, in both
+directions, lives in Command/FlagTranslator.k; kcc will be kairo fed a clang
+command line through that file's reverse map.
+
 --------------------------------------------------------------------------------
 
  Pipeline 1 - kairo (the primary compiler)
