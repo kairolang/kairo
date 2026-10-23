@@ -455,6 +455,8 @@ class CompilerInstance {
         // dies; destroying the cache releases every set.
         if self._headers != &null {
             self._pool->wait_group(HEADER_BUILD_GROUP());
+            // Early-exit paths skip both Sema's drain and release_all's.
+            if self._diag != &null { self._headers->drain_all(self._diag, self._sm); }
             std::destroy(self._headers);
             self._headers = &null;
         }
@@ -1997,7 +1999,10 @@ class CompilerInstance {
         // nothing after this reads them (codegen ran inside the loop).
         // Releasing each set once its last importer passes Checked is the
         // refinement; the PCH bytes and include tree outlive the release.
-        if self._headers != &null { self._headers->release_all(); }
+        if self._headers != &null {
+            self._headers->drain_all(self._diag, self._sm);
+            self._headers->release_all();
+        }
 
         // The link runs after every TU and native compile, and before the
         // totals are taken, so a link error fails the batch like any other.

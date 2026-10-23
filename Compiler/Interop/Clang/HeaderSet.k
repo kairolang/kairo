@@ -531,6 +531,16 @@ class HeaderSetCache {
             fn (const a: *HeaderSet, const b: *HeaderSet) || -> bool = a->key < b->key);
     }
 
+    /// Every set's buffered build diagnostics into `engine`. Sema drains per
+    /// importing TU; a run that stops before Sema (a parse error) never
+    /// does, and an undrained BufferedDiagSink ICEs when the set dies.
+    fn drain_all(self, engine: *DiagEngine, sm: *SourceManager) {
+        self.wait_all();
+        var sets: vec::<*HeaderSet>;
+        self.all(sets);
+        for var i: usize = 0; i < sets.size(); ++i { sets[i]->drain_diags(engine, sm); }
+    }
+
     fn release_all(self) {
         // A build still in flight owns the very clang::CompilerInstance
         // release() destroys. --syntax-only and --preprocess stop before
