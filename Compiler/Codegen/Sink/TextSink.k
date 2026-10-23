@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------ Codegen/TextSink.k ------ ///
+/// --- The Kairo Project ---------------------- Codegen/Sink/TextSink.k --- ///
 ///
 ///   \brief EmitSink that writes bytes. The interop header (EmitCXXHeader)
 ///          and --print-cxx. Same emitter, same fragments as the token
@@ -24,7 +24,7 @@ import Location::SourceManager::*;
 import Token::Token::*;
 import Token::TokenCacheManager::*;
 import Token::TokenText::*;
-import Codegen::EmitSink::*;
+import Codegen::Sink::EmitSink::*;
 
 class TextSink derives EmitSink {
     pub var out: string = "";

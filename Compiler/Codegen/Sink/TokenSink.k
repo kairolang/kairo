@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------- Codegen/TokenSink.k ------ ///
+/// --- The Kairo Project --------------------- Codegen/Sink/TokenSink.k --- ///
 ///
 ///   \brief THE place clang::Token is constructed. Emitters call the EmitSink
 ///          accumulators; nothing else in the compiler builds a clang token.
@@ -48,7 +48,7 @@ import Location::SourceRange::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Interop::Clang::ClangLocMap::*;
-import Codegen::EmitSink::*;
+import Codegen::Sink::EmitSink::*;
 
 /// One divergent-literal token awaiting its real ExpansionLoc. Recorded at
 /// emit time (phase 1), consumed by patch_pending (phase 2).

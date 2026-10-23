@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------- Codegen/EmitCXXHeader.k --- ///
+/// --- The Kairo Project -------------- Codegen/Backend/EmitCXXHeader.k --- ///
 ///
 ///   \brief The module's C++ interop header: the same InterfaceEmitter over
 ///          a header-mode plan, into a TextSink, written to
@@ -19,7 +19,7 @@
 
 import Codegen::CodegenContext::*;
 import Codegen::EmitPlan::*;
-import Codegen::TextSink::*;
+import Codegen::Sink::TextSink::*;
 import Codegen::Emit::InterfaceEmitter::*;
 import Codegen::Emit::EmitIR::*;
 import Interop::Clang::HeaderSet::*;

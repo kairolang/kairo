@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------------- Codegen/EmitSink.k --- ///
+/// --- The Kairo Project ---------------------- Codegen/Sink/EmitSink.k --- ///
 ///
 ///   \brief The surface every emitter writes through. Two sinks derive it:
 ///          TokenSink (located clang tokens, the per-TU preamble + bodies)

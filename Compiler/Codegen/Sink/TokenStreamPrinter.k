@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------- Codegen/Printer/TokenStreamPrinter.k ---- ///
+/// --- The Kairo Project ------------ Codegen/Sink/TokenStreamPrinter.k --- ///
 ///
 ///   \brief --print-cg: show what codegen handed clang.
 ///
@@ -30,7 +30,7 @@
 ffi "c++" import "clang/Basic/TokenKinds.h";
 ffi "c++" import "clang/Lex/Token.h";
 
-import Codegen::TokenSink::*;
+import Codegen::Sink::TokenSink::*;
 
 class TokenStreamPrinter {
 

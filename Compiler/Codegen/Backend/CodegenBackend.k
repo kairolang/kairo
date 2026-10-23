@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------- Codegen/Backend.k ------ ///
+/// --- The Kairo Project ------------- Codegen/Backend/CodegenBackend.k --- ///
 ///
 ///   \brief The codegen DRIVER: entry point, stage schedule, state. Zero
 ///          emission logic. Mirrors Sema.k's discipline exactly: every time
@@ -7,17 +7,18 @@
 ///          never a method on this class.
 ///
 ///   Import rule (the anti-rot law of this layer):
-///     - Backend.k is the ONLY file that imports emitters.
-///     - Emitters import CodegenContext, never this file. They reach the
-///       sink through cg->sink.
-///     - Emitters write to an EmitSink (EmitSink.k), never to a concrete
-///       sink. The sink files are EmitSink.k (the interface), TokenSink.k
-///       (clang tokens, the real build) and TextSink.k (C++ text). This
-///       file uses only TokenSink; TextSink's callers are the driver's
-///       --print-cxx dump and EmitCXXHeader, both of which run in sema and
-///       need no clang.
-///     - Only Backend.k, CodegenAction.k, the sink files, and
-///       Printer/TokenStreamPrinter.k may import clang headers. An
+///     - Backend/ is the ONLY directory that imports emitters: this file
+///       (an object), EmitCXXHeader.k (a header) and IncludeEmitter.k (the
+///       tokens of `#include "foo.k"`), each running a plan into a sink.
+///     - Emitters import CodegenContext, never a Backend/ file. They reach
+///       the sink through cg->sink.
+///     - Emitters write to an EmitSink (Sink/EmitSink.k), never to a
+///       concrete sink. The sink files are Sink/EmitSink.k (the interface),
+///       Sink/TokenSink.k (clang tokens, the real build) and Sink/TextSink.k
+///       (C++ text). This file uses only TokenSink; TextSink's callers are
+///       the driver's --print-cxx dump and EmitCXXHeader, both of which run
+///       in sema and need no clang.
+///     - Only Backend/ and Sink/ may import clang headers. An
 ///       `ffi "c++" import "clang/..."` appearing in Emit/ is a
 ///       layer-fusion bug, full stop. Emitters name clang::tok kinds in
 ///       calls to the sink but import no clang header   they see the enum
@@ -54,14 +55,14 @@ ffi "c++" import "Native/KTimeClang.hh";
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::HeaderSet::*;
 import Location::SourceLocation::*;
-import Codegen::EmitSink::*;
-import Codegen::TokenSink::*;
+import Codegen::Sink::EmitSink::*;
+import Codegen::Sink::TokenSink::*;
 import Codegen::EmitPlan::*;
-import Codegen::CodegenAction::*;
+import Codegen::Backend::CodegenAction::*;
 import Codegen::CodegenContext::*;
-import Codegen::Printer::TokenStreamPrinter::*;
+import Codegen::Sink::TokenStreamPrinter::*;
 
-// Backend is the ONLY file that imports emitters (see header).
+// Backend/ is the ONLY directory that imports emitters (see header).
 import Codegen::Emit::EmitIR::*;
 import Codegen::Emit::InterfaceEmitter::*;
 

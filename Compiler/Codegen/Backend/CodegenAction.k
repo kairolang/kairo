@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Codegen/CodegenAction.k ------ ///
+/// --- The Kairo Project -------------- Codegen/Backend/CodegenAction.k --- ///
 ///
 ///   \brief The clang FrontendAction subclasses that inject the token
 ///          stream, one per backend output (EmitKind). Owns the phase-2
@@ -44,7 +44,7 @@ ffi "c++" import "clang/Lex/Preprocessor.h";
 ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
 
-import Codegen::TokenSink::*;
+import Codegen::Sink::TokenSink::*;
 import Memory::ArenaAllocator::*;
 import Interop::Clang::ClangLocMap::*;
 import Location::SourceLocation::*;

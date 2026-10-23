@@ -27,7 +27,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::Node::Base::*;
 import Preprocessor::PreprocessorSymbolTable::*;
-import Codegen::EmitSink::*;
+import Codegen::Sink::EmitSink::*;
 
 enum CodegenPhase derives u8 {
     Ready = 0,   ///< Context wired, nothing emitted.
