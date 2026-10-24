@@ -162,7 +162,11 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var p = Path(string(name.data(), name.size()));
         // Checked here: load_file reports a missing path as I005F itself.
         if (!p.exists()) || (!p.is_regular_file()) { return none; }
-        return self.ksm->load_file(p);
+        var kf = self.ksm->load_file(p);
+        // load_file builds the line index on the pool; a diagnostic rendered
+        // before it is done reads line 0, column 0.
+        if kf != none { self.ksm->wait_for_line_index(kf); }
+        return kf;
     }
 
     priv fn _format(self, info: cref::<clang::Diagnostic>) -> string {
