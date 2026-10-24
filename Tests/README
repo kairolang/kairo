@@ -92,8 +92,8 @@ files it imports) or a documented role (parity/, kairo-only/).
         per_form/         one test per import form over a shared corpus
         imports_all_forms/  every form in one TU (IMPORTS.md 1-9)
         emit_plan/        which TUs get emitted (IMPORTS.md 11)
-        module_roots/     a pinned library beside the cwd; `-I name=dir` is an error
-        module_pins/      libraries named by a module.k pin (`module geo`)
+        module_roots/     a pinned library beside the cwd, reached by name only (also via -I); `-I name=dir` is an error
+        module_pins/      libraries named by a module.k pin (`module geo`); a pin outside module.k is an error
         module_pins_dup/  two pins with one name (R018E); its own cwd
         search_dirs/      unnamed -I dirs: relative module paths; F20 (no R018E)
         search_dirs_dup/  one module path from two search dirs (R017E); its own cwd
