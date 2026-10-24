@@ -54,8 +54,10 @@ TextSink; `--emit-headers <dir>` runs `EmitPlan(Header)` into
 `InterfaceEmitter::run` into a TokenSink bound to the host's preprocessor
 (`IncludeEmitter`), then EmitIR over `EmitPlan::include_bodies()`: the
 template and `inline` bodies a C++ consumer compiles itself, foreign and
-foo's own. No other body and no eof. Every instantiation is `extern
-template` there; its home's object defines it. A stream cannot carry
+foo's own. No other body and no eof, and no explicit instantiation of
+any kind: the host may come from a different run than the homes (`kcc -c
+x.cc; kcc -c foo.k`), so it instantiates implicitly and the linker folds
+that with the homes' weak_odr definitions. A stream cannot carry
 `#ifndef`, so a second include in the same C++ TU drops what an earlier
 one already put there (`IncludedDecls`: the helpers, plan entries keyed by
 decl and tier, bodies, include lines). Nor can it carry `#include`: the

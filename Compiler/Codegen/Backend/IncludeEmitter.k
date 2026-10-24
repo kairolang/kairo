@@ -193,14 +193,19 @@ class IncludeEmitter {
         // Pruned before the emitter runs, which reads the entries to decide
         // what else to write (<new>, the const-field helpers): a record an
         // earlier include defined must not ask for them again.
+        //
+        // No explicit instantiations at all, not even `extern template`:
+        // the host may be compiled by a different run than foo.o (kcc -c
+        // x.cc; kcc -c foo.k), and which TU homes an instance is decided per
+        // run. The host instantiates what it uses implicitly (linkonce_odr),
+        // the homes' explicit definitions are weak_odr, and the linker keeps
+        // one.
         var fresh = vec::<PlanEntry>();
         for var i: usize = 0; i < plan.entries.size(); ++i {
+            if plan.entries[i].tier == PlanTier::Instantiations { continue; }
             if seen->admit(&plan, &(plan.entries[i])) { fresh.push_back(plan.entries[i]); }
         }
         plan.entries = fresh;
-        // The host defines no instantiation: foo.o holds the ones homed in
-        // foo, so here they are `extern template` like everyone else's.
-        for var i: usize = 0; i < plan.entries.size(); ++i { plan.entries[i].is_home = false; }
 
         var ie = InterfaceEmitter(&cg, &plan);
         ie.have_helpers    = seen->helpers;
