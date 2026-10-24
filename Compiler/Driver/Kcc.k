@@ -21,8 +21,8 @@
 ///       runtime from the toolchain's cached library (--kairo-lib), so
 ///       `kcc -c x.cc; kcc -c y.k; kcc x.o y.o` works as with clang.
 ///   kcc answers `--help` and `--version` itself; clang's own would describe
-///   a different compiler. `-###` (print the jobs, run none) is refused
-///   until kcc has jobs to print.
+///   a different compiler. `-###` prints the jobs without running them:
+///   each cc1 line, then the link (kairo's --print-clang-args).
 ///
 ///   Startup and teardown are Kairo.k's (a build target is one entry file,
 ///   so this one cannot import that one's main), kept in step by hand.
@@ -83,6 +83,7 @@ fn _kcc_usage() {
     std::print("  with it. The target and sysroot are Kairo's.");
     std::print("");
     std::print("  -Xkairo <word>   pass <word> to kairo as is (`-Xkairo --help` lists them)");
+    std::print("  -###             print the compile and link jobs, run nothing");
 }
 
 /// \brief the kairo words for kcc's command line (\p argc / \p argv, argv[0]
@@ -150,10 +151,9 @@ fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>
     for w: string in cw {
         // kcc's own answer (see the header); clang's would name clang.
         if w == "--version" { out->push_back("--version"); continue; }
-        if w == "-###" {
-            (*error) = "'-###' is not supported yet";
-            return false;
-        }
+        // The jobs, not run: each cc1 line and the link (CompilerInstance::
+        // print_clang_args).
+        if w == "-###" { out->push_back("--print-clang-args"); continue; }
         out->push_back("--cxx-flags=" + w);
     }
     for w: string in passed { out->push_back(w); }

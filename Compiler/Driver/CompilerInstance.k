@@ -2031,6 +2031,38 @@ class CompilerInstance {
             }
             for pl: string in jobs.planned { std::print(pl); }
         }
+
+        // Then the link, as the run would plan it (kcc's -###), when the run
+        // links. Objects are named as the run would write them; a Kairo
+        // input's imports are only known after preprocessing, so a graph
+        // run lists its entries and the library, not each module it reaches.
+        var lk = &(self.invocation().linker);
+        if (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen()) {
+            var job = LinkJob(&(self.invocation().target), lk);
+            job.output = (self.invocation().frontend.output) if (!self.invocation().frontend.output.empty()) else ("a.out");
+            for var i: usize = 0; i < n_in; ++i {
+                var k = classify_input(self.invocation().input_files[i], self.invocation().input_lang(i));
+                if k.cls == InputClass::Source     { job.add_object(Path(k.path).stem() + ".o"); }
+                else if k.cls == InputClass::Kairo {
+                    // kairo_object_stem's rule; _inputs is not built for an info query.
+                    var stem = Path(k.path).stem();
+                    var taken = false;
+                    for var j: usize = 0; j < n_in; ++j {
+                        var o = classify_input(self.invocation().input_files[j], self.invocation().input_lang(j));
+                        if (o.cls == InputClass::Source) && (Path::stem_of(o.path) == stem) { taken = true; }
+                    }
+                    job.add_object(stem + ((".k.o") if (taken) else (".o")));
+                }
+                else if k.cls == InputClass::LinkInput { job.add_object(k.path); }
+            }
+            if lk->kairo_lib { job.lazy_objects.push_back("<kairo-library>/*.o"); }
+            var tc   = Toolchain();
+            var argv = vec::<string>();
+            var msgs = vec::<LinkMessage>();
+            var ok   = Link::plan(job, tc, argv, msgs);
+            self._report_link(msgs);
+            if ok { std::print(Link::render(argv)); }
+        }
         self.flush_errors();
         return 0;
     }

@@ -45,6 +45,11 @@ fn main() -> i32 { return 0 }
 // RUN: %kcc -s %S/Inputs/std23.cc -o %t.d/stripped
 // RUN: %t.d/stripped; test $? -eq 7
 
-// -### has no jobs to print yet.
-// RUN: { %kcc -### %S/Inputs/std23.cc 2>&1 || true; } | %FileCheck %s --check-prefix=HASH
-// HASH: kcc: error: '-###' is not supported yet
+// -### prints the jobs and runs none: the Kairo backend's cc1, each C/C++
+// input's, then the link with the Kairo library linked lazily. A .k that
+// shares the .cc's stem writes <stem>.k.o.
+// RUN: %kcc -### %S/Inputs/std23.cc %S/Inputs/geo.k -o %t.d/never 2>&1 | %FileCheck %s --check-prefix=HASH
+// RUN: test ! -e %t.d/never
+// HASH: clang -cc1
+// HASH: clang -cc1 {{.*}}std23.cc
+// HASH: ld.lld {{.*}} std23.o geo.o --start-lib '<kairo-library>/*.o' --end-lib
