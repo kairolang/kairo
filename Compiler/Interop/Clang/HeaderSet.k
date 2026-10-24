@@ -227,6 +227,33 @@ class HeaderSet {
     /// extern "C". Preprocessor `Includes` cannot wrap a path themselves.
     fn wrap_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.h"; }
 
+    /// \brief the `#include` line phase B's wrapper replays for the import
+    ///        spelled \p spelled, or "" when phase A found no such header.
+    ///
+    /// \details By name, through the search path, unless phase A found it
+    ///          beside the importing .k (the quoted dir only phase A
+    ///          searches): then by that absolute path, which is the same
+    ///          lookup. Never a system header by absolute path: a header
+    ///          reached that way was found in no search dir, so its
+    ///          `#include_next` starts over from the first one and finds
+    ///          itself. libc++'s <math.h> is exactly that wrapper, and then
+    ///          the C library's math.h (FP_NAN and the rest) never arrives.
+    fn replay_include(self, spelled: string) -> string {
+        for e: IncludeEdge in self.includes {
+            if e.from_path.size() != 0 { continue; }
+            if !self._spelling_matches(spelled, e.to_path) { continue; }
+            var dir = self.import_dir;
+            var local = (dir.size() > 0) && (e.to_path.size() > dir.size() + 1) && e.to_path.starts_with(dir);
+            if local {
+                var sep = e.to_path[dir.size()];
+                local = (sep == '/') || (sep == '\\');
+            }
+            if local { return "#include \x22" + e.to_path + "\x22"; }
+            return "#include <" + spelled + ">";
+        }
+        return "";
+    }
+
     fn has_c_linkage(self) -> bool {
         for var i: usize = 0; i < self.c_linkage.size(); ++i { if self.c_linkage[i] { return true; } }
         return false;

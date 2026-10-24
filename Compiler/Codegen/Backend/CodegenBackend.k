@@ -191,9 +191,9 @@ class CodegenBackend derives TokenFiller {
         // LIMITATION: one PCH per clang TU. A Kairo TU whose import graph
         // spans two header sets uses the main file's; every other set's
         // headers are `#include`d textually through a wrapper in Includes,
-        // by the paths phase A resolved them to (so no quoted-dir search is
-        // needed). Correct -- same headers, same order within each set --
-        // just re-parsed.
+        // each spelled so it resolves to what phase A found (HeaderSet::
+        // replay_include). Correct -- same headers, same order within each
+        // set -- just re-parsed.
         //
         // The invocation is shared by every TU's run: restore what this one
         // changed, or the next TU inherits this TU's PCH.
@@ -230,17 +230,20 @@ class CodegenBackend derives TokenFiller {
                 var s = self._sets[i];
                 var w = "";
                 for l: string in fp_open { w += l; w += "\n"; }
-                for var e: usize = 0; e < s->includes.size(); ++e {
-                    if s->includes[e].from_path.size() != 0 { continue; }   // direct includes; the rest follow.
+                // The set's imports in the order phase A wrote them; how each
+                // is spelled is HeaderSet::replay_include's call.
+                for var e: usize = 0; e < s->headers.size(); ++e {
+                    var line = s->replay_include(s->headers[e]);
+                    if line.size() == 0 { continue; }
+                    var c = (e < s->c_linkage.size()) && s->c_linkage[e];
                     // Two literals: Stage 0 copies escapes into C++
                     // verbatim, where \x is greedy, so one literal's
                     // `\x22` then `C` lexes as the single char U+022C and
                     // the wrapper opened with garbage instead of the quote.
-                    if s->includes[e].c_linkage { w += "extern \x22"; w += "C\x22 {\n"; }
-                    w += "#include \x22";
-                    w += s->includes[e].to_path;
-                    w += "\x22\n";
-                    if s->includes[e].c_linkage { w += "}\n"; }
+                    if c { w += "extern \x22"; w += "C\x22 {\n"; }
+                    w += line;
+                    w += "\n";
+                    if c { w += "}\n"; }
                 }
                 for l: string in fp_close { w += l; w += "\n"; }
                 self._be->mount_text(s->wrap_path(), w);
