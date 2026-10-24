@@ -39,7 +39,11 @@ fn main() -> i32 {
 // DECL: {{^ *}}extern signed int const NEXT;
 // DECL: {{^ *}}extern signed int counter;
 // DECL: {{^ *}}extern signed int total;
-// DECL: namespace {
+// A `priv` decl of a module keeps external linkage, in the module's own
+// namespace: the file is a module (decision C), not a pathless entry whose
+// priv decls went in the unnamed namespace.
+// DECL-NOT: namespace {
+// DECL: namespace storage {
 // DECL-NEXT: {{^ *}}extern signed int const HIDDEN;
 // DECL: {{^ *}}extern signed int{{ ?}}*{{ ?}}const PTR;
 // DECL: namespace storage::cfg {
@@ -51,7 +55,8 @@ fn main() -> i32 {
 // DEF: {{^ *}}signed int const NEXT ={{.*}}::storage::BASE + 1
 // DEF: {{^ *}}signed int counter = 5;
 // DEF: {{^ *}}signed int total = 0;
-// DEF: namespace {
+// DEF-NOT: namespace {
+// DEF: namespace storage {
 // DEF-NEXT: {{^ *}}signed int const HIDDEN = 3;
 // DEF: {{^ *}}signed int{{ ?}}*{{ ?}}const PTR ={{.*}}::storage::total
 // DEF: namespace storage::cfg {

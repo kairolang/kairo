@@ -8,9 +8,15 @@ fn main() -> i32 { return 0 }
 // REQUIRES: default-sysroot
 // RUN: rm -rf %t.d && mkdir -p %t.d
 
+// A .k's namespace is its module path under the search dir that holds it,
+// whether it is compiled, imported or included (every input is a module).
+// From lit's cwd, Inputs/include_k/geo.k is `Inputs::include_k::geo`; the
+// .cc files call `geo::`, so the runs name the dir with -I (the include path
+// and the .k search dir in one, as under clang), or run from it.
+
 // A struct by value and a class with a constructor, destructor and method:
 // 3 + 4, then hits 2 and 2 + 3. The destructor runs at the C++ scope end.
-// RUN: %kairo %S/Inputs/include_k/use_shapes.cc %S/Inputs/include_k/shapes.k -o %t.d/shapes --cache-dir %t.d/o1
+// RUN: %kairo -I %S/Inputs/include_k %S/Inputs/include_k/use_shapes.cc %S/Inputs/include_k/shapes.k -o %t.d/shapes --cache-dir %t.d/o1
 // RUN: %t.d/shapes > %t.d/shapes.out; test $? -eq 14
 // RUN: %FileCheck %s --check-prefix=SHAPES --input-file=%t.d/shapes.out
 // SHAPES:      Tracer()
@@ -27,7 +33,7 @@ fn main() -> i32 { return 0 }
 // so the interface needs <new>. A token stream cannot carry an #include:
 // the hook enters a buffer that includes <new>, then boxed.k again for the
 // tokens. Boxed() sets v to 1.
-// RUN: %kairo %S/Inputs/include_k/use_boxed.cc %S/Inputs/include_k/boxed.k -o %t.d/boxed --cache-dir %t.d/o3
+// RUN: %kairo -I %S/Inputs/include_k %S/Inputs/include_k/use_boxed.cc %S/Inputs/include_k/boxed.k -o %t.d/boxed --cache-dir %t.d/o3
 // RUN: %t.d/boxed; test $? -eq 1
 
 // Several Kairo files in one C++ TU. Each stream declares everything its
@@ -55,18 +61,18 @@ fn main() -> i32 { return 0 }
 // stream carries their bodies (EmitPlan::include_bodies) -- Box<long> and
 // first<short> are instances no Kairo code asked for, and sq has no
 // out-of-line copy anywhere. 9 + 1 + 7 + (5 + 1).
-// RUN: %kairo %S/Inputs/include_k/use_tmpl.cc %S/Inputs/include_k/tmpl.k -o %t.d/tmpl --cache-dir %t.d/o8
+// RUN: %kairo -I %S/Inputs/include_k %S/Inputs/include_k/use_tmpl.cc %S/Inputs/include_k/tmpl.k -o %t.d/tmpl --cache-dir %t.d/o8
 // RUN: %t.d/tmpl; test $? -eq 23
 
 // The module's own ffi headers, which its interface and inline bodies name:
 // entered ahead of the stream by the paths they resolved to, so the .cc
 // needs no -I for them, and the `ffi "c"` one inside extern "C". 5 + 6.
-// RUN: %kairo %S/Inputs/include_k/use_ffi.cc %S/Inputs/include_k/ffi/ffiuse.k -o %t.d/ffi --cache-dir %t.d/o9
+// RUN: %kairo -I %S/Inputs/include_k/ffi %S/Inputs/include_k/use_ffi.cc %S/Inputs/include_k/ffi/ffiuse.k -o %t.d/ffi --cache-dir %t.d/o9
 // RUN: %t.d/ffi; test $? -eq 11
 
 // clang's notes point at the name as written in the .k: the declaration's
 // name token holds the name's own bytes (TokenSink::_claim).
-// RUN: { %kairo -c %S/Inputs/include_k/typo.cc %S/Inputs/include_k/shapes.k --cache-dir %t.d/o10 2>&1 || true; } | %FileCheck %s --check-prefix=TYPO
+// RUN: { %kairo -I %S/Inputs/include_k -c %S/Inputs/include_k/typo.cc %S/Inputs/include_k/shapes.k --cache-dir %t.d/o10 2>&1 || true; } | %FileCheck %s --check-prefix=TYPO
 // TYPO: typo.cc:4:13: error [CL001E]: no type named 'Tracr' in namespace 'shapes'; did you mean 'Tracer'?
 // TYPO: shapes.k:12:11: note [I900N]: 'Tracer' declared here
 // TYPO: typo.cc:5:20: error [CL001E]: no member named 'manhatan' in namespace 'shapes'; did you mean 'manhattan'?
@@ -78,12 +84,12 @@ fn main() -> i32 { return 0 }
 // not inline, so it keeps external linkage and privy.o defines it
 // (TranslationUnit::cxx_escaping); open's helpers stay in privy.o.
 // 0 + (1 + 1) + 9.
-// RUN: %kairo %S/Inputs/include_k/use_privy.cc %S/Inputs/include_k/privy.k -o %t.d/privy --cache-dir %t.d/o11
+// RUN: %kairo -I %S/Inputs/include_k %S/Inputs/include_k/use_privy.cc %S/Inputs/include_k/privy.k -o %t.d/privy --cache-dir %t.d/o11
 // RUN: %t.d/privy; test $? -eq 11
-// RUN: { %kairo -c %S/Inputs/include_k/peek_privy.cc %S/Inputs/include_k/privy.k --cache-dir %t.d/o12 2>&1 || true; } | %FileCheck %s --check-prefix=PRIV
+// RUN: { %kairo -I %S/Inputs/include_k -c %S/Inputs/include_k/peek_privy.cc %S/Inputs/include_k/privy.k --cache-dir %t.d/o12 2>&1 || true; } | %FileCheck %s --check-prefix=PRIV
 // PRIV: peek_privy.cc:3:28: error [CL001E]: no member named 'hidden' in namespace 'privy'
 
 // Objective-C is C to the include. The refusal is the only error: what
 // stands in for the file must not parse as C into more of them.
-// RUN: { %kairo -c %S/Inputs/include_k/objc.m %S/Inputs/include_k/geo.k --cache-dir %t.d/o4 2>&1 || true; } | %FileCheck %s --check-prefix=OBJC --implicit-check-not=error
+// RUN: { %kairo -I %S/Inputs/include_k -c %S/Inputs/include_k/objc.m %S/Inputs/include_k/geo.k --cache-dir %t.d/o4 2>&1 || true; } | %FileCheck %s --check-prefix=OBJC --implicit-check-not=error
 // OBJC: objc.m:1:10: error [CL001E]: cannot include '{{.*}}geo.k': a Kairo file can only be included from C++ or Objective-C++

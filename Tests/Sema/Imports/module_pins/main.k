@@ -24,7 +24,7 @@ fn use_all() -> i32 {
 // --- imported by the declared name, and the module IS that name -----------
 // SEMA: ===== SEMA fid {{[0-9]+}}: {{.*}}module_pins/main.k =====
 // SEMA:      use     shapes {{.*}} -> module shapes {{.*}}  [import overlay]
-// SEMA-NEXT: member  ::area  {{.*}} -> fn area @ 7:5
+// SEMA-NEXT: member  ::area  {{.*}} -> fn area @ 16:5
 // SEMA:      use     deep {{.*}} -> module deep {{.*}}  [import overlay]
 // SEMA:      use     hammer {{.*}} -> module hammer {{.*}}  [import overlay]
 // SEMA:      use     geo {{.*}} -> module geo {{.*}}  [import overlay]

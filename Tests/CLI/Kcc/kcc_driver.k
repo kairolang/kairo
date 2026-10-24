@@ -20,8 +20,10 @@ fn main() -> i32 { return 0 }
 // RUN: %t.d/std17
 
 // A .cc that includes a .k, the .k named nowhere: built and linked. -D
-// becomes kairo's --cxx-define. 3 + 2.
-// RUN: %kcc -DVAL=3 %S/Inputs/main.cc -o %t.d/app -Xkairo --cache-dir=%t.d/o1
+// becomes kairo's --cxx-define. 3 + 2. -I names geo.k's dir as a search dir,
+// so it is module `geo` (the namespace main.cc calls), not the
+// `Inputs::geo` it is from lit's cwd: an included .k is a module too.
+// RUN: %kcc -DVAL=3 -I %S/Inputs %S/Inputs/main.cc -o %t.d/app -Xkairo --cache-dir=%t.d/o1
 // RUN: %t.d/app; test $? -eq 5
 
 // The include needs C++20 at least: an explicit lower -std= is refused at
