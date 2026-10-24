@@ -43,6 +43,11 @@ fn main() -> i32 { return 0 }
 // RUN: %t.d/nested; test $? -eq 12
 // RUN: %kairo -c %S/Inputs/include_k/nested.cc --cxx-include %S/Inputs/include_k/inc -o %t.d/nested.o --cache-dir %t.d/nest_c
 // RUN: test -s %t.d/nested.o && test -s %t.d/nest_c/deep.o
+// The same through -I: one flag is the C++ include path and the .k search
+// dir, so deep.k is found by the include AND is module `deep` of that dir
+// (its path relative to it), the namespace nested.cc calls into.
+// RUN: %kairo %S/Inputs/include_k/nested.cc -I %S/Inputs/include_k/inc -o %t.d/nested_i --cache-dir %t.d/nest_i
+// RUN: %t.d/nested_i; test $? -eq 12
 
 // twin.cc includes twin.k: the .cc's object keeps its name (twin.o), the
 // Kairo one takes twin.k.o. Named and discovered alike. 5 * 3.

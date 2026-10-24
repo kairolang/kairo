@@ -15,10 +15,11 @@ fn main() -> i32 { return 0 }
 // OPT:      kairo: -O2 -O1 -O3 -Os -g -g --dwarf-version=4 -c a.cc b.k -o out.o
 // OPT-NEXT: clang-only:{{$}}
 
-// clang's -I/-D/-U are not kairo's (-I is the import root, -D a Kairo macro);
-// they map to the clang-side flags. -std splits by language.
+// clang's -I is kairo's -I: one flag, a clang header dir and a .k search dir.
+// -D/-U are not kairo's (-D is a Kairo macro); they map to the clang-side
+// flags. -std splits by language.
 // RUN: %kairo --print-from-clang -- -Ifoo -I bar -DX=1 -UY -std=c++23 -std=gnu11 | %FileCheck %s --check-prefix=PP
-// PP:      kairo: --ffi-include=foo --ffi-include=bar --cxx-define=X=1 --cxx-undefine=Y --cxx-std=c++23 --c-std=gnu11
+// PP:      kairo: -I foo -I bar --cxx-define=X=1 --cxx-undefine=Y --cxx-std=c++23 --c-std=gnu11
 // PP-NEXT: clang-only:{{$}}
 
 // Codegen toggles keep their kairo spelling. -fPIC and -fpic are PIC levels
