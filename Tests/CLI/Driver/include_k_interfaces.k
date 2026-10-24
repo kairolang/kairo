@@ -46,6 +46,11 @@ fn main() -> i32 { return 0 }
 // MANY-NEXT: ~Tracer()
 // MANY-NEXT: greet hi 6
 
+// Two C++ TUs including the same modules: what one put in its TU must not
+// keep them out of the next. 6 + 2 + 1.
+// RUN: cd %t.d && %kairo %S/Inputs/include_k/use_main.cc %S/Inputs/include_k/use_side.cc %S/Inputs/include_k/many.k -o %t.d/two_tus --cache-dir %t.d/o7
+// RUN: %t.d/two_tus; test $? -eq 9
+
 // Objective-C is C to the include. The refusal is the only error: what
 // stands in for the file must not parse as C into more of them.
 // RUN: { %kairo -c %S/Inputs/include_k/objc.m %S/Inputs/include_k/geo.k --cache-dir %t.d/o4 2>&1 || true; } | %FileCheck %s --check-prefix=OBJC --implicit-check-not=error
