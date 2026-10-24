@@ -2312,8 +2312,10 @@ class <T> ExprParse {
         dyn()->nl_pop();
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance_raw(); // consume `)` keep trailing NL significant
-            // the parens leave no node; remember them for _is_open_form.
-            if isa::<IfExpr>(first) || isa::<TryCatchExpr>(first) {
+            // the parens leave no node; remember them for _is_open_form, and
+            // for a binary operator, whose grouping the derives clause's
+            // mixed-operator warning reads (is_parenthesized).
+            if isa::<IfExpr>(first) || isa::<TryCatchExpr>(first) || isa::<BinaryOperatorExpr>(first) {
                 self._parened_open.push_back(first);
             }
             return first;
@@ -3302,6 +3304,10 @@ class <T> ExprParse {
     ///          unimplemented). If one does, the node at every check site is
     ///          then the ParenExpr itself, which _is_open_form already rejects,
     ///          so S077E / S078W / S079W come out the same either way.
+    /// \brief \p e was written inside grouping `( )` (an `if`, `try` or binary
+    ///        operator: the kinds recorded as their parens are unwrapped).
+    pub fn is_parenthesized(self, e: *Expr) -> bool { return self._was_parenthesized(e); }
+
     priv fn _was_parenthesized(self, e: *Expr) -> bool {
         var i = self._parened_open.size();
         while i > 0 {

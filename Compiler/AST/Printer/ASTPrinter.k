@@ -1223,6 +1223,34 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Punct, "]");
     }
 
+    /// An interface's `derives`: the expression as written when it uses `-`
+    /// or `&`; a plain union prints as the list it is (`A, B` == `A + B`).
+    fn _derives_clause(self, id: *InterfaceDecl) {
+        if (id->derives_expr == &null) || (!id->derives_composed) { self._inherit_list("derives", id->derives_list); return; }
+        self.p.put(" ");
+        self.p.paint(Color::Keyword, "derives");
+        self.p.put(" ");
+        self._derives_src(id->derives_expr, 0, false);
+    }
+
+    /// The derives expression with the parentheses its tree needs (the parser
+    /// keeps none): a child is wrapped when it mixes `&` with `+`/`-` (the
+    /// form the parser warns about unparenthesized), or sits on the right of
+    /// its own operator class (both are left-associative).
+    fn _derives_src(self, e: *Expr, parent: u8, rhs: bool) {
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if b == &null { self.src_expr(e); return; }
+        var mine: u8 = (1) if (b->op_token.kind == TokenKind::OpAmp) else (2);
+        var wrap = (parent > 0) && ((mine != parent) || rhs);
+        if wrap { self.p.paint(Color::Punct, "("); }
+        self._derives_src(b->lhs, mine, false);
+        self.p.put(" ");
+        self.p.paint(Color::Punct, (("&") if (mine == 1) else ((("+") if (b->op_token.kind == TokenKind::OpPlus) else ("-")))));
+        self.p.put(" ");
+        self._derives_src(b->rhs, mine, true);
+        if wrap { self.p.paint(Color::Punct, ")"); }
+    }
+
     fn _inherit_list(self, kw: string, edges: FrozenList::<InheritEdge>) {
         if edges.is_empty() { return; }
         self.p.put(" ");
@@ -1506,7 +1534,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._generic_params(id->generic_params);
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(id->name));
-        self._inherit_list("derives", id->derives_list);
+        self._derives_clause(id);
         self._requires(id->requires_clause);
         self._member_body(empty_fields, id->methods);
     }
@@ -3262,7 +3290,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(id));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(id->name));
-        self._inherit_list("derives", id->derives_list);
+        self._derives_clause(id);
         self.p.newline();
         var empty_fields: FrozenList::<*FieldDecl>;
         var members = vec::<*Decl>();

@@ -966,6 +966,19 @@ class InterfaceDecl
     pub var name:         Token;
     pub var methods:      FrozenList::<*FunctionDecl>;  ///< requirement signatures.
     pub var derives_list: FrozenList::<InheritEdge>;    ///< parent interfaces.
+    /// The `derives` clause as written, when it is an EXPRESSION over
+    /// interfaces (`X + (Y - Z)`, `A, B` as `A + B`): BinaryOperatorExpr
+    /// nodes, op `+` / `-` / `&`, over the leaves as the expression parser
+    /// read them (names, `::` chains, generic applications). Leaf i, in
+    /// source order, is `derives_list[i]`'s type: the leaves are resolved
+    /// as types there, and nothing walks this tree but InterfaceComposition.
+    /// Null for no `derives`.
+    pub var derives_expr: *Expr = &null;
+    /// The clause uses `-` or `&`: not a plain union. Until composition is
+    /// compiled such an interface is rejected (InterfaceComposition).
+    pub var derives_composed: bool = false;
+    /// End of the derives clause: where an LSP shows the derived body.
+    pub var derives_end: SourceRange;
 
     static fn create(
         ctx:    *ASTContext,
@@ -977,6 +990,8 @@ class InterfaceDecl
         node->kind  = DeclKind::InterfaceDecl;
         node->range = range;
         node->name  = name;
+        node->derives_expr     = &null;
+        node->derives_composed = false;
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Interface, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();

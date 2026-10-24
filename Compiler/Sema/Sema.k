@@ -58,6 +58,7 @@ import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
 import Sema::Check::CtorInitCheck::*;
 import Sema::Check::ConformanceChecking::*;
+import Sema::Check::InterfaceComposition::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
@@ -279,6 +280,9 @@ class Sema {
         self.sc.require_phase(SemaPhase::NamesResolved);
         { var _p = TimeRegion("TypeResolve");  TypeResolution(&self.sc).run(); }
         { var _p = TimeRegion("RedeclMerge");  RedeclMerge(&self.sc).run();    }
+        // Algebraic interfaces normalized to regular ones, after their leaves
+        // resolve and before ChainBinding reads any interface's members.
+        { var _p = TimeRegion("InterfaceComposition"); InterfaceComposition(&self.sc).run(); }
 
         // Constraint partition, BEFORE ChainBinding. Desugar already ran in
         // the Expand phase (pure AST rewrite: inline bounds -> requires as

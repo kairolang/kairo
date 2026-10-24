@@ -35,6 +35,7 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Statements::*;
 import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;
 import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -2351,6 +2352,194 @@ class <T> DeclParse {
         }
     }
 
+    /// \brief parses an interface's `derives` clause as an expression over
+    ///        interfaces: `derives X + (Y - Z) & W`, and `derives A, B` as
+    ///        `A + B`. The expression parser does the precedence climbing
+    ///        and reads the leaves (names, `::` chains, generic applications);
+    ///        this checks the shape and turns each leaf into the type
+    ///        derives_list[i] resolves (InterfaceDecl::derives_expr).
+    ///
+    ///        Its precedence is the expression grammar's: `+`/`-` bind tighter
+    ///        than `&`, so `A + B & C` is `(A + B) & C`, and mixing them
+    ///        unparenthesized is warned.
+    priv fn _parse_derives_expr(self, id: *InterfaceDecl, out: *std::StackBuf::<InheritEdge, 4>) -> bool {
+        dyn()->advance(T::SkipNL::After); // consume `derives` (or a recovered `impl`)
+        var stop = static_cast::<T::ExprStopKind>(static_cast::<u8>(T::ExprStopKind::NoStructLiteral)
+                                                  | static_cast::<u8>(T::ExprStopKind::StopComma));
+        // `X - fn goo`: caught before the expression parser, which would read
+        // `fn goo { ... }` as a closure and take the body with it.
+        var n = dyn()->span.size();
+        for var i: usize = dyn()->c_idx; i < n; ++i {
+            var tk = dyn()->span.get(i);
+            if (tk == &null) || (tk->kind == TokenKind::OpLBrace) { break; }
+            if tk->kind == TokenKind::KwFn {
+                self._reject_member_removal(tk->range);
+                return false;
+            }
+        }
+        var tree: *Expr = &null;
+        while true {
+            var e = dyn()->parse_expr(stop);
+            if (e == &null) || is_recovery(e) {
+                dyn()->diag->report(DiagID::S001E, dyn()->current_ptr()->range.start,
+                    "expected an interface after 'derives\x27"
+                ).first(dyn()->current_ptr()->range).emit();
+                return false;
+            }
+            if tree == &null {
+                tree = e;
+            } else {
+                // `A, B` is `A + B`: the comma becomes the union operator.
+                var plus = dyn()->ctx->make_token(e->range, TokenKind::OpPlus, "+");
+                tree = static_cast::<*Expr>(BinaryOperatorExpr::create(dyn()->ctx, tree->range | e->range, tree, e, plus));
+            }
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                continue;
+            }
+            break;
+        }
+        var composed = false;
+        if !self._derives_leaves(tree, out, &composed) { return false; }
+        id->derives_expr     = tree;
+        id->derives_composed = composed;
+        id->derives_end      = dyn()->prev().range;
+        return true;
+    }
+
+    /// After a malformed `derives` clause: skip to the body's `{`, so the
+    /// interface's members still parse and the next declaration is not
+    /// swallowed. Stops at end of file or a newline-led declaration keyword.
+    priv fn _sync_to_body(self) {
+        while !dyn()->is_eof() {
+            if dyn()->check(TokenKind::OpLBrace) { return; }
+            dyn()->advance();
+        }
+    }
+
+    /// Check \p e is `+` / `-` / `&` over interface names, appending each leaf
+    /// as a type to \p out in source order. False after a diagnostic.
+    priv fn _derives_leaves(self, e_in: *Expr, out: *std::StackBuf::<InheritEdge, 4>, composed: *bool) -> bool {
+        var e = e_in;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return false; }
+        if isa::<BinaryOperatorExpr>(e) {
+            var b = cast::<BinaryOperatorExpr>(e);
+            var k = b->op_token.kind;
+            if k == TokenKind::OpPipe {
+                var pb = dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
+                    "'|' is not an interface operator; union is '+\x27");
+                pb.first(b->op_token.range);
+                pb.fix(b->op_token.range, "+", "replace '|' with '+\x27");
+                pb.emit();
+                return false;
+            }
+            if k == TokenKind::OpCaret {
+                dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
+                    "'^' (symmetric difference) is not an interface operator; use '+', '-' or '&\x27")
+                    .first(b->op_token.range).emit();
+                return false;
+            }
+            if (k != TokenKind::OpPlus) && (k != TokenKind::OpMinus) && (k != TokenKind::OpAmp) {
+                dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
+                    "only '+' (union), '-' (difference) and '&' (intersection) compose interfaces")
+                    .first(b->op_token.range).emit();
+                return false;
+            }
+            if k != TokenKind::OpPlus { (*composed) = true; }
+            if k == TokenKind::OpAmp { self._warn_mixed_amp(b); }
+            if !self._derives_leaves(b->lhs, out, composed) { return false; }
+            return self._derives_leaves(b->rhs, out, composed);
+        }
+        if isa::<ClosureExpr>(e) { self._reject_member_removal(e->range); return false; }
+        var t = self._expr_as_type(e);
+        if t == &null {
+            dyn()->diag->report(DiagID::S001E, e->range.start,
+                "expected an interface name in a 'derives' clause")
+                .first(e->range).emit();
+            return false;
+        }
+        var edge = InheritEdge{};
+        edge.visibility = 0;
+        edge.is_virtual = false;
+        edge.base  = t;
+        edge.range = e->range;
+        out->push_back(edge);
+        return true;
+    }
+
+    /// `-` and `&` group LOOSER than `+`/`-` here, as in every C expression:
+    /// `A + B & C` is `(A + B) & C`. Unparenthesized, that is a guess.
+    priv fn _warn_mixed_amp(self, b: *BinaryOperatorExpr) {
+        var sides = vec::<*Expr>();
+        sides.push_back(b->lhs);
+        sides.push_back(b->rhs);
+        for var i: usize = 0; i < sides.size(); ++i {
+            var o = dyn_cast::<BinaryOperatorExpr>(sides[i]);
+            if o == &null { continue; }
+            var k = o->op_token.kind;
+            if (k != TokenKind::OpPlus) && (k != TokenKind::OpMinus) { continue; }
+            if dyn()->is_parenthesized(static_cast::<*Expr>(o)) { continue; }
+            var w = dyn()->diag->report(DiagID::S001W, o->range.start,
+                "'+' and '-' bind tighter than '&' in a 'derives' clause; parenthesize to say which you mean");
+            w.first(o->range);
+            w.insert(o->range.start, "(", "insert '(\x27");
+            w.insert(o->range.end, ")", "insert ')\x27");
+            w.emit();
+        }
+    }
+
+    /// A single member cannot be removed from a composition (`X - fn goo`):
+    /// requirements come and go by whole interface.
+    priv fn _reject_member_removal(self, at: SourceRange) {
+        dyn()->diag->report(DiagID::S001E, at.start,
+            "a 'derives' clause composes whole interfaces; a single member cannot be removed. "
+            "Declare an interface with that member and subtract it")
+            .first(at).emit();
+    }
+
+    /// The type a name, a `::` path or a generic application denotes, as the
+    /// type parser would have built it: a ChainType, one segment per name,
+    /// each with its generic arguments. Null for any other expression.
+    priv fn _expr_as_type(self, e: *Expr) -> *Type {
+        var segs = vec::<ChainType::ChainSegment>();
+        if isa::<NamedIdentExpr>(e) {
+            self._push_segment(&segs, cast::<NamedIdentExpr>(e)->name, cast::<NamedIdentExpr>(e)->generic_args,
+                               e->range, ChainType::SegmentSeparator::None);
+        } else if isa::<ChainExpr>(e) {
+            var ch = cast::<ChainExpr>(e);
+            var base = dyn_cast::<NamedIdentExpr>(ch->base);
+            if base == &null { return &null; }
+            self._push_segment(&segs, base->name, base->generic_args, base->range, ChainType::SegmentSeparator::None);
+            for var i: usize = 0; i < ch->steps.size(); ++i {
+                var st = ch->steps.get(i);
+                if (st->access_kind != ChainExpr::AccessKind::ColonColon) || st->is_operator() || (st->name == &null) { return &null; }
+                self._push_segment(&segs, st->name->name, st->generic_args, st->range, ChainType::SegmentSeparator::ColonColon);
+            }
+        } else {
+            return &null;
+        }
+        var buf = dyn()->ctx->alloc_array::<ChainType::ChainSegment>(segs.size());
+        for var i: usize = 0; i < segs.size(); ++i { buf[i] = segs[i]; }
+        var ct = ChainType::create(dyn()->ctx, e->range);
+        ct->segments.from_raw(buf, segs.size());
+        return static_cast::<*Type>(ct);
+    }
+
+    priv fn _push_segment(self, out: *vec::<ChainType::ChainSegment>, name: Token,
+                          args: FrozenList::<ChainType::GenericArg>, range: SourceRange,
+                          sep: ChainType::SegmentSeparator) {
+        var seg = ChainType::ChainSegment{};
+        seg.name          = NamedIdentExpr::create(dyn()->ctx, name.range, name);
+        seg.generic_args  = args;
+        seg.resolved_type = &null;
+        seg.resolved_decl = &null;
+        seg.range         = range;
+        seg.sep           = sep;
+        seg.seg_kind      = (ChainType::SegmentKind::GenericApp) if (args.size() > 0) else (ChainType::SegmentKind::Named);
+        out->push_back(seg);
+    }
+
     /// \brief rejects a `where` clause on a type declaration. `where` is
     ///        runtime-conditional dispatch, which only free functions/methods
     ///        support; type instantiation and interface conformance are
@@ -2480,6 +2669,14 @@ class <T> DeclParse {
         methods_out:  *std::StackBuf::<*FunctionDecl, 8>,
         allow_methods: bool
     ) -> bool {
+        if dyn()->is_eof() {
+            // No token to point at: anchor on the last one read.
+            var pr = dyn()->prev().range;
+            dyn()->diag->report(DiagID::S048E, pr.start,
+                "expected '{' to begin the type body"
+            ).first(pr).emit();
+            return false;
+        }
         if !dyn()->check(TokenKind::OpLBrace) {
             var r = dyn()->current_ptr()->range;
             dyn()->diag->report(DiagID::S048E, r.start,
@@ -2956,10 +3153,20 @@ class <T> DeclParse {
             return static_cast::<*Decl>(id);
         }
 
-        // interface inheritance via `derives`
+        // interface composition via `derives <expr>`. `impl` is accepted for
+        // recovery only: an interface that composes others conforms to
+        // nothing, it derives.
         var dlist: std::StackBuf::<InheritEdge, 4>;
-        while dyn()->check(TokenKind::KwDerives) {
-            self._parse_inherit_edges(&dlist);
+        if dyn()->check(TokenKind::KwImpl) {
+            var it = dyn()->current_ptr()->range;
+            var b = dyn()->diag->report(DiagID::S001E, it.start,
+                "an interface derives from other interfaces; 'impl' is for a type that conforms to one");
+            b.first(it);
+            b.fix(it, "derives", "replace 'impl' with 'derives\x27");
+            b.emit();
+        }
+        if dyn()->check(TokenKind::KwDerives) || dyn()->check(TokenKind::KwImpl) {
+            if !self._parse_derives_expr(id, &dlist) { self._sync_to_body(); }
         }
         id->derives_list.from_buf(dlist.data(), dlist.size(), dyn()->ctx);
 
