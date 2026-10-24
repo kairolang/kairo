@@ -2253,6 +2253,22 @@ class PPWalker
 
     priv fn _resolve(self, inv: InvocationInfo) -> *MacroEntry {
         if inv.is_qualified {
+            // The path relative to each enclosing scope, innermost first,
+            // down to the path as written (absolute). A file's own scope is
+            // its module path: `module std { macro m!() }` in a file at
+            // `a::b` registers `m` under [a, b, std], and `std::m!()` there
+            // must find it. That held only while the file had no path (an
+            // entry), so qualified calls into a file's own module blocks
+            // broke the moment it was imported -- and every input is now a
+            // module (decision C).
+            var cur = self._tracker->current_scope();
+            for var k: usize = cur.segments.size(); k > 0; --k {
+                var rel = ModulePath();
+                for var j: usize = 0; j < k; ++j { rel.segments.push_back(cur.segments[j]); }
+                for seg in inv.qualified.segments { rel.segments.push_back(seg); }
+                var r = self._macros->find(rel, inv.name_sym, self._fid);
+                if r != &null { return r; }
+            }
             // exact scope
             var e = self._macros->find(inv.qualified, inv.name_sym, self._fid);
             if e != &null { return e; }
