@@ -326,6 +326,16 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
 
     // --- the diagnostic -------------------------------------------------------------
 
+    /// `scale`, or `op +=` for an operator: an operator's name token is its
+    /// operator token, which decl_name cannot spell as an identifier.
+    priv fn _req_name(self, m: *FunctionDecl) -> string {
+        if !m->is_operator { return self.tu.decl_name(static_cast::<*Decl>(m)); }
+        var ctx = NameLookup::ctx_of(static_cast::<*Decl>(m));
+        var s = "op ";
+        for var i: usize = 0; i < m->op_token.size(); ++i { s += ctx->get_spelling(m->op_token[i]); }
+        return s;
+    }
+
     priv fn _report(self, at: *CallExpr, b: *ConstraintExpr, x: *Type, iface: *Type, row: *ConformanceRow) {
         var xs = self.tu.str(x);
         var is = self.tu.str(iface);
@@ -336,7 +346,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             for var i: usize = 0; i < row->witnesses.size(); ++i {
                 if row->witnesses[i] != &null { continue; }
                 req = idecl->methods[i];
-                missing = self.tu.decl_name(static_cast::<*Decl>(req));
+                missing = self._req_name(req);
                 break;
             }
         }
