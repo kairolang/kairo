@@ -307,32 +307,55 @@ class IterLowering derives ASTWriter::<IterLowering> {
     }
 
     priv fn _user(self, n: *RangedForStmt, pre: *ListBuilder::<*Stmt>) -> *Stmt {
-        var at   = n->range;
-        var elem = n->iter_elem;
-        ICE_IF(n->iter_op == &null, "IterLowering: user iteration with no `op in` selected; X gate failure");
-
-        var recv: *Expr = n->iterable;
-        if !recv->is_lvalue() {
-            var tmp = self._local(pre, at, "seq", canon_unqual(recv->type_), recv);
-            recv = self._use(tmp, at);
-        }
-
+        var at     = n->range;
+        var elem   = n->iter_elem;
         var gen_ty = self._yield_of(elem);
-        var none   = self.list_builder::<*Expr>();
-        var it     = self._local(pre, at, "it", gen_ty, self.synth.member_call(at, recv, n->iter_op, &none, gen_ty));
+
+        // The generator the loop drives. A record's `op in` makes one from
+        // the iterable; a Yield<T> value IS one (StmtTyping::_iter_classify
+        // selects no op for it).
+        var it: *VariableDecl = &null;
+        var by_addr = false;
+        if n->iter_op == &null {
+            var src = n->iterable;
+            if src->is_lvalue() {
+                // In place, through its address: Yield is move-only, and the
+                // loop advances the generator the caller holds.
+                var addr = UnaryOperatorExpr::create(self.ctx, src->range, src,
+                                                     self.synth.punct(src->range, TokenKind::OpAmp),
+                                                     UnaryOperatorExpr::Fix::Prefix);
+                addr->type_          = self.sc->types->pointer(gen_ty, false);
+                addr->value_category = Expr::ValueCategory::RValue;
+                it = self._local(pre, at, "gen", addr->type_, static_cast::<*Expr>(addr));
+                by_addr = true;
+            } else {
+                it = self._local(pre, at, "it", gen_ty, src);
+            }
+        } else {
+            var recv: *Expr = n->iterable;
+            if !recv->is_lvalue() {
+                var tmp = self._local(pre, at, "seq", canon_unqual(recv->type_), recv);
+                recv = self._use(tmp, at);
+            }
+            var none = self.list_builder::<*Expr>();
+            it = self._local(pre, at, "it", gen_ty, self.synth.member_call(at, recv, n->iter_op, &none, gen_ty));
+        }
 
         var next_d = self._lang_member(WellKnownType::Yield, "next");
         var cur_d  = self._lang_member(WellKnownType::Yield, "current");
 
+        var gen_cur  = (self._deref(self._use(it, at), gen_ty)) if (by_addr) else (self._use(it, at));
+        var gen_next = (self._deref(self._use(it, at), gen_ty)) if (by_addr) else (self._use(it, at));
+
         var no_cur = self.list_builder::<*Expr>();
-        var cur    = self.synth.member_call(at, self._use(it, at), cur_d, &no_cur, self.sc->types->pointer(elem));
+        var cur    = self.synth.member_call(at, gen_cur, cur_d, &no_cur, self.sc->types->pointer(elem));
 
         var body = self.list_builder::<*Stmt>();
         self._bind(n, &body, at, self._deref(cur, elem), true);
         body.push(static_cast::<*Stmt>(n->body));
 
         var no_next = self.list_builder::<*Expr>();
-        return self._while(at, self.synth.member_call(at, self._use(it, at), next_d, &no_next, self._bool()), &body);
+        return self._while(at, self.synth.member_call(at, gen_next, next_d, &no_next, self._bool()), &body);
     }
 
     priv fn _cxx(self, n: *RangedForStmt, pre: *ListBuilder::<*Stmt>) -> *Stmt {

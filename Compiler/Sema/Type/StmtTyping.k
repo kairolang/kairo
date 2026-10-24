@@ -719,6 +719,18 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             return (args[0]) if (args.size() > 0) else (dyn()->tu.builtin(BuiltinKind::I32));
         }
 
+        // A Yield<T> value is a generator already -- a call of a `-> yield T`
+        // function, or a variable holding one -- so the loop drives it with
+        // no `op in` to call (IterLowering::_user reads the null op).
+        if dyn()->tu.is_lang(t, WellKnownType::Yield) {
+            var yargs = dyn()->tu.record_args(t);
+            if yargs.size() > 0 {
+                (*kind) = IterKind::User;
+                (*_op)   = &null;
+                return yargs[0];
+            }
+        }
+
         // `fn op in (self) -> yield T`: the iteration form takes `self` only;
         // `op in (self, x)` is containment and is never picked here.
         var cands = vec::<*Decl>();

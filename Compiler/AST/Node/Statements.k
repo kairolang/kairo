@@ -712,7 +712,7 @@ enum IterKind derives u8 {
     Set,          ///< `{T}`.
     Map,          ///< `{K: V}`.
     String,       ///< `string`, by `char`.
-    User,         ///< a record's `fn op in (self) -> yield T`.
+    User,         ///< a record's `fn op in (self) -> yield T`, or a Yield<T> value itself (iter_op null).
     Cxx,          ///< an imported C++ class, by C++'s range protocol ([stmt.ranged]).
 }
 
@@ -740,7 +740,7 @@ class RangedForStmt derives Stmt {
     pub var body:     *CompoundStmt;
     pub var is_eval:  bool;
     pub var iter_kind: IterKind = IterKind::None;
-    pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`.
+    pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`; null when the iterable is a Yield<T> itself.
     pub var iter_elem: *Type    = &null;   ///< the element type, canonical and unqualified.
     // Cxx only. Locals are *Decl (always a VariableDecl), the import-cycle
     // dodge Binding uses.
