@@ -123,7 +123,7 @@ pointers, signature types Fwd. Refinements decided since:
   body names is declared in the preamble, priv helpers included: a
   module's priv function has external linkage, so the call links, and a
   pathless TU's internal ones are never reached (nothing imports a file
-  outside every search dir; every input with a path is a module, IMPORTS.md
+  outside every search dir and library; every input with a path is a module, IMPORTS.md
   §2.1 "Inputs are modules").
 - An extension member is a static member of its EXTENSION SCOPE
   (`ExtScope`: `struct N::__kairo_ext_X`, one per (namespace, target),
@@ -265,7 +265,8 @@ the command line is a module like any import, `lib/y.k` from the cwd is
 a file or directory name, is sanitized to an identifier, with a leading
 `_` before a digit and a trailing `_` after a C++ keyword (`operator.k` ->
 `operator_`; `CXXSpell::cxx_segment`). Only a PATHLESS TU
-(`CXXSpell::is_entry_tu`: a file outside every search dir) lives in
+(`CXXSpell::is_entry_tu`: a file outside every search dir and every
+library) lives in
 `namespace <file stem>` (`CXXSpell::entry_stem`, the same sanitizing), and
 only there does a `priv` or `internal` decl go one level deeper, into an
 unnamed namespace nested inside it (`CXXSpell::is_anon`); a module's priv
