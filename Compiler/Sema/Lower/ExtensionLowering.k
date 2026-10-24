@@ -75,6 +75,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::ArgumentDeduction::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -122,6 +123,7 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         var req = self._requirement_of(f);
         if req != &null {
             if st->access_kind != ChainExpr::AccessKind::ColonColon { self._through_witness(n, ch, st, f, req); }
+            else if f->is_method() { self._qualified_witness(n, st, f, req); }
             else { self._static_witness(n, ch, st, f, req); }
             return static_cast::<*Expr>(n);
         }
@@ -214,6 +216,29 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         n->callee        = self._head(st, f);
         n->witness_self  = me;
         n->witness_iface = self._declaring_iface(me, req, n);
+    }
+
+    /// `I::m(a, x)`, the qualified form of a requirement call: `self` is
+    /// argument zero already (CallLowering), and takes the receiver form a
+    /// `.` call's would. Self is that argument's type -- a bounded `T`, or a
+    /// concrete conformer whose row ConformanceChecking put on the call.
+    priv fn _qualified_witness(self, n: *CallExpr, st: *ChainExpr::Step, f: *FunctionDecl, req: *InterfaceDecl) {
+        ICE_IF(n->args.size() == 0, "ExtensionLowering: `I::m` call to a requirement with no receiver argument; CallLowering postcondition");
+        var me = self._object_type(n->args[0], false);
+        ICE_IF(me == &null, "ExtensionLowering: an untyped receiver for a qualified requirement call; ExprTyper gate failure");
+        n->callee       = self._head(st, f);
+        n->witness_self = me;
+        if isa::<GenericParamType>(me) {
+            n->witness_iface = self._declaring_iface(me, req, n);
+        } else {
+            var row = reinterpret_cast::<*ConformanceRow>(n->witness_row);
+            ICE_IF(row == &null, "ExtensionLowering: a qualified requirement call on a concrete type with no row; ConformanceChecking records it");
+            n->witness_iface = row->iface;
+        }
+        var args = self.list_builder::<*Expr>();
+        args.push(self._witness_receiver(n->args[0], f, false));
+        for var i: usize = 1; i < n->args.size(); ++i { args.push(n->args[i]); }
+        args.freeze_into(&(n->args));
     }
 
     /// Argument zero of a witness call: the pointer for a named member, the

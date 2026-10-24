@@ -1069,6 +1069,9 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
             // so it never comes through _admit's instance-shell path.
             var ie = reinterpret_cast::<*InstanceEntry>(cast::<CallExpr>(e)->instance);
             if ie != &null { self._admit_instance(ie, PlanNeed::Fwd); }
+            // `I::m(x)` on a concrete x: its row rides on the call.
+            var wr = reinterpret_cast::<*ConformanceRow>(cast::<CallExpr>(e)->witness_row);
+            if wr != &null { self._witness_row(wr); }
         } default { break; }
     }
     return true;

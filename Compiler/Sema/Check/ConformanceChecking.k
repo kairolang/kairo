@@ -98,7 +98,51 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var c = cast::<CallExpr>(e);
         var ie = reinterpret_cast::<*InstanceEntry>(c->instance);
         if ie != &null { self._check_instance(ie, c); }
+        self._check_qualified(c);
         return true;
+    }
+
+    /// `I::m(x, ...)` with x of a CONCRETE type: the call is the
+    /// instantiation site, of no generic, so it carries its own row
+    /// (CallExpr::witness_row). A dependent x is a bound's, and its rows come
+    /// with the enclosing instance.
+    priv fn _check_qualified(self, c: *CallExpr) {
+        var ch = dyn_cast::<ChainExpr>(self.tu.strip_parens(c->callee));
+        if (ch == &null) || (ch->steps.size() == 0) { return; }
+        var st = ch->steps.get(ch->steps.size() - 1);
+        if st->access_kind != ChainExpr::AccessKind::ColonColon { return; }
+        var f = dyn_cast::<FunctionDecl>(st->resolved_decl);
+        if (f == &null) || (!f->is_method()) || (!self._owned_by_interface(static_cast::<*Decl>(f))) { return; }
+        var ai: i32 = 0;
+        if c->arg_map.size() > 0 { ai = c->arg_map[0]; }
+        if (ai < 0) || (static_cast::<usize>(ai) >= c->args.size()) { return; }
+        var a = c->args[static_cast::<usize>(ai)];
+        if (a == &null) || (a->type_ == &null) { return; }
+        var x = self._object(a->type_);
+        if (x == &null) || x->is_dependent() || x->is_instantiation_dependent() { return; }
+        var home = reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl();
+        var idecl = NameLookup::representative(home);
+        if decl_generic_params(idecl).size() > 0 {
+            var d = self.sc->diag->report(DiagID::SC001E, c->range.start,
+                "a qualified call to a generic interface's requirement is not supported yet; call it through a value ('x.m()')");
+            d.first(c->range);
+            d.emit();
+            return;
+        }
+        var empty = vec::<*Type>();
+        var iface = self.sc->types->record(idecl, &empty);
+        var row = self.conforms(x, iface);
+        if (row == &null) || (!row->ok) { self._report(c, &null, x, iface, row); return; }
+        c->witness_row = reinterpret_cast::<*void>(row);
+    }
+
+    /// The object a value of type \p t is: through a C++ reference, unqualified.
+    priv fn _object(self, t: *Type) -> *Type {
+        var c = self._canon(t);
+        if c == &null { return &null; }
+        if isa::<CXXLValueRefType>(c) { return canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
+        if isa::<CXXRValueRefType>(c) { return canon_unqual(cast::<CXXRValueRefType>(c)->referee); }
+        return c;
     }
 
     // --- the instantiation site ----------------------------------------------------
@@ -354,7 +398,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if missing.size() > 0 { msg = f"'{xs}' does not conform to '{is}': no member '{missing}' with the requirement's signature"; }
         var d = self.sc->diag->report(DiagID::SC001E, at->range.start, msg);
         d.first(at->range);
-        d.note(b->range.start, f"required by this bound").first(b->range);
+        if b != &null { d.note(b->range.start, f"required by this bound").first(b->range); }
         if req != &null { d.note(req->range.start, f"'{missing}' is required here").first(req->range); }
         d.emit();
     }

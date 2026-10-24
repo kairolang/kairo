@@ -95,6 +95,11 @@ class CallExpr derives Expr {
     /// EmitIR spells the witness from both. Null on every other call.
     pub var witness_iface: *Type = &null;
     pub var witness_self:  *Type = &null;
+    /// A qualified requirement call on a CONCRETE Self (`I::m(x)` with x a
+    /// Metric) names no instance to carry its row, so the call carries it:
+    /// `*ConformanceRow`, as `*void` like `instance`. Written by
+    /// ConformanceChecking; EmitPlan admits its specialization from it.
+    pub var witness_row:   *void = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -112,6 +117,7 @@ class CallExpr derives Expr {
         node->qualifier = &null;
         node->witness_iface = &null;
         node->witness_self  = &null;
+        node->witness_row   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -132,6 +138,7 @@ class CallExpr derives Expr {
         node->qualifier     = &null;
         node->witness_iface = &null;
         node->witness_self  = &null;
+        node->witness_row   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

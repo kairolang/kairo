@@ -433,6 +433,13 @@ class <T> CallTyping {
         return self._call_through(n, t);
     }
 
+    /// \p t is an interface's own type: `I` as a call's qualifier.
+    priv fn _is_interface_type(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var d = dyn()->tu.record_decl(canon_unqual(t));
+        return (d != &null) && isa::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(d)));
+    }
+
     priv fn _any_method(self, cands: *vec::<*Decl>) -> bool {
         for var i: usize = 0; i < cands->size(); ++i {
             var f = dyn_cast::<FunctionDecl>((*cands)[i]);
@@ -478,6 +485,14 @@ class <T> CallTyping {
             recv = dyn()->tu.strip_nullable(receiver);
             var pt = dyn()->tu.pointee(recv);
             if pt != &null { recv = pt; }
+        }
+
+        // `I::m(x, ...)`, the qualified form of a requirement call: the
+        // qualifier is the interface, not the receiver. `self` is the first
+        // argument, so Self is ITS type, and the requirement's `Self` reads
+        // as that (through_receiver), as it would for `x.m(...)`.
+        if (!has_receiver) && (args.size() > 0) && (args[0].ty != &null) && self._is_interface_type(recv) {
+            recv = dyn()->tu.as_value(args[0].ty);
         }
 
         var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv);
