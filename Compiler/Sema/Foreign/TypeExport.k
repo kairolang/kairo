@@ -80,6 +80,7 @@ import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Context::InstantiationRegistry::*;
+import AST::LangItems::*;
 import Preprocessor::PreprocessorSymbolTable::*;
 import Codegen::CodegenContext::*;
 import Codegen::Emit::CXXSpell::*;
@@ -355,7 +356,7 @@ class TypeExport {
             var ft: clang::QualType;
             if (fd->type_ != &null) && (fd->type_->canonical != &null) { ft = self.to_clang(fd->type_->canonical); }
             if ft.isNull() { rd->setInvalidDecl(); return false; }
-            var fii = self._ident(f"__kairo_f{i}");
+            var fii = self._ident(LowerTargets::export_field(i));
             var cf  = clang::FieldDecl::Create(*(self.cctx), rd, loc, loc, fii, ft,
                                                self.cctx->getTrivialTypeSourceInfo(ft, loc),
                                                &null, false, clang::ICIS_NoInit);

@@ -148,8 +148,8 @@ class InterfaceEmitter {
         // stream cannot be guarded; have_helpers stands in for the macro.
         if !self.have_helpers {
             self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::lower_helpers_guard()); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::lower_helpers_guard()); }
             // The array-prvalue alias, once per TU, ahead of every body that
             // can name it.
             self._cg->sink->spell(self._tu_at(),
@@ -1379,7 +1379,7 @@ class InterfaceEmitter {
         for var i: usize = 0; i < f->params.size(); ++i {
             var p = f->params[i];
             if p == &null { continue; }
-            var nm = f"__kairo_a{k}";
+            var nm = LowerTargets::forwarder_arg(k);
             if k > 0 { s += ", "; call += ", "; }
             if p->is_self {
                 s += self._spell->ext_receiver(f, ext) + " " + nm;
@@ -1391,7 +1391,7 @@ class InterfaceEmitter {
             k += 1;
         }
         if CXXSpell::op_is_postfix(f) {
-            var nm = f"__kairo_a{k}";
+            var nm = LowerTargets::forwarder_arg(k);
             if k > 0 { s += ", "; call += ", "; }
             s += "int " + nm;
             call += nm;

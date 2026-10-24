@@ -322,6 +322,10 @@ class LowerTargets {
     /// statement binds `self` to its address, so the body is emitted exactly
     /// as any other extension member's.
     static fn ext_self() -> string { return "__kairo_self"; }
+    /// The \p k-th parameter of an extension operator's namespace-scope C++
+    /// `operator<sym>` forwarder (InterfaceEmitter::_forwarder), receiver
+    /// included, a postfix `++`/`--` dummy last.
+    static fn forwarder_arg(k: usize) -> string { return f"__kairo_a{k}"; }
 
     // --- Witnesses (writer: EmitWitness) -------------------------------------------------
 
@@ -416,6 +420,10 @@ class LowerTargets {
     /// header owns it: every TU and header that reaches `Tuple2` defines
     /// it, and a C++ TU that includes two such headers sees it twice.
     static fn tuple_guard(arity: usize) -> string { return f"__KAIRO_TUPLE_{arity}"; }
+    /// The include guard around the preamble helpers (`__kairo_array`,
+    /// `__kairo_tmp`, `__kairo_vt`, construct/destroy) in a header (writer:
+    /// InterfaceEmitter): one C++ TU may include several Kairo headers.
+    static fn lower_helpers_guard() -> string { return "__KAIRO_LOWER_HELPERS"; }
 
     // --- Default arguments (writer: CallLowering) -------------------------------
 
@@ -494,4 +502,11 @@ class LowerTargets {
     static fn ctor_pre(k: u32) -> string   { return f"__kairo_ctor_pre{k}"; }
     static fn ctor_slot_arg() -> string    { return "__kairo_s"; }
     static fn ctor_local_slot(i: usize, name: string) -> string { return f"__kairo_l{i}_" + name; }
+
+    // --- Exported records (writer: TypeExport) ----------------------------------
+
+    /// The \p i-th field of the clang stand-in TypeExport builds for a Kairo
+    /// record in phase A's AST. The stand-in carries layout only, and phase B
+    /// compiles against the real record, so the fields need no real names.
+    static fn export_field(i: usize) -> string { return f"__kairo_f{i}"; }
 }
