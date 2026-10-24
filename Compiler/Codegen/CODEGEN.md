@@ -50,7 +50,9 @@ Objects land at `<obj-dir>/<module path>.o` (`--obj-dir`; a single-TU
 build with `-o x.o` uses that). `--print-cxx` runs the same plan into a
 TextSink; `--emit-headers <dir>` runs `EmitPlan(Header)` into
 `<dir>/<module path>.hh`. Both work under `--type-check-only`.
-`#include "foo.k"` from a C++ input runs `EmitPlan(Preamble)` and
+`#include "foo.k"` from a C++ input runs `EmitPlan(Include)` -- a
+Header's roots (pub decls, and a priv or internal one only when an inline
+or template body names it) emitted as a Preamble is -- and
 `InterfaceEmitter::run` into a TokenSink bound to the host's preprocessor
 (`IncludeEmitter`), then EmitIR over `EmitPlan::include_bodies()`: the
 template and `inline` bodies a C++ consumer compiles itself, foreign and

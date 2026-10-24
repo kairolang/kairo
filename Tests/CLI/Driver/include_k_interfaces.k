@@ -72,6 +72,15 @@ fn main() -> i32 { return 0 }
 // TYPO: typo.cc:5:20: error [CL001E]: no member named 'manhatan' in namespace 'shapes'; did you mean 'manhattan'?
 // TYPO: shapes.k:8:8: note [I900N]: 'manhattan' declared here
 
+// Only the pub interface crosses (EmitPlan Include mode): a priv or
+// internal decl reaches the C++ TU only when an inline or template body
+// names it, as twice_secret names secret. open's helpers stay in privy.o.
+// 0 + (1 + 1) + 9.
+// RUN: %kairo %S/Inputs/include_k/use_privy.cc %S/Inputs/include_k/privy.k -o %t.d/privy --cache-dir %t.d/o11
+// RUN: %t.d/privy; test $? -eq 11
+// RUN: { %kairo -c %S/Inputs/include_k/peek_privy.cc %S/Inputs/include_k/privy.k --cache-dir %t.d/o12 2>&1 || true; } | %FileCheck %s --check-prefix=PRIV
+// PRIV: peek_privy.cc:3:28: error [CL001E]: no member named 'hidden' in namespace 'privy'
+
 // Objective-C is C to the include. The refusal is the only error: what
 // stands in for the file must not parse as C into more of them.
 // RUN: { %kairo -c %S/Inputs/include_k/objc.m %S/Inputs/include_k/geo.k --cache-dir %t.d/o4 2>&1 || true; } | %FileCheck %s --check-prefix=OBJC --implicit-check-not=error

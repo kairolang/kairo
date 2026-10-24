@@ -39,8 +39,8 @@ import Preprocessor::PreprocessorSymbolTable::*;
 
 /// \class IncludedDecls
 /// \brief What the earlier `#include "*.k"` lines of one C++ TU already
-///        put in it, so a later one leaves that out. Each stream is a
-///        preamble (every declaration its module reaches, own and foreign),
+///        put in it, so a later one leaves that out. Each stream carries
+///        every declaration its module's interface reaches, own and foreign,
 ///        so two modules that share a third, or the builtin root, would
 ///        otherwise define its records twice. A header guards those with
 ///        `#ifndef`; a token stream has no directive, so the guard is kept
@@ -140,8 +140,8 @@ fn _set_lines(hs: *HeaderSet, seen: *IncludedDecls, lines: *vec::<string>) {
 
 /// \class IncludeEmitter
 /// \brief The tokens a C++ TU gets for `#include "foo.k"`
-///        (Interop/Clang/KairoInclude.k): foo.k's preamble interface -- every
-///        declaration, own and foreign, as CodegenBackend::fill opens with --
+///        (Interop/Clang/KairoInclude.k): foo.k's interface -- an Include plan:
+///        its pub declarations and what they reach, own and foreign --
 ///        emitted into a TokenSink bound to the HOST's preprocessor, then
 ///        the template and inline bodies the host compiles itself
 ///        (EmitPlan::include_bodies). No other body (they are foo.o's and
@@ -186,7 +186,7 @@ class IncludeEmitter {
         sink->arena_puncts = printing;
 
         var cg = CodegenContext(ctx, sink, psym, instances);
-        var plan = EmitPlan(&cg, PlanMode::Preamble);
+        var plan = EmitPlan(&cg, PlanMode::Include);
         plan.run();
         cg.advance_phase(CodegenPhase::Planned);
 

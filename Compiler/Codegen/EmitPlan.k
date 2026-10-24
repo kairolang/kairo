@@ -24,7 +24,7 @@
 ///       3  explicit instantiations: `template class X<A>;` in the instance's
 ///          home TU, `extern template ...` everywhere else
 ///
-///     Two modes decide the ROOTS; the closure and ordering are identical:
+///     Three modes decide the ROOTS; the closure and ordering are identical:
 ///
 ///       Preamble  every own decl (all visibilities) + everything foreign it
 ///                 reaches. What the TU's .cpp starts with.
@@ -32,6 +32,11 @@
 ///                 .hh contains; the emitter turns a foreign Complete entry
 ///                 into an `#include` and a foreign Fwd entry into a
 ///                 forward declaration.
+///       Include   a Header's roots and bodies, emitted as a Preamble is:
+///                 foreign entries inline, no directive. What
+///                 `#include "foo.k"` gives a C++ TU (Backend/
+///                 IncludeEmitter.k): a priv or internal decl gets there
+///                 only when an inline or template body names it.
 ///
 ///     A Complete cycle is TypeCycleCheck's to report, in sema; here the
 ///     sort asserts. Output is ordered by (fid, offset) inside a tier so the
@@ -98,6 +103,7 @@ enum PlanTier derives u8 {
 enum PlanMode derives u8 {
     Preamble = 0,
     Header,
+    Include,
 }
 
 /// `struct N::__kairo_ext_X`: every extension member of target X declared in
@@ -383,7 +389,7 @@ fn EmitPlan::friend_scopes_of(d: *Decl, out: *vec::<*ExtScope>) {
 // --- Dump --------------------------------------------------------------------
 
 fn EmitPlan::dump(path: string) {
-    var m = ("preamble") if (self._mode == PlanMode::Preamble) else ("header");
+    var m = ("preamble") if (self._mode == PlanMode::Preamble) else (("header") if (self._mode == PlanMode::Header) else ("include"));
     std::print(f"===== EMIT PLAN fid {self._home} ({m}): {path} =====");
     if self.entries.size() == 0 { std::print("  (empty)"); return; }
     var tier = u8(255);
@@ -469,19 +475,19 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
         var x = cast::<ExtensionDecl>(d);
         // A header reaches the scope through any visible member, and then
         // carries the WHOLE struct; a block with none adds no root.
-        if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
+        if (self._mode != PlanMode::Preamble) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
         var visible = false;
         for var i: usize = 0; i < x->methods.size(); ++i {
             var m = x->methods[i];
             if m == &null { continue; }
-            if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(static_cast::<*Decl>(m))) { continue; }
+            if (self._mode != PlanMode::Preamble) && _hidden_in_header(CXXSpell::vis_of(static_cast::<*Decl>(m))) { continue; }
             visible = true;
         }
         if visible { self._scope_for(x, true); }
         return;
     }
     if !self._plannable(d) { return; }
-    if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
+    if (self._mode != PlanMode::Preamble) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
     if self._is_type_decl(d) {
         // A definition here means every own type is Complete; its own
         // dependencies come in through _expand.
@@ -779,14 +785,14 @@ fn EmitPlan::_walk_visible() {
 fn EmitPlan::visible_bodies() -> vec::<*FunctionDecl> {
     // Preamble: foreign only (own bodies are emitted off the program).
     // Header: own only.
+    // Include: both. The host is a C++ TU that includes nothing else of
+    // Kairo's, and it compiles foo's templates and inline functions itself;
+    // _walk_visible walks the same list, so whatever they name is planned.
+    if self._mode == PlanMode::Include { return self.include_bodies(); }
     return self._bodies(self._mode == PlanMode::Header);
 }
 
-/// What `#include "foo.k"` carries (Backend/IncludeEmitter.k): a Preamble
-/// plan's foreign bodies AND the ones a Header would carry of its own. The
-/// host is a C++ TU that includes nothing else of Kairo's, and it compiles
-/// foo's templates and inline functions itself. The Preamble already walked
-/// every own body, so whatever these name is planned.
+/// The foreign bodies, then the own ones: what an Include plan carries.
 fn EmitPlan::include_bodies() -> vec::<*FunctionDecl> {
     var out = self._bodies(false);
     var own = self._bodies(true);
@@ -1450,7 +1456,7 @@ fn EmitPlan::_order() {
     // definitions and every call need the class); a header defines the ones
     // its roots reach and only declares the rest.
     for var i: usize = 0; i < self._scopes.size(); ++i {
-        if (self._mode == PlanMode::Header) && (!self._scopes[i].reachable) { continue; }
+        if (self._mode != PlanMode::Preamble) && (!self._scopes[i].reachable) { continue; }
         var e = self._entry(static_cast::<*Decl>(self._scopes[i].anchor), PlanNeed::Complete, PlanTier::Definitions);
         e.scope = &(self._scopes[i]);
         t1.push_back(e);
