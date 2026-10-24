@@ -96,7 +96,9 @@ files it imports) or a documented role (parity/, kairo-only/).
         module_pins/      libraries named by a module.k pin (`module geo`); a pin outside module.k is an error
         module_pins_dup/  two pins with one name (R018E); its own cwd
         search_dirs/      unnamed -I dirs: relative module paths; F20 (no R018E)
-        search_dirs_dup/  one module path from two search dirs (R017E); its own cwd
+        search_dirs_dup/  one module path from two search dirs (R017E at an import, R018E as two inputs); its own cwd
+        Inputs/           corpora of the single-file tests beside it: module_walkup (a library found walking up
+                          from the file), module_pins_deep / _late / _symlink, std_dash_i
       ExprTyper/        expression typing, overloads, call arguments
       Check/            post-resolution checks (lifecycle, C++ name clashes)
       Operators/        operator declaration / use rules
