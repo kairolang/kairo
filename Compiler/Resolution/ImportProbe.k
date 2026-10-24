@@ -344,7 +344,15 @@ class ImportResolver {
                 }
                 var sp = (include_spellings[i]) if (i < include_spellings.size()) else (vec::<string>());
                 if sp.size() == 0 { sp = nm; }
-                self._add_root(p, priority, nm, sp, pinned);
+                var r = self._add_root(p, priority, nm, sp, pinned);
+                // A pinned -I dir is a library like a pinned subdirectory, and
+                // reached the same way: by its declared name only. Left
+                // undiscovered, the last-resort probe of every root found its
+                // files by their bare paths too, so `-I geometry` with a
+                // `module geo` made `import vec` reach `geo::vec`. The
+                // driver's builtin and kairo::std are explicit names, not
+                // pins, and keep that probe.
+                if pinned { r->discovered = true; }
                 priority += 1;
             }
         }
@@ -1387,16 +1395,22 @@ class ImportResolver {
             return;
         }
 
-        var old      = self._roots[index];
-        var path     = old->base_path;
-        var priority = old->priority;
-        var name     = old->name;        // copied BEFORE the destroy: dropping it
-                                         // here silently demoted a named root to
-                                         // the entry root and changed every module
-                                         // path under it.
+        var old        = self._roots[index];
+        var path       = old->base_path;
+        var priority   = old->priority;
+        // Everything a root IS, copied BEFORE the destroy. Dropping the name
+        // demoted a named root to an unnamed search dir and changed every
+        // module path under it; dropping the spelling made std reachable
+        // only as `kairo::std`; dropping `discovered` made a pinned
+        // library's files importable unqualified (the last-resort probe).
+        var name       = old->name;
+        var spelling   = old->spelling;
+        var discovered = old->discovered;
 
         std::destroy(old);
-        self._roots[index] = std::create::<SearchRoot>(path, priority, self._ext_cfg, name);
+        var fresh = std::create::<SearchRoot>(path, priority, self._ext_cfg, name, spelling);
+        fresh->discovered = discovered;
+        self._roots[index] = fresh;
 
         self.invalidate_cache();
     }

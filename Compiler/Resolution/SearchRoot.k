@@ -26,10 +26,11 @@ class SearchRoot {
     pub var priority:  u32;
 
     /// The root's MODULE name: the leading SEGMENTS every module under it
-    /// carries (IMPORTS.md §2.1). `-I ~/foo` registers a root named `foo`, so
-    /// `~/foo/a.k` is `foo::a` from every importer. Empty for the ENTRY root,
-    /// the one and only unnamed root and therefore the only one whose files
-    /// are importable with a bare first segment.
+    /// carries (IMPORTS.md §2.1). `-I ~/foo` over a `~/foo/module.k` pinning
+    /// `module foo` is a root named `foo`, so `~/foo/a.k` is `foo::a` from
+    /// every importer. Empty for an unnamed
+    /// search dir (the cwd, an unpinned -I): its files are importable by
+    /// their bare path under it, with no prefix.
     ///
     /// Multi-segment because a root's name is a module PATH, not an
     /// identifier: Kairo's own standard library registers under `kairo::std`
@@ -45,12 +46,13 @@ class SearchRoot {
     /// it, which is what keeps the emitted namespace independent of it.
     pub var spelling: vec::<string>;
 
-    /// A library found by its pinned module.k (`module foo`) in an immediate
-    /// subdirectory of another root, rather than registered by the driver or
-    /// -I. Reached by its NAME only: resolve_module_rel's last-resort probe
-    /// of every root with the path as written skips it, so a pinned
-    /// subdirectory never makes its files importable unqualified from the
-    /// whole build.
+    /// A library named by its pinned module.k (`module foo`): found in an
+    /// immediate subdirectory of another root, or an -I dir whose own
+    /// module.k pins it -- anything but the driver's explicitly named roots
+    /// (builtin, kairo::std). Reached by its NAME only: resolve_module_rel's
+    /// last-resort probe of every root with the path as written skips it, so
+    /// a pinned library never makes its files importable unqualified from
+    /// the whole build.
     pub var discovered: bool = false;
 
     fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions,
