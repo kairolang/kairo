@@ -19,7 +19,8 @@
 ///   pops when the array runs out. An engaged EMPTY array means "no hook"
 ///   to the fork (Lexer::isPrebuiltTokenLexer), so an include with nothing
 ///   to declare, or one that failed, yields the sentinel
-///   `static_assert(true);` -- valid at namespace, class and block scope,
+///   `static_assert(true);` (lexed from a buffer of that text) -- valid at
+///   namespace, class and block scope,
 ///   and silent under -Wextra-semi and -pedantic (a C host, always an
 ///   error, gets `;`). A trailing tok::eof would
 ///   end the WHOLE host TU, so a stream never carries one.
@@ -66,9 +67,9 @@ ffi "c++" import "llvm/Support/CommandLine.h";
 class KairoIncludeSource {
     /// Why the last tokens_for failed, for the error at the include.
     pub var error: string;
-    /// The system headers the last tokens_for's stream needs (`new`, ...),
-    /// which the hook enters ahead of it.
-    pub var system_headers: vec::<string>;
+    /// The `#include` lines the last tokens_for's stream needs (`<new>`,
+    /// the modules' ffi headers), which the hook enters ahead of it.
+    pub var include_lines: vec::<string>;
 
     /// \brief appends to \p out the interface of the Kairo file at \p path,
     ///        which clang entered as \p cfid in \p ci, located in that file.
@@ -147,21 +148,21 @@ class KairoIncludeHook {
         }
         if !why.empty() { self._error_at(csm->getIncludeLoc(fid), f"cannot include '{path}\x27: {why}"); }
 
-        // A stream that needs system headers cannot carry them (a token
-        // stream has no line for an #include), so this entry stands down to
-        // the sentinel and the headers come from a buffer entered beneath
-        // it, which includes them and then this file again.
-        if why.empty() && (!self.source->system_headers.empty()) {
+        // A stream that needs headers cannot carry them (a token stream has
+        // no line for an #include), so this entry stands down to the
+        // sentinel and the headers come from a buffer entered beneath it,
+        // which includes them and then this file again.
+        if why.empty() && (!self.source->include_lines.empty()) {
             self._held_uids.push_back(uid);
             self._held.push_back(toks);
             // Absolute: a quoted include from a buffer has no directory of
             // its own to be relative to.
             var real = fe->getFileEntry().tryGetRealPathName();
             var again = (string(real.data(), real.size())) if (!real.empty()) else (path);
-            self._enter_headers(fid, again, &(self.source->system_headers));
+            self._enter_headers(fid, again, &(self.source->include_lines));
             var stand_in = std::create::<libcxx::vector::<clang::Token>>();
             self._streams.push_back(stand_in);
-            self._sentinel(stand_in, csm->getLocForStartOfFile(fid));
+            self._sentinel(stand_in, fid);
             return llvm::ArrayRef::<clang::Token>(stand_in->data(), stand_in->size());
         }
 
@@ -169,21 +170,21 @@ class KairoIncludeHook {
         // declarations and the helpers, which C++ rejects twice.
         self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe);
 
-        if toks->empty() { self._sentinel(toks, csm->getLocForStartOfFile(fid)); }
+        if toks->empty() { self._sentinel(toks, fid); }
         return llvm::ArrayRef::<clang::Token>(toks->data(), toks->size());
     }
 
-    /// \brief enters `#include <h>` for each of \p headers, then
-    ///        `#include "<path>"`, as a buffer included where \p fid was.
+    /// \brief enters each of \p lines, then `#include "<path>"`, as a
+    ///        buffer included where \p fid was.
     ///
     /// The hook runs inside EnterSourceFile before \p fid's lexer is
     /// pushed, so a buffer entered here sits UNDER it: the sentinel this
     /// entry returns is lexed first, then the buffer, whose last include is
     /// this file's second entry. The include-once mark waits for that one.
-    priv fn _enter_headers(self, fid: clang::FileID, path: string, headers: *vec::<string>) {
+    priv fn _enter_headers(self, fid: clang::FileID, path: string, lines: *vec::<string>) {
         var csm = &(self._ci->getSourceManager());
         var text = "";
-        for var i: usize = 0; i < headers->size(); ++i { text += "#include <" + (*headers)[i] + ">\n"; }
+        for var i: usize = 0; i < lines->size(); ++i { text += (*lines)[i] + "\n"; }
         text += "#include \x22" + path + "\x22\n";
         var buf = llvm::MemoryBuffer::getMemBufferCopy(sref(text), r"<kairo-include>");
         var at  = csm->getIncludeLoc(fid);
@@ -191,43 +192,53 @@ class KairoIncludeHook {
         self._ci->getPreprocessor().EnterSourceFile(bfid, clang::ConstSearchDirIterator(&null), at);
     }
 
-    /// `static_assert(true);`: see the file header.
-    priv fn _sentinel(self, toks: *libcxx::vector::<clang::Token>, at: clang::SourceLocation) {
+    /// `static_assert(true);`: see the file header. Lexed from a buffer of
+    /// its own text, included where \p fid was, so each token has the bytes
+    /// it spells: `-E` prints a token's bytes, and a zero-length one printed
+    /// as nothing (`static_asserttrue`).
+    priv fn _sentinel(self, toks: *libcxx::vector::<clang::Token>, fid: clang::FileID) {
         // A C or ObjC host only gets here with the include already an
         // error, and before C23 `static_assert(true)` parses there as an
         // implicit-int declaration, burying that error under two bogus
         // ones. An empty declaration is valid C at every scope it can be.
-        if !self._ci->getLangOpts().CPlusPlus {
-            self._push_punct(toks, clang::tok::semi, at);
+        var cxx = self._ci->getLangOpts().CPlusPlus;
+        var text = (" static_assert(true);") if (cxx) else (" ;");
+        var csm = &(self._ci->getSourceManager());
+        var buf = llvm::MemoryBuffer::getMemBufferCopy(sref(text), r"<kairo-include>");
+        var sfid = csm->createFileID(libcxx::move(buf), clang::SrcMgr::C_User, 0, 0, csm->getIncludeLoc(fid));
+        var at = csm->getLocForStartOfFile(sfid);
+        if !cxx {
+            self._push_punct(toks, clang::tok::semi, at.getLocWithOffset(1), 1);
             return;
         }
         var pp = &(self._ci->getPreprocessor());
-        self._push_kw(toks, pp, r"static_assert", at);
-        self._push_punct(toks, clang::tok::l_paren, at);
-        self._push_kw(toks, pp, r"true", at);
-        self._push_punct(toks, clang::tok::r_paren, at);
-        self._push_punct(toks, clang::tok::semi, at);
+        self._push_kw(toks, pp, r"static_assert", at.getLocWithOffset(1), 13);
+        self._push_punct(toks, clang::tok::l_paren, at.getLocWithOffset(14), 1);
+        self._push_kw(toks, pp, r"true", at.getLocWithOffset(15), 4);
+        self._push_punct(toks, clang::tok::r_paren, at.getLocWithOffset(19), 1);
+        self._push_punct(toks, clang::tok::semi, at.getLocWithOffset(20), 1);
     }
 
     priv fn _push_kw(self, toks: *libcxx::vector::<clang::Token>, pp: *clang::Preprocessor,
-                     spelling: string, at: clang::SourceLocation) {
+                     spelling: string, at: clang::SourceLocation, len: u32) {
         var t: clang::Token;
         t.startToken();
         var ii = pp->getIdentifierInfo(sref(spelling));
         t.setIdentifierInfo(ii);
         t.setKind(ii->getTokenID());
         t.setLocation(at);
-        t.setLength(0);
+        t.setLength(len);
+        t.setFlag(clang::Token::LeadingSpace);
         toks->push_back(t);
     }
 
     priv fn _push_punct(self, toks: *libcxx::vector::<clang::Token>, k: clang::tok::TokenKind,
-                        at: clang::SourceLocation) {
+                        at: clang::SourceLocation, len: u32) {
         var t: clang::Token;
         t.startToken();
         t.setKind(k);
         t.setLocation(at);
-        t.setLength(0);
+        t.setLength(len);
         toks->push_back(t);
     }
 

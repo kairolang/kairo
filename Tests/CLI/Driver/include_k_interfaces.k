@@ -51,6 +51,27 @@ fn main() -> i32 { return 0 }
 // RUN: cd %t.d && %kairo %S/Inputs/include_k/use_main.cc %S/Inputs/include_k/use_side.cc %S/Inputs/include_k/many.k -o %t.d/two_tus --cache-dir %t.d/o7
 // RUN: %t.d/two_tus; test $? -eq 9
 
+// Templates and inline functions: the host compiles them itself, so the
+// stream carries their bodies (EmitPlan::include_bodies) -- Box<long> and
+// first<short> are instances no Kairo code asked for, and sq has no
+// out-of-line copy anywhere. 9 + 1 + 7 + (5 + 1).
+// RUN: %kairo %S/Inputs/include_k/use_tmpl.cc %S/Inputs/include_k/tmpl.k -o %t.d/tmpl --cache-dir %t.d/o8
+// RUN: %t.d/tmpl; test $? -eq 23
+
+// The module's own ffi headers, which its interface and inline bodies name:
+// entered ahead of the stream by the paths they resolved to, so the .cc
+// needs no -I for them, and the `ffi "c"` one inside extern "C". 5 + 6.
+// RUN: %kairo %S/Inputs/include_k/use_ffi.cc %S/Inputs/include_k/ffi/ffiuse.k -o %t.d/ffi --cache-dir %t.d/o9
+// RUN: %t.d/ffi; test $? -eq 11
+
+// clang's notes point at the name as written in the .k: the declaration's
+// name token holds the name's own bytes (TokenSink::_claim).
+// RUN: { %kairo -c %S/Inputs/include_k/typo.cc %S/Inputs/include_k/shapes.k --cache-dir %t.d/o10 2>&1 || true; } | %FileCheck %s --check-prefix=TYPO
+// TYPO: typo.cc:4:13: error [CL001E]: no type named 'Tracr' in namespace 'shapes'; did you mean 'Tracer'?
+// TYPO: shapes.k:12:11: note [I900N]: 'Tracer' declared here
+// TYPO: typo.cc:5:20: error [CL001E]: no member named 'manhatan' in namespace 'shapes'; did you mean 'manhattan'?
+// TYPO: shapes.k:8:8: note [I900N]: 'manhattan' declared here
+
 // Objective-C is C to the include. The refusal is the only error: what
 // stands in for the file must not parse as C into more of them.
 // RUN: { %kairo -c %S/Inputs/include_k/objc.m %S/Inputs/include_k/geo.k --cache-dir %t.d/o4 2>&1 || true; } | %FileCheck %s --check-prefix=OBJC --implicit-check-not=error

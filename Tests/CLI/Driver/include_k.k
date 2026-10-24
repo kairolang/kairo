@@ -15,10 +15,20 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %S/Inputs/include_k/main.cc %S/Inputs/include_k/geo.k -o %t.d/app --cache-dir %t.d/obj
 // RUN: %t.d/app; test $? -eq 9
 
-// -fsyntax-only on the .cc also takes the tokens, but a build that stops
-// before code generation has no lowered module to emit them from.
-// RUN: { %kairo --syntax-only %S/Inputs/include_k/main.cc %S/Inputs/include_k/geo.k 2>&1 || true; } | %FileCheck %s --check-prefix=SYNTAX
-// SYNTAX: main.cc:1:10: error [CL001E]: cannot include '{{.*}}geo.k': this build stops before code generation
+// -fsyntax-only and type checking on the .cc take the tokens too: a C++
+// input runs the Kairo ones through sema whatever the action stops at.
+// RUN: %kairo --syntax-only %S/Inputs/include_k/main.cc %S/Inputs/include_k/geo.k 2>&1 | %FileCheck %s --check-prefix=SYNTAX --allow-empty
+// RUN: %kairo --type-check-only %S/Inputs/include_k/main.cc %S/Inputs/include_k/geo.k 2>&1 | %FileCheck %s --check-prefix=SYNTAX --allow-empty
+// SYNTAX-NOT: error
+
+// -E prints the stream as C++ that compiles on its own: the preprocessed
+// .ii, with geo.k beside it only for its object, builds the same program.
+// RUN: %kairo --preprocess %S/Inputs/include_k/main.cc %S/Inputs/include_k/geo.k > %t.d/main.ii
+// RUN: %FileCheck %s --check-prefix=PP --input-file=%t.d/main.ii
+// PP: namespace geo {
+// PP-NOT: static_asserttrue
+// RUN: %kairo %t.d/main.ii %S/Inputs/include_k/geo.k -o %t.d/app_ii --cache-dir %t.d/o_ii
+// RUN: %t.d/app_ii; test $? -eq 9
 
 // A .k the build does not hold is an error at the include, not C++ lexing.
 // RUN: { %kairo -c %S/Inputs/include_k/missing.cc %S/Inputs/include_k/geo.k --cache-dir %t.d/miss 2>&1 || true; } | %FileCheck %s --check-prefix=MISSING

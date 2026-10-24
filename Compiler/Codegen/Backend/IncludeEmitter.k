@@ -15,6 +15,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "clang/Frontend/CompilerInstance.h";
+ffi "c++" import "clang/Frontend/FrontendOptions.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
 ffi "c++" import "clang/Lex/Token.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
@@ -26,6 +27,11 @@ import Codegen::Sink::TokenSink::*;
 import Codegen::EmitPlan::*;
 import Codegen::CodegenContext::*;
 import Codegen::Emit::InterfaceEmitter::*;
+import Codegen::Emit::EmitIR::*;
+import Codegen::Emit::CXXSpell::*;
+import Interop::Clang::HeaderSet::*;
+import AST::Context::TranslationUnit::*;
+import AST::Node::Declarations::*;
 
 import AST::Context::ASTContext::*;
 import AST::Context::InstantiationRegistry::*;
@@ -53,6 +59,12 @@ class IncludedDecls {
     /// a later include from defining X.
     priv var _keys:   llvm::DenseSet::<u64>;
     priv var _scopes: vec::<string>;
+    /// Template and inline bodies (EmitPlan::include_bodies), by defining
+    /// FunctionDecl: two modules that use one builtin template carry its
+    /// members' bodies both.
+    priv var _bodies: llvm::DenseSet::<u64>;
+    /// #include lines already entered (system headers, ffi header sets).
+    priv var _lines:  vec::<string>;
 
     fn IncludedDecls(self) { }
 
@@ -61,6 +73,23 @@ class IncludedDecls {
         self.ctor_slots = false;
         self._keys.clear();
         self._scopes.clear();
+        self._bodies.clear();
+        self._lines.clear();
+    }
+
+    /// True the first time directive line \p l is offered.
+    fn admit_line(self, l: string) -> bool {
+        for var i: usize = 0; i < self._lines.size(); ++i { if self._lines[i] == l { return false; } }
+        self._lines.push_back(l);
+        return true;
+    }
+
+    /// True the first time body \p f is offered.
+    fn admit_body(self, f: *FunctionDecl) -> bool {
+        var key = reinterpret_cast::<u64>(f);
+        if self._bodies.contains(key) { return false; }
+        self._bodies.insert(key);
+        return true;
     }
 
     /// True the first time \p e is offered: it is new to the host TU.
@@ -83,12 +112,41 @@ class IncludedDecls {
     }
 }
 
+/// \p tu's ffi header set into \p sets, once.
+fn _add_set(tu: *TranslationUnit, sets: *vec::<*HeaderSet>) {
+    if (tu == &null) || (tu->header_set == &null) { return; }
+    var hs = reinterpret_cast::<*HeaderSet>(tu->header_set);
+    if !hs->ok { return; }
+    for var i: usize = 0; i < sets->size(); ++i { if (*sets)[i] == hs { return; } }
+    sets->push_back(hs);
+}
+
+/// \p hs's direct includes as lines, as a Kairo TU gets a set it cannot
+/// take as its PCH (CodegenBackend::run): by resolved path, the `ffi "c"`
+/// ones inside extern "C".
+fn _set_lines(hs: *HeaderSet, seen: *IncludedDecls, lines: *vec::<string>) {
+    for var e: usize = 0; e < hs->includes.size(); ++e {
+        if hs->includes[e].from_path.size() != 0 { continue; }   // direct includes; the rest follow.
+        // Two literals: \x is greedy in Stage 0's output (see CodegenBackend).
+        var l = "";
+        if hs->includes[e].c_linkage { l += "extern \x22"; l += "C\x22 {\n"; }
+        l += "#include \x22";
+        l += hs->includes[e].to_path;
+        l += "\x22";
+        if hs->includes[e].c_linkage { l += "\n}"; }
+        if seen->admit_line(l) { lines->push_back(l); }
+    }
+}
+
 /// \class IncludeEmitter
 /// \brief The tokens a C++ TU gets for `#include "foo.k"`
 ///        (Interop/Clang/KairoInclude.k): foo.k's preamble interface -- every
 ///        declaration, own and foreign, as CodegenBackend::fill opens with --
-///        emitted into a TokenSink bound to the HOST's preprocessor. No
-///        bodies (they are foo.o's), no tok::eof (it would end the host TU).
+///        emitted into a TokenSink bound to the HOST's preprocessor, then
+///        the template and inline bodies the host compiles itself
+///        (EmitPlan::include_bodies). No other body (they are foo.o's and
+///        the other modules' objects'), no tok::eof (it would end the host
+///        TU).
 class IncludeEmitter {
     /// Why the last emit() failed.
     pub var error: string;
@@ -99,16 +157,19 @@ class IncludeEmitter {
     ///                is a FileID in the host's SourceManager.
     /// \param keep    receives the sink: it owns state the tokens' locations
     ///                were built from, and lives as long as the host TU.
-    /// \param headers receives the system headers the tokens need
-    ///                (TokenSink::system_header), for the hook to enter
-    ///                ahead of them: a token stream has no line for an
-    ///                #include.
+    /// \param lines   receives the `#include` lines the tokens need, for the
+    ///                hook to enter ahead of them (a token stream has no line
+    ///                for a directive): the system headers
+    ///                (TokenSink::system_header), then the ffi header set of
+    ///                every module a declaration or body here comes from,
+    ///                by the paths phase A resolved them to. Each once per
+    ///                host TU.
     /// \param seen    what the host TU's earlier includes emitted; left out
     ///                here, and this include's entries added.
     fn emit(self, ci: *clang::CompilerInstance, locmap: *ClangLocMap, ctx: *ASTContext,
             kfid: FileID, ksize: u32, psym: *PreprocessorSymbolTable,
             instances: *InstantiationRegistry, out: *libcxx::vector::<clang::Token>,
-            keep: *vec::<*TokenSink>, headers: *vec::<string>, seen: *IncludedDecls) -> bool {
+            keep: *vec::<*TokenSink>, lines: *vec::<string>, seen: *IncludedDecls) -> bool {
         var pp  = &(ci->getPreprocessor());
         var csm = &(ci->getSourceManager());
         var live = locmap->clang_fid_of(kfid);
@@ -118,6 +179,11 @@ class IncludeEmitter {
         }
         var sink = std::create::<TokenSink>(pp, csm, locmap, live, kfid, ksize, &(ctx->codegen_alloc));
         keep->push_back(sink);
+        // -E prints each token's bytes, which a borrowed punctuator does not
+        // have (TokenSink::arena_puncts), and decides on spaces by reading
+        // them too: every token gets one instead.
+        var printing = (ci->getFrontendOpts().ProgramAction == clang::frontend::PrintPreprocessedInput);
+        sink->arena_puncts = printing;
 
         var cg = CodegenContext(ctx, sink, psym, instances);
         var plan = EmitPlan(&cg, PlanMode::Preamble);
@@ -132,6 +198,9 @@ class IncludeEmitter {
             if seen->admit(&plan, &(plan.entries[i])) { fresh.push_back(plan.entries[i]); }
         }
         plan.entries = fresh;
+        // The host defines no instantiation: foo.o holds the ones homed in
+        // foo, so here they are `extern template` like everyone else's.
+        for var i: usize = 0; i < plan.entries.size(); ++i { plan.entries[i].is_home = false; }
 
         var ie = InterfaceEmitter(&cg, &plan);
         ie.have_helpers    = seen->helpers;
@@ -140,7 +209,22 @@ class IncludeEmitter {
         seen->helpers    = ie.have_helpers;
         seen->ctor_slots = ie.have_ctor_slots;
 
-        for var i: usize = 0; i < sink->system_headers.size(); ++i { headers->push_back(sink->system_headers[i]); }
+        var bodies = vec::<*FunctionDecl>();
+        var all = plan.include_bodies();
+        for var i: usize = 0; i < all.size(); ++i {
+            if seen->admit_body(all[i]) { bodies.push_back(all[i]); }
+        }
+        var ir = EmitIR(&cg);
+        ir.emit_bodies(bodies);
+
+        for var i: usize = 0; i < sink->system_headers.size(); ++i {
+            var l = "#include <" + sink->system_headers[i] + ">";
+            if seen->admit_line(l) { lines->push_back(l); }
+        }
+        var sets = vec::<*HeaderSet>();
+        for var i: usize = 0; i < plan.entries.size(); ++i { _add_set(CXXSpell::tu_of(plan.entries[i].decl), &sets); }
+        for var i: usize = 0; i < bodies.size(); ++i { _add_set(CXXSpell::tu_of(static_cast::<*Decl>(bodies[i])), &sets); }
+        for var i: usize = 0; i < sets.size(); ++i { _set_lines(sets[i], seen, lines); }
 
         if sink->has_arena() {
             var view = sink->seal_arena();
@@ -149,7 +233,10 @@ class IncludeEmitter {
             sink->patch_pending(afid);
         }
 
-        for var i: usize = 0; i < sink->token_count(); ++i { out->push_back(*(sink->get_token(i))); }
+        for var i: usize = 0; i < sink->token_count(); ++i {
+            out->push_back(*(sink->get_token(i)));
+            if printing { out->back().setFlag(clang::Token::LeadingSpace); }
+        }
         return true;
     }
 }

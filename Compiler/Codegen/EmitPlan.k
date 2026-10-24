@@ -185,6 +185,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn run(self);
     fn is_empty(self) -> bool;
     fn visible_bodies(self) -> vec::<*FunctionDecl>;
+    fn include_bodies(self) -> vec::<*FunctionDecl>;
+    fn _bodies(self, want_own: bool) -> vec::<*FunctionDecl>;
     fn _walk_visible(self);
     fn _visible_record_bodies(self, d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>);
     fn _push_body(self, f: *FunctionDecl, out: *vec::<*FunctionDecl>);
@@ -775,11 +777,25 @@ fn EmitPlan::_walk_visible() {
 /// template` lines are NOT redundant with this; removing them would compile
 /// every known instance in every TU that uses it.
 fn EmitPlan::visible_bodies() -> vec::<*FunctionDecl> {
-    var out = vec::<*FunctionDecl>();
     // Preamble: foreign only (own bodies are emitted off the program).
     // Header: own only.
-    var want_own = (self._mode == PlanMode::Header);
+    return self._bodies(self._mode == PlanMode::Header);
+}
 
+/// What `#include "foo.k"` carries (Backend/IncludeEmitter.k): a Preamble
+/// plan's foreign bodies AND the ones a Header would carry of its own. The
+/// host is a C++ TU that includes nothing else of Kairo's, and it compiles
+/// foo's templates and inline functions itself. The Preamble already walked
+/// every own body, so whatever these name is planned.
+fn EmitPlan::include_bodies() -> vec::<*FunctionDecl> {
+    var out = self._bodies(false);
+    var own = self._bodies(true);
+    for var i: usize = 0; i < own.size(); ++i { out.push_back(own[i]); }
+    return out;
+}
+
+fn EmitPlan::_bodies(want_own: bool) -> vec::<*FunctionDecl> {
+    var out = vec::<*FunctionDecl>();
     for var i: usize = 0; i < self._set.size(); ++i {
         var d = self._set[i];
         if (CXXSpell::fid_of(d) == self._home) != want_own { continue; }

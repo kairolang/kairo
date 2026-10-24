@@ -42,8 +42,9 @@ class DriverIncludeSource derives KairoIncludeSource {
     priv var _ksm:       obs::<SourceManager>;
     priv var _scope:     obs::<GlobalDisambigTable>;
     priv var _psym:      obs::<PreprocessorSymbolTable>;
-    /// False when the build stops before codegen (--syntax-only and the
-    /// like): no Kairo TU was lowered, and the emitter reads lowered trees.
+    /// False when the Kairo TUs stop before sema (a build with no C++
+    /// input, CompilerInstance::kairo_feeds_includes): the emitter reads
+    /// lowered trees.
     priv var _lowered:   bool = false;
 
     priv var _locmap:    opt::<ClangLocMap> = &null;   ///< owned; this host TU's
@@ -61,7 +62,7 @@ class DriverIncludeSource derives KairoIncludeSource {
 
     override fn tokens_for(self, ci: *clang::CompilerInstance, cfid: clang::FileID,
                            path: string, out: *libcxx::vector::<clang::Token>) -> bool {
-        self.system_headers.clear();
+        self.include_lines.clear();
         var kfid = self._ksm->find_fid(Path(path));
         if kfid == static_cast::<FileID>(u32(-1)) {
             self.error = "it is not part of this build; pass it on the command line";
@@ -78,7 +79,7 @@ class DriverIncludeSource derives KairoIncludeSource {
             return false;
         }
         if (!self._lowered) || (self._psym == &null) {
-            self.error = "this build stops before code generation, which an included Kairo file needs";
+            self.error = "this build stops before analysing it, which an included Kairo file needs";
             return false;
         }
 
@@ -96,7 +97,7 @@ class DriverIncludeSource derives KairoIncludeSource {
         var ksize = static_cast::<u32>(self._ksm->get_file_size(kfid));
         var em = IncludeEmitter();
         if !em.emit(ci, self._locmap, ctx, kfid, ksize, self._psym, self._scope->instances(), out,
-                    &(self._sinks), &(self.system_headers), &(self._seen)) {
+                    &(self._sinks), &(self.include_lines), &(self._seen)) {
             self.error = em.error;
             return false;
         }

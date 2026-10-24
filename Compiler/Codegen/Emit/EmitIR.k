@@ -157,8 +157,13 @@ class EmitIR {
     /// plan's, the same one it walked for dependencies, so nothing emitted
     /// here goes unplanned, and each body comes once.
     fn emit_visible(self, plan: *EmitPlan) {
-        var vis = plan->visible_bodies();
-        for var i: usize = 0; i < vis.size(); ++i { self._visible_body(vis[i]); }
+        self.emit_bodies(plan->visible_bodies());
+    }
+
+    /// Bodies from a list the plan made (EmitPlan::include_bodies, pruned by
+    /// the caller), each emitted as emit_visible emits one.
+    fn emit_bodies(self, list: vec::<*FunctionDecl>) {
+        for var i: usize = 0; i < list.size(); ++i { self._visible_body(list[i]); }
     }
 
     // ----------------------------------------------------------------- //

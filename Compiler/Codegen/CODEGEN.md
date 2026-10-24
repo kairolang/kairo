@@ -52,10 +52,18 @@ TextSink; `--emit-headers <dir>` runs `EmitPlan(Header)` into
 `<dir>/<module path>.hh`. Both work under `--type-check-only`.
 `#include "foo.k"` from a C++ input runs `EmitPlan(Preamble)` and
 `InterfaceEmitter::run` into a TokenSink bound to the host's preprocessor
-(`IncludeEmitter`): no bodies, no eof. A stream cannot carry `#ifndef`,
-so a second include in the same C++ TU drops what an earlier one already
-put there (`IncludedDecls`: the helpers, and plan entries keyed by decl
-and tier).
+(`IncludeEmitter`), then EmitIR over `EmitPlan::include_bodies()`: the
+template and `inline` bodies a C++ consumer compiles itself, foreign and
+foo's own. No other body and no eof. Every instantiation is `extern
+template` there; its home's object defines it. A stream cannot carry
+`#ifndef`, so a second include in the same C++ TU drops what an earlier
+one already put there (`IncludedDecls`: the helpers, plan entries keyed by
+decl and tier, bodies, include lines). Nor can it carry `#include`: the
+system headers and the ffi header set of every module the stream draws on
+go back to the hook as lines, which it enters in a buffer ahead of the
+stream (Interop/Clang/KairoInclude.k). Under `-E` the punctuators are arena
+tokens (`TokenSink::arena_puncts`) and every token has a leading space, so
+the printed stream is C++ that compiles on its own.
 
 Layout. Only `Backend/` imports emitters, and only `Backend/` and `Sink/`
 import clang headers:

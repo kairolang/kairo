@@ -533,6 +533,19 @@ class CompilerInstance {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         return (tu != &null) && tu->is_foreign;
     }
+    /// \brief true when a C++ or Objective-C++ input may `#include "foo.k"`
+    ///        (Interop/Clang/KairoInclude.k): the include is emitted from
+    ///        foo.k's analysed and lowered tree, so the Kairo inputs go
+    ///        through sema even when the action stops earlier for C++
+    ///        (--preprocess, --syntax-only).
+    fn kairo_feeds_includes(self) -> bool {
+        for k: InputKind in self._inputs {
+            if (k.cls != InputClass::Source) && (k.cls != InputClass::Header) { continue; }
+            if clang::driver::types::isCXX(k.ty) { return true; }
+        }
+        return false;
+    }
+
     /// \brief true the first time \p fid is asked for: the asking action
     ///        parses, checks and emits it. Inputs share their imports (every
     ///        one reaches builtin), and the PP hands each action its whole
@@ -1441,7 +1454,7 @@ class CompilerInstance {
             self._jobs = std::create::<ClangJobs>(self._backend, exe);
             self._kincludes = std::create::<DriverIncludeSource>(
                 self._sm, self._g_scope, (self._pp->get_symbol_table()) if (self._pp != &null) else (&null),
-                !self.invocation().frontend.stops_before_codegen());
+                (!self.invocation().frontend.stops_at_parse()) || self.kairo_feeds_includes());
             self._jobs->includes = self._kincludes;
         }
         return self._jobs;
@@ -2789,12 +2802,15 @@ fn FrontendAction::run() {
     // Phase 2: per-file stages async-dispatchable in a future phase.
     if !self._preprocess() { return; }
     var fe = ((self._ci->invocation()).frontend);
-    if fe.stops_at_preprocess() { self._stage = TUStage::Done; return; }
+    // Past the action's own stop when a C++ input may include this file:
+    // the include needs it analysed (CompilerInstance::kairo_feeds_includes).
+    var feed = self._ci->kairo_feeds_includes();
+    if fe.stops_at_preprocess() && (!feed) { self._stage = TUStage::Done; return; }
     if self._fids.empty() { self._stage = TUStage::Done; return; }
 
     if !self._parse() { return; }
     if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
-    if fe.stops_at_parse() { self._stage = TUStage::Done; return; }
+    if fe.stops_at_parse() && (!feed) { self._stage = TUStage::Done; return; }
 
     if !self._sema() { return; }
     if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
