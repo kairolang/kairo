@@ -632,8 +632,11 @@ instances a generic's body reaches (`outer<T>` calling
 `inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
 arguments (`CallExpr::dep_args`) and ConformanceChecking substitutes them
 per instance, adding the reached rows to the outer instance's. That last
-is the slice of M1 witnesses need: the reached instances get rows, not
-homes.
+is the slice of M1 witnesses need. A reached instance is registered (so
+it has a `home_fid`, the reaching TU's) but no plan admits it, so no
+explicit instantiation is written for it anywhere: it links because the
+outer instance's explicit instantiation instantiates it implicitly, a
+weak symbol in that object. Homing what M1 reaches is M1's.
 
 Not built, each the ICE or diagnostic that names it:
 

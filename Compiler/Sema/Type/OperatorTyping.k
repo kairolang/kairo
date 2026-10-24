@@ -492,7 +492,11 @@ class <T> OperatorTyping {
         // the answer is deferred (M2) rather than diagnosed. A left operand
         // that is a BOUNDED parameter is the exception: its bounds say which
         // operators it has, and the user-operator path below binds one.
-        var bounded = self._bounded(lt);
+        // `??`, `===` and `in` are never the left operand's user operator
+        // (`in` is the RIGHT operand's), so they defer on any dependent
+        // operand, bounded or not.
+        var own_op = (k != TokenKind::OpQuestionQuestion) && (k != TokenKind::OpEqualEqualEqual) && (k != TokenKind::KwIn);
+        var bounded = own_op && self._bounded(lt);
         if (self._is_dependent(lt) || self._is_dependent(rt)) && (!bounded) {
             dyn()->mark_unknown(n);
             return &null;
