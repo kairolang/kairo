@@ -382,6 +382,27 @@ class CompilerInstance {
         self._adopt(&inv);
     }
 
+    /// \brief constructs from kairo CLI words that did not come from main's
+    ///        argv: kcc's translation of a clang command line (Driver/Kcc.k,
+    ///        FlagTranslator::from_driver). The same parser as the argv
+    ///        path, reporting into this instance's engine, so args_ok() and
+    ///        flush_errors() behave as they do for `kairo`.
+    fn CompilerInstance(self, words: ref!(vec::<string>)) {
+        self._boot_diagnostics();
+        self._cmd = std::create::<Command>(0, &null, self._diag);
+        register_kairo_flags(self._cmd);
+        var parsed = self._cmd->parse_words(words);
+        var inv = CompilerInvocation();
+        if parsed.ok {
+            inv = CompilerInvocation::from_args(parsed);
+        } else {
+            (inv.args)   = parsed;
+            (inv.ok)     = false;
+            (inv.target) = TargetOptions::from_args(parsed);
+        }
+        self._adopt(&inv);
+    }
+
     /// \brief constructs from a caller-built invocation. Reads no argv.
     ///
     /// \details The programmatic entry point. A tool that already knows its
@@ -2150,11 +2171,14 @@ class CompilerInstance {
     }
 
     /// The host's quoted search path after the includer's own directory:
-    /// -iquote, then -I, as clang orders them. From --cxx-include and the
-    /// words in --cxx-flags, which is where a C/C++ input's get them.
+    /// -iquote, then -I, as clang orders them. The -I come in the order
+    /// FlagTranslator::to_driver writes them for a C/C++ input:
+    /// --ffi-include, --cxx-include, then the words in --cxx-flags.
     priv fn _quote_dirs(self) -> vec::<string> {
         var quote = vec::<string>();
         var angle = vec::<string>();
+        for d: string in self.invocation().ffi_includes { angle.push_back(d); }
+        for d: string in self.invocation().cxx_includes { angle.push_back(d); }
         var fl = &(self.invocation().codegen.cxx_flags);
         for var i: usize = 0; i < fl->size(); ++i {
             var w = (*fl)[i];
@@ -2164,7 +2188,6 @@ class CompilerInstance {
             if LinkText::starts_with(w, "-iquote") { quote.push_back(string(w.raw() + 7, w.size() - 7)); continue; }
             if LinkText::starts_with(w, "-I")      { angle.push_back(string(w.raw() + 2, w.size() - 2)); continue; }
         }
-        for d: string in self.invocation().cxx_includes { angle.push_back(d); }
         for d: string in angle { quote.push_back(d); }
         return quote;
     }

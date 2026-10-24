@@ -496,6 +496,7 @@ fn main() -> i32 {
     const KALS_VERSION  : string = version_macro("kals",  "-0.1.0+dev");
     const KWATCH_VERSION: string = version_macro("kwatch","-0.1.0+dev");
     const KPKG_VERSION  : string = version_macro("kpkg",  "-0.1.0+dev");
+    const KCC_VERSION   : string = version_macro("kcc",   "-0.1.0+dev");
 
     log::info("mode: " + build_mode());
 
@@ -520,6 +521,7 @@ fn main() -> i32 {
     var compiler_inc = ["Compiler", core, "Extras/KaTAR", "Linker"];
     var kairo_inc    = ["Compiler", core, "Extras/KaTAR", "Linker", "."];
     p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",                KAIRO_VERSION, kairo_inc,    llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kcc",   "Compiler/Driver/Kcc.k",                  KCC_VERSION,   kairo_inc,    llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kbld",  "Extras/BuildTool/Driver/kbld.k",         KBLD_VERSION,  kbld_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kfmt",  "Extras/Formatter/Driver/kfmt.k",         KFMT_VERSION,  kfmt_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kld",   "Linker/Driver/kld.k",                    KLD_VERSION,   kld_inc,      llvm_src, llvm_build, out_lib));

@@ -277,6 +277,17 @@ if os.path.isdir(_bundle):
 
 config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + kairo_roots))
 
+# --- kcc ----------------------------------------------------------------------
+# The clang drop-in, built beside kairo (Compiler/Driver/Kcc.k). It takes
+# clang's options, so kairo's own words -- the same roots %kairo gets --
+# go through -Xkairo, one word each. Tests that use it REQUIRE: kcc.
+import shlex as _shlex
+kcc_bin = os.path.join(os.path.dirname(kairo_bin), "kcc")
+if os.path.isfile(kcc_bin):
+    config.available_features.add("kcc")
+    _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic"] + _shlex.split(kairo_roots))
+    config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
+
 # --- C data model of the default target ---------------------------------------
 # C `long` is 64-bit on LP64 (64-bit Linux, macOS) and 32-bit on LLP64
 # (Windows) and ILP32 (32-bit targets), and kairo's emitted C++ spells i64 the
