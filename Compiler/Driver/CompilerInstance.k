@@ -2257,14 +2257,20 @@ class CompilerInstance {
             if !home.empty() { root = home + "/.cache/kairo"; }
         }
         if root.empty() || (self._backend == &null) { return ""; }
-        // Everything the objects' code depends on: the compiler, the target,
-        // the code generation words a C++ compile of them would get, and
-        // where builtin and std are read from.
+        // What the objects' code depends on: the compiler, the target and
+        // its ISA words, the code generation and optimization words, debug
+        // info, and where builtin and std are read from. Not the inputs'
+        // own -D/-I/warnings: they never reach the library.
         var key = std::get_exe_path() + "\n" + self._backend->triple();
+        var inv = &(self.invocation());
         var missing = vec::<string>();
-        for w: string in FlagTranslator::to_driver(self.invocation(), self._backend->triple(), "c++", &missing) {
-            key += "\n" + w;
-        }
+        for w: string in FlagTranslator::target(inv->target, ClangSpelling::Driver) { key += "\n" + w; }
+        for w: string in FlagTranslator::codegen(*inv, self._backend->triple(), ClangSpelling::Driver, &missing) { key += "\n" + w; }
+        var osz: i32 = 0;
+        if inv->codegen.opt_size_z    { osz = 2; }
+        else if inv->codegen.opt_size { osz = 1; }
+        for w: string in FlagTranslator::optimization(inv->codegen.opt_level, osz, inv->codegen.f_vectorize, ClangSpelling::Driver) { key += "\n" + w; }
+        key += f"\ndebug={FlagTranslator::debug_on(inv->codegen)}";
         key += "\n" + self.invocation().pp.builtins_dir + "\n" + self.invocation().pp.std_dir;
         var h = llvm::xxh3_64bits(sref(key));
         var hex = llvm::utohexstr(h);
@@ -2349,6 +2355,14 @@ class CompilerInstance {
         for k: InputKind in self._runtime_sources() { man += f"src {LinkFS::mtime(k.path)} {k.path}\n"; }
         if !LinkFS::write(tmp + "/manifest", man) { return false; }
 
+        // A library already there is stale (_kairo_lib read it and refused
+        // it): moved aside first, since a rename cannot replace a full
+        // directory. If a parallel build renames its fresh one in between,
+        // this rename fails and theirs is used.
+        if LinkFS::is_dir(dir) {
+            var old = f"{dir}.stale-{llvm::sys::Process::getProcessId()}";
+            if LinkFS::rename(dir, old) { LinkFS::remove_tree(old); }
+        }
         if LinkFS::rename(tmp, dir) { built = true; return true; }
         // Another build got there first: theirs is as good as this one.
         return LinkFS::is_dir(dir);
