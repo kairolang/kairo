@@ -233,8 +233,22 @@ class ImportResolver {
     /// pairs already reported (ModuleIdentityCollision). Written by every
     /// resolution and by the driver for each input (claim_identity).
     priv var _identities:       map::<string, string>;
-    priv var _id_collisions:    vec::<ModuleIdentityCollision>;
     priv var _reported_pairs:   set::<string>;
+
+    /// R018E findings made AFTER build_index -- a pinned directory the walk
+    /// up found colliding (_check_pin_dir), two files on one module path
+    /// (claim_identity) -- as their messages, in the order they were found.
+    /// ONE queue, drained whole: the PP walks files on several threads, and
+    /// two queues let two threads each drain one, so the same build printed
+    /// the pair in either order.
+    priv var _late_collisions:  vec::<string>;
+
+    /// Every entry point that reads or writes the maps above (and the lazy
+    /// caches beside them) holds this: the PP resolves imports from every
+    /// file of a wave at once (WaveExecutor). Recursive, because the entry
+    /// points call one another (resolve_module_rel -> canonical_module_path
+    /// -> _library_of).
+    priv var _mu:               std::RecursiveMutex;
 
     /// A pinned directory no root registered, by the library name it pins
     /// -> its real path: the first such directory seen to claim the name.
@@ -736,6 +750,7 @@ class ImportResolver {
     ///         whether the sibling/root candidates collided.
     fn resolve_module_rel(self, segments: vec::<string>, is_module: bool,
                           from_dir: Path, has_from: bool) -> ModuleResolution {
+        var lock = std::LockGuard(self._mu);
         var out = ModuleResolution{};
         if segments.size() == 0 { return out; }
 
@@ -966,6 +981,7 @@ class ImportResolver {
     /// \return the segments, or empty if no library and no search root
     ///         holds the file.
     fn canonical_module_path(self, file: Path) -> vec::<string> {
+        var lock = std::LockGuard(self._mu);
         var out = vec::<string>();
 
         var best_rel  = "";
@@ -1122,7 +1138,7 @@ class ImportResolver {
         c.a      = other;
         c.b      = dir;
         c.pinned = true;
-        self._root_collisions.push_back(c);
+        self._late_collisions.push_back(c.message());
     }
 
     /// \brief records that \p file holds module path \p ident; a different
@@ -1135,6 +1151,7 @@ class ImportResolver {
     ///          compared by real path: one file through a symlink is still
     ///          one module.
     fn claim_identity(self, ident: vec::<string>, file: Path) {
+        var lock = std::LockGuard(self._mu);
         if ident.size() == 0 { return; }
         var key  = self._name_str(ident);
         var real = self._real(file.full_path());
@@ -1148,15 +1165,18 @@ class ImportResolver {
         c.ident = key;
         c.a     = first;
         c.b     = file.full_path();
-        self._id_collisions.push_back(c);
+        self._late_collisions.push_back(c.message());
     }
 
-    /// \brief drains ModuleIdentityCollision findings (claim_identity), for
-    ///        whoever owns a DiagEngine: the PP walk after each resolution,
-    ///        the driver after claiming its inputs.
-    fn take_identity_collisions(self) -> vec::<ModuleIdentityCollision> {
-        var out = self._id_collisions;
-        self._id_collisions.clear();
+    /// \brief drains the R018E findings made after build_index (a pinned
+    ///        directory found walking up, two files on one module path), as
+    ///        messages in the order found, for whoever owns a DiagEngine: the
+    ///        PP walk after each resolution, the driver after claiming its
+    ///        inputs.
+    fn take_late_collisions(self) -> vec::<string> {
+        var lock = std::LockGuard(self._mu);
+        var out = self._late_collisions;
+        self._late_collisions.clear();
         return out;
     }
 
@@ -1188,6 +1208,7 @@ class ImportResolver {
     ///          prelude). Such a file stays pathless, as one outside every
     ///          root does (CXXSpell::is_entry_tu).
     fn input_module_path(self, file: Path) -> vec::<string> {
+        var lock = std::LockGuard(self._mu);
         var segs = self.canonical_module_path(file);
         if segs.size() == 0 { return segs; }
         for var i: usize = 0; i < self._roots.size(); ++i {
@@ -1217,6 +1238,7 @@ class ImportResolver {
     ///          exactly once, so every collision is reported exactly once no
     ///          matter how many imports pass through it.
     fn take_collisions(self) -> vec::<ModuleNameCollision> {
+        var lock = std::LockGuard(self._mu);
         var out = self._collisions;
         self._collisions.clear();
         return out;
@@ -1227,6 +1249,7 @@ class ImportResolver {
     /// \details Fatal, and reported BEFORE anything is parsed: a module path
     ///          under a duplicated root name means two different files.
     fn take_root_collisions(self) -> vec::<RootNameCollision> {
+        var lock = std::LockGuard(self._mu);
         var out = self._root_collisions;
         self._root_collisions.clear();
         return out;
@@ -1238,6 +1261,7 @@ class ImportResolver {
     ///          resolve against first, and the root whose name prefixes its
     ///          own module path (IMPORTS.md §2.1).
     fn root_for_dir(self, dir: Path) -> *SearchRoot {
+        var lock = std::LockGuard(self._mu);
         var best: *SearchRoot = &null;
         var best_len: usize = 0;
         for var i: usize = 0; i < self._roots.size(); ++i {

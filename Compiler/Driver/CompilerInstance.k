@@ -1294,16 +1294,11 @@ class CompilerInstance {
             var p = Path(k.path);
             self._imp->claim_identity(self._imp->input_module_path(p), p);
         }
+        // Two inputs on one path, and any pin the walk up found claiming a
+        // registered library's name.
         var ok = true;
-        for c: ModuleIdentityCollision in self._imp->take_identity_collisions() {
-            self._diag->report(DiagCode(DiagID::R018E), c.message()).emit();
-            ok = false;
-        }
-        // A pin the walk up found claiming a registered library's name.
-        var roots = self._imp->take_root_collisions();
-        for var i: usize = 0; i < roots.size(); ++i {
-            var id = (DiagID::R001E) if (roots[i].mismatch) else (DiagID::R018E);
-            self._diag->report(DiagCode(id), roots[i].message()).emit();
+        for msg: string in self._imp->take_late_collisions() {
+            self._diag->report(DiagCode(DiagID::R018E), msg).emit();
             ok = false;
         }
         return ok;
