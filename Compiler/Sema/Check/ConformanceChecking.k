@@ -262,9 +262,34 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             var m = idecl->methods[i];
             var w = self._implementation(x, iface, idecl, m);
             row.witnesses.push_back(w);
-            if w == &null { row.ok = false; }
+            var ea = vec::<*Type>();
+            if (w == &null) || (!self._ext_args(cast::<FunctionDecl>(w), x, &ea)) { row.ok = false; }
+            row.ext_arg_count.push_back(ea.size());
+            for var k: usize = 0; k < ea.size(); ++k { row.ext_args.push_back(ea[k]); }
         }
         return self.sc->instances->row_add(&row);
+    }
+
+    /// The arguments \p x binds a GENERIC extension's parameters to, when
+    /// \p f is its member (`extend <E> Wrap<E>` reached through `Wrap<i32>`:
+    /// [i32]), appended to \p out; nothing for any other \p f. False when
+    /// the target does not match \p x or leaves a parameter unbound.
+    priv fn _ext_args(self, f: *FunctionDecl, x: *Type, out: *vec::<*Type>) -> bool {
+        var ext = decl_extension_of(static_cast::<*Decl>(f));
+        if ext == &null { return true; }
+        var eps = decl_generic_params(static_cast::<*Decl>(ext));
+        if eps.size() == 0 { return true; }
+        var d = Deduction(self.sc, &null);
+        if !d.bind_from_extension(f, x) { return false; }
+        for var i: usize = 0; i < eps.size(); ++i {
+            var gp = eps[i];
+            if gp == &null { return false; }
+            var b = d.lookup(NameLookup::representative(static_cast::<*Decl>(ext)), gp->index);
+            if b == &null { b = d.lookup(static_cast::<*Decl>(ext), gp->index); }
+            if (b == &null) || b->is_dependent() { return false; }
+            out->push_back(b);
+        }
+        return true;
     }
 
     /// The member of \p x that implements requirement \p m of \p iface, or
@@ -295,9 +320,27 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if fp->is_self != mp->is_self { return false; }
             if fp->is_self { continue; }
             if (fp->mode != mp->mode) || (fp->is_pack != mp->is_pack) { return false; }
-            if self._canon(fp->type_) != self._as_conformer(mp->type_, x, iface, idecl, m, f) { return false; }
+            if self._as_candidate(fp->type_, f, x) != self._as_conformer(mp->type_, x, iface, idecl, m, f) { return false; }
         }
-        return self._canon(f->return_type) == self._as_conformer(m->return_type, x, iface, idecl, m, f);
+        return self._as_candidate(f->return_type, f, x) == self._as_conformer(m->return_type, x, iface, idecl, m, f);
+    }
+
+    /// Candidate \p f's type \p t as reached through \p x: a generic
+    /// extension's parameters bound from \p x (its target unified with it),
+    /// \p f's own parameters left as themselves. Top-level cv dropped.
+    priv fn _as_candidate(self, t: *Type, f: *FunctionDecl, x: *Type) -> *Type {
+        var c = self._canon(t);
+        if (c == &null) || (!c->is_dependent()) { return c; }
+        var d = Deduction(self.sc, &null);
+        if !d.bind_from_extension(f, x) { return c; }
+        var frep = NameLookup::representative(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < f->generic_params.size(); ++i {
+            var gp = f->generic_params[i];
+            if gp == &null { continue; }
+            d.bind(frep, gp->index, self.sc->types->generic_param(frep, gp->index, gp->is_pack));
+        }
+        var s = d.substitute(c);
+        return (canon_unqual(s)) if (s != &null) else (c);
     }
 
     /// Requirement type \p t as conformer \p x sees it: the interface's own

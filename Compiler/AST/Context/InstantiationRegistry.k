@@ -79,8 +79,22 @@ class ConformanceRow {
     /// Parallel to `iface_decl`'s methods: the implementing decl, or null
     /// where the conformer has none (then `ok` is false).
     pub var witnesses: vec::<*Decl>;
+    /// A witness that is a GENERIC extension's member is called with the
+    /// extension's arguments, as the conformer binds them (`extend <E>
+    /// Wrap<E>` met by `Wrap<i32>`: E := i32): flat, `ext_arg_count[i]` of
+    /// them per witness, in witness order, zero for any other.
+    pub var ext_args:      vec::<*Type>;
+    pub var ext_arg_count: vec::<usize>;
     pub var ok:        bool  = false;
     fn ConformanceRow(self) { }
+
+    /// Witness \p i's extension arguments, appended to \p out.
+    fn ext_args_of(self, i: usize, out: *vec::<*Type>) {
+        var at: usize = 0;
+        for var k: usize = 0; (k < i) && (k < self.ext_arg_count.size()); ++k { at += self.ext_arg_count[k]; }
+        if i >= self.ext_arg_count.size() { return; }
+        for var k: usize = 0; k < self.ext_arg_count[i]; ++k { out->push_back(self.ext_args[at + k]); }
+    }
 }
 
 /// \class InstanceEntry
@@ -247,6 +261,8 @@ class InstantiationRegistry {
         row->declared   = r->declared;
         row->ok         = r->ok;
         for var i: usize = 0; i < r->witnesses.size(); ++i { row->witnesses.push_back(r->witnesses[i]); }
+        for var i: usize = 0; i < r->ext_args.size(); ++i { row->ext_args.push_back(r->ext_args[i]); }
+        for var i: usize = 0; i < r->ext_arg_count.size(); ++i { row->ext_arg_count.push_back(r->ext_arg_count[i]); }
         self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
         return row;
     }

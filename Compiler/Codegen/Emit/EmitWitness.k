@@ -278,7 +278,9 @@ class EmitWitness {
             var w = dyn_cast::<FunctionDecl>((row->witnesses[i]) if (i < row->witnesses.size()) else (&null));
             if (w == &null) { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a row with no decl for a requirement; ConformanceChecking records only complete rows on an instance"); }
             var decl = self._member_decl(m, subst, x);
-            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x) + "; }");
+            var ea = vec::<*Type>();
+            row->ext_args_of(i, &ea);
+            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x, &ea) + "; }");
         }
         self._cg->sink->spell(at, "};");
         self._cg->sink->brk();
@@ -287,14 +289,28 @@ class EmitWitness {
     /// The call a specialization member makes: the extension member,
     /// qualified, receiver first (none for a static); or the conformer's own
     /// member, through \p x for a static.
-    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string) -> string {
+    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string, ext_args: *vec::<*Type>) -> string {
         var args = self._forward(m);
         // A generic requirement's arguments are the witness member's own
         // parameters, spelled: nothing is left for deduction to choose.
         var targs = self._own_args(m);
         var x_ext = decl_extension_of(static_cast::<*Decl>(w));
         if x_ext != &null {
-            if (decl_generic_params(static_cast::<*Decl>(x_ext)).size() > 0) { self._ice(CXXSpell::at(static_cast::<*Decl>(w)), "EmitWitness: a generic extension's member as a witness; its extension arguments are not spelled yet"); }
+            // A generic extension's member takes the extension's arguments
+            // first, as the row bound them (CXXSpell::template_params order).
+            var ne = decl_generic_params(static_cast::<*Decl>(x_ext)).size();
+            if (ne > 0) && (ext_args->size() != ne) { self._ice(CXXSpell::at(static_cast::<*Decl>(w)), "EmitWitness: a generic extension's member as a witness with no extension arguments on its row; ConformanceChecking records them"); }
+            if ne > 0 {
+                var t = "<";
+                for var k: usize = 0; k < ext_args->size(); ++k { if k > 0 { t += ", "; } t += self._spell->_type((*ext_args)[k]); }
+                if targs.size() > 0 {
+                    // `<U, V>` without its brackets, after the extension's.
+                    var inner = "";
+                    for var k: usize = 1; k + 1 < targs.size(); ++k { inner += targs[k]; }
+                    t += ", " + inner;
+                }
+                targs = t + ">";
+            }
             var all = ("self") if (m->is_method()) else ("");
             if args.size() > 0 { all += ((", ") if (all.size() > 0) else ("")) + args; }
             return self._spell->qual_name(static_cast::<*Decl>(w)) + targs + "(" + all + ")";
