@@ -68,6 +68,12 @@ class ScopeTracker {
         return self._current;
     }
 
+    /// \brief the file's own module path: the scope at top level, which
+    ///        every module block in the file extends.
+    fn file_base(self) -> ModulePath {
+        return self._file_base;
+    }
+
     /// \brief returns current visibility
     fn current_visibility(self) -> ModuleVisibility {
         if self._stack.size() == 0 {

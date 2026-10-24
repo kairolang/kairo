@@ -2253,20 +2253,31 @@ class PPWalker
 
     priv fn _resolve(self, inv: InvocationInfo) -> *MacroEntry {
         if inv.is_qualified {
-            // The path relative to each enclosing scope, innermost first,
-            // down to the path as written (absolute). A file's own scope is
-            // its module path: `module std { macro m!() }` in a file at
-            // `a::b` registers `m` under [a, b, std], and `std::m!()` there
-            // must find it. That held only while the file had no path (an
-            // entry), so qualified calls into a file's own module blocks
-            // broke the moment it was imported -- and every input is now a
-            // module (decision C).
-            var cur = self._tracker->current_scope();
-            for var k: usize = cur.segments.size(); k > 0; --k {
+            // The rule Sema uses for a qualified name (RESOLUTION.md §2.5 N,
+            // T "Heads"): the HEAD is looked up in the scopes that LEXICALLY
+            // enclose the use -- this file's own module blocks, innermost
+            // first, then the file's scope -- and only then through what the
+            // file imported. So the path is tried relative to each scope
+            // from the current one down to the file's own module path, and
+            // only for macros THIS file registered (find_same_fid): a file
+            // at `a::b` with `module std { macro m!() }` registers `m` under
+            // [a, b, std], and `std::m!()` there must find it, imported or
+            // not (6f101377). Shorter prefixes are not enclosing scopes --
+            // the parent module's other files are not lexically around this
+            // one, and Sema does not see their decls without an import --
+            // and neither is a macro another file registered under a
+            // relative path: `c::m!()` in L/b.k, which imports library `c`,
+            // must expand the library's macro, not one L/module.k declares
+            // in its own `module c { }` (it did, while Sema bound `c::g()`
+            // in the same file to the library). Then the path as written,
+            // then an import alias.
+            var cur  = self._tracker->current_scope();
+            var base = self._tracker->file_base().segments.size();
+            for var k: usize = cur.segments.size(); (k > 0) && (k >= base); --k {
                 var rel = ModulePath();
                 for var j: usize = 0; j < k; ++j { rel.segments.push_back(cur.segments[j]); }
                 for seg in inv.qualified.segments { rel.segments.push_back(seg); }
-                var r = self._macros->find(rel, inv.name_sym, self._fid);
+                var r = self._macros->find_same_fid(rel, inv.name_sym, self._fid);
                 if r != &null { return r; }
             }
             // exact scope
