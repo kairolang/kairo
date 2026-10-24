@@ -205,7 +205,8 @@ class FrontendAction {
     priv var _resolver:     obs::<ImportResolver>;     ///< non-owning borrow from execute()
     priv var _global_scope: obs::<GlobalDisambigTable>; ///< non-owning borrow from CompilerInstance
     priv var _file_id:      u32;
-    priv var _fids:         vec::<u32>;
+    priv var _fids:         vec::<u32>;   ///< the graph's fids this action claimed (claim_fid)
+    priv var _graph:        vec::<u32>;   ///< every fid of the graph, an earlier input's too
     pub var result:         TUResult;
     priv var _stage:        TUStage;
 
@@ -330,6 +331,11 @@ class CompilerInstance {
     /// use: a pure-Kairo build never builds a driver).
     priv var _jobs: opt::<ClangJobs> = &null;
     priv var _kincludes: opt::<DriverIncludeSource> = &null;   ///< owned; _jobs borrows it
+    /// Every fid an earlier input's FrontendAction took (claim_fid). Widened
+    /// to u64: u32(-1) is DenseSet<u32>'s empty key.
+    priv var _claimed: llvm::DenseSet::<u64>;
+    /// The bytes of the placeholder that takes fid 0 (_kairo_order).
+    priv var _fid0_text: string = "\n";
     priv var _native_objs: vec::<string>; ///< objects from _compile_sources / _compile_runtime, in order
     priv var _link_inputs: vec::<string>; ///< .o/.a/.so given on the command line, in order
     /// Every command-line input, classified once by _plan_outputs (in
@@ -527,6 +533,18 @@ class CompilerInstance {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         return (tu != &null) && tu->is_foreign;
     }
+    /// \brief true the first time \p fid is asked for: the asking action
+    ///        parses, checks and emits it. Inputs share their imports (every
+    ///        one reaches builtin), and the PP hands each action its whole
+    ///        graph; a fid an earlier action took is already through every
+    ///        stage, its tables frozen and its object written.
+    fn claim_fid(self, fid: u32) -> bool {
+        var k = static_cast::<u64>(fid);
+        if self._claimed.contains(k) { return false; }
+        self._claimed.insert(k);
+        return true;
+    }
+
     // --- CLI query helpers -----------------------------------------------
 
     fn wants_help(self)    -> bool { return self.invocation().args.get_bool("help");               }
@@ -1994,7 +2012,7 @@ class CompilerInstance {
         var natives = vec::<InputKind>();
         var kairo_inputs: usize = 0;
 
-        for k: InputKind in self._inputs {
+        for k: InputKind in self._kairo_order() {
             if result.aborted { break; }
             var path_str = k.path;
             if k.cls == InputClass::LinkInput {
@@ -2070,6 +2088,67 @@ class CompilerInstance {
             f"CompilerInstance::execute: {result.summary()}");
 
         return result;
+    }
+
+    /// \brief _inputs, with every Kairo input another one imports moved
+    ///        after the rest (stable otherwise).
+    ///
+    /// \details A file's module identity is set by its first walk: as an
+    ///          input it is an entry, with no module path, and an importer
+    ///          after it finds no module `foo` in it. Run first, the importer
+    ///          walks it as module `foo` and claims it (claim_fid), and its
+    ///          own action has nothing left to do. An input reached by another
+    ///          is reached by one that nothing reaches (imports are acyclic),
+    ///          so moving all of them after the rest is enough.
+    priv fn _kairo_order(self) -> vec::<InputKind> {
+        var nk: usize = 0;
+        for k: InputKind in self._inputs {
+            if (k.cls == InputClass::LinkInput) || (k.cls == InputClass::Source) || (k.cls == InputClass::Header) { continue; }
+            nk += 1;
+        }
+        if (nk < 2) || (self._pp == &null) { return self._inputs; }
+
+        // Fid 0 is "unresolved" to the import chain (FileImportIndex::record,
+        // ImportDecl::resolved_fid, the TU's import edges). One input is never
+        // imported, so it can hold fid 0; of several, the first loaded may be
+        // the one another imports, whose import would then resolve to
+        // nothing. A placeholder takes fid 0 instead.
+        if self._sm->file_count() == 0 {
+            self._sm->load_virtual(Path(r"<kairo-batch>"),
+                reinterpret_cast::<std::ConstPtr::<u8>>(self._fid0_text.raw()), self._fid0_text.size());
+        }
+
+        var kfids = vec::<u32>();
+        for k: InputKind in self._inputs {
+            if (k.cls == InputClass::LinkInput) || (k.cls == InputClass::Source) || (k.cls == InputClass::Header) { continue; }
+            kfids.push_back(static_cast::<u32>(self._sm->load_file(Path(k.path))));
+        }
+
+        // An input reached from ANOTHER input (not from itself).
+        var reached = llvm::DenseSet::<u64>();
+        for var i: usize = 0; i < kfids.size(); ++i {
+            if kfids[i] == u32(-1) { continue; }
+            var r = self._pp->reach(kfids[i]);
+            for var j: usize = 0; j < kfids.size(); ++j {
+                if (j != i) && (kfids[j] != kfids[i]) && r.contains(kfids[j]) { reached.insert(static_cast::<u64>(kfids[j])); }
+            }
+        }
+        if reached.empty() { return self._inputs; }
+
+        var first = vec::<InputKind>();
+        var last  = vec::<InputKind>();
+        var n: usize = 0;
+        for k: InputKind in self._inputs {
+            if (k.cls == InputClass::LinkInput) || (k.cls == InputClass::Source) || (k.cls == InputClass::Header) {
+                first.push_back(k);
+                continue;
+            }
+            var f = kfids[n];
+            n += 1;
+            if (f != u32(-1)) && reached.contains(static_cast::<u64>(f)) { last.push_back(k); } else { first.push_back(k); }
+        }
+        for k: InputKind in last { first.push_back(k); }
+        return first;
     }
 
     /// \brief frees everything \p fid produced at \p from and every LATER stage.
@@ -2711,6 +2790,7 @@ fn FrontendAction::run() {
     if !self._preprocess() { return; }
     var fe = ((self._ci->invocation()).frontend);
     if fe.stops_at_preprocess() { self._stage = TUStage::Done; return; }
+    if self._fids.empty() { self._stage = TUStage::Done; return; }
 
     if !self._parse() { return; }
     if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
@@ -2759,7 +2839,13 @@ fn FrontendAction::_preprocess() -> bool {
     self._stage = TUStage::Preprocessing;
 
     var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
-    self._fids = pp_res.fids;
+    // Only what no earlier input took: the rest is done (claim_fid). An
+    // input another one imports is left with nothing.
+    self._graph = pp_res.fids;
+    self._fids.clear();
+    for f: u32 in pp_res.fids {
+        if self._ci->claim_fid(f) { self._fids.push_back(f); }
+    }
     // Which fid is the builtin module, recorded once for the build. Sema fills
     // the lang-item table from it (NameResolution); it cannot identify the fid
     // itself, because ModulePath segments are PP SymbolIDs and Sema has no
@@ -3492,7 +3578,9 @@ fn FrontendAction::_codegen() -> bool {
         if (own_tu != &null) && (own_tu->header_set != &null) {
             sets.push_back(reinterpret_cast::<*HeaderSet>(own_tu->header_set));
         }
-        for other: u32 in self._fids {
+        // The whole graph's: an inline body this TU emits may name a header
+        // of a module an earlier input claimed (builtin's rt/fmt.h).
+        for other: u32 in self._graph {
             var sctx = self._global_scope->get_context(other);
             if sctx == &null { continue; }
             var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);

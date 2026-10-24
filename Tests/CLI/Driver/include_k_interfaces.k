@@ -35,9 +35,9 @@ fn main() -> i32 { return 0 }
 // both shapes.k's and moved.k's, and the lowering helpers and std::io in
 // all of them: a later include leaves out what an earlier one put in the
 // TU. Both orders, so the own copy is the skipped one in one and the foreign
-// copy in the other. The second twice.k is include-once. many.k imports the
-// lot: two Kairo files on one command line do not build yet.
-// RUN: cd %t.d && %kairo %S/Inputs/include_k/use_many.cc %S/Inputs/include_k/many.k -o %t.d/many --cache-dir %t.d/o5
+// copy in the other. The second twice.k is include-once. The modules on the
+// command line here, through one root (many.k) below.
+// RUN: cd %t.d && %kairo %S/Inputs/include_k/use_many.cc %S/Inputs/include_k/twice.k %S/Inputs/include_k/moved.k -o %t.d/many --cache-dir %t.d/o5
 // RUN: %t.d/many; test $? -eq 14
 // RUN: cd %t.d && %kairo %S/Inputs/include_k/use_many_rev.cc %S/Inputs/include_k/many.k -o %t.d/many_rev --cache-dir %t.d/o6
 // RUN: %t.d/many_rev > %t.d/many_rev.out; test $? -eq 15
