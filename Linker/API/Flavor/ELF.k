@@ -196,6 +196,11 @@ class ELFArgs {
 
         // --- inputs ----------------------------------------------------------
         for obj: string in job.objects { argv.push_back(obj); }
+        if job.lazy_objects.size() > 0 {
+            argv.push_back("--start-lib");
+            for obj: string in job.lazy_objects { argv.push_back(obj); }
+            argv.push_back("--end-lib");
+        }
         for spec: string in o->link_libs { ELFArgs::_user_lib(spec, want_stat, argv, msgs); }
 
         if !no_libs { ELFArgs::_default_libs(tc, want_stat, argv, msgs); }

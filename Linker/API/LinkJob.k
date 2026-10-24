@@ -21,6 +21,11 @@ class LinkJob {
     pub var target:         obs::<TargetOptions>;
     pub var opts:           obs::<LinkerOptions>;
     pub var objects:        vec::<string>;   ///< objects and archives, link order
+    /// Objects linked like archive members: only for what is still undefined
+    /// (lld's --start-lib/--end-lib). The Kairo library (kairo --kairo-lib)
+    /// is linked this way, so a run's own copy of builtin wins and an unused
+    /// std module costs nothing. After `objects`.
+    pub var lazy_objects:   vec::<string>;
     pub var output:         string;
     pub var threads:        u32  = 0;        ///< lld --threads; 0 = lld's default
     pub var lto:            string = "off";  ///< --lto: only gates lld's --lto-O<n>; off means no bitcode reaches the link

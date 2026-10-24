@@ -151,6 +151,11 @@ class COFFArgs {
 
         // --- inputs ----------------------------------------------------------
         for obj: string in job.objects { argv.push_back(obj); }
+        if job.lazy_objects.size() > 0 {
+            argv.push_back("-start-lib");
+            for obj: string in job.lazy_objects { argv.push_back(obj); }
+            argv.push_back("-end-lib");
+        }
         for spec: string in o->link_libs { COFFArgs::_user_lib(spec, argv, msgs); }
 
         if !no_libs { COFFArgs::_default_libs(tc, o, no_crt, argv, msgs); }

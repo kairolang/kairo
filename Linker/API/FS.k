@@ -101,6 +101,22 @@ class LinkFS {
         return string(out.data(), out.size());
     }
 
+    /// Last modification, in the filesystem clock's ticks; 0 if \p p cannot
+    /// be stat'd. Only ever compared for equality.
+    static fn mtime(p: string) -> u64 {
+        var st: llvm::sys::fs::file_status;
+        var ec = llvm::sys::fs::status(llvm::Twine(sref(p)), st, true);
+        if ec { return 0; }
+        return static_cast::<u64>(st.getLastModificationTime().time_since_epoch().count());
+    }
+
+    /// Atomic on one filesystem; false if \p to exists as a non-empty
+    /// directory or the move fails.
+    static fn rename(from: string, to: string) -> bool {
+        var ec = llvm::sys::fs::rename(llvm::Twine(sref(from)), llvm::Twine(sref(to)));
+        return !ec;
+    }
+
     static fn make_dirs(p: string) -> bool {
         var ec = llvm::sys::fs::create_directories(llvm::Twine(sref(p)), true);
         return !ec;
