@@ -194,6 +194,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn include_bodies(self) -> vec::<*FunctionDecl>;
     fn _bodies(self, want_own: bool) -> vec::<*FunctionDecl>;
     fn _walk_visible(self);
+    fn _find_escaping(self, tu: *TranslationUnit);
     fn _visible_record_bodies(self, d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>);
     fn _push_body(self, f: *FunctionDecl, out: *vec::<*FunctionDecl>);
     fn _walk_body(self, f: *FunctionDecl);
@@ -346,6 +347,7 @@ fn EmitPlan::run() {
     if tu->program == &null { return; }
     self._home = tu->fid;
     ICE_IF(self._cg->instances == &null, "EmitPlan: no InstantiationRegistry on the CodegenContext");
+    if (!tu->cxx_escaping_done) && CXXSpell::is_entry_tu(tu) { self._find_escaping(tu); }
 
     self._collect_own(static_cast::<*DeclContext>(tu));
     self._collect_own_globals();
@@ -361,6 +363,26 @@ fn EmitPlan::run() {
         var e = &(self.entries[i]);
         if e->own { self._empty = false; break; }
         if (e->tier == PlanTier::Instantiations) && e->is_home { self._empty = false; break; }
+    }
+}
+
+/// TranslationUnit::cxx_escaping for entry TU \p tu: a Header plan of the
+/// file roots at its pub decls and walks its inline and template bodies to
+/// a fixed point, admitting every hidden decl one names -- exactly the set.
+/// Marked done first, so the nested plan does not recurse; nothing in
+/// planning reads is_anon.
+fn EmitPlan::_find_escaping(tu: *TranslationUnit) {
+    tu->cxx_escaping_done = true;
+    var hcg = CodegenContext(self._cg->ctx, &null, self._cg->psym, self._cg->instances);
+    var hplan = EmitPlan(&hcg, PlanMode::Header);
+    hplan.run();
+    for var i: usize = 0; i < hplan.entries.size(); ++i {
+        var e = &(hplan.entries[i]);
+        if (!e->own) || (e->decl == &null) || (e->scope != &null) { continue; }
+        if !_hidden_in_header(CXXSpell::vis_of(e->decl)) { continue; }
+        var dup = false;
+        for var k: usize = 0; k < tu->cxx_escaping.size(); ++k { if tu->cxx_escaping[k] == e->decl { dup = true; break; } }
+        if !dup { tu->cxx_escaping.push_back(e->decl); }
     }
 }
 

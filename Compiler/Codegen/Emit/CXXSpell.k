@@ -358,11 +358,23 @@ class CXXSpell {
     /// the entry TU. It goes in an unnamed namespace NESTED in the file's,
     /// so `::<stem>::helper` still names it -- C++'s implicit using-directive
     /// reaches into the unnamed one -- and qual_name is unchanged.
+    ///
+    /// Not when an inline or template body of the file names it
+    /// (TranslationUnit::cxx_escaping): that body is compiled in every C++
+    /// TU that includes the file, and calls it by external linkage.
     static fn is_anon(d: *Decl) -> bool {
         if d == &null { return false; }
-        if !CXXSpell::is_entry_tu(CXXSpell::tu_of(d)) { return false; }
+        var tu = CXXSpell::tu_of(d);
+        if !CXXSpell::is_entry_tu(tu) { return false; }
         var v = CXXSpell::vis_of(d);
-        return (v == VIS_PRIV()) || (v == VIS_INTERNAL());
+        if (v != VIS_PRIV()) && (v != VIS_INTERNAL()) { return false; }
+        if tu != &null {
+            var r = CXXSpell::rep(d);
+            for var i: usize = 0; i < tu->cxx_escaping.size(); ++i {
+                if (tu->cxx_escaping[i] == d) || (tu->cxx_escaping[i] == r) { return false; }
+            }
+        }
+        return true;
     }
 
     /// \p d is declared inside a function body: its semantic scope, or one

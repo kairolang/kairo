@@ -74,7 +74,9 @@ fn main() -> i32 { return 0 }
 
 // Only the pub interface crosses (EmitPlan Include mode): a priv or
 // internal decl reaches the C++ TU only when an inline or template body
-// names it, as twice_secret names secret. open's helpers stay in privy.o.
+// names it, as twice_secret names secret and secret names scale. scale is
+// not inline, so it keeps external linkage and privy.o defines it
+// (TranslationUnit::cxx_escaping); open's helpers stay in privy.o.
 // 0 + (1 + 1) + 9.
 // RUN: %kairo %S/Inputs/include_k/use_privy.cc %S/Inputs/include_k/privy.k -o %t.d/privy --cache-dir %t.d/o11
 // RUN: %t.d/privy; test $? -eq 11

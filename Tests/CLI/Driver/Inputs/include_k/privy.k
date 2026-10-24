@@ -1,5 +1,9 @@
-priv inline fn secret(x: i32) -> i32 {
+priv fn scale(x: i32) -> i32 {
     return x * 100;
+}
+
+priv inline fn secret(x: i32) -> i32 {
+    return scale(x);
 }
 
 fn helper(x: i32) -> i32 {

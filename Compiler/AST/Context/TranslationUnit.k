@@ -212,6 +212,15 @@ class TranslationUnit derives DeclContext {
     /// CompilerInstance's HeaderSetCache, never by the TU.
     pub var header_set:     obs::<void> = &null;
 
+    /// Codegen, entry TU only: the priv/internal decls an inline or template
+    /// body of this file names. Such a body is compiled wherever this file
+    /// is included, so what it names keeps external linkage rather than go
+    /// in the unnamed namespace (CXXSpell::is_anon). Filled once, by this
+    /// TU's first EmitPlan (EmitPlan::_find_escaping), from the file alone,
+    /// so every run spells them the same.
+    pub var cxx_escaping:      vec::<*Decl>;
+    pub var cxx_escaping_done: bool = false;
+
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
         self.ctx          = ctx;
