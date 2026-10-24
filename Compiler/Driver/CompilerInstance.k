@@ -1257,29 +1257,48 @@ class CompilerInstance {
     }
 
     /// Two roots under one name make a module path mean two files. Fatal, and
-    /// reported before anything is parsed.
+    /// reported before anything is parsed. A pinned directory found later
+    /// (canonical_module_path's walk up) is reported by the PP walk, with
+    /// the same text (RootNameCollision::message).
     priv fn _report_root_collisions(self) {
         if self._imp == &null { return; }
         var found = self._imp->take_root_collisions();
         for var i: usize = 0; i < found.size(); ++i {
             var c = found[i];
-            // A pinned library took its name from its own module.k, so the
-            // fix is there; -I name=path cannot rename a discovered library.
-            if c.pinned {
-                self._diag->report(DiagCode(DiagID::R018E),
-                    f"duplicate module root '{c.name}': '{c.a}' and '{c.b}' both claim it; "
-                    "rename one library\x27s `module` declaration in its module.k"
-                ).emit();
-                continue;
-            }
-            // Only the driver's own registrations (builtin, kairo::std) name
-            // a root without a pin, so this is a pin or a -I dir colliding
-            // with one of them.
-            self._diag->report(DiagCode(DiagID::R018E),
-                f"duplicate module root '{c.name}': '{c.a}' and '{c.b}' both claim it; "
-                "rename the library\x27s `module` declaration in its module.k"
-            ).emit();
+            // Placeholder code for the mismatch: no real code covers a
+            // registration disagreeing with the pin (verified against
+            // Resolution.diag.toml).
+            var id = (DiagID::R001E) if (c.mismatch) else (DiagID::R018E);
+            self._diag->report(DiagCode(id), c.message()).emit();
         }
+    }
+
+    /// Two inputs one module path names (decision E): `./a.k` and `inc/a.k`
+    /// under `-I inc` are both module `a`, and each would write `a.o`, the
+    /// second over the first. An import of that path is already R017E, but
+    /// inputs are modules too now (decision C) and nothing imports them, so
+    /// they are claimed here, every one before any is compiled. False when
+    /// two collided (reported).
+    priv fn _claim_input_identities(self) -> bool {
+        if self._imp == &null { return true; }
+        for k: InputKind in self._inputs {
+            if (k.cls == InputClass::LinkInput) || (k.cls == InputClass::Source) || (k.cls == InputClass::Header) { continue; }
+            var p = Path(k.path);
+            self._imp->claim_identity(self._imp->input_module_path(p), p);
+        }
+        var ok = true;
+        for c: ModuleIdentityCollision in self._imp->take_identity_collisions() {
+            self._diag->report(DiagCode(DiagID::R018E), c.message()).emit();
+            ok = false;
+        }
+        // A pin the walk up found claiming a registered library's name.
+        var roots = self._imp->take_root_collisions();
+        for var i: usize = 0; i < roots.size(); ++i {
+            var id = (DiagID::R001E) if (roots[i].mismatch) else (DiagID::R018E);
+            self._diag->report(DiagCode(id), roots[i].message()).emit();
+            ok = false;
+        }
+        return ok;
     }
 
     /// \brief the cc1 tokens `-ffast-math` stands for, as clang 22's driver
@@ -2125,6 +2144,10 @@ class CompilerInstance {
             return result;
         }
         self._discover_includes();
+        if !self._claim_input_identities() {
+            result.aborted = true;
+            return result;
+        }
         if (!self._link_out.empty()) && self.invocation().linker.kairo_lib {
             if !self._kairo_lib() {
                 result.aborted = true;

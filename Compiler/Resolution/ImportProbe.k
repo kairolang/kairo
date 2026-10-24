@@ -141,6 +141,49 @@ class RootNameCollision {
     pub var a:      string;   ///< the root already registered.
     pub var b:      string;   ///< the one that collided with it.
     pub var pinned: bool = false;   ///< `b` took its name from a pinned module.k, not -I.
+
+    /// Not two roots: ONE directory the driver registers under `name` while
+    /// its module.k pins `pin`. The registration wins (it is what the
+    /// driver's own lookups -- the prelude, lang items -- address), so the
+    /// pin would be a second, silently ignored answer to "what is this
+    /// library called". `a` is the directory.
+    pub var mismatch: bool = false;
+    pub var pin:      string;
+
+    /// The diagnostic text, one home for the driver (registration time) and
+    /// the PP walk (a pin found later, by canonical_module_path's walk up).
+    fn message(self) -> string {
+        if self.mismatch {
+            return f"'{self.a}/module.k' pins `module {self.pin}`, but this directory is registered as library '{self.name}', and the registration wins; make the pin `module {self.name}` or remove it";
+        }
+        // Only the driver's own registrations (builtin, kairo::std) name a
+        // root without a pin, so either way the fix is a pin.
+        if self.pinned {
+            return f"duplicate module root '{self.name}': '{self.a}' and '{self.b}' both claim it; rename one library\x27s `module` declaration in its module.k";
+        }
+        return f"duplicate module root '{self.name}': '{self.a}' and '{self.b}' both claim it; rename the library\x27s `module` declaration in its module.k";
+    }
+}
+
+/// \class ModuleIdentityCollision
+/// \brief two different files that one module path names.
+///
+/// \details A module path is a file's identity and its C++ namespace
+///          (ModuleResolution::canonical), so it must name ONE file. Two can
+///          still land on one path without any root sharing a name: a pin
+///          below a root's immediate subdirectories that claims a
+///          registered library's name, two inputs reached through two
+///          search dirs, two pins naming one library from different places.
+///          Each pair is recorded once, at the first resolution (or input)
+///          that makes it visible; IMPORTS.md §2.1, decision E.
+class ModuleIdentityCollision {
+    pub var ident: string;   ///< the module path, `::`-joined.
+    pub var a:     string;   ///< the file that claimed it first.
+    pub var b:     string;   ///< the other file.
+
+    fn message(self) -> string {
+        return f"'{self.a}' and '{self.b}' are both module '{self.ident}'; a module path names one file, and these two would share one C++ namespace and one object file: rename or move one, or make one part of a library with a pinned module.k";
+    }
 }
 
 /// \class ImportResolver
@@ -185,6 +228,29 @@ class ImportResolver {
     /// index-time discovery and by canonical_module_path's walk up, so each
     /// module.k is read at most once per build.
     priv var _dir_pins:         map::<string, vec::<string>>;
+
+    /// Module identity -> the REAL path of the file that holds it, and the
+    /// pairs already reported (ModuleIdentityCollision). Written by every
+    /// resolution and by the driver for each input (claim_identity).
+    priv var _identities:       map::<string, string>;
+    priv var _id_collisions:    vec::<ModuleIdentityCollision>;
+    priv var _reported_pairs:   set::<string>;
+
+    /// A pinned directory no root registered, by the library name it pins
+    /// -> its real path: the first such directory seen to claim the name.
+    /// A second directory pinning one name, or a registered library's, is
+    /// the R018E two named roots would be (_check_pin_dir).
+    priv var _lib_pins:         map::<string, string>;
+
+    /// Transient roots over pinned directories that no root registered,
+    /// keyed by directory: what a file inside such a library resolves its
+    /// own imports against (resolve_module_rel, step 2a'). Owned, like
+    /// _sibling_roots.
+    priv var _pinned_roots:     map::<string, own::<SearchRoot>>;
+
+    /// Symlink-resolved spellings, cached: identity comparisons ask the same
+    /// directories again and again.
+    priv var _real_paths:       map::<string, string>;
 
     /// \class Builder
     /// \brief fluent builder for constructing an `ImportResolver`
@@ -325,36 +391,71 @@ class ImportResolver {
         var priority: u32 = 1;
         for var i: usize = 0; i < include_paths.size(); ++i {
             var p = include_paths[i];
-            // The same directory twice (`-I inc -I inc`, or an -I naming the
-            // cwd) is one search dir, as it is to clang: a second root over
-            // it would only make every file in it ambiguous with itself.
-            if p.exists() && p.is_directory() && (!self._is_root_dir(p)) {
-                var nm = (include_names[i]) if (i < include_names.size()) else (vec::<string>());
-                // No explicit name: the directory's own pin names it, or it
-                // stays an UNNAMED search dir, as the cwd is -- never its
-                // basename, which made every `-I .../include` the same root
-                // (TICKETS.TXT:210). An explicit name (the driver's builtin
-                // and kairo::std; the CLI has no way to give one) wins over
-                // the pin -- std's and builtin's module.k pin the very names
-                // the driver registers, so for them the two always agree.
-                var pinned = false;
-                if nm.size() == 0 {
-                    nm = self._pin_of_dir(p.full_path());
-                    pinned = nm.size() > 0;
+            if (!p.exists()) || (!p.is_directory()) { continue; }
+            var nm = (include_names[i]) if (i < include_names.size()) else (vec::<string>());
+            var sp = (include_spellings[i]) if (i < include_spellings.size()) else (vec::<string>());
+            if sp.size() == 0 { sp = nm; }
+
+            // An explicit name (the driver's builtin and kairo::std; the CLI
+            // has no way to give one) is checked against the directory's own
+            // pin. The registration wins -- the prelude and the lang items
+            // address builtin by it, and std's spelling `std` is not
+            // expressible as a pin at all -- so a pin saying something else
+            // would be a second, silently ignored name.
+            if nm.size() > 0 {
+                var own_pin = self._pin_of_dir(p.full_path());
+                if (own_pin.size() > 0) && (!root_names_equal(own_pin, nm)) {
+                    var c = RootNameCollision{};
+                    c.mismatch = true;
+                    c.name     = self._name_str(nm);
+                    c.pin      = self._name_str(own_pin);
+                    c.a        = p.full_path();
+                    self._root_collisions.push_back(c);
                 }
-                var sp = (include_spellings[i]) if (i < include_spellings.size()) else (vec::<string>());
-                if sp.size() == 0 { sp = nm; }
-                var r = self._add_root(p, priority, nm, sp, pinned);
-                // A pinned -I dir is a library like a pinned subdirectory, and
-                // reached the same way: by its declared name only. Left
-                // undiscovered, the last-resort probe of every root found its
-                // files by their bare paths too, so `-I geometry` with a
-                // `module geo` made `import vec` reach `geo::vec`. The
-                // driver's builtin and kairo::std are explicit names, not
-                // pins, and keep that probe.
-                if pinned { r->discovered = true; }
-                priority += 1;
             }
+
+            // The same directory twice -- `-I inc -I inc`, an -I naming the
+            // cwd, or one directory through a symlink and its real path -- is
+            // one search dir, as it is to clang: a second root over it would
+            // make every file in it ambiguous with itself. When the later
+            // entry is an explicit registration it is folded INTO the
+            // earlier root, never dropped: `-I Lib/std` ahead of the driver's
+            // own std registration otherwise kept std's pin name with no
+            // `std` spelling (so `import std::io` stopped resolving), and
+            // `-I Lib/builtin` left builtin a discovered library without the
+            // last-resort probe. Folded in place, so the search order the
+            // user gave is kept.
+            var prior = self._root_at_real(self._real(p.full_path()));
+            if prior != &null {
+                if nm.size() > 0 {
+                    self._check_root_name(p, nm, sp, false, prior);
+                    prior->name       = nm;
+                    prior->spelling   = sp;
+                    prior->discovered = false;
+                }
+                continue;
+            }
+
+            // No explicit name: the directory's own pin names it, or it
+            // stays an UNNAMED search dir, as the cwd is -- never its
+            // basename, which made every `-I .../include` the same root
+            // (TICKETS.TXT:210).
+            var pinned = false;
+            if nm.size() == 0 {
+                nm = self._pin_of_dir(p.full_path());
+                pinned = nm.size() > 0;
+                sp = nm;
+            }
+            var r = self._add_root(p, priority, nm, sp, pinned);
+            // A pinned -I dir is a library like a pinned subdirectory, and
+            // reached the same way: by its declared name only. Left
+            // undiscovered, the last-resort probe of every root found its
+            // files by their bare paths too, so `-I geometry` with a
+            // `module geo` made `import vec` reach `geo::vec`. The
+            // driver's builtin and kairo::std are explicit names, not
+            // pins, and keep that probe.
+            if pinned { r->discovered = true; }
+            priority += 1;
         }
 
         // Pinned libraries: a module.k whose first declaration is `module foo`
@@ -411,20 +512,48 @@ class ImportResolver {
     /// that exist (resolve_module_rel), not by registering the dirs.
     priv fn _add_root(self, p: Path, priority: u32, nm: vec::<string>, sp: vec::<string>,
                       pinned: bool) -> *SearchRoot {
+        self._check_root_name(p, nm, sp, pinned, &null);
+        var root = std::create::<SearchRoot>(p, priority, self._ext_cfg, nm, sp);
+        self._roots.push_back(root);
+        return root;
+    }
+
+    /// The R018E half of _add_root, also run when an explicit registration
+    /// renames an existing root in place. \p skip is that root itself.
+    priv fn _check_root_name(self, p: Path, nm: vec::<string>, sp: vec::<string>,
+                             pinned: bool, skip: *SearchRoot) {
+        var real = self._real(p.full_path());
         for var k: usize = 0; (nm.size() > 0) && (k < self._roots.size()); ++k {
-            if self._roots[k]->name.size() == 0 { continue; }
-            if (!root_names_equal(self._roots[k]->name, nm))
-            && (!root_names_equal(self._roots[k]->spelling, sp)) { continue; }
+            var r = self._roots[k];
+            if (r == skip) || (r->name.size() == 0) { continue; }
+            // One directory under two spellings is one library.
+            if r->real_dir == real { continue; }
+            if (!root_names_equal(r->name, nm))
+            && (!root_names_equal(r->spelling, sp)) { continue; }
             var c = RootNameCollision{};
-            c.name   = (self._name_str(nm)) if (root_names_equal(self._roots[k]->name, nm)) else (self._name_str(sp));
-            c.a      = self._roots[k]->base_path.full_path();
+            c.name   = (self._name_str(nm)) if (root_names_equal(r->name, nm)) else (self._name_str(sp));
+            c.a      = r->base_path.full_path();
             c.b      = p.full_path();
             c.pinned = pinned;
             self._root_collisions.push_back(c);
         }
-        var root = std::create::<SearchRoot>(p, priority, self._ext_cfg, nm, sp);
-        self._roots.push_back(root);
-        return root;
+    }
+
+    /// The registered root over the directory whose real path is \p real,
+    /// or null.
+    priv fn _root_at_real(self, real: string) -> *SearchRoot {
+        for var i: usize = 0; i < self._roots.size(); ++i {
+            if self._roots[i]->real_dir == real { return self._roots[i]; }
+        }
+        return &null;
+    }
+
+    /// \p p with its symlinks resolved, cached per spelling.
+    priv fn _real(self, p: string) -> string {
+        if self._real_paths.contains(p) { return self._real_paths[p]; }
+        var r = Path::real_path_of(p);
+        self._real_paths[p] = r;
+        return r;
     }
 
     /// The library name \p dir's module.k pins, or empty. Cached per
@@ -454,6 +583,13 @@ class ImportResolver {
             }
         }
         self._sibling_roots.clear();
+
+        for var it = self._pinned_roots.begin(); it != self._pinned_roots.end(); ++it {
+            if it->second != &null {
+                std::destroy(it->second);
+            }
+        }
+        self._pinned_roots.clear();
 
         if self._owns_ext_cfg && (self._ext_cfg != &null) {
             std::destroy(self._ext_cfg);
@@ -640,6 +776,26 @@ class ImportResolver {
             }
         }
 
+        // 2a'. The importing file's own LIBRARY when no root registered it:
+        //      a pin deeper than a root's immediate subdirectories, or one
+        //      above the cwd (`cd geometry/inner && kcc -c x.k`). Its files
+        //      already take its name (canonical_module_path walks up to it);
+        //      without this they could not import one another, neither by
+        //      the path as written nor by the library's name (2b below), so
+        //      a file inside such a library compiled on its own failed at
+        //      its first intra-library import.
+        var lib_root: *SearchRoot = &null;
+        if has_from { lib_root = self._pinned_root_for(from_dir); }
+        if (!root_hit) && (lib_root != &null) {
+            var h = self._probe_root(lib_root, segments, is_module);
+            if h.found {
+                root_hit  = true;
+                root_path = h.path;
+                hit_root  = lib_root;
+                if !sib_hit { out.file_dir = h.file_dir; }
+            }
+        }
+
         // Named roots, LONGEST SPELLING FIRST. A root is reached by its
         // spelling (SearchRoot::spelling: its name unless it registered a
         // shorter one, as std does), a module path matched on the leading N
@@ -663,6 +819,9 @@ class ImportResolver {
                 if r->spelling.size() == 0 { continue; }
                 if !root_name_matches(r->spelling, segments) { continue; }
                 cands.push_back(r);
+            }
+            if (lib_root != &null) && root_name_matches(lib_root->spelling, segments) {
+                cands.push_back(lib_root);
             }
             // Insertion sort, descending by name length. The candidate set is
             // the roots whose name prefixes ONE import path: one or two in
@@ -774,6 +933,7 @@ class ImportResolver {
         }
 
         out.canonical = self.canonical_module_path(out.path);
+        self.claim_identity(out.canonical, out.path);
         if out.canonical.size() == 0 {
             // Resolved outside every search root (rare: an absolute -I sibling
             // walk). Fall back to the written spelling rather than handing
@@ -783,8 +943,10 @@ class ImportResolver {
         return out;
     }
 
-    /// \brief the module IDENTITY of a file: its path segments relative to the
-    ///        deepest search root that contains it.
+    /// \brief the module IDENTITY of a file: its path below the library
+    ///        that holds it, prefixed by that library's name; or, under no
+    ///        library, its path relative to the deepest search root that
+    ///        contains it.
     ///
     /// \details This, not the import spelling, is what a file's module path
     ///          means. `root/Foo/baz.k` is `Foo::baz` whether it was reached as
@@ -792,65 +954,46 @@ class ImportResolver {
     ///          sibling. `root/std/mem/module.k` is `std::mem` - the `module`
     ///          leaf names the directory's entry point, not a segment.
     ///          `-` maps to `_` per the filename policy (CODEGEN.md 2).
-    /// \return the segments, or empty if the file is under no search root.
+    ///
+    ///          The library is found by walking UP from the file
+    ///          (_library_of), past every search root if need be: a file's
+    ///          module path is a property of the FILE (PLAN-module-pinning
+    ///          §2.1), so `cd geometry/inner && kairo x.k` and `-I
+    ///          geometry/inner` give `geo::inner::x` exactly as an importer
+    ///          above the library does. Stopping at the deepest root made
+    ///          those two runs emit `namespace x`, and a `kcc -c` from inside
+    ///          a library defined symbols no importer calls.
+    /// \return the segments, or empty if no library and no search root
+    ///         holds the file.
     fn canonical_module_path(self, file: Path) -> vec::<string> {
         var out = vec::<string>();
 
-        var best_rel = "";
+        var best_rel  = "";
         var best_name = vec::<string>();
-        var best_len: usize = 0;
-        var best_dir = string();
-        for var i: usize = 0; i < self._roots.size(); ++i {
-            var root = self._roots[i];
-            var rel  = self._relative_to(file, root->base_path);
-            if rel.size() == 0 { continue; }
-            // Deepest containing root wins, so a nested -I dir does not get
-            // shadowed by an outer one into a longer, wrong identity.
-            var base_len = root->base_path.full_path().size();
-            if (best_rel.size() == 0) || (base_len > best_len) {
-                best_rel  = rel;
-                best_name = root->name;
-                best_len  = base_len;
-                best_dir  = root->base_path.full_path();
+        var lib = self._library_of(Path::parent_of(file.full_path()));
+        if lib.found {
+            best_name = lib.name;
+            best_rel  = file.relative_to(Path::from_known(lib.dir, FileType::directory_file));
+        } else {
+            // No library above the file: the deepest search root holding it
+            // (necessarily unnamed -- the walk stops at every named root).
+            // Deepest, so a nested -I dir is not shadowed by an outer one
+            // into a longer, wrong identity.
+            var best_len: usize = 0;
+            for var i: usize = 0; i < self._roots.size(); ++i {
+                var root = self._roots[i];
+                var rel  = self._relative_to(file, root->base_path);
+                if rel.size() == 0 { continue; }
+                var base_len = root->base_path.full_path().size();
+                if (best_rel.size() == 0) || (base_len > best_len) {
+                    best_rel = rel;
+                    best_len = base_len;
+                }
             }
         }
         if best_rel.size() == 0 { return out; }
 
-        // A pinned module.k between the file and its root re-bases the file:
-        // the nearest one walking UP wins, and its declared name replaces the
-        // root's name as the prefix. Strictly below the root -- a root
-        // directory's own pin was already settled as the root's name by
-        // build_index, where an explicit registration outranks it. So
-        // `<root>/vendor/geometry/inner/x.k` under a module.k in `geometry`
-        // saying `module geo` is `geo::inner::x`, and that holds whether or
-        // not discovery registered `geometry` as a library.
-        var walk = Path::parent_of(file.full_path());
-        var repinned = false;
-        while (walk.size() > best_dir.size()) && (walk != best_dir) {
-            var pin = self._pin_of_dir(walk);
-            if pin.size() > 0 {
-                best_name = pin;
-                best_rel  = self._relative_to(file, Path(walk));
-                repinned  = true;
-                break;
-            }
-            var up = Path::parent_of(walk);
-            if up.size() >= walk.size() { break; }
-            walk = up;
-        }
-        // An UNNAMED root's own pin, too. build_index names every pinned -I
-        // dir already, so in practice this is the cwd: `cd geometry && kairo
-        // shapes.k` under a `module geo` there is `geo::shapes`, the path
-        // every importer gives the file. Inputs take their module path from
-        // here (decision C), so without it the file compiled on its own and
-        // the file imported would be two namespaces, and a separately
-        // compiled importer would not link against it.
-        if (!repinned) && (best_name.size() == 0) {
-            var own = self._pin_of_dir(best_dir);
-            if own.size() > 0 { best_name = own; }
-        }
-
-        // The root's name is the leading SEGMENTS: `~/foo/a.k` under a
+        // The library's name is the leading SEGMENTS: `~/foo/a.k` under a
         // `~/foo/module.k` pinning `foo` is `foo::a` from EVERY importer, and
         // `Lib/std/vec.k` under the driver's `kairo::std` root is
         // `kairo::std::vec`. That is what makes a file's identity -- and
@@ -870,8 +1013,8 @@ class ImportResolver {
         parts[parts.size() - 1] = leaf;
 
         // `Foo/module.k` IS module `Foo`; the leaf names the directory entry.
-        // At a root's TOP level the directory is the root itself, so the root
-        // NAME is already the whole path and the leaf drops there too.
+        // At a library's TOP level the directory is the library itself, so
+        // its NAME is already the whole path and the leaf drops there too.
         // Without the second clause `Lib/std/module.k` under `kairo::std`
         // would be `kairo::std::module`, its synthetic module_self would be
         // named `module`, and every decl in it would emit one C++ namespace
@@ -888,6 +1031,147 @@ class ImportResolver {
             out.push_back(self.module_ident(parts[i]));
         }
         return out;
+    }
+
+    struct LibraryHit {
+        var found: bool = false;
+        var dir:   string;              ///< the library's directory, as walked.
+        var name:  vec::<string>;       ///< its name: the root's, or the pin's.
+        var root:  *SearchRoot = &null; ///< the registered root, when it is one.
+    }
+
+    /// \brief the library holding directory \p start: the nearest directory
+    ///        at or above it that is a NAMED root, or whose module.k pins a
+    ///        name.
+    ///
+    /// \details A named root is asked before the pin at the same level: the
+    ///          driver's registration of std and builtin outranks their own
+    ///          module.k (build_index checks the two agree). Bounded by the
+    ///          filesystem root and never downward: one stat per directory
+    ///          walked, cached in _dir_pins, so every file of a build shares
+    ///          the walk of its ancestors.
+    priv fn _library_of(self, start: string) -> LibraryHit {
+        var out  = LibraryHit{};
+        var walk = start;
+        while walk.size() > 0 {
+            for var i: usize = 0; i < self._roots.size(); ++i {
+                var r = self._roots[i];
+                if (r->name.size() > 0) && (r->base_path.full_path() == walk) {
+                    out.found = true;
+                    out.dir   = walk;
+                    out.name  = r->name;
+                    out.root  = r;
+                    return out;
+                }
+            }
+            var pin = self._pin_of_dir(walk);
+            if pin.size() > 0 {
+                self._check_pin_dir(walk, pin);
+                out.found = true;
+                out.dir   = walk;
+                out.name  = pin;
+                return out;
+            }
+            // Stop BEFORE an empty parent: joining "" with module.k is a
+            // relative path, and the probe would read the cwd's module.k.
+            var up = Path::parent_of(walk);
+            if (up.size() == 0) || (up.size() >= walk.size()) { break; }
+            walk = up;
+        }
+        return out;
+    }
+
+    /// A pinned directory that no root registered (a pin deeper than a
+    /// root's immediate subdirectories, or one above every root) names a
+    /// library all the same, so it collides like a registered one: with a
+    /// named root of that name or spelling, or with another such directory
+    /// pinning it. Without this, `d/vendor/g2/module.k` saying `module geo`
+    /// beside a discovered `d/geometry` (`module geo`) put both libraries'
+    /// files in one module path and one C++ namespace, with no diagnostic
+    /// but a link error. Same R018E as two registered roots; each directory
+    /// reported once.
+    priv fn _check_pin_dir(self, dir: string, pin: vec::<string>) {
+        var real = self._real(dir);
+        // A registered library reached through another spelling (a symlink)
+        // is that library, already checked when it was registered. An
+        // UNNAMED root that pins -- the cwd inside a library -- is not, and
+        // falls through.
+        var at = self._root_at_real(real);
+        if (at != &null) && (at->name.size() > 0) { return; }
+
+        var key   = self._name_str(pin);
+        var other = string();
+        for var k: usize = 0; k < self._roots.size(); ++k {
+            var r = self._roots[k];
+            if (r->name.size() == 0) || (r->real_dir == real) { continue; }
+            if root_names_equal(r->name, pin) || root_names_equal(r->spelling, pin) {
+                other = r->base_path.full_path();
+                break;
+            }
+        }
+        if other.empty() {
+            if !self._lib_pins.contains(key) { self._lib_pins[key] = real; return; }
+            if self._lib_pins[key] == real { return; }
+            other = self._lib_pins[key];
+        }
+        var pair = other + "\n" + real;
+        if self._reported_pairs.contains(pair) { return; }
+        self._reported_pairs.insert(pair);
+        var c = RootNameCollision{};
+        c.name   = key;
+        c.a      = other;
+        c.b      = dir;
+        c.pinned = true;
+        self._root_collisions.push_back(c);
+    }
+
+    /// \brief records that \p file holds module path \p ident; a different
+    ///        file already holding it is a ModuleIdentityCollision.
+    ///
+    /// \details Called for every resolution and, by the driver, for every
+    ///          input before any is compiled, so two inputs that one path
+    ///          names (`./a.k` and `inc/a.k` under `-I inc`) are rejected
+    ///          before either writes the object path they share. Files are
+    ///          compared by real path: one file through a symlink is still
+    ///          one module.
+    fn claim_identity(self, ident: vec::<string>, file: Path) {
+        if ident.size() == 0 { return; }
+        var key  = self._name_str(ident);
+        var real = self._real(file.full_path());
+        if !self._identities.contains(key) { self._identities[key] = real; return; }
+        var first = self._identities[key];
+        if first == real { return; }
+        var pair = first + "\n" + real;
+        if self._reported_pairs.contains(pair) { return; }
+        self._reported_pairs.insert(pair);
+        var c = ModuleIdentityCollision{};
+        c.ident = key;
+        c.a     = first;
+        c.b     = file.full_path();
+        self._id_collisions.push_back(c);
+    }
+
+    /// \brief drains ModuleIdentityCollision findings (claim_identity), for
+    ///        whoever owns a DiagEngine: the PP walk after each resolution,
+    ///        the driver after claiming its inputs.
+    fn take_identity_collisions(self) -> vec::<ModuleIdentityCollision> {
+        var out = self._id_collisions;
+        self._id_collisions.clear();
+        return out;
+    }
+
+    /// The transient root over the pinned library holding \p dir, when no
+    /// registered root covers that library; null otherwise (no library, or
+    /// a registered one, which root_for_dir already answers).
+    priv fn _pinned_root_for(self, dir: Path) -> *SearchRoot {
+        var lib = self._library_of(dir.full_path());
+        if (!lib.found) || (lib.root != &null) { return &null; }
+        if self._pinned_roots.contains(lib.dir) { return self._pinned_roots[lib.dir]; }
+        var r = std::create::<SearchRoot>(Path::from_known(lib.dir, FileType::directory_file),
+                                          u32(-1), self._ext_cfg, lib.name, lib.name);
+        r->discovered = true;
+        self._pinned_roots[lib.dir] = r;
+        return r;
     }
 
     /// \brief the module path a COMMAND-LINE input (or a .k a C++ input
@@ -1044,11 +1328,7 @@ class ImportResolver {
     }
 
     priv fn _is_root_dir(self, dir: Path) -> bool {
-        var full = dir.full_path();
-        for var i: usize = 0; i < self._roots.size(); ++i {
-            if self._roots[i]->base_path.full_path() == full { return true; }
-        }
-        return false;
+        return self._root_at_real(self._real(dir.full_path())) != &null;
     }
 
     /// `file` relative to `base`, or "" when `file` is not under `base`.

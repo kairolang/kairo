@@ -197,6 +197,21 @@ default class Path {
         return string(sr.data(), sr.size());
     }
 
+    /// \p p with every symlink resolved, or \p p unchanged when it cannot
+    ///        be (it does not exist). One syscall.
+    ///
+    /// \details For IDENTITY comparisons only -- "are these two spellings one
+    ///          directory?" -- never for a path that is printed or stored:
+    ///          what the user typed (a vendored symlink) is what a diagnostic
+    ///          should quote.
+    static fn real_path_of(p: string) -> string {
+        if p.empty() { return p; }
+        var buf: llvm::SmallString::<256>;
+        if llvm::sys::fs::real_path(llvm::Twine(sref(p)), buf, false) { return p; }
+        var generic = llvm::sys::path::convert_to_slash(llvm::StringRef(buf.data(), buf.size()));
+        return string(generic.data(), generic.size());
+    }
+
     // --- filesystem mutations ----------------------------------------------
 
     /// \p dir and every missing parent. True when it exists afterwards.

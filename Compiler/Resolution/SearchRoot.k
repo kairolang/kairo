@@ -55,10 +55,17 @@ class SearchRoot {
     /// the whole build.
     pub var discovered: bool = false;
 
+    /// `base_path` with its symlinks resolved, for asking whether two roots
+    /// are ONE directory: a vendored `b/geolink -> a/geometry` and an `-I
+    /// a/geometry` must be one library, not an R018E between two spellings
+    /// of it. Never printed; diagnostics quote base_path, what was typed.
+    pub var real_dir: string;
+
     fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions,
                   name: vec::<string> = vec::<string>(),
                   spelling: vec::<string> = vec::<string>()) {
         self.base_path     = path;
+        self.real_dir      = Path::real_path_of(path.full_path());
         self.priority      = priority;
         self.name          = name;
         self.spelling      = (spelling) if (spelling.size() > 0) else (name);

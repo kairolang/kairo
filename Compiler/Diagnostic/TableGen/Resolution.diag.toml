@@ -379,10 +379,23 @@ group = "import"
     files in one directory therefore collide when they differ only by that mapping: `foo-bar.k` and
     `foo_bar.k` both name module `foo_bar`, so an import of it cannot say which file it means.
 
+    the same holds for whole libraries and for files further apart. a module path is a file's
+    identity and its C++ namespace, so it must name one file:
+
+    - two libraries whose `module.k` pins one name (`module geo` in two directories), or a pin
+      claiming the name of a library the driver registers, make every path under that name mean
+      two files. a pin deeper than a search root's immediate subdirectories counts too: its files
+      take its name all the same.
+    - two files that reach one module path any other way - two inputs from two search directories
+      (`kairo a.k inc/a.k -I inc`, both module `a`), or two libraries' files - would share one
+      namespace and one object file, and one would silently replace the other.
+
     ## how to fix
 
     rename one of the files. prefer `_` in new filenames; `-` is supported only as a pragmatic
-    spelling of the same module name.
+    spelling of the same module name. for two libraries, change one library's `module`
+    declaration in its module.k; for two files from two search directories, rename or move one,
+    or make its directory a library with a pinned module.k so its files get a prefix of their own.
     """
 
 [R019]

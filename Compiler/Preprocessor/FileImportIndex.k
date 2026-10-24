@@ -298,6 +298,19 @@ class FileImportIndex {
                 ).emit();
             }
         }
+        // Two files one module path names, and a pinned directory claiming
+        // a library's name, found by this resolution (decision E). Fatal for
+        // the same reason as a duplicate root: the two would share one C++
+        // namespace and one object path.
+        var roots = self._res->take_root_collisions();
+        for var i: usize = 0; i < roots.size(); ++i {
+            // Placeholder for the mismatch, as in the driver.
+            var id = (DiagID::R001E) if (roots[i].mismatch) else (DiagID::R018E);
+            self._diag->report(DiagCode(id), roots[i].message()).emit();
+        }
+        for ic: ModuleIdentityCollision in self._res->take_identity_collisions() {
+            self._diag->report(DiagCode(DiagID::R018E), ic.message()).emit();
+        }
     }
 
     priv fn _segs_to_path(self, segs: vec::<string>) -> ModulePath {
