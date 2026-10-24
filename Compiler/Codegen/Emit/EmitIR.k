@@ -1494,8 +1494,14 @@ class EmitIR {
         var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
         if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
         var d = tbl->get::<Immediate::IntData>(t.imm);
-        if (d != &null) && (!d->body.is_valid()) {
+        // Respelled from the value when there are no bytes to borrow, or when
+        // the bytes carry a Kairo suffix (`0xFFu8`, IntData flag bit 3) that
+        // C++ cannot read. The value's own type is the literal's; a top-bit
+        // value spells ULL so clang never sees it as a too-large signed one.
+        var suffixed = (d != &null) && ((d->flags & 8) != 0);
+        if (d != &null) && ((!d->body.is_valid()) || suffixed) {
             var cxx = f"{d->value_lo}";
+            if (d->value_lo >> 63) != 0 { cxx += "ULL"; }
             self._cg->sink->create_int(t.range, cxx);
             return;
         }
