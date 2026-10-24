@@ -455,7 +455,8 @@ class ASTParse
     ///          a parse), and WHERE it may appear is ModulePinCheck::pin_allowed's
     ///          (module.k only, today). Accepted in every file all the same, so
     ///          that rule can change without touching the parser. Only the
-    ///          first pin of a file is kept.
+    ///          first pin of a file is kept; the range of a second is kept
+    ///          for ModulePinCheck to report.
     priv fn _parse_module_pin(self) {
         var start = self._current->range;
         var keep  = self.tu->pin_segments.size() == 0;
@@ -474,6 +475,7 @@ class ASTParse
             break;
         }
         if keep { self.tu->pin_range = start | self._prev->range; }
+        else if !self.tu->pin_extra_range.is_valid() { self.tu->pin_extra_range = start | self._prev->range; }
     }
 
     /// \brief decl-vs-stmt routing for the top-level loop.

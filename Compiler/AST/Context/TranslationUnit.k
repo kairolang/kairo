@@ -230,6 +230,11 @@ class TranslationUnit derives DeclContext {
     /// (ImportProbe::read_module_pin). `pin_range` spans the declaration.
     pub var pin_segments: ArenaList::<Token>;
     pub var pin_range:    SourceRange = SourceRange::invalid();
+    /// A SECOND bare pin in the same file, if any (the first beyond
+    /// pin_range): a file names at most one library, and the parser keeps
+    /// only the first, so ModulePinCheck reports this one rather than let it
+    /// vanish.
+    pub var pin_extra_range: SourceRange = SourceRange::invalid();
 
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
