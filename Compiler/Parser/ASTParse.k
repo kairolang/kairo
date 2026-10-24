@@ -305,6 +305,20 @@ class ASTParse
             if self.is_eof() { break; }
 
             var k  = self.resolve_kind_deep(self._current);
+
+            // The bare `module a::b` pin is a FILE property, not a decl: it is
+            // intercepted here so it never reaches parse_decl, which would
+            // build a ModuleDecl, bind `a` in this file's table and reopen a
+            // namespace -- a meaning the pin must not have outside the
+            // resolver (the pin names the library, the resolver reads it).
+            if (k == TokenKind::KwModule) && self._is_module_pin() {
+                self._parse_module_pin();
+                while self._is_terminator_tok(self._current) {
+                    self.advance_raw();
+                }
+                continue;
+            }
+
             var ok = (self._parse_top_decl(program, &annot, k))
                      if self._routes_to_decl(k)
                      else (self._parse_top_stmt(program, &annot));
@@ -387,6 +401,77 @@ class ASTParse
         md->module_path = base;
 
         self.tu->module_self = static_cast::<*Decl>(md);
+    }
+
+    /// \brief true when the cursor sits on a bare `module a::b` pin: `module`,
+    ///        a path, then a terminator or EOF.
+    ///
+    /// \details Lookahead over the raw span, so a block `module foo { }` is
+    ///          left untouched for parse_decl. Only `{` (or anything else that
+    ///          is not a terminator) after the path means "not a pin"; that
+    ///          keeps `module foo` followed by junk on the block path, whose
+    ///          S050E already says what is missing. Comments are skipped: the
+    ///          lexer leaves them in the span, and `module foo // why` is
+    ///          still a pin.
+    priv fn _is_module_pin(self) -> bool {
+        var i     = self.c_idx;
+        var n     = self.span.size();
+        var state = 0;   // 0 = want `module`, 1 = want ident, 2 = after ident, 3 = after the newline
+        while i < n {
+            var k = self.resolve_kind_shallow(self.span.get(i));
+            i += 1;
+            if k == TokenKind::AtComment { continue; }
+            if state == 0 {
+                if k != TokenKind::KwModule { return false; }
+                state = 1;
+                continue;
+            }
+            if state == 1 {
+                if k != TokenKind::LitIdentifier { return false; }
+                state = 2;
+                continue;
+            }
+            if state == 2 {
+                if k == TokenKind::OpColonColon { state = 1; continue; }
+                if (k == TokenKind::OpSemicolon) || (k == TokenKind::TkEof) { return true; }
+                if k != TokenKind::TkNewLine { return false; }
+                state = 3;
+                continue;
+            }
+            // Past a newline: `module foo` NEWLINE `{` was the block form with
+            // its brace on the next line, an S050E before the bare form
+            // existed. It stays one rather than silently becoming a pin plus a
+            // stray block statement.
+            if k == TokenKind::TkNewLine { continue; }
+            return k != TokenKind::OpLBrace;
+        }
+        return state >= 2;
+    }
+
+    /// \brief consumes a bare `module a::b` pin and records its path on the TU.
+    ///
+    /// \details Recorded, not acted on: what the pin MEANS is the resolver's
+    ///          (ImportProbe reads module.k's first declaration itself, without
+    ///          a parse). Only the first pin of a file is kept; whether a second
+    ///          one, or a pin outside module.k, is an error is not decided yet.
+    priv fn _parse_module_pin(self) {
+        var start = self._current->range;
+        var keep  = self.tu->pin_segments.size() == 0;
+        self.advance_raw();   // `module`
+        while (self._current != &null) && (!self.is_eof()) {
+            var k = self.resolve_kind_shallow(self._current);
+            if k == TokenKind::LitIdentifier {
+                if keep { self.tu->pin_segments.push(*(self._current)); }
+                self.advance_raw();
+                continue;
+            }
+            if k == TokenKind::OpColonColon {
+                self.advance_raw();
+                continue;
+            }
+            break;
+        }
+        if keep { self.tu->pin_range = start | self._prev->range; }
     }
 
     /// \brief decl-vs-stmt routing for the top-level loop.

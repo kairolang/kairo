@@ -221,6 +221,14 @@ class TranslationUnit derives DeclContext {
     pub var cxx_escaping:      vec::<*Decl>;
     pub var cxx_escaping_done: bool = false;
 
+    /// The path of this file's bare `module a::b` declaration, one token per
+    /// segment, or empty. Recorded by the parser and read by nothing in the
+    /// TU yet: in a module.k it pins the directory as library `a::b`, and the
+    /// resolver reads that from the file itself, before any parse
+    /// (ImportProbe::read_module_pin). `pin_range` spans the declaration.
+    pub var pin_segments: ArenaList::<Token>;
+    pub var pin_range:    SourceRange = SourceRange::invalid();
+
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
         self.ctx          = ctx;
@@ -237,5 +245,6 @@ class TranslationUnit derives DeclContext {
         self.out_of_line.set_allocator(&(ctx->pp_alloc), 8);
         self.import_overlay = &null;
         self.import_edges.set_allocator(&(ctx->pp_alloc), 16);
+        self.pin_segments.set_allocator(&(ctx->pp_alloc), 4);
     }
 }
