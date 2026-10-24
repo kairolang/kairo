@@ -267,6 +267,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_requirement(self, d: *Decl) -> bool;
+    fn _member_of_template(self, d: *Decl) -> bool;
     fn _is_global_var(self, d: *Decl) -> bool;
     fn _is_type_decl(self, d: *Decl) -> bool;
     fn _outermost_type(self, d: *Decl) -> *Decl;
@@ -1199,6 +1200,16 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
         for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
         return;
     }
+    // A member template of a CLASS TEMPLATE: the entry holds the member's own
+    // arguments only, not the owner's, so it names no one C++ entity
+    // (`Box<A>::both<X>` and `Box<B>::both<X>` are one entry) and no tier-3
+    // line can spell it. Its body is visible wherever the owner is complete
+    // (§7), so the C++ instantiates it implicitly; its rows still apply.
+    if self._member_of_template(prim) {
+        for var i: usize = 0; i < e->rows.size(); ++i { self._witness_row(e->rows[i]); }
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        return;
+    }
     var seen = false;
     for var i: usize = 0; i < self._insts.size(); ++i { if self._insts[i] == e { seen = true; break; } }
     if !seen { self._insts.push_back(e); }
@@ -1822,6 +1833,15 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
 }
 
 // --- Predicates ----------------------------------------------------------------------
+
+/// \p d is a member of a generic record (its own generic params aside).
+fn EmitPlan::_member_of_template(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) || (d->semantic_dc == &null) { return false; }
+    var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+    if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+    var owner = dc->owner_decl();
+    return (owner != &null) && (decl_generic_params(owner).size() > 0);
+}
 
 /// \p d is declared in an interface: a requirement, never a C++ function.
 fn EmitPlan::_is_requirement(d: *Decl) -> bool {
