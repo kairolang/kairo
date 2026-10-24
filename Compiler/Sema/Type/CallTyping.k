@@ -335,9 +335,30 @@ class <T> CallTyping {
             if ok {
                 r->instance = dyn()->sc->instances->instance_for(NameLookup::representative(static_cast::<*Decl>(f)), &args,
                                                                  dyn()->sc->ctx->fid, NameLookup::ctx_of(static_cast::<*Decl>(f)));
+            } else {
+                // Dependent: keep what deduction found, for the enclosing
+                // generic's instances to substitute (CallExpr::dep_args).
+                r->dep_args.clear();
+                var dok = ((ext == &null) || self._loose_args(r, static_cast::<*Decl>(ext), &(r->dep_args)))
+                       && self._loose_args(r, static_cast::<*Decl>(f), &(r->dep_args));
+                if !dok { r->dep_args.clear(); }
             }
         }
         return rt;
+    }
+
+    /// \p owner's deduced arguments, dependent ones included; false only on
+    /// an unbound parameter or a pack.
+    priv fn _loose_args(self, r: *OvlResult, owner: *Decl, out: *vec::<*Type>) -> bool {
+        var gps = decl_generic_params(owner);
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            if (gp == &null) || gp->is_pack { return false; }
+            var b = r->ded.lookup(owner, gp->index);
+            if b == &null { return false; }
+            out->push_back(b);
+        }
+        return true;
     }
 
     /// \p owner's deduced arguments, appended to \p out in parameter order.
@@ -518,6 +539,11 @@ class <T> CallTyping {
         self._write_arg_map(n, r.decl, &args, &r);
         var rt = self.call_result_type(r.decl, &r);
         n->instance = reinterpret_cast::<*void>(r.instance);
+        if (r.instance == &null) && (r.dep_args.size() > 0) {
+            var arr = dyn()->sc->ctx->alloc_array::<*Type>(r.dep_args.size());
+            for var i: usize = 0; i < r.dep_args.size(); ++i { arr[i] = r.dep_args[i]; }
+            n->dep_args.from_raw(arr, r.dep_args.size());
+        }
         if rt == &null { dyn()->mark_unknown(n); return &null; }
         return rt;
     }

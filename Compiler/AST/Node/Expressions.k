@@ -101,6 +101,14 @@ class CallExpr derives Expr {
     /// ConformanceChecking; EmitPlan admits its specialization from it.
     pub var witness_row:   *void = &null;
 
+    /// A generic callee's arguments when they are still DEPENDENT, so no
+    /// instance exists yet (`inner(Wrap<T>{...})` inside `outer<T>`): what
+    /// ConformanceChecking substitutes with each instance of the enclosing
+    /// generic, to reach the instances its body needs (M1's transitive
+    /// registry, for the witness rows). Written by CallTyping; empty
+    /// whenever `instance` is set.
+    pub var dep_args: FrozenList::<*Type>;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -118,6 +126,7 @@ class CallExpr derives Expr {
         node->witness_iface = &null;
         node->witness_self  = &null;
         node->witness_row   = &null;
+        node->dep_args      = create_empty_frozen_list::<*Type>();
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -139,6 +148,7 @@ class CallExpr derives Expr {
         node->witness_iface = &null;
         node->witness_self  = &null;
         node->witness_row   = &null;
+        node->dep_args      = create_empty_frozen_list::<*Type>();
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

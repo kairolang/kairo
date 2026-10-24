@@ -66,6 +66,31 @@ import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 import Location::SourceRange::*;
 
+/// The dependent uses in a generic body that name instances of their own
+/// once the body's parameters are known: calls whose callee's arguments are
+/// still dependent (CallExpr::dep_args), and dependent record types.
+/// Collected, not checked: ConformanceChecking substitutes and checks them
+/// per instance of the enclosing generic.
+class _NestedUses derives RecursiveASTVisitor::<_NestedUses> {
+    pub var calls: vec::<*CallExpr>;
+    pub var types: vec::<*Type>;
+    fn _NestedUses(self) { }
+
+    fn visit_expr(self, e: *Expr) -> bool {
+        if (e == &null) || e->is_poisoned() { return true; }
+        if (e->type_ != &null) && e->type_->is_dependent() { self.types.push_back(e->type_); }
+        if e->kind != ExprKind::CallExpr { return true; }
+        var c = cast::<CallExpr>(e);
+        if c->dep_args.size() > 0 { self.calls.push_back(c); }
+        return true;
+    }
+
+    fn visit_type(self, t: *Type) -> bool {
+        if (t != &null) && t->is_dependent() { self.types.push_back(t); }
+        return true;
+    }
+}
+
 class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -180,8 +205,15 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
 
     /// Fill \p e's rows from its primary's `impl` bounds, reporting at \p at
     /// a bound its argument does not meet.
+    /// Instances whose rows are being computed, outermost first: a generic
+    /// that reaches itself (directly, or `f<T>` calling `f<Wrap<T>>`) stops
+    /// there instead of recursing forever.
+    priv var _active: vec::<*InstanceEntry>;
+
     priv fn _check_instance(self, e: *InstanceEntry, at: SourceRange) {
         if e->rows_done { return; }
+        for var i: usize = 0; i < self._active.size(); ++i { if self._active[i] == e { return; } }
+        if self._active.size() >= 8 { return; }   // M2's depth, not ours to chase further.
         // Checked at its first use with a place to report at; a type with no
         // range (a canonical reached without a written node) waits for one.
         if !at.start.is_valid() { return; }
@@ -197,8 +229,8 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         for var i: usize = 0; i < bounds.size(); ++i {
             var b = bounds[i];
             var gp = self._param_named(b, prim);
-            if (gp == &null) || gp->is_pack || (static_cast::<usize>(gp->index) >= e->args.size()) { continue; }
-            var x = canon_unqual(e->args[static_cast::<usize>(gp->index)]);
+            if (gp == &null) || gp->is_pack { continue; }
+            var x = self._arg_of(e, prim, gp);
             var iface = self._bound_iface(b, prim, e);
             if (x == &null) || (iface == &null) { continue; }
             var row = self.conforms(x, iface);
@@ -209,10 +241,156 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             }
             if !self._push_closure(row, x, &rows, at, b) { ok = false; }
         }
+        // The instances its body reaches once its parameters are known, and
+        // their rows: every TU holding this instance may compile its body
+        // and theirs (§7b.6), so they ride on this instance's rows.
+        if ok {
+            self._active.push_back(e);
+            if !self._reach(e, prim, at, &rows) { ok = false; }
+            self._active.pop_back();
+        }
         // Done either way: a non-conforming instance is reported once, at its
         // first use, however many times it is named.
         if !ok { rows.clear(); }
         self.sc->instances->set_rows(e, &rows);
+    }
+
+    /// Instance \p e's argument for \p gp, a parameter of \p prim or of its
+    /// extension: instance arguments run in CXXSpell::template_params order,
+    /// an extension's first.
+    priv fn _arg_of(self, e: *InstanceEntry, prim: *Decl, gp: *GenericParamDecl) -> *Type {
+        var off: usize = 0;
+        var x = decl_extension_of(prim);
+        if x != &null {
+            var eps = decl_generic_params(static_cast::<*Decl>(x));
+            for var i: usize = 0; i < eps.size(); ++i { if eps[i] == gp { off = i; return (canon_unqual(e->args[off])) if (off < e->args.size()) else (&null); } }
+            off = eps.size();
+        }
+        var k = off + static_cast::<usize>(gp->index);
+        return (canon_unqual(e->args[k])) if (k < e->args.size()) else (&null);
+    }
+
+    /// Walk \p prim's body (a record's: its methods') for the dependent
+    /// uses that become instances under \p e's arguments, check each, and
+    /// add its rows -- its own reach included -- to \p rows. False when one
+    /// of them does not conform (reported at \p at, the outer use).
+    priv fn _reach(self, e: *InstanceEntry, prim: *Decl, at: SourceRange, rows: *vec::<*ConformanceRow>) -> bool {
+        var uses = _NestedUses();
+        if isa::<FunctionDecl>(prim) {
+            uses.dispatch_decl(prim);
+        } else {
+            var ms = self._methods_of(prim);
+            for var i: usize = 0; i < ms.size(); ++i { if ms[i] != &null { uses.dispatch_decl(static_cast::<*Decl>(ms[i])); } }
+        }
+        if (uses.calls.size() == 0) && (uses.types.size() == 0) { return true; }
+
+        var d = Deduction(self.sc, &null);
+        self._bind_instance(&d, e, prim);
+        var ok = true;
+        for var i: usize = 0; i < uses.calls.size(); ++i {
+            var c = uses.calls[i];
+            var callee = self._callee_of(c);
+            if (callee == &null) || self._owned_by_interface(callee) { continue; }
+            var args = vec::<*Type>();
+            var whole = true;
+            for var k: usize = 0; k < c->dep_args.size(); ++k {
+                var s = d.substitute(c->dep_args[k]);
+                if (s == &null) || s->is_dependent() || s->is_instantiation_dependent() { whole = false; break; }
+                args.push_back(canon_unqual(s));
+            }
+            if !whole { continue; }   // a parameter of an inner generic: that one's instances reach it.
+            var rep = NameLookup::representative(callee);
+            var ne = self.sc->instances->instance_for(rep, &args, self.sc->ctx->fid, NameLookup::ctx_of(rep));
+            if !self._take(ne, at, rows) {
+                // The error points at the outer use; this says which call in
+                // the generic's body asked for the instance that failed.
+                var nb = self.sc->diag->report(DiagID::SC001N, c->range.start,
+                    f"required by this call, in the instance of '{self.tu.decl_name(prim)}' used there");
+                nb.first(c->range);
+                nb.emit();
+                ok = false;
+            }
+        }
+        for var i: usize = 0; i < uses.types.size(); ++i {
+            var s = d.substitute(self._canon(uses.types[i]));
+            if (s == &null) || s->is_dependent() { continue; }
+            if !self._take_type(s, at, rows, 0) { ok = false; }
+        }
+        return ok;
+    }
+
+    /// Check nested instance \p ne at the outer use and add its rows.
+    priv fn _take(self, ne: *InstanceEntry, at: SourceRange, rows: *vec::<*ConformanceRow>) -> bool {
+        if ne == &null { return true; }
+        var before = self.sc->diag->error_count();
+        self._check_instance(ne, at);
+        if self.sc->diag->error_count() != before { return false; }
+        for var k: usize = 0; k < ne->rows.size(); ++k {
+            var dup = false;
+            for var j: usize = 0; j < rows->size(); ++j { if (*rows)[j] == ne->rows[k] { dup = true; break; } }
+            if !dup { rows->push_back(ne->rows[k]); }
+        }
+        return true;
+    }
+
+    /// Every record instance in substituted type \p t, as _check_type finds them.
+    priv fn _take_type(self, t: *Type, at: SourceRange, rows: *vec::<*ConformanceRow>, depth: u32) -> bool {
+        var c = self._canon(t);
+        if (c == &null) || (depth > 16) { return true; }
+        var ok = true;
+        switch c->kind {
+            case TypeKind::PointerType      { ok = self._take_type(cast::<PointerType>(c)->pointee, at, rows, depth + 1); }
+            case TypeKind::CXXLValueRefType { ok = self._take_type(cast::<CXXLValueRefType>(c)->referee, at, rows, depth + 1); }
+            case TypeKind::CXXRValueRefType { ok = self._take_type(cast::<CXXRValueRefType>(c)->referee, at, rows, depth + 1); }
+            case TypeKind::NullableType     { ok = self._take_type(cast::<NullableType>(c)->inner, at, rows, depth + 1); }
+            case TypeKind::FixedArrayType   { ok = self._take_type(cast::<FixedArrayType>(c)->element, at, rows, depth + 1); }
+            case TypeKind::RecordType {
+                var r = cast::<RecordType>(c);
+                for var i: usize = 0; i < r->args.size(); ++i { if !self._take_type(r->args[i], at, rows, depth + 1) { ok = false; } }
+                if (r->decl != &null) && decl_is_instance(r->decl) {
+                    if !self._take(self.sc->instances->entry_of(r->decl), at, rows) { ok = false; }
+                }
+            }
+            default { ok = true; }
+        }
+        return ok;
+    }
+
+    /// \p e's arguments bound to \p prim's parameters (an extension
+    /// member's extension's first; a record method's body sees its record's).
+    priv fn _bind_instance(self, d: *Deduction, e: *InstanceEntry, prim: *Decl) {
+        var k: usize = 0;
+        var x = decl_extension_of(prim);
+        if x != &null {
+            var eps = decl_generic_params(static_cast::<*Decl>(x));
+            var xr = NameLookup::representative(static_cast::<*Decl>(x));
+            for var i: usize = 0; (i < eps.size()) && (k < e->args.size()); ++i {
+                if eps[i] != &null { d->bind(xr, eps[i]->index, e->args[k]); }
+                k += 1;
+            }
+        }
+        var gps = decl_generic_params(prim);
+        var pr = NameLookup::representative(prim);
+        for var i: usize = 0; (i < gps.size()) && (k < e->args.size()); ++i {
+            if gps[i] != &null { d->bind(pr, gps[i]->index, e->args[k]); }
+            k += 1;
+        }
+    }
+
+    priv fn _callee_of(self, c: *CallExpr) -> *Decl {
+        var callee = self.tu.strip_parens(c->callee);
+        var ni = dyn_cast::<NamedIdentExpr>(callee);
+        if ni != &null { return ni->resolved_decl; }
+        var ch = dyn_cast::<ChainExpr>(callee);
+        if (ch != &null) && (ch->steps.size() > 0) { return ch->steps.get(ch->steps.size() - 1)->resolved_decl; }
+        return &null;
+    }
+
+    priv fn _methods_of(self, d: *Decl) -> FrozenList::<*FunctionDecl> {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->methods; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->methods; }
+        if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->methods; }
+        return create_empty_frozen_list::<*FunctionDecl>();
     }
 
     /// \p row and the rows of its interface's `derives` closure, each once:

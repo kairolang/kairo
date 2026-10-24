@@ -232,6 +232,10 @@ class OvlResult {
     /// The instance a GENERIC winner was registered as (call_result_type),
     /// null for a non-generic one or a dependent call.
     pub var instance: *InstanceEntry = &null;
+    /// A generic winner's arguments when some are still DEPENDENT (a call
+    /// from inside a generic body: `inner(Wrap<T>{...})` deduces
+    /// [Wrap<T>]), in instance order; empty when `instance` is set.
+    pub var dep_args: vec::<*Type>;
     fn OvlResult(self) { }
 }
 
