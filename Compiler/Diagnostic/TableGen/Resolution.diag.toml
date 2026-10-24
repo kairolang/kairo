@@ -368,7 +368,7 @@ group = "import"
     """
 
 [R018]
-brief = "module filename collision"
+brief = "two files claim one module path"
 group = "import"
 
     [R018.E]

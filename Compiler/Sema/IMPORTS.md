@@ -206,9 +206,10 @@ that is fixed by where the file sits, never by who imports it.
 - **Resolution order for an import path:** the importing file's own root
   first, then its own library when no root registered it (with the path as
   written), then libraries matched by leading segment (that library among
-  them), then the other undiscovered roots with the path as written. A file in a library never
-  falls back into an unnamed search dir: a library cannot depend on what
-  one build's command line happens to hold.
+  them), then the other undiscovered roots with the path as written. A
+  file in a library (registered, or found walking up) never falls back
+  into an unnamed search dir: a library cannot depend on what one build's
+  command line happens to hold.
 - **One path, two files, is an error -- never first-wins.** Two libraries
   with one name (or one spelling) are R018E from the ImportResolver, before
   anything is parsed; unnamed search dirs never collide that way (an empty
