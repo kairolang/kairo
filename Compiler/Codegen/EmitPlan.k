@@ -366,7 +366,7 @@ fn EmitPlan::run() {
     }
 }
 
-/// TranslationUnit::cxx_escaping for entry TU \p tu: a Header plan of the
+/// TranslationUnit::cxx_escaping for pathless TU \p tu: a Header plan of the
 /// file roots at its pub decls and walks its inline and template bodies to
 /// a fixed point, admitting every hidden decl one names -- exactly the set.
 /// Marked done first, so the nested plan does not recurse; nothing in

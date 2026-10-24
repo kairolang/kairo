@@ -825,16 +825,29 @@ class ImportResolver {
         // saying `module geo` is `geo::inner::x`, and that holds whether or
         // not discovery registered `geometry` as a library.
         var walk = Path::parent_of(file.full_path());
+        var repinned = false;
         while (walk.size() > best_dir.size()) && (walk != best_dir) {
             var pin = self._pin_of_dir(walk);
             if pin.size() > 0 {
                 best_name = pin;
                 best_rel  = self._relative_to(file, Path(walk));
+                repinned  = true;
                 break;
             }
             var up = Path::parent_of(walk);
             if up.size() >= walk.size() { break; }
             walk = up;
+        }
+        // An UNNAMED root's own pin, too. build_index names every pinned -I
+        // dir already, so in practice this is the cwd: `cd geometry && kairo
+        // shapes.k` under a `module geo` there is `geo::shapes`, the path
+        // every importer gives the file. Inputs take their module path from
+        // here (decision C), so without it the file compiled on its own and
+        // the file imported would be two namespaces, and a separately
+        // compiled importer would not link against it.
+        if (!repinned) && (best_name.size() == 0) {
+            var own = self._pin_of_dir(best_dir);
+            if own.size() > 0 { best_name = own; }
         }
 
         // The root's name is the leading SEGMENTS: `~/foo/a.k` under a
@@ -866,11 +879,50 @@ class ImportResolver {
         // `builtin::module`; unexercised only because the prelude folds it as
         // a wildcard and never binds its handle.)
         if (leaf == "module") && ((parts.size() > 1) || (out.size() > 0)) { parts.pop_back(); }
+        // The module.k at the top of an unnamed, unpinned dir names that dir,
+        // which has no name: the file has no module path (it is outside every
+        // library), not the path `module`.
+        if (leaf == "module") && (parts.size() == 1) && (out.size() == 0) { return out; }
 
         for var i: usize = 0; i < parts.size(); ++i {
             out.push_back(self.module_ident(parts[i]));
         }
         return out;
+    }
+
+    /// \brief the module path a COMMAND-LINE input (or a .k a C++ input
+    ///        includes) takes: its canonical_module_path, the one an import
+    ///        of it gets, or empty for a file with none.
+    ///
+    /// \details Empty, too, when the path under an unnamed search dir starts
+    ///          with a NAMED root's name or spelling and the file is not in
+    ///          that root: `./builtin.k` would be module `builtin`, the
+    ///          builtin library's own path. An import of that path reaches
+    ///          the library, never this file, so the file is not the module
+    ///          there; taking the path would put two modules in one C++
+    ///          namespace (and the driver reads a leading `builtin` as the
+    ///          prelude). Such a file stays pathless, as one outside every
+    ///          root does (CXXSpell::is_entry_tu).
+    fn input_module_path(self, file: Path) -> vec::<string> {
+        var segs = self.canonical_module_path(file);
+        if segs.size() == 0 { return segs; }
+        for var i: usize = 0; i < self._roots.size(); ++i {
+            var r = self._roots[i];
+            if r->name.size() == 0 { continue; }
+            if !(self._relative_to(file, r->base_path).empty()) { continue; }   // its own library
+            if self._segs_start_with(segs, r->name) || self._segs_start_with(segs, r->spelling) {
+                return vec::<string>();
+            }
+        }
+        return segs;
+    }
+
+    priv fn _segs_start_with(self, segs: ref!(vec::<string>), head: ref!(vec::<string>)) -> bool {
+        if (head.size() == 0) || (head.size() > segs.size()) { return false; }
+        for var i: usize = 0; i < head.size(); ++i {
+            if segs[i] != head[i] { return false; }
+        }
+        return true;
     }
 
     /// \brief drains module-name collisions found during discovery.

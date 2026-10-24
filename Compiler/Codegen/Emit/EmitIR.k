@@ -283,7 +283,7 @@ class EmitIR {
         if n->is_method() && (ext == &null) { return; }   // a method reached the free path; its owner emits it.
 
         var at = CXXSpell::at(static_cast::<*Decl>(n));
-        var is_main = (ext == &null) && CXXSpell::is_entry_tu(self._cg->tu) && (self._spell.leaf(n) == "main");
+        var is_main = (ext == &null) && self._spell.is_main(static_cast::<*Decl>(n));
         var wrap: u32 = 0;
         if !is_main { wrap = self._open_ns(n, at); }
 

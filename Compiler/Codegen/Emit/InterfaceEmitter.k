@@ -258,7 +258,7 @@ class InterfaceEmitter {
             // EmitIR defines main at global scope as `int main`; a prior
             // declaration buys nothing, and inside the file's namespace it
             // would declare a different function.
-            if self._is_entry_main(e->decl) { continue; }
+            if self._spell->is_main(e->decl) { continue; }
             if e->decl->kind == DeclKind::VariableDecl {
                 self._wrapped(e->decl, fn () { self._global_var_decl(cast::<VariableDecl>(e->decl)); });
                 continue;
@@ -374,11 +374,6 @@ class InterfaceEmitter {
         return q + "::" + s->name;
     }
 
-    priv fn _is_entry_main(self, d: *Decl) -> bool {
-        if !isa::<FunctionDecl>(d) { return false; }
-        if !CXXSpell::is_entry_tu(CXXSpell::tu_of(d)) { return false; }
-        return self._spell->leaf(d) == "main";
-    }
 
     priv fn _at(self, d: *Decl) -> SourceRange {
         return CXXSpell::at(d);

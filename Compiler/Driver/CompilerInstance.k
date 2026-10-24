@@ -111,6 +111,7 @@ import Support::TimeReport::*;
 import Token::TokenCacheManager::*;
 import Token::TokenText::*;
 import Token::TokenKind::*;
+import Token::IdentifierToken::*;
 import Command::Command::*;
 import Command::FlagRegistry::*;
 import Codegen::Backend::CodegenBackend::*;
@@ -570,9 +571,10 @@ class CompilerInstance {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         return (tu != &null) && tu->is_foreign;
     }
-    /// \brief the name a Kairo entry TU's outputs take under the object
-    ///        dir: its stem, or `<stem>.k` when a C/C++ input of the build
-    ///        has that stem and so writes `<stem>.o` itself (_plan_outputs).
+    /// \brief the name a Kairo TU's outputs take under the object dir when
+    ///        its module path is one segment (or none, by its file stem):
+    ///        that name, or `<stem>.k` when a C/C++ input of the build has
+    ///        that stem and so writes `<stem>.o` itself (_plan_outputs).
     fn kairo_object_stem(self, stem: string) -> string {
         for k: InputKind in self._inputs {
             if k.cls != InputClass::Source { continue; }
@@ -2159,7 +2161,7 @@ class CompilerInstance {
 
             var action = std::create::<FrontendAction>(
                 Path(path_str),
-                ModulePath(),
+                self._input_module_path(path_str),
                 self._g_scope,
                 self._imp,
                 &self
@@ -2222,6 +2224,27 @@ class CompilerInstance {
             f"CompilerInstance::execute: {result.summary()}");
 
         return result;
+    }
+
+    /// \brief the module path \p path takes as an input: the one an import
+    ///        of it gets (ImportResolver::input_module_path), so a file is one
+    ///        module, one namespace and one object path whether it is
+    ///        compiled, imported or included, and `kcc -c lib/y.k` emits the
+    ///        `lib::y::f` an importer compiled in another run calls
+    ///        (decision C). Empty for a pathless file -- one outside every
+    ///        search dir, or one whose path a named library owns -- which
+    ///        keeps the pathless rules (CXXSpell::is_entry_tu).
+    priv fn _input_module_path(self, path: string) -> ModulePath {
+        var mp = ModulePath();
+        if (self._imp == &null) || (self._pp == &null) { return mp; }
+        var sym = self._pp->get_symbol_table();
+        for seg: string in self._imp->input_module_path(Path(path)) {
+            var ident = IdentifierToken();
+            ident.name  = sym->intern(seg);
+            ident.token = &null;
+            mp.segments.push_back(ident);
+        }
+        return mp;
     }
 
     /// \brief adds every .k a C++ or Objective-C++ input includes, and the
@@ -2491,13 +2514,14 @@ class CompilerInstance {
     /// \brief _inputs, with every Kairo input another one imports moved
     ///        after the rest (stable otherwise).
     ///
-    /// \details A file's module identity is set by its first walk: as an
-    ///          input it is an entry, with no module path, and an importer
-    ///          after it finds no module `foo` in it. Run first, the importer
-    ///          walks it as module `foo` and claims it (claim_fid), and its
-    ///          own action has nothing left to do. An input reached by another
-    ///          is reached by one that nothing reaches (imports are acyclic),
-    ///          so moving all of them after the rest is enough.
+    /// \details Written when an input was an ENTRY with no module path, and
+    ///          a file's identity was set by its first walk: run first, the
+    ///          importer walked it as module `foo` and claimed it
+    ///          (claim_fid). An input now takes the path an import gives it
+    ///          (_input_module_path), so the order no longer decides identity,
+    ///          and this can go. Left in place for now: it is harmless, the
+    ///          importer still claims the file it reaches first. The fid-0
+    ///          placeholder below is still needed either way.
     priv fn _kairo_order(self) -> vec::<InputKind> {
         var nk: usize = 0;
         for k: InputKind in self._inputs {
@@ -3718,7 +3742,7 @@ fn FrontendAction::_sema() -> bool {
             plan.dump(self._ci->sm()->get_filename(fid));
 
             // The header root set too (own pub decls, no uses), so both
-            // are golden-testable from one flag. The entry TU has no
+            // are golden-testable from one flag. A pathless TU has no
             // header (EmitCXXHeader skips it), so its dump would be noise.
             if CXXSpell::is_entry_tu(tu) { continue; }
             var hcg = CodegenContext(ctx, &null, psym, self._global_scope->instances());
@@ -3733,8 +3757,8 @@ fn FrontendAction::_sema() -> bool {
     // inline and template bodies (EmitCXXHeader), so --emit-headers runs
     // EmitIR over them and ICEs on any such body EmitIR cannot emit yet, as a
     // full codegen run would.
-    // A sibling loop, not the plan loop: that one skips the entry TU before
-    // its header dump, and the entry TU still has a preamble.
+    // A sibling loop, not the plan loop: that one skips a pathless TU before
+    // its header dump, and a pathless TU still has a preamble.
     if fe.print_cxx || (!fe.emit_headers.empty()) {
         for var i: usize = 0; i < n; ++i {
             var fid = self._fids[n - 1 - i];
@@ -3953,7 +3977,8 @@ fn FrontendAction::_codegen() -> bool {
         var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(fid));
 
         // The output path mirrors the module path, so two modules of the
-        // same leaf name do not collide. The entry TU has no module path.
+        // same leaf name do not collide. A pathless TU (outside every search
+        // dir) is named by its file stem instead.
         var stem = "";
         var to_single = (!single_obj.empty()) && (fid == self._file_id) && (!self.discovered);
         if !to_single {
@@ -3965,7 +3990,11 @@ fn FrontendAction::_codegen() -> bool {
                 if i > 0 { rel += "/"; }
                 rel += segs[i];
             }
+            // A one-segment path sits beside a C/C++ input's <stem>.o, and
+            // `foo.cc` including `foo.k` is the common case: kairo_object_stem
+            // moves the Kairo object aside, as it did when foo.k was an entry.
             if rel.size() == 0 { rel = self._ci->kairo_object_stem(self.path.stem()); }
+            else if segs.size() == 1 { rel = self._ci->kairo_object_stem(rel); }
             stem = obj_dir + "/" + rel;
         }
 

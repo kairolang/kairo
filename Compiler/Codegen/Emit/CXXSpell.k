@@ -312,20 +312,63 @@ class CXXSpell {
         for var i: usize = 0; i < mb->segments.size(); ++i {
             var p = self._cg->psym->resolve(mb->segments[i].name);
             ICE_IF(p == &null, "CXXSpell: module_base segment is not in the PP symbol table");
-            out.push_back(*p);
+            // A segment is a FILE or directory name, not a Kairo identifier:
+            // every input is a module now (decision C), and `operator.k` or
+            // `01_basic.k` in the cwd is module `operator` / `01_basic`.
+            out.push_back(CXXSpell::cxx_segment(*p));
         }
         return out;
     }
 
+    /// \p tu has no module path: a file outside every search dir (or one
+    /// whose path a named library owns, ImportResolver::input_module_path),
+    /// the driver's virtual library entry, or a tool's bare parse. Not
+    /// "a command-line input": since decision C an input takes the module
+    /// path an import gives it, and only these keep the pathless rules
+    /// below (stem namespace, priv decls in the unnamed namespace, no header).
     static fn is_entry_tu(tu: *TranslationUnit) -> bool {
         if (tu == &null) || (tu->ctx == &null) { return true; }
         return tu->ctx->module_base.segments.size() == 0;
     }
 
-    /// The entry TU's namespace: its FILE STEM, sanitized to a C++
-    /// identifier. An entry file declares no module, so before this its decls
-    /// landed in one unnamed namespace and two entry TUs in a build could not
-    /// both define `helper`. The stem is a name the source already has.
+    /// \p d is the program's `main`: a free function named `main` at file
+    /// scope, in ANY TU. Emitted as the global `int main`, never in a
+    /// namespace and never in a header. It was "the entry TU's main" while
+    /// inputs were entries; now that an input is a module (decision C) a
+    /// `main` is the program's wherever its file sits. One in a `module foo
+    /// { }` block is `foo::main`, an ordinary function.
+    fn is_main(self, d: *Decl) -> bool {
+        if (d == &null) || (!isa::<FunctionDecl>(d)) { return false; }
+        if cast::<FunctionDecl>(d)->is_method() { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if (dc == &null) || (!dc->is_translation_unit()) { return false; }
+        return self.leaf(d) == "main";
+    }
+
+    /// \p s as one C++ identifier: anything else becomes `_`, a leading
+    /// digit gets a `_` before it, and a C++ keyword one after it
+    /// (`operator` -> `operator_`; a trailing `_` cannot collide with another
+    /// keyword). For names that come from FILES -- module path segments and
+    /// a pathless TU's stem -- which reach the ABI only through here
+    /// (invariant 9a).
+    static fn cxx_segment(s: string) -> string {
+        var out = "";
+        for var i: usize = 0; i < s.size(); ++i {
+            var c = s[i];
+            var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
+                  || ((c >= '0') && (c <= '9')) || (c == '_');
+            if ok { out += c; } else { out += "_"; }
+        }
+        if out.size() == 0 { return "_"; }
+        if (out[0] >= '0') && (out[0] <= '9') { return "_" + out; }
+        if is_cxx_keyword(out) { return out + "_"; }
+        return out;
+    }
+
+    /// A pathless TU's namespace: its FILE STEM, sanitized to a C++
+    /// identifier. Before this its decls landed in one unnamed namespace and
+    /// two such TUs in a build could not both define `helper`. The stem is a
+    /// name the source already has.
     static fn entry_stem(tu: *TranslationUnit) -> string {
         if (tu == &null) || (tu->ctx == &null) || (tu->ctx->sm == &null) { return "_"; }
         var path = tu->ctx->sm->get_filename(tu->fid);
@@ -338,20 +381,7 @@ class CXXSpell {
         for var i: usize = start; i < path.size(); ++i {
             if path[i] == '.' { end = i; break; }
         }
-        var out = "";
-        for var i: usize = start; i < end; ++i {
-            var c = path[i];
-            var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
-                  || ((c >= '0') && (c <= '9')) || (c == '_');
-            if ok { out += c; } else { out += "_"; }
-        }
-        if out.size() == 0 { return "_"; }
-        if (out[0] >= '0') && (out[0] <= '9') { return "_" + out; }
-        // `operator.k` would open `namespace operator`. A trailing `_` cannot
-        // collide with another keyword stem, and the stem reaches the ABI
-        // only through here (invariant 9a).
-        if is_cxx_keyword(out) { return out + "_"; }
-        return out;
+        return CXXSpell::cxx_segment(string(path.raw() + start, end - start));
     }
 
     /// A decl with no linkage outside its own file: `priv` or `internal` in

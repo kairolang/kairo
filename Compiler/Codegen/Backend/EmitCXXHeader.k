@@ -42,7 +42,8 @@ class EmitCXXHeader {
         self._instances = instances;
     }
 
-    /// The header text, or "" for a TU that has none (the entry TU).
+    /// The header text, or "" for a TU that has none (a pathless one, which
+    /// nothing can import or include by module path: CXXSpell::is_entry_tu).
     fn render(self) -> string {
         var tu = reinterpret_cast::<*TranslationUnit>(self._ctx->tu);
         if (tu == &null) || CXXSpell::is_entry_tu(tu) { return ""; }
