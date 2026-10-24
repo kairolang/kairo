@@ -561,17 +561,466 @@ is what keeps visible bodies cheap -- parsed everywhere, instantiated only
 in the home TU and for the instances Kairo never saw. Explicit
 instantiation DEFINITIONS are emitted after every body, because an
 explicit instantiation only instantiates members defined before it. A `<T impl I>`
-body's call into the bound goes through the interface's witness
-(`I_witness<T>::m(&x, ...)`), emitted by `EmitWitness` from
-ConformanceChecking's table: the primary forwards structurally
-(`requires requires { s->m(); }`), specializations exist only for
-extension and builtin conformances, and the derived concept `I_c<T>` is
-the one Kairo-derived `requires` an emitted template may carry (revising
-invariant 13). ADT special members carry C++ constraints rendered by
+body's call into a bound goes through the interface's WITNESS, and the
+derived concept `I_c<T>` is the one Kairo-derived `requires` an emitted
+template may carry; §7b is the contract for both. ADT special members carry C++ constraints rendered by
 InterfaceEmitter from adt_role/adt_form, and a generic record's derived
 assignment from its assign_form; they are not Kairo constraints and have no
 requires_clause.
-Until EmitWitness lands, a callee owned by an `InterfaceDecl` is an ICE.
+
+## 7b. Witnesses: calls through an interface bound [DECIDED, MISSING]
+
+`Codegen/Emit/EmitWitness.k` (not written). This section supersedes the
+witness paragraph of RESOLUTION.md §2b where the two differ -- every
+conformance a specialization, the witness edge in the home TU only -- and
+the design memo that sits in `Sema/Mono/WitnessTable.k` (prose in a `.k`
+file, no code); the header rule applies, this text is newer. RESOLUTION.md
+§2b keeps what Sema must produce: the conformance table, its rows, and the
+passes that fill them.
+
+### 7b.1 What exists today
+
+- The typer binds a bound call to the REQUIREMENT. In `fn <T impl
+  Scalable> twice(a: T) { a.scale(2) }`, `--print-sema` shows `.scale ->
+  fn scale [member of Scalable]`: the step's `resolved_decl` is the
+  interface's `FunctionDecl`, its `semantic_dc` owner an `InterfaceDecl`.
+  `Self` in the requirement's signature reads back as the receiver
+  (`ArgumentDeduction::through_receiver`, called from overload ranking and
+  `CallTyping::call_result_type`). That decl is the key the witness needs;
+  nothing about binding changes.
+- `LowerTargets::witness_suffix()` (`_witness`) and `concept_suffix()`
+  (`_c`) exist in `AST/LangItems.k` with no reader. See 7b.12, question 1.
+- An interface is no C++ entity anywhere in codegen: EmitPlan drops an
+  `InterfaceDecl` on admission and as a member owner, EmitIR's `emit`
+  skips one, `CXXSpell::_type` ICEs on one ("witnesses are not emitted
+  yet"). `ConstraintSet::impl_constraints` holds every `T impl I` bound.
+- ConformanceChecking is a stub (`Sema/Check/ConformanceChecking.k`), and
+  no conformance is checked at an instantiation site: a `twice(x)` whose
+  `x` has no `scale` type-checks clean, and the only error is clang's.
+- **The ICE this section used to promise does not exist.** `EmitIR::_call`
+  has no branch for a callee owned by an `InterfaceDecl`. A bound method
+  call falls to `self.emit(n->callee)` and reaches clang as the member call
+  `a.scale(2)`, which is right when the conformer has an own member
+  `scale` and is CL001E "no member named 'scale'" when the conformance is
+  an extension member (the 2026-10-24 ticket; repro in
+  `private/IMPORTANT/TICKETS.TXT`). A static requirement, `T::make()`,
+  collapses through `_chain_prefix`'s `::` rule to `::N::Eq::make()`,
+  naming the interface (CL001E "no member named 'Eq' in namespace"), and
+  its local is untyped (I011W): `-> Self` is not read back through a `::`
+  step. An operator requirement on `T` reaches clang as the C++ operator
+  and works only for a member operator. The first piece of the work is
+  that ICE (one arm in `_call`, one in `_chain_prefix`, naming the
+  lowering of 7b.5), so the failure names its owner instead of reaching
+  clang.
+
+### 7b.2 The problem, and why a witness
+
+A generic body is emitted ONCE, as a C++ template (§7), and Kairo's
+conformance is structural and may be supplied by an extension member. An
+extension member is a static member of `N::__kairo_ext_X` (§3, RESOLUTION.md
+§2b), never a C++ member, and no single C++ spelling inside the template
+reaches a different static function per `T`: `a.scale(2)` finds members
+only; an unqualified `scale(&a, 2)` finds nothing at definition and ADL at
+instantiation searches X's namespace, not the scope struct; qualifying it
+hardcodes one conformer. The witness is a class template keyed on the
+conforming type, so C++'s own specialization selection does the per-`T`
+dispatch, and after inlining it costs nothing.
+
+### 7b.3 The C++ shape
+
+One PRIMARY per interface, one CONCEPT per interface, and a SPECIALIZATION
+per conformance whose requirements the primary cannot reach (7b.4). For
+
+    pub interface Scalable { fn scale(const self, factor: i32) -> i32 }
+    pub struct Metric { pub var base: i32 }
+    extend Metric { pub fn scale(const self, factor: i32) -> i32 = self.base * factor }
+    pub fn <T impl Scalable> twice(a: T) -> i32 = a.scale(2)
+
+in module `ring`:
+
+    namespace ring {
+        template <class __kairo_Self> struct Scalable_witness {
+            static signed int scale(const __kairo_Self* self, signed int factor)
+                requires requires { static_cast<signed int (__kairo_Self::*)(signed int) const>(&__kairo_Self::scale); }
+            { return self->scale(static_cast<decltype(factor)&&>(factor)); }
+        };
+        template <class __kairo_Self> concept Scalable_c =
+            requires (const __kairo_Self* s, signed int a0) { ::ring::Scalable_witness<__kairo_Self>::scale(s, a0); };
+        template <> struct Scalable_witness<::ring::Metric> {
+            static signed int scale(const ::ring::Metric* self, signed int factor)
+            { return ::ring::__kairo_ext_Metric::scale(self, static_cast<decltype(factor)&&>(factor)); }
+        };
+        template <class T> requires ::ring::Scalable_c<T> signed int twice(T a);
+    }
+    ...                                                  // bodies
+    namespace ring {
+        template <class T> requires ::ring::Scalable_c<T> inline signed int twice(T a)
+        { return ::ring::Scalable_witness<T>::scale(&a, 2); }
+    }
+
+This text, hand-written, compiles and runs under clang `-std=c++20` (the
+floor `#include "foo.k"` already demands), and with the specialization
+removed `twice(m)` is a constraint failure at the call.
+
+**The primary is structural.** It forwards every requirement to a MEMBER
+of `__kairo_Self`, so an own-method conformer -- a Kairo class, an inherited
+member, an imported C++ class -- needs no specialization, and a C++ host
+that instantiates a Kairo template with its own class (`#include "foo.k"`,
+§1) gets a witness Kairo never saw. Each forwarder is constrained on an
+EXACT match, the member-pointer cast above, not on "callable": the
+specialization a Kairo TU emits must never be replaceable by a primary
+that also compiles. Were the constraint `requires { s->scale(0); }`, a
+Metric with an own `scale(i64)` and an extension `scale(i32)` would bind
+the extension in a TU that sees the specialization and the own member in a
+C++ TU that does not -- the same `twice<Metric>` compiled two ways, which
+[temp.expl.spec]/7 makes ill-formed with no diagnostic. With the exact
+match the primary rejects Metric, so the second TU fails to compile
+instead (a constraint failure at its call, through `Scalable_c`). A
+member-pointer cast admits a base's member (base-to-derived conversion)
+and a `noexcept` one. A GENERIC requirement has no member pointer to cast
+without its arguments; its forwarder carries the callable form, and this
+one corner keeps the hazard (7b.12, question 6).
+
+**Every witness member is declared as the requirement would be as an
+extension member of `__kairo_Self`** -- the signature InterfaceEmitter
+already writes into an extension scope, with X := `__kairo_Self` -- so the
+call site follows ExtensionLowering's existing receiver rules (7b.5)
+verbatim and there is one receiver convention, not two:
+
+    requirement                    witness member                                forwards to (primary / spec)
+    fn m(self, p: P) -> R          static R m(__kairo_Self* self, P p)           self->m(p) / ::N::__kairo_ext_X::m(self, p)
+    fn m(const self, p: P) -> R    static R m(const __kairo_Self* self, P p)     the same, const
+    fn op ==(const self, o: Self)  static bool __kairo_op_eq(const S& s, S o)    s.operator==(o) / __kairo_ext_X::__kairo_op_eq(s, o)
+    fn op in(const self, x: T)     static bool __kairo_contains(const S& s, T x) s.__kairo_contains(x) / the scope's
+    fn op ++ (self), postfix      static R __kairo_op_postinc(S& s, int)        the postfix dummy forwarded as is
+    static fn make() -> Self       static __kairo_Self make()                    __kairo_Self::make() / __kairo_ext_X::make()
+    fn <U> m(self, u: U)           template <class U> static void m(S* self, U u) self->template m<U>(u) / __kairo_ext_X::m<U>(self, u)
+    fn I(self, ...)  (constructor) none                                           -- see below
+    type Node        (associated)  using Node = ...;                              -- see below
+
+(`S` is `__kairo_Self`, shortened to fit.) The receiver is `self` or
+`const self` and nothing else ("the receiver is
+never marked", functions-parameter-modes.md), so `[const ]Self*` and, for
+an operator, `[const ]Self&` (`CXXSpell::ext_receiver`) are the whole list;
+there is no `@inout` or by-value receiver to spell. An operator's member is
+named by `LowerTargets::ext_op` (a static member cannot be `operator==`),
+or by its LowerTargets name for `in`, `^^`, `await`, `spawn`, `thread`:
+the name `CXXSpell::operator_name` gives an extension member. Parameters
+are spelled by `param_decl` and returns by `return_spelling`, each with
+`Self` replaced by `__kairo_Self` -- so the DECIDED `const T&` rule for
+by-value records, when it lands, lands in the witness too -- and every
+argument is forwarded as `static_cast<decltype(p)&&>(p)`, as the operator
+forwarders do (§5). A by-value parameter therefore costs one extra move
+before inlining, and is never copied.
+
+**Constructors never go through the witness.** An extension cannot add a
+constructor to any type (extends.md, "What Extends Can Add"), so every
+constructor requirement is met by an own constructor and `T(args)` / `T{}`
+is already the right C++ for every conformer; lifecycle requirements
+(`@copy` / `@move` constructors) are C++'s implicit special members. The
+concept still lists them (`requires { __kairo_Self(a0); }`), so a host's
+non-conforming class fails at the call. Whether a PRIMITIVE satisfies a
+constructor requirement is open (question 7).
+
+**Associated types are not compiled yet** (interfaces.md, Status), and
+their witness shape is reserved, not built: a member alias, `using Node =
+typename __kairo_Self::Node;` in the primary and the conformer's alias in a
+specialization, with `T::Node` in a bounded body spelled `typename
+::N::I_witness<T>::Node`, so an extension or builtin conformer can supply
+one. Until then a `T::Node` reaching codegen ICEs naming the feature.
+
+**Specializations** are full (`template <>`) for a non-generic conformance
+and PARTIAL for a generic one: `extend <T> Pair<T> impl Container<T>` is
+`template <class T> struct Container_witness<::m::Pair<T>, T> { ... }`, its
+head `CXXSpell::template_params` of the extension, and a generic extension
+member is called with its arguments spelled, never deduced (§6, `_call`).
+A specialization forwards each requirement to the decl its row names
+(7b.4), which may be an own member too: one non-structural requirement
+makes the whole (X, I) a specialization. Its members are defined IN the
+class: they have no Kairo body to put out of line and are a pure function
+of the row, which is invariant 12's exception for synthesized members (like
+the derived `op =`). In-class means inline, so the text may appear in every
+TU, and nothing is ever homed or explicitly instantiated for a witness.
+
+**Generic interfaces** key on `<__kairo_Self, IfaceArgs...>`, the
+interface's own `template_params` after `__kairo_Self`: `impl
+Container<i32>` and `impl Container<string>` on one type are two
+specializations. That is why an interface bound must name every interface
+argument (RESOLUTION.md §2b, DECIDED): the call site has to spell them.
+
+### 7b.4 When a conformance needs a specialization
+
+ConformanceChecking's table (RESOLUTION.md §2b) gives, per conformance row
+`(X, I<A...>)`, the decl that implements each of I's OWN requirements.
+EmitWitness decides per row, from spellings, never by lookup:
+
+- the PRIMARY serves the row iff every requirement's decl is a member
+  function of X (own or inherited; Kairo or imported C++; static for a
+  static requirement) whose C++ signature, through CXXSpell, is the
+  witness member's forwarded-to signature exactly;
+- otherwise the row gets a SPECIALIZATION. In practice: any requirement
+  met by an extension member (plain `extend X` or `extend X impl I`, the
+  ticket's case), every conformance of a BUILTIN (`i32`, `bool`: no
+  members at all; spelled by `CXXSpell::_type`, so `i32` is `signed int`
+  and `isize` the `decltype` form), and an imported C++ member whose C++
+  type is not the requirement's even though Kairo's signature match
+  accepted it (7b.12, question 5, covers free functions).
+
+Explicit (`impl`) and structural conformance decide nothing here; the
+implementing decls do. The two differ in WHEN the row exists (7b.6).
+
+### 7b.5 The call site
+
+Rule 3 applies: the receiver's form is a lowering's decision, and
+ExtensionLowering already owns the table of them -- address of an
+addressable receiver, `__kairo_tmp` for a prvalue, the pointer as is, the
+object for an operator. A call whose callee is a requirement (its
+`semantic_dc` owner is an `InterfaceDecl`, the test `call_result_type`
+already makes) is rewritten there into a plain call, receiver first,
+exactly as an extension member's is, and the call records its WITNESS: the
+canonical interface instance the requirement belongs to (the DECLARING
+interface, with its arguments as seen through the bound and any `derives`
+edge) and the Self type (the receiver's canonical, a dependent `T`). A
+static requirement through `T::make()` takes no receiver; its Self is the
+qualifier. An operator on a `T` operand is first turned into a call by
+OperatorLowering (observed today: `a == b` on a bounded `T` compiles and
+links against an own-member operator, so it reaches C++ as an operator),
+then takes the same arm. A generic requirement's own
+arguments are `CallExpr::instance`'s, as for any generic callee. That this
+lands in ExtensionLowering rather than a sibling pass is an implementation
+choice (question 9); one pass owning both receiver tables is the reason.
+
+EmitIR then grows one arm in `_call`, ahead of the qualifier arm: a callee
+owned by an `InterfaceDecl` is spelled
+`::N::I_witness<Self, A...>::[template ]leaf(` (the `template` keyword
+whenever the member is generic: the witness is a dependent type, the
+RESOLUTION.md item r case) and the arguments follow as an unbound call's
+do, `self` included, each compared and cast against the requirement's
+parameter with `Self` replaced by the witness's Self (`through_receiver`'s
+substitution). Spelled forms:
+
+    a.scale(2)        ::ring::Scalable_witness<T>::scale(&a, 2)
+    p->scale(2)       ::ring::Scalable_witness<T>::scale(p, 2)
+    make().scale(2)   ::ring::Scalable_witness<T>::scale(::__kairo_tmp(make()), 2)
+    a == b            ::m::Eq_witness<T>::__kairo_op_eq(a, b)
+    T::make()         ::m::Eq_witness<T>::make()
+    s.push<U>(u)      ::m::Sink_witness<T>::template push<U>(&s, u)
+    c.get(0)          ::m::Container_witness<T, U>::get(&c, 0)        T impl Container<U>
+
+A requirement callee that reaches EmitIR WITHOUT a recorded witness, or as
+a `::` / member step, ICEs naming ExtensionLowering. Non-generic code never
+reaches a witness: a call on a concrete receiver is bound to the
+implementing decl, not to the requirement, and stays the qualified call
+§6 spells. A `: type` body has no interface to key a witness on and never
+uses one (RESOLUTION.md §2b, the `: type` rule). A call through a pointer
+to a VIRTUAL interface (`*Allocator`) is runtime dispatch, a different
+table (interfaces.md, Virtual Interfaces), not compiled, and stays an ICE.
+
+### 7b.6 Where each piece is emitted
+
+All three are tier-1 plan entries, definitions, emitted inside the
+INTERFACE's namespace wrapper (an explicit or partial specialization is
+declared in the primary's namespace; for a pathless TU's priv interface
+that is the unnamed namespace, and only that TU can reach it).
+
+- **Primary and concept**, keyed on the `InterfaceDecl`: a tier-0 forward
+  declaration `template <class __kairo_Self, ...> struct I_witness;`, then
+  the primary and the concept in tier 1, after the Complete deps of their
+  signatures (a forwarder is an inline definition: by-value records at
+  Complete, as for an operator forwarder, §3). Admitted at Complete by
+  every generic decl the plan DECLARES whose constraint set bounds by I --
+  the concept is in its template head, so a tier-2 declaration needs it,
+  not only a body -- by every specialization of I, by the concept of every
+  interface deriving I (`Stream_c` conjoins `Readable_c`), and in Header
+  and Include modes by every pub interface root. The text is a pure
+  function of the interface, the same in every TU and header (invariant
+  11's reason).
+- **A specialization**, keyed on its ROW, at Complete after the primary,
+  X at Complete, every extension scope it forwards to at Complete (a call
+  into a static member needs the class), and its signatures' deps. It is
+  admitted in EVERY TU whose plan holds an instance that binds the row --
+  a tier-3 entry, home or `extern template`, or an instance reached by a
+  visible body -- closed over the instances that instance's body reaches
+  (M1's transitive registry). Not the home TU alone, as RESOLUTION.md had
+  it: visible template bodies are emitted C++ `inline` (§7), an explicit
+  instantiation declaration does not suppress the implicit instantiation
+  of an inline function, so any TU that calls `twice<Metric>` may compile
+  it; a TU that does so without the specialization in sight compiles the
+  primary instead, ill-formed NDR ([temp.expl.spec]/7); and the
+  `extern template` line itself checks `Scalable_c<Metric>`. The row is
+  also admitted, for DECLARED rows only (`class X impl I`, `extend X impl
+  I`), in every TU whose plan holds both X at Complete and I's primary: a
+  C++ host instantiates Kairo templates with types Kairo never paired, and
+  a declared conformance is enumerable where a structural one is not. A
+  STRUCTURAL row met by extension members reaches only the TUs that hold a
+  Kairo instance needing it; a C++ host instantiating with that type
+  itself fails `I_c` at its call, never compiles a different witness
+  (question 2).
+- **Dedupe and ODR.** One entry per (InterfaceDecl) and per row in a plan;
+  `IncludedDecls` keys them by the same identity, so a second `#include
+  "foo.k"` in one C++ TU drops the witnesses an earlier one wrote. Across
+  TUs the text is a function of the interface and the row alone -- each
+  specialization written COMPLETELY, every requirement, whatever use
+  touched it, as an extension scope is (§3) -- so every TU and header that
+  writes one writes the same class, and C++ allows a class definition in
+  every TU that writes the same tokens.
+- **Header mode** emits the witnesses its roots and bodies reach, exactly
+  as a preamble does; the primary and declared specializations are part of
+  a module's C++ interface from then on. **Include mode** adds no rule: it
+  is a Header's roots emitted as a Preamble is.
+
+### 7b.7 The concept, and invariant 13
+
+Every emitted generic decl with interface bounds carries `requires
+::N::I_c<P, A...> && ...` in its template head, one conjunct per `P impl
+I<A...>`, in bound order. It is spelled by `CXXSpell::template_head`, the
+one speller, so the declaration, the body, the `extern template` line and
+the explicit instantiation definition carry the same clause: two
+declarations of one function template must have equivalent template heads
+([temp.over.link]), and clang mangles the constraint into the symbol
+(`_ZN4ring5twiceINS_6MetricEQgssr4ringE10Scalable_cIT_EEEiS2_`, checked by
+hand), so a difference is a link failure, not a diagnostic -- and adding or
+removing a bound changes a generic's C++ ABI. `derives`, kind
+bounds, value predicates and `where` are NOT rendered: Kairo checks them at
+the instantiation site and WhereDispatchLowering reduces them (IMPORTS.md
+§7), as before.
+
+The concept is `I_c<S, A...> = (base interfaces' concepts) && requires
+(<one parameter per requirement argument, typed as the witness member
+takes it>) { <a call of each witness member>; <each constructor
+requirement>; }`. For an instance Kairo enumerated it is always true --
+ConformanceChecking proved the row -- so in a Kairo TU it can only fail on
+a compiler bug, and then as clang's constraint failure at the call rather
+than an error deep in the witness. Its job is the instantiations invariant
+13 cannot enumerate: a C++ host's, and clang's own (§7's visible-bodies
+reason). Generic requirements are left out of the concept (no argument to
+call them with; question 6).
+
+Invariant 13 (IMPORTS.md §3) needs one sentence revised, which this change
+does not make: "Emitted templates carry no `requires`" becomes "emitted
+templates carry no `requires` except the interface concepts EmitWitness
+derives (CODEGEN.md §7b), one conjunct per interface bound, true for every
+instance Kairo enumerated". Its title, "clang never instantiates", is
+already qualified by §7 (clang instantiates what Kairo never names) and
+should say "Kairo enumerates every instance it can see".
+
+### 7b.8 Monomorphization and explicit instantiation
+
+Witnesses add no registry entry and no tier-3 line: the members are inline,
+the primary is instantiated implicitly per Self wherever a body uses it,
+and a specialization is complete on its own. The registry feeds them
+instead: the instance -> rows map M2 writes (RESOLUTION.md §2b) is the
+whole input of the specialization edge. A generic REQUIREMENT called with
+arguments registers a CallExpr instance whose primary is the requirement
+(CallTyping registers every generic callee); it names no C++ function, and
+EmitPlan must never write a tier-3 line for it (today's guard is the
+`InterfaceDecl` owner check at admission; keep it when interfaces become
+plan entries). A generic RECORD with a bound (`class <T impl I> Box`) and a
+bounded generic extension are instances like any other: `Box<Metric>` in a
+plan admits the rows its bounds bind, and the witness reference is spelled
+inside the class template's member bodies.
+
+### 7b.9 Interfaces, case by case
+
+- **`derives`.** A witness belongs to the interface that DECLARES the
+  requirement. A call bound to `Readable::read` through `T impl Stream` is
+  `Readable_witness<T>::read`; `impl Stream` therefore yields a row for
+  Stream, Readable and Seekable each, and the interface instance's
+  arguments come through the derives edge's substitution.
+- **Multiple bounds.** Each call is bound to one requirement and goes
+  through that requirement's interface. Two bounds both declaring `m` is
+  the typer's ambiguity (RESOLUTION.md §2b, "collide at the use"), never
+  codegen's.
+- **Default methods** do not exist (interfaces.md, "No Default
+  Implementations"); there is no default-body forwarder to emit.
+  MemberLookup's "default bodies join the set" comment predates that rule.
+- **Bounds on an interface's own parameters** (`interface <T impl
+  Comparable> Registry`) are Kairo-checked at the bound's use and are not
+  rendered into `Registry_c` (question 6).
+
+### 7b.10 Diagnostics
+
+User errors are Sema's, never codegen's: an instantiation whose argument
+does not conform (ConformanceChecking at the instantiation site; no code
+exists for it yet, so it is the `SC001` placeholder until one is minted),
+a conformance whose implementing decls are outside the instantiating TU's
+import set (the extension-visibility rule), an unparameterized bound on a
+generic interface, and an extension member reached from a `: type` body
+(M2's re-check). Codegen keeps ICEs, each naming its owner: a requirement
+callee with no recorded witness (ExtensionLowering); an instance whose
+bound binds no table row (ConformanceChecking / M2); a row with no decl for
+some requirement (ConformanceChecking); `T::Node` (associated types); a
+virtual-interface call.
+
+### 7b.11 Tests
+
+`Tests/Codegen/witness/`, each a `--print-cxx` golden plus a link whose
+exit code is computed, as §9's lowering tests are:
+- `extension.k`: the ticket's repro (exit 6); the golden shows the full
+  specialization and the witness call.
+- `own_member.k`: the same with a member `scale`; the golden shows NO
+  specialization. `inherited.k`: the member on a base.
+- `builtin.k`: `extend i32 impl Scalable`.
+- `operator.k`: an own and an extension `op ==`, a postfix `op ++`, `op in`; const
+  and non-const; a prvalue operand.
+- `static.k`: `T::make()` with `-> Self` (today's I011W case).
+- `generic_iface.k`: `impl Container<i32>` and `impl Container<string>` on
+  one type; `generic_conformance.k`: `extend <T> Pair<T> impl
+  Container<T>` (a partial specialization).
+- `generic_requirement.k`: `fn <U> push(self, u: U)` through a bound.
+- `derives.k`: a call bound to a base interface's requirement.
+- `generic_record.k`: `class <T impl I> Box`; `nested.k`: `f<T>` calling
+  `g<T>`, rows reached transitively.
+- `diamond/`: interface, type, extension and two instantiating TUs in
+  separate modules, both instantiating `twice<Metric>`; one `.o` per
+  module, `clang++ -Wodr` link; `nm` shows the constrained template's
+  symbol is the same in the declaring and the home object.
+- `include/`: a kcc host instantiating with a declared conformer (links),
+  with its own C++ class (the primary; links), and with a structural
+  extension conformer (expected clang constraint failure, checked as one).
+- `header/`: `--emit-headers` golden carrying the primary, concept and
+  declared specializations.
+- `Tests/Sema/Check/conformance_at_instantiation.k`: the non-conforming
+  call is a Sema error; XFAIL, naming ConformanceChecking, until it lands.
+
+### 7b.12 Open questions
+
+1. **Reserved names.** `LowerTargets::witness_suffix` / `concept_suffix`
+   give `Scalable_witness` / `Scalable_c`, which a user can also declare
+   in the same namespace; CxxNameCheck reserves only the `__kairo_`
+   prefix (invariant 9b). Rename to `__kairo_witness_<I>` /
+   `__kairo_concept_<I>` (and add `__kairo_Self`), or keep the readable
+   names and have CxxNameCheck reject the suffixed forms?
+2. **Structural conformance through extension members.** Spec/Docs makes
+   conformance structural and decided at the point of use, and the ticket's
+   repro relies on a plain `extend Metric { fn scale }` satisfying
+   `Scalable` with no `impl`. Such a row cannot reach a C++ host that
+   instantiates on its own (7b.6). Is "a C++ host needs `impl`" the
+   intended rule, or should structural extension rows be rejected, or
+   enumerated (a per-TU search over interfaces x extension scopes)?
+3. **Two Kairo builtins, one C++ type.** On x86_64-linux `i64` and
+   `isize` both spell `long` (`signed long`, and `ptrdiff_t`'s `decltype`
+   form), as do `u64` and `usize`. Conformances of both to one interface
+   are two explicit specializations of one class (a clang redefinition),
+   and `twice<i64>` / `twice<isize>` are one C++ instantiation. Reject the
+   pair in Sema, or require them to forward to one decl?
+4. **Overlapping conformances.** `extend <T> Vec<T> impl I` beside `extend
+   Vec<i32> impl I`: allowed? If so, M2's partial selection must agree
+   with C++ partial ordering of the two specializations.
+5. **Free functions as witnesses.** May a free (C++ or ADL-found Kairo)
+   operator or function satisfy a requirement? If so, its row is a
+   specialization forwarding to it qualified.
+6. **What `I_c` checks.** Generic requirements, bounds on the interface's
+   own parameters, and associated types are out of it today. Include any?
+7. **Primitives and constructor requirements.** Does `i32` satisfy
+   `interface Defaultable { fn Defaultable(self) }` (C++ `int()` would
+   compile)?
+8. **Conditional conformance.** Is `extend <T impl Comparable> Pair<T>
+   impl Sorted`'s partial specialization constrained with `requires
+   Comparable_c<T>`, so a host's `Pair<NotComparable>` fails at the call,
+   or left unconstrained?
+9. **Which pass routes the call.** ExtensionLowering (recommended above,
+   one pass for both receiver tables) or a WitnessLowering beside it.
 
 ## 8. Diagnostics
 
@@ -603,7 +1052,7 @@ offsets.
 ## 10. Open
 
 Piece 1 (root naming by `module X;` declaration; `-I` becomes C++-only);
-`const T&` for by-value records; witnesses/concepts; per-TU header reuse
+`const T&` for by-value records; witnesses/concepts (§7b); per-TU header reuse
 across FrontendActions; namespace merging in EmitIR (cosmetic);
 `ReturnStmt` keyword token; `TextSink` binary spacing outside parens.
 

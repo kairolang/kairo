@@ -1177,29 +1177,66 @@ builtin type's representation is public API.
 MISSING]. A generic body emits ONCE as a C++ template. Inside
 `fn <T impl VectorI> f(x: T) { x.push(1) }` no single C++ spelling reaches
 a different free function per `T` (ADL searches the type's namespace, not
-the extension's). So every interface gets a witness template, every
-conformance a specialization, and bound-member calls go through it:
+the extension's), so a bound call goes through the interface's witness
+class template, `VectorI_witness<T, ...>::push(&x, 1)`. The C++ shape,
+where each piece is emitted, the call-site spelling and the concept are
+CODEGEN.md §7b, which supersedes this paragraph's earlier text (every
+conformance a specialization; the witness in the home TU only). What stays
+here is what Sema must produce for it.
 
-    template <class Self, class... IfaceArgs> struct VectorI_witness;   // interface's TU
-    template <class T> struct VectorI_witness<builtins::Vector<T>, T> {  // conformance's TU
-        static void push(builtins::Vector<T>* self, T x) { std::Vec::push(self, x); }
-    };
-    template <class T> void f(T x) { VectorI_witness<T, ...>::push(&x, 1); }
-
-Uniform for own-method and extension conformances (the former forwards
-to `self->m(...)`); covers methods, operators, constructors, statics.
 Keyed on `(Self, interface args)`, so `impl VectorI<i32>` and
 `impl VectorI<string>` on one type coexist -- and therefore an interface
 bound MUST name every interface argument (`T impl VectorI<U>`); an
 unparameterized bound on a generic interface is an error, never inferred.
-Non-generic code never touches a witness. Homes: ConformanceChecking
-builds the table `(type, interface instance) -> requirement -> witness
-decl`; `Codegen/Emit/EmitWitness.k` emits primary + specializations;
-EmitPlan adds the edge instance -> witnesses Complete in the instance's
-HOME TU (§7: one instantiation site); EmitIR routes a call whose callee
-bound to an interface requirement (`semantic_dc` owner is an
-`InterfaceDecl`) through the witness. A conformance must be in the
-instantiating TU's import set (same rule as extension visibility).
+Non-generic code never touches a witness. The typer already binds a bound
+call to the REQUIREMENT decl (`semantic_dc` owner an `InterfaceDecl`), and
+that is the key; binding does not change.
+
+**The conformance table** [MISSING; `Sema/Mono/WitnessTable.k` holds only a
+design memo]. One per build, beside the InstantiationRegistry and for the
+same reason: a row found while checking TU A is needed by every TU that
+holds the same instance, so it is shared, mutex-guarded, own arena. A ROW
+is
+
+    conformer   the RecordType::decl pattern (a generic record's primary)
+                or the builtin's canonical (`i32`), with the extension's
+                generic params when the conformance is generic
+                (`extend <T> Pair<T> impl Container<T>`: conformer
+                `Pair<T>`, interface `Container<T>`)
+    interface   the canonical interface instance, one row per interface
+                in the derives closure (`impl Stream` is three rows)
+    origin      DECLARED (`class X impl I`, `extend X impl I`: the decl)
+                or STRUCTURAL (found at a use)
+    witnesses   each of the interface's OWN requirements -> the decl that
+                implements it: an own or inherited member, an extension
+                member, or an imported C++ member
+
+keyed `(conformer, interface)`. Two rows for one key are an error at the
+second one's use (open: overlapping generic conformances, CODEGEN.md §7b.12
+question 4). Codegen reads the decls and decides from spellings whether a
+row needs a specialization; Sema records no codegen fact.
+
+Who fills it:
+- **ConformanceChecking** (C stage, after ExprTyper; item i) builds every
+  DECLARED row at its declaration (interfaces.md: checked "at declaration
+  time"), matching signatures as it goes, and enforces the impl-only
+  rule. It also owns `conforms(X, I)`: the declared row, else a
+  STRUCTURAL row built by the same match and memoized in the table.
+- **At the instantiation site.** Wherever a generic's bound meets a
+  concrete argument -- CallTyping registering a call's instance, a
+  `Box<Metric>` named by T, and M2 substituting into a body's dependent
+  instances -- the bound is checked with `conforms` and the row recorded
+  on the instance: `InstanceEntry::rows`, one per `P impl I` bound, in
+  bound order. A missing row is the user's error there (SC001E
+  placeholder until a code is minted). The direct cases are reachable
+  before M2 exists; the transitive ones (`f<T>` calling `g<T>`) are M2's
+  "dependent conformance".
+- **Visibility.** A row is usable in a TU iff its implementing decls are in
+  that TU's transitive import set (the extension-visibility rule).
+
+EmitPlan reads `InstanceEntry::rows` for the specialization edge; EmitIR
+reads the witness ExtensionLowering records on the call (CODEGEN.md
+§7b.5).
 
 **The `: type` rule** [DECIDED]. Duck typing is C++ duck typing: a `: type`
 body sees own members only. Extension members are unreachable under
@@ -1351,5 +1388,6 @@ Mono / codegen:
     p. M2: fill + partial selection + dependent conformance +
        `: type` re-check (`ExprTyper::retype_instance`)
     q. EmitWitness + EmitPlan witness edge + EmitIR witness calls
+       (CODEGEN.md §7b; first the ICE for an unrouted requirement callee)
     r. EmitIR: `typename` / `.template` on Dependent segments/steps;
        generic emission; the fwd-decl emitter (IMPORTS.md items 12, 14)
