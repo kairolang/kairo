@@ -97,7 +97,7 @@ class IncludedDecls {
     fn admit(self, plan: *EmitPlan, e: *PlanEntry) -> bool {
         if e->witness != &null {
             // One primary or specialization per key, whichever include wrote it.
-            var k = ("wdef ") if (e->tier == PlanTier::Definitions) else ("wfwd ");
+            var k = ("wdef ") if (e->tier == PlanTier::Definitions) else ((("wcon ") if (e->is_concept) else ("wfwd ")));
             k += e->witness->key;
             for var i: usize = 0; i < self._scopes.size(); ++i { if self._scopes[i] == k { return false; } }
             self._scopes.push_back(k);

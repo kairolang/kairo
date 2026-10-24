@@ -28,11 +28,11 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/static.k
+// CXX: concept Makeable_c = requires(const __kairo_Self * __kairo_r1) {
+// CXX-NEXT: Makeable_witness<__kairo_Self>::make();
 // CXX: static __kairo_Self make() requires requires {
 // CXX-NEXT: static_cast<__kairo_Self(*)()>(& __kairo_Self::make);
 // CXX: return __kairo_Self::make();
-// CXX: concept Makeable_c = requires(const __kairo_Self * __kairo_r1) {
-// CXX-NEXT: Makeable_witness<__kairo_Self>::make();
 // CXX: template<> struct Makeable_witness<{{ ?}}::{{.*}}::Seven> {
 // CXX-NEXT: static{{ ?}}::{{.*}}::Seven make() {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Seven::make();

@@ -15,11 +15,16 @@ fn main() -> i32 {
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d --emit-headers=%t.h
 // RUN: %t.exe; test $? -eq 6
 // RUN: cat %t.h/iface.hh | %FileCheck %s --check-prefix=HDR
+// The concept is tier 0 (ahead of every head that names it) and the
+// primary tier 1, each a definition under its own guard.
 // HDR: template<class __kairo_Self> struct Scalable_witness;
+// HDR: #ifndef __KAIRO_WC_{{.*}}Scalable_witness
+// HDR-NEXT: #define __KAIRO_WC_{{.*}}Scalable_witness
+// HDR: concept Scalable_c =
+// HDR: #endif
 // HDR: #ifndef __KAIRO_W_{{.*}}Scalable_witness
 // HDR-NEXT: #define __KAIRO_W_{{.*}}Scalable_witness
 // HDR: struct Scalable_witness {
-// HDR: concept Scalable_c =
 // HDR: #endif
 // HDR: requires{{ ?}}::{{.*}}::Scalable_c<T> signed int twice(T a);
 // RUN: %clangxx -std=c++23 -fsyntax-only -I%t.h %S/host.cc

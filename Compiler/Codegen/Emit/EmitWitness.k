@@ -157,11 +157,17 @@ class EmitWitness {
         self._cg->sink->spell(self._at(p), self._head(p->iface) + " struct " + self._leaf_witness(p->iface) + ";");
     }
 
-    /// Tier 1: the primary and the concept, or a row's specialization.
+    /// Tier 1: the primary, or a row's specialization.
     fn def(self, p: *WitnessPiece) {
-        if p->row == &null { self._primary(p); self._concept(p); return; }
+        if p->row == &null { self._primary(p); return; }
         self._specialization(p);
     }
+
+    /// Tier 0: the concept. Ahead of every head that names it -- a bounded
+    /// record's forward declaration included -- and of the primary's
+    /// definition: it names only the declared witness, and its
+    /// requires-parameters need their types declared, not complete.
+    fn concept_def(self, p: *WitnessPiece) { self._concept(p); }
 
     priv fn _primary(self, p: *WitnessPiece) {
         var idecl = cast::<InterfaceDecl>(p->iface);

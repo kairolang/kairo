@@ -345,6 +345,9 @@ class LowerTargets {
     /// header that reaches one writes it, as a tuple record's. \p key is the
     /// witness and its Self, already an identifier (CXXSpell::_path_ident).
     static fn witness_guard(key: string) -> string { return "__KAIRO_W_" + key; }
+    /// The guard around an interface's concept in a header (tier 0, apart
+    /// from the primary's tier-1 definition, so a guard of its own).
+    static fn concept_guard(key: string) -> string { return "__KAIRO_WC_" + key; }
 
     // --- Array prvalues (writer: InterfaceEmitter; reader: EmitIR) --------------------
 

@@ -152,6 +152,9 @@ class PlanEntry {
     /// Tiers 0 and 1: the witness piece this entry declares or defines
     /// (CODEGEN.md §7b.6), or null. `decl` is then its InterfaceDecl.
     pub var witness: *WitnessPiece  = &null;
+    /// Tier 0 only, with `witness` a primary: this entry defines its
+    /// concept, not its forward declaration.
+    pub var is_concept: bool        = false;
 
     fn PlanEntry(self) { }
 }
@@ -227,7 +230,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _scope_add_dep(self, k: usize, d: *Decl);
     fn _witness_primary(self, iface: *Decl) -> usize;
     fn _witness_row(self, row: *ConformanceRow);
-    fn _witness_bounds(self, f: *FunctionDecl);
+    fn _witness_bounds(self, f: *Decl);
     fn _witness_sig(self, k: usize, f: *FunctionDecl);
     fn _witness_dep(self, k: usize, t: *Type);
     fn _witness_scope(self, k: usize, x: *ExtensionDecl);
@@ -805,11 +808,13 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
 /// The primaries of every interface \p f's bounds name: its template head
 /// carries their concepts (CXXSpell::requires_clause), so its declaration
 /// needs them, not only its body.
-fn EmitPlan::_witness_bounds(f: *FunctionDecl) {
-    if (f == &null) || (f->requires_clause == &null) { return; }
-    if self._spell.requires_clause(static_cast::<*Decl>(f)).size() == 0 { return; }
+fn EmitPlan::_witness_bounds(f: *Decl) {
+    if f == &null { return; }
+    if self._spell.requires_clause(f).size() == 0 { return; }
     var cs = vec::<*ConstraintExpr>();
-    CXXSpell::impl_bounds(f->requires_clause, &cs);
+    var x = decl_extension_of(f);
+    if x != &null { CXXSpell::impl_bounds(decl_requires_clause(static_cast::<*Decl>(x)), &cs); }
+    CXXSpell::impl_bounds(decl_requires_clause(f), &cs);
     for var i: usize = 0; i < cs.size(); ++i {
         var c = cs[i];
         if (c->rhs == &null) || (c->rhs->canonical == &null) || (!isa::<RecordType>(canon_unqual(c->rhs->canonical))) { continue; }
@@ -1287,13 +1292,16 @@ fn EmitPlan::_expand(d: *Decl, need: PlanNeed) {
     // `extern T x;` only names T; the defining TU's own walk (visit_decl)
     // asks for Complete where the definition lays it out.
     if isa::<VariableDecl>(d) { self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Fwd); return; }
+    // A bounded record's head carries its concepts, and even its tier-0
+    // forward declaration is a head: at any strength.
+    self._witness_bounds(d);
     if need != PlanNeed::Complete { return; }
     self._expand_type(d);
 }
 
 /// A declaration names its types, it does not lay them out.
 fn EmitPlan::_expand_fn(n: *FunctionDecl) {
-    self._witness_bounds(n);
+    self._witness_bounds(static_cast::<*Decl>(n));
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
@@ -1409,6 +1417,7 @@ fn EmitPlan::_methods(methods: *FrozenList::<*FunctionDecl>) {
 /// method returning a type that returns this one is two definitions in
 /// either order, not a tier-1 cycle.
 fn EmitPlan::_expand_member_sig(n: *FunctionDecl) {
+    self._witness_bounds(static_cast::<*Decl>(n));   // a bounded member template's head.
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
@@ -1634,7 +1643,29 @@ fn EmitPlan::_order() {
         t0.push_back(e);
     }
     self._sort(&t0);
-    for var i: usize = 0; i < t0.size(); ++i { self.entries.push_back(t0[i]); }
+    // Three runs: every forward declaration whose head names no concept,
+    // then the concepts (a requires-parameter needs its type declared, not
+    // complete; a base's concept first), then the bounded records' forward
+    // declarations, whose heads name them (CODEGEN.md §7b.7).
+    var bounded = vec::<PlanEntry>();
+    for var i: usize = 0; i < t0.size(); ++i {
+        var e = &(t0[i]);
+        if (e->witness == &null) && (e->scope == &null) && (self._spell.requires_clause(e->decl).size() > 0) { bounded.push_back(t0[i]); continue; }
+        self.entries.push_back(t0[i]);
+    }
+    var cs = vec::<PlanEntry>();
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if self._witnesses[i].row != &null { continue; }
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls);
+        e.witness = &(self._witnesses[i]);
+        e.is_concept = true;
+        e.own     = true;
+        cs.push_back(e);
+    }
+    self._sort(&cs);
+    self._toposort(&cs);
+    for var i: usize = 0; i < cs.size(); ++i { self.entries.push_back(cs[i]); }
+    for var i: usize = 0; i < bounded.size(); ++i { self.entries.push_back(bounded[i]); }
 
     // Tier 1: definitions, toposorted on Complete edges.
     var t1: vec::<PlanEntry>;

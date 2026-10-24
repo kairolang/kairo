@@ -213,6 +213,13 @@ class InterfaceEmitter {
                 if header && (!f->own) && (f->need == PlanNeed::Complete) { i += 1; continue; }   // included.
                 if f->scope != &null {
                     self._cg->sink->spell(self._at(f->decl), "struct " + f->scope->name + ";");
+                } else if (f->witness != &null) && f->is_concept {
+                    // Guarded in a header, as the primary is: a definition.
+                    var g = LowerTargets::concept_guard(CXXSpell::_path_ident(f->witness->key));
+                    if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
+                    if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
+                    EmitWitness(self._cg, self._spell).concept_def(f->witness);
+                    if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
                 } else if f->witness != &null {
                     EmitWitness(self._cg, self._spell).fwd(f->witness);
                 } else {

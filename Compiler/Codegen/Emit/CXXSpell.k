@@ -915,26 +915,31 @@ class CXXSpell {
     }
 
     /// ` requires ::ns::I_c<T> && ...` for \p d's interface bounds, one
-    /// conjunct per `P impl I<A...>` in clause order, or "". Rendered on a
-    /// namespace-scope generic FUNCTION only: a record's head is also its
-    /// tier-0 forward declaration, ahead of every concept (CODEGEN.md §7b.7
-    /// asks for records too; not built). Every declaration of the function
-    /// -- tier 2 and the body -- comes through here, so the heads agree, as
-    /// [temp.over.link] and the mangled constraint need.
+    /// conjunct per `P impl I<A...>` in clause order, or "". Only bounds on
+    /// \p d's OWN template parameters (template_params: an extension
+    /// member's extension's, then its own), read off \p d's clause and, for
+    /// an extension member, its extension's: a class's bound is the class
+    /// head's, never repeated on a member that adds no parameter. Every
+    /// declaration of the entity -- forward declaration, definition, an
+    /// out-of-line member's owner head -- comes through template_head, so
+    /// the heads agree, as [temp.over.link] and the mangled constraint need.
+    /// Concepts are tier 0 (EmitPlan), ahead of every head that names one.
     fn requires_clause(self, d: *Decl) -> string {
-        var f = dyn_cast::<FunctionDecl>(d);
-        if (f == &null) || (f->requires_clause == &null) { return ""; }
-        if f->is_method() || (decl_extension_of(d) != &null) { return ""; }
-        var home = reinterpret_cast::<*DeclContext>(f->semantic_dc);
-        if (home != &null) && home->is_type_scope() { return ""; }
+        var tps = CXXSpell::template_params(d);
+        if tps.size() == 0 { return ""; }
         var cs = vec::<*ConstraintExpr>();
-        CXXSpell::impl_bounds(f->requires_clause, &cs);
+        var x = decl_extension_of(d);
+        if x != &null { CXXSpell::impl_bounds(decl_requires_clause(static_cast::<*Decl>(x)), &cs); }
+        CXXSpell::impl_bounds(decl_requires_clause(d), &cs);
         var s = "";
         for var i: usize = 0; i < cs.size(); ++i {
             var c = cs[i];
             if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
             var gp = CXXSpell::_bound_param(c);
             if gp == &null { continue; }
+            var mine = false;
+            for var k: usize = 0; k < tps.size(); ++k { if tps[k] == gp { mine = true; break; } }
+            if !mine { continue; }
             var rhs = canon_unqual(c->rhs->canonical);
             if !isa::<RecordType>(rhs) { continue; }
             var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
