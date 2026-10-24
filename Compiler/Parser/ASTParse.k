@@ -452,8 +452,10 @@ class ASTParse
     ///
     /// \details Recorded, not acted on: what the pin MEANS is the resolver's
     ///          (ImportProbe reads module.k's first declaration itself, without
-    ///          a parse). Only the first pin of a file is kept; whether a second
-    ///          one, or a pin outside module.k, is an error is not decided yet.
+    ///          a parse), and WHERE it may appear is ModulePinCheck::pin_allowed's
+    ///          (module.k only, today). Accepted in every file all the same, so
+    ///          that rule can change without touching the parser. Only the
+    ///          first pin of a file is kept.
     priv fn _parse_module_pin(self) {
         var start = self._current->range;
         var keep  = self.tu->pin_segments.size() == 0;

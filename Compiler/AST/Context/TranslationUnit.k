@@ -222,9 +222,10 @@ class TranslationUnit derives DeclContext {
     pub var cxx_escaping_done: bool = false;
 
     /// The path of this file's bare `module a::b` declaration, one token per
-    /// segment, or empty. Recorded by the parser and read by nothing in the
-    /// TU yet: in a module.k it pins the directory as library `a::b`, and the
-    /// resolver reads that from the file itself, before any parse
+    /// segment, or empty. Recorded by the parser in any file; read by
+    /// ModulePinCheck, whose pin_allowed decides where one may appear. In a
+    /// module.k it pins the directory as library `a::b`, and the resolver
+    /// reads that from the file itself, before any parse
     /// (ImportProbe::read_module_pin). `pin_range` spans the declaration.
     pub var pin_segments: ArenaList::<Token>;
     pub var pin_range:    SourceRange = SourceRange::invalid();

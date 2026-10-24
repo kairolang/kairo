@@ -43,6 +43,7 @@ import Sema::Verify::TerminatorCheck::*;
 import Sema::Verify::JumpLabelCheck::*;
 import Sema::Verify::PatternBindingCheck::*;
 import Sema::Verify::CxxNameCheck::*;
+import Sema::Verify::ModulePinCheck::*;
 import Sema::Check::ConstraintExtraction::*;
 import Sema::Check::TypeCycleCheck::*;
 import Sema::Check::ShadowCheck::*;
@@ -232,13 +233,14 @@ class Sema {
         self.sc.require_phase(SemaPhase::Expanded);
 
         // Per pass, not one number for the stage. Six independent full-tree
-        // walks: the whole question here is which of them is worth fusing.
+        // walks (and one look at the TU's pin): the whole question here is which of them is worth fusing.
         { var _p = TimeRegion("LoopContext");     LoopContextCheck(&self.sc).run();     }
         { var _p = TimeRegion("ArmOrder");        ArmOrderCheck(&self.sc).run();        }
         { var _p = TimeRegion("Terminator");      TerminatorCheck(&self.sc).run();      }
         { var _p = TimeRegion("JumpLabel");       JumpLabelCheck(&self.sc).run();       }
         { var _p = TimeRegion("PatternBinding");  PatternBindingCheck(&self.sc).run();  }
         { var _p = TimeRegion("CxxName");         CxxNameCheck(&self.sc).run();         }
+        { var _p = TimeRegion("ModulePin");       ModulePinCheck(&self.sc).run();       }
         // Future Verify passes append here, one visible list.
         self.sc.advance_phase(SemaPhase::Verified);
         return !self._hard_stop();
