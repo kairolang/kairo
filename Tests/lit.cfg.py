@@ -287,6 +287,12 @@ if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
     _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic"] + _shlex.split(kairo_roots))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
+# A kcc link builds and caches the Kairo library (builtin, std, the runtime)
+# on first use. One cache for the suite, under the build tree, never the
+# user's ~/.cache; parallel tests that race to build it are safe (the
+# library is renamed into place).
+config.environment["KAIRO_CACHE_DIR"] = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(kairo_bin))), "lit-kairo-cache")
 
 # --- C data model of the default target ---------------------------------------
 # C `long` is 64-bit on LP64 (64-bit Linux, macOS) and 32-bit on LLP64

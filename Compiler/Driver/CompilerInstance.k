@@ -167,6 +167,9 @@ ffi "c++" import "llvm/Support/Path.h";
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
 ffi "c++" import "llvm/Support/Threading.h";
+ffi "c++" import "llvm/Support/xxhash.h";
+ffi "c++" import "llvm/Support/Process.h";
+ffi "c++" import "llvm/ADT/StringExtras.h";
 ffi "c++" import "llvm/TargetParser/Triple.h";
 ffi "c++" import "llvm/MC/TargetRegistry.h";
 ffi "c++" import "llvm/MC/MCSubtargetInfo.h";
@@ -340,6 +343,11 @@ class CompilerInstance {
     priv var _claimed: llvm::DenseSet::<u64>;
     /// A C/C++ input includes a .k (_discover_includes).
     priv var _includes_kairo: bool = false;
+    /// The Kairo library's objects for this link (_kairo_lib): lazily, after
+    /// everything else (LinkJob::lazy_objects).
+    priv var _lib_lazy: vec::<string>;
+    /// The library build's entry file (_build_kairo_lib).
+    priv var _lib_text: string = "pub import std\n";
     /// The bytes of the placeholder that takes fid 0 (_kairo_order).
     priv var _fid0_text: string = "\n";
     priv var _native_objs: vec::<string>; ///< objects from _compile_sources / _compile_runtime, in order
@@ -1754,6 +1762,12 @@ class CompilerInstance {
             return false;
         }
 
+        if (lk->emit_scope != "graph") && (lk->emit_scope != "inputs") {
+            self._diag->report(DiagID::U003E,
+                f"invalid --emit-scope value '{lk->emit_scope}'; accepted: graph, inputs").emit();
+            return false;
+        }
+
         // --emit: an item that is no kind at all is an error naming the set;
         // one the flag accepts but codegen does not produce yet is an error
         // too, rather than a run that silently writes nothing for it.
@@ -1867,6 +1881,7 @@ class CompilerInstance {
         }
         for obj: string in self._native_objs { job.add_object(obj); }
         for obj: string in self._link_inputs { job.add_object(obj); }
+        for obj: string in self._lib_lazy { job.lazy_objects.push_back(obj); }
 
         // Emission is synchronous (ExecuteAction closes the output through
         // clearOutputFiles before returning), so a missing object here is a
@@ -2046,6 +2061,12 @@ class CompilerInstance {
             return result;
         }
         self._discover_includes();
+        if (!self._link_out.empty()) && self.invocation().linker.kairo_lib {
+            if !self._kairo_lib() {
+                result.aborted = true;
+                return result;
+            }
+        }
 
         Logger::info(Logger::Stage::Driver,
             f"CompilerInstance::execute: {self.invocation().input_files.size()} file(s)");
@@ -2098,7 +2119,8 @@ class CompilerInstance {
             var _t = TimeRegion("NativeCompile");
             if !self._compile_sources(natives) { result.aborted = true; }
             var fe_rt = &(self.invocation().frontend);
-            if (!result.aborted) && (kairo_inputs > 0) && (!fe_rt->stops_before_codegen()) && fe_rt->emit_obj {
+            if (!result.aborted) && (kairo_inputs > 0) && (!fe_rt->stops_before_codegen()) && fe_rt->emit_obj
+               && (!self.invocation().linker.inputs_only()) {
                 if !self._compile_runtime() { result.aborted = true; }
             }
         }
@@ -2190,6 +2212,146 @@ class CompilerInstance {
         }
         for d: string in angle { quote.push_back(d); }
         return quote;
+    }
+
+    // --- The Kairo library (--kairo-lib) ---------------------------------
+
+    /// \brief builtin, std and the runtime, as objects the link takes
+    ///        lazily (_lib_lazy): what a link of objects from separate
+    ///        `kcc -c` runs needs and none of those runs wrote.
+    ///
+    /// \details Cached per target and code generation options, under
+    ///          $KAIRO_CACHE_DIR, else $XDG_CACHE_HOME/kairo, else
+    ///          ~/.cache/kairo, and rebuilt when the compiler or any source
+    ///          it was built from changes (the manifest records each one's
+    ///          mtime). Built in THIS session, before the inputs, when the
+    ///          cache has none: it claims builtin and std first (claim_fid),
+    ///          so the inputs' actions emit no copy of their own, and the
+    ///          link finds them here. Lazy, so a run that did emit its own
+    ///          copy (a valid cache) keeps it, and an unused std module costs
+    ///          nothing.
+    priv fn _kairo_lib(self) -> bool {
+        var dir = self._kairo_lib_dir();
+        if dir.empty() { return true; }   // no cache root: the run's own objects are all there is
+        if self._read_kairo_lib(dir) { return true; }
+        if !self._build_kairo_lib(dir) {
+            self._diag->report(DiagID::L001E, f"cannot build the Kairo library in {dir}").emit();
+            return false;
+        }
+        if !self._read_kairo_lib(dir) {
+            self._diag->report(DiagID::L001E, f"the Kairo library in {dir} is incomplete").emit();
+            return false;
+        }
+        return true;
+    }
+
+    /// The cache directory for this target and option set; "" without a root.
+    priv fn _kairo_lib_dir(self) -> string {
+        var root = LinkFS::env("KAIRO_CACHE_DIR");
+        if root.empty() {
+            var xdg = LinkFS::env("XDG_CACHE_HOME");
+            if !xdg.empty() { root = xdg + "/kairo"; }
+        }
+        if root.empty() {
+            var home = LinkFS::env("HOME");
+            if !home.empty() { root = home + "/.cache/kairo"; }
+        }
+        if root.empty() || (self._backend == &null) { return ""; }
+        // Everything the objects' code depends on: the compiler, the target,
+        // the code generation words a C++ compile of them would get, and
+        // where builtin and std are read from.
+        var key = std::get_exe_path() + "\n" + self._backend->triple();
+        var missing = vec::<string>();
+        for w: string in FlagTranslator::to_driver(self.invocation(), self._backend->triple(), "c++", &missing) {
+            key += "\n" + w;
+        }
+        key += "\n" + self.invocation().pp.builtins_dir + "\n" + self.invocation().pp.std_dir;
+        var h = llvm::xxh3_64bits(sref(key));
+        var hex = llvm::utohexstr(h);
+        return root + "/lib/" + self._backend->triple() + "-" + string(hex);
+    }
+
+    /// The library's objects from \p dir's manifest into _lib_lazy; false
+    /// when there is none or a recorded source has changed.
+    priv fn _read_kairo_lib(self, dir: string) -> bool {
+        var text = "";
+        if !LinkFS::read(dir + "/manifest", text) { return false; }
+        var objs = vec::<string>();
+        var start: usize = 0;
+        for var i: usize = 0; i <= text.size(); ++i {
+            if (i < text.size()) && (text[i] != '\n') { continue; }
+            var line = string(text.raw() + start, i - start);
+            start = i + 1;
+            if line.starts_with("obj ") { objs.push_back(dir + "/" + string(line.raw() + 4, line.size() - 4)); continue; }
+            if line.starts_with("src ") {
+                // `src <mtime> <path>`: the path may hold spaces, the mtime not.
+                var rest = string(line.raw() + 4, line.size() - 4);
+                var sp: usize = 0;
+                while (sp < rest.size()) && (rest[sp] != ' ') { sp += 1; }
+                if sp >= rest.size() { return false; }
+                var want = string(rest.raw(), sp);
+                var path = string(rest.raw() + sp + 1, rest.size() - sp - 1);
+                if f"{LinkFS::mtime(path)}" != want { return false; }
+            }
+        }
+        for o: string in objs { if !LinkFS::is_file(o) { return false; } }
+        for o: string in objs { self._lib_lazy.push_back(o); }
+        return objs.size() > 0;
+    }
+
+    /// \brief builds the library into \p dir: a virtual entry that imports
+    ///        std (so builtin and every std module are reached under their
+    ///        own module paths), and the runtime, written to a private
+    ///        directory and renamed into place, so parallel builds never see
+    ///        half a library.
+    priv fn _build_kairo_lib(self, dir: string) -> bool {
+        var tmp = f"{dir}.tmp-{llvm::sys::Process::getProcessId()}";
+        LinkFS::remove_tree(tmp);
+        if !LinkFS::make_dirs(tmp) { return false; }
+
+        var saved_dir  = self._obj_dir;
+        var saved_objs = self._native_objs.size();
+        self._obj_dir  = tmp;
+        finally { self._obj_dir = saved_dir; }
+
+        var built = false;
+        finally { if !built { LinkFS::remove_tree(tmp); } }
+
+        var errs = self._diag->error_count();
+        // A real file in the private directory: an action loads its input by
+        // path, and a virtual buffer is not found that way.
+        if !LinkFS::write(tmp + "/kairo-lib.k", self._lib_text) { return false; }
+        var entry = Path(tmp + "/kairo-lib.k");   // after the write: a Path stats on construction
+        var action = std::create::<FrontendAction>(entry, ModulePath(), self._g_scope, self._imp, &self);
+        finally { std::destroy(action); }
+        action->run();
+        if action->result.had_fatal || (self._diag->error_count() != errs) { return false; }
+        var objs = action->result.objects;
+
+        if !self._compile_runtime() { return false; }
+        for var i: usize = saved_objs; i < self._native_objs.size(); ++i { objs.push_back(self._native_objs[i]); }
+        while self._native_objs.size() > saved_objs { self._native_objs.pop_back(); }
+
+        var man = "";
+        for o: string in objs {
+            if !o.starts_with(tmp + "/") { return false; }
+            man += "obj " + string(o.raw() + tmp.size() + 1, o.size() - tmp.size() - 1) + "\n";
+        }
+        man += f"src {LinkFS::mtime(std::get_exe_path())} {std::get_exe_path()}\n";
+        var n = self._sm->file_count();
+        for var i: usize = 0; i < n; ++i {
+            var p = self._sm->get_filename(static_cast::<FileID>(i));
+            // Virtual buffers (-D) have no file; the entry is in tmp, which
+            // the rename below moves.
+            if p.empty() || (!LinkFS::is_file(p)) || p.starts_with(tmp + "/") { continue; }
+            man += f"src {LinkFS::mtime(p)} {p}\n";
+        }
+        for k: InputKind in self._runtime_sources() { man += f"src {LinkFS::mtime(k.path)} {k.path}\n"; }
+        if !LinkFS::write(tmp + "/manifest", man) { return false; }
+
+        if LinkFS::rename(tmp, dir) { built = true; return true; }
+        // Another build got there first: theirs is as good as this one.
+        return LinkFS::is_dir(dir);
     }
 
     /// \brief _inputs, with every Kairo input another one imports moved
@@ -3598,10 +3760,14 @@ fn FrontendAction::_codegen() -> bool {
     var own = vec::<u32>();
     var n   = self._fids.size();
     var any_kairo = false;
+    // --emit-scope=inputs: this action's own file only, and nothing for a
+    // discovered one (a header to this run). The rest is analysed for it.
+    var inputs_only = self._ci->invocation().linker.inputs_only();
     for var i: usize = 0; i < n; ++i {
         var f = self._fids[n - 1 - i];   // reverse tree order: imports before importers.
         if self._ci->is_foreign_fid(f) { continue; }
         any_kairo = true;
+        if inputs_only && ((f != self._file_id) || self.discovered) { continue; }
         // An empty TU -- zero bytes, comments, only `pub import`s -- has done
         // all it can (it resolved as an import, it passed sema). Decided on
         // the PLAN, before any backend or anchor exists for it, so it gets no

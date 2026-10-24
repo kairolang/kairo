@@ -174,6 +174,8 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("static",         "",  "static",         "produce a statically linked binary or archive",                                     false);
     cmd->define::<FlagKind::Bool>  ("no-entry",       "",  "no-entry",       "no entry point: library / kernel / raw binary output",                              false);
     cmd->define::<FlagKind::Bool>  ("save-temps",     "",  "save-temps",     "keep the object files, under <out>.kobj/ (only without --cache-dir)",              false);
+    cmd->define::<FlagKind::String>("emit-scope",     "",  "emit-scope",     "which Kairo files a run writes objects for: graph (every one it reaches; the default) or inputs (the command line's own, as clang -c; kcc's -c)", "graph");
+    cmd->define::<FlagKind::Bool>  ("kairo-lib",      "",  "kairo-lib",      "link builtin, std and the runtime lazily from the toolchain's cache, built on first use (kcc sets it when it links)", false);
 
     //  TARGET
 

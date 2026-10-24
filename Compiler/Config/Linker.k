@@ -37,6 +37,8 @@ class LinkerOptions {
     pub var cache_dir:         string = "";         ///< --cache-dir: where objects go
     pub var save_temps:        bool   = false;      ///< keep the object dir after linking
     pub var compile_only:      bool   = false;      ///< -c, -S, or any --emit but the default obj
+    pub var emit_scope:        string = "graph";    ///< --emit-scope: graph | inputs
+    pub var kairo_lib:         bool   = false;      ///< --kairo-lib: link the cached builtin/std/runtime
     pub var print_ld_args:     bool   = false;      ///< print the link line instead of linking
     pub var strip:             bool   = false;
     pub var strip_debug:       bool   = false;
@@ -119,6 +121,11 @@ class LinkerOptions {
     pub var no_stack_check:    bool = false;
     pub var fixed_stack_size:  i32  = 0;
 
+    /// --emit-scope=inputs: objects for the command line's own Kairo files
+    /// only. What they import, builtin, std and the runtime come from
+    /// separate runs or the toolchain's library (kairo_lib), as with clang -c.
+    fn inputs_only(self) -> bool { return self.emit_scope == "inputs"; }
+
     static fn from_args(args: ref!(ParsedArgs)) -> LinkerOptions {
         var o = LinkerOptions();
 
@@ -136,6 +143,8 @@ class LinkerOptions {
         (o.save_temps)      = args.get_bool("save-temps");
         (o.compile_only)    = args.get_bool("compile-only") || args.get_bool("emit-asm")
                            || (args.get_string("emit") != "obj");
+        (o.emit_scope)      = args.get_string("emit-scope");
+        (o.kairo_lib)       = args.get_bool("kairo-lib");
         (o.print_ld_args)   = args.get_bool("print-ld-args");
         (o.strip)           = args.get_bool("strip");
         (o.strip_debug)     = args.get_bool("strip-debug");

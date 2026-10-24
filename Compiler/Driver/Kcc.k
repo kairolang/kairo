@@ -15,7 +15,11 @@
 ///     - `-Xkairo <word>` passes one kairo word through untranslated (what
 ///       kairo-only settings, and lit's roots, need);
 ///     - with no `-std=`, C++ defaults to c++23 (the floor an included .k
-///       needs is C++20: the hook refuses below it).
+///       needs is C++20: the hook refuses below it);
+///     - `-c`/`-S` write objects for the command line's own files only
+///       (--emit-scope=inputs), and a link takes builtin, std and the
+///       runtime from the toolchain's cached library (--kairo-lib), so
+///       `kcc -c x.cc; kcc -c y.k; kcc x.o y.o` works as with clang.
 ///   kcc answers `--help` and `--version` itself; clang's own would describe
 ///   a different compiler. `-###` (print the jobs, run none) is refused
 ///   until kcc has jobs to print.
@@ -112,6 +116,13 @@ fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>
     if !has_std { out->push_back("--cxx-std=c++23"); }
 
     for w: string in kw { out->push_back(w); }
+    // clang's separate compilation: `-c y.k` writes y.o and nothing for what
+    // y imports, and a link of such objects takes builtin, std and the
+    // runtime from the toolchain's library.
+    var compile_only = false;
+    for w: string in kw { if (w == "-c") || (w == "-S") { compile_only = true; } }
+    if compile_only { out->push_back("--emit-scope=inputs"); }
+    out->push_back("--kairo-lib");
     for w: string in cw {
         // kcc's own answer (see the header); clang's would name clang.
         if w == "--version" { out->push_back("--version"); continue; }
