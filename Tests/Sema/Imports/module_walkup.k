@@ -33,3 +33,10 @@
 // RUN: cd %t.d && %kairo %S/Inputs/module_walkup/geometry/shapes.k --type-check-only --print-cxx 2>&1 | %FileCheck %s --check-prefix=OUTSIDE
 // OUTSIDE: namespace geo::shapes {
 // OUTSIDE-NOT: namespace shapes {
+
+// A library file never falls back into an unnamed search dir, and that holds
+// for a library found walking up exactly as for a registered one: which
+// library holds a file does not depend on the run. leak.k's `import helper`
+// is only on `-I walkup_helper`.
+// RUN: cd %S/Inputs && { %kairo module_walkup/geometry/inner/leak.k -I walkup_helper --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=LEAK
+// LEAK: leak.k:3:1: error [R011E]: failed to resolve import path 'helper'

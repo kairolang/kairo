@@ -6,6 +6,8 @@
 // the files a module path names, are compared by real path now.
 
 // --- lit wiring -----------------------------------------------------------
+// `ln -s` needs a privilege a Windows host does not grant by default.
+// UNSUPPORTED: host-windows
 // RUN: rm -rf %t.d && mkdir -p %t.d/b
 // RUN: ln -s %S/Inputs/module_walkup/geometry %t.d/b/geolink
 // RUN: cp %S/Inputs/symlink_main.k %t.d/b/main.k

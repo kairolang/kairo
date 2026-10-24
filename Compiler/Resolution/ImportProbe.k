@@ -233,6 +233,7 @@ class ImportResolver {
     /// pairs already reported (ModuleIdentityCollision). Written by every
     /// resolution and by the driver for each input (claim_identity).
     priv var _identities:       map::<string, string>;
+    priv var _identity_files:   map::<string, string>;   ///< the same file as first spelled, for messages.
     priv var _reported_pairs:   set::<string>;
 
     /// R018E findings made AFTER build_index -- a pinned directory the walk
@@ -255,6 +256,7 @@ class ImportResolver {
     /// A second directory pinning one name, or a registered library's, is
     /// the R018E two named roots would be (_check_pin_dir).
     priv var _lib_pins:         map::<string, string>;
+    priv var _lib_pin_dirs:     map::<string, string>;   ///< the same directory as first spelled.
 
     /// Transient roots over pinned directories that no root registered,
     /// keyed by directory: what a file inside such a library resolves its
@@ -882,7 +884,11 @@ class ImportResolver {
             }
         }
 
-        var from_library = (own_root != &null) && (own_root->name.size() > 0);
+        // A file in a library, registered or found walking up (lib_root):
+        // which library holds a file is a property of the file, so whether
+        // it may reach into the command line's unnamed dirs must not depend
+        // on whether this run happened to register its library.
+        var from_library = ((own_root != &null) && (own_root->name.size() > 0)) || (lib_root != &null);
         var ri: usize = 0;
         while (ri < self._roots.size()) && (!root_hit) {
             var r = self._roots[ri];
@@ -1125,12 +1131,20 @@ class ImportResolver {
                 break;
             }
         }
+        var other_real = string();
         if other.empty() {
-            if !self._lib_pins.contains(key) { self._lib_pins[key] = real; return; }
+            if !self._lib_pins.contains(key) {
+                self._lib_pins[key]     = real;
+                self._lib_pin_dirs[key] = dir;
+                return;
+            }
             if self._lib_pins[key] == real { return; }
-            other = self._lib_pins[key];
+            other      = self._lib_pin_dirs[key];
+            other_real = self._lib_pins[key];
+        } else {
+            other_real = self._real(other);
         }
-        var pair = other + "\n" + real;
+        var pair = other_real + "\n" + real;
         if self._reported_pairs.contains(pair) { return; }
         self._reported_pairs.insert(pair);
         var c = RootNameCollision{};
@@ -1155,7 +1169,11 @@ class ImportResolver {
         if ident.size() == 0 { return; }
         var key  = self._name_str(ident);
         var real = self._real(file.full_path());
-        if !self._identities.contains(key) { self._identities[key] = real; return; }
+        if !self._identities.contains(key) {
+            self._identities[key]     = real;
+            self._identity_files[key] = file.full_path();
+            return;
+        }
         var first = self._identities[key];
         if first == real { return; }
         var pair = first + "\n" + real;
@@ -1163,7 +1181,7 @@ class ImportResolver {
         self._reported_pairs.insert(pair);
         var c = ModuleIdentityCollision{};
         c.ident = key;
-        c.a     = first;
+        c.a     = self._identity_files[key];
         c.b     = file.full_path();
         self._late_collisions.push_back(c.message());
     }
