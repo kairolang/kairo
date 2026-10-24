@@ -30,10 +30,33 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %t.d/main.ii %S/Inputs/include_k/geo.k -o %t.d/app_ii --cache-dir %t.d/o_ii
 // RUN: %t.d/app_ii; test $? -eq 9
 
-// A .k the build does not hold is an error at the include, not C++ lexing.
-// RUN: { %kairo -c %S/Inputs/include_k/missing.cc %S/Inputs/include_k/geo.k --cache-dir %t.d/miss 2>&1 || true; } | %FileCheck %s --check-prefix=MISSING
-// MISSING: missing.cc:1:10: error [CL001E]: cannot include '{{.*}}not_built.k': it is not part of this build
-// RUN: not %kairo -c %S/Inputs/include_k/missing.cc %S/Inputs/include_k/geo.k --cache-dir %t.d/miss > /dev/null 2>&1
+// A .k no command-line word names is part of the build all the same: the
+// driver finds it in the .cc (KairoIncludeScan), builds it, and links its
+// object. Here not_built.k, beside an unrelated geo.k.
+// RUN: %kairo -c %S/Inputs/include_k/missing.cc %S/Inputs/include_k/geo.k --cache-dir %t.d/miss
+// RUN: test -s %t.d/miss/missing.o && test -s %t.d/miss/not_built.o
+
+// Through a project header found by -I, with no .k on the command line at
+// all: 2 + 10. Under -c -o, -o is the .cc's object; deep.o goes to the
+// cache dir.
+// RUN: %kairo %S/Inputs/include_k/nested.cc --cxx-include %S/Inputs/include_k/inc -o %t.d/nested --cache-dir %t.d/nest
+// RUN: %t.d/nested; test $? -eq 12
+// RUN: %kairo -c %S/Inputs/include_k/nested.cc --cxx-include %S/Inputs/include_k/inc -o %t.d/nested.o --cache-dir %t.d/nest_c
+// RUN: test -s %t.d/nested.o && test -s %t.d/nest_c/deep.o
+
+// twin.cc includes twin.k: the .cc's object keeps its name (twin.o), the
+// Kairo one takes twin.k.o. Named and discovered alike. 5 * 3.
+// RUN: %kairo %S/Inputs/include_k/twin.cc %S/Inputs/include_k/twin.k -o %t.d/twin --cache-dir %t.d/twin_o
+// RUN: %t.d/twin; test $? -eq 15
+// RUN: test -s %t.d/twin_o/twin.o && test -s %t.d/twin_o/twin.k.o
+// RUN: %kairo %S/Inputs/include_k/twin.cc -o %t.d/twin2 --cache-dir %t.d/twin_o2
+// RUN: %t.d/twin2; test $? -eq 15
+
+// An include spelled through a macro is past what a scan sees: the .k is
+// not in the build, and the include says so instead of lexing it as C++.
+// RUN: { %kairo -c %S/Inputs/include_k/macro.cc --cache-dir %t.d/macro 2>&1 || true; } | %FileCheck %s --check-prefix=MACRO
+// MACRO: macro.cc:2:10: error [CL001E]: cannot include '{{.*}}geo.k': it is not part of this build
+// RUN: not %kairo -c %S/Inputs/include_k/macro.cc --cache-dir %t.d/macro > /dev/null 2>&1
 
 // The interface is C++: a C translation unit cannot take it.
 // RUN: { %kairo -c %S/Inputs/include_k/from_c.c %S/Inputs/include_k/geo.k --cache-dir %t.d/c 2>&1 || true; } | %FileCheck %s --check-prefix=FROMC --implicit-check-not=error

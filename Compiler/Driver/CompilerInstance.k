@@ -148,6 +148,7 @@ import Interop::Clang::ClangBackend::*;
 import Interop::Clang::ClangJobs::*;
 import Driver::KairoIncludes::*;
 import Interop::Clang::HeaderSet::*;
+import Interop::Clang::KairoIncludeScan::*;
 import Sema::Foreign::HeaderIndex::*;
 import Sema::Foreign::ForeignRegistry::*;
 import Sema::Foreign::ForeignInstantiate::*;
@@ -209,6 +210,9 @@ class FrontendAction {
     priv var _graph:        vec::<u32>;   ///< every fid of the graph, an earlier input's too
     pub var result:         TUResult;
     priv var _stage:        TUStage;
+    /// Found through an include, not named on the command line
+    /// (InputKind::discovered): its object never goes to -o.
+    pub var discovered:     bool = false;
 
     fn FrontendAction(
         self,
@@ -334,6 +338,8 @@ class CompilerInstance {
     /// Every fid an earlier input's FrontendAction took (claim_fid). Widened
     /// to u64: u32(-1) is DenseSet<u32>'s empty key.
     priv var _claimed: llvm::DenseSet::<u64>;
+    /// A C/C++ input includes a .k (_discover_includes).
+    priv var _includes_kairo: bool = false;
     /// The bytes of the placeholder that takes fid 0 (_kairo_order).
     priv var _fid0_text: string = "\n";
     priv var _native_objs: vec::<string>; ///< objects from _compile_sources / _compile_runtime, in order
@@ -533,18 +539,24 @@ class CompilerInstance {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         return (tu != &null) && tu->is_foreign;
     }
-    /// \brief true when a C++ or Objective-C++ input may `#include "foo.k"`
-    ///        (Interop/Clang/KairoInclude.k): the include is emitted from
-    ///        foo.k's analysed and lowered tree, so the Kairo inputs go
-    ///        through sema even when the action stops earlier for C++
-    ///        (--preprocess, --syntax-only).
-    fn kairo_feeds_includes(self) -> bool {
+    /// \brief the name a Kairo entry TU's outputs take under the object
+    ///        dir: its stem, or `<stem>.k` when a C/C++ input of the build
+    ///        has that stem and so writes `<stem>.o` itself (_plan_outputs).
+    fn kairo_object_stem(self, stem: string) -> string {
         for k: InputKind in self._inputs {
-            if (k.cls != InputClass::Source) && (k.cls != InputClass::Header) { continue; }
-            if clang::driver::types::isCXX(k.ty) { return true; }
+            if k.cls != InputClass::Source { continue; }
+            if Path::stem_of(k.path) == stem { return stem + ".k"; }
         }
-        return false;
+        return stem;
     }
+
+    /// \brief true when a C++ or Objective-C++ input includes a .k
+    ///        (_discover_includes found one): the include is emitted from
+    ///        its analysed and lowered tree, so the Kairo inputs go through
+    ///        sema even when the action stops earlier for C++ (--preprocess,
+    ///        --syntax-only). All of them, not only the included ones: an
+    ///        included file may be claimed by an importer's action.
+    fn kairo_feeds_includes(self) -> bool { return self._includes_kairo; }
 
     /// \brief true the first time \p fid is asked for: the asking action
     ///        parses, checks and emits it. Inputs share their imports (every
@@ -1679,10 +1691,12 @@ class CompilerInstance {
         }
         if bad { return false; }
 
-        // A C/C++ input's outputs are named <dir>/<stem>.<ext>, as a Kairo
-        // entry TU's are, and a header's <dir>/<file>.pch. Two inputs that
-        // name one output would write one file; clang silently overwrites,
-        // this says so (a deliberate deviation). Only for runs that write
+        // A C/C++ input's outputs are named <dir>/<stem>.<ext>, and a
+        // header's <dir>/<file>.pch. Two inputs that name one output would
+        // write one file; clang silently overwrites, this says so (a
+        // deliberate deviation). A Kairo entry TU of the same stem is no
+        // clash: it writes <stem>.k.<ext> instead (kairo_object_stem), which
+        // is the common case of a foo.cc that includes foo.k. Only for runs that write
         // files: --preprocess goes to stdout, the check-only runs write none.
         var fe_plan = &(self.invocation().frontend);
         if !fe_plan->stops_before_codegen() {
@@ -1700,11 +1714,11 @@ class CompilerInstance {
                         if !b_hdr { continue; }
                         nb = Path(kb.path).filename();
                     } else {
-                        if (kb.cls != InputClass::Source) && (kb.cls != InputClass::Kairo) { continue; }
+                        if kb.cls != InputClass::Source { continue; }
                         nb = Path(kb.path).stem();
                     }
                     if nb != na { continue; }
-                    if (kb.cls != InputClass::Kairo) && (b < a) { continue; }  // reported once
+                    if b < a { continue; }  // reported once
                     self._diag->report(DiagID::U001E,
                         f"{ka.path} and {kb.path} both write '{na}\x27 outputs; rename one, or compile them in separate runs").emit();
                     bad = true;
@@ -2010,6 +2024,7 @@ class CompilerInstance {
             result.aborted = true;
             return result;
         }
+        self._discover_includes();
 
         Logger::info(Logger::Stage::Driver,
             f"CompilerInstance::execute: {self.invocation().input_files.size()} file(s)");
@@ -2048,6 +2063,7 @@ class CompilerInstance {
 
             finally { std::destroy(action); }
 
+            action->discovered = k.discovered;
             action->run();
 
             if action->result.had_fatal { result.aborted = true; }
@@ -2101,6 +2117,56 @@ class CompilerInstance {
             f"CompilerInstance::execute: {result.summary()}");
 
         return result;
+    }
+
+    /// \brief adds every .k a C++ or Objective-C++ input includes, and the
+    ///        command line does not name, as a Kairo input after the named
+    ///        ones (KairoIncludeScan). After _plan_outputs: a discovered
+    ///        file is no output -o can name, and before _kairo_order, which
+    ///        loads the inputs.
+    priv fn _discover_includes(self) {
+        var scan = KairoIncludeScan(self._quote_dirs());
+        var any = false;
+        for k: InputKind in self._inputs {
+            if (k.cls != InputClass::Source) && (k.cls != InputClass::Header) { continue; }
+            if !clang::driver::types::isCXX(k.ty) { continue; }
+            scan.scan(k.path);
+            any = true;
+        }
+        if !any { return; }
+        self._includes_kairo = scan.found.size() > 0;
+        for f: string in scan.found {
+            var named = false;
+            for k: InputKind in self._inputs {
+                if k.cls != InputClass::Kairo { continue; }
+                if Path::absolute_if_exists(k.path) == f { named = true; break; }
+            }
+            if named { continue; }
+            var nk = classify_input(f, "");
+            nk.discovered = true;
+            Logger::info(Logger::Stage::Driver, f"CompilerInstance: {f} is included by a C++ input; building it");
+            self._inputs.push_back(nk);
+        }
+    }
+
+    /// The host's quoted search path after the includer's own directory:
+    /// -iquote, then -I, as clang orders them. From --cxx-include and the
+    /// words in --cxx-flags, which is where a C/C++ input's get them.
+    priv fn _quote_dirs(self) -> vec::<string> {
+        var quote = vec::<string>();
+        var angle = vec::<string>();
+        var fl = &(self.invocation().codegen.cxx_flags);
+        for var i: usize = 0; i < fl->size(); ++i {
+            var w = (*fl)[i];
+            var next = ((*fl)[i + 1]) if (i + 1 < fl->size()) else (string(""));
+            if w == "-iquote" { quote.push_back(next); i += 1; continue; }
+            if w == "-I"      { angle.push_back(next); i += 1; continue; }
+            if LinkText::starts_with(w, "-iquote") { quote.push_back(string(w.raw() + 7, w.size() - 7)); continue; }
+            if LinkText::starts_with(w, "-I")      { angle.push_back(string(w.raw() + 2, w.size() - 2)); continue; }
+        }
+        for d: string in self.invocation().cxx_includes { angle.push_back(d); }
+        for d: string in angle { quote.push_back(d); }
+        return quote;
     }
 
     /// \brief _inputs, with every Kairo input another one imports moved
@@ -3566,7 +3632,7 @@ fn FrontendAction::_codegen() -> bool {
         // The output path mirrors the module path, so two modules of the
         // same leaf name do not collide. The entry TU has no module path.
         var stem = "";
-        var to_single = (!single_obj.empty()) && (fid == self._file_id);
+        var to_single = (!single_obj.empty()) && (fid == self._file_id) && (!self.discovered);
         if !to_single {
             var ocg  = CodegenContext(ctx, &null, psym, insts);
             var sp   = CXXSpell(&ocg);
@@ -3576,7 +3642,7 @@ fn FrontendAction::_codegen() -> bool {
                 if i > 0 { rel += "/"; }
                 rel += segs[i];
             }
-            if rel.size() == 0 { rel = self.path.stem(); }
+            if rel.size() == 0 { rel = self._ci->kairo_object_stem(self.path.stem()); }
             stem = obj_dir + "/" + rel;
         }
 

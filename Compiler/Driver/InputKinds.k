@@ -49,6 +49,10 @@ class InputKind {
     pub var cls:    InputClass = InputClass::Unknown;
     pub var ty:     clang::driver::types::ID = clang::driver::types::TY_INVALID;
     pub var forced: string;   ///< the -x value in force for this input, "" if none
+    /// A .k no command-line word names: a C++ input includes it
+    /// (CompilerInstance::_discover_includes). Built and linked like any
+    /// Kairo input, but never an output -o names.
+    pub var discovered: bool = false;
     pub var why:    string;   ///< the reason, for Unsupported / Unknown / BadLanguage
 
     /// clang's -x spelling of this input's type ("c++", "objective-c", ...).
