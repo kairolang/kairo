@@ -190,6 +190,9 @@ class ClangJobs {
         ci->createDiagnostics(a, false);
         if !ci->hasDiagnostics() { return false; }
         var ok = execute_with_kairo_includes(ci, self.includes);
-        return ok && (ci->getDiagnostics().getNumErrors() == 0);
+        // The CLIENT's count, as ExecuteAction's own verdict: under -verify
+        // the client is clang's VerifyDiagnosticConsumer, which keeps the
+        // expected errors from counting, while the engine counted them all.
+        return ok && (ci->getDiagnostics().getClient()->getNumErrors() == 0);
     }
 }
