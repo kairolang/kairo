@@ -45,3 +45,26 @@ fn main() -> i32 { return 0 }
 // RUN: touch -d "40 days ago" %t.d/kc/lib/old-lib/used && touch %t.d/kc/lib/fresh-lib/used && touch -d "2 days ago" %t.d/kc/lib/x.tmp-1
 // RUN: env KAIRO_CACHE_DIR=%t.d/kc %kcc %t.d/x.o %t.d/y.o -o %t.d/main_gc
 // RUN: test ! -e %t.d/kc/lib/old-lib && test ! -e %t.d/kc/lib/x.tmp-1 && test -d %t.d/kc/lib/fresh-lib
+
+// A library whose manifest no longer matches a source it was built from is
+// refused and rebuilt: the recorded mtime of builtin's string.k is made
+// stale, and the next link writes a manifest with the real one.
+// RUN: mkdir -p %t.d/stale
+// RUN: env KAIRO_CACHE_DIR=%t.d/stale %kcc %t.d/x.o %t.d/y.o -o %t.d/main_s1
+// RUN: sed -i -E 's|^src [0-9]+ (.*/string\.k)$|src 1 \1|' %t.d/stale/lib/*/manifest
+// RUN: grep -q '^src 1 .*string\.k$' %t.d/stale/lib/*/manifest
+// RUN: env KAIRO_CACHE_DIR=%t.d/stale %kcc %t.d/x.o %t.d/y.o -o %t.d/main_s2
+// RUN: not grep -q '^src 1 ' %t.d/stale/lib/*/manifest
+// RUN: %t.d/main_s2 > /dev/null; test $? -eq 14
+
+// Two links racing on an empty cache: one renames its library into place,
+// the other uses that one. Both link, and one library is left.
+// RUN: mkdir -p %t.d/race
+// RUN: env KAIRO_CACHE_DIR=%t.d/race %kcc %t.d/x.o %t.d/y.o -o %t.d/race1 & env KAIRO_CACHE_DIR=%t.d/race %kcc %t.d/x.o %t.d/y.o -o %t.d/race2; wait
+// RUN: %t.d/race1 > /dev/null; test $? -eq 14
+// RUN: %t.d/race2 > /dev/null; test $? -eq 14
+// RUN: test "$(ls %t.d/race/lib | grep -v -e '\.tmp-' -e '\.stale-' | wc -l)" -eq 1
+
+// A crashed build's leftovers do not stop the next one.
+// RUN: mkdir -p %t.d/crash/lib/junk.tmp-1 && touch %t.d/crash/lib/junk.tmp-1/half.o
+// RUN: env KAIRO_CACHE_DIR=%t.d/crash %kcc %t.d/x.o %t.d/y.o -o %t.d/crash_ok && %t.d/crash_ok > /dev/null; test $? -eq 14
