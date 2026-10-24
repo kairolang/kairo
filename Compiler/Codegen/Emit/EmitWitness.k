@@ -32,12 +32,13 @@
 ///     operator, named as an extension operator is. Arguments are forwarded
 ///     as `static_cast<decltype(p)&&>(p)`, as operator forwarders do.
 ///
-///     Built: non-generic requirements (named and operator), every row with
-///     a concrete conformer (a full specialization each, also for a row a
-///     generic extension supplies). Not built: generic requirements,
-///     associated types, constructor requirements in the concept, static
-///     requirements (the call site does not reach one yet), partial
-///     specializations for generic conformances (§7b.3, for C++ hosts).
+///     Built: non-generic requirements -- named, operator and static (a
+///     static member, gated on a plain function pointer and called through
+///     Self) -- and every row with a concrete conformer (a full
+///     specialization each, also for a row a generic extension supplies).
+///     Not built: generic requirements, associated types, constructor
+///     requirements in the concept, partial specializations for generic
+///     conformances (§7b.3, for C++ hosts).
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -172,10 +173,14 @@ class EmitWitness {
             self._unsupported(m);
             var sig  = self._member_sig(m, &null, me);
             var decl = self._member_decl(m, &null, me);
-            var gate = "requires requires { static_cast<" + self._pointer_to_member(sig, me) + ">(&" + me + "::"
+            // A static requirement is gated on a plain function pointer: a
+            // static member's address is not a pointer to member.
+            var owner = (me) if (m->is_method()) else ("");
+            var gate = "requires requires { static_cast<" + self._pointer_to_member(sig, owner) + ">(&" + me + "::"
                      + self._spell->leaf(static_cast::<*Decl>(m)) + "); }";
             var call = "";
-            if m->is_operator { call = "self." + self._spell->leaf(static_cast::<*Decl>(m)) + "(" + self._forward(m) + ")"; }
+            if !m->is_method() { call = me + "::" + self._spell->leaf(static_cast::<*Decl>(m)) + "(" + self._forward(m) + ")"; }
+            else if m->is_operator { call = "self." + self._spell->leaf(static_cast::<*Decl>(m)) + "(" + self._forward(m) + ")"; }
             else { call = "self->" + self._spell->leaf(static_cast::<*Decl>(m)) + "(" + self._forward(m) + ")"; }
             self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " " + gate + " { return " + call + "; }");
         }
@@ -206,10 +211,14 @@ class EmitWitness {
         for var i: usize = 0; i < idecl->methods.size(); ++i {
             var m = idecl->methods[i];
             if (m == &null) || m->is_poisoned() { continue; }
-            var r = LowerTargets::witness_recv(i);
-            if parms.size() > 0 { parms += ", "; }
-            parms += self._receiver(m, me) + " " + r;
-            var args = r;
+            // A static requirement is called with no receiver.
+            var args = "";
+            if m->is_method() {
+                var r = LowerTargets::witness_recv(i);
+                if parms.size() > 0 { parms += ", "; }
+                parms += self._receiver(m, me) + " " + r;
+                args = r;
+            }
             var saved_i = self._spell->self_iface;
             var saved_s = self._spell->self_spelling;
             self._self_as(m, me);
@@ -218,18 +227,21 @@ class EmitWitness {
                 if (q == &null) || q->is_self { continue; }
                 var a = LowerTargets::witness_arg(k);
                 k += 1;
-                parms += ", " + self._spell->param_decl(q, a);
-                args += ", " + a;
+                if parms.size() > 0 { parms += ", "; }
+                parms += self._spell->param_decl(q, a);
+                if args.size() > 0 { args += ", "; }
+                args += a;
             }
             self._spell->self_iface    = saved_i;
             self._spell->self_spelling = saved_s;
-            if CXXSpell::op_is_postfix(m) { args += ", 0"; }
+            if CXXSpell::op_is_postfix(m) { args += ((", ") if (args.size() > 0) else ("")) + "0"; }
             body += " " + self._spell->witness_name(p->iface) + self_args + "::"
                   + self._spell->witness_member_name(m) + "(" + args + ");";
         }
         if body.size() > 0 {
             if conj.size() > 0 { conj += " && "; }
-            conj += "requires (" + parms + ") {" + body + " }";
+            conj += ("requires {") if (parms.size() == 0) else ("requires (" + parms + ") {");
+            conj += body + " }";
         }
         if conj.size() == 0 { conj = "true"; }
         self._cg->sink->spell(self._at(p), s + conj + ";");
@@ -251,22 +263,24 @@ class EmitWitness {
             var w = dyn_cast::<FunctionDecl>((row->witnesses[i]) if (i < row->witnesses.size()) else (&null));
             if (w == &null) { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a row with no decl for a requirement; ConformanceChecking records only complete rows on an instance"); }
             var decl = self._member_decl(m, subst, x);
-            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m) + "; }");
+            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x) + "; }");
         }
         self._cg->sink->spell(at, "};");
         self._cg->sink->brk();
     }
 
     /// The call a specialization member makes: the extension member,
-    /// qualified, receiver first; or the conformer's own member.
-    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl) -> string {
+    /// qualified, receiver first (none for a static); or the conformer's own
+    /// member, through \p x for a static.
+    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string) -> string {
         var args = self._forward(m);
         if decl_extension_of(static_cast::<*Decl>(w)) != &null {
             if (CXXSpell::template_params(static_cast::<*Decl>(w)).size() > 0) { self._ice(CXXSpell::at(static_cast::<*Decl>(w)), "EmitWitness: a generic extension member as a witness; its arguments are not spelled yet"); }
-            var all = "self";
-            if args.size() > 0 { all += ", " + args; }
+            var all = ("self") if (m->is_method()) else ("");
+            if args.size() > 0 { all += ((", ") if (all.size() > 0) else ("")) + args; }
             return self._spell->qual_name(static_cast::<*Decl>(w)) + "(" + all + ")";
         }
+        if !m->is_method() { return x + "::" + self._spell->leaf(static_cast::<*Decl>(w)) + "(" + args + ")"; }
         if w->is_operator { return "self." + self._spell->leaf(static_cast::<*Decl>(w)) + "(" + args + ")"; }
         return "self->" + self._spell->leaf(static_cast::<*Decl>(w)) + "(" + args + ")";
     }
@@ -279,13 +293,16 @@ class EmitWitness {
         var saved_i = self._spell->self_iface;
         var saved_s = self._spell->self_spelling;
         self._self_as(m, self_s);
-        var s = "static " + self._ret(m, subst) + " " + self._spell->witness_member_name(m) + "(" + self._receiver(m, self_s) + " self";
+        var ps = "";
+        if m->is_method() { ps = self._receiver(m, self_s) + " self"; }
         for var i: usize = 0; i < m->params.size(); ++i {
             var p = m->params[i];
             if (p == &null) || p->is_self { continue; }
-            s += ", " + self._spell->param_decl(p, self._pname(m, p), subst);
+            if ps.size() > 0 { ps += ", "; }
+            ps += self._spell->param_decl(p, self._pname(m, p), subst);
         }
-        if CXXSpell::op_is_postfix(m) { s += ", int " + LowerTargets::witness_postfix(); }
+        if CXXSpell::op_is_postfix(m) { ps += ", int " + LowerTargets::witness_postfix(); }
+        var s = "static " + self._ret(m, subst) + " " + self._spell->witness_member_name(m) + "(" + ps;
         s += ")";
         self._spell->self_iface    = saved_i;
         self._spell->self_spelling = saved_s;
@@ -312,7 +329,8 @@ class EmitWitness {
         return s + self_s + (("&") if (m->is_operator) else ("*"));
     }
 
-    /// `R (S::*)(P...) const` from `R (P...) const`.
+    /// `R (S::*)(P...) const` from `R (P...) const`; `R (*)(P...)` when
+    /// \p self_s is empty (a static member).
     priv fn _pointer_to_member(self, sig: string, self_s: string) -> string {
         // MIGRATE(raw_string): string(sig.raw_string().substr(0, open)) once
         // the compiler builds against a string that has raw_string(); Stage 0's
@@ -320,7 +338,10 @@ class EmitWitness {
         var out = "";
         var done = false;
         for var i: usize = 0; i < sig.size(); ++i {
-            if (!done) && (sig[i] == '(') { out += "(" + self_s + "::*)"; done = true; }
+            if (!done) && (sig[i] == '(') {
+                out += ("(*)") if (self_s.size() == 0) else ("(" + self_s + "::*)");
+                done = true;
+            }
             out += sig[i];
         }
         return out;
@@ -379,7 +400,13 @@ class EmitWitness {
 
     priv fn _unsupported(self, m: *FunctionDecl) {
         if m->generic_params.size() > 0 { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a generic requirement; its witness member is not built (CODEGEN.md §7b.12, question 6)"); }
-        if !m->is_method() { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a static or constructor requirement; its witness member is not built"); }
+        // A constructor requirement is met by an own constructor, never
+        // through the witness (§7b.3); it belongs in the concept, not built.
+        var dc = reinterpret_cast::<*DeclContext>(m->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        if (owner != &null) && (self._spell->leaf(static_cast::<*Decl>(m)) == self._spell->leaf(owner)) {
+            self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a constructor requirement; it never goes through the witness, and the concept does not list it yet");
+        }
     }
 
     priv fn _at(self, p: *WitnessPiece) -> SourceRange {

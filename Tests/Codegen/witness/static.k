@@ -1,14 +1,8 @@
 // witness/static.k -- exit 8
 // A STATIC requirement through a bound, `T::make()`: `static __kairo_Self
 // make()` in the witness, called as `::N::Makeable_witness<T>::make()`
-// (CODEGEN.md §7b.3, §7b.5).
-//
-// XFAIL: *
-// Waiting on two pieces. The typer does not read `-> Self` back through a
-// `::` step, so `t` is untyped (I011W) and `t.value()` reaches codegen
-// unbound; and ExtensionLowering rewrites only `a.m()` / `p->m()` calls, so
-// `T::make()` is the EmitIR ICE naming it. When both land this XPASSes:
-// drop the XFAIL, the run below is already the real assertion.
+// (CODEGEN.md §7b.3, §7b.5). Its gate is a plain function pointer, and
+// `-> Self` reads back as T through the `::` qualifier.
 pub interface Makeable {
     static fn make() -> Self
     fn value(const self) -> i32
@@ -29,6 +23,21 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// DIAG-NOT: {{error|warning}}
+
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// CXX-LABEL: CODEGEN C++: {{.*}}witness/static.k
+// CXX: static __kairo_Self make() requires requires {
+// CXX-NEXT: static_cast<__kairo_Self(*)()>(& __kairo_Self::make);
+// CXX: return __kairo_Self::make();
+// CXX: concept Makeable_c = requires(const __kairo_Self * __kairo_r1) {
+// CXX-NEXT: Makeable_witness<__kairo_Self>::make();
+// CXX: template<> struct Makeable_witness<{{ ?}}::{{.*}}::Seven> {
+// CXX-NEXT: static{{ ?}}::{{.*}}::Seven make() {
+// CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Seven::make();
+// CXX: T t = {{ ?}}::{{.*}}::Makeable_witness<T>::make();
+
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d

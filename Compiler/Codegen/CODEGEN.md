@@ -593,9 +593,15 @@ Built, end to end (`Tests/Codegen/witness/`):
   SC001E at the call, with notes at the bound and the requirement.
 - **The call.** ExtensionLowering rewrites `a.m(x)` / `p->m(x)` bound to a
   requirement into `m(recv, x)` with an extension member's receiver rules
-  (no upcast) and records `CallExpr::witness_iface` (the DECLARING
-  interface, found through the receiver parameter's bounds and their
-  derives closure) and `witness_self`. EmitIR spells the callee
+  (no upcast), and `T::make(x)` bound to a STATIC requirement into
+  `make(x)` with Self the qualifier, and records `CallExpr::witness_iface`
+  (the DECLARING interface, found through the parameter's bounds and their
+  derives closure) and `witness_self`. A type parameter used as an
+  expression denotes its type (ExprTyper), which is how `T::` reaches the
+  bound and `-> Self` reads back as T. An operator on a bounded `T` binds
+  to the bound's requirement (OperatorTyping gathers candidates from the
+  bounds alone), so OperatorLowering mints the call and the same arm takes
+  it; an operator the bounds do not declare still defers. EmitIR spells the callee
   `::N::I_witness<Self, A...>::m`. A requirement callee with no recorded
   witness is an ICE naming ExtensionLowering.
 - **Emission.** EmitPlan keeps `WitnessPiece`s beside its ExtScopes: an
@@ -615,13 +621,10 @@ Built, end to end (`Tests/Codegen/witness/`):
 
 Not built, each the ICE or XFAIL that names it:
 
-- A STATIC requirement, `T::make()`: the typer does not read `-> Self`
-  back through a `::` step (the local is untyped, I011W), and
-  ExtensionLowering rewrites only `.` / `->` calls. `witness/static.k`.
-- An OPERATOR on a bounded `T`: OperatorTyping binds no `resolved_op`, so
-  `a == b` stays a C++ operator and links only when ADL finds an
-  extension forwarder. The witness members are emitted already.
-  `witness/operator.k`.
+- A requirement named through `::` other than a static on a bare
+  parameter (`I::m(a)`, `T::m(a)` for a method): EmitIR's ICE.
+- Compound assignment (`a += b`) on a bounded `T`: OperatorTyping still
+  defers it.
 - Generic requirements, constructor requirements in the concept,
   associated types, value-parameter interfaces: EmitWitness ICEs.
 - The concept on a record's or a method's template head (a record's head

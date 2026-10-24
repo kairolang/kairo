@@ -124,6 +124,14 @@ class <T> MemberTyping {
                     var a = dyn()->cb.anchor_for_value(&null, cur);
                     dyn()->cb.bind_step(n, st, a);
                 } else if cur_kind == 1 {
+                    // A step ChainBinding left unbound on a type PARAMETER is
+                    // dependent by its decision (`: type`, or no bound
+                    // answered): M2's, not a lookup to retry on T here.
+                    if isa::<GenericParamType>(canon_unqual(cur_type)) {
+                        info->unknown = true;
+                        dyn()->mark_unknown(n);
+                        return &null;
+                    }
                     var a = dyn()->cb.anchor_for_type(cur_type);
                     dyn()->cb.bind_step(n, st, a);
                 }

@@ -122,6 +122,7 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         var req = self._requirement_of(f);
         if req != &null {
             if st->access_kind != ChainExpr::AccessKind::ColonColon { self._through_witness(n, ch, st, f, req); }
+            else { self._static_witness(n, ch, st, f, req); }
             return static_cast::<*Expr>(n);
         }
         var ext = decl_extension_of(static_cast::<*Decl>(f));
@@ -196,6 +197,23 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         args.push(self._witness_receiver(obj, f, via_ptr));
         for var i: usize = 0; i < n->args.size(); ++i { args.push(n->args[i]); }
         args.freeze_into(&(n->args));
+    }
+
+    /// `T::make(x)` bound to static requirement `make` of I: `make(x)`
+    /// through the witness, Self the qualifier, no receiver. Only a bare
+    /// bounded parameter qualifies one; any other `::` form of a requirement
+    /// (`I::m(a)`, a method named through `T::`) is left for EmitIR's ICE.
+    priv fn _static_witness(self, n: *CallExpr, ch: *ChainExpr, st: *ChainExpr::Step,
+                            f: *FunctionDecl, req: *InterfaceDecl) {
+        if f->is_method() || (ch->steps.size() != 1) || (ch->base == &null) { return; }
+        var q = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(ch->base));
+        if q == &null { return; }
+        var gp = dyn_cast::<GenericParamDecl>(q->resolved_decl);
+        if (gp == &null) || (gp->owner == &null) { return; }
+        var me = self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
+        n->callee        = self._head(st, f);
+        n->witness_self  = me;
+        n->witness_iface = self._declaring_iface(me, req, n);
     }
 
     /// Argument zero of a witness call: the pointer for a named member, the

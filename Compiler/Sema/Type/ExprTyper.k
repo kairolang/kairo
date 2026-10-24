@@ -545,7 +545,17 @@ class ExprTyper
                 if (!f->is_method()) && (f->generic_params.size() == 0) { return self.fn_pointer_type(f); }
                 return &null;
             }
-            case DeclKind::GenericParamDecl { self.mark_unknown(n); return &null; }
+            case DeclKind::GenericParamDecl {
+                // A TYPE parameter denotes its type, as a record's name does:
+                // `T::make()` is a static of T's bounds called with T as its
+                // qualifier, and MemberTyping reads the receiver off this. A
+                // `const N` value parameter is a value whose type is M2's.
+                var gp = cast::<GenericParamDecl>(d);
+                if gp->is_const_param || gp->is_pack || (gp->owner == &null) { self.mark_unknown(n); return &null; }
+                self.note_type_expr(static_cast::<*Expr>(n),
+                    self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, false));
+                return &null;
+            }
             case DeclKind::ModuleDecl {
                 // A module used as a value is the typer's own (still open)
                 // question and stays silent here. `cxx` is not: it is the C++
