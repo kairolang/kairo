@@ -45,6 +45,14 @@ class SearchRoot {
     /// it, which is what keeps the emitted namespace independent of it.
     pub var spelling: vec::<string>;
 
+    /// A library found by its pinned module.k (`module foo`) in an immediate
+    /// subdirectory of another root, rather than registered by the driver or
+    /// -I. Reached by its NAME only: resolve_module_rel's last-resort probe
+    /// of every root with the path as written skips it, so a pinned
+    /// subdirectory never makes its files importable unqualified from the
+    /// whole build.
+    pub var discovered: bool = false;
+
     fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions,
                   name: vec::<string> = vec::<string>(),
                   spelling: vec::<string> = vec::<string>()) {
@@ -145,4 +153,108 @@ fn root_name_matches(name: vec::<string>, segments: vec::<string>) -> bool {
         if name[i] != segments[i] { return false; }
     }
     return true;
+}
+
+/// Reads the pin of a module.k: the path of its bare `module a::b` declaration
+/// when that is the file's FIRST declaration, else nothing.
+///
+/// A byte scan, not a lex: the resolver decides library names at index time,
+/// before there is a SourceManager fid for the file, and it may look at a
+/// module.k in every immediate subdirectory of every search root, so the cost
+/// has to be one map and a few bytes, never a tokenization. It agrees with
+/// the parser's `_is_module_pin` on what a pin is: comments are trivia, the
+/// path is `ident (:: ident)*`, and it ends at `;`, EOF or a newline that is
+/// not followed by `{` (`module foo` NEWLINE `{` is the block form).
+class ModulePinScanner {
+    pub var d: std::ConstPtr::<u8> = &null;
+    pub var n: usize = 0;
+    pub var i: usize = 0;
+
+    fn at(self, k: usize) -> u8 {
+        return (self.d[k]) if (k < self.n) else (0 as u8);
+    }
+
+    /// Spaces, tabs, `//` to end of line and NESTED `/* */` (the lexer nests
+    /// them); newlines too when \p nl is set.
+    fn skip(self, nl: bool) {
+        while self.i < self.n {
+            var c = self.at(self.i);
+            if (c == ' ') || (c == '\t') || (c == '\r') { self.i += 1; continue; }
+            if (c == '\n') && nl { self.i += 1; continue; }
+            if (c == '/') && (self.at(self.i + 1) == '/') {
+                while (self.i < self.n) && (self.at(self.i) != '\n') { self.i += 1; }
+                continue;
+            }
+            if (c == '/') && (self.at(self.i + 1) == '*') {
+                var depth: usize = 1;
+                self.i += 2;
+                while (self.i < self.n) && (depth > 0) {
+                    if (self.at(self.i) == '*') && (self.at(self.i + 1) == '/') { depth -= 1; self.i += 2; continue; }
+                    if (self.at(self.i) == '/') && (self.at(self.i + 1) == '*') { depth += 1; self.i += 2; continue; }
+                    self.i += 1;
+                }
+                continue;
+            }
+            return;
+        }
+    }
+
+    fn is_ident_char(self, c: u8, first: bool) -> bool {
+        if ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')) || (c == '_') { return true; }
+        if first { return false; }
+        return (c >= '0') && (c <= '9');
+    }
+
+    /// The identifier at the cursor, consumed, or "" with the cursor unmoved.
+    fn ident(self) -> string {
+        var out = string();
+        if !self.is_ident_char(self.at(self.i), true) { return out; }
+        while (self.i < self.n) && self.is_ident_char(self.at(self.i), false) {
+            out += static_cast::<char>(self.at(self.i));
+            self.i += 1;
+        }
+        return out;
+    }
+
+    fn scan(self) -> vec::<string> {
+        var none = vec::<string>();
+        // A UTF-8 BOM is not a declaration.
+        if (self.at(0) == 0xEF) && (self.at(1) == 0xBB) && (self.at(2) == 0xBF) { self.i = 3; }
+
+        self.skip(true);
+        if self.ident() != "module" { return none; }
+
+        var segs = vec::<string>();
+        while true {
+            self.skip(false);
+            var seg = self.ident();
+            if seg.size() == 0 { return none; }
+            segs.push_back(seg);
+            self.skip(false);
+            if (self.at(self.i) == ':') && (self.at(self.i + 1) == ':') {
+                self.i += 2;
+                continue;
+            }
+            break;
+        }
+
+        if self.i >= self.n { return segs; }
+        var c = self.at(self.i);
+        if c == ';' { return segs; }
+        if c != '\n' { return none; }
+        self.skip(true);
+        if (self.i < self.n) && (self.at(self.i) == '{') { return none; }
+        return segs;
+    }
+}
+
+fn read_module_pin(file: string) -> vec::<string> {
+    var buf = MappedFileBuffer{};
+    buf.load(&file);
+    if !buf.is_valid() { return vec::<string>(); }
+    var mem = buf.bytes();
+    var sc  = ModulePinScanner{};
+    sc.d = mem.data();
+    sc.n = mem.size();
+    return sc.scan();
 }

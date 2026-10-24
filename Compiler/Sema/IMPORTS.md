@@ -106,6 +106,26 @@ that is fixed by where the file sits, never by who imports it.
   and at a root's TOP level the directory IS the root, so `Lib/std/module.k`
   is `kairo::std`, not `kairo::std::module`. `module X { }` inside a file
   appends `X`.
+- **A module.k can pin its directory's library name.** A `module.k` whose
+  FIRST declaration is the bare `module a::b` (a module path, ended by a
+  newline or `;`) makes its directory the root of library `a::b`, named by
+  the declaration and not the folder: `geometry/module.k` saying
+  `module geo` is imported as `geo`, and `geometry/inner/x.k` is
+  `geo::inner::x`. Pins are DISCOVERED only in each root directory and its
+  immediate subdirectories (one readdir per root, one small read per
+  module.k, never a recursive walk); a subdirectory pin registers a library
+  root (`SearchRoot::discovered`) reached by its name only -- the
+  "every other root with the path as written" fallback skips it. A pin
+  deeper than that still fixes its files' paths: `canonical_module_path`
+  walks up from the file to the nearest pinned directory below its root
+  and uses the pin's name as the prefix. A root directory's own pin names
+  an implicit `-I dir` root; an explicit name (`-I name=dir`, the driver's
+  `builtin` and `kairo::std`) wins, and `Lib/std/module.k` /
+  `Lib/builtin/module.k` pin exactly those names. The cwd stays the
+  unnamed entry root even if its module.k pins. Two pins with one name, or
+  a pin colliding with a registered root, are R018E. The bare form parses
+  in any file; outside module.k it has no effect yet (the parser records it
+  on `TranslationUnit::pin_segments` and nothing reads that).
 - **Root names match longest first.** An import path is matched against
   each root's segment list on its LEADING segments, longest name winning:
   with roots `kairo::std` and a hypothetical `kairo`, `import kairo::std::vec`
@@ -148,8 +168,11 @@ Mechanically: `ImportResolver::Builder::add_include(path, name)`;
 `SearchRoot::name` carries it (empty = the entry root);
 `canonical_module_path` prefixes it, so `module_base` for a file under a
 root is `[root name] + relative directories`. `-I path` takes the
-directory's basename; `-I name=path` overrides it, split on the first
-`=`. `resolve_module_rel` probes the importing file's OWN root with the
+directory's basename unless the directory's own module.k pins a name;
+`-I name=path` overrides both, split on the first `=`. `build_index` then
+registers each pinned immediate subdirectory of every root as a root named
+by its pin (`read_module_pin`: a byte scan of the file's first declaration,
+no lex, cached per directory in `_dir_pins`). `resolve_module_rel` probes the importing file's OWN root with the
 path as written, then any root whose name is the leading segment with
 the rest of the path, then the remaining roots except that a file
 under a named root never falls back into the entry root, which is a leaf

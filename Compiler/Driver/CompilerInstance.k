@@ -1251,6 +1251,15 @@ class CompilerInstance {
         var found = self._imp->take_root_collisions();
         for var i: usize = 0; i < found.size(); ++i {
             var c = found[i];
+            // A pinned library took its name from its own module.k, so the
+            // fix is there; -I name=path cannot rename a discovered library.
+            if c.pinned {
+                self._diag->report(DiagCode(DiagID::R018E),
+                    f"duplicate module root '{c.name}': '{c.a}' and '{c.b}' both claim it; "
+                    "rename one library\x27s `module` declaration in its module.k"
+                ).emit();
+                continue;
+            }
             self._diag->report(DiagCode(DiagID::R018E),
                 f"duplicate module root '{c.name}': '{c.a}' and '{c.b}' both claim it; "
                 "give one an explicit name with -I name=path"
