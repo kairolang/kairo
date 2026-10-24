@@ -2125,7 +2125,10 @@ class CompilerInstance {
         // ImportDecl::resolved_fid, the TU's import edges). One input is never
         // imported, so it can hold fid 0; of several, the first loaded may be
         // the one another imports, whose import would then resolve to
-        // nothing. A placeholder takes fid 0 instead.
+        // nothing. A placeholder takes fid 0 instead. It relies on nothing
+        // loading a Kairo input before this runs (_plan_outputs does not);
+        // inputs found any other way (M3's include discovery) must be added
+        // to _inputs ahead of this, not loaded.
         if self._sm->file_count() == 0 {
             self._sm->load_virtual(Path(r"<kairo-batch>"),
                 reinterpret_cast::<std::ConstPtr::<u8>>(self._fid0_text.raw()), self._fid0_text.size());
