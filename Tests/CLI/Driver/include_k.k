@@ -26,7 +26,7 @@ fn main() -> i32 { return 0 }
 // RUN: not %kairo -c %S/Inputs/include_k/missing.cc %S/Inputs/include_k/geo.k --cache-dir %t.d/miss > /dev/null 2>&1
 
 // The interface is C++: a C translation unit cannot take it.
-// RUN: { %kairo -c %S/Inputs/include_k/from_c.c %S/Inputs/include_k/geo.k --cache-dir %t.d/c 2>&1 || true; } | %FileCheck %s --check-prefix=FROMC
+// RUN: { %kairo -c %S/Inputs/include_k/from_c.c %S/Inputs/include_k/geo.k --cache-dir %t.d/c 2>&1 || true; } | %FileCheck %s --check-prefix=FROMC --implicit-check-not=error
 // FROMC: from_c.c:1:10: error [CL001E]: cannot include '{{.*}}geo.k': a Kairo file can only be included from C++ or Objective-C++
 
 // Objective-C++ is C++ to the include: same interface, same tokens.
