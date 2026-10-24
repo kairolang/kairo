@@ -64,6 +64,7 @@ import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
+import Location::SourceRange::*;
 
 class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     pub var sc: *SemaContext;
@@ -94,12 +95,42 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
 
     fn visit_expr(self, e: *Expr) -> bool {
         if (e == &null) || e->is_poisoned() { return true; }
+        // A bounded record's instance is an instantiation site wherever its
+        // type turns up: written, inferred, or as an argument of another.
+        if e->type_ != &null { self._check_type(e->type_, e->range, 0); }
         if e->kind != ExprKind::CallExpr { return true; }
         var c = cast::<CallExpr>(e);
         var ie = reinterpret_cast::<*InstanceEntry>(c->instance);
-        if ie != &null { self._check_instance(ie, c); }
+        if ie != &null { self._check_instance(ie, c->range); }
         self._check_qualified(c);
         return true;
+    }
+
+    fn visit_type(self, t: *Type) -> bool {
+        if t != &null { self._check_type(t, t->range, 0); }
+        return true;
+    }
+
+    /// Every record instance in \p t, its arguments included (`Vec<Box<M>>`).
+    priv fn _check_type(self, t: *Type, at: SourceRange, depth: u32) {
+        if (t == &null) || (depth > 16) { return; }
+        var c = self._canon(t);
+        if (c == &null) || c->is_dependent() || c->is_instantiation_dependent() { return; }
+        switch c->kind {
+            case TypeKind::PointerType      { self._check_type(cast::<PointerType>(c)->pointee, at, depth + 1); }
+            case TypeKind::CXXLValueRefType { self._check_type(cast::<CXXLValueRefType>(c)->referee, at, depth + 1); }
+            case TypeKind::CXXRValueRefType { self._check_type(cast::<CXXRValueRefType>(c)->referee, at, depth + 1); }
+            case TypeKind::NullableType     { self._check_type(cast::<NullableType>(c)->inner, at, depth + 1); }
+            case TypeKind::FixedArrayType   { self._check_type(cast::<FixedArrayType>(c)->element, at, depth + 1); }
+            case TypeKind::RecordType {
+                var r = cast::<RecordType>(c);
+                for var i: usize = 0; i < r->args.size(); ++i { self._check_type(r->args[i], at, depth + 1); }
+                if (r->decl == &null) || (!decl_is_instance(r->decl)) { return; }
+                var e = self.sc->instances->entry_of(r->decl);
+                if e != &null { self._check_instance(e, at); }
+            }
+            default { return; }
+        }
     }
 
     /// `I::m(x, ...)` with x of a CONCRETE type: the call is the
@@ -132,7 +163,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var empty = vec::<*Type>();
         var iface = self.sc->types->record(idecl, &empty);
         var row = self.conforms(x, iface);
-        if (row == &null) || (!row->ok) { self._report(c, &null, x, iface, row); return; }
+        if (row == &null) || (!row->ok) { self._report(c->range, &null, x, iface, row); return; }
         c->witness_row = reinterpret_cast::<*void>(row);
     }
 
@@ -149,11 +180,14 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
 
     /// Fill \p e's rows from its primary's `impl` bounds, reporting at \p at
     /// a bound its argument does not meet.
-    priv fn _check_instance(self, e: *InstanceEntry, at: *CallExpr) {
+    priv fn _check_instance(self, e: *InstanceEntry, at: SourceRange) {
         if e->rows_done { return; }
+        // Checked at its first use with a place to report at; a type with no
+        // range (a canonical reached without a written node) waits for one.
+        if !at.start.is_valid() { return; }
         var prim = e->primary;
-        if (prim == &null) || (!isa::<FunctionDecl>(prim)) { return; }
-        var req = cast::<FunctionDecl>(prim)->requires_clause;
+        if prim == &null { return; }
+        var req = decl_requires_clause(prim);
         var bounds = vec::<*ConstraintExpr>();
         self._impl_bounds(req, &bounds);
 
@@ -175,7 +209,9 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             }
             if !self._push_closure(row, x, &rows, at, b) { ok = false; }
         }
-        if !ok { return; }
+        // Done either way: a non-conforming instance is reported once, at its
+        // first use, however many times it is named.
+        if !ok { rows.clear(); }
         self.sc->instances->set_rows(e, &rows);
     }
 
@@ -185,7 +221,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// requirement \p x does not meet is the bound's failure, reported at
     /// \p at like the bound's own. False when one was reported.
     priv fn _push_closure(self, row: *ConformanceRow, x: *Type, out: *vec::<*ConformanceRow>,
-                          at: *CallExpr, b: *ConstraintExpr) -> bool {
+                          at: SourceRange, b: *ConstraintExpr) -> bool {
         for var i: usize = 0; i < out->size(); ++i { if (*out)[i] == row { return true; } }
         out->push_back(row);
         var ok = true;
@@ -390,7 +426,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         return s;
     }
 
-    priv fn _report(self, at: *CallExpr, b: *ConstraintExpr, x: *Type, iface: *Type, row: *ConformanceRow) {
+    priv fn _report(self, at: SourceRange, b: *ConstraintExpr, x: *Type, iface: *Type, row: *ConformanceRow) {
         var xs = self.tu.str(x);
         var is = self.tu.str(iface);
         var missing = "";
@@ -406,8 +442,8 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         }
         var msg = f"'{xs}' does not conform to '{is}\x27";
         if missing.size() > 0 { msg = f"'{xs}' does not conform to '{is}': no member '{missing}' with the requirement's signature"; }
-        var d = self.sc->diag->report(DiagID::SC001E, at->range.start, msg);
-        d.first(at->range);
+        var d = self.sc->diag->report(DiagID::SC001E, at.start, msg);
+        d.first(at);
         if b != &null { d.note(b->range.start, f"required by this bound").first(b->range); }
         if req != &null { d.note(req->range.start, f"'{missing}' is required here").first(req->range); }
         d.emit();

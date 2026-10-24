@@ -50,6 +50,21 @@ fn decl_generic_params(d: *Decl) -> FrozenList::<*GenericParamDecl> {
     return create_empty_frozen_list::<*GenericParamDecl>();
 }
 
+/// The decl's `requires` clause (RequiresDesugar hoisted every inline
+/// bound into it), or null.
+fn decl_requires_clause(d: *Decl) -> *Expr {
+    if d == &null { return &null; }
+    if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->requires_clause;     }
+    if isa::<StructDecl>(d)    { return cast::<StructDecl>(d)->requires_clause;    }
+    if isa::<UnionDecl>(d)     { return cast::<UnionDecl>(d)->requires_clause;     }
+    if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->requires_clause; }
+    if isa::<EnumDecl>(d)      { return cast::<EnumDecl>(d)->requires_clause;      }
+    if isa::<TypeAliasDecl>(d) { return cast::<TypeAliasDecl>(d)->requires_clause; }
+    if isa::<FunctionDecl>(d)  { return cast::<FunctionDecl>(d)->requires_clause;  }
+    if isa::<ExtensionDecl>(d) { return cast::<ExtensionDecl>(d)->requires_clause; }
+    return &null;
+}
+
 /// The slot itself, for a writer (DeclImport fills it). Null for a kind
 /// that has none.
 fn decl_generic_params_slot(d: *Decl) -> *FrozenList::<*GenericParamDecl> {
