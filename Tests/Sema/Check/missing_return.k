@@ -241,3 +241,12 @@ fn bad_generator_return_value() -> yield i32 {
     return 2
 }
 // CHECK: missing_return.k:[[@LINE-2]]:5: error [SC001E]: a generator ends with 'return' and yields its values; it has no return value
+
+// --- main -----------------------------------------------------------------------
+// `main` gets no C++-style implicit `return 0`: a `-> i32` main that can reach
+// its closing brace is the same SC104E as any other function.
+
+fn main() -> i32 {
+    var x = 1
+}
+// CHECK: missing_return.k:[[@LINE-1]]:1: error [SC104E]: 'main' does not return a value on all control paths
