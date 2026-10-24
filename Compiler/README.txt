@@ -10,18 +10,33 @@ Compiler/
 ├── Macro/          macro definitions, collection, expansion, builtin sentinels
 ├── Resolution/     import probing, module path resolution, search roots
 ├── Parser/         tokens -> AST, two-pass hoisted (decl/expr/stmt/type/pattern)
-├── Sema/           type checking, inference, lowering passes, monomorphization
+├── Sema/           RESOLUTION.md (pass spec), IMPORTS.md (import/overlay model)
+│   ├── Resolve/    name, member, type and import resolution, chain binding
+│   ├── Type/       expression typing, calls, casts, argument deduction
+│   ├── Check/      conformance, init/move/const, control flow, patterns
+│   ├── Verify/     post-resolution checks (e.g. ModulePinCheck)
+│   ├── Expand/     macro expansion, eval, requires desugaring
+│   ├── Foreign/    C++ (ffi) decl import/export, header index
+│   ├── Mono/       monomorphization, witness tables
+│   └── Lower/      Kairo -> core-Kairo rewrites that feed Codegen
+├── Codegen/        CODEGEN.md; checked tree -> tokens -> object
+│   ├── Emit/       EmitIR (bodies), InterfaceEmitter, CXXSpell (names)
+│   ├── Sink/       token / text sinks (--print-cxx)
+│   └── Backend/    clang invocation, headers, #include "foo.k" emitter
 ├── AST/
 │   ├── Node/       node defs + RTTI casting (isa/cast/dyn_cast via kind field)
 │   ├── Kind/       discriminator enums (DeclKind, ExprKind, ...)
-│   ├── Context/    ASTContext arena owner, hoisted scope, translation unit
+│   ├── Context/    ASTContext arena owner, symbol tables, translation unit,
+│   │               instantiation registry
 │   ├── Mixin/      shared node traits (annotation, redeclarable, qualifiers)
 │   ├── Visitor/    CRTP RecursiveASTVisitor
 │   ├── Matcher/    AST matching, position queries
 │   └── Printer/    tree/flat AST dump
 ├── Interop/
-│   └── Clang/      C++ symbol extraction (FFI), token injection into Clang SourceManager
-├── Driver/         per-TU orchestration, batch results, pipeline stages
+│   └── Clang/      clang jobs for C/C++ inputs, the codegen backend, the
+│                   #include "foo.k" hook and include scan, loc mapping
+├── Driver/         CompilerInstance; entry points Kairo.k (kairo), Kcc.k
+│                   (kcc), KairoWatch.k (kwatch); input kinds
 ├── Diagnostic/     engine, consumers (basic/pretty)
 │   └──TableGen/    diagnostic registry, --explain, *.diag.toml files
 ├── Command/        CLI flag parsing (registry, utils, parsed args)
@@ -30,7 +45,10 @@ Compiler/
 ├── Memory/         arena allocation, memory buffers, mmap regions
 ├── Threading/      thread pool, task queues, partitioning, cache-line consts
 ├── Support/        interning, file IO, terminal rendering, misc primitives
+├── Tooling/        parse API for tools, kparse / kparsebench
 └── Native/         C++ interop headers (.hh) pooled, path-coupled
+
+The linker (KLD) is not under Compiler/: it is ../Linker (Linker::API).
 
 --------------------------------------------------------------------------------
 
@@ -53,10 +71,11 @@ not carry assumptions from one to the other.
   checking, monomorphization, all done Kairo-side), and a CodeGen that does
   NOT emit C++ source.
 
-BUILD STATE: complete through the Index, Import Resolution, parser. Lexer,
-preprocessor, and parser work. Everything downstream, Sema, CodeGen, the
-LLVM IR safety pass, and KLD linking, Sema, and Codegen is a work in progress,
-not yet implemented. The pipeline is designed and staged
+BUILD STATE: lexer, preprocessor, parser, import resolution and Sema's name
+and type resolution are complete (`--type-check-only` is the dependable
+loop). Lowering and CodeGen are in progress: many programs compile, link
+through KLD and run (Tests/Codegen), but not every construct lowers yet.
+The LLVM IR safety pass is designed, not built.
 
 Stage 1 CodeGen constructs an in-memory clang::Token stream located into the
 original .k files, and Clang consumes it directly (via EnterTokenStream, or
@@ -84,11 +103,12 @@ Each stage owns one transformation and hands off; the directory layout
 follows the pipeline.
 
   Load -> Lex -> Preprocess -> Index -> Parse -> Import Resolution
-       -> Sema (KairoIR lowering) -> CodeGen -> LLVM IR safety -> Link
+       -> Sema (KairoIR lowering) -> CodeGen -> Sema agreement
+       -> LLVM IR safety -> Link
 
-Built today: Load, Lex, Preprocess, Parse. Designed but not implemented:
-Index, Import Resolution, Sema, CodeGen, LLVM IR safety, Link. (Index is
-drawn before Parse because it hoists decls pre-parse; it is not built yet.)
+Built: Load, Lex, Preprocess, Index (the parser's hoisting pass), Parse,
+Import Resolution, Sema. In progress: lowering, CodeGen, Link. Designed,
+not built: Sema agreement, LLVM IR safety.
 
 Index and Import Resolution are real stages, not sub-steps. C++ FFI is not
 a linear stage, it's a guest invoke that fires during Index (see Pipeline 1).
@@ -131,8 +151,8 @@ libraries), classified by Driver/InputKinds.k or by -x <lang>. A non-.k
 source is compiled by clang's own driver, run in-process
 (Interop/Clang/ClangJobs.k), on the build's target and header roots, and
 joins the same link. Every kairo <-> clang flag spelling, in both
-directions, lives in Command/FlagTranslator.k; kcc will be kairo fed a clang
-command line through that file's reverse map.
+directions, lives in Command/FlagTranslator.k; kcc (Driver/Kcc.k) is kairo
+fed a clang command line through that file's reverse map.
 
 --------------------------------------------------------------------------------
 
@@ -148,10 +168,13 @@ import pulls in another TU.
     |  // this file is TU 0  |
     *------------------------*
 
-TU 0 must be main-like (a program entry point) or a library target (compiled
-to an object / .klib). All TUs reachable from one root form ONE Frontend
-Action. `kairo main1.k main2.k` launches two Frontend Actions running fully
-in parallel, separate TU graphs, separate thread fan-out, separate objects.
+There is no entry file: every input is a module, named by the library
+(a module.k pinning `module foo`) or search dir (the cwd, each -I) that
+contains it, and `main` is the global `int main` wherever it is declared.
+Each input gets one Frontend Action over the TUs it reaches. The inputs of
+one build share a batch: a file reached by two inputs is built once (the
+first action to reach it claims it), and an input another input imports is
+run first. See Sema/IMPORTS.md for roots and module paths.
 
 Per-Action pipeline (parallelism shown explicitly):
 
@@ -189,15 +212,15 @@ Per-Action pipeline (parallelism shown explicitly):
                                 | (import graph known; fan out)
                                 v
         *=================================================*
-        |   INDEX  -- cheap, fully parallel over all TUs  |   AST/Context/ASTIndex.k
-        |   walk each TU, pull ONLY decls + top-levels,   |   AST/Context/GlobalHoistedScope.k
+        |   INDEX  -- cheap, fully parallel over all TUs  |   Parser/ASTParse.k (hoist pass)
+        |   walk each TU, pull ONLY decls + top-levels,   |   AST/Context/GlobalDisambigTable.k
         |   set correct scope info into the shared        |   AST/Context/ASTContext.k
-        |   GlobalHoistedScope (thread-safe). Create an   |
+        |   disambiguation table (thread-safe). Create an |
         |   ASTContext per TU.                            |
         |                                                 |
-        |   FFI fires HERE: ffi "c++" import "foo.hh"     |   Interop/Clang/ClangBridge.k
-        |   invokes Clang as a guest to extract C++       |   Interop/Clang/ClangBridgeImpl.hh
-        |   symbols into the GlobalHoistedScope.          |
+        |   FFI fires HERE: ffi "c++" import "foo.hh"     |   Sema/Foreign/HeaderIndex.k
+        |   invokes Clang as a guest to extract C++       |   Sema/Foreign/DeclImport.k
+        |   symbols for Sema.                             |
         *=================================================*
                                 v
         *=================================================*
@@ -209,7 +232,7 @@ Per-Action pipeline (parallelism shown explicitly):
                                 v
         *=================================================*
         |   IMPORT RESOLVER -- fully parallel over TUs    |   Resolution/*
-        |   transform each import node into correctly     |   Sema/ImportResolution.k
+        |   transform each import node into correctly     |   Sema/Resolve/ImportResolution.k
         |   scoped forward decls: module Foo { ..fwd.. }. |
         |   Rewrite unqualified callers to the right      |
         |   target: foo() -> Foo::foo().                  |
@@ -220,11 +243,11 @@ Per-Action pipeline (parallelism shown explicitly):
         |  type resolution, trait/conformance checking,   |
         |  generic instantiation, AMT borrow checking,    |
         |  Code expansion. Kairo's IR layer IS Kairo:     |
-        |  every high-level construct lowers into more    |   Sema/MatchLowering,
+        |  every high-level construct lowers into more    |   Sema/Lower/* (MatchLowering,
         |  primitive Kairo constructs (match, nullable,   |   NullableTypeLowering,
-        |  panic, finally, operators, ...).               |   PanicLowering, OperatorLowering
-        |                                                 |
-        |  Most passes fan out. Some will need a          |   Sema/Monomorphization.k
+        |  panic, finally, operators, ...).               |   PanicLowering, ...)
+        |                                                 |   Sema/RESOLUTION.md
+        |  Most passes fan out. Some will need a          |   Sema/Mono/Monomorphization.k
         |  convergence barrier -- monomorphization is     |
         |  designed as 2-pass (pass 1 converges across    |
         |  TUs before pass 2). Barrier set not yet        |
@@ -232,14 +255,27 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  CODEGEN -- always fully parallel over TUs      |   Token/TokenSpan, Token/Token.k
-        |  construct a clang::Token stream into a custom  |   Interop/Clang/SourceLocTranslator.k
-        |  inline buffer; SourceLocs point into .k.       |   AST/Printer
-        |  Invoke Clang cleanly as a guest -> object.     |
+        |  CODEGEN -- always fully parallel over TUs      |   Codegen/CODEGEN.md
+        |  construct a clang::Token stream into a custom  |   Codegen/EmitPlan.k, Emit/*
+        |  inline buffer; SourceLocs point into .k.       |   Codegen/Sink/TokenSink.k
+        |  Invoke Clang cleanly as a guest -> object.     |   Codegen/Backend/CodegenBackend.k
+        *=================================================*
+                                v
+        *=================================================*
+        |  SEMA AGREEMENT -- parallel over TUs; NOT BUILT |   (walk of clang's AST; not built)
+        |  clang has parsed and type-checked the tokens   |
+        |  CodeGen built. Walk what it produced and check |
+        |  clang's Sema reached Kairo's decisions: each   |
+        |  call's overload ranking and chosen callee,     |
+        |  ADL candidates and ranking, conversions,       |
+        |  template / specialization picked. A            |
+        |  disagreement is a Kairo bug (CodeGen left      |
+        |  clang a choice, or Sema ranked wrongly), so    |
+        |  it is an internal error naming both answers.   |
         *=================================================*
                                 v
                   *------------------------------*
-                  |  LLVM IR safety pass         |   (post-Clang IR walk)
+                  |  LLVM IR safety pass         |   (post-Clang IR walk; not built)
                   |  Clang hands back ABI-       |
                   |  correct LLVM IR. Walk it    |
                   |  and inject safety instrs:   |
@@ -252,7 +288,7 @@ Per-Action pipeline (parallelism shown explicitly):
                   *-------------*----------------*
                                 v
                   *---------------------------*
-                  |  KLD (linked as a lib)    |   Driver/
+                  |  KLD (linked as a lib)    |   ../Linker (Linker::API)
                   |  linking + completion,    |
                   |  Kairo demangling, Kairo  |
                   |  diagnostic integration.  |
@@ -262,30 +298,42 @@ Per-Action pipeline (parallelism shown explicitly):
 
 --------------------------------------------------------------------------------
 
- FFI note - the C++ gets parsed twice
---------------------------------------
+ FFI note - C++ headers, parsed once (mostly)
+---------------------------------------------
 
-C++ headers are parsed by Clang TWICE per build:
+Every header set (one file's ffi headers) is parsed by Clang once in
+phase A (Interop/Clang/HeaderSet.k):
 
-  1. At Index, to pull C++ symbols into the GlobalHoistedScope so Kairo
-     Sema can resolve and type-check against them.
-  2. After CodeGen, when -include brings the header back in as Clang
-     consumes the injected token stream and lowers to LLVM IR.
+  1. Phase A, on the thread pool while the importer parses: clang parses
+     the set and keeps its ASTContext and Sema alive, and writes an
+     in-memory PCH. Sema/Foreign/HeaderIndex.k walks that AST to give
+     Kairo Sema the C++ symbols it resolves and type-checks against.
+  2. Phase B, CodeGen: the backend loads that PCH instead of re-parsing,
+     so emission starts from phase A's AST
+     (Codegen/Backend/CodegenBackend.k).
 
-Both passes are currently full reparses via a RecursiveASTVisitor
-(Interop/Clang/ClangBridge.k, ClangBridgeImpl.hh). That's the current state:
-correct, but redundant, the Index pass walks the whole AST when, for hoisting,
-it mostly needs names and scopes.
-
-Planned: collapse the Index-time pass to a lighter token walker that pulls
-symbol + scope without building/walking a full Clang AST, keeping the full
-RAV only where a symbol's shape (member layout, template signatures, overload
-sets) is load-bearing for Sema. Not done yet, don't code against it.
+LIMITATION, the common case today: a clang TU takes ONE PCH. A Kairo TU's
+codegen gets every header set in its import graph; the first (its own,
+when it has one) is the PCH, and every other set's headers are #included
+textually and parsed again, in every TU's backend run. builtin alone has
+two sets (types.k's <coroutine>, fmt.k's rt/fmt.h), so every program pays
+it. Measured on a one-file program importing <vector>: phase B reopens
+all three sets' headers, sub-headers included, and the backend's own time
+(~1.3s over 6 TUs) dwarfs phase A's three set builds (~0.37s).
 
 --------------------------------------------------------------------------------
 
  Pipeline 2 - kcc (Clang-fronted, .k embedded via patched Clang)
 -----------------------------------------------------------------
+
+kcc (Driver/Kcc.k) is a clang/clang++ drop-in: it translates a clang
+command line into kairo's words (FlagTranslator::from_driver) and runs the
+same CompilerInstance as kairo, so `kcc -c x.cc`, `kcc main.cc foo.k -o app`
+and `kcc x.o y.o` behave as with clang. `-c` writes objects for the command
+line's own files only; a link takes builtin, std and the runtime from the
+toolchain's cached library (--kairo-lib). A C++ input's `#include "foo.k"`
+files are found before the compile (Interop/Clang/KairoIncludeScan.k) and
+built as modules beside it (foo.cc + foo.k -> foo.o + foo.k.o).
 
 Entry on .cc. Clang drives the C++ TU normally. The patch adds a third
 lexer-content mode: when EnterSourceFile builds a Lexer for a FileID, it
@@ -317,8 +365,8 @@ map, no proxy file.
                           v
               *-------------------------------*
               |  Kairo pipeline (as a lib)    |   same core as Pipeline 1:
-              |  lex/pp/parse/sema the .k     |   Lexer, Preprocessor, Parser, Sema
-              |  region; construct clang::    |   Token/, AST/Printer
+              |  lex/pp/parse/sema the .k     |   Interop/Clang/KairoInclude.k
+              |  region; construct clang::    |   Codegen/Backend/IncludeEmitter.k
               |  Tokens located into foo.k    |
               *---------------*---------------*
                           |  tokens handed back to the hook
@@ -334,6 +382,9 @@ map, no proxy file.
 Token-construction model is identical to Pipeline 1's CodeGen: tokens in
 memory, located into .k. The only difference is who asked for them, here
 it's Clang's include machinery via the hook, not a standalone Frontend Action.
+What the include yields is foo's interface (pub decls, plus the inline and
+template bodies a C++ consumer compiles itself); foo's own bodies are in
+foo.k.o (CODEGEN.md §1, EmitPlan(Include)).
 
 --------------------------------------------------------------------------------
 
@@ -359,6 +410,7 @@ paths are relative and mutually dependent; -I does not currently reach them.
  Build
 -------
 
-  kbld kairo --debug     (from the kairo/ root)
+  kbld kairo --debug     (from the repo root)
+  kbld kcc --debug       (when Driver/ or anything kcc links changes)
 
 Stage 0 compiles all of Stage 1. Stage 1 does not yet compile itself.

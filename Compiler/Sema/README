@@ -1,73 +1,63 @@
-# contains the code for sema (right now stubs)
+# Sema
 
-DONT FORGET CLASS LIFECYCLE PASS
+Name resolution, type checking, the semantic checks, and the lowerings that
+reduce a checked tree to the core Kairo Codegen emits. Complete through name
+and type resolution (`--type-check-only` is the dependable loop); lowering
+and codegen are in progress.
 
-Also add OOP vitural detor missing errors:
-really simple pass walk all clases that derive from a base, if the base has a non virtual destructor, and the derived class has a non trivial destructor, emit an error, stating base class does not have a virtual destructor, and derived class has a non trivial destructor, this is a memory leak waiting to happen.
+The specs, read before changing anything here:
+- RESOLUTION.md  THE spec: pass order (P -> I -> E -> V -> N -> T ->
+                 ChainBinding -> checks), what each pass owns, the hard
+                 invariants (§3), and what remains (§4).
+- IMPORTS.md     the import / overlay model, module roots and paths.
+- ../Codegen/CODEGEN.md  the contract between Lower/ and Codegen.
 
-simple exmaple:
-```swift
-class Base {
-    fn op delete (self) { std::println("non trivial destructor") }
-}
+Layout:
+- Sema.k, SemaContext.k, SemaDump.k  driver, shared state, --print-sema
+- Resolve/  name, member, type and import resolution, redecl merge, chain
+            binding, access checks
+- Type/     ExprTyper and its parts: calls, overload resolution, argument
+            deduction, conversions, casts, literals, operators, patterns
+- Check/    semantic checks: class lifecycle, conformance, init / move /
+            const, control flow, returns, patterns, effects, layout
+- Verify/   structural checks after resolution (arm order, labels, loop
+            context, terminators, C++ names, module pins)
+- Expand/   macro expansion, eval, requires desugaring
+- Foreign/  C++ (ffi) decls in and out: header index, decl/type import,
+            foreign instantiation
+- Mono/     monomorphization, witness tables
+- Lower/    one pass per construct lowered away (match, nullable, panic,
+            finally, operators, iteration, yield, ...)
 
-class Derived derives Base {
-    fn op delete (self) { std::println("derived non trivial destructor") }
-}
+## Done (kept here so they are not re-filed)
 
-{
-    var b = @create Derived();
-} // c++ would print "non trivial destructor" here
-```
+- Import folding: imports become scoped forward declarations and callers
+  are rewritten to the right target (`alloc(1024)` -> `mem::alloc(1024)`).
+  Resolve/ImportResolution.k with AST/Context/ImportOverlay.k; this is what
+  lets the rest of Sema run per TU in parallel, up to mono.
+- Class lifecycle: Check/ClassLifecycle.k decides copyable / movable /
+  trivial / destructible per record.
+- Virtual destructor rule: a class deriving a base whose destructor is not
+  virtual, when the derived class has a non-trivial destructor, is SC056E
+  (also in ClassLifecycle.k). Without it, deleting a Derived through a Base
+  runs only Base's destructor:
 
-which just leaks memeory of the derived class we solve this by forcing:
+    class Base    { fn op delete (self) { ... } }
+    class Derived derives Base { fn op delete (self) { ... } }
 
-```kairo
-class Base {
-    virtual fn op delete (self) { std::println("non trivial destructor") }
-}
+  The fix is `virtual fn op delete` on Base and `override` on Derived.
+- Value categories (lvalue / xvalue / prvalue): assigned inline by
+  ExprTyper, since overload resolution needs them while the call is still
+  being typed; Check/ValueCategoryPass.k only verifies none is left Unknown.
+- Mono: every use of a generic at concrete arguments registers an instance
+  (AST/Context/InstantiationRegistry.k); the instance has one home TU that
+  emits the specialization, and every other TU using it emits
+  `extern template` (CODEGEN.md). Mono/Monomorphization.k checks lifecycle
+  constraints (copy / move / non-transfer) at instantiation.
 
-class Derived derives Base {
-    override fn op delete (self) { std::println("derived non trivial destructor") }
-}
+## Open
 
-{
-    var b = @create Derived();
-} // prints "derived non trivial destructor" and then "non trivial destructor" and no memory leak.
-
-```
-
-Notes:
-- Missing an important one on figuring out what an expr is (lvalue or rvalue or xvalue)
-- Also the import passes to fold imports and thier uses in a file to the right thing like:
-```kairo
-import std::io;
-import std::mem::alloc;
-
-fn main() {
-    io::print("Hello, World!");
-    var ptr = alloc(1024); // alloc is a function from std::mem
-}
-```
-after transformation, the code should be:
-```kairo
-module io {
-    fn print(msg: str);
-}
-
-module mem {
-    fn alloc(size: usize) -> *u8;
-}
-
-fb main() {
-    io::print("Hello, World!");
-    var ptr = mem::alloc(1024);
-}
-```
-this is roughly what the pass does internally, this is the abs first pass done, since this unlocks the rest of sema to be fully independent on a per TU basis allowing for parallel processing of translation units - atleast untill we get to mono pass.
-
-Mono pass is split into 2 parts, part 1 fully parrallel pulls all the invokes of a genericed thing fn class strcut wtv, so foo<i32>() is a usage of the generic function.
-
-pass part 2 is in sync, it goes to wehre the def for each generic is found and adds a new instantiation for each usage, while externing the specific instantiation where its used.
-
-Mono pass is a crucial part of the compilation process that handles the instantiation of generic functions and types.
+See RESOLUTION.md §4 and private/IMPORTANT/TICKETS.TXT. Notably: no
+conformance check at a generic's instantiation site yet, and calls through
+an interface bound that need an extension method wait on EmitWitness
+(CODEGEN.md §7b).
