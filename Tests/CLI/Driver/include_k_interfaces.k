@@ -25,10 +25,11 @@ fn main() -> i32 { return 0 }
 // RUN: %t.d/twice; test $? -eq 6
 
 // A user copy constructor makes the derived assignment rebuild in place,
-// which needs <new>: an included interface cannot bring a system header
-// yet. M2 lifts this; turn the check into a run then.
-// RUN: { %kairo -c %S/Inputs/include_k/use_boxed.cc %S/Inputs/include_k/boxed.k --cache-dir %t.d/o3 2>&1 || true; } | %FileCheck %s --check-prefix=NEW
-// NEW: use_boxed.cc:1:10: error [CL001E]: cannot include '{{.*}}boxed.k': its interface needs <new>, and an included Kairo file cannot bring system headers yet
+// so the interface needs <new>. A token stream cannot carry an #include:
+// the hook enters a buffer that includes <new>, then boxed.k again for the
+// tokens. Boxed() sets v to 1.
+// RUN: %kairo %S/Inputs/include_k/use_boxed.cc %S/Inputs/include_k/boxed.k -o %t.d/boxed --cache-dir %t.d/o3
+// RUN: %t.d/boxed; test $? -eq 1
 
 // Objective-C is C to the include. The refusal is the only error: what
 // stands in for the file must not parse as C into more of them.

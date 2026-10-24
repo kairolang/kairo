@@ -59,6 +59,7 @@ class DriverIncludeSource derives KairoIncludeSource {
 
     override fn tokens_for(self, ci: *clang::CompilerInstance, cfid: clang::FileID,
                            path: string, out: *libcxx::vector::<clang::Token>) -> bool {
+        self.system_headers.clear();
         var kfid = self._ksm->find_fid(Path(path));
         if kfid == static_cast::<FileID>(u32(-1)) {
             self.error = "it is not part of this build; pass it on the command line";
@@ -92,7 +93,8 @@ class DriverIncludeSource derives KairoIncludeSource {
 
         var ksize = static_cast::<u32>(self._ksm->get_file_size(kfid));
         var em = IncludeEmitter();
-        if !em.emit(ci, self._locmap, ctx, kfid, ksize, self._psym, self._scope->instances(), out, &(self._sinks)) {
+        if !em.emit(ci, self._locmap, ctx, kfid, ksize, self._psym, self._scope->instances(), out,
+                    &(self._sinks), &(self.system_headers)) {
             self.error = em.error;
             return false;
         }

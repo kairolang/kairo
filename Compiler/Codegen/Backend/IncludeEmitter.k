@@ -46,10 +46,14 @@ class IncludeEmitter {
     ///                is a FileID in the host's SourceManager.
     /// \param keep    receives the sink: it owns state the tokens' locations
     ///                were built from, and lives as long as the host TU.
+    /// \param headers receives the system headers the tokens need
+    ///                (TokenSink::system_header), for the hook to enter
+    ///                ahead of them: a token stream has no line for an
+    ///                #include.
     fn emit(self, ci: *clang::CompilerInstance, locmap: *ClangLocMap, ctx: *ASTContext,
             kfid: FileID, ksize: u32, psym: *PreprocessorSymbolTable,
             instances: *InstantiationRegistry, out: *libcxx::vector::<clang::Token>,
-            keep: *vec::<*TokenSink>) -> bool {
+            keep: *vec::<*TokenSink>, headers: *vec::<string>) -> bool {
         var pp  = &(ci->getPreprocessor());
         var csm = &(ci->getSourceManager());
         var live = locmap->clang_fid_of(kfid);
@@ -67,17 +71,7 @@ class IncludeEmitter {
         var ie = InterfaceEmitter(&cg, &plan);
         ie.run();
 
-        // A token stream has no line for an #include, and the host is past
-        // the point where Kairo's own TUs enter them (KairoInject).
-        if !sink->system_headers.empty() {
-            var hs = "";
-            for var i: usize = 0; i < sink->system_headers.size(); ++i {
-                if i > 0 { hs += ", "; }
-                hs += "<" + sink->system_headers[i] + ">";
-            }
-            self.error = f"its interface needs {hs}, and an included Kairo file cannot bring system headers yet";
-            return false;
-        }
+        for var i: usize = 0; i < sink->system_headers.size(); ++i { headers->push_back(sink->system_headers[i]); }
 
         if sink->has_arena() {
             var view = sink->seal_arena();

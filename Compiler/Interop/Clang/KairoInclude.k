@@ -66,6 +66,9 @@ ffi "c++" import "llvm/Support/CommandLine.h";
 class KairoIncludeSource {
     /// Why the last tokens_for failed, for the error at the include.
     pub var error: string;
+    /// The system headers the last tokens_for's stream needs (`new`, ...),
+    /// which the hook enters ahead of it.
+    pub var system_headers: vec::<string>;
 
     /// \brief appends to \p out the interface of the Kairo file at \p path,
     ///        which clang entered as \p cfid in \p ci, located in that file.
@@ -89,6 +92,11 @@ class KairoIncludeHook {
     pub var source: obs::<KairoIncludeSource> = &null;
     priv var _ci: obs::<clang::CompilerInstance> = &null;
     priv var _streams: vec::<*libcxx::vector::<clang::Token>>;   ///< owned
+    /// Streams made on a file's first entry and held for its second, from
+    /// the header buffer (_enter_headers); by FileEntry UID, parallel. A
+    /// taken slot's stream goes null.
+    priv var _held_uids: vec::<u32>;
+    priv var _held: vec::<*libcxx::vector::<clang::Token>>;
 
     fn install(self, ci: ref!(clang::CompilerInstance)) {
         // An LLVM IR input (.ll/.bc) runs the same codegen actions with no
@@ -111,11 +119,18 @@ class KairoIncludeHook {
         var name = fe->getName();
         if !name.ends_with(r".k") { return libcxx::nullopt; }
 
-        // Entered once per TU however often it is included: the stream is
-        // declarations and the helpers, which C++ rejects twice.
-        self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe);
-
         var path = string(name.data(), name.size());
+
+        // The second entry, from the header buffer: the stream is ready.
+        var uid = static_cast::<u32>(fe->getUID());
+        for var i: usize = 0; i < self._held_uids.size(); ++i {
+            if (self._held_uids[i] != uid) || (self._held[i] == &null) { continue; }
+            var held = self._held[i];
+            self._held[i] = &null;
+            self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe);
+            return llvm::ArrayRef::<clang::Token>(held->data(), held->size());
+        }
+
         var toks = std::create::<libcxx::vector::<clang::Token>>();
         self._streams.push_back(toks);
 
@@ -132,8 +147,48 @@ class KairoIncludeHook {
         }
         if !why.empty() { self._error_at(csm->getIncludeLoc(fid), f"cannot include '{path}\x27: {why}"); }
 
+        // A stream that needs system headers cannot carry them (a token
+        // stream has no line for an #include), so this entry stands down to
+        // the sentinel and the headers come from a buffer entered beneath
+        // it, which includes them and then this file again.
+        if why.empty() && (!self.source->system_headers.empty()) {
+            self._held_uids.push_back(uid);
+            self._held.push_back(toks);
+            // Absolute: a quoted include from a buffer has no directory of
+            // its own to be relative to.
+            var real = fe->getFileEntry().tryGetRealPathName();
+            var again = (string(real.data(), real.size())) if (!real.empty()) else (path);
+            self._enter_headers(fid, again, &(self.source->system_headers));
+            var stand_in = std::create::<libcxx::vector::<clang::Token>>();
+            self._streams.push_back(stand_in);
+            self._sentinel(stand_in, csm->getLocForStartOfFile(fid));
+            return llvm::ArrayRef::<clang::Token>(stand_in->data(), stand_in->size());
+        }
+
+        // Entered once per TU however often it is included: the stream is
+        // declarations and the helpers, which C++ rejects twice.
+        self._ci->getPreprocessor().getHeaderSearchInfo().MarkFileIncludeOnce(*fe);
+
         if toks->empty() { self._sentinel(toks, csm->getLocForStartOfFile(fid)); }
         return llvm::ArrayRef::<clang::Token>(toks->data(), toks->size());
+    }
+
+    /// \brief enters `#include <h>` for each of \p headers, then
+    ///        `#include "<path>"`, as a buffer included where \p fid was.
+    ///
+    /// The hook runs inside EnterSourceFile before \p fid's lexer is
+    /// pushed, so a buffer entered here sits UNDER it: the sentinel this
+    /// entry returns is lexed first, then the buffer, whose last include is
+    /// this file's second entry. The include-once mark waits for that one.
+    priv fn _enter_headers(self, fid: clang::FileID, path: string, headers: *vec::<string>) {
+        var csm = &(self._ci->getSourceManager());
+        var text = "";
+        for var i: usize = 0; i < headers->size(); ++i { text += "#include <" + (*headers)[i] + ">\n"; }
+        text += "#include \x22" + path + "\x22\n";
+        var buf = llvm::MemoryBuffer::getMemBufferCopy(sref(text), r"<kairo-include>");
+        var at  = csm->getIncludeLoc(fid);
+        var bfid = csm->createFileID(libcxx::move(buf), clang::SrcMgr::C_User, 0, 0, at);
+        self._ci->getPreprocessor().EnterSourceFile(bfid, clang::ConstSearchDirIterator(&null), at);
     }
 
     /// `static_assert(true);`: see the file header.
