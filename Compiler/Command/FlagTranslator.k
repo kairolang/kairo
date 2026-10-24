@@ -186,7 +186,7 @@ fn _fx_reverse_rows() -> vec::<RevRow> {
     _fx_row(&r, "-gembed-source", "--embed-source",   RevShape::Flag);
     // -- language ---------------------------------------------------------------
     _fx_row(&r, "-std=",          "-std=",            RevShape::Value);  // split into c/cxx below
-    _fx_row(&r, "-I",             "--ffi-include=",   RevShape::Value);  // kairo -I is the import root
+    _fx_row(&r, "-I",             "-I",               RevShape::ValueSep);  // kairo -I is clang's too, AND a .k search dir
     _fx_row(&r, "-D",             "--cxx-define=",    RevShape::Value);  // kairo -D is a Kairo macro
     _fx_row(&r, "-U",             "--cxx-undefine=",  RevShape::Value);
     _fx_row(&r, "-fexceptions",          "-fexceptions",          RevShape::Flag);
@@ -553,13 +553,13 @@ class FlagTranslator {
         return o;
     }
 
-    /// \brief header directories the user names for clang (--ffi-include,
-    ///        --cxx-include) and user macros for clang (--cxx-define /
-    ///        --cxx-undefine). Identical in both spellings.
+    /// \brief header directories the user names for clang (-I, which is
+    ///        also a Kairo search dir, then --ffi-include and --cxx-include)
+    ///        and user macros for clang (--cxx-define / --cxx-undefine).
+    ///        Identical in both spellings.
     static fn preprocessor(inv: ref!(CompilerInvocation)) -> vec::<string> {
         var o = vec::<string>();
-        for d: string in inv.ffi_includes { _fx_push2(&o, "-I", d); }
-        for d: string in inv.cxx_includes { _fx_push2(&o, "-I", d); }
+        for d: string in inv.clang_include_dirs() { _fx_push2(&o, "-I", d); }
         for d: string in inv.cxx_defines   { _fx_push(&o, f"-D{d}"); }
         for d: string in inv.cxx_undefines { _fx_push(&o, f"-U{d}"); }
         return o;

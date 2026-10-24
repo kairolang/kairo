@@ -90,6 +90,19 @@ class CompilerInvocation {
     ///          caller never has to set it.
     pub var ok: bool = true;
 
+    /// The header dirs clang searches with -I, in the order it gets them:
+    /// -I (a Kairo search dir AND a clang -I, one flag as under clang), then
+    /// the clang-only --ffi-include and --cxx-include. One list, so the cc1
+    /// line, a C/C++ input's driver line and the `#include "x.k"` scan
+    /// (_quote_dirs/_angle_dirs) can never search in different orders.
+    fn clang_include_dirs(self) -> vec::<string> {
+        var out = vec::<string>();
+        for d: string in self.include_dirs { out.push_back(d); }
+        for d: string in self.ffi_includes { out.push_back(d); }
+        for d: string in self.cxx_includes { out.push_back(d); }
+        return out;
+    }
+
     /// The -x language of input \p i, "" when none was given.
     fn input_lang(self, i: usize) -> string {
         if i < self.input_langs.size() { return self.input_langs[i]; }

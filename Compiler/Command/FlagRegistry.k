@@ -136,14 +136,14 @@ fn register_kairo_flags(cmd: *Command) {
     // with the value in force when it is seen (ParsedArgs::file_langs).
     cmd->define::<FlagKind::String>   ("language",        "x", "language",            "treat the following inputs as <lang>: kairo, or a clang type (c, c++, objective-c, objective-c++, ir, c-header, c++-header, ...); none = by extension", "");
     cmd->tag_positionals_with("language");
-    cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "module search root for .k imports; not passed to clang (repeatable)");
-    cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "adds -I for clang, identical to --cxx-include (repeatable)");
-    cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "adds -I for clang, identical to --ffi-include (repeatable)");
+    cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "search dir for .k imports AND a clang -I for C/C++ inputs and ffi headers (repeatable)");
+    cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "adds -I for clang only, not a .k search dir; identical to --cxx-include (repeatable)");
+    cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "adds -I for clang only, not a .k search dir; identical to --ffi-include (repeatable)");
     // kairo -D and -U are Kairo macros; these are clang's, for C/C++ inputs
     // and the ffi headers. What kcc makes of a clang -D/-U.
     cmd->define::<FlagKind::StringList>("cxx-define",     "",  "cxx-define",          "define a macro for clang (C/C++ inputs and ffi headers): NAME or NAME=VALUE (repeatable)");
     cmd->define::<FlagKind::StringList>("cxx-undefine",   "",  "cxx-undefine",        "undefine a macro for clang (C/C++ inputs and ffi headers) (repeatable)");
-    cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "module search root for .k imports, same as -I (repeatable)");
+    cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "search dir for .k imports like -I, but not passed to clang (repeatable)");
     cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "import <file>::* into the main file (adds to the prelude; repeatable)");
     cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "system root for headers and linking; a --target with a bundled <prefix>/sysroot/<target> uses that instead", "");
     cmd->define::<FlagKind::String>   ("resource-dir",    "",  "resource-dir",        "clang resource directory for C++ interop; its include/ holds the builtin headers", "");

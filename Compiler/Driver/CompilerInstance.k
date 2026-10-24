@@ -1221,27 +1221,37 @@ class CompilerInstance {
     ///          execute() asserts on it. Named to match that assert   it was
     ///          `index()`, which collided with the unrelated ASTParse Index
     ///          pass and described neither of the three things it builds.
-    /// One `-I` entry. `-I name=path` names the root explicitly; a bare
-    /// `-I path` takes the directory's basename. The name is the leading
-    /// segment of every module under the root (IMPORTS.md §2.1), so it is
-    /// part of those modules' identity and cannot be left to chance.
+    /// One `-I` (or --macro-search-path) entry: an UNNAMED search dir, as
+    /// the cwd is. A file under it is its path relative to it, unless a
+    /// pinned module.k (`module foo`) above the file names a library; that
+    /// pin is the only way a directory gets a name (IMPORTS.md §2.1).
     ///
-    /// Split on the FIRST `=`: a path may contain one, a name may not.
+    /// `-I name=dir` used to be a second way to say it, and the two could
+    /// disagree. It is an error that says where the name goes now, not a
+    /// silently missing directory literally called `name=dir`. A path that
+    /// does contain `=` and exists is a path: only a spec that is not a
+    /// directory, with a name-shaped part before the first `=`, is the old
+    /// form.
     priv fn _add_root(self, rb: ref!(ImportResolver::Builder), spec: string) {
-        var name = string();
-        var dir  = string();
-        var split = false;
         var pos = spec.view().find('=');
-        if (pos != usize(-1)) && (pos > 0) && ((pos + 1) < spec.size()) {
-            name  = spec.subslice(0, pos);
-            dir   = spec.subslice(pos + 1, spec.size());
-            split = true;
+        if (pos != usize(-1)) && (pos > 0) && (!Path(spec).is_directory()) {
+            var name = string(spec.raw(), pos);
+            var dir  = string(spec.raw() + pos + 1, spec.size() - pos - 1);
+            var name_shaped = true;
+            for var i: usize = 0; i < name.size(); ++i {
+                var c = name[i];
+                var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
+                      || ((c >= '0') && (c <= '9')) || (c == '_') || (c == ':');
+                if !ok { name_shaped = false; break; }
+            }
+            if name_shaped {
+                self._diag->report(DiagID::U001E,
+                    f"-I {spec}: the name=dir form is gone; -I takes a directory only. To name the library, "
+                    + f"make `module {name}` the first line of {dir}/module.k and pass -I {dir}").emit();
+                return;
+            }
         }
-        if !split {
-            rb.add_include(Path(spec));
-            return;
-        }
-        rb.add_include(Path(dir), name);
+        rb.add_include(Path(spec));
     }
 
     /// Two roots under one name make a module path mean two files. Fatal, and
@@ -1260,9 +1270,12 @@ class CompilerInstance {
                 ).emit();
                 continue;
             }
+            // Only the driver's own registrations (builtin, kairo::std) name
+            // a root without a pin, so this is a pin or a -I dir colliding
+            // with one of them.
             self._diag->report(DiagCode(DiagID::R018E),
                 f"duplicate module root '{c.name}': '{c.a}' and '{c.b}' both claim it; "
-                "give one an explicit name with -I name=path"
+                "rename the library\x27s `module` declaration in its module.k"
             ).emit();
         }
     }
@@ -1307,7 +1320,7 @@ class CompilerInstance {
                 f"--pass-plugin: no such plugin file '{pl}\x27").emit();
         }
         // User header dirs and macros for C++ interop, ahead of the system
-        // roots: --ffi-include / --cxx-include (-I), --cxx-define (-D),
+        // roots: -I / --ffi-include / --cxx-include (-I), --cxx-define (-D),
         // --cxx-undefine (-U).
         for a: string in FlagTranslator::preprocessor(self.invocation()) { bcfg.extra_cc1.push_back(a); }
         // The runtime root, after the user's: `rt/fmt.h` names the same file
@@ -2243,9 +2256,7 @@ class CompilerInstance {
 
     /// The host's angled search path (-I): _quote_dirs without -iquote.
     priv fn _angle_dirs(self) -> vec::<string> {
-        var out = vec::<string>();
-        for d: string in self.invocation().ffi_includes { out.push_back(d); }
-        for d: string in self.invocation().cxx_includes { out.push_back(d); }
+        var out = self.invocation().clang_include_dirs();
         var fl = &(self.invocation().codegen.cxx_flags);
         for var i: usize = 0; i < fl->size(); ++i {
             var w = (*fl)[i];
@@ -2263,12 +2274,11 @@ class CompilerInstance {
     /// The host's quoted search path after the includer's own directory:
     /// -iquote, then -I, as clang orders them. The -I come in the order
     /// FlagTranslator::to_driver writes them for a C/C++ input:
-    /// --ffi-include, --cxx-include, then the words in --cxx-flags.
+    /// clang_include_dirs (-I, --ffi-include, --cxx-include), then the words
+    /// in --cxx-flags.
     priv fn _quote_dirs(self) -> vec::<string> {
         var quote = vec::<string>();
-        var angle = vec::<string>();
-        for d: string in self.invocation().ffi_includes { angle.push_back(d); }
-        for d: string in self.invocation().cxx_includes { angle.push_back(d); }
+        var angle = self.invocation().clang_include_dirs();
         var fl = &(self.invocation().codegen.cxx_flags);
         for var i: usize = 0; i < fl->size(); ++i {
             var w = (*fl)[i];
