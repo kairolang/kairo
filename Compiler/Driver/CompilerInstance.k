@@ -1231,27 +1231,35 @@ class CompilerInstance {
     /// `-I name=dir` used to be a second way to say it, and the two could
     /// disagree. It is an error that says where the name goes now, not a
     /// silently missing directory literally called `name=dir`. A path that
-    /// does contain `=` and exists is a path: only a spec that is not a
-    /// directory, with a name-shaped part before the first `=`, is the old
-    /// form.
+    /// does contain `=` and exists is a path; every other spec with an `=`
+    /// is the old form, whatever the part before it looks like -- a
+    /// `geo-lib=vendor/geometry` used to slip past a "name-shaped" test and
+    /// vanish as a nonexistent directory, leaving only an R011E at the
+    /// import with nothing pointing at the flag.
     priv fn _add_root(self, rb: ref!(ImportResolver::Builder), spec: string) {
         var pos = spec.view().find('=');
-        if (pos != usize(-1)) && (pos > 0) && (!Path(spec).is_directory()) {
+        if (pos != usize(-1)) && (!Path(spec).is_directory()) {
             var name = string(spec.raw(), pos);
             var dir  = string(spec.raw() + pos + 1, spec.size() - pos - 1);
-            var name_shaped = true;
+            var name_shaped = pos > 0;
             for var i: usize = 0; i < name.size(); ++i {
                 var c = name[i];
                 var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
                       || ((c >= '0') && (c <= '9')) || (c == '_') || (c == ':');
                 if !ok { name_shaped = false; break; }
             }
+            // The shape only picks the hint: a pin to copy when the part
+            // before `=` could be one, the rule alone when it could not.
             if name_shaped {
                 self._diag->report(DiagID::U001E,
-                    f"-I {spec}: the name=dir form is gone; -I takes a directory only. To name the library, "
+                    f"-I {spec}: no such directory, and the name=dir form is gone; -I takes a directory only. To name the library, "
                     + f"make `module {name}` the first line of {dir}/module.k and pass -I {dir}").emit();
-                return;
+            } else {
+                self._diag->report(DiagID::U001E,
+                    f"-I {spec}: no such directory; -I takes a directory only, and the name=dir form is gone: "
+                    + "a library is named by the `module` declaration on the first line of its module.k").emit();
             }
+            return;
         }
         rb.add_include(Path(spec));
     }

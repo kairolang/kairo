@@ -3,6 +3,7 @@
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 // RUN: { %kairo %s --type-check-only -I foo=%S/libfoo 2>&1 || true; } | %FileCheck %s --check-prefix=NAMEEQ
 // RUN: not %kairo %s --type-check-only -I foo=%S/libfoo > /dev/null 2>&1
+// RUN: { %kairo %s --type-check-only -I foo-lib=%S/libfoo 2>&1 || true; } | %FileCheck %s --check-prefix=NAMEDASH
 //
 // IMPORTS.md §2.1: a named library beside the unnamed search dirs.
 //
@@ -49,3 +50,8 @@ fn use_both() -> i32 {
 // NAMEEQ: error
 // NAMEEQ-SAME: -I foo=
 // NAMEEQ-SAME: module foo
+//
+// Whatever the part before `=` is: a name no pin could carry used to slip
+// past and vanish as a missing directory literally named `foo-lib=...`,
+// with only the import's R011E left to see.
+// NAMEDASH: error [U001E]: -I foo-lib={{.*}}libfoo: no such directory; -I takes a directory only, and the name=dir form is gone
