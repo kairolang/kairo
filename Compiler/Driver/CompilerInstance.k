@@ -2208,7 +2208,7 @@ class CompilerInstance {
     ///        file is no output -o can name, and before _kairo_order, which
     ///        loads the inputs.
     priv fn _discover_includes(self) {
-        var scan = KairoIncludeScan(self._quote_dirs());
+        var scan = KairoIncludeScan(self._quote_dirs(), self._angle_dirs());
         var any = false;
         for k: InputKind in self._inputs {
             if (k.cls != InputClass::Source) && (k.cls != InputClass::Header) { continue; }
@@ -2230,6 +2230,25 @@ class CompilerInstance {
             Logger::info(Logger::Stage::Driver, f"CompilerInstance: {f} is included by a C++ input; building it");
             self._inputs.push_back(nk);
         }
+    }
+
+    /// The host's angled search path (-I): _quote_dirs without -iquote.
+    priv fn _angle_dirs(self) -> vec::<string> {
+        var out = vec::<string>();
+        for d: string in self.invocation().ffi_includes { out.push_back(d); }
+        for d: string in self.invocation().cxx_includes { out.push_back(d); }
+        var fl = &(self.invocation().codegen.cxx_flags);
+        for var i: usize = 0; i < fl->size(); ++i {
+            var w = (*fl)[i];
+            if w == "-iquote" { i += 1; continue; }
+            if w == "-I" {
+                if i + 1 < fl->size() { out.push_back((*fl)[i + 1]); }
+                i += 1;
+                continue;
+            }
+            if LinkText::starts_with(w, "-I") { out.push_back(string(w.raw() + 2, w.size() - 2)); }
+        }
+        return out;
     }
 
     /// The host's quoted search path after the includer's own directory:
