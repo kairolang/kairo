@@ -238,6 +238,11 @@ fn _fx_reverse_rows() -> vec::<RevRow> {
     _fx_row(&r, "-L",             "-L",               RevShape::ValueSep);
     _fx_row(&r, "-l",             "-l",               RevShape::ValueSep);
     _fx_row(&r, "-shared",        "--shared",         RevShape::Flag);
+    _fx_row(&r, "-s",             "--strip",          RevShape::Flag);
+    _fx_row(&r, "-rdynamic",      "--ld-flags=--export-dynamic", RevShape::Flag);
+    _fx_row(&r, "-nostdlib",      "--no-crt --no-default-libs",  RevShape::Flag);
+    _fx_row(&r, "-nostartfiles",  "--no-crt",         RevShape::Flag);
+    _fx_row(&r, "-nodefaultlibs", "--no-default-libs", RevShape::Flag);
     _fx_row(&r, "-static",        "--static",         RevShape::Flag);
     _fx_row(&r, "-Wl,",           "--ld-flags=",      RevShape::Commas);
     _fx_row(&r, "-Xlinker",       "--ld-flags=",      RevShape::Value);

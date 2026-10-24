@@ -33,6 +33,18 @@ fn main() -> i32 { return 0 }
 // RUN: %kcc -Xkairo --verbose %S/Inputs/std23.cc -o %t.d/v 2>&1 | %FileCheck %s --check-prefix=XKAIRO
 // XKAIRO: compilation:
 
+// -emit-llvm modifies -S / -c, as in clang: IR text, or bitcode.
+// RUN: %kcc -S -emit-llvm %S/Inputs/std23.cc -o %t.d/s.ll
+// RUN: grep -q 'define .*@main' %t.d/s.ll
+// RUN: %kcc -c -emit-llvm %S/Inputs/std23.cc -o %t.d/s.bc
+// RUN: od -An -c -N2 %t.d/s.bc | grep -q 'B   C'
+// RUN: { %kcc -emit-llvm %S/Inputs/std23.cc 2>&1 || true; } | %FileCheck %s --check-prefix=EMITLLVM
+// EMITLLVM: kcc: error: -emit-llvm needs -S or -c
+
+// Link-time clang words reach kairo's link, not just the C/C++ compiles.
+// RUN: %kcc -s %S/Inputs/std23.cc -o %t.d/stripped
+// RUN: %t.d/stripped; test $? -eq 7
+
 // -### has no jobs to print yet.
 // RUN: { %kcc -### %S/Inputs/std23.cc 2>&1 || true; } | %FileCheck %s --check-prefix=HASH
 // HASH: kcc: error: '-###' is not supported yet

@@ -109,6 +109,30 @@ fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>
     var cw = vec::<string>();
     if !FlagTranslator::from_driver(clang, &kw, &cw, error) { return false; }
 
+    // -emit-llvm is clang's modifier on -S / -c: IR text or bitcode
+    // instead of assembly or an object, which kairo spells --emit.
+    var emit_llvm = false;
+    var kept = vec::<string>();
+    for w: string in cw { if w == "-emit-llvm" { emit_llvm = true; } else { kept.push_back(w); } }
+    cw = kept;
+    if emit_llvm {
+        var asm = false;
+        var obj = false;
+        var rest = vec::<string>();
+        for w: string in kw {
+            if w == "-S" { asm = true; continue; }
+            if w == "-c" { obj = true; continue; }
+            rest.push_back(w);
+        }
+        kw = rest;
+        if asm      { kw.push_back("--emit=llvm-ir"); }
+        else if obj { kw.push_back("--emit=llvm-bc"); }
+        else {
+            (*error) = "-emit-llvm needs -S or -c";
+            return false;
+        }
+    }
+
     var has_std = false;
     for w: string in kw { if w.starts_with("--cxx-std=") { has_std = true; } }
     for w: string in cw { if w.starts_with("-std=") { has_std = true; } }
@@ -120,7 +144,7 @@ fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>
     // y imports, and a link of such objects takes builtin, std and the
     // runtime from the toolchain's library.
     var compile_only = false;
-    for w: string in kw { if (w == "-c") || (w == "-S") { compile_only = true; } }
+    for w: string in kw { if (w == "-c") || (w == "-S") || w.starts_with("--emit=") { compile_only = true; } }
     if compile_only { out->push_back("--emit-scope=inputs"); }
     out->push_back("--kairo-lib");
     for w: string in cw {
