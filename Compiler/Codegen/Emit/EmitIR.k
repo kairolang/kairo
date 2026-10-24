@@ -1303,7 +1303,15 @@ class EmitIR {
             if (!isa::<RecordType>(wi)) { self._ice(n->range, "EmitIR: a witness that is not an interface instance"); }
             var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(wi)->decl)));
             var s = self._spell.witness_name(idecl) + self._spell.witness_args(self._spell._type(n->witness_self), wi);
-            s += "::" + self._spell.witness_member_name(f);
+            s += "::";
+            // A generic requirement's arguments, when the call has concrete
+            // ones, spelled with `template`: the witness is a dependent type.
+            // A dependent call (no instance) leaves them to deduction.
+            if (f->generic_params.size() > 0) && (inst != &null) {
+                s += "template " + self._spell.witness_member_name(f) + self._spell.args_str(&(inst->args));
+            } else {
+                s += self._spell.witness_member_name(f);
+            }
             self._cg->sink->spell(n->callee->range, s);
         } else if n->qualifier != &null {
             // A default thunk of a generic type's method: a static member of a

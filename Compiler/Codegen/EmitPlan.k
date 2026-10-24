@@ -266,6 +266,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
+    fn _is_requirement(self, d: *Decl) -> bool;
     fn _is_global_var(self, d: *Decl) -> bool;
     fn _is_type_decl(self, d: *Decl) -> bool;
     fn _outermost_type(self, d: *Decl) -> *Decl;
@@ -1191,6 +1192,13 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
 fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     var prim = CXXSpell::rep(e->primary);
     if decl_is_imported(prim) { return; }          // clang instantiates it from the PCH.
+    // A generic REQUIREMENT's instance names no C++ function: the call goes
+    // through the witness's member template, instantiated implicitly. No
+    // tier-3 line, ever (CODEGEN.md §7b.8); its arguments are still named.
+    if self._is_requirement(prim) {
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        return;
+    }
     var seen = false;
     for var i: usize = 0; i < self._insts.size(); ++i { if self._insts[i] == e { seen = true; break; } }
     if !seen { self._insts.push_back(e); }
@@ -1814,6 +1822,13 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
 }
 
 // --- Predicates ----------------------------------------------------------------------
+
+/// \p d is declared in an interface: a requirement, never a C++ function.
+fn EmitPlan::_is_requirement(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) || (d->semantic_dc == &null) { return false; }
+    var home = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+    return (home != &null) && isa::<InterfaceDecl>(home);
+}
 
 fn EmitPlan::_plannable(d: *Decl) -> bool {
     return self._is_type_decl(d) || (d->kind == DeclKind::FunctionDecl) || self._is_global_var(d);

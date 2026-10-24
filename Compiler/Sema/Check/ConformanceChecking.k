@@ -259,20 +259,30 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if fp->is_self != mp->is_self { return false; }
             if fp->is_self { continue; }
             if (fp->mode != mp->mode) || (fp->is_pack != mp->is_pack) { return false; }
-            if self._canon(fp->type_) != self._as_conformer(mp->type_, x, iface, idecl) { return false; }
+            if self._canon(fp->type_) != self._as_conformer(mp->type_, x, iface, idecl, m, f) { return false; }
         }
-        return self._canon(f->return_type) == self._as_conformer(m->return_type, x, iface, idecl);
+        return self._canon(f->return_type) == self._as_conformer(m->return_type, x, iface, idecl, m, f);
     }
 
     /// Requirement type \p t as conformer \p x sees it: the interface's own
-    /// parameters bound to \p iface's arguments, then `Self` replaced by
-    /// \p x. Top-level cv dropped, as for any signature compare.
-    priv fn _as_conformer(self, t: *Type, x: *Type, iface: *Type, idecl: *InterfaceDecl) -> *Type {
+    /// parameters bound to \p iface's arguments, a GENERIC requirement's own
+    /// parameters to candidate \p f's by position (`fn <U> put(u: U)` and
+    /// `fn <V> put(v: V)` are one signature), then `Self` replaced by \p x.
+    /// Top-level cv dropped, as for any signature compare.
+    priv fn _as_conformer(self, t: *Type, x: *Type, iface: *Type, idecl: *InterfaceDecl,
+                          m: *FunctionDecl, f: *FunctionDecl) -> *Type {
         var c = self._canon(t);
         if c == &null { return &null; }
         var d = Deduction(self.sc, &null);
         if c->is_dependent() {
             d.bind_from_record(iface);
+            var mrep = NameLookup::representative(static_cast::<*Decl>(m));
+            var frep = NameLookup::representative(static_cast::<*Decl>(f));
+            for var i: usize = 0; i < m->generic_params.size(); ++i {
+                var gp = m->generic_params[i];
+                if gp == &null { continue; }
+                d.bind(mrep, gp->index, self.sc->types->generic_param(frep, f->generic_params[i]->index, gp->is_pack));
+            }
             var s = d.substitute(c);
             if s != &null { c = s; }
         }
