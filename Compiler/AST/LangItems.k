@@ -328,6 +328,19 @@ class LowerTargets {
     /// `<Interface>` + suffix: `Drawable_witness`, and the concept `Drawable_c`.
     static fn witness_suffix() -> string { return "_witness"; }
     static fn concept_suffix() -> string { return "_c"; }
+    /// The primary's and the concept's Self parameter: where a requirement's
+    /// bare `Self` is spelled inside the witness (CODEGEN.md §7b.3).
+    static fn witness_self() -> string { return "__kairo_Self"; }
+    /// The concept's requires-parameters: requirement \p i's receiver, and
+    /// the \p k-th argument across all requirements.
+    static fn witness_recv(i: usize) -> string { return f"__kairo_r{i}"; }
+    static fn witness_arg(k: usize) -> string  { return f"__kairo_a{k}"; }
+    /// A postfix `++`/`--` member's `int` dummy, forwarded as is.
+    static fn witness_postfix() -> string { return "__kairo_pf"; }
+    /// The include guard around a witness definition in a header: every
+    /// header that reaches one writes it, as a tuple record's. \p key is the
+    /// witness and its Self, already an identifier (CXXSpell::_path_ident).
+    static fn witness_guard(key: string) -> string { return "__KAIRO_W_" + key; }
 
     // --- Array prvalues (writer: InterfaceEmitter; reader: EmitIR) --------------------
 

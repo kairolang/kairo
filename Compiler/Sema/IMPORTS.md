@@ -437,7 +437,10 @@ every body. One object per non-foreign TU.
     user-written function body is ever emitted in-class.
 13. **Clang never instantiates.** Every generic instantiation is
     enumerated by Kairo sema, checked by Kairo sema, and emitted explicitly.
-    Emitted templates carry no `requires`. ADT special members carry C++
+    Emitted templates carry no `requires` except the interface concepts
+    EmitWitness derives (CODEGEN.md §7b), one conjunct per interface bound,
+    true for every instance Kairo enumerated -- today on namespace-scope
+    generic functions only. ADT special members carry C++
     constraints rendered by InterfaceEmitter from adt_role/adt_form, and a
     generic record's derived assignment operators from its assign_form;
     they are not Kairo constraints and have no requires_clause.

@@ -29,6 +29,7 @@ import Codegen::CodegenContext::*;
 import Codegen::Emit::InterfaceEmitter::*;
 import Codegen::Emit::EmitIR::*;
 import Codegen::Emit::CXXSpell::*;
+import Codegen::Emit::EmitWitness::*;
 import Interop::Clang::HeaderSet::*;
 import AST::Context::TranslationUnit::*;
 import AST::Node::Declarations::*;
@@ -94,6 +95,14 @@ class IncludedDecls {
 
     /// True the first time \p e is offered: it is new to the host TU.
     fn admit(self, plan: *EmitPlan, e: *PlanEntry) -> bool {
+        if e->witness != &null {
+            // One primary or specialization per key, whichever include wrote it.
+            var k = ("wdef ") if (e->tier == PlanTier::Definitions) else ("wfwd ");
+            k += e->witness->key;
+            for var i: usize = 0; i < self._scopes.size(); ++i { if self._scopes[i] == k { return false; } }
+            self._scopes.push_back(k);
+            return true;
+        }
         if e->scope != &null {
             // Tiers 0 and 1 only: the declaration and the definition.
             var k = ("def ") if (e->tier == PlanTier::Definitions) else ("fwd ");

@@ -86,6 +86,16 @@ class CallExpr derives Expr {
     /// name. Null everywhere else.
     pub var qualifier: *Type = &null;
 
+    /// A call bound to an interface REQUIREMENT (its callee's `semantic_dc`
+    /// owner an InterfaceDecl) goes through that interface's witness,
+    /// `::N::I_witness<Self, A...>::m(recv, ...)` (CODEGEN.md §7b.5).
+    /// Written by ExtensionLowering when it puts the receiver in front:
+    /// `witness_iface` is the canonical instance of the DECLARING interface,
+    /// `witness_self` the canonical Self (a dependent `T` in a generic body).
+    /// EmitIR spells the witness from both. Null on every other call.
+    pub var witness_iface: *Type = &null;
+    pub var witness_self:  *Type = &null;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -100,6 +110,8 @@ class CallExpr derives Expr {
         node->instance = &null;
         node->ctor_decl = &null;
         node->qualifier = &null;
+        node->witness_iface = &null;
+        node->witness_self  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -118,6 +130,8 @@ class CallExpr derives Expr {
         node->instance      = &null;
         node->ctor_decl     = &null;
         node->qualifier     = &null;
+        node->witness_iface = &null;
+        node->witness_self  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

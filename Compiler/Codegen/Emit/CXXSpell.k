@@ -37,6 +37,8 @@ import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
+import AST::Node::Expressions::*;
+import AST::Node::PrimaryExpressions::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
@@ -59,6 +61,13 @@ eval fn VIS_INTERNAL() -> u8 { return 4; }
 
 class CXXSpell {
     priv var _cg: obs::<CodegenContext>;
+
+    /// While EmitWitness spells a witness member: the interface whose bare
+    /// `Self` (an argument-less record of it) is spelled \c self_spelling --
+    /// `__kairo_Self` in the primary, the conformer in a specialization.
+    /// Null everywhere else, where an interface type is still an ICE.
+    pub var self_iface:    *Decl  = &null;
+    pub var self_spelling: string = "";
 
     fn CXXSpell(self) { self._cg = &null; }
     fn CXXSpell(self, cg: *CodegenContext) { self._cg = cg; }
@@ -199,6 +208,22 @@ class CXXSpell {
             return m;
         }
         return "operator" + sym;
+    }
+
+    /// A witness member's name for requirement \p f: its leaf, or for an
+    /// operator the name an extension member of the same operator has --
+    /// a witness member is static, so it cannot be an `operator==` either
+    /// (CODEGEN.md §7b.3).
+    fn witness_member_name(self, f: *FunctionDecl) -> string {
+        if !f->is_operator { return self.leaf(static_cast::<*Decl>(f)); }
+        var sym = self._op_symbol(f);
+        var named = CXXSpell::named_operator(sym, f);
+        if named.size() > 0 { return named; }
+        var key = sym;
+        if (sym == "++") || (sym == "--") { key = (("r") if (CXXSpell::op_is_postfix(f)) else ("l")) + sym; }
+        var m = LowerTargets::ext_op(key);
+        if (m.size() == 0) { self._ice(f->range, f"CXXSpell: requirement 'op {sym}' has no static-member name; OperatorSignatureCheck should reject it"); }
+        return m;
     }
 
     /// The namespace-scope `operator<sym>` an extension operator is forwarded
@@ -839,6 +864,107 @@ class CXXSpell {
         return s;
     }
 
+    // --- Witnesses (CODEGEN.md §7b) ----------------------------------------------
+
+    /// `::ns::I_witness`: the class template a bound call goes through.
+    fn witness_name(self, iface: *Decl) -> string {
+        return self._iface_qual(iface) + LowerTargets::witness_suffix();
+    }
+
+    /// `::ns::I_c`: the concept an interface bound renders as.
+    fn concept_name(self, iface: *Decl) -> string {
+        return self._iface_qual(iface) + LowerTargets::concept_suffix();
+    }
+
+    /// `::ns::I`, the prefix both names share. An interface nested in a
+    /// type would put its witness inside a class, where a specialization
+    /// cannot be declared; none reaches here yet.
+    priv fn _iface_qual(self, iface: *Decl) -> string {
+        var r = CXXSpell::rep(iface);
+        if (self.owner_types(r).size() > 0) { self._ice(r->range, "CXXSpell: a witness for an interface nested in a type; no naming rule for it yet"); }
+        var s = "";
+        var ns = self.ns_segments(r);
+        for var i: usize = 0; i < ns.size(); ++i { s += "::"; s += ns[i]; }
+        return s + "::" + self.leaf(r);
+    }
+
+    /// `<Self, A...>`: a witness's or concept's arguments for interface
+    /// instance \p iface, Self already spelled as \p self_s.
+    fn witness_args(self, self_s: string, iface: *Type, subst: *InstanceEntry = &null) -> string {
+        var s = "<" + self_s;
+        var v = self.iface_args(iface);
+        for var i: usize = 0; i < v.size(); ++i { s += ", "; s += self._type(v[i], subst); }
+        return s + ">";
+    }
+
+    /// The arguments of interface instance \p iface, in parameter order.
+    fn iface_args(self, iface: *Type) -> vec::<*Type> {
+        var v = vec::<*Type>();
+        var c = canon_unqual(iface);
+        if (c == &null) || (!isa::<RecordType>(c)) { return v; }
+        var r = cast::<RecordType>(c);
+        var d = r->decl;
+        if decl_is_instance(d) {
+            var e = self._cg->instances->entry_of(d);
+            if (e == &null) { self._ice(d->range, "CXXSpell: interface instance with no registry entry"); }
+            for var i: usize = 0; i < e->args.size(); ++i { v.push_back(e->args[i]); }
+            return v;
+        }
+        for var i: usize = 0; i < r->args.size(); ++i { v.push_back(r->args[i]); }
+        return v;
+    }
+
+    /// ` requires ::ns::I_c<T> && ...` for \p d's interface bounds, one
+    /// conjunct per `P impl I<A...>` in clause order, or "". Rendered on a
+    /// namespace-scope generic FUNCTION only: a record's head is also its
+    /// tier-0 forward declaration, ahead of every concept (CODEGEN.md §7b.7
+    /// asks for records too; not built). Every declaration of the function
+    /// -- tier 2 and the body -- comes through here, so the heads agree, as
+    /// [temp.over.link] and the mangled constraint need.
+    fn requires_clause(self, d: *Decl) -> string {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f == &null) || (f->requires_clause == &null) { return ""; }
+        if f->is_method() || (decl_extension_of(d) != &null) { return ""; }
+        var home = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (home != &null) && home->is_type_scope() { return ""; }
+        var cs = vec::<*ConstraintExpr>();
+        CXXSpell::impl_bounds(f->requires_clause, &cs);
+        var s = "";
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var gp = CXXSpell::_bound_param(c);
+            if gp == &null { continue; }
+            var rhs = canon_unqual(c->rhs->canonical);
+            if !isa::<RecordType>(rhs) { continue; }
+            var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
+            if !isa::<InterfaceDecl>(idecl) { continue; }
+            s += (" requires ") if (s.size() == 0) else (" && ");
+            s += self.concept_name(idecl) + self.witness_args(self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner))), rhs);
+        }
+        return s;
+    }
+
+    /// The generic parameter a conjunct constrains, or null.
+    static fn _bound_param(c: *ConstraintExpr) -> *GenericParamDecl {
+        var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+        if id == &null { return &null; }
+        return dyn_cast::<GenericParamDecl>(id->resolved_decl);
+    }
+
+    /// Every `impl` conjunct of requires clause \p e, in clause order.
+    static fn impl_bounds(e: *Expr, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            CXXSpell::impl_bounds(b->lhs, out);
+            CXXSpell::impl_bounds(b->rhs, out);
+            return;
+        }
+        var c = dyn_cast::<ConstraintExpr>(e);
+        if (c != &null) && (!c->is_derives()) { out->push_back(c); }
+    }
+
     /// `template <class T, class... Ts, int N>` for a generic decl; "" otherwise.
     fn template_head(self, d: *Decl) -> string {
         var gps = CXXSpell::template_params(d);
@@ -856,7 +982,9 @@ class CXXSpell {
             s += " ";
             s += self.imm_name(gp->name.imm, CXXSpell::fid_of(d));
         }
-        s += "> ";
+        s += ">";
+        s += self.requires_clause(d);
+        s += " ";
         return s;
     }
 
@@ -873,7 +1001,12 @@ class CXXSpell {
     priv fn _record(self, r: *RecordType, subst: *InstanceEntry, scope: *Decl) -> string {
         var d = r->decl;
         ICE_IF(d == &null, "CXXSpell: RecordType with no decl");
-        if (isa::<InterfaceDecl>(d)) { self._ice(d->range, "CXXSpell: an interface has no C++ type; witnesses are not emitted yet"); }
+        if isa::<InterfaceDecl>(d) {
+            var bare = (r->args.size() == 0) && (self.self_iface != &null)
+                    && (CXXSpell::rep(decl_pattern(CXXSpell::rep(d))) == self.self_iface);
+            if bare { return self.self_spelling; }
+            self._ice(d->range, "CXXSpell: an interface has no C++ type; only its Self inside a witness is spelled");
+        }
         if decl_is_imported(d) { return decl_cxx_spelling(d); }
 
         // An instance shell names its PRIMARY plus the registry's args.

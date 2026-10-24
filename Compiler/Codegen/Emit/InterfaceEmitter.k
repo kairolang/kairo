@@ -81,6 +81,7 @@ import Codegen::CodegenContext::*;
 import Codegen::CodegenICE::*;
 import Codegen::EmitPlan::*;
 import Codegen::Emit::CXXSpell::*;
+import Codegen::Emit::EmitWitness::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
@@ -212,6 +213,8 @@ class InterfaceEmitter {
                 if header && (!f->own) && (f->need == PlanNeed::Complete) { i += 1; continue; }   // included.
                 if f->scope != &null {
                     self._cg->sink->spell(self._at(f->decl), "struct " + f->scope->name + ";");
+                } else if f->witness != &null {
+                    EmitWitness(self._cg, self._spell).fwd(f->witness);
                 } else {
                     self._fwd_decl(f->decl);
                 }
@@ -229,6 +232,16 @@ class InterfaceEmitter {
                 var opened = self._ns_open(e->decl, e->scope->ns, false);
                 self._scope_def(e->scope);
                 self._ns_close(opened);
+                continue;
+            }
+            if e->witness != &null {
+                // Written by every header that reaches it, so guarded there
+                // as a tuple record is: two headers in one C++ TU.
+                var g = LowerTargets::witness_guard(CXXSpell::_path_ident(e->witness->key));
+                if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
+                if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
+                self._wrapped(e->decl, fn () { EmitWitness(self._cg, self._spell).def(e->witness); });
+                if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
                 continue;
             }
             // A tuple record is defined by every TU and header that reaches
@@ -620,7 +633,7 @@ class InterfaceEmitter {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
             if header && (!e->own) { continue; }
             if self._rebuilds(e->decl) { return true; }
         }
@@ -1058,7 +1071,7 @@ class InterfaceEmitter {
     priv fn _needs_ctor_slots(self) -> bool {
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
             if self._has_split_ctor(e->decl) { return true; }
         }
         return false;

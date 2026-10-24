@@ -568,9 +568,9 @@ InterfaceEmitter from adt_role/adt_form, and a generic record's derived
 assignment from its assign_form; they are not Kairo constraints and have no
 requires_clause.
 
-## 7b. Witnesses: calls through an interface bound [DECIDED, MISSING]
+## 7b. Witnesses: calls through an interface bound [DECIDED, PARTIAL]
 
-`Codegen/Emit/EmitWitness.k` (not written). This section supersedes the
+`Codegen/Emit/EmitWitness.k`. This section supersedes the
 witness paragraph of RESOLUTION.md §2b where the two differ -- every
 conformance a specialization, the witness edge in the home TU only -- and
 the design memo that sits in `Sema/Mono/WitnessTable.k` (prose in a `.k`
@@ -580,38 +580,58 @@ passes that fill them.
 
 ### 7b.1 What exists today
 
-- The typer binds a bound call to the REQUIREMENT. In `fn <T impl
-  Scalable> twice(a: T) { a.scale(2) }`, `--print-sema` shows `.scale ->
-  fn scale [member of Scalable]`: the step's `resolved_decl` is the
-  interface's `FunctionDecl`, its `semantic_dc` owner an `InterfaceDecl`.
-  `Self` in the requirement's signature reads back as the receiver
-  (`ArgumentDeduction::through_receiver`, called from overload ranking and
-  `CallTyping::call_result_type`). That decl is the key the witness needs;
-  nothing about binding changes.
-- `LowerTargets::witness_suffix()` (`_witness`) and `concept_suffix()`
-  (`_c`) exist in `AST/LangItems.k` with no reader. See 7b.12, question 1.
-- An interface is no C++ entity anywhere in codegen: EmitPlan drops an
-  `InterfaceDecl` on admission and as a member owner, EmitIR's `emit`
-  skips one, `CXXSpell::_type` ICEs on one ("witnesses are not emitted
-  yet"). `ConstraintSet::impl_constraints` holds every `T impl I` bound.
-- ConformanceChecking is a stub (`Sema/Check/ConformanceChecking.k`), and
-  no conformance is checked at an instantiation site: a `twice(x)` whose
-  `x` has no `scale` type-checks clean, and the only error is clang's.
-- **The ICE this section used to promise does not exist.** `EmitIR::_call`
-  has no branch for a callee owned by an `InterfaceDecl`. A bound method
-  call falls to `self.emit(n->callee)` and reaches clang as the member call
-  `a.scale(2)`, which is right when the conformer has an own member
-  `scale` and is CL001E "no member named 'scale'" when the conformance is
-  an extension member (the 2026-10-24 ticket; repro in
-  `private/IMPORTANT/TICKETS.TXT`). A static requirement, `T::make()`,
-  collapses through `_chain_prefix`'s `::` rule to `::N::Eq::make()`,
-  naming the interface (CL001E "no member named 'Eq' in namespace"), and
-  its local is untyped (I011W): `-> Self` is not read back through a `::`
-  step. An operator requirement on `T` reaches clang as the C++ operator
-  and works only for a member operator. The first piece of the work is
-  that ICE (one arm in `_call`, one in `_chain_prefix`, naming the
-  lowering of 7b.5), so the failure names its owner instead of reaching
-  clang.
+Built, end to end (`Tests/Codegen/witness/`):
+
+- **Sema.** ConformanceChecking (Check stage, after ExprTyper) walks every
+  call with a registered instance and, per `P impl I` bound of the
+  primary, finds the row `(X, I)`: for each of I's own requirements, the
+  decl member lookup on X finds whose signature is the requirement's
+  exactly (Self := X, the interface's parameters := the bound's
+  arguments). Rows live in the InstantiationRegistry (`ConformanceRow`,
+  `row_find` / `row_add`), shared build-wide, and go on the instance as
+  `InstanceEntry::rows`, the bound's derives closure included. A miss is
+  SC001E at the call, with notes at the bound and the requirement.
+- **The call.** ExtensionLowering rewrites `a.m(x)` / `p->m(x)` bound to a
+  requirement into `m(recv, x)` with an extension member's receiver rules
+  (no upcast) and records `CallExpr::witness_iface` (the DECLARING
+  interface, found through the receiver parameter's bounds and their
+  derives closure) and `witness_self`. EmitIR spells the callee
+  `::N::I_witness<Self, A...>::m`. A requirement callee with no recorded
+  witness is an ICE naming ExtensionLowering.
+- **Emission.** EmitPlan keeps `WitnessPiece`s beside its ExtScopes: an
+  interface's primary + concept (tier-0 forward declaration, tier-1
+  definition; admitted by a requirement use and by a bounded generic's
+  declaration) and a row's specialization (tier 1, admitted from
+  `_admit_instance` in every TU holding the instance, after the primary,
+  the conformer and the extension scopes it forwards to). EmitWitness
+  writes them; the primary-vs-specialization choice is 7b.4's, from
+  spellings. A header guards each definition (`__KAIRO_W_<key>`);
+  IncludeEmitter dedupes by the same key.
+- **The concept** is rendered by `CXXSpell::template_head` on a
+  namespace-scope generic FUNCTION only (declaration, body and the
+  explicit-instantiation lines need no clause of their own: an explicit
+  instantiation has no template head, and clang matches it to the
+  constrained template -- checked by hand, and by `witness/diamond`).
+
+Not built, each the ICE or XFAIL that names it:
+
+- A STATIC requirement, `T::make()`: the typer does not read `-> Self`
+  back through a `::` step (the local is untyped, I011W), and
+  ExtensionLowering rewrites only `.` / `->` calls. `witness/static.k`.
+- An OPERATOR on a bounded `T`: OperatorTyping binds no `resolved_op`, so
+  `a == b` stays a C++ operator and links only when ADL finds an
+  extension forwarder. The witness members are emitted already.
+  `witness/operator.k`.
+- Generic requirements, constructor requirements in the concept,
+  associated types, value-parameter interfaces: EmitWitness ICEs.
+- The concept on a record's or a method's template head (a record's head
+  is also its tier-0 forward declaration, ahead of every concept).
+- Rows for a generic conformance are full specializations per concrete
+  conformer, not the partial specialization 7b.3 describes (a C++ host
+  instantiating with its own `Pair<U>` does not get one).
+- Declared rows (`class X impl I`) admitted without a Kairo instance, the
+  transitive case (`f<T>` calling `g<T>`), and `Box<Metric>` named by T:
+  ConformanceChecking sees call instances only.
 
 ### 7b.2 The problem, and why a witness
 
@@ -874,8 +894,10 @@ that is the unnamed namespace, and only that TU can reach it).
 Every emitted generic decl with interface bounds carries `requires
 ::N::I_c<P, A...> && ...` in its template head, one conjunct per `P impl
 I<A...>`, in bound order. It is spelled by `CXXSpell::template_head`, the
-one speller, so the declaration, the body, the `extern template` line and
-the explicit instantiation definition carry the same clause: two
+one speller, so the declaration and the body carry the same clause (an
+`extern template` line or explicit instantiation definition has no
+template head and carries none; clang matches it to the constrained
+template): two
 declarations of one function template must have equivalent template heads
 ([temp.over.link]), and clang mangles the constraint into the symbol
 (`_ZN4ring5twiceINS_6MetricEQgssr4ringE10Scalable_cIT_EEEiS2_`, checked by

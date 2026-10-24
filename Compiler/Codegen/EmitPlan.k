@@ -58,6 +58,7 @@
 import Codegen::CodegenContext::*;
 import Codegen::CodegenICE::*;
 import Codegen::Emit::CXXSpell::*;
+import Codegen::Emit::EmitWitness::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -148,6 +149,9 @@ class PlanEntry {
     /// Tiers 0 and 1: the extension scope this entry declares or defines,
     /// or null. `decl` is then the scope's anchor, for position only.
     pub var scope:   *ExtScope      = &null;
+    /// Tiers 0 and 1: the witness piece this entry declares or defines
+    /// (CODEGEN.md §7b.6), or null. `decl` is then its InterfaceDecl.
+    pub var witness: *WitnessPiece  = &null;
 
     fn PlanEntry(self) { }
 }
@@ -165,6 +169,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// Every extension scope the plan touches. Indexed while the closure
     /// runs (it grows); PlanEntry::scope points in only once it is done.
     priv var _scopes:   vec::<ExtScope>;
+    /// Every witness piece the plan holds: interface primaries and row
+    /// specializations. Index-based while the closure runs, as _scopes.
+    priv var _witnesses: vec::<WitnessPiece>;
 
     /// Memo for param_by_value: (primary, index) -> answer. Pairs, linear
     /// scan; a build has tens of generic primaries, not thousands.
@@ -218,6 +225,12 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _scope_dep(self, k: usize, t: *Type);
     fn _scope_sig_dep(self, k: usize, t: *Type);
     fn _scope_add_dep(self, k: usize, d: *Decl);
+    fn _witness_primary(self, iface: *Decl) -> usize;
+    fn _witness_row(self, row: *ConformanceRow);
+    fn _witness_bounds(self, f: *FunctionDecl);
+    fn _witness_sig(self, k: usize, f: *FunctionDecl);
+    fn _witness_dep(self, k: usize, t: *Type);
+    fn _witness_scope(self, k: usize, x: *ExtensionDecl);
     fn visit_expr(self, e: *Expr) -> bool;
     fn visit_type(self, t: *Type) -> bool;
     fn visit_decl(self, d: *Decl) -> bool;
@@ -361,6 +374,7 @@ fn EmitPlan::run() {
     self._empty = true;
     for var i: usize = 0; i < self.entries.size(); ++i {
         var e = &(self.entries[i]);
+        if e->witness != &null { continue; }   // own everywhere, and only ever there for this TU's own code.
         if e->own { self._empty = false; break; }
         if (e->tier == PlanTier::Instantiations) && e->is_home { self._empty = false; break; }
     }
@@ -716,6 +730,124 @@ fn EmitPlan::_scope_add_dep(k: usize, d: *Decl) {
     self._scopes[k].deps.push_back(d);
 }
 
+// --- Witnesses (CODEGEN.md §7b.6) --------------------------------------------------
+
+/// \p iface's primary and concept, created on first touch. Its deps are the
+/// by-value records its forwarders' signatures name (an inline definition
+/// lays them out); a concept conjoins its bases' concepts, so their
+/// primaries come first.
+fn EmitPlan::_witness_primary(iface_in: *Decl) -> usize {
+    var iface = CXXSpell::rep(decl_pattern(CXXSpell::rep(iface_in)));
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if (self._witnesses[i].iface == iface) && (self._witnesses[i].row == &null) { return i; }
+    }
+    var fresh = WitnessPiece();
+    fresh.iface = iface;
+    fresh.key   = self._spell.witness_name(iface);
+    self._witnesses.push_back(fresh);
+    var k = self._witnesses.size() - 1;
+
+    var idecl = cast::<InterfaceDecl>(iface);
+    for var i: usize = 0; i < idecl->methods.size(); ++i {
+        var m = idecl->methods[i];
+        if (m == &null) || m->is_poisoned() { continue; }
+        self._witness_sig(k, m);
+    }
+    var bases = decl_bases(iface);
+    for var i: usize = 0; i < bases.size(); ++i {
+        var b = bases.get(i)->base;
+        if (b == &null) || (b->canonical == &null) || (!isa::<RecordType>(canon_unqual(b->canonical))) { continue; }
+        var bd = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(canon_unqual(b->canonical))->decl)));
+        if !isa::<InterfaceDecl>(bd) { continue; }
+        self._witness_primary(bd);
+        self._witnesses[k].after.push_back(bd);
+    }
+    return k;
+}
+
+/// \p row's specialization, when the primary does not serve it (§7b.4):
+/// after the primary, the conformer complete, and every extension scope
+/// it forwards to defined.
+fn EmitPlan::_witness_row(row: *ConformanceRow) {
+    if (row == &null) || (row->iface_decl == &null) { return; }
+    var iface = CXXSpell::rep(row->iface_decl);
+    self._witness_primary(iface);
+    var ew = EmitWitness(self._cg, &(self._spell));
+    if !ew.needs_specialization(row) { return; }
+    for var i: usize = 0; i < self._witnesses.size(); ++i { if self._witnesses[i].row == row { return; } }
+
+    var fresh = WitnessPiece();
+    fresh.iface = iface;
+    fresh.row   = row;
+    fresh.key   = self._spell.witness_name(iface) + self._spell.witness_args(self._spell._type(row->conformer), row->iface);
+    fresh.after.push_back(iface);
+    self._witnesses.push_back(fresh);
+    var k = self._witnesses.size() - 1;
+
+    self._witness_dep(k, row->conformer);
+    var idecl = cast::<InterfaceDecl>(iface);
+    for var i: usize = 0; i < idecl->methods.size(); ++i {
+        var m = idecl->methods[i];
+        if (m == &null) || m->is_poisoned() { continue; }
+        self._witness_sig(k, m);
+    }
+    for var i: usize = 0; i < row->witnesses.size(); ++i {
+        var w = row->witnesses[i];
+        if w == &null { continue; }
+        var x = decl_extension_of(w);
+        if x != &null { self._witness_scope(k, x); continue; }
+        self._admit_use(w);   // an own member: its owner complete.
+    }
+}
+
+/// The primaries of every interface \p f's bounds name: its template head
+/// carries their concepts (CXXSpell::requires_clause), so its declaration
+/// needs them, not only its body.
+fn EmitPlan::_witness_bounds(f: *FunctionDecl) {
+    if (f == &null) || (f->requires_clause == &null) { return; }
+    if self._spell.requires_clause(static_cast::<*Decl>(f)).size() == 0 { return; }
+    var cs = vec::<*ConstraintExpr>();
+    CXXSpell::impl_bounds(f->requires_clause, &cs);
+    for var i: usize = 0; i < cs.size(); ++i {
+        var c = cs[i];
+        if (c->rhs == &null) || (c->rhs->canonical == &null) || (!isa::<RecordType>(canon_unqual(c->rhs->canonical))) { continue; }
+        var d = cast::<RecordType>(canon_unqual(c->rhs->canonical))->decl;
+        if isa::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(d)))) { self._admit(d, PlanNeed::Complete); }
+    }
+}
+
+/// Requirement \p f's by-value records, as a forwarder's are.
+fn EmitPlan::_witness_sig(k: usize, f: *FunctionDecl) {
+    self._witness_dep(k, f->return_type);
+    for var j: usize = 0; j < f->params.size(); ++j {
+        var p = f->params[j];
+        if (p == &null) || p->is_self || (p->mode != ParamMode::Value) { continue; }
+        self._witness_dep(k, p->type_);
+    }
+}
+
+/// A by-value record \p t is a Complete dependency of witness \p k. An
+/// interface (the requirement's own `Self`) is spelled as Self, never laid
+/// out; an imported record is the header's.
+fn EmitPlan::_witness_dep(k: usize, t: *Type) {
+    if (t == &null) || (t->canonical == &null) { return; }
+    var c = canon_unqual(t->canonical);
+    if !isa::<RecordType>(c) { self._admit_type(t, PlanNeed::Complete); return; }
+    var d = self.layout_decl(cast::<RecordType>(c)->decl);
+    if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
+    if c->is_dependent() { return; }
+    self._admit_type(t, PlanNeed::Complete);
+    var o = self._outermost_type(d);
+    for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == o { return; } }
+    self._witnesses[k].deps.push_back(o);
+}
+
+fn EmitPlan::_witness_scope(k: usize, x: *ExtensionDecl) {
+    var s = self._scope_for(x, true);
+    for var i: usize = 0; i < self._witnesses[k].scopes.size(); ++i { if self._witnesses[k].scopes[i] == s { return; } }
+    self._witnesses[k].scopes.push_back(s);
+}
+
 // --- Roots: uses (preamble only) -------------------------------------------------
 
 fn EmitPlan::_collect_uses() {
@@ -1008,7 +1140,9 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     // land here too and are skipped the same way.
     if CXXSpell::in_function_scope(c) { return; }
     if decl_is_imported(c) { return; }             // the header declares it (IMPORTS.md §5).
-    if isa::<InterfaceDecl>(c) { return; }         // no C++ entity yet (witnesses MISSING).
+    // An interface's C++ entity is its witness: named by a call through a
+    // bound (_admit_use on the requirement), or by a bound's concept.
+    if isa::<InterfaceDecl>(c) { self._witness_primary(c); return; }
     // An extension member reached through a use (`l.pos.len()`) is not a
     // member by _member_owner, so without this it is admitted a second time
     // as an ordinary function; it is its scope's static member instead.
@@ -1058,6 +1192,10 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     for var i: usize = 0; i < self._insts.size(); ++i { if self._insts[i] == e { seen = true; break; } }
     if !seen { self._insts.push_back(e); }
     self._admit(prim, PlanNeed::Complete);
+    // Every TU holding the instance may compile its body (it is a visible
+    // C++ inline body), so every one needs the specializations its bounds
+    // bind, or it compiles the primary instead (CODEGEN.md §7b.6).
+    for var i: usize = 0; i < e->rows.size(); ++i { self._witness_row(e->rows[i]); }
     for var i: usize = 0; i < e->args.size(); ++i {
         var n = need;
         if !self.param_by_value(prim, static_cast::<u32>(i)) { n = PlanNeed::Fwd; }
@@ -1133,6 +1271,7 @@ fn EmitPlan::_expand(d: *Decl, need: PlanNeed) {
 
 /// A declaration names its types, it does not lay them out.
 fn EmitPlan::_expand_fn(n: *FunctionDecl) {
+    self._witness_bounds(n);
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
@@ -1463,6 +1602,15 @@ fn EmitPlan::_order() {
         e.scope = &(self._scopes[i]);
         t0.push_back(e);
     }
+    // A witness primary is declared up front, so a specialization or a
+    // body can name it in any order tier 1 settles on.
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if self._witnesses[i].row != &null { continue; }
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls);
+        e.witness = &(self._witnesses[i]);
+        e.own     = true;   // written wherever it is needed; one text everywhere (§7b.6).
+        t0.push_back(e);
+    }
     self._sort(&t0);
     for var i: usize = 0; i < t0.size(); ++i { self.entries.push_back(t0[i]); }
 
@@ -1481,6 +1629,12 @@ fn EmitPlan::_order() {
         if (self._mode != PlanMode::Preamble) && (!self._scopes[i].reachable) { continue; }
         var e = self._entry(static_cast::<*Decl>(self._scopes[i].anchor), PlanNeed::Complete, PlanTier::Definitions);
         e.scope = &(self._scopes[i]);
+        t1.push_back(e);
+    }
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Complete, PlanTier::Definitions);
+        e.witness = &(self._witnesses[i]);
+        e.own     = true;
         t1.push_back(e);
     }
     self._sort(&t1);
@@ -1602,6 +1756,24 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
 /// True when entry \p who must follow entry \p dep. A scope follows its
 /// deps; nothing waits on a scope (a friend line needs only tier 0).
 fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
+    if who->witness != &null {
+        var w = who->witness;
+        if dep->witness != &null {
+            if dep->witness->row != &null { return false; }   // nothing waits on a specialization.
+            for var i: usize = 0; i < w->after.size(); ++i { if w->after[i] == dep->witness->iface { return true; } }
+            return false;
+        }
+        if dep->scope != &null {
+            for var i: usize = 0; i < w->scopes.size(); ++i {
+                var sp = &(self._scopes[w->scopes[i]]);   // bound first: Stage 0 drops a leading `&(...)` in a comparison.
+                if sp == dep->scope { return true; }
+            }
+            return false;
+        }
+        for var i: usize = 0; i < w->deps.size(); ++i { if w->deps[i] == dep->decl { return true; } }
+        return false;
+    }
+    if dep->witness != &null { return false; }
     if dep->scope != &null { return false; }
     if who->scope != &null {
         for var i: usize = 0; i < who->scope->deps.size(); ++i {

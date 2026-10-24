@@ -1392,7 +1392,9 @@ Mono / codegen:
     o. M1 enumeration over the registry (types AND functions)
     p. M2: fill + partial selection + dependent conformance +
        `: type` re-check (`ExprTyper::retype_instance`)
-    q. EmitWitness + EmitPlan witness edge + EmitIR witness calls
-       (CODEGEN.md §7b; first the ICE for an unrouted requirement callee)
+    q. EmitWitness + EmitPlan witness edge + EmitIR witness calls   PARTIAL
+       (CODEGEN.md §7b; `a.m()` / `p->m()` through a bound done; static
+       and operator requirements, generic requirements, records' concepts
+       open)
     r. EmitIR: `typename` / `.template` on Dependent segments/steps;
        generic emission; the fwd-decl emitter (IMPORTS.md items 12, 14)

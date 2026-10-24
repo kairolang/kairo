@@ -1277,6 +1277,12 @@ class EmitIR {
         var last: *ChainExpr::Step = &null;
         if (ch != &null) && (ch->steps.size() > 0) { last = ch->steps.get(ch->steps.size() - 1); }
         if ((last != &null) && self._is_extension_member(last->resolved_decl)) { self._ice(n->range, "EmitIR: an extension member called through a chain reached codegen; ExtensionLowering rewrites it to a free call"); }
+        // A requirement is no C++ function: the call goes through its
+        // interface's witness, which ExtensionLowering records (CODEGEN.md
+        // §7b.5). `T::make()` and `I::m(a)` are not rewritten yet.
+        if self._is_requirement(callee) && (n->witness_iface == &null) {
+            self._ice(n->range, "EmitIR: a call bound to an interface requirement with no recorded witness; ExtensionLowering rewrites `a.m()` through a bound (a `::` form is not built)");
+        }
 
         // The constructor, not the type the callee names: its parameters are
         // what the arguments are cast to.
@@ -1290,6 +1296,15 @@ class EmitIR {
         if self._is_ctor(f) || self._is_type_decl(callee) {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
             self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
+        } else if n->witness_iface != &null {
+            // `::ring::Scalable_witness<T>::scale(`: the receiver is argument
+            // zero already, in the form the witness member takes it.
+            var wi = canon_unqual(n->witness_iface);
+            if (!isa::<RecordType>(wi)) { self._ice(n->range, "EmitIR: a witness that is not an interface instance"); }
+            var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(wi)->decl)));
+            var s = self._spell.witness_name(idecl) + self._spell.witness_args(self._spell._type(n->witness_self), wi);
+            s += "::" + self._spell.witness_member_name(f);
+            self._cg->sink->spell(n->callee->range, s);
         } else if n->qualifier != &null {
             // A default thunk of a generic type's method: a static member of a
             // class template, named through the receiver's record so the
@@ -1425,6 +1440,13 @@ class EmitIR {
             return last->resolved_decl;
         }
         return &null;   // a fn-pointer expression; no decl to consult.
+    }
+
+    /// \p d is declared in an interface: a requirement, never a C++ function.
+    priv fn _is_requirement(self, d: *Decl) -> bool {
+        if (d == &null) || (!isa::<FunctionDecl>(d)) || (d->semantic_dc == &null) { return false; }
+        var home = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+        return (home != &null) && isa::<InterfaceDecl>(home);
     }
 
     priv fn _is_extension_member(self, d: *Decl) -> bool {
