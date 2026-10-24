@@ -619,6 +619,7 @@ class CompilerInstance {
             || self.invocation().args.get_bool("print-cpus")
             || self.invocation().args.get_bool("print-dirs")
             || self.invocation().args.get_bool("print-clang-args")
+            || self.invocation().args.get_bool("print-jobs")
             || self.invocation().args.get_bool("print-from-clang")
             || self.invocation().args.get_bool("print-target-info")
             || self.invocation().args.get_bool("print-cfg");
@@ -1184,7 +1185,10 @@ class CompilerInstance {
         }
 
         if self.invocation().args.get_bool("print-clang-args") {
-            return self.print_clang_args();
+            return self.print_clang_args(false);
+        }
+        if self.invocation().args.get_bool("print-jobs") {
+            return self.print_clang_args(true);
         }
 
         if self.invocation().args.get_bool("print-from-clang") {
@@ -1999,7 +2003,8 @@ class CompilerInstance {
         return (0) if (parsed.ok) else (1);
     }
 
-    fn print_clang_args(self) -> i32 {
+    /// \p with_link: --print-jobs, which also prints the planned link.
+    fn print_clang_args(self, with_link: bool) -> i32 {
         // A failed parse leaves the invocation at its defaults, so the line
         // would show a target and level the user did not ask for.
         if !self.args_ok() {
@@ -2032,12 +2037,12 @@ class CompilerInstance {
             for pl: string in jobs.planned { std::print(pl); }
         }
 
-        // Then the link, as the run would plan it (kcc's -###), when the run
-        // links. Objects are named as the run would write them; a Kairo
+        // Then, for --print-jobs (kcc's -###), the link as the run would
+        // plan it, when the run links. Objects are named as the run would write them; a Kairo
         // input's imports are only known after preprocessing, so a graph
         // run lists its entries and the library, not each module it reaches.
         var lk = &(self.invocation().linker);
-        if (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen()) {
+        if with_link && (!lk->compile_only) && (!self.invocation().frontend.stops_before_codegen()) {
             var job = LinkJob(&(self.invocation().target), lk);
             job.output = (self.invocation().frontend.output) if (!self.invocation().frontend.output.empty()) else ("a.out");
             for var i: usize = 0; i < n_in; ++i {
@@ -2315,12 +2320,14 @@ class CompilerInstance {
         var text = "";
         if !LinkFS::read(dir + "/manifest", text) { return false; }
         var objs = vec::<string>();
+        var archive = "";
         var start: usize = 0;
         for var i: usize = 0; i <= text.size(); ++i {
             if (i < text.size()) && (text[i] != '\n') { continue; }
             var line = string(text.raw() + start, i - start);
             start = i + 1;
             if line.starts_with("obj ") { objs.push_back(dir + "/" + string(line.raw() + 4, line.size() - 4)); continue; }
+            if line.starts_with("ar ")  { archive = dir + "/" + string(line.raw() + 3, line.size() - 3); continue; }
             if line.starts_with("src ") {
                 // `src <mtime> <path>`: the path may hold spaces, the mtime not.
                 var rest = string(line.raw() + 4, line.size() - 4);

@@ -121,6 +121,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-cfg",          "",  "print-cfg",           "print the --cfg values given on this command line and exit",                false);
     cmd->define::<FlagKind::Bool>  ("print-dirs",         "",  "print-dirs",          "print the toolchain/sysroot directories and exit",                              false);
     cmd->define::<FlagKind::Bool>  ("print-clang-args",   "",  "print-clang-args",    "print the exact clang invocation and exit (does not compile)",             false);
+    cmd->define::<FlagKind::Bool>  ("print-jobs",         "",  "print-jobs",          "print the clang invocations and the planned link, and exit (kcc's -###)",  false);
     cmd->define::<FlagKind::Bool>  ("print-from-clang",   "",  "print-from-clang",    "print what the clang command line after -- means to kairo (kairo flags, and the clang-only words) and exit",   false);
     cmd->define::<FlagKind::Bool>  ("print-ld-args",      "",  "print-ld-args",       "print the exact ld.lld/ld64.lld/lld-link/wasm-ld invocation instead of linking", false);
     cmd->define::<FlagKind::Bool>  ("print-target-info",  "",  "print-target-info",   "print target ABI, pointer width, endianness for --target and exit",        false);

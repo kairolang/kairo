@@ -22,7 +22,7 @@
 ///       `kcc -c x.cc; kcc -c y.k; kcc x.o y.o` works as with clang.
 ///   kcc answers `--help` and `--version` itself; clang's own would describe
 ///   a different compiler. `-###` prints the jobs without running them:
-///   each cc1 line, then the link (kairo's --print-clang-args).
+///   each cc1 line, then the link (kairo's --print-jobs).
 ///
 ///   Startup and teardown are Kairo.k's (a build target is one entry file,
 ///   so this one cannot import that one's main), kept in step by hand.
@@ -151,9 +151,8 @@ fn _kcc_words(argc: i32, argv: *(*kairo::std::Legacy::char), out: *vec::<string>
     for w: string in cw {
         // kcc's own answer (see the header); clang's would name clang.
         if w == "--version" { out->push_back("--version"); continue; }
-        // The jobs, not run: each cc1 line and the link (CompilerInstance::
-        // print_clang_args).
-        if w == "-###" { out->push_back("--print-clang-args"); continue; }
+        // The jobs, not run: each cc1 line and the link (--print-jobs).
+        if w == "-###" { out->push_back("--print-jobs"); continue; }
         out->push_back("--cxx-flags=" + w);
     }
     for w: string in passed { out->push_back(w); }
