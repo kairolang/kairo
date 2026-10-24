@@ -619,22 +619,38 @@ Built, end to end (`Tests/Codegen/witness/`):
   instantiation has no template head, and clang matches it to the
   constrained template -- checked by hand, and by `witness/diamond`).
 
-Not built, each the ICE or XFAIL that names it:
+Also built: the qualified form `I::m(x)` (Self is the first argument's
+type; on a concrete conformer the call carries its own row,
+`CallExpr::witness_row`); compound assignment and every other operator on
+a bounded `T`; generic requirements (a member template, gated on the
+callable form, left out of the concept); a generic extension's member as
+a witness (the row records the extension's arguments); the concept on
+every bounded head -- records, methods, extension members -- with the
+concepts in tier 0 ahead of the bounded records' forward declarations;
+rows for record instances wherever their type is named; and the
+instances a generic's body reaches (`outer<T>` calling
+`inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
+arguments (`CallExpr::dep_args`) and ConformanceChecking substitutes them
+per instance, adding the reached rows to the outer instance's. That last
+is the slice of M1 witnesses need: the reached instances get rows, not
+homes.
 
-- A requirement named through `::` other than a static on a bare
-  parameter (`I::m(a)`, `T::m(a)` for a method): EmitIR's ICE.
-- Compound assignment (`a += b`) on a bounded `T`: OperatorTyping still
-  defers it.
-- Generic requirements, constructor requirements in the concept,
+Not built, each the ICE or diagnostic that names it:
+
+- `T::m(a)` for a METHOD: R027E, by design (use `.`).
+- A qualified call to a GENERIC interface's requirement (`Container<i32>::
+  get(c, 0)`): SC001E, not supported yet; the interface's arguments are
+  not on the call.
+- Generic operator requirements, constructor requirements in the concept,
   associated types, value-parameter interfaces: EmitWitness ICEs.
-- The concept on a record's or a method's template head (a record's head
-  is also its tier-0 forward declaration, ahead of every concept).
 - Rows for a generic conformance are full specializations per concrete
   conformer, not the partial specialization 7b.3 describes (a C++ host
   instantiating with its own `Pair<U>` does not get one).
-- Declared rows (`class X impl I`) admitted without a Kairo instance, the
-  transitive case (`f<T>` calling `g<T>`), and `Box<Metric>` named by T:
-  ConformanceChecking sees call instances only.
+- Declared rows (`class X impl I`) admitted without a Kairo instance (a
+  C++ host instantiating with a declared conformer Kairo never paired).
+- A member template of a class template gets no explicit instantiation:
+  its registry entry carries only its own arguments, so it is
+  instantiated implicitly from its visible body.
 
 ### 7b.2 The problem, and why a witness
 

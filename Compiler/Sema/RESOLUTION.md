@@ -1393,7 +1393,8 @@ Mono / codegen:
     p. M2: fill + partial selection + dependent conformance +
        `: type` re-check (`ExprTyper::retype_instance`)
     q. EmitWitness + EmitPlan witness edge + EmitIR witness calls   PARTIAL
-       (CODEGEN.md §7b; `a.m()` / `p->m()`, `T::make()` and operators
-       through a bound done; generic requirements, records' concepts open)
+       (CODEGEN.md §7b; calls, statics, operators, `I::m(x)`, generic
+       requirements, records' concepts and reached instances done;
+       declared rows without an instance, partial specializations open)
     r. EmitIR: `typename` / `.template` on Dependent segments/steps;
        generic emission; the fwd-decl emitter (IMPORTS.md items 12, 14)
