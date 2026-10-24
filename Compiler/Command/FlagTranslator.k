@@ -271,6 +271,70 @@ class FlagTranslator {
         return o;
     }
 
+    /// \brief the floating-point semantics Kairo's own code has whatever the
+    ///        target's C++ defaults are (IEEE 754, precise model): no
+    ///        contraction, no fast-math, no errno from the math functions.
+    ///
+    /// \details For Kairo's compile line only, ahead of the user's own
+    ///          codegen() words so an explicit --fp-contract / --fp-model /
+    ///          -ffast-math still wins. cc1 spells two of the four by absence:
+    ///          it has no -ffp-model (precise is its default) and no
+    ///          -fno-math-errno (errno is off unless -fmath-errno is given,
+    ///          and probe_filter never keeps that one). Contraction is the
+    ///          one cc1 default the driver changes for C++ (-ffp-contract=on),
+    ///          so it is pinned rather than left to the default.
+    ///
+    ///          C/C++ inputs never see these (they take the driver line), and
+    ///          the ffi headers compiled in the same clang TU get their C++
+    ///          defaults back through header_fp_pragmas: an imported header
+    ///          keeps C++ semantics, and the same expression written in Kairo
+    ///          keeps Kairo's.
+    static fn kairo_fp_cc1() -> vec::<string> {
+        var o = vec::<string>();
+        o.push_back("-ffp-contract=off");
+        return o;
+    }
+
+    /// \brief the pragma lines that open and close an ffi header region,
+    ///        restoring for it the FP semantics clang++ would give C++ on
+    ///        this target, where kairo_fp_cc1 changed them.
+    ///
+    /// \details Pragmas, not flags: the headers and Kairo's code are one
+    ///          clang TU, and only the header text goes through the
+    ///          preprocessor. clang records the FP state each body was
+    ///          parsed under, and instantiates a template under its pattern's
+    ///          state, so header code keeps it wherever Kairo uses it.
+    ///
+    ///          The values are the driver's C++ defaults (\p cxx_contract,
+    ///          \p cxx_math_errno, read from the target probe before
+    ///          probe_filter drops them), except where the user asked for
+    ///          something: then the header follows the user's flag as a
+    ///          C/C++ input would. \p user_cc1 is the user's codegen() words.
+    ///
+    ///          float_control(precise, on) is the only pragma that turns errno
+    ///          back on; it also sets contraction on, so the contract pragma
+    ///          comes after it. The push/pop pair puts Kairo's state back for
+    ///          everything after the headers.
+    static fn header_fp_pragmas(cxx_contract: string, cxx_math_errno: bool,
+                                user_cc1: ref!(vec::<string>),
+                                open: *vec::<string>, close: *vec::<string>) {
+        var contract = cxx_contract;
+        var fast = false;
+        for w: string in user_cc1 {
+            if w.starts_with("-ffp-contract=") { contract = string(w.raw() + 14, w.size() - 14); }
+            if w == "-ffast-math" { fast = true; }
+        }
+        // `#pragma clang fp contract` takes on|off|fast; the honor-pragmas
+        // variant only differs in how it treats pragmas like this one.
+        if contract == "fast-honor-pragmas" { contract = "fast"; }
+        if contract.empty() { contract = "off"; }
+
+        open->push_back("#pragma float_control(push)");
+        if cxx_math_errno && (!fast) { open->push_back("#pragma float_control(precise, on)"); }
+        open->push_back(f"#pragma clang fp contract({contract})");
+        close->push_back("#pragma float_control(pop)");
+    }
+
     /// \brief the code-generation flags: target ISA tuning, -f[no-] toggles,
     ///        floating-point model, hardening and code model, the C++
     ///        language switches, the runtime model, reproducible-build maps,

@@ -222,8 +222,8 @@ class HeaderSet {
 
     fn pch_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.pch"; }
 
-    /// Phase B's textual include of this set when it has a C header: one
-    /// in-memory header replaying the direct includes, the C ones inside
+    /// Phase B's textual include of this set: one in-memory header replaying
+    /// the direct includes inside the header FP pragmas, the C ones inside
     /// extern "C". Preprocessor `Includes` cannot wrap a path themselves.
     fn wrap_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.h"; }
 
@@ -321,6 +321,17 @@ class HeaderSet {
 
         self._main = libcxx::string();
         self._main_locs.clear();
+        // The headers keep C++'s FP semantics, not Kairo's (ClangBackend::
+        // header_fp_pragmas). One _main_locs entry per line, as for every
+        // other line here: the adapter maps clang's line numbers through it.
+        var fp_open  = vec::<string>();
+        var fp_close = vec::<string>();
+        be->header_fp_pragmas(&fp_open, &fp_close);
+        for l: string in fp_open {
+            self._main.append(l.std_string());
+            self._main.append(r"\n");
+            self._main_locs.push_back(SourceRange::invalid());
+        }
         for var i: usize = 0; i < self.headers.size(); ++i {
             var h = self.headers[i].std_string();
             var c = (i < self.c_linkage.size()) && self.c_linkage[i];
@@ -338,6 +349,15 @@ class HeaderSet {
                 self._main.append(r"\x7D\n");
                 self._main_locs.push_back(SourceRange::invalid());
             }
+        }
+        // A header that ends mid-declaration runs on into these lines, and
+        // clang's error then lands here: the last import is what ran out.
+        var last_at = SourceRange::invalid();
+        if self.header_locs.size() > 0 { last_at = self.header_locs[self.header_locs.size() - 1]; }
+        for l: string in fp_close {
+            self._main.append(l.std_string());
+            self._main.append(r"\n");
+            self._main_locs.push_back(last_at);
         }
         var buf = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(self._main.data(), self._main.size()), r"<injected>", false);

@@ -152,6 +152,11 @@ class ClangBackend {
 
     priv var _target_args:  vec::<string>;  ///< see _driver_target_args
     priv var _target_known: bool = false;
+    /// The driver's C++ FP defaults for this target, which probe_filter
+    /// drops (Kairo's line has its own): what an ffi header region is
+    /// restored to (header_fp_pragmas).
+    priv var _cxx_contract:   string = "";
+    priv var _cxx_math_errno: bool   = false;
 
     priv var _mu:      std::Mutex;   ///< serializes startup against itself
     priv var _started: bool = false;
@@ -206,6 +211,16 @@ class ClangBackend {
 
     fn invocation(self) -> *clang::CompilerInvocation { return self._cinv.get(); }
     fn vfs(self)        -> llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem> { return self._vfs; }
+
+    /// \brief the pragma lines around every ffi header region, phase A's
+    ///        PCH buffer and phase B's textual wrapper alike: see
+    ///        FlagTranslator::header_fp_pragmas.
+    ///        After startup() only: the probe that fills the C++ defaults runs
+    ///        there, under its mutex, and pool threads call this.
+    fn header_fp_pragmas(self, open: *vec::<string>, close: *vec::<string>) {
+        FlagTranslator::header_fp_pragmas(self._cxx_contract, self._cxx_math_errno,
+                                          self._cfg.extra_cc1, open, close);
+    }
     fn mem_fs(self)     -> *llvm::vfs::InMemoryFileSystem { return self._mem.get(); }
 
     fn oracle(self) -> *BuiltinsSet {
@@ -235,7 +250,8 @@ class ClangBackend {
         if !self.ready() { return false; }
 
         var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
-        self._cc1_common(&argv, is_c);
+        // Lib/rt is C/C++ source: it keeps clang's C/C++ FP defaults.
+        self._cc1_common(&argv, is_c, false);
         // -std only for the languages it names: IR has none, and an ObjC or
         // OpenCL standard is not a C++ one.
         if (xlang == "c") || (xlang == "cpp-output") {
@@ -366,7 +382,7 @@ class ClangBackend {
     /// One builder for _startup_locked and invocation_args, so what
     /// --print-clang-args shows is what runs.
     priv fn _shared_argv(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>) {
-        self._cc1_common(argv, false);
+        self._cc1_common(argv, false, true);
         self._arg(argv, f"-std={self._cfg.cxx_std}");
 
         // Placeholder input; per-TU runs replace FrontendOpts.Inputs with the
@@ -459,6 +475,14 @@ class ClangBackend {
             return self._target_args;
         }
 
+        // C++'s FP defaults, before the filter drops them: an ffi header
+        // region is put back to these (header_fp_pragmas).
+        for var i: usize = 0; i < cc1.size(); ++i {
+            var a = string(cc1[i]);
+            if a.starts_with("-ffp-contract=") { self._cxx_contract = string(a.raw() + 14, a.size() - 14); }
+            if a == "-fmath-errno" { self._cxx_math_errno = true; }
+        }
+
         // Which of the driver's cc1 words decide the target is the
         // translator's call (FlagTranslator::probe_filter).
         for a: string in FlagTranslator::probe_filter(cc1) { self._target_args.push_back(a); }
@@ -546,7 +570,9 @@ class ClangBackend {
     /// \details \p is_c leaves libc++ off the search path: its C-named
     ///          wrappers (<stdlib.h>, <stddef.h>) are C++ headers, and C
     ///          must reach the libc and clang builtin ones directly.
-    priv fn _cc1_common(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, is_c: bool) {
+    /// \p kairo: the line Kairo's own code compiles with (and every header
+    ///    set, whose PCH must match it), as opposed to Lib/rt's C/C++.
+    priv fn _cc1_common(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, is_c: bool, kairo: bool) {
         self._arg(argv, "-triple");
         self._arg(argv, self._cfg.triple);
         for a: string in self._driver_target_args() { self._arg(argv, a); }
@@ -564,6 +590,9 @@ class ClangBackend {
         // shared with C/C++ inputs (sysroot_words says why it is explicit).
         for a: string in self.sysroot_words(is_c, ClangSpelling::CC1) { self._arg(argv, a); }
 
+        // Kairo's FP semantics, ahead of extra_cc1 so the user's own FP
+        // flags (cc1 takes the last) still win.
+        if kairo { for a: string in FlagTranslator::kairo_fp_cc1() { self._arg(argv, a); } }
         for a: string in self._cfg.extra_cc1 {
             self._arg(argv, a);
         }
