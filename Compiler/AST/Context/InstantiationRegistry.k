@@ -58,6 +58,31 @@ import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 
+/// \class ConformanceRow
+/// \brief `(conformer, interface)` and, for each of the interface's OWN
+///        requirements, the decl that implements it (RESOLUTION.md §2b, "The
+///        conformance table"). Sema records the decls and nothing else;
+///        EmitWitness decides from their spellings whether the row needs a
+///        specialization (CODEGEN.md §7b.4).
+///
+///   Kept here, beside the instances, for the reason the registry is one
+///   per build: a row TU A found is the row every TU holding the same
+///   instance needs, and it is keyed on canonical pointers, which compare
+///   only inside one domain.
+class ConformanceRow {
+    pub var conformer: *Type = &null;    ///< canonical, unqualified: `Metric`, `i32`.
+    pub var iface:     *Type = &null;    ///< the canonical interface instance (a RecordType).
+    pub var iface_decl: *Decl = &null;   ///< its InterfaceDecl's representative.
+    /// The `impl` that declared it (`class X impl I`, `extend X impl I`), or
+    /// null for a STRUCTURAL row found at a use.
+    pub var declared:  *Decl = &null;
+    /// Parallel to `iface_decl`'s methods: the implementing decl, or null
+    /// where the conformer has none (then `ok` is false).
+    pub var witnesses: vec::<*Decl>;
+    pub var ok:        bool  = false;
+    fn ConformanceRow(self) { }
+}
+
 /// \class InstanceEntry
 /// \brief One concrete instance of a generic type. Both halves of "an
 ///        instantiation" hang here: the CHECKING-side decl (what RecordType
@@ -70,6 +95,14 @@ class InstanceEntry {
     pub var is_explicit:       bool  = false;   ///< `decl` is user-written.
     pub var home_fid:          u32   = 0;       ///< TU that first named it; EmitPlan's home.
     pub var emitted:           bool  = false;   ///< explicit instantiation directive written.
+    /// One per `P impl I` bound of the primary, in bound order, then the
+    /// rows of each bound interface's `derives` closure: every witness
+    /// specialization this instance's body can name (CODEGEN.md §7b.6).
+    /// Written once, by ConformanceChecking at the instantiation site
+    /// (set_rows); `rows_done` says it ran, so an instance with no bound
+    /// and one not yet checked are told apart.
+    pub var rows:              vec::<*ConformanceRow>;
+    pub var rows_done:         bool  = false;
     fn InstanceEntry(self) { }
 }
 
@@ -91,6 +124,9 @@ class InstantiationRegistry {
     /// explicit spec, and every printer reads them that way), so this is how
     /// a holder of the node alone gets back its args.
     priv var _by_node: llvm::DenseMap::<u64, *InstanceEntry>;
+    /// The conformance table: hash of (conformer, interface) -> rows. Same
+    /// arena and lock as the instances; rows are immutable once added.
+    priv var _rows: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
 
     fn InstantiationRegistry(self) {
         self._table.reserve(128);
@@ -187,6 +223,44 @@ class InstantiationRegistry {
         return it->second;
     }
 
+    // === Conformance rows ======================================================
+
+    /// The row for (\p conformer, \p iface), or null if none was recorded.
+    fn row_find(self, conformer: *Type, iface: *Type) -> *ConformanceRow {
+        var rlock = std::SharedLock(self._mu);
+        return self._row_probe(conformer, iface);
+    }
+
+    /// Record \p r (built by the caller, outside the lock) unless a row for
+    /// its key already exists; either way returns THE row for the key, so
+    /// two TUs that both built one agree on a single identity.
+    fn row_add(self, r: *ConformanceRow) -> *ConformanceRow {
+        if r == &null { return &null; }
+        var lock = std::LockGuard(self._mu);
+        var hit = self._row_probe(r->conformer, r->iface);
+        if hit != &null { return hit; }
+        var mem: *void = self._arena.alloc(sizeof(ConformanceRow), alignof(ConformanceRow));
+        var row = self._placement::<ConformanceRow>(mem);
+        row->conformer  = r->conformer;
+        row->iface      = r->iface;
+        row->iface_decl = r->iface_decl;
+        row->declared   = r->declared;
+        row->ok         = r->ok;
+        for var i: usize = 0; i < r->witnesses.size(); ++i { row->witnesses.push_back(r->witnesses[i]); }
+        self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
+        return row;
+    }
+
+    /// Write \p e's rows, once: the first TU to check the instance wins, and
+    /// every later one computed the same list from the same table.
+    fn set_rows(self, e: *InstanceEntry, rows: *vec::<*ConformanceRow>) {
+        if (e == &null) || (rows == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        if e->rows_done { return; }
+        for var i: usize = 0; i < rows->size(); ++i { e->rows.push_back((*rows)[i]); }
+        e->rows_done = true;
+    }
+
     // === Enumeration (M1 / EmitPlan) ===========================================
 
     /// Every entry, in NO defined order (hash order of pointer hashes,
@@ -220,6 +294,23 @@ class InstantiationRegistry {
         // corruption in release). The bucket compares args, so the extra
         // collision this folds in costs one comparison, never correctness.
         return h >> 1;
+    }
+
+    priv fn _row_hash(self, conformer: *Type, iface: *Type) -> u64 {
+        var h = canon_hash_ptr(0, reinterpret_cast::<*void>(conformer));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(iface));
+        return h >> 1;   // clear of DenseMap's reserved keys, as _hash.
+    }
+
+    /// Under the lock (either mode).
+    priv fn _row_probe(self, conformer: *Type, iface: *Type) -> *ConformanceRow {
+        var it = self._rows.find(self._row_hash(conformer, iface));
+        if it == self._rows.end() { return &null; }
+        for var i: usize = 0; i < it->second.size(); ++i {
+            var r = it->second[i];
+            if (r->conformer == conformer) && (r->iface == iface) { return r; }
+        }
+        return &null;
     }
 
     /// Under the lock (either mode).

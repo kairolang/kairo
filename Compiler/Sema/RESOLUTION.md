@@ -1192,8 +1192,12 @@ Non-generic code never touches a witness. The typer already binds a bound
 call to the REQUIREMENT decl (`semantic_dc` owner an `InterfaceDecl`), and
 that is the key; binding does not change.
 
-**The conformance table** [MISSING; `Sema/Mono/WitnessTable.k` holds only a
-design memo]. One per build, beside the InstantiationRegistry and for the
+**The conformance table** [PARTIAL: structural rows at a call's instance,
+built by ConformanceChecking and kept in the InstantiationRegistry
+(`ConformanceRow`, `row_find` / `row_add`, `InstanceEntry::rows`); declared
+rows, the impl-only rule, visibility, `Box<Metric>` named by T, and M2's
+dependent conformance are not built. `Sema/Mono/WitnessTable.k` is the
+earlier design memo]. One per build, beside the InstantiationRegistry and for the
 same reason: a row found while checking TU A is needed by every TU that
 holds the same instance, so it is shared, mutex-guarded, own arena. A ROW
 is
@@ -1368,7 +1372,8 @@ Name/type residue:
 Type domain (each unblocks the next):
 
     h. ExtensionOrphanCheck + import-scoped extension index   small
-    i. ConformanceChecking: the conformance table, impl-only
+    i. ConformanceChecking: the conformance table (PARTIAL: structural
+       rows at call instances, SC001E on a miss), impl-only
        members, arity/Self checks, visibility at instantiation;
        instantiating a class with a `= virtual` method is an error
     j. PatternChecking: ctor-pattern heads, bare `case n`,       DONE

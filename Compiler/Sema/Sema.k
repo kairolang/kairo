@@ -57,6 +57,7 @@ import Sema::Check::FeatureGateCheck::*;
 import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
 import Sema::Check::CtorInitCheck::*;
+import Sema::Check::ConformanceChecking::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
@@ -362,7 +363,10 @@ class Sema {
         // call ends a path). Before FeatureGate, which stays last.
         { var _p = TimeRegion("CtorInitCheck"); CtorInitCheck(&self.sc).run(); }
 
-        // TODO(sema): ConformanceChecking(&self.sc).run();
+        // The rows of every instance this TU names, from its calls' registered
+        // instances (ExprTyper). Before the lowerings: ExtensionLowering's
+        // witness calls are emitted against them.
+        { var _p = TimeRegion("Conformance"); ConformanceChecking(&self.sc).run(); }
         // TODO(sema): ConstChecking(&self.sc).run();
 
         // Last: well-typed constructs the lowerings cannot render yet. An
