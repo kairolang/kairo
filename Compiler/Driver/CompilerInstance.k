@@ -1518,9 +1518,9 @@ class CompilerInstance {
     }
 
     /// \brief the clang driver words for one C/C++ input, without the
-    ///        action and the input/output: the backend's roots, the runtime
-    ///        root, then everything FlagTranslator::to_driver spells for this
-    ///        invocation (ending in --cxx-flags, so those win).
+    ///        action and the input/output: the backend's roots, everything
+    ///        FlagTranslator::to_driver spells for this invocation (ending in
+    ///        --cxx-flags, so those win), then the runtime root.
     priv fn _native_words(self, k: InputKind) -> vec::<string> {
         return self._native_words_for(self._backend, k);
     }
@@ -1533,15 +1533,22 @@ class CompilerInstance {
         // only draw clang's "argument unused" warning, once per root.
         if k.needs_headers() {
             w = be->sysroot_words(k.is_c_family_c(), ClangSpelling::Driver);
-            // `rt/fmt.h` resolves for a C/C++ input exactly as for Lib/rt.
-            var rt_root = self._runtime_root();
-            if !rt_root.empty() { w.push_back("-I"); w.push_back(rt_root); }
         }
         // Plugins that do not exist were reported when the backend's
         // configuration was built; here they are only left out.
         var missing = vec::<string>();
         for a: string in FlagTranslator::to_driver(self.invocation(), be->triple(), k.type_name(), &missing) {
             w.push_back(a);
+        }
+        // `rt/fmt.h` resolves for a C/C++ input exactly as for Lib/rt, and
+        // the runtime root comes AFTER the user's -I, as on the cc1 line
+        // (_backend_config): a quoted include that exists under both Lib
+        // and a user -I dir names the user's file in both clang lines and
+        // in the `#include "x.k"` scan (clang_include_dirs). -I is not
+        // last-wins, so following --cxx-flags takes nothing from them.
+        if k.needs_headers() {
+            var rt_root = self._runtime_root();
+            if !rt_root.empty() { w.push_back("-I"); w.push_back(rt_root); }
         }
         return w;
     }
