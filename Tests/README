@@ -93,6 +93,8 @@ files it imports) or a documented role (parity/, kairo-only/).
         imports_all_forms/  every form in one TU (IMPORTS.md 1-9)
         emit_plan/        which TUs get emitted (IMPORTS.md 11)
         module_roots/     named -I roots
+        module_pins/      libraries named by a module.k pin (`module geo`)
+        module_pins_dup/  two pins with one name (R018E); its own cwd
       ExprTyper/        expression typing, overloads, call arguments
       Check/            post-resolution checks (lifecycle, C++ name clashes)
       Operators/        operator declaration / use rules
