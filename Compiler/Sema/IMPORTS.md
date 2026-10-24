@@ -121,19 +121,30 @@ that is fixed by where the file sits, never by who imports it.
   `kairo::std::module`. `module X { }` inside a file appends `X`.
 - **Where pins are found.** In each search dir itself (an -I dir whose own
   module.k pins is that library) and in its immediate subdirectories (one
-  readdir per root, one small read per module.k, never a recursive walk);
-  a subdirectory pin registers a library root (`SearchRoot::discovered`)
+  readdir per root, one small read per module.k, never a recursive walk).
+  Either way the pin registers a library root (`SearchRoot::discovered`)
   reached by its name only -- the "every other root with the path as
-  written" fallback skips it. A pin deeper than that still fixes its
-  files' paths: `canonical_module_path` walks up from the file to the
-  nearest pinned directory below its root and uses the pin's name as the
-  prefix. The cwd stays unnamed even if its module.k pins. The driver's
-  `builtin` and `kairo::std` registrations are the only names given
-  outside a pin (`Builder::add_include(path, name, spelling)`; std's
+  written" fallback skips it, so `-I libfoo` over `module foo` does not
+  make `libfoo/x.k` importable as `x` as well as `foo::x`. A pin deeper
+  than that still fixes its files' paths: `canonical_module_path` walks up
+  from the file to the nearest pinned directory below its root and uses
+  the pin's name as the prefix. The cwd is never a NAMED root (nothing is
+  imported as `foo::x` through it), but its own module.k pin still fixes
+  its files' paths the same way: `cd geometry && kairo shapes.k` under
+  `module geo` is `geo::shapes`, the path every importer gives the file.
+  The driver's `builtin` and `kairo::std` registrations are the only names
+  given outside a pin (`Builder::add_include(path, name, spelling)`; std's
   spelling `std` is not expressible as a pin), and `Lib/std/module.k` /
-  `Lib/builtin/module.k` pin exactly those names. The bare form parses in
-  any file; outside module.k it has no effect yet (the parser records it on
-  `TranslationUnit::pin_segments` and nothing reads that).
+  `Lib/builtin/module.k` pin exactly those names. They are explicit names,
+  not pins, so the fallback probe still reaches them.
+- **A pin outside module.k is an error.** The bare form parses in any
+  file (the parser records it on `TranslationUnit::pin_segments`), but
+  only a module.k may carry one; elsewhere it is R001E (placeholder),
+  pointing at the block form `module foo { ... }` (PLAN-module-pinning.md
+  decision A, "for now"). The rule is one function,
+  `ModulePinCheck::pin_allowed` (a Verify pass), so the meanings left open
+  -- the pin names the file itself, or wraps the rest of the file -- are a
+  change there and to its diagnostic, never to the parser or the resolver.
 - **Library names match longest first.** An import path is matched against
   each library's segment list on its LEADING segments, longest name
   winning: with `kairo::std` and a hypothetical `kairo`,
@@ -142,11 +153,25 @@ that is fixed by where the file sits, never by who imports it.
   names are the collision below. A name that consumes the whole path names
   the library itself and resolves to its own `module.k` -- that is how
   `import builtin` and `import kairo::std` resolve.
-- **The entry TU.** A command-line input still has no path (`module_self`
-  null) and emits into the global namespace; every non-`main` decl in it
-  gets internal linkage (unnamed C++ namespace), because nothing outside it
-  links against it. (Inputs-as-modules is the next phase of module
-  pinning: PLAN-module-pinning.md decision C.)
+- **Inputs are modules.** A `.k` on the command line, or one a C++ input
+  `#include`s, takes the module path an import of it would get
+  (`ImportResolver::input_module_path`, from `canonical_module_path`;
+  PLAN-module-pinning.md decision C). `lib/y.k` compiled from the cwd is
+  `lib::y` whether it is compiled, imported or included, so
+  `kcc -c lib/y.k` emits the `lib::y::f` a separately compiled importer
+  calls, and its priv decls keep external linkage. Only a PATHLESS file
+  keeps the old entry rules (`CXXSpell::is_entry_tu`: namespace = file
+  stem, priv/internal decls in the unnamed namespace, no header): one
+  outside every search dir, or one whose path under an unnamed dir starts
+  with a named root's name (`./builtin.k` would claim the builtin
+  library's path, which an import never reaches it by), and the driver's
+  virtual library entry. `main` is the program's global `int main`
+  wherever it is declared at file scope, in any TU (`CXXSpell::is_main`);
+  one inside a `module foo { }` block is `foo::main`. A module.k at the top
+  of an unnamed, unpinned dir is pathless too (its directory has no name).
+  The driver's `_kairo_order` (importers before the inputs they import)
+  existed to let the importer decide identity; it no longer does, and can
+  go.
 - **A file's path is fixed by its root.** `~/foo/b.k` writing `import a`,
   under a `~/foo/module.k` pinning `foo`, resolves inside its own library to
   `~/foo/a.k`, and that file is still `foo::a` -- same file, same path, same
@@ -341,9 +366,12 @@ every body. One object per non-foreign TU.
     within that root, plus any `module X { }` blocks enclosing it — and of
     nothing else: not the checkout's directory name, not a flag, not the
     importer's spelling. Two builds of one tree emit byte-identical
-    interfaces. The entry TU declares no root, so its namespace is its FILE
-    STEM (CODEGEN.md §5), `main` excepted -- and the stem is inside the
-    source tree, so the invariant is unchanged.
+    interfaces. A pathless TU (a file outside every search dir) declares no
+    root, so its namespace is its FILE STEM (CODEGEN.md §5) -- and the stem
+    is inside the source tree, so the invariant is unchanged. `main` is
+    always the global one. A path segment is a file or directory name, so
+    it is spelled as a C++ identifier the way the stem is
+    (`CXXSpell::cxx_segment`: `operator.k` is `operator_`).
 9b. **Compiler-invented names come from one file.** `AST/LangItems.k` holds
     both kinds: LANG ITEMS (a decl a user could have written, arriving
     through ordinary imports, filled once per build on the
@@ -451,10 +479,11 @@ walks (MemberLookup::_enclosing_modules): libc++ forward-declares
 `__wrap_iter` in one header and declares its `operator==` in another.
 `tests: Tests/Sema/FFI/ns_reopen.k, Tests/Sema/FFI/op_lookup.k`.
 
-The entry TU is NOT the unnamed namespace any more: it reopens
-`namespace <file stem>`, and only its `priv`/`internal` decls go one level
-deeper into an unnamed namespace nested there. CODEGEN.md §5 has the rule;
-invariant 9a is unchanged, because the stem is inside the source tree.
+A pathless TU (§2.1 "Inputs are modules") is NOT the unnamed namespace
+either: it reopens `namespace <file stem>`, and only its `priv`/`internal`
+decls go one level deeper into an unnamed namespace nested there.
+CODEGEN.md §5 has the rule; invariant 9a is unchanged, because the stem is
+inside the source tree.
 
 ### 4.4 Re-export [DONE]
 
@@ -709,11 +738,12 @@ deterministic.
 Each decl in `namespace a::b { ... }`, from `CXXSpell::ns_segments` (§3
 invariant 9a). Reopening is free in C++, so one wrapper per decl is
 correct; InterfaceEmitter merges consecutive same-namespace tier-0 entries,
-EmitIR does not merge at all. Entry-TU decls go in a namespace named for
-the FILE STEM, not the global one; a `priv` or `internal` one goes into an
-unnamed namespace nested inside that -- `main` excepted, which C++ requires
-at global scope and which therefore gets no declaration in the interface at
-all. CODEGEN.md §5 is the rule; qualified names do not change, because C++
+EmitIR does not merge at all. A pathless TU's decls go in a namespace
+named for the FILE STEM, not the global one; a `priv` or `internal` one
+goes into an unnamed namespace nested inside that. `main` (a file-scope
+`main` in ANY TU, `CXXSpell::is_main`) is the exception everywhere: C++
+requires it at global scope, so it gets no declaration in the interface or
+a header at all. CODEGEN.md §5 is the rule; qualified names do not change, because C++
 reaches into the unnamed namespace through its implicit using-directive.
 
 ### 6.5 Alias tail [DECIDED: none]

@@ -121,8 +121,10 @@ pointers, signature types Fwd. Refinements decided since:
 - Every body this TU emits is walked at body strengths: its own, and every
   foreign template and `inline` body visible here (§7). Anything such a
   body names is declared in the preamble, priv helpers included: a
-  library's priv function has external linkage, so the call links, and an
-  entry TU's internal ones are never reached (nothing imports an entry TU).
+  module's priv function has external linkage, so the call links, and a
+  pathless TU's internal ones are never reached (nothing imports a file
+  outside every search dir; every input with a path is a module, IMPORTS.md
+  §2.1 "Inputs are modules").
 - An extension member is a static member of its EXTENSION SCOPE
   (`ExtScope`: `struct N::__kairo_ext_X`, one per (namespace, target),
   RESOLUTION.md §2b); it never appears twice (a `FunctionDecl` whose
@@ -148,9 +150,10 @@ the plan touches; 1 definitions, topo-sorted on Complete, each scope's
 after its deps -- every touched scope in a preamble, in a header only
 those a root reaches (a header always emits the whole struct); 2 function
 declarations (extension members are never listed); 3 instantiations (`extern template` unless this
-TU is the instance's home, `template class` if it is). Entry-TU decls go
-in the file's own namespace (§5); `main` is emitted at global scope and
-never declared in the interface.
+TU is the instance's home, `template class` if it is). A pathless TU's
+decls go in the file's own namespace (§5); a file-scope `main`, in any TU
+(`CXXSpell::is_main`), is emitted at global scope and never declared in
+the interface or a header.
 
 ## 4. CXXSpell — the one speller
 
@@ -255,14 +258,21 @@ because one C++ TU may include several Kairo headers and `__kairo_tmp` is a
 definition. An include stream is not guarded; `InterfaceEmitter::have_helpers`
 leaves them out instead.
 
-Namespace wrapping: an entry-TU decl lives in `namespace <file stem>`, the
-stem sanitized to an identifier, with a trailing `_` when it is a C++
-keyword (`operator.k` -> `operator_`; `CXXSpell::entry_stem`); a `priv` or
-`internal` decl goes one level deeper, into an unnamed namespace nested
-inside it (`CXXSpell::is_anon`); `main` stays at global scope. Qualified
-names are unchanged — `::stem::x` reaches into the unnamed namespace through
-C++'s implicit using-directive — so `qual_name` knows nothing about any of
-it. Library roots still wrap by `module_base` (Piece 1 open).
+Namespace wrapping: a decl lives in its TU's module path,
+`namespace a::b`, from `module_base`. Every input has one now -- a `.k` on
+the command line is a module like any import, `lib/y.k` from the cwd is
+`lib::y` (IMPORTS.md §2.1 "Inputs are modules") -- and each segment, being
+a file or directory name, is sanitized to an identifier, with a leading
+`_` before a digit and a trailing `_` after a C++ keyword (`operator.k` ->
+`operator_`; `CXXSpell::cxx_segment`). Only a PATHLESS TU
+(`CXXSpell::is_entry_tu`: a file outside every search dir) lives in
+`namespace <file stem>` (`CXXSpell::entry_stem`, the same sanitizing), and
+only there does a `priv` or `internal` decl go one level deeper, into an
+unnamed namespace nested inside it (`CXXSpell::is_anon`); a module's priv
+decls keep external linkage. A file-scope `main` stays at global scope in
+every TU (`CXXSpell::is_main`). Qualified names are unchanged — `::stem::x`
+reaches into the unnamed namespace through C++'s implicit using-directive —
+so `qual_name` knows nothing about any of it.
 
 Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields (a default as a C++ default member initializer: a
@@ -584,7 +594,7 @@ and defaults), `defaults` (thunks on free, method and generic functions),
 `Tests/Codegen/slices/sum.k` is the list-literal link test: an array
 prvalue as an argument, an Extended backing array behind a `var`, a literal
 under a conditional, exit 38. Its `-o` names a DIRECTORY, so the link takes
-the entry TU's object and one per builtin TU it pulled in — `%t.d/*.o
+the input's object and one per builtin TU it pulled in — `%t.d/*.o
 %t.d/builtin/*.o` — because the Slice instance is homed in whichever of
 them used it. `--print-cg` goldens carry the fid column and preamble
 offsets.
