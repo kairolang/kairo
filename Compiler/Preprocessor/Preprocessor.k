@@ -2340,6 +2340,10 @@ class PreProcessor {
     priv var _headers:  *HeaderSetCache = &null;  ///< borrowed from CompilerInstance; handed to every walker.
     priv var _opts:      PreprocessorOptions;
     priv var _walked:    set::<u32>;
+    /// Every fid a preprocess() of this batch scanned, with its edges and
+    /// module path (DepScanner::set_known). Driver thread only: written after
+    /// each walk, read by the next scan.
+    priv var _scanned:   DepGraph;
     priv var _walked_mu: std::SharedMutex;     // wave tasks are parallel
     priv var _define_storage: vec::<libcxx::string>; ///< -D value bytes; load_virtual
                                                        ///  needs them stable for the
@@ -2510,6 +2514,17 @@ class PreProcessor {
         self._walked.clear();
     }
 
+    /// \brief every fid \p entry_fid's own imports reach, itself included:
+    ///        the scan preprocess() starts with, without the prelude or
+    ///        --force-include, and without walking anything. For ordering
+    ///        the batch's inputs before the first walk (CompilerInstance).
+    fn reach(self, entry_fid: u32) -> set::<u32> {
+        self._resolver->wait_for_index();
+        var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym, self._opts.max_import_depth);
+        var graph   = scanner.build_graph(entry_fid, ModulePath());
+        return graph.all_fids;
+    }
+
     /// \brief true if \p fid has already been walked in this batch.
     fn has_walked(self, fid: u32) -> bool {
         var rlock = std::SharedLock(self._walked_mu);
@@ -2631,6 +2646,9 @@ class PreProcessor {
         // copy-assign of five maps on every TU, and pessimizing the compiler
         // to measure the compiler is a bad trade.
         var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym, self._opts.max_import_depth);
+        // What an earlier input of the batch scanned (every input reaches
+        // builtin) is followed through the edges recorded then, not rescanned.
+        scanner.set_known(&(self._scanned));
         var graph   = scanner.build_graph(entry_fid, entry_path);
 
         if !graph.depth_exceeded_path.empty() {
@@ -2699,6 +2717,14 @@ class PreProcessor {
                 _tw.units(u64(self._sm->get_file_size(fid)), r"B");
                 self._walk_one(fid, mod_path);
             });
+        }
+
+        // Recorded for the next input's scan. A fid already known keeps its
+        // first entry: this graph followed it from there.
+        for fid in graph.all_fids {
+            if self._scanned.all_fids.contains(fid) { continue; }
+            self._scanned.add_node(fid, graph.mod_paths[fid]);
+            self._scanned.deps[fid] = graph.deps[fid];
         }
 
         out.ok = !self._diag->has_fatal();

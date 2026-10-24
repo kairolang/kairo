@@ -80,6 +80,11 @@ class DepScanner {
     priv var _sym_table:   obs::<PreprocessorSymbolTable>;
     priv var _visiting:    set::<u32>;   ///< cycle detection
     priv var _max_depth:   i32 = 512;    ///< --cmax-import-depth; 0 = unlimited
+    /// What an earlier preprocess() of the batch scanned. A fid in it is
+    /// followed through its recorded edges, never rescanned: a walked file's
+    /// rescan resolved its imports to itself -- a self-edge, which no wave
+    /// clears, so nothing that imports it was ever walked.
+    priv var _known:       obs::<DepGraph> = &null;
 
     fn DepScanner(
         self,
@@ -95,6 +100,8 @@ class DepScanner {
         self._sym_table = sym_table;
         self._max_depth = max_import_depth;
     }
+
+    fn set_known(self, known: *DepGraph) { self._known = known; }
 
     /// \brief entry point - builds the full dep graph rooted at entry_fid
     fn build_graph(self, entry_fid: u32, entry_path: ModulePath) -> DepGraph {
@@ -129,7 +136,7 @@ class DepScanner {
     ///          re-resolves and owns the diagnostic.
     fn add_module_dependency(self, segments: vec::<string>, graph: *DepGraph) -> u32 {
         var dep = self.resolve_segments(segments, true, Path(), false);
-        if dep.fid == 0 { return 0; }
+        if dep.fid == u32(-1) { return 0; }
         self.visit(dep.fid, dep.mod_path, graph, 0);
         return dep.fid;
     }
@@ -141,6 +148,15 @@ class DepScanner {
         if (self._max_depth > 0) && (i32(depth) > self._max_depth) {
             if graph->depth_exceeded_path.empty() {
                 graph->depth_exceeded_path = self._sm->get_filename(fid);
+            }
+            return;
+        }
+
+        if (self._known != &null) && self._known->all_fids.contains(fid) {
+            graph->add_node(fid, self._known->mod_paths[fid]);
+            for dep in self._known->deps[fid] {
+                self.visit(dep, self._known->mod_paths[dep], graph, depth + 1);
+                graph->add_edge(fid, dep);
             }
             return;
         }
@@ -266,19 +282,21 @@ class DepScanner {
             dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
         } else {
             dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
-            if dep.fid == 0 && segs.size() > 1 {
+            if (dep.fid == u32(-1)) && (segs.size() > 1) {
                 segs.pop_back();                   // last seg was a symbol
                 dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
             }
         }
 
-        if dep.fid == 0 { return; }   // unresolved: silent here; the PP walk errors
+        if dep.fid == u32(-1) { return; }   // unresolved: silent here; the PP walk errors
 
         self.visit(dep.fid, dep.mod_path, graph, depth + 1);
         graph->add_edge(from_fid, dep.fid);
     }
 
     struct DepResult {
+        /// u32(-1) when unresolved. Not 0: that is the first file loaded,
+        /// an input a later input may import (`kairo foo.k main.k`).
         var fid:      u32;
         var mod_path: ModulePath;
     }
@@ -293,7 +311,7 @@ class DepScanner {
     priv fn resolve_segments(self, segments: vec::<string>, is_module: bool,
                              from_dir: Path, has_from: bool) -> DepResult {
         var result = DepResult();
-        result.fid = 0;
+        result.fid = u32(-1);
 
         if segments.size() == 0 { return result; }
 
@@ -304,7 +322,7 @@ class DepScanner {
         if !rr.found { return result; }
 
         var fid = self._sm->load_file(rr.path);
-        if fid != 0 {
+        if fid != static_cast::<FileID>(u32(-1)) {
             result.fid      = fid;
             result.mod_path = self.segments_to_module_path(rr.canonical);
         }

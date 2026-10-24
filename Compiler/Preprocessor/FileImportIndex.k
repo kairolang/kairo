@@ -244,8 +244,10 @@ class FileImportIndex {
                     ).first(at).emit();
                 }
 
+                // u32(-1) is the miss. 0 is a file: the first input, which a
+                // later input may import (`kairo foo.k main.k`).
                 var fid = self._sm->load_file(rr.path);
-                if fid != 0 {
+                if fid != static_cast::<FileID>(u32(-1)) {
                     // canonical ++ whatever the import spelled past the file:
                     // for a root-relative import this is exactly the old
                     // `segs`, so nothing changes for existing code.
