@@ -146,6 +146,7 @@ class InterfaceEmitter {
         // headers, and __kairo_tmp is a DEFINITION. An include's token
         // stream cannot be guarded; have_helpers stands in for the macro.
         if !self.have_helpers {
+            self._cg->sink->unanchored(true);
             if header { self._cg->sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
             if header { self._cg->sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
             // The array-prvalue alias, once per TU, ahead of every body that
@@ -177,6 +178,7 @@ class InterfaceEmitter {
                 "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
             self._cg->sink->brk();
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._cg->sink->unanchored(false);
             self.have_helpers = true;
         }
         // A constructor that initializes a const field (_ctor_slot_helpers).
@@ -184,7 +186,9 @@ class InterfaceEmitter {
         // apart from the helpers above, which an earlier header may have
         // defined without these.
         if (!self.have_ctor_slots) && self._needs_ctor_slots() {
+            self._cg->sink->unanchored(true);
             self._ctor_slot_helpers(header);
+            self._cg->sink->unanchored(false);
             self.have_ctor_slots = true;
         }
 
@@ -407,7 +411,7 @@ class InterfaceEmitter {
                     s += "struct ";
                     s += self._spell->leaf(d);
                     s += ";";
-                    self._cg->sink->spell(self._at(d), s);
+                    self._cg->sink->spell(self._fwd_at(d), s);
                     return;
                 }
                 s += "enum class ";
@@ -415,14 +419,21 @@ class InterfaceEmitter {
                 s += " : ";
                 s += self._enum_underlying(en);
                 s += ";";
-                self._cg->sink->spell(self._at(d), s);
+                self._cg->sink->spell(self._fwd_at(d), s);
                 return;
             }
             default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
         s += self._spell->leaf(d);
         s += ";";
-        self._cg->sink->spell(self._at(d), s);
+        // On the decl's first byte, not its name: the name's byte goes to
+        // the definition's name token (TokenSink::_claim).
+        self._cg->sink->spell(self._fwd_at(d), s);
+    }
+
+    priv fn _fwd_at(self, d: *Decl) -> SourceRange {
+        if !d->range.is_valid() { return self._at(d); }
+        return SourceRange::from_bounds(d->range.start, 1);
     }
 
     priv fn _enum_underlying(self, en: *EnumDecl) -> string {

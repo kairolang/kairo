@@ -81,6 +81,12 @@ class EmitSink {
     /// Layout hint. TextSink breaks the line; TokenSink ignores it.
     virtual fn brk(self) { }
 
+    /// Tokens until the next unanchored(false) have no Kairo bytes of their
+    /// own (the lowering helpers): TokenSink gives them arena locations, so
+    /// they take none of the file's bytes from the tokens that do. TextSink
+    /// has no locations.
+    virtual fn unanchored(self, on: bool) { }
+
     // --- Sugar (non-virtual) -------------------------------------------------
 
     /// Kind supplied, span borrowed. Literal kinds borrow their bytes;

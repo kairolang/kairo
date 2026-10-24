@@ -80,6 +80,12 @@ class TokenSink derives EmitSink {
 
     priv var _arena_text: libcxx::string;
     priv var _dedup:      llvm::StringMap::<u32>;   ///< probed with the spelling's own bytes: a hit allocates nothing.
+    /// EmitSink::unanchored: every token goes to the arena.
+    priv var _unanchored: bool = false;
+    /// Every punctuator goes to the arena, so its location's bytes are its
+    /// spelling. Only a printer reads them -- the parser takes a punctuator
+    /// from its kind -- so this is for `-E` (Backend/IncludeEmitter.k).
+    pub var arena_puncts: bool = false;
     /// Kairo raw locations already given to a borrowed token. A second token
     /// at one of them moves within its anchor, or to the arena: see _claim.
     /// Raw locations, WIDENED to u64: the claim walk runs across the raw
@@ -244,6 +250,8 @@ class TokenSink derives EmitSink {
     }
 
     /// Recorded, not emitted (system_headers); once per header.
+    override fn unanchored(self, on: bool) { self._unanchored = on; }
+
     override fn system_header(self, at: SourceRange, name: string) -> bool {
         for var i: usize = 0; i < self.system_headers.size(); ++i {
             if self.system_headers[i] == name { return true; }
@@ -304,10 +312,23 @@ class TokenSink derives EmitSink {
     ///          the token a file location, and then backward from the anchor.
     ///          The file's own buffer bounds both -- the raw space runs on
     ///          into the neighbouring fids.
-    priv fn _claim(self, loc: SourceLocation, len: u32) -> SourceLocation {
+    ///
+    ///          A NAME anchor (the whole span one identifier: a declaration's
+    ///          name, CXXSpell::at) keeps its first byte for the token that
+    ///          spells exactly that name (\p exact). That token's location is
+    ///          the declaration's to clang -- "'Point' declared here" -- and
+    ///          the wrapper and keywords anchored on the same name would
+    ///          otherwise take the byte first and push it somewhere else in
+    ///          the file. Only one exact token can have it; it goes to
+    ///          whichever comes first, so a forward declaration anchors on
+    ///          the decl's start instead (InterfaceEmitter::_fwd_decl).
+    priv fn _claim(self, loc: SourceLocation, len: u32, exact: bool = false) -> SourceLocation {
+        if self._unanchored { return SourceLocation::invalid(); }
         var dec   = self._csm->getDecomposedLoc(self._loc(loc));
         var avail = self._csm->getBufferData(dec.first).size() - static_cast::<usize>(dec.second);
-        for var i: usize = 0; i < avail; ++i {
+        var from: usize = 0;
+        if (!exact) && self._is_name_span(loc, len) { from = 1; }
+        for var i: usize = from; i < avail; ++i {
             var at  = loc.advance(i);
             if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
             return at;
@@ -320,7 +341,22 @@ class TokenSink derives EmitSink {
             if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
             return at;
         }
+        // Last, the kept byte itself: a unique location beats the arena.
+        if (from == 1) && self._used.insert(static_cast::<u64>(loc.raw())).second { return loc; }
         return SourceLocation::invalid();
+    }
+
+    /// [\p loc, +\p len) is one identifier (see _claim).
+    priv fn _is_name_span(self, loc: SourceLocation, len: u32) -> bool {
+        if len == 0 { return false; }
+        var b = self._bytes(loc, len);
+        for var i: usize = 0; i < b.size(); ++i {
+            var c = b[i];
+            var alpha = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')) || (c == '_');
+            var digit = (c >= '0') && (c <= '9');
+            if (!alpha) && ((i == 0) || (!digit)) { return false; }
+        }
+        return true;
     }
 
     /// The caret length left for a token moved \p at - \p loc bytes into
@@ -333,7 +369,7 @@ class TokenSink derives EmitSink {
 
     priv fn _punct(self, k: clang::tok::TokenKind, loc: SourceLocation, len: u32) -> bool {
         if self._completes_pair(k) { return self._pair(k, loc, len); }
-        var at = self._claim(loc, len);
+        var at = (SourceLocation::invalid()) if (self.arena_puncts) else (self._claim(loc, len));
         if !at.is_valid() {
             var p  = clang::tok::getPunctuatorSpelling(k);
             if (p == &null) { self.ice_at(SourceRange::from_bounds(loc, len), "TokenSink::_punct: kind has no punctuator spelling"); }
@@ -460,7 +496,8 @@ class TokenSink derives EmitSink {
     /// error there.
     priv fn _ident_lit(self, name: llvm::StringRef, loc: SourceLocation, len: u32) -> bool {
         var ii = self._pp->getIdentifierInfo(name);
-        var at = self._claim(loc, len);
+        var exact = (static_cast::<usize>(len) == name.size()) && (self._bytes(loc, len) == name);
+        var at = self._claim(loc, len, exact);
         if !at.is_valid() {
             // Clang reads an identifier's spelling from its IdentifierInfo,
             // so the arena copy only buys the location.
