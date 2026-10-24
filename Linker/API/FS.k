@@ -16,6 +16,7 @@
 ffi "c++" import "llvm/ADT/SmallString.h";
 ffi "c++" import "llvm/ADT/StringRef.h";
 ffi "c++" import "llvm/ADT/Twine.h";
+ffi "c++" import "llvm/Object/ArchiveWriter.h";
 ffi "c++" import "llvm/Support/FileSystem.h";
 ffi "c++" import "llvm/Support/MemoryBuffer.h";
 ffi "c++" import "llvm/Support/Path.h";
@@ -115,6 +116,29 @@ class LinkFS {
     static fn rename(from: string, to: string) -> bool {
         var ec = llvm::sys::fs::rename(llvm::Twine(sref(from)), llvm::Twine(sref(to)));
         return !ec;
+    }
+
+    /// A GNU archive of \p objects, with a symbol table, written to \p path:
+    /// for a linker that has no --start-lib (the MinGW driver) to take
+    /// objects lazily. Members keep their basenames; two of one name are
+    /// fine to a linker, which reads the symbol table.
+    static fn write_archive(path: string, objects: ref!(vec::<string>)) -> bool {
+        var members: libcxx::vector::<llvm::NewArchiveMember>;
+        for o: string in objects {
+            var m = llvm::NewArchiveMember::getFile(sref(o), true);
+            if !m {
+                llvm::consumeError(m.takeError());
+                return false;
+            }
+            members.push_back(libcxx::move(*m));
+        }
+        var err = llvm::writeArchive(sref(path), members, llvm::SymtabWritingMode::NormalSymtab,
+                                     llvm::object::Archive::K_GNU, true, false);
+        if err {
+            llvm::consumeError(libcxx::move(err));
+            return false;
+        }
+        return true;
     }
 
     static fn make_dirs(p: string) -> bool {

@@ -346,6 +346,8 @@ class CompilerInstance {
     /// The Kairo library's objects for this link (_kairo_lib): lazily, after
     /// everything else (LinkJob::lazy_objects).
     priv var _lib_lazy: vec::<string>;
+    /// The same objects as an archive, for a MinGW link; "" otherwise.
+    priv var _lib_archive: string;
     /// The library build's entry file (_build_kairo_lib).
     priv var _lib_text: string = "pub import std\n";
     /// The bytes of the placeholder that takes fid 0 (_kairo_order).
@@ -1886,6 +1888,7 @@ class CompilerInstance {
         for obj: string in self._native_objs { job.add_object(obj); }
         for obj: string in self._link_inputs { job.add_object(obj); }
         for obj: string in self._lib_lazy { job.lazy_objects.push_back(obj); }
+        job.lazy_archive = self._lib_archive;
 
         // Emission is synchronous (ExecuteAction closes the output through
         // clearOutputFiles before returning), so a missing object here is a
@@ -2340,7 +2343,11 @@ class CompilerInstance {
             }
         }
         for o: string in objs { if !LinkFS::is_file(o) { return false; } }
+        if (!archive.empty()) && (!LinkFS::is_file(archive)) { return false; }
         for o: string in objs { self._lib_lazy.push_back(o); }
+        self._lib_archive = archive;
+        // Last use, for _gc_kairo_libs.
+        LinkFS::write(dir + "/used", "");
         return objs.size() > 0;
     }
 
@@ -2378,6 +2385,14 @@ class CompilerInstance {
         while self._native_objs.size() > saved_objs { self._native_objs.pop_back(); }
 
         var man = "";
+        // A MinGW link takes the library as an archive (LinkJob::lazy_archive).
+        // Normalized first: kairo's spelling (x86_64-windows-gnu) has no
+        // vendor, and llvm::Triple reads its second field as one.
+        var norm = llvm::Triple::normalize(sref(self._backend->triple()));
+        if llvm::Triple(llvm::Twine(norm)).isWindowsGNUEnvironment() {
+            if !LinkFS::write_archive(tmp + "/libkairo.a", objs) { return false; }
+            man += "ar libkairo.a\n";
+        }
         for o: string in objs {
             if !o.starts_with(tmp + "/") { return false; }
             man += "obj " + string(o.raw() + tmp.size() + 1, o.size() - tmp.size() - 1) + "\n";
@@ -2402,9 +2417,37 @@ class CompilerInstance {
             var old = f"{dir}.stale-{llvm::sys::Process::getProcessId()}";
             if LinkFS::rename(dir, old) { LinkFS::remove_tree(old); }
         }
-        if LinkFS::rename(tmp, dir) { built = true; return true; }
+        if LinkFS::rename(tmp, dir) {
+            built = true;
+            self._gc_kairo_libs(dir);
+            return true;
+        }
         // Another build got there first: theirs is as good as this one.
         return LinkFS::is_dir(dir);
+    }
+
+    /// \brief removes the cached libraries beside \p keep that no link has
+    ///        used for 30 days, and what a crashed build left (a day old).
+    ///
+    /// \details Every compiler rebuild and every option set leaves a library
+    ///          of its own, and nothing else removes them. Run when a library
+    ///          is built, which is rare; a link only touches `used`
+    ///          (_read_kairo_lib).
+    priv fn _gc_kairo_libs(self, keep: string) {
+        var root = LinkFS::parent(keep);
+        var now  = static_cast::<u64>(libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(
+            libcxx::chrono::system_clock::now().time_since_epoch()).count());
+        var day: u64 = static_cast::<u64>(86400) * static_cast::<u64>(1000000000);   // ns
+        for name: string in LinkFS::list_dir(root) {
+            var p = root + "/" + name;
+            if (p == keep) || (!LinkFS::is_dir(p)) { continue; }
+            var partial = (!(string::npos == name.view().find(r".tmp-"))) || (!(string::npos == name.view().find(r".stale-")));
+            var last = LinkFS::mtime(p + "/used");
+            if last == 0 { last = LinkFS::mtime(p + "/manifest"); }
+            if last == 0 { last = LinkFS::mtime(p); }
+            var limit = (day) if (partial) else (30 * day);
+            if (last != 0) && (now > last) && ((now - last) > limit) { LinkFS::remove_tree(p); }
+        }
     }
 
     /// \brief _inputs, with every Kairo input another one imports moved

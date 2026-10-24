@@ -167,11 +167,13 @@ class MinGWArgs {
 
         // --- inputs ----------------------------------------------------------
         for obj: string in job.objects { argv.push_back(obj); }
-        // The MinGW driver has no --start-lib to link job.lazy_objects
-        // lazily, and linking them eagerly would clash with a run's own
-        // builtin objects; the Kairo library is not linked here yet.
-        if job.lazy_objects.size() > 0 {
-            msgs.push_back(LinkDiag::make(LinkSeverity::Warning, "the Kairo library is not linked for MinGW targets yet; objects from separate kcc -c runs may leave builtin and std symbols undefined"));
+        // The MinGW driver has no --start-lib: job.lazy_objects come as
+        // their archive, which every linker reads lazily. Eagerly they would
+        // clash with a run's own builtin objects.
+        if !job.lazy_archive.empty() {
+            argv.push_back(job.lazy_archive);
+        } else if job.lazy_objects.size() > 0 {
+            msgs.push_back(LinkDiag::make(LinkSeverity::Warning, "the Kairo library has no archive for this MinGW link; builtin and std symbols may be undefined"));
         }
         // The MinGW driver has no --def: a .def file is an input, like any
         // other, and the driver reads the exports from it.
