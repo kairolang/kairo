@@ -20,7 +20,8 @@
 ///   to the fork (Lexer::isPrebuiltTokenLexer), so an include with nothing
 ///   to declare, or one that failed, yields the sentinel
 ///   `static_assert(true);` -- valid at namespace, class and block scope,
-///   and silent under -Wextra-semi and -pedantic. A trailing tok::eof would
+///   and silent under -Wextra-semi and -pedantic (a C host, always an
+///   error, gets `;`). A trailing tok::eof would
 ///   end the WHOLE host TU, so a stream never carries one.
 ///
 ///   Where the hook is installed: clang's actions pick their output by
@@ -137,6 +138,14 @@ class KairoIncludeHook {
 
     /// `static_assert(true);`: see the file header.
     priv fn _sentinel(self, toks: *libcxx::vector::<clang::Token>, at: clang::SourceLocation) {
+        // A C or ObjC host only gets here with the include already an
+        // error, and before C23 `static_assert(true)` parses there as an
+        // implicit-int declaration, burying that error under two bogus
+        // ones. An empty declaration is valid C at every scope it can be.
+        if !self._ci->getLangOpts().CPlusPlus {
+            self._push_punct(toks, clang::tok::semi, at);
+            return;
+        }
         var pp = &(self._ci->getPreprocessor());
         self._push_kw(toks, pp, r"static_assert", at);
         self._push_punct(toks, clang::tok::l_paren, at);
