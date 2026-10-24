@@ -1,9 +1,6 @@
 # Attributes
 
-Attributes are compile-time AST transformations. They modify the structure of declarations
-renaming fields, injecting code, adding members with full access to the parsed syntax tree and
-type information. Unlike [macros](/docs/language/macros/), which operate on raw tokens before parsing,
-attributes run after parsing and can inspect and modify typed AST nodes.
+Attributes are compile-time AST transformations. They modify the structure of declarations renaming fields, injecting code, adding members with full access to the parsed syntax tree and type information. Unlike [macros](/docs/language/macros/), which operate on raw tokens before parsing, attributes run after parsing and can inspect and modify typed AST nodes.
 
 | Property | Guarantee |
 |---|---|
@@ -18,8 +15,7 @@ attributes run after parsing and can inspect and modify typed AST nodes.
 
 ## Defining Attributes
 
-Attributes are defined with the `macro` keyword followed by `@name` and a parameter list. The first
-parameter is always a pointer to the AST node being transformed:
+Attributes are defined with the `macro` keyword followed by `@name` and a parameter list. The first parameter is always a pointer to the AST node being transformed:
 
 ```kairo
 import std::AST
@@ -54,13 +50,9 @@ fn process_data(x: i32) -> i32 {
 
 ### Node preservation rule
 
-Attributes must preserve the node type. An attribute attached to a function declaration receives a
-`*AST::FunctionDecl` and must leave it as a function declaration it cannot replace it with a
-class or a variable. This ensures the expansion process is deterministic and the AST remains
-structurally consistent.
+Attributes must preserve the node type. An attribute attached to a function declaration receives a `*AST::FunctionDecl` and must leave it as a function declaration it cannot replace it with a class or a variable. This ensures the expansion process is deterministic and the AST remains structurally consistent.
 
-To add new nodes, create them with `@create AST::NodeType()` and attach them to the existing
-node (e.g., appending statements to a function body, adding members to a class).
+To add new nodes, create them with `@create AST::NodeType()` and attach them to the existing node (e.g., appending statements to a function body, adding members to a class).
 
 ---
 
@@ -96,15 +88,13 @@ After expansion:
 }
 ```
 
-Arguments are passed in parentheses after the attribute name at the use site. The node parameter is
-implicit it is always the declaration or block the attribute is attached to.
+Arguments are passed in parentheses after the attribute name at the use site. The node parameter is implicit it is always the declaration or block the attribute is attached to.
 
 ---
 
 ## Overloading
 
-Attribute definitions can be overloaded by node type or argument types. The compiler selects the
-correct overload based on what the attribute is attached to:
+Attribute definitions can be overloaded by node type or argument types. The compiler selects the correct overload based on what the attribute is attached to:
 
 ```kairo
 macro @serialize(node: *AST::ClassDecl) {
@@ -128,8 +118,7 @@ struct Point { ... }    // calls the StructDecl overload
 
 ## Expansion Order
 
-When multiple attributes are stacked on a single declaration, they expand inner to outer the
-attribute closest to the declaration runs first:
+When multiple attributes are stacked on a single declaration, they expand inner to outer the attribute closest to the declaration runs first:
 
 ```kairo
 @deserialize    // runs second, on the result of @serializable
@@ -140,8 +129,7 @@ class Config {
 }
 ```
 
-This allows attributes to compose `@serializable` can add serialization methods, and
-`@deserialize` can then inspect those methods to generate the inverse.
+This allows attributes to compose `@serializable` can add serialization methods, and `@deserialize` can then inspect those methods to generate the inverse.
 
 ---
 
@@ -184,8 +172,7 @@ Kairo provides built-in attributes that are handled directly by the compiler:
 | `@packed` | Remove padding between members | Classes, structs, unions |
 | `@align(N)` | Set minimum alignment to N bytes | Classes, structs, unions |
 
-See [Classes](/docs/language/classes/#memory-layout-and-allocation) and
-[Structures](/docs/language/structures/#memory-layout) for layout details.
+See [Classes](/docs/language/classes/#memory-layout-and-allocation) and [Structures](/docs/language/structures/#memory-layout) for layout details.
 
 ### Branch hints
 
@@ -210,17 +197,14 @@ See [Control Flow](/docs/language/control-flow/#branch-hints) for branch predict
 |---|---|---|
 | `@no_unwind` | Promise that the function never unwinds | Functions |
 
-`@no_unwind` marks the function's generated C++ declaration and definition `noexcept`. That is all it
-does: nothing checks the promise. If a `@no_unwind` function does unwind, for example because a C++
-exception passes through it, the program terminates (`std::terminate`).
+`@no_unwind` marks the function's generated C++ declaration and definition `noexcept`. That is all it does: nothing checks the promise. If a `@no_unwind` function does unwind, for example because a C++ exception passes through it, the program terminates (`std::terminate`).
 
 ```kairo
 @no_unwind
 fn add(a: i32, b: i32) -> i32 { return a + b }   // C++: int add(int a, int b) noexcept
 ```
 
-Writing `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the
-declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
+Writing `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
 
 ```kairo
 class Counter {
@@ -253,14 +237,10 @@ See [Where Clauses](/docs/language/where/) for the where handler system.
 
 ## The `std::AST` API
 
-Attribute definitions interact with the AST through the `std::AST` module. This module provides
-types representing each kind of AST node (`FunctionDecl`, `ClassDecl`, `StructDecl`, `Block`,
-`VariableDecl`, etc.) and methods for inspecting and modifying them.
+Attribute definitions interact with the AST through the `std::AST` module. This module provides types representing each kind of AST node (`FunctionDecl`, `ClassDecl`, `StructDecl`, `Block`, `VariableDecl`, etc.) and methods for inspecting and modifying them.
 
 > [!IMPORTANT]
-> The `std::AST` API is under development. The full set of node types, their fields, and available
-> methods will be documented once the API is finalized. The examples on this page demonstrate the
-> intended usage patterns.
+> The `std::AST` API is under development. The full set of node types, their fields, and available methods will be documented once the API is finalized. The examples on this page demonstrate the intended usage patterns.
 
 Key operations available on AST nodes:
 
@@ -287,8 +267,7 @@ Key operations available on AST nodes:
 | Syntax | `name!(args)` | `@name` on declarations |
 | Must preserve node type | N/A | Yes |
 
-Use macros for simple substitutions and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for structural
-transformations that need to inspect or modify declarations.
+Use macros for simple substitutions and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for structural transformations that need to inspect or modify declarations.
 
 See [Macros](/docs/language/macros/) for the token-level macro system.
 

@@ -1,9 +1,6 @@
 # Operator Overloading
 
-Operators are overloaded by defining `fn op` methods on a [class](/docs/language/classes/) or [struct](/docs/language/structures/), or
-in an [extension](/docs/language/extends/). The syntax mirrors the operator being defined. An extension may
-declare any overloadable operator except `as`, `[]`, `->`, `.*`, `->*` and `delete`, which are
-**member-only**: they must be declared in the type's own body.
+Operators are overloaded by defining `fn op` methods on a [class](/docs/language/classes/) or [struct](/docs/language/structures/), or in an [extension](/docs/language/extends/). The syntax mirrors the operator being defined. An extension may declare any overloadable operator except `as`, `[]`, `->`, `.*`, `->*` and `delete`, which are **member-only**: they must be declared in the type's own body.
 
 ## All Overload-able Operators for User-Defined Types
 
@@ -58,14 +55,11 @@ class Vec3 {
 }
 ```
 
-Operators have no default arguments, and every comparison operator (`==`, `!=`, `<`, `<=`, `>`, `>=`)
-must return `bool`.
+Operators have no default arguments, and every comparison operator (`==`, `!=`, `<`, `<=`, `>`, `>=`) must return `bool`.
 
 ## Derived comparisons
 
-A comparison the type does not declare is derived: `!=` from `op ==`, and `<`, `<=`, `>`, `>=` from
-`op <=>`. A declared operator always wins over a derived one, so a type can declare `op <=>` for ordering
-and still declare its own `op <` when it has a faster path.
+A comparison the type does not declare is derived: `!=` from `op ==`, and `<`, `<=`, `>`, `>=` from `op <=>`. A declared operator always wins over a derived one, so a type can declare `op <=>` for ordering and still declare its own `op <` when it has a faster path.
 
 ```kairo
 struct Version {
@@ -84,15 +78,12 @@ a < b    // derived from op <=>
 
 ## Compound assignment
 
-Each compound assignment and its binary operator form a pair: `+=` / `+`, `-=` / `-`, `*=` / `*`, `/=` / `/`,
-`%=` / `%`, `&=` / `&`, `|=` / `|`, `^=` / `^`, `<<=` / `<<`, `>>=` / `>>`. A type declares **one** half of a
-pair and the other is derived from it. Declaring both halves is an error.
+Each compound assignment and its binary operator form a pair: `+=` / `+`, `-=` / `-`, `*=` / `*`, `/=` / `/`, `%=` / `%`, `&=` / `&`, `|=` / `|`, `^=` / `^`, `<<=` / `<<`, `>>=` / `>>`. A type declares **one** half of a pair and the other is derived from it. Declaring both halves is an error.
 
 - From `op +`: `a += b` is `a = a + b`, with `a` evaluated once.
 - From `op +=`: `a + b` copies `a`, applies `+=` to the copy with `b`, and yields the copy.
 
-A compound assignment operator mutates `self` and returns nothing, so `a += b` on a struct or class is a
-statement, not a value:
+A compound assignment operator mutates `self` and returns nothing, so `a += b` on a struct or class is a statement, not a value:
 
 ```kairo
 struct Acc {
@@ -105,15 +96,13 @@ acc += 5             // calls op +=
 var acc2 = acc + 7   // op + derived from op +=: acc2.total == 12
 ```
 
-Declaring `op +` instead derives `+=` the other way. Declare whichever form is natural for the type; the
-in-place form usually avoids a copy.
+Declaring `op +` instead derives `+=` the other way. Declare whichever form is natural for the type; the in-place form usually avoids a copy.
 
 [Imported C++ types](/docs/language/c-cpp-calling/#operators-on-c-types) are not paired: they get exactly the operators their C++ declaration has.
 
 ## Increment and decrement
 
-Use the `l` (left/prefix) or `r` (right/postfix) modifier to specify which variant you are overloading. A
-type may declare both. An unmarked `op ++` or `op --` is taken as the prefix form, with a warning.
+Use the `l` (left/prefix) or `r` (right/postfix) modifier to specify which variant you are overloading. A type may declare both. An unmarked `op ++` or `op --` is taken as the prefix form, with a warning.
 
 ```kairo
 fn op r-- (self) -> T    // postfix: x--
@@ -149,12 +138,9 @@ var c: u8 = cbuff[1] // `cbuff` is const: the `const self` overload is picked
 cbuff[1] = 42        // error: the place is `*const u8`
 ```
 
-A non-const receiver prefers the `self` overload; a const receiver can only use the `const self` one. The
-result of a place operator is used as the value it points to, as a read or as the target of an assignment.
-A named method returning `*T` is not dereferenced this way.
+A non-const receiver prefers the `self` overload; a const receiver can only use the `const self` one. The result of a place operator is used as the value it points to, as a read or as the target of an assignment. A named method returning `*T` is not dereferenced this way.
 
-Every other operator follows the named-method rule: a `const self` overload of it is a redeclaration error,
-the same as for a named method.
+Every other operator follows the named-method rule: a `const self` overload of it is a redeclaration error, the same as for a named method.
 
 ```kairo
 struct V {
@@ -173,8 +159,7 @@ struct V {
 | `in` (iteration) | `fn op in (self) -> yield T` | `for x in collection` yields elements |
 | `delete` | `fn op delete (self)` | Custom destructor called when the value goes out of scope |
 
-The two `in` signatures are distinguished by context: the compiler uses the `-> bool` variant in `if`
-expressions and the `-> yield T` variant in `for` loops.
+The two `in` signatures are distinguished by context: the compiler uses the `-> bool` variant in `if` expressions and the `-> yield T` variant in `for` loops.
 
 ```kairo
 class IntSet {
@@ -207,13 +192,10 @@ for x in s {                 // calls the yield variant
 
 ### Implicit `op as`
 
-An `@implicit fn op as (self) -> T` is applied automatically where a `T` is wanted, so the caller does not
-write `as`:
+An `@implicit fn op as (self) -> T` is applied automatically where a `T` is wanted, so the caller does not write `as`:
 
-- The result type must match exactly. A `T` produced this way is not converted any further, so it does not
-  fill a `T?` or a wider numeric type.
-- Conversions never chain: at most one `@implicit` operator applies, and never on top of another implicit
-  conversion.
+- The result type must match exactly. A `T` produced this way is not converted any further, so it does not fill a `T?` or a wider numeric type.
+- Conversions never chain: at most one `@implicit` operator applies, and never on top of another implicit conversion.
 - `if`/`match` arms and operator operands are never converted this way.
 
 ```kairo
@@ -240,8 +222,7 @@ Without [`@implicit`](/docs/language/attributes/#conversions), `op as` only runs
 
 ## Places and values: `[]`, `.*`, `->*`, `->`
 
-`op []`, `op .*` and `op ->*` are either **place** or **value** operators. The declared return type
-decides which.
+`op []`, `op .*` and `op ->*` are either **place** or **value** operators. The declared return type decides which.
 
 A safe pointer return (`*T` or `*const T`) makes it a place:
 
@@ -249,15 +230,11 @@ A safe pointer return (`*T` or `*const T`) makes it a place:
 - `a[i] = x` and `a[i] += 1` write into `self`, and `&a[i]` gives the pointer back.
 - C++ sees the operator as returning `T&` / `const T&`.
 
-Any other return makes it a value operator: `a[i]` is the returned value, an rvalue. You can read it but
-not assign to it, and `&a[i]` is an error.
+Any other return makes it a value operator: `a[i]` is the returned value, an rvalue. You can read it but not assign to it, and `&a[i]` is an error.
 
-`unsafe *T` is rejected as a return type, because it is neither a place nor a value. A pointer return from
-`[]`, `.*` or `->*` always means a place, so these operators cannot return a pointer by value. Use a named
-method to hand out a pointer.
+`unsafe *T` is rejected as a return type, because it is neither a place nor a value. A pointer return from `[]`, `.*` or `->*` always means a place, so these operators cannot return a pointer by value. Use a named method to hand out a pointer.
 
-`op ->` isn't part of this rule. It must return `*T` or `*const T`, and `->` is then applied to that
-result, as with C++'s `operator->`. `unsafe *T` is rejected there too.
+`op ->` isn't part of this rule. It must return `*T` or `*const T`, and `->` is then applied to that result, as with C++'s `operator->`. `unsafe *T` is rejected there too.
 
 Both kinds can be overloaded on a `const self` receiver.
 

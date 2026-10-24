@@ -1,15 +1,12 @@
 # Closures
 
-A closure is an anonymous function that captures variables from its enclosing scope. In Kairo, lambdas and
-closures use the same syntax, the only distinction is whether the function captures anything. If it does,
-it's a closure. If it doesn't, it's a plain lambda.
+A closure is an anonymous function that captures variables from its enclosing scope. In Kairo, lambdas and closures use the same syntax, the only distinction is whether the function captures anything. If it does, it's a closure. If it doesn't, it's a plain lambda.
 
 ---
 
 ## Basic Syntax
 
-Anonymous functions are declared with `fn` followed by a parameter list, an optional return type, and a body.
-The body can be a block `{ ... }` or a single expression after `=`. The return type is inferred when omitted.
+Anonymous functions are declared with `fn` followed by a parameter list, an optional return type, and a body. The body can be a block `{ ... }` or a single expression after `=`. The return type is inferred when omitted.
 
 ```kairo
 var add = fn (a: i32, b: i32) -> i32 {
@@ -22,8 +19,7 @@ add(3, 4)     // 7
 double(10)    // 20
 ```
 
-Closures have the same type as [function pointers](/docs/language/functions/#function-pointers) `fn(ParamTypes) -> ReturnType`. There is no separate
-closure type:
+Closures have the same type as [function pointers](/docs/language/functions/#function-pointers) `fn(ParamTypes) -> ReturnType`. There is no separate closure type:
 
 ```kairo
 var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
@@ -33,8 +29,7 @@ var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 
 ## Capture Modes
 
-By default, closures [capture variables](/docs/language/ownership/#closure-captures) **by copy**. The closure receives its own copy of each captured
-variable, mutations inside the closure do not affect the original.
+By default, closures [capture variables](/docs/language/ownership/#closure-captures) **by copy**. The closure receives its own copy of each captured variable, mutations inside the closure do not affect the original.
 
 ```kairo
 var x = 10
@@ -48,8 +43,7 @@ add_x(5)   // 15, uses the copied value of x (10), not 999
 
 ### Capture by Pointer `|*|`
 
-To capture all variables by pointer, append `|*|` after the parameter list. The closure can read and modify
-the original variables through explicit dereference:
+To capture all variables by pointer, append `|*|` after the parameter list. The closure can read and modify the original variables through explicit dereference:
 
 ```kairo
 var count = 0
@@ -64,8 +58,7 @@ count   // 2
 
 ### Const Pointer Capture
 
-To capture variables by const pointer, use `|const *name, ...|` in the capture list. The closure can
-read but not modify the originals:
+To capture variables by const pointer, use `|const *name, ...|` in the capture list. The closure can read but not modify the originals:
 
 ```kairo
 var x = 10
@@ -97,8 +90,7 @@ b            // 21
 
 ### Empty Capture List `||`
 
-An explicit empty capture list prevents the default capture-by-copy behavior. The closure captures
-nothing, any reference to an outer variable is a compile error:
+An explicit empty capture list prevents the default capture-by-copy behavior. The closure captures nothing, any reference to an outer variable is a compile error:
 
 ```kairo
 var x = 10
@@ -157,9 +149,7 @@ identity("hello")   // string
 
 ## Modifiers
 
-Closures support the `panic`, `volatile`, and `async` [modifiers](/docs/language/functions-declarations/#function-modifiers). Modifiers appear after the capture list
-(if present) and before the return type. Order between modifiers does not matter. A closure can also
-use `-> !` to indicate it [never returns](/docs/language/functions/#no-return-).
+Closures support the `panic`, `volatile`, and `async` [modifiers](/docs/language/functions-declarations/#function-modifiers). Modifiers appear after the capture list (if present) and before the return type. Order between modifiers does not matter. A closure can also use `-> !` to indicate it [never returns](/docs/language/functions/#no-return-).
 
 ```kairo
 var risky = fn () panic -> i32 {
@@ -213,10 +203,7 @@ var nested_mixed = fn () -> fn(i32) -> i32 {
 
 ## Tether and Lifetime Safety
 
-[Tether](/docs/language/tether/) tracks closure captures the same way it tracks any other borrow. If a closure
-captures a variable by pointer and the closure outlives the variable, Tether will attempt to [auto-promote](/docs/language/tether-promotion/) the
-capture to a smart pointer (shared, weak, or unique). If promotion is not possible, the compiler emits a
-hard error.
+[Tether](/docs/language/tether/) tracks closure captures the same way it tracks any other borrow. If a closure captures a variable by pointer and the closure outlives the variable, Tether will attempt to [auto-promote](/docs/language/tether-promotion/) the capture to a smart pointer (shared, weak, or unique). If promotion is not possible, the compiler emits a hard error.
 
 ```kairo
 fn make_closure() -> fn() -> i32 {
@@ -227,8 +214,7 @@ fn make_closure() -> fn() -> i32 {
 }
 ```
 
-Capture by copy avoids this entirely, the closure owns its own copy and has no lifetime dependency on the
-original:
+Capture by copy avoids this entirely, the closure owns its own copy and has no lifetime dependency on the original:
 
 ```kairo
 fn make_closure() -> fn() -> i32 {
@@ -238,16 +224,13 @@ fn make_closure() -> fn() -> i32 {
 ```
 
 > [!WARNING]
-> Capturing stack-local variables by pointer in a closure that escapes the current scope is always a Tether
-> error. There is no way to promote a pointer to a stack variable into a safe smart pointer. Use capture
-> by copy for closures that outlive their enclosing scope.
+> Capturing stack-local variables by pointer in a closure that escapes the current scope is always a Tether error. There is no way to promote a pointer to a stack variable into a safe smart pointer. Use capture by copy for closures that outlive their enclosing scope.
 
 ---
 
 ## Closures vs Inner Functions
 
-Inner functions (named functions declared inside another function) do **not** capture from the enclosing
-scope, they are self-contained. Referencing an outer variable from an inner function is a compile error:
+Inner functions (named functions declared inside another function) do **not** capture from the enclosing scope, they are self-contained. Referencing an outer variable from an inner function is a compile error:
 
 ```kairo
 fn outer() -> i32 {
@@ -260,8 +243,7 @@ fn outer() -> i32 {
 }
 ```
 
-If you need to reference enclosing variables by pointer, use a closure. If you don't, prefer an inner
-function, it has no capture overhead and makes the data flow explicit.
+If you need to reference enclosing variables by pointer, use a closure. If you don't, prefer an inner function, it has no capture overhead and makes the data flow explicit.
 
 ---
 

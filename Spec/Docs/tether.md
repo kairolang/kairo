@@ -1,35 +1,24 @@
 # Tether
 
-Tether is a compile-time proof engine. For every pointer dereference in the program, it attempts to
-prove that the access is safe. When it succeeds, no runtime code is emitted. When it can prove
-everything except one residual property, it emits the minimal runtime code required to discharge
-exactly that property and nothing else. When it cannot prove the access safe and no runtime check
-or code transformation can establish safety, it is a hard compile error.
+Tether is a compile-time proof engine. For every pointer dereference in the program, it attempts to prove that the access is safe. When it succeeds, no runtime code is emitted. When it can prove everything except one residual property, it emits the minimal runtime code required to discharge exactly that property and nothing else. When it cannot prove the access safe and no runtime check or code transformation can establish safety, it is a hard compile error.
 
-The system is not a pointer tracker that decides where to insert checks. It is a proof engine that
-asks one question at every dereference:
+The system is not a pointer tracker that decides where to insert checks. It is a proof engine that asks one question at every dereference:
 
 > What is the strongest proof I have that this access is safe?
 
-The answer to that question and only the answer determines what code is generated. Tether never
-asks "should I insert a check here." It asks "which proof obligations remain after static analysis,"
-and emits code for the residual.
+The answer to that question and only the answer determines what code is generated. Tether never asks "should I insert a check here." It asks "which proof obligations remain after static analysis," and emits code for the residual.
 
-Tether operates on [safe pointers](/docs/language/pointers/#safe-pointers-t) (`*T`) only. [Raw pointers](/docs/language/pointers/#raw-pointers-unsafe-t) (`unsafe *T`) carry no obligations and are
-never analyzed. The programmer owns their correctness.
+Tether operates on [safe pointers](/docs/language/pointers/#safe-pointers-t) (`*T`) only. [Raw pointers](/docs/language/pointers/#raw-pointers-unsafe-t) (`unsafe *T`) carry no obligations and are never analyzed. The programmer owns their correctness.
 
 > [!WARNING]
-> Tether is not yet implemented. The current compiler is **Stage 1**; Tether development begins
-> at **Stage 2**. The roadmap:
+> Tether is not yet implemented. The current compiler is **Stage 1**; Tether development begins at **Stage 2**. The roadmap:
 >
 > - **Stage 0** (frozen): bootstrap compiler written in C++. Kept only to bootstrap Stage 1.
 > - **Stage 1** (current): self-hosted compiler. No lifetime analysis.
 > - **Stage 1.5**: Stage 1 migrated to Kairo's standard library, fully self-hosting.
 > - **Stage 2**: compiler rewritten using Kairo's extended feature set. **Tether work begins here.**
 >
-> This page describes the intended design and target semantics. The analysis is the target, not the
-> current state. A separate formal paper will carry the full proofs; this page states the model and
-> the obligations precisely enough to implement against, but is not itself the proof.
+> This page describes the intended design and target semantics. The analysis is the target, not the current state. A separate formal paper will carry the full proofs; this page states the model and the obligations precisely enough to implement against, but is not itself the proof.
 
 ## In this section
 
@@ -45,15 +34,13 @@ never analyzed. The programmer owns their correctness.
 
 ### Global allocator
 
-The default for [`@create T()`](/docs/language/pointers/#heap-allocation) and all standard-library heap operations. Overridable with
-`@mem::set_allocator(MyAllocator)` at the top of a file.
+The default for [`@create T()`](/docs/language/pointers/#heap-allocation) and all standard-library heap operations. Overridable with `@mem::set_allocator(MyAllocator)` at the top of a file.
 
 **Intentional friction**: the override must appear at the top of *every file in the dependency graph* it affects. A library that sets a global allocator forces the annotation onto every transitive dependent. This keeps global-allocator changes visible and pushes library authors toward scoped allocators.
 
 ### Scoped allocator
 
-An allocator with RAII semantics it frees everything it allocated when it leaves scope. Set with
-`@mem::set_scoped_allocator(MyAllocator)` on a function or block.
+An allocator with RAII semantics it frees everything it allocated when it leaves scope. Set with `@mem::set_scoped_allocator(MyAllocator)` on a function or block.
 
 ```kairo
 @mem::set_scoped_allocator(ArenaAllocator)
@@ -145,17 +132,11 @@ If the destructor has timing-sensitive side effects a flush, a lock release, a l
 
 ## What Tether Does Not Do
 
-- **Garbage collection.** No tracing, no mark-and-sweep, no runtime collector. Reference counting for
-  `Shared` is the only runtime ownership cost, and it exists only where multiple ownership is required.
-- **Runtime borrow checking.** Aliasing is resolved at compile time. Tether does not insert runtime
-  aliasing checks; it inserts bounds, epoch, and (for tainted/nullable residuals) access checks
-  those are clause discharges, not borrow checks.
-- **Lifetime annotations.** No `'a`-style parameters, no lifetime polymorphism. Whole-program analysis
-  infers concrete lifetimes from usage.
-- **Reference counting everywhere.** Single-owner pointers promote to `Unique` (no refcount); contained
-  lifetimes are not promoted at all. Refcounting appears only under proven multiple ownership.
-- **Cross-language analysis.** C++ is opaque beyond the one-level heuristic on a visible body. Across
-  the [FFI boundary](/docs/language/tether-internals/#cc-interop), Tether fails closed (taint inbound, epoch-freeze outbound) rather than guessing.
+- **Garbage collection.** No tracing, no mark-and-sweep, no runtime collector. Reference counting for `Shared` is the only runtime ownership cost, and it exists only where multiple ownership is required.
+- **Runtime borrow checking.** Aliasing is resolved at compile time. Tether does not insert runtime aliasing checks; it inserts bounds, epoch, and (for tainted/nullable residuals) access checks those are clause discharges, not borrow checks.
+- **Lifetime annotations.** No `'a`-style parameters, no lifetime polymorphism. Whole-program analysis infers concrete lifetimes from usage.
+- **Reference counting everywhere.** Single-owner pointers promote to `Unique` (no refcount); contained lifetimes are not promoted at all. Refcounting appears only under proven multiple ownership.
+- **Cross-language analysis.** C++ is opaque beyond the one-level heuristic on a visible body. Across the [FFI boundary](/docs/language/tether-internals/#cc-interop), Tether fails closed (taint inbound, epoch-freeze outbound) rather than guessing.
 
 ---
 

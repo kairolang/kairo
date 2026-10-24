@@ -1,9 +1,6 @@
 # Where Clauses
 
-`where` attaches runtime-conditional constraints to function declarations. A `where` clause
-specifies a condition that is checked at the call site if it fails, execution falls through to
-the next matching overload. The compiler folds multiple `where`-constrained overloads into a
-single function with branch dispatch.
+`where` attaches runtime-conditional constraints to function declarations. A `where` clause specifies a condition that is checked at the call site if it fails, execution falls through to the next matching overload. The compiler folds multiple `where`-constrained overloads into a single function with branch dispatch.
 
 For compile-time constraints, see [Requires Clauses](/docs/language/requires/).
 
@@ -35,8 +32,7 @@ fn sqrt(x: f64) -> f64 {
 }
 ```
 
-At the call site, the compiler generates a branch. If the condition holds, the constrained
-overload runs. If not, execution falls to the next candidate.
+At the call site, the compiler generates a branch. If the condition holds, the constrained overload runs. If not, execution falls to the next candidate.
 
 Multiple conditions are combined with boolean operators:
 
@@ -55,9 +51,7 @@ fn safe_divide(a: i32, b: i32) -> i32 {
 
 ## Fallback Requirement
 
-Every `where`-constrained overload must have a fallback an overload with no `where` clause (or
-a `where` clause that covers the remaining cases). If no fallback exists, the compiler emits an
-error:
+Every `where`-constrained overload must have a fallback an overload with no `where` clause (or a `where` clause that covers the remaining cases). If no fallback exists, the compiler emits an error:
 
 ```
 error: no fallback overload for 'sqrt' when where condition fails
@@ -73,9 +67,7 @@ The fallback is the compiler's guarantee that every call site has a valid code p
 
 ## Declaration Order Determines Priority
 
-When multiple `where`-constrained overloads exist for the same function, the compiler checks them
-in declaration order. The first satisfied condition wins. The unconstrained overload is always
-the final fallback:
+When multiple `where`-constrained overloads exist for the same function, the compiler checks them in declaration order. The first satisfied condition wins. The unconstrained overload is always the final fallback:
 
 ```kairo
 fn categorize(x: i32) -> string where x > 100  { return "high" }
@@ -93,13 +85,10 @@ fn categorize(x: i32) -> string {
 }
 ```
 
-Declaration order is the programmer's explicit priority control. The compiler does not attempt to
-determine which condition is "more specific" it chains them sequentially in the order they
-appear in source.
+Declaration order is the programmer's explicit priority control. The compiler does not attempt to determine which condition is "more specific" it chains them sequentially in the order they appear in source.
 
 > [!WARNING]
-> A `where` condition that is a strict subset of a preceding condition will never fire. The
-> compiler emits a warning when it can statically determine that a `where` clause is unreachable:
+> A `where` condition that is a strict subset of a preceding condition will never fire. The compiler emits a warning when it can statically determine that a `where` clause is unreachable:
 >
 > ```kairo
 > fn process(x: i32) -> string where x > 50 { return "high" }
@@ -111,8 +100,7 @@ appear in source.
 
 ## Overlapping Conditions
 
-If two `where` clauses have overlapping conditions that cannot be statically determined to be
-disjoint, the compiler emits a warning:
+If two `where` clauses have overlapping conditions that cannot be statically determined to be disjoint, the compiler emits a warning:
 
 ```kairo
 fn handle(x: i32) -> string where x > 0 && x < 100 { return "small positive" }
@@ -120,16 +108,13 @@ fn handle(x: i32) -> string where x > 50            { return "over 50" }  // war
 fn handle(x: i32) -> string                          { return "other" }
 ```
 
-Declaration order still determines the result `x == 75` hits the first overload but the
-warning signals that the intent may not match the behavior.
+Declaration order still determines the result `x == 75` hits the first overload but the warning signals that the intent may not match the behavior.
 
 ---
 
 ## Where in Match
 
-The `where` keyword also appears in [`match`](/docs/language/pattern-matching/) arms as a guard condition. Match guards are always
-evaluated at runtime and are independent of the overload dispatch system they are simple boolean
-filters on a matched pattern, not function overloads:
+The `where` keyword also appears in [`match`](/docs/language/pattern-matching/) arms as a guard condition. Match guards are always evaluated at runtime and are independent of the overload dispatch system they are simple boolean filters on a matched pattern, not function overloads:
 
 ```kairo
 match result {
@@ -143,30 +128,22 @@ match result {
 }
 ```
 
-A match guard that fails causes the arm to be skipped and evaluation continues to the next arm.
-See [Control Flow](/docs/language/pattern-matching/#where-guards) for the full `match` syntax.
+A match guard that fails causes the arm to be skipped and evaluation continues to the next arm. See [Control Flow](/docs/language/pattern-matching/#where-guards) for the full `match` syntax.
 
 ---
 
 ## Runtime Dispatch and Timing
 
-`where` dispatch introduces a branch at the call site. In most cases this is a single conditional
-jump that the branch predictor handles efficiently. However, if the constrained function processes
-sensitive data, the branch structure can leak information through execution time differences.
+`where` dispatch introduces a branch at the call site. In most cases this is a single conditional jump that the branch predictor handles efficiently. However, if the constrained function processes sensitive data, the branch structure can leak information through execution time differences.
 
 > [!CAUTION]
-> Runtime `where` dispatch creates observable branching. If the function handles sensitive data
-> (cryptographic keys, authentication tokens, private user data), the timing difference between
-> the constrained and fallback paths may be measurable by an attacker. Use constant-time
-> implementations in those cases and do not rely on `where` dispatch for security-critical
-> branching.
+> Runtime `where` dispatch creates observable branching. If the function handles sensitive data (cryptographic keys, authentication tokens, private user data), the timing difference between the constrained and fallback paths may be measurable by an attacker. Use constant-time implementations in those cases and do not rely on `where` dispatch for security-critical branching.
 
 ---
 
 ## Where and panic
 
-`where` clauses and [`panic`](/docs/language/panic/) are orthogonal. `where` selects which overload runs based on a
-runtime condition. `panic` signals an error from within a function body. They can coexist:
+`where` clauses and [`panic`](/docs/language/panic/) are orthogonal. `where` selects which overload runs based on a runtime condition. `panic` signals an error from within a function body. They can coexist:
 
 ```kairo
 fn connect(host: string, port: i32) panic -> Connection
@@ -188,9 +165,7 @@ fn connect(host: string, port: i32) -> Connection {
 
 ## Where and unsafe
 
-`where` constraints and `unsafe` overloads are in separate namespaces. Safe overloads dispatch
-among themselves based on `where` conditions. Unsafe overloads are selected explicitly by the
-caller with the `unsafe` keyword and do not participate in `where`-based dispatch:
+`where` constraints and `unsafe` overloads are in separate namespaces. Safe overloads dispatch among themselves based on `where` conditions. Unsafe overloads are selected explicitly by the caller with the `unsafe` keyword and do not participate in `where`-based dispatch:
 
 ```kairo
 // Safe dispatch: where selects between these
@@ -234,8 +209,7 @@ interface Validator {
 }
 ```
 
-Type instantiation is always compile-time. [Interface conformance](/docs/language/interfaces/#conformance) is a zero-cost structural
-contract. Neither admits runtime dispatch. Use `requires` for both.
+Type instantiation is always compile-time. [Interface conformance](/docs/language/interfaces/#conformance) is a zero-cost structural contract. Neither admits runtime dispatch. Use `requires` for both.
 
 ---
 

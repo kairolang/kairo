@@ -1,7 +1,6 @@
 # Collections
 
-Collections are built-in generic types with literal syntax. There are three sequence types, which differ in
-who owns the elements:
+Collections are built-in generic types with literal syntax. There are three sequence types, which differ in who owns the elements:
 
 | Type | Name | Owns its elements | Storage |
 |---|---|---|---|
@@ -13,8 +12,7 @@ Maps and sets are heap-allocated.
 
 ## Arrays `[T; N]`
 
-A contiguous block of `N` elements stored inline (in the local, the enclosing struct, or the enclosing array).
-`N` must be a compile-time constant.
+A contiguous block of `N` elements stored inline (in the local, the enclosing struct, or the enclosing array). `N` must be a compile-time constant.
 
 ```kairo
 var rgb: [u8; 3] = [255, 128, 0]
@@ -22,9 +20,7 @@ rgb[0] = 10
 // rgb.push(42)  // compile error: fixed size
 ```
 
-An array is **not a value type**. It cannot be copied, assigned, passed by value, or returned. It can be a
-local, a field, or an element of another array; it can be viewed by a slice, pointed to, and passed as a
-`const` or [`@inout` parameter](/docs/language/functions-parameter-modes/). Each of the following is a compile error, and each diagnostic names the fix:
+An array is **not a value type**. It cannot be copied, assigned, passed by value, or returned. It can be a local, a field, or an element of another array; it can be viewed by a slice, pointed to, and passed as a `const` or [`@inout` parameter](/docs/language/functions-parameter-modes/). Each of the following is a compile error, and each diagnostic names the fix:
 
 ```kairo
 var a = [1, 2, 3]              // [i32; 3]
@@ -37,8 +33,7 @@ fn g() -> [i32; 3] { }         // compile error: returns an array
 
 - To copy, copy the elements, or view the source through a slice or a pointer.
 - To assign, assign the elements, or go through a slice.
-- To take an array, write `const xs: [i32; 3]` or `@inout xs: [i32; 3]` (both pass by reference), or take a
-  slice `[i32;]`.
+- To take an array, write `const xs: [i32; 3]` or `@inout xs: [i32; 3]` (both pass by reference), or take a slice `[i32;]`.
 - To produce one, return a `[T]`, or fill an `@inout` parameter.
 
 ```kairo
@@ -59,16 +54,14 @@ var mid = a[1..3]    // [i32;] viewing a[1] and a[2]
 
 ## Slices `[T;]`
 
-A view over contiguous elements: a pointer and a length. A slice does not own the storage it points into and
-never frees it.
+A view over contiguous elements: a pointer and a length. A slice does not own the storage it points into and never frees it.
 
 ```kairo
 var s: [i32;] = [1, 2, 3]      // the storage lives as long as s
 s[0]                           // 1
 ```
 
-An array converts to a slice implicitly. The slice is a view of the array, so nothing is copied. A `const`
-array converts only to `[const T;]`. A vector also converts to a slice implicitly.
+An array converts to a slice implicitly. The slice is a view of the array, so nothing is copied. A `const` array converts only to `[const T;]`. A vector also converts to a slice implicitly.
 
 ```kairo
 fn total(xs: [i32;]) -> i32 { ... }
@@ -79,8 +72,7 @@ total(a)                       // a viewed as [i32;]
 
 ## Vectors `[T]`
 
-A growable, owning, contiguous array. Layout: `ptr + len + cap` (24 bytes). A vector owns a heap copy of
-its elements.
+A growable, owning, contiguous array. Layout: `ptr + len + cap` (24 bytes). A vector owns a heap copy of its elements.
 
 ```kairo
 var nums: [i32] = [1, 2, 3]
@@ -145,18 +137,14 @@ struct S {
 var t = S{ xs: [1, 2] }        // compile error: stored in a field
 ```
 
-The fix is the same in every case: use `[T]` so the elements are owned, or bind the literal to a `var` first
-and use that.
+The fix is the same in every case: use `[T]` so the elements are owned, or bind the literal to a `var` first and use that.
 
 > [!WARNING]
-> One case is not caught: passing a slice literal to a function that **stores** the slice. The literal's
-> storage ends with the statement, and the stored slice then points at nothing. Until [Tether](/docs/language/tether/)
-> checks this, it is the programmer's responsibility.
+> One case is not caught: passing a slice literal to a function that **stores** the slice. The literal's storage ends with the statement, and the stored slice then points at nothing. Until [Tether](/docs/language/tether/) checks this, it is the programmer's responsibility.
 
 ### Slices in fields
 
-A `[T;]` field is a borrowed view; the type holding it does not own the data. A type that keeps its data
-declares `[T]` or `[T; N]`:
+A `[T;]` field is a borrowed view; the type holding it does not own the data. A type that keeps its data declares `[T]` or `[T; N]`:
 
 ```kairo
 struct Packet {
@@ -213,8 +201,7 @@ op(3, 4)  // 7
 ```
 
 > [!IMPORTANT]
-> The stdlib API for vectors, maps, and sets is still being finalized. Detailed method documentation will be
-> added in a future update.
+> The stdlib API for vectors, maps, and sets is still being finalized. Detailed method documentation will be added in a future update.
 
 ---
 

@@ -4,15 +4,9 @@ How type parameters of [generic classes](/docs/language/classes/#generic-classes
 
 ## Type parameter constraints
 
-A generic body may use only what its bounds grant. The body is checked once, where it is defined,
-against its bounds, never per instantiation. Calling a method no bound declares,
-copying a `T` without a copy bound, or declaring `var x: T` without a constructor bound is a compile
-error in the generic itself.
+A generic body may use only what its bounds grant. The body is checked once, where it is defined, against its bounds, never per instantiation. Calling a method no bound declares, copying a `T` without a copy bound, or declaring `var x: T` without a constructor bound is a compile error in the generic itself.
 
-**Implicit capabilities.** Every type parameter may be destroyed and moved without saying so.
-Instantiating with a type whose `op delete` is `= delete`, or whose category is NON_TRANSFER, is an
-error at the instantiation site. It names the generic's implicit requirement, not a line inside its
-body. (Opt-out syntax: TBD.)
+**Implicit capabilities.** Every type parameter may be destroyed and moved without saying so. Instantiating with a type whose `op delete` is `= delete`, or whose category is NON_TRANSFER, is an error at the instantiation site. It names the generic's implicit requirement, not a line inside its body. (Opt-out syntax: TBD.)
 
 Two kinds of bounds exist:
 
@@ -25,10 +19,7 @@ fn <T: enum>   stringify(item: T) { ... }
 fn <T: union>  inspect(item: T)   { ... }
 ```
 
-**Interface bounds** restrict `T` to types that satisfy a given [interface](/docs/language/interfaces/). The standard library will
-provide interfaces describing [lifecycle capabilities](/docs/language/classes-lifecycle/#lifecycle-categories), allowing constraints like "T must be copyable" or
-"T must be movable" to be written as interface bounds. The exact names and shapes of these interfaces are
-still being finalized in `std` write your own if you need them now:
+**Interface bounds** restrict `T` to types that satisfy a given [interface](/docs/language/interfaces/). The standard library will provide interfaces describing [lifecycle capabilities](/docs/language/classes-lifecycle/#lifecycle-categories), allowing constraints like "T must be copyable" or "T must be movable" to be written as interface bounds. The exact names and shapes of these interfaces are still being finalized in `std` write your own if you need them now:
 
 ```kairo
 interface Copyable {

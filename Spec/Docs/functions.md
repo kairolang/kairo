@@ -1,8 +1,6 @@
 # Functions
 
-Functions in Kairo follow a consistent declaration syntax for both free functions and class methods. The full
-grammar covers visibility, ABI linkage, generics, modifiers, bounds, and return types all optional except
-the `fn` keyword, the name, and the parameter list.
+Functions in Kairo follow a consistent declaration syntax for both free functions and class methods. The full grammar covers visibility, ABI linkage, generics, modifiers, bounds, and return types all optional except the `fn` keyword, the name, and the parameter list.
 
 ## In this section
 
@@ -38,15 +36,13 @@ return_type   ::= type | "!"
 body          ::= block | "=" expression | ε        ; ε = forward declaration
 ```
 
-All parts except `fn`, the name, and the parenthesized parameter list are optional. When the return type is
-omitted, it defaults to `void`.
+All parts except `fn`, the name, and the parenthesized parameter list are optional. When the return type is omitted, it defaults to `void`.
 
 ---
 
 ## Parameters
 
-Parameters are declared as `name: Type`. Each parameter requires an explicit type annotation there is no
-parameter type inference.
+Parameters are declared as `name: Type`. Each parameter requires an explicit type annotation there is no parameter type inference.
 
 ```kairo
 fn greet(name: string, loud: bool) {
@@ -90,8 +86,7 @@ fn log_explicit(msg: string) -> void {   // equivalent
 
 ### Arrays are not returned
 
-A function cannot return a fixed array `[T; N]` by value. Return a vector `[T]`, or fill an [`@inout`
-parameter](/docs/language/functions-parameter-modes/):
+A function cannot return a fixed array `[T; N]` by value. Return a vector `[T]`, or fill an [`@inout` parameter](/docs/language/functions-parameter-modes/):
 
 ```kairo
 fn make() -> [i32; 3] { ... }           // compile error: 'make' returns an array
@@ -101,13 +96,11 @@ fn make(@inout out: [i32; 3]) {         // ok: the caller owns the array
 }
 ```
 
-Returning a slice literal is also an error, because the literal's storage ends with the function. See
-[Primitives](/docs/language/collections/#how-long-a-slice-literals-storage-lives).
+Returning a slice literal is also an error, because the literal's storage ends with the function. See [Primitives](/docs/language/collections/#how-long-a-slice-literals-storage-lives).
 
 ### No-return `!`
 
-Functions that never return they always panic, loop forever, or call a no-return function use `!` as
-their return type:
+Functions that never return they always panic, loop forever, or call a no-return function use `!` as their return type:
 
 ```kairo
 fn fatal(msg: string) -> ! {
@@ -122,8 +115,7 @@ fn event_loop() -> ! {
 }
 ```
 
-`!` is the **[no-return type](/docs/language/type-system/#the-never-type-)**. It is a subtype of every type, meaning it can appear anywhere a value is
-expected:
+`!` is the **[no-return type](/docs/language/type-system/#the-never-type-)**. It is a subtype of every type, meaning it can appear anywhere a value is expected:
 
 ```kairo
 var x: i32 = if valid => compute() else => fatal("bad state")
@@ -131,8 +123,7 @@ var x: i32 = if valid => compute() else => fatal("bad state")
 ```
 
 > [!WARNING]
-> No-return functions cannot have a [`panic` specifier](/docs/language/panic/#the-panic-specifier). Since `panic` acts as an alternative return path, it
-> contradicts the guarantee that the function never returns. The compiler rejects `fn f() panic -> !`.
+> No-return functions cannot have a [`panic` specifier](/docs/language/panic/#the-panic-specifier). Since `panic` acts as an alternative return path, it contradicts the guarantee that the function never returns. The compiler rejects `fn f() panic -> !`.
 
 Special return types and generators are covered in [Generators](/docs/language/functions-generators/).
 
@@ -148,18 +139,14 @@ fn square(x: f64) -> f64 = x * x
 fn greeting(name: string) -> string = f"Hello, {name}!"
 ```
 
-The return type annotation is optional for expression-bodied functions it is
-inferred from the expression when omitted. This is the only form of [return type
-inference](/docs/language/type-system/#return-type-inference) in Kairo; block-bodied functions always require an explicit return type
-(or default to `void`).
+The return type annotation is optional for expression-bodied functions it is inferred from the expression when omitted. This is the only form of [return type inference](/docs/language/type-system/#return-type-inference) in Kairo; block-bodied functions always require an explicit return type (or default to `void`).
 
 ```kairo
 fn add(a: i32, b: i32) = a + b              // inferred as i32
 fn greeting(name: string) = f"Hi, {name}!"  // inferred as string
 ```
 
-Explicit annotations are still useful when you want to constrain or widen the
-inferred type:
+Explicit annotations are still useful when you want to constrain or widen the inferred type:
 
 ```kairo
 fn promote(x: i32) -> i64 = x as i64        // would otherwise infer i32
@@ -185,8 +172,7 @@ fn log(msg: string) {
 }
 ```
 
-Early returns are permitted anywhere in a function body. The compiler verifies that all code paths return a
-value of the declared return type.
+Early returns are permitted anywhere in a function body. The compiler verifies that all code paths return a value of the declared return type.
 
 ---
 
@@ -217,10 +203,7 @@ fn <T derives Serializable> serialize(value: T) -> [byte] {
 ```
 
 > [!NOTE]
-> `impl` checks structural conformance the type satisfies the interface's required method signatures
-> without needing an explicit `impl` declaration. `derives` checks polymorphic inheritance the type is a
-> subclass of the specified class. See [Interfaces](/docs/language/interfaces/) and
-> [Requires Clauses](/docs/language/requires/) for details.
+> `impl` checks structural conformance the type satisfies the interface's required method signatures without needing an explicit `impl` declaration. `derives` checks polymorphic inheritance the type is a subclass of the specified class. See [Interfaces](/docs/language/interfaces/) and [Requires Clauses](/docs/language/requires/) for details.
 
 ### Requires Clauses
 
@@ -232,10 +215,7 @@ fn <T impl ToString> print_value(value: T) requires sizeof T <= 64 {
 }
 ```
 
-`requires` is a compile-time gate: the condition must hold at compile time or the program does not
-compile. There is no runtime fallback and no dispatch. See [Requires Clauses](/docs/language/requires/) for the
-full constraint system and [Where Clauses](/docs/language/where/) for runtime-conditional overload
-dispatch.
+`requires` is a compile-time gate: the condition must hold at compile time or the program does not compile. There is no runtime fallback and no dispatch. See [Requires Clauses](/docs/language/requires/) for the full constraint system and [Where Clauses](/docs/language/where/) for runtime-conditional overload dispatch.
 
 ---
 
@@ -271,8 +251,7 @@ fn outer(x: i32) -> i32 {
 
 ## Closures
 
-Anonymous functions (lambdas) capture variables from the enclosing scope. Default capture is by copy; use
-`|*|` to capture by pointer or specify per-variable:
+Anonymous functions (lambdas) capture variables from the enclosing scope. Default capture is by copy; use `|*|` to capture by pointer or specify per-variable:
 
 ```kairo
 var multiplier = 3
@@ -281,8 +260,7 @@ var scale = fn (x: i32) -> i32 { return x * multiplier }   // captures multiplie
 scale(10)   // 30
 ```
 
-See [Closures](/docs/language/closures/) for capture modes (`|*|`, `|a, *b|`), lifetime rules, and how
-closures interact with [Tether](/docs/language/tether/).
+See [Closures](/docs/language/closures/) for capture modes (`|*|`, `|a, *b|`), lifetime rules, and how closures interact with [Tether](/docs/language/tether/).
 
 ---
 
@@ -301,8 +279,7 @@ class Vec2 {
 }
 ```
 
-See [Operators](/docs/language/operator-overloading/) for the full list of overloadable operators,
-special operator syntax (`l++`/`r++`, `op as`, `op in`, `op delete`), and restrictions.
+See [Operators](/docs/language/operator-overloading/) for the full list of overloadable operators, special operator syntax (`l++`/`r++`, `op as`, `op in`, `op delete`), and restrictions.
 
 ---
 

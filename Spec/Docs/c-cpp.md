@@ -1,17 +1,10 @@
 # C & C++ Interoperability
 
-Kairo provides zero-overhead, bidirectional interoperability with C and C++. There is no serialization layer, no
-binding generator, and no runtime bridge. Kairo emits ABI-compatible object code and consumes C/C++ headers
-directly.
+Kairo provides zero-overhead, bidirectional interoperability with C and C++. There is no serialization layer, no binding generator, and no runtime bridge. Kairo emits ABI-compatible object code and consumes C/C++ headers directly.
 
-The guarantee that makes this work is not a clever calling convention. It is that **Kairo ships its own pinned
-Clang, and every translation unit on both sides of the boundary goes through it.** The failure mode that breaks
-C++ interop for most languages (header parsed by compiler A, code compiled by compiler B, ABI mismatch
-discovered at runtime) is designed out rather than mitigated.
+The guarantee that makes this work is not a clever calling convention. It is that **Kairo ships its own pinned Clang, and every translation unit on both sides of the boundary goes through it.** The failure mode that breaks C++ interop for most languages (header parsed by compiler A, code compiled by compiler B, ABI mismatch discovered at runtime) is designed out rather than mitigated.
 
-This page covers the toolchain model, calling C/C++ from Kairo, exposing Kairo to C/C++, inline C++ and assembly,
-pointer and reference passing, templates and concepts, allocators and ownership, the exception model, and the ABI
-contract enforced at link time.
+This page covers the toolchain model, calling C/C++ from Kairo, exposing Kairo to C/C++, inline C++ and assembly, pointer and reference passing, templates and concepts, allocators and ownership, the exception model, and the ABI contract enforced at link time.
 
 ## In this section
 
@@ -26,8 +19,7 @@ contract enforced at link time.
 
 ## Coverage Matrix
 
-The table below summarizes which C and C++ features Kairo can consume and expose. Rows marked
-**bidirectional** work in both directions.
+The table below summarizes which C and C++ features Kairo can consume and expose. Rows marked **bidirectional** work in both directions.
 
 | Feature | Direction | Notes |
 |---|---|---|
@@ -55,9 +47,7 @@ The table below summarizes which C and C++ features Kairo can consume and expose
 
 ## A Note on C++ Modules
 
-C++20 named modules (`import std;`, `import my_module;`) are **not currently supported**. The interop layer
-relies on header-based inclusion via Clang's preprocessor, and module interface deserialization (consuming
-pre-compiled BMIs) is a future roadmap item.
+C++20 named modules (`import std;`, `import my_module;`) are **not currently supported**. The interop layer relies on header-based inclusion via Clang's preprocessor, and module interface deserialization (consuming pre-compiled BMIs) is a future roadmap item.
 
 Exporting Kairo code as a C++ module interface unit (`.cppm`) is also planned but not yet implemented.
 

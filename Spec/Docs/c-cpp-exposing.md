@@ -29,9 +29,9 @@ class MyKairoClass {
 #include <iostream>
 
 int main() {
-    MyKairoClass obj("C++");
+    my_code::MyKairoClass obj("C++");
     std::cout << "name = " << obj.get_name() << std::endl;
-    my_kairo_function(42);
+    my_code::my_kairo_function(42);
     return 0;
 }
 ```
@@ -46,7 +46,18 @@ name = C++
 Hello from Kairo! x = 42
 ```
 
-How `kcc` processes `#include "file.k"`, and the manual workflow without `kcc`, are covered in [kairo, kcc & Cross-compilation](/docs/language/c-cpp-toolchain/#how-kcc-works).
+`my_code.k` is not on the command line: `kcc` finds it in `main.cpp`, builds it and links it. Its declarations are in its [module namespace](/docs/language/modules/#module-paths-are-c-namespaces), `my_code`, as they are for a Kairo importer. That namespace is the file's path under the [search directory](/docs/language/modules/#search-directories-and-library-names) that holds it, the same as for a file named on the command line: run from the project root, a `src/my_code.k` would be `src::my_code`, unless `-I src` makes `src` a search directory of its own.
+
+### What crosses an include
+
+An included `.k` gives C++ the same interface a Kairo importer sees:
+
+- Its `pub` declarations. A `priv` or `internal` top-level declaration is left out, unless a `pub` `inline` or generic body names it (that body is compiled by the C++ code, so it must see what it calls). C++ has no way to keep a declaration from the rest of its translation unit, so that is the only one that crosses.
+- `priv` class members as `private:` members.
+- The bodies of templates and `inline` functions; every other body stays in the `.k`'s object.
+- Its types' dependencies, from other modules and from the builtin library, declared once per translation unit however many `.k` files include them.
+
+How `kcc` processes `#include "file.k"`, separate compilation, and the manual workflow without `kcc` are covered in [kairo, kcc & Cross-compilation](/docs/language/c-cpp-toolchain/#how-kcc-works).
 
 ---
 
@@ -54,7 +65,7 @@ How `kcc` processes `#include "file.k"`, and the manual workflow without `kcc`, 
 
 ### Headers
 
-Every non-entry module can emit a C++ header. `--emit-headers <dir>` writes one per module at a path mirroring the [module path](/docs/language/modules/#module-paths-are-c-namespaces): `geo::vec` becomes `<dir>/geo/vec.hh`. A C++ file includes it the way Kairo would import it:
+Every module can emit a C++ header, the files given on the command line included; only a file outside every search directory and every library has none. `--emit-headers <dir>` writes one per module at a path mirroring the [module path](/docs/language/modules/#module-paths-are-c-namespaces): `geo::vec` becomes `<dir>/geo/vec.hh`. A C++ file includes it the way Kairo would import it:
 
 ```cpp
 #include "geo/vec.hh"      // Kairo: import geo::vec
@@ -62,9 +73,7 @@ Every non-entry module can emit a C++ header. `--emit-headers <dir>` writes one 
 
 A header contains the module's [`pub` declarations](/docs/language/modules/#visibility-on-top-level-declarations) in their canonical namespaces, declarations only: class layouts, function signatures, enum definitions. Function bodies are in the module's object file; you compile the module with Kairo and link the result. A header `#include`s the headers of modules its layouts depend on and forward-declares everything else, so including one module does not drag in the tree.
 
-A module that defines nothing (only comments, or only [`pub import` re-exports](/docs/language/imports/#re-export-pattern)) produces no object file and no
-header. C++ code that would include the header of a re-export-only module includes the headers of the modules
-it re-exports instead.
+A module that defines nothing (only comments, or only [`pub import` re-exports](/docs/language/imports/#re-export-pattern)) produces no object file and no header. C++ code that would include the header of a re-export-only module includes the headers of the modules it re-exports instead.
 
 ### What a Kairo declaration looks like in C++
 
@@ -84,34 +93,26 @@ it re-exports instead.
 
 Extension methods are not C++ member functions. Kairo keeps a class's C++ definition identical everywhere it appears, so a method added by [`extend`](/docs/language/extends/), even in the same file, is a free function taking the receiver as its first parameter. Call it as `geo::vec::len(&v)`.
 
-Member [type aliases](/docs/language/type-aliases/) are visible to C++: a class's `type promise_type = ...` is the C++ member
-`promise_type`, so C++ code that looks a member type up by name finds it.
+Member [type aliases](/docs/language/type-aliases/) are visible to C++: a class's `type promise_type = ...` is the C++ member `promise_type`, so C++ code that looks a member type up by name finds it.
 
-Names beginning `__kairo_` are reserved. A rendered class may expose public `__kairo_` members; C++ code
-must not read or write them.
+Names beginning `__kairo_` are reserved. A rendered class may expose public `__kairo_` members; C++ code must not read or write them.
 
 ### Generics
 
-Kairo [generics](/docs/language/generics/) are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. Kairo's `impl` bounds are not translated to C++ constraints: instantiating a Kairo generic with a C++ type that does not satisfy the bound fails inside the template body rather than at the call.
+Kairo [generics](/docs/language/generics/) are C++ templates in the header, bodies included. Instances Kairo already compiled are listed as `extern template`, so linking against the module's objects reuses them; any other instance is instantiated by your C++ compiler like any template. An `#include "file.k"` lists none: the C++ side instantiates every instance it uses, and the linker keeps one copy. Kairo's `impl` bounds are not translated to C++ constraints: instantiating a Kairo generic with a C++ type that does not satisfy the bound fails inside the template body rather than at the call.
 
 ---
 
 ## Tuples Across the Boundary
 
-Kairo [tuples](/docs/language/collections/#tuples-t1-t2-) such as `(i32, f32)` are emitted as ordinary named structs in a reserved namespace, one per distinct
-element-type list. Field order is source order, and `.0` lowers to a plain member access.
+Kairo [tuples](/docs/language/collections/#tuples-t1-t2-) such as `(i32, f32)` are emitted as ordinary named structs in a reserved namespace, one per distinct element-type list. Field order is source order, and `.0` lowers to a plain member access.
 
-This makes tuples first-class across the boundary: a C++ TU can name the type, take a reference to it, return it,
-and specialize on it.
+This makes tuples first-class across the boundary: a C++ TU can name the type, take a reference to it, return it, and specialize on it.
 
-The struct's name is a **structural** function of its element types, not an ordinal. Two translation units that
-use `(i32, f32)` produce the same type and the same symbol, regardless of declaration order or which other tuple
-shapes appear in each TU. This is required for linking and is a departure from C++'s anonymous-type mangling,
-which is deliberately TU-local.
+The struct's name is a **structural** function of its element types, not an ordinal. Two translation units that use `(i32, f32)` produce the same type and the same symbol, regardless of declaration order or which other tuple shapes appear in each TU. This is required for linking and is a departure from C++'s anonymous-type mangling, which is deliberately TU-local.
 
 > [!NOTE]
-> The exact structural encoding is part of the ABI and is specified separately. It is injective across all type
-> constructors that can appear in a tuple, and unambiguous under nesting.
+> The exact structural encoding is part of the ABI and is specified separately. It is injective across all type constructors that can appear in a tuple, and unambiguous under nesting.
 
 ---
 

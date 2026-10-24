@@ -1,11 +1,8 @@
 # Unions
 
-Unions overlay multiple fields at the same memory address, sized to the largest member. They are a low-level
-memory layout tool for hardware registers, binary protocol parsing, and type punning. The user is responsible
-for tracking which field is active there is no compiler-managed tag.
+Unions overlay multiple fields at the same memory address, sized to the largest member. They are a low-level memory layout tool for hardware registers, binary protocol parsing, and type punning. The user is responsible for tracking which field is active there is no compiler-managed tag.
 
-For type-safe tagged unions with compiler-enforced variant tracking, use
-[ADT enums](/docs/language/enums-adt/#adt-enums).
+For type-safe tagged unions with compiler-enforced variant tracking, use [ADT enums](/docs/language/enums-adt/#adt-enums).
 
 ---
 
@@ -19,8 +16,7 @@ union Register {
 }
 ```
 
-All fields share the same starting address. The union's size is the size of its largest member, plus
-any alignment padding.
+All fields share the same starting address. The union's size is the size of its largest member, plus any alignment padding.
 
 ---
 
@@ -37,13 +33,10 @@ r.as_f32 = 3.14f32
 // r.as_u32 now contains the bit representation of 3.14 as f32
 ```
 
-Reading a field other than the one last written is type punning the value you get is the raw bit
-reinterpretation. This is legal but the result depends entirely on the underlying representation.
+Reading a field other than the one last written is type punning the value you get is the raw bit reinterpretation. This is legal but the result depends entirely on the underlying representation.
 
 > [!CAUTION]
-> The compiler does not track which field was last written. Reading the wrong field is not a compile
-> error it produces whatever bits happen to be in memory. This is the intended use case for unions,
-> but it means correctness is entirely on the caller.
+> The compiler does not track which field was last written. Reading the wrong field is not a compile error it produces whatever bits happen to be in memory. This is the intended use case for unions, but it means correctness is entirely on the caller.
 
 ---
 
@@ -71,8 +64,7 @@ union Bad {
 }
 ```
 
-If you need a union of non-trivial types, use an [ADT enum](/docs/language/enums-adt/#adt-enums) the
-compiler manages construction, destruction, and active-variant tracking for you.
+If you need a union of non-trivial types, use an [ADT enum](/docs/language/enums-adt/#adt-enums) the compiler manages construction, destruction, and active-variant tracking for you.
 
 ---
 
@@ -110,8 +102,7 @@ pkt.opcode = 0x01
 pkt.payload.as_int = 42
 ```
 
-For a type-safe version of this pattern (where the opcode determines which payload field is valid),
-use an [ADT enum](/docs/language/enums-adt/#adt-enums) instead.
+For a type-safe version of this pattern (where the opcode determines which payload field is valid), use an [ADT enum](/docs/language/enums-adt/#adt-enums) instead.
 
 ---
 
@@ -129,8 +120,7 @@ var e: Either<i32, f32>
 e.left = 42
 ```
 
-Type parameters must resolve to trivially copyable types. The compiler errors at instantiation time
-if a type argument is not trivially copyable.
+Type parameters must resolve to trivially copyable types. The compiler errors at instantiation time if a type argument is not trivially copyable.
 
 ---
 
@@ -182,9 +172,7 @@ union Payload {
 
 ## No Extends
 
-Unions do not support [`extend` blocks](/docs/language/extends/). They are raw memory overlays with no behavior adding
-methods would blur the line between unions and [classes](/docs/language/classes/). If you need methods
-on overlapping data, wrap the union in a struct or class and add behavior there.
+Unions do not support [`extend` blocks](/docs/language/extends/). They are raw memory overlays with no behavior adding methods would blur the line between unions and [classes](/docs/language/classes/). If you need methods on overlapping data, wrap the union in a struct or class and add behavior there.
 
 ---
 

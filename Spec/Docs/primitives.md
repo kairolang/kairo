@@ -1,16 +1,12 @@
 # Primitives
 
-Kairo's primitive types are built into the language and available without imports. They map directly to
-hardware-supported representations where possible, falling back to software emulation for extended-width types.
+Kairo's primitive types are built into the language and available without imports. They map directly to hardware-supported representations where possible, falling back to software emulation for extended-width types.
 
 ---
 
 ## Integers
 
-All integer types have a fixed, guaranteed size. An integer literal takes the type expected by its context
-(annotation, parameter, return position, the other operand) and must fit it. With no expected type the default
-is `i32`; only if the value does not fit `i32` does the compiler fall back to the smallest signed type that can
-hold it, up to `i512`. See [Literal inference](#5-literal-inference-a-separate-mechanism).
+All integer types have a fixed, guaranteed size. An integer literal takes the type expected by its context (annotation, parameter, return position, the other operand) and must fit it. With no expected type the default is `i32`; only if the value does not fit `i32` does the compiler fall back to the smallest signed type that can hold it, up to `i512`. See [Literal inference](#5-literal-inference-a-separate-mechanism).
 
 | Type | Size | Description | C++ Equivalent |
 |---|---|---|---|
@@ -31,9 +27,7 @@ hold it, up to `i512`. See [Literal inference](#5-literal-inference-a-separate-m
 | `usize` | Platform-dependent | Unsigned, pointer-width integer | `size_t` |
 | `isize` | Platform-dependent | Signed, pointer-width integer | `ptrdiff_t` |
 
-`i64` and `u64` are spelled as the target's `int64_t` / `uint64_t`, not hard-coded: `long` on 64-bit Linux and
-FreeBSD; `long long` on Windows, on every 32-bit target, and on Darwin (a 64-bit platform that still spells
-`int64_t` as `long long`). This keeps C++ name mangling and header signatures matching on every target.
+`i64` and `u64` are spelled as the target's `int64_t` / `uint64_t`, not hard-coded: `long` on 64-bit Linux and FreeBSD; `long long` on Windows, on every 32-bit target, and on Darwin (a 64-bit platform that still spells `int64_t` as `long long`). This keeps C++ name mangling and header signatures matching on every target.
 
 Integer literals default to signed. Use a type suffix to specify:
 
@@ -49,8 +43,7 @@ var g = 0o77        // i32 octal
 
 ### Overflow behavior
 
-Unsigned integer overflow wraps around (modular arithmetic). Signed integer overflow behavior depends on the
-build mode:
+Unsigned integer overflow wraps around (modular arithmetic). Signed integer overflow behavior depends on the build mode:
 
 - **Debug:** crashes with a diagnostic.
 - **Release:** wraps around silently.
@@ -59,9 +52,7 @@ This matches Rust's overflow model and catches bugs during development without p
 
 ### Extended-width integers (u128-u512, i128-i512)
 
-If the target hardware supports wide registers (e.g., AVX-512), these types map directly to hardware. Otherwise,
-the compiler stores them as structs of smaller integers and emits SIMD-accelerated arithmetic when available,
-falling back to scalar multi-word operations.
+If the target hardware supports wide registers (e.g., AVX-512), these types map directly to hardware. Otherwise, the compiler stores them as structs of smaller integers and emits SIMD-accelerated arithmetic when available, falling back to scalar multi-word operations.
 
 Extended-width integers are always stack-allocated they are value types, not heap-allocated objects.
 
@@ -69,9 +60,7 @@ Extended-width integers are always stack-allocated they are value types, not hea
 
 ## Floating-Point
 
-All floating-point types except `f80` follow the IEEE 754 standard. A float literal takes the type expected by its
-context and must fit it. With no expected type the default is `f64`; only if the value does not fit `f64` does the
-compiler fall back to the smallest float type that can hold it, up to `f512`.
+All floating-point types except `f80` follow the IEEE 754 standard. A float literal takes the type expected by its context and must fit it. With no expected type the default is `f64`; only if the value does not fit `f64` does the compiler fall back to the smallest float type that can hold it, up to `f512`.
 
 | Type | Size | Precision | C++ Equivalent |
 |---|---|---|---|
@@ -89,19 +78,14 @@ var y = 3.14f32     // f32
 var z = 1.0e-10     // f64 scientific notation
 ```
 
-Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`,
-`sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check for `NaN` explicitly with
-`std::is_nan()` when needed.
+Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check for `NaN` explicitly with `std::is_nan()` when needed.
 
 > [!NOTE]
-> `f256` and `f512` are not natively supported on any current hardware and are implemented entirely in software,
-> using SIMD instructions when available. Like extended-width integers, they are stack-allocated value types.
-> Expect significantly lower performance compared to hardware-backed float types.
+> `f256` and `f512` are not natively supported on any current hardware and are implemented entirely in software, using SIMD instructions when available. Like extended-width integers, they are stack-allocated value types. Expect significantly lower performance compared to hardware-backed float types.
 
 ### `f80` follows the target's `long double`
 
-`f80` is the x87 80-bit extended format, and it is C's `long double`. It exists only where the target ABI's
-`long double` is x87 extended precision. That is a property of the ABI, not the CPU:
+`f80` is the x87 80-bit extended format, and it is C's `long double`. It exists only where the target ABI's `long double` is x87 extended precision. That is a property of the ABI, not the CPU:
 
 | Target | `long double` | `f80` |
 |---|---|---|
@@ -112,9 +96,7 @@ Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN`
 | AArch64 and RISC-V Linux | binary128 | not available |
 | Apple ARM, Windows on ARM | binary64 | not available |
 
-Anywhere else, writing `f80` is an error ([P003E](/docs/language/diagnostics/#p003e-a-primitive-type-is-not-available-on-the-target)). The error names the target and what its `long double` is,
-and suggests `f64` where `long double` is binary64 and `f128` where it is binary128. Kairo never silently
-substitutes another float type for `f80`.
+Anywhere else, writing `f80` is an error ([P003E](/docs/language/diagnostics/#p003e-a-primitive-type-is-not-available-on-the-target)). The error names the target and what its `long double` is, and suggests `f64` where `long double` is binary64 and `f128` where it is binary128. Kairo never silently substitutes another float type for `f80`.
 
 ```kairo
 // building for x86_64-unknown-linux-gnu
@@ -128,8 +110,7 @@ var y: f80 = 1.0    // error P003E: long double is binary128 here; use f128
 
 ## Implicit Conversions
 
-Integer and float types can be **implicitly widened** `i32` to `i64`, `f32` to `f64` but narrowing
-conversions require an explicit cast. See [Casting](/docs/language/casting/) for details.
+Integer and float types can be **implicitly widened** `i32` to `i64`, `f32` to `f64` but narrowing conversions require an explicit cast. See [Casting](/docs/language/casting/) for details.
 
 ```kairo
 var a: i32 = 42
@@ -153,8 +134,7 @@ var flag = true
 var other = false
 ```
 
-`bool` is 1 byte in memory (not 1 bit) for addressability. Only `true` and `false` are valid values no
-implicit conversion from integers.
+`bool` is 1 byte in memory (not 1 bit) for addressability. Only `true` and `false` are valid values no implicit conversion from integers.
 
 ---
 
@@ -164,8 +144,7 @@ implicit conversion from integers.
 |---|---|---|---|
 | `char` | 4 bytes | Unicode scalar value (U+0000-U+10FFFF) | `char32_t` |
 
-A `char` holds a single decoded Unicode codepoint. It is always 4 bytes regardless of which codepoint it
-represents.
+A `char` holds a single decoded Unicode codepoint. It is always 4 bytes regardless of which codepoint it represents.
 
 ```kairo
 var letter = 'A'
@@ -174,8 +153,7 @@ var cjk = '漢'
 ```
 
 > [!NOTE]
-> `char` is the *decoded* representation of a single codepoint. Strings store text as UTF-8 bytes internally,
-> not as arrays of `char`. See [Strings](#strings) below.
+> `char` is the *decoded* representation of a single codepoint. Strings store text as UTF-8 bytes internally, not as arrays of `char`. See [Strings](#strings) below.
 
 ---
 
@@ -185,8 +163,7 @@ var cjk = '漢'
 |---|---|---|
 | `byte` | 1 byte | `std::byte` |
 
-`byte` is semantically identical to `u8` in size and representation but restricted to bitwise operations and
-comparisons no arithmetic. It represents raw data where the value is not meant to be interpreted as a number.
+`byte` is semantically identical to `u8` in size and representation but restricted to bitwise operations and comparisons no arithmetic. It represents raw data where the value is not meant to be interpreted as a number.
 
 ```kairo
 var b: byte = 0xFF
@@ -214,10 +191,7 @@ struct string {
 }
 ```
 
-`len` counts bytes, not characters; `cp_len` counts codepoints, and `len == cp_len` means the string is
-ASCII. A string literal is a borrowed view of static storage: it allocates nothing, and its `cap` is `0`. An
-owned string has `cap` bytes of heap memory behind `data`. Both kinds keep a NUL byte after the last byte, so
-`data` can be [passed to C as a C string](/docs/language/c-cpp-calling/#strings-and-const-char).
+`len` counts bytes, not characters; `cp_len` counts codepoints, and `len == cp_len` means the string is ASCII. A string literal is a borrowed view of static storage: it allocates nothing, and its `cap` is `0`. An owned string has `cap` bytes of heap memory behind `data`. Both kinds keep a NUL byte after the last byte, so `data` can be [passed to C as a C string](/docs/language/c-cpp-calling/#strings-and-const-char).
 
 ```kairo
 var greeting = "Hello, Kairo! 📣"   // len 18, cp_len 15, no allocation
@@ -237,8 +211,7 @@ for ch in s {
 ```
 
 > [!IMPORTANT]
-> The stdlib API for strings is still being finalized. Detailed documentation for string methods will be added
-> in a future update.
+> The stdlib API for strings is still being finalized. Detailed documentation for string methods will be added in a future update.
 
 ---
 
@@ -248,8 +221,7 @@ for ch in s {
 |---|---|---|
 | `void` | 0 bytes | `void` |
 
-`void` indicates the absence of a value. It can be used as a normal type and as the target of an
-`unsafe` pointer (`unsafe *void`), using `void` as a normal type denotes a unit type.
+`void` indicates the absence of a value. It can be used as a normal type and as the target of an `unsafe` pointer (`unsafe *void`), using `void` as a normal type denotes a unit type.
 
 ```kairo
 fn log(msg: string) -> void {
@@ -345,23 +317,14 @@ The full conversion rules between primitive types are covered in the [Conversion
 
 ## 5. Literal inference: a separate mechanism
 
-Literals are **untyped** until a type is assigned. Literal typing is not conversion and
-does not consult this lattice.
+Literals are **untyped** until a type is assigned. Literal typing is not conversion and does not consult this lattice.
 
-1. If an expected type is available from context (annotation, parameter, return position,
-   the other operand of a binop, aggregate element type), the literal takes that type
-   directly, and the compiler checks the value fits. `var b: u8 = 42` is fine. `var b: u8
-   = 300` is an error at the literal, with the range in the diagnostic.
-2. With no expected type, the default is `i32` for integer literals and `f64` for float
-   literals. Only if the value does not fit does the "smallest type that holds it" rule
-   from [Integers](#integers) apply.
+1. If an expected type is available from context (annotation, parameter, return position, the other operand of a binop, aggregate element type), the literal takes that type directly, and the compiler checks the value fits. `var b: u8 = 42` is fine. `var b: u8 = 300` is an error at the literal, with the range in the diagnostic.
+2. With no expected type, the default is `i32` for integer literals and `f64` for float literals. Only if the value does not fit does the "smallest type that holds it" rule from [Integers](#integers) apply.
 
-Rule 1 comes first on purpose. If promotion fired unconditionally, `var x: u32 = 3000000000`
-would type the literal as `i64` before looking at the annotation, and then fail to narrow
-it. Expected-type-first removes that whole class of error.
+Rule 1 comes first on purpose. If promotion fired unconditionally, `var x: u32 = 3000000000` would type the literal as `i64` before looking at the annotation, and then fail to narrow it. Expected-type-first removes that whole class of error.
 
-Suffixed literals (`42u8`) are typed at the literal and then participate in conversion
-normally.
+Suffixed literals (`42u8`) are typed at the literal and then participate in conversion normally.
 
 
 ---

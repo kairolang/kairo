@@ -2,8 +2,7 @@
 
 ## Nullable Types
 
-`T?` is sugar for `Nullable<T>` a compiler-intrinsic tagged union that holds either a value of type `T`
-or null. It applies to any type, not just pointers.
+`T?` is sugar for `Nullable<T>` a compiler-intrinsic tagged union that holds either a value of type `T` or null. It applies to any type, not just pointers.
 
 ```kairo
 var name: string? = get_name()   // may be null
@@ -41,16 +40,14 @@ user.name   // compile error: user has not been null-checked
 
 ### Safe access (`?.`)
 
-The [`?.` operator](/docs/language/operators/#null-safe-access) calls a method or accesses a member only if the value is non-null. If null, it
-default-constructs the type and calls the method on that instead:
+The [`?.` operator](/docs/language/operators/#null-safe-access) calls a method or accesses a member only if the value is non-null. If null, it default-constructs the type and calls the method on that instead:
 
 ```kairo
 var config? = load_config()
 config?.timeout   // if null, uses Config().timeout
 ```
 
-If the type is not trivially default-constructible (deleted default constructor, contains atomic types),
-`?.` is a compile error.
+If the type is not trivially default-constructible (deleted default constructor, contains atomic types), `?.` is a compile error.
 
 ### Null coalescing (`??`)
 
@@ -69,14 +66,11 @@ var name = get_name() ?? "anonymous"
 var x = unwrap!(maybe_value)   // panics if null
 ```
 
-`unwrap!()` desugars to a null check followed by a `panic` on the null path. The caller must be inside
-a `try` block or in a function with the `panic` specifier. See [Panic](/docs/language/panic/) for the
-panic model.
+`unwrap!()` desugars to a null check followed by a `panic` on the null path. The caller must be inside a `try` block or in a function with the `panic` specifier. See [Panic](/docs/language/panic/) for the panic model.
 
 ### Const interaction
 
-`const` on a nullable binding works the same as on any other type the binding cannot be reassigned
-after initialization:
+`const` on a nullable binding works the same as on any other type the binding cannot be reassigned after initialization:
 
 ```kairo
 const x: i32? = 42
@@ -90,8 +84,7 @@ y = null   // ok: can go back to null
 
 ### Pointers and nullability
 
-`*T` is non-null by construction, it cannot hold `&null`. No null checks are needed on dereference
-because the pointer is always valid:
+`*T` is non-null by construction, it cannot hold `&null`. No null checks are needed on dereference because the pointer is always valid:
 
 ```kairo
 var x = 42
@@ -101,8 +94,7 @@ var ptr: *i32 = &x
 var bad: *i32 = &null  // compile error: *T is non-null
 ```
 
-To represent a pointer that might not exist, use `*T?`. This wraps the pointer in the standard
-`Nullable<T>` system with full support for `?`, `?.`, `??`, and `unwrap!()`:
+To represent a pointer that might not exist, use `*T?`. This wraps the pointer in the standard `Nullable<T>` system with full support for `?`, `?.`, `??`, and `unwrap!()`:
 
 ```kairo
 var ptr: *i32? = find_pointer()
@@ -124,8 +116,7 @@ if raw != &null {
 }
 ```
 
-See [Pointers](/docs/language/pointers/) for the full pointer model and how
-[Tether](/docs/language/tether/) tracks pointer provenance.
+See [Pointers](/docs/language/pointers/) for the full pointer model and how [Tether](/docs/language/tether/) tracks pointer provenance.
 
 ## See also
 

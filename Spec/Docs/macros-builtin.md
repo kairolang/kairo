@@ -2,9 +2,7 @@
 
 Kairo provides a set of compiler-intrinsic macros for common tasks.
 
-Builtin names are reserved: defining a macro with a builtin's name (`macro first!(...)`,
-`macro paste!(...)`) is a compile error. Qualified macros (`mymod::first!`) do not collide;
-builtins only claim the unqualified names.
+Builtin names are reserved: defining a macro with a builtin's name (`macro first!(...)`, `macro paste!(...)`) is a compile error. Qualified macros (`mymod::first!`) do not collide; builtins only claim the unqualified names.
 
 ## Token manipulation
 
@@ -19,12 +17,10 @@ var name = paste!(my, _var)        // becomes: my_var
 var s = stringify!(some_ident)     // becomes: "some_ident"
 ```
 
-`paste!` joins the spelling of every argument token and produces one identifier; the result must
-be a valid identifier.
+`paste!` joins the spelling of every argument token and produces one identifier; the result must be a valid identifier.
 
 > [!WARNING]
-> `unstringify!` converts a string into raw tokens that are injected into the source. This is a
-> potential injection risk only use with trusted, compile-time-known strings.
+> `unstringify!` converts a string into raw tokens that are injected into the source. This is a potential injection risk only use with trusted, compile-time-known strings.
 
 ## Variadic helpers
 
@@ -44,16 +40,14 @@ rest!(a, b, c)      // b, c
 butlast!(a, b, c)   // a, b
 ```
 
-These builtins expand macro invocations in their arguments first, then split on top-level commas,
-so they compose:
+These builtins expand macro invocations in their arguments first, then split on top-level commas, so they compose:
 
 ```kairo
 count!(rest!(a, b, c))   // 2
 first!(rest!(a, b, c))   // b
 ```
 
-`stringify!` and `defined!` are the exceptions: they operate on their arguments' raw tokens
-(quoting and name-probing would be destroyed by expansion).
+`stringify!` and `defined!` are the exceptions: they operate on their arguments' raw tokens (quoting and name-probing would be destroyed by expansion).
 
 ## Source location
 
@@ -82,8 +76,7 @@ eval if platform == "wasm" {
 }
 ```
 
-The `compile_` prefix keeps these distinct from runtime logging: `compile_error!` aborts the
-build, it does not log.
+The `compile_` prefix keeps these distinct from runtime logging: `compile_error!` aborts the build, it does not log.
 
 ## Code generation
 
@@ -110,17 +103,9 @@ fn process() -> Config {
 }
 ```
 
-`todo!()` and `unreachable!()` are SAFE: both [panic](/docs/language/panic/) at runtime if reached, with `unreachable!()`
-signaling a logic error rather than missing code. `unreachable_unchecked!()` is the unsafe
-variant: it is a hard assertion to the optimizer that the path is dead, and reaching it at
-runtime is undefined behavior. Reach for `unreachable_unchecked!` only when the panic branch of
-`unreachable!` shows up in a profile.
+`todo!()` and `unreachable!()` are SAFE: both [panic](/docs/language/panic/) at runtime if reached, with `unreachable!()` signaling a logic error rather than missing code. `unreachable_unchecked!()` is the unsafe variant: it is a hard assertion to the optimizer that the path is dead, and reaching it at runtime is undefined behavior. Reach for `unreachable_unchecked!` only when the panic branch of `unreachable!` shows up in a profile.
 
-Untagged, `unique_id!` produces a fresh identifier on every invocation. The tagged form
-`unique_id!(tag)` is stable within one dynamic macro expansion: every `unique_id!(guard)` inside
-the same expansion instance yields the SAME identifier, letting a macro body refer to one
-generated name in several places, while separate invocations of the macro still get distinct
-names.
+Untagged, `unique_id!` produces a fresh identifier on every invocation. The tagged form `unique_id!(tag)` is stable within one dynamic macro expansion: every `unique_id!(guard)` inside the same expansion instance yields the SAME identifier, letting a macro body refer to one generated name in several places, while separate invocations of the macro still get distinct names.
 
 ## Conditional
 
@@ -150,8 +135,7 @@ Some macros are compiler intrinsics that perform operations beyond token substit
 | `unwrap!(expr)` | Force-unwrap a nullable, panic on null | [Variables](/docs/language/nullables/#force-unwrap) |
 | `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Library](/docs/library/core/functions/move_refrence/) |
 
-These use macro syntax (`name!`) to make their usage explicit and searchable in a codebase, but
-they are not user-definable they are built into the compiler.
+These use macro syntax (`name!`) to make their usage explicit and searchable in a codebase, but they are not user-definable they are built into the compiler.
 
 ---
 

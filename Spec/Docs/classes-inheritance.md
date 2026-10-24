@@ -35,8 +35,7 @@ class Dog derives Animal {
 
 ### Inheritance visibility
 
-By default, inheritance is public. Append `pub`, `prot`, or `priv` after `derives` to control how base
-members are exposed in the derived class:
+By default, inheritance is public. Append `pub`, `prot`, or `priv` after `derives` to control how base members are exposed in the derived class:
 
 ```kairo
 class Derived derives pub Base { ... }    // base members keep their visibility
@@ -76,9 +75,7 @@ class Derived derives Base {
 
 ### Destructors and inheritance
 
-A class with a non-trivial destructor (its own `op delete` with a body, or any field or base that has one) may only
-derive from a class whose destructor is `virtual`. Otherwise deleting the derived object through a `*Base`
-runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
+A class with a non-trivial destructor (its own `op delete` with a body, or any field or base that has one) may only derive from a class whose destructor is `virtual`. Otherwise deleting the derived object through a `*Base` runs only the base's destructor and leaks the rest. This is a compile error at the derived class.
 
 ```kairo
 class Base { fn op delete(self) { } }
@@ -94,13 +91,11 @@ class Derived derives Base {          // ok
 }
 ```
 
-A destructor is virtual when declared `virtual` or `override`, or when any base's is. As with any other
-method, virtualness is inherited. A derived class with a trivial destructor is exempt.
+A destructor is virtual when declared `virtual` or `override`, or when any base's is. As with any other method, virtualness is inherited. A derived class with a trivial destructor is exempt.
 
 ### Diamond and virtual inheritance
 
-If `B` and `C` both derive from `A`, and `D` derives from both `B` and `C`, then `D` contains two copies
-of `A`'s subobject. Disambiguate with qualified names:
+If `B` and `C` both derive from `A`, and `D` derives from both `B` and `C`, then `D` contains two copies of `A`'s subobject. Disambiguate with qualified names:
 
 ```kairo
 class A {
@@ -118,9 +113,7 @@ class D derives B, C {
 }
 ```
 
-To share a single `A` subobject, use `derives virtual`. The most-derived class is responsible for
-initializing the virtual base directly; intermediate classes' calls to the virtual base constructor are
-ignored:
+To share a single `A` subobject, use `derives virtual`. The most-derived class is responsible for initializing the virtual base directly; intermediate classes' calls to the virtual base constructor are ignored:
 
 ```kairo
 class A {
@@ -155,9 +148,7 @@ A derived class's [lifecycle category](/docs/language/classes-lifecycle/#lifecyc
 | MOVE | MOVE, NON_TRANSFER |
 | NON_TRANSFER | NON_TRANSFER |
 
-A copyable base with a move-only derived class is a compile error slicing a derived instance through a
-base pointer would otherwise silently copy the base subobject of a class that promised never to be
-copied.
+A copyable base with a move-only derived class is a compile error slicing a derived instance through a base pointer would otherwise silently copy the base subobject of a class that promised never to be copied.
 
 See [Casting](/docs/language/casting/) for upcasting and downcasting.
 
@@ -165,8 +156,7 @@ See [Casting](/docs/language/casting/) for upcasting and downcasting.
 
 ## Virtual Dispatch
 
-By default, methods are statically dispatched. To enable dynamic dispatch via a vtable, mark the method
-`virtual` in the base class:
+By default, methods are statically dispatched. To enable dynamic dispatch via a vtable, mark the method `virtual` in the base class:
 
 ```kairo
 class Shape {
@@ -191,9 +181,7 @@ var shape: *Shape = &Circle(5.0)
 shape->area()   // 78.539... dynamic dispatch
 ```
 
-`virtual` creates a vtable slot. `override` in the derived class replaces the entry in that slot. A class
-only has a vtable pointer (8 bytes at offset 0) if it declares or inherits at least one `virtual` method.
-Non-polymorphic classes have no vtable overhead.
+`virtual` creates a vtable slot. `override` in the derived class replaces the entry in that slot. A class only has a vtable pointer (8 bytes at offset 0) if it declares or inherits at least one `virtual` method. Non-polymorphic classes have no vtable overhead.
 
 ### Abstract classes (pure virtual)
 
@@ -223,8 +211,7 @@ class Circle derives Shape {
 var c = Circle(5.0)  // ok: all pure virtuals overridden
 ```
 
-`= virtual` implies vtable participation no `virtual` prefix is needed on the declaration. A class with
-any `= virtual` method cannot be instantiated directly.
+`= virtual` implies vtable participation no `virtual` prefix is needed on the declaration. A class with any `= virtual` method cannot be instantiated directly.
 
 ### Final
 

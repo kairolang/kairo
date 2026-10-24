@@ -27,6 +27,8 @@ When you write `import Foo`, the compiler resolves it in this order:
 
 The `module` modifier overrides this: `import module Foo` skips step 1 and resolves **only** against `Foo/module.k`. If no library entry exists, the compiler errors.
 
+"Sibling" means the importing file's own directory first, then the [search directories](/docs/language/modules/#search-directories-and-library-names): the working directory and every `-I` directory. A path that starts with a [library's name](/docs/language/modules/#naming-a-library) (`import geo::shapes`) resolves inside that library. Two different files answering one import, a sibling and a search-directory file or files in two search directories, are an error at the import; the compiler never picks one.
+
 ### Resolution with `::`
 
 `import Foo::bar` applies the same file-first rule to `Foo`:

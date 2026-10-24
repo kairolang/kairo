@@ -1,16 +1,12 @@
 # Compile-Time Eval
 
-The `eval` keyword forces compile-time evaluation. An `eval` variable, function, or control flow
-construct must be fully resolvable at compile time if it depends on runtime values, the compiler
-emits an error. There is no "maybe compile-time, maybe runtime" mode. `eval` means compile-time,
-always.
+The `eval` keyword forces compile-time evaluation. An `eval` variable, function, or control flow construct must be fully resolvable at compile time if it depends on runtime values, the compiler emits an error. There is no "maybe compile-time, maybe runtime" mode. `eval` means compile-time, always.
 
 ---
 
 ## Eval Variables
 
-`eval` declares a [binding](/docs/language/variables/#compile-time-constants-eval) whose value is computed at compile time. The result is baked into the
-binary as a constant:
+`eval` declares a [binding](/docs/language/variables/#compile-time-constants-eval) whose value is computed at compile time. The result is baked into the binary as a constant:
 
 ```kairo
 eval PI = 3.14159265358979
@@ -18,8 +14,7 @@ eval MAX_BUFFER = 1024 * 1024
 eval HEADER_SIZE = sizeof u32 + sizeof u16 + sizeof u8
 ```
 
-`eval` bindings are implicitly `const` they cannot be reassigned. The initializer must be a
-compile-time evaluable expression.
+`eval` bindings are implicitly `const` they cannot be reassigned. The initializer must be a compile-time evaluable expression.
 
 ### Type annotation
 
@@ -33,8 +28,7 @@ eval N: u64 = 10      // explicitly u64
 
 ### Usage as generic arguments
 
-`eval` variables can be used wherever a compile-time constant is required, including array sizes
-and [generic arguments](/docs/language/generics/):
+`eval` variables can be used wherever a compile-time constant is required, including array sizes and [generic arguments](/docs/language/generics/):
 
 ```kairo
 eval BUFFER_SIZE = 256
@@ -50,8 +44,7 @@ var grid: [[f64; TABLE_WIDTH]; TABLE_HEIGHT]
 
 ## Eval Functions
 
-An `eval` function must be fully evaluable at compile time. The compiler executes it during
-compilation and replaces the call site with the result:
+An `eval` function must be fully evaluable at compile time. The compiler executes it during compilation and replaces the call site with the result:
 
 ```kairo
 eval fn factorial(n: i32) -> i32 {
@@ -94,15 +87,13 @@ eval FIB_20 = fib(20)   // 6765
 ```
 
 > [!WARNING]
-> Deeply recursive eval functions can significantly increase compile times. The compiler may impose
-> a recursion depth limit to prevent unbounded compilation.
+> Deeply recursive eval functions can significantly increase compile times. The compiler may impose a recursion depth limit to prevent unbounded compilation.
 
 ---
 
 ## Restrictions
 
-Eval bodies must be deterministic and free of side effects. The following are not permitted inside
-`eval` functions or `eval` variable initializers:
+Eval bodies must be deterministic and free of side effects. The following are not permitted inside `eval` functions or `eval` variable initializers:
 
 | Not allowed | Reason |
 |---|---|
@@ -133,8 +124,7 @@ Eval bodies must be deterministic and free of side effects. The following are no
 
 ## Eval If
 
-`eval if` selects a branch at compile time. The condition must be a compile-time constant. Only the
-selected branch is compiled the others are discarded entirely (no codegen, no type checking):
+`eval if` selects a branch at compile time. The condition must be a compile-time constant. Only the selected branch is compiled the others are discarded entirely (no codegen, no type checking):
 
 ```kairo
 eval if platform == "linux" {
@@ -146,8 +136,7 @@ eval if platform == "linux" {
 }
 ```
 
-`eval if` can appear at the top level (selecting between declarations) or inside function bodies
-(selecting between code paths):
+`eval if` can appear at the top level (selecting between declarations) or inside function bodies (selecting between code paths):
 
 ```kairo
 fn <T> process(x: T) -> T {
@@ -175,19 +164,15 @@ fn <T> serialize(value: T) -> [byte] {
 }
 ```
 
-The unselected branches are not type-checked, so they can contain code that would be invalid for
-the current `T`. This is the mechanism for writing type-specialized generic code without separate
-[overloads](/docs/language/functions-overloading/).
+The unselected branches are not type-checked, so they can contain code that would be invalid for the current `T`. This is the mechanism for writing type-specialized generic code without separate [overloads](/docs/language/functions-overloading/).
 
-See [Control Flow](/docs/language/control-flow/#compile-time-branching) for `eval if` in the context
-of control flow.
+See [Control Flow](/docs/language/control-flow/#compile-time-branching) for `eval if` in the context of control flow.
 
 ---
 
 ## Eval For
 
-`eval for` unrolls a loop at compile time when all loop bounds and operations are compile-time
-evaluable:
+`eval for` unrolls a loop at compile time when all loop bounds and operations are compile-time evaluable:
 
 ```kairo
 eval fn fill_squares(@inout table: [i32; 16]) {
@@ -271,9 +256,7 @@ Classes with constructors that are not marked `eval`, classes and function who l
 | Heap allocation in initializer | No | Yes |
 | IO in initializer | No | Yes |
 
-[`const`](/docs/language/variables/#constants) is an immutable binding. `eval` is a compile-time computed value. Use `const` for values
-that are fixed after initialization but may depend on runtime computation. Use `eval` for values
-that must be known at compile time.
+[`const`](/docs/language/variables/#constants) is an immutable binding. `eval` is a compile-time computed value. Use `const` for values that are fixed after initialization but may depend on runtime computation. Use `eval` for values that must be known at compile time.
 
 ```kairo
 const config = load_config("config.toml") // runtime: reads a file
@@ -284,8 +267,7 @@ eval MAX_CONNECTIONS = 1024               // compile time: baked into binary
 
 ## Eval and Requires Clauses
 
-`eval` expressions are valid in `requires` clauses. When a `requires` clause contains only `eval`-compatible
-expressions, it is checked at compile time:
+`eval` expressions are valid in `requires` clauses. When a `requires` clause contains only `eval`-compatible expressions, it is checked at compile time:
 
 ```kairo
 fn <T> stack_alloc() -> T
@@ -303,9 +285,7 @@ See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 
 ## Eval in Classes
 
-Eval can be used within class definitions to create compile-time computed values, adding eval to class fields, methods, and constructors are valid.
-If the class contains a non-trivial [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators), it cannot be used in an `eval` context.
-Classes can mix eval functions with regular functions.
+Eval can be used within class definitions to create compile-time computed values, adding eval to class fields, methods, and constructors are valid. If the class contains a non-trivial [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators), it cannot be used in an `eval` context. Classes can mix eval functions with regular functions.
 
 > [!NOTE]
 > An initializer on an `eval` field is not compiled yet. See [Status](/docs/status/#not-compiled-yet).

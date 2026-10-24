@@ -7,9 +7,7 @@
 | `static` | Yes | Static | Optional | Required |
 | `eval` | No | Compile-time | Required | Optional (inferred) |
 
-> Variables in Kairo are mutable by default. `const` bindings at local scope require an initializer, but
-> class-level `const` members can be left uninitialized at declaration and assigned exactly once in the
-> constructor body. See [Classes](/docs/language/classes/#const-members-in-constructors) for details.
+> Variables in Kairo are mutable by default. `const` bindings at local scope require an initializer, but class-level `const` members can be left uninitialized at declaration and assigned exactly once in the constructor body. See [Classes](/docs/language/classes/#const-members-in-constructors) for details.
 
 ```kairo
 var x = 42
@@ -22,8 +20,7 @@ Multi-variable declarations on a single line are not supported. Each binding get
 
 ## Naming Conventions
 
-Kairo recommends the following conventions. They are not enforced as hard errors, but the compiler emits
-readability warnings when they are not followed.
+Kairo recommends the following conventions. They are not enforced as hard errors, but the compiler emits readability warnings when they are not followed.
 
 | Kind | Convention | Example |
 |---|---|---|
@@ -36,8 +33,7 @@ readability warnings when they are not followed.
 
 ## Type Inference
 
-The compiler infers the type from the initializer when no annotation is provided. Explicit annotations are
-optional but can be used to force a specific type.
+The compiler infers the type from the initializer when no annotation is provided. Explicit annotations are optional but can be used to force a specific type.
 
 ```kairo
 var a = 42          // inferred as i32
@@ -46,15 +42,13 @@ var c: u8 = 42      // explicitly u8
 var d = "hello"     // inferred as string
 ```
 
-See [Primitives](/docs/language/primitives/) for default type rules integer literals default to `i32`, float
-literals default to `f64`.
+See [Primitives](/docs/language/primitives/) for default type rules integer literals default to `i32`, float literals default to `f64`.
 
 ---
 
 ## Declaration Shorthands
 
-When the type is fully determined by the initializer, the `*` or `unsafe *` qualifier can be placed on the
-variable name instead of writing out the full type annotation:
+When the type is fully determined by the initializer, the `*` or `unsafe *` qualifier can be placed on the variable name instead of writing out the full type annotation:
 
 ```kairo
 var *ptr = @create i32(10)
@@ -71,15 +65,13 @@ var name? = get_name()
 // equivalent to: var name: string? = get_name()
 ```
 
-These are purely syntactic sugar the compiler infers the full type from the right-hand side. The long
-form is always valid and preferred when clarity matters.
+These are purely syntactic sugar the compiler infers the full type from the right-hand side. The long form is always valid and preferred when clarity matters.
 
 ---
 
 ## Default Initialization
 
-Types with a default value are zero-initialized when declared without an initializer. Integers default
-to `0`, strings to `""`, collections to empty.
+Types with a default value are zero-initialized when declared without an initializer. Integers default to `0`, strings to `""`, collections to empty.
 
 ```kairo
 var a: i32        // 0
@@ -87,8 +79,7 @@ var b: string     // ""
 var d: [i32]      // []
 ```
 
-`bool` has no default value: declaring a `bool` without an initializer is an error. The same applies to a
-struct or class with no default constructor, including one whose default constructor is explicitly deleted.
+`bool` has no default value: declaring a `bool` without an initializer is an error. The same applies to a struct or class with no default constructor, including one whose default constructor is explicitly deleted.
 
 ```kairo
 var c: bool       // error: c must be initialized
@@ -112,8 +103,7 @@ const name: string = "Kairo"
 // x = 100  // compile error: x is const
 ```
 
-Unlike `var`, a `const` binding without an initializer is a hard compile error constants must always be
-explicitly initialized.
+Unlike `var`, a `const` binding without an initializer is a hard compile error constants must always be explicitly initialized.
 
 ```kairo
 const x: i32       // compile error: const requires an initializer
@@ -123,37 +113,32 @@ const x: i32       // compile error: const requires an initializer
 
 ## Compile-Time Constants (`eval`)
 
-For values that must be resolved at compile time, use `eval`. This is equivalent to C++'s `consteval` the
-expression **must** be evaluable at compile time, and a compile error is raised if it cannot be.
+For values that must be resolved at compile time, use `eval`. This is equivalent to C++'s `consteval` the expression **must** be evaluable at compile time, and a compile error is raised if it cannot be.
 
 ```kairo
 eval PI = 3.14159
 eval MAX_SIZE = 1024 * 1024
 ```
 
-`eval` bindings are implicitly `const`. See [Eval](/docs/language/eval/) for full details on compile-time
-evaluation, including `eval` functions and restrictions.
+`eval` bindings are implicitly `const`. See [Eval](/docs/language/eval/) for full details on compile-time evaluation, including `eval` functions and restrictions.
 
 ---
 
 ## Static Variables
 
-`static` declares a binding with static storage duration it lives for the entire program. Unlike `var`,
-`static` requires an explicit type annotation.
+`static` declares a binding with static storage duration it lives for the entire program. Unlike `var`, `static` requires an explicit type annotation.
 
 ```kairo
 static counter: i32 = 0
 ```
 
-`static` can be combined with `const` for immutable static data. See [Modules](/docs/language/modules/) for
-`static` at module scope.
+`static` can be combined with `const` for immutable static data. See [Modules](/docs/language/modules/) for `static` at module scope.
 
 ---
 
 ## Shadowing
 
-Constants can shadow previous bindings of the same name. Each `const` declaration creates a new binding the
-previous one becomes inaccessible.
+Constants can shadow previous bindings of the same name. Each `const` declaration creates a new binding the previous one becomes inaccessible.
 
 ```kairo
 const raw = "42"
@@ -169,15 +154,13 @@ var x = 100   // compile error: var cannot shadow
 ```
 
 > [!NOTE]
-> Shadowing is restricted to `const` because shadowing a mutable variable is almost always a bug you likely
-> meant to reassign (`x = 100`) rather than redeclare.
+> Shadowing is restricted to `const` because shadowing a mutable variable is almost always a bug you likely meant to reassign (`x = 100`) rather than redeclare.
 
 ---
 
 ## Destructuring
 
-[Tuples](/docs/language/collections/#tuples-t1-t2-) and [structs](/docs/language/structures/) can be destructured into individual bindings. Use parentheses for tuples and curly braces
-for structs.
+[Tuples](/docs/language/collections/#tuples-t1-t2-) and [structs](/docs/language/structures/) can be destructured into individual bindings. Use parentheses for tuples and curly braces for structs.
 
 ### Tuples
 
@@ -201,8 +184,7 @@ var {r, g, b} = color
 // r = 255, g = 128, b = 0
 ```
 
-Destructured names must match the field names in the struct definition. The binding order follows the
-definition order.
+Destructured names must match the field names in the struct definition. The binding order follows the definition order.
 
 ### Discards
 
@@ -229,8 +211,7 @@ Nullable types are covered in [Nullables](/docs/language/nullables/).
 
 Every `const` in Kairo answers one yes-or-no question about one thing: *can this be changed?*
 
-A plain value is one thing, so it has one question. A pointer is two things, the pointer and the
-value it points at, so it has two:
+A plain value is one thing, so it has one question. A pointer is two things, the pointer and the value it points at, so it has two:
 
 1. **Can I change the pointer?** That is, can it be made to point somewhere else.
 2. **Can I change the pointee?** That is, can the value it points at be written through it.
@@ -242,10 +223,7 @@ The two answers are independent, and each one is written in its own place:
 | Can I change the pointer? | The declaration keyword | `var ptr` | `const ptr` |
 | Can I change the pointee? | Directly after the `*` | `*T` | `*const T` |
 
-Those are the only places a `const` can go, and a `const` always applies to the thing immediately
-to its right. You read a declaration left to right and each `const` you meet answers one question.
-There is never a puzzle about which part of the type a `const` belongs to, the way there is with
-`const int*` and `int* const` in C and C++.
+Those are the only places a `const` can go, and a `const` always applies to the thing immediately to its right. You read a declaration left to right and each `const` you meet answers one question. There is never a puzzle about which part of the type a `const` belongs to, the way there is with `const int*` and `int* const` in C and C++.
 
 ### On simple variables
 
@@ -286,11 +264,9 @@ d = &y       // compile error
 ```
 
 > [!TIP]
-> `var ptr: *const T` is the one you will reach for most: a read-only view of something that you
-> can still re-point. Add `const` on the binding only when the pointer itself must never move.
+> `var ptr: *const T` is the one you will reach for most: a read-only view of something that you can still re-point. Add `const` on the binding only when the pointer itself must never move.
 
-The rule scales to any depth. Every `*` adds one more thing that can be pointed at, and so one more
-place a `const` can go:
+The rule scales to any depth. Every `*` adds one more thing that can be pointed at, and so one more place a `const` can go:
 
 ```kairo hints
 const ptr: *const *i32 = &ptr2
@@ -299,9 +275,7 @@ ptr = &ptr3    // compile error: ptr is const
 **ptr = 10     // ok: the i32 at the end is not const
 ```
 
-`*const T` answers "can I write through *this* pointer?". It does not answer "can anyone change
-this value?". Another pointer to the same value may still be writable. See
-[Ownership](/docs/language/ownership/#pointer-aliasing).
+`*const T` answers "can I write through *this* pointer?". It does not answer "can anyone change this value?". Another pointer to the same value may still be writable. See [Ownership](/docs/language/ownership/#pointer-aliasing).
 
 ### A practical example
 
@@ -335,9 +309,7 @@ ptr->set_port(9090)  // compile error: set_port() mutates, ptr points to const C
 
 ### On objects and methods
 
-`const self` is the pointee question asked about the receiver: can this method change the object it
-is called on? A `const` object, or one reached through a `*const T`, only allows methods that
-answer no.
+`const self` is the pointee question asked about the receiver: can this method change the object it is called on? A `const` object, or one reached through a `*const T`, only allows methods that answer no.
 
 ```kairo hints
 const server = Config("localhost", 8080)
@@ -346,11 +318,7 @@ server.set_port(9090)  // compile error: set_port() is not const
 ```
 
 > [!WARNING]
-> `var x: const i32 = 42` is a compile error. A plain value has one question, and the declaration
-> keyword already answers it, so write `const x: i32 = 42`. For the same reason
-> `var ptr: const *const i32` is rejected: the pointer question belongs to the keyword, so write
-> `const ptr: *const i32`. This avoids the `const int* x` vs `int* const x` confusion that C++ is
-> notorious for.
+> `var x: const i32 = 42` is a compile error. A plain value has one question, and the declaration keyword already answers it, so write `const x: i32 = 42`. For the same reason `var ptr: const *const i32` is rejected: the pointer question belongs to the keyword, so write `const ptr: *const i32`. This avoids the `const int* x` vs `int* const x` confusion that C++ is notorious for.
 
 ---
 
@@ -366,9 +334,7 @@ Variables are block-scoped and [destroyed at the end of their enclosing block](/
 // x is no longer accessible
 ```
 
-[Tether](/docs/language/tether/) performs full-program analysis to track lifetimes automatically no lifetime
-annotations are required. If Tether determines that a pointer outlives its referent and cannot automatically
-[promote the pointer](/docs/language/tether-promotion/) (to a shared, weak, or unique smart pointer), it emits a compile error.
+[Tether](/docs/language/tether/) performs full-program analysis to track lifetimes automatically no lifetime annotations are required. If Tether determines that a pointer outlives its referent and cannot automatically [promote the pointer](/docs/language/tether-promotion/) (to a shared, weak, or unique smart pointer), it emits a compile error.
 
 ```kairo
 var x = 10
@@ -379,8 +345,7 @@ var y = &x
 std::println(*y)      // Tether error: y's safety cannot be guaranteed at this point
 ```
 
-See [Tether](/docs/language/tether/) and [Ownership](/docs/language/ownership/) for the full lifetime and borrowing
-model.
+See [Tether](/docs/language/tether/) and [Ownership](/docs/language/ownership/) for the full lifetime and borrowing model.
 
 ---
 

@@ -1,12 +1,8 @@
 # Panic
 
-`panic` is Kairo's error signaling mechanism. A function marked with the `panic` specifier can produce
-an error instead of its declared return type. Callers must handle the error via `try`/`catch` or
-propagate it by marking themselves `panic`. The compiler statically verifies that all error types are
-accounted for unhandled error types are a compile error.
+`panic` is Kairo's error signaling mechanism. A function marked with the `panic` specifier can produce an error instead of its declared return type. Callers must handle the error via `try`/`catch` or propagate it by marking themselves `panic`. The compiler statically verifies that all error types are accounted for unhandled error types are a compile error.
 
-Unlike [C++ exceptions](/docs/language/c-cpp-exceptions/), panics use no unwinding tables and no runtime. The codegen is zero-cost 
-every panic site becomes a tagged return value checked with a branch.
+Unlike [C++ exceptions](/docs/language/c-cpp-exceptions/), panics use no unwinding tables and no runtime. The codegen is zero-cost every panic site becomes a tagged return value checked with a branch.
 
 ---
 
@@ -30,15 +26,13 @@ fn parse_port(input: string) panic -> i32 {
 }
 ```
 
-The `panic` keyword inside the function body raises an error. The error value can be any type 
-there is no base error class requirement.
+The `panic` keyword inside the function body raises an error. The error value can be any type there is no base error class requirement.
 
 ---
 
 ## Handling Panics with `try`/`catch`
 
-Callers handle panics with `try`/`catch`. The compiler tracks every error type that can propagate
-from the `try` body and verifies that all types are handled:
+Callers handle panics with `try`/`catch`. The compiler tracks every error type that can propagate from the `try` body and verifies that all types are handled:
 
 ```kairo
 fn load_config(path: string) -> Config {
@@ -60,8 +54,7 @@ fn load_config(path: string) -> Config {
 
 ### Exhaustiveness
 
-The compiler enforces that every error type reachable from the `try` body is handled. If any type
-is missing, it is a compile error unless the function is itself marked `panic`:
+The compiler enforces that every error type reachable from the `try` body is handled. If any type is missing, it is a compile error unless the function is itself marked `panic`:
 
 ```kairo
 fn partial_handler() panic -> i32 {
@@ -108,8 +101,7 @@ try {
 
 ## Propagation
 
-If a function calls a `panic` function without fully handling all error types, it must be marked
-`panic` itself. The unhandled errors propagate to the caller:
+If a function calls a `panic` function without fully handling all error types, it must be marked `panic` itself. The unhandled errors propagate to the caller:
 
 ```kairo
 fn read_config() panic -> Config {
@@ -120,8 +112,7 @@ fn read_config() panic -> Config {
 }
 ```
 
-Calling a `panic` function without `try`/`catch` and without the `panic` specifier is a compile
-error:
+Calling a `panic` function without `try`/`catch` and without the `panic` specifier is a compile error:
 
 ```kairo
 fn bad() -> i32 {
@@ -133,8 +124,7 @@ fn bad() -> i32 {
 
 ## Multiple Error Types
 
-A function does not declare which error types it can produce the compiler infers this from the
-function body. A single function can panic with any number of different error types:
+A function does not declare which error types it can produce the compiler infers this from the function body. A single function can panic with any number of different error types:
 
 ```kairo
 fn process(path: string) panic -> Data {
@@ -156,8 +146,7 @@ fn process(path: string) panic -> Data {
 }
 ```
 
-Callers of `process` must handle `std::Error::IO`, `std::Error::Runtime`, and
-`std::Error::Validation` (plus any errors from `read_file` and `parse_data`), or propagate them.
+Callers of `process` must handle `std::Error::IO`, `std::Error::Runtime`, and `std::Error::Validation` (plus any errors from `read_file` and `parse_data`), or propagate them.
 
 ---
 
@@ -169,11 +158,9 @@ var port = try parse_port(input)
     catch => 3000
 ```
 
-`try`/`catch` can produce a value. Each arm is `catch ... => value`, and every arm must produce the same
-type. `finally` is not permitted in expression form.
+`try`/`catch` can produce a value. Each arm is `catch ... => value`, and every arm must produce the same type. `finally` is not permitted in expression form.
 
-See [Control Flow](/docs/language/control-flow/#trycatch-as-an-expression) for the `=>` arm rules: arm
-forms, line breaks, and nesting.
+See [Control Flow](/docs/language/control-flow/#trycatch-as-an-expression) for the `=>` arm rules: arm forms, line breaks, and nesting.
 
 ---
 
@@ -196,8 +183,7 @@ finally { // identical to standalone `finally`
 
 ### Standalone `finally` (scope exit)
 
-`finally` can appear without a preceding `try`. In this form it runs when control leaves the
-enclosing scope, however it leaves: normal exit, `return`, `break`, `continue`, or a panic:
+`finally` can appear without a preceding `try`. In this form it runs when control leaves the enclosing scope, however it leaves: normal exit, `return`, `break`, `continue`, or a panic:
 
 ```kairo
 fn process_file(path: string) panic {
@@ -216,9 +202,7 @@ fn process_file(path: string) panic {
 }
 ```
 
-A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) of a local declared at the same point. It belongs to
-its enclosing block rather than the function, runs only if execution reached it, and runs in reverse
-declaration order (LIFO) together with the scope's destructors.
+A standalone `finally` behaves like the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) of a local declared at the same point. It belongs to its enclosing block rather than the function, runs only if execution reached it, and runs in reverse declaration order (LIFO) together with the scope's destructors.
 
 See [Control Flow](/docs/language/control-flow/#finally) for full `finally` semantics.
 
@@ -226,9 +210,7 @@ See [Control Flow](/docs/language/control-flow/#finally) for full `finally` sema
 
 ## Panic and No-Return (`!`)
 
-A function with return type `!` can never return normally it always panics, loops forever, or
-calls another no-return function. The `panic` specifier and `!` cannot coexist because `panic`
-implies an alternative return path (the error), while `!` guarantees no return at all:
+A function with return type `!` can never return normally it always panics, loops forever, or calls another no-return function. The `panic` specifier and `!` cannot coexist because `panic` implies an alternative return path (the error), while `!` guarantees no return at all:
 
 ```kairo
 fn fatal(msg: string) panic -> ! {
@@ -245,45 +227,34 @@ fn fatal(msg: string) -> ! {
 }
 ```
 
-See [Functions](/docs/language/functions/#no-return-) and
-[Type System](/docs/language/type-system/#the-never-type-) for `!` semantics.
+See [Functions](/docs/language/functions/#no-return-) and [Type System](/docs/language/type-system/#the-never-type-) for `!` semantics.
 
 ---
 
 ## Codegen
 
-Panics compile to zero-cost tagged return values. There are no [unwinding tables](/docs/language/attributes/#unwinding), no runtime
-exception handler, and no stack unwinding. A function marked `panic` returns a tagged union
-containing either the success value or an error with source location metadata.
+Panics compile to zero-cost tagged return values. There are no [unwinding tables](/docs/language/attributes/#unwinding), no runtime exception handler, and no stack unwinding. A function marked `panic` returns a tagged union containing either the success value or an error with source location metadata.
 
-At the call site, the compiler lowers `try`/`catch` to a [`match`](/docs/language/pattern-matching/) on the tagged union. If the tag
-indicates an error, the matching catch block executes. If it indicates success, the value is
-extracted and execution continues.
+At the call site, the compiler lowers `try`/`catch` to a [`match`](/docs/language/pattern-matching/) on the tagged union. If the tag indicates an error, the matching catch block executes. If it indicates success, the value is extracted and execution continues.
 
 This means:
 
-- No runtime overhead on the success path beyond a single branch (which the branch predictor
-  handles efficiently)
+- No runtime overhead on the success path beyond a single branch (which the branch predictor handles efficiently)
 - No stack unwinding errors propagate via normal return values
 - No unwinding tables for panics smaller executables
 - No Kairo function throws; only a C++ exception can unwind through Kairo code
 
 > [!NOTE]
-> The same `try`/`catch` syntax can also catch an exception thrown by C++ code. That path does use
-> the platform unwinder. See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) in C/C++ Interop.
+> The same `try`/`catch` syntax can also catch an exception thrown by C++ code. That path does use the platform unwinder. See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) in C/C++ Interop.
 
 > [!NOTE]
-> The `panic` statement inside a function body (`panic SomeError(...)`) does not halt the program.
-> It produces the error as the function's return value. The term "panic" refers to the signaling
-> mechanism, not to a crash. The program only terminates if an error reaches `main()` or the top
-> level and is re-panicked with `panic e` in that context.
+> The `panic` statement inside a function body (`panic SomeError(...)`) does not halt the program. It produces the error as the function's return value. The term "panic" refers to the signaling mechanism, not to a crash. The program only terminates if an error reaches `main()` or the top level and is re-panicked with `panic e` in that context.
 
 ---
 
 ## Error Types
 
-Kairo does not prescribe a specific error hierarchy. Any type can be used as a panic value. The
-standard library provides common error types under `std::Error`:
+Kairo does not prescribe a specific error hierarchy. Any type can be used as a panic value. The standard library provides common error types under `std::Error`:
 
 ```kairo
 panic std::Error::Runtime("message")
@@ -292,8 +263,7 @@ panic std::Error::Validation("message")
 ```
 
 > [!IMPORTANT]
-> The `std::Error` hierarchy is still being finalized. Detailed documentation for standard error
-> types will be added in a future update.
+> The `std::Error` hierarchy is still being finalized. Detailed documentation for standard error types will be added in a future update.
 
 User-defined error types work the same way:
 

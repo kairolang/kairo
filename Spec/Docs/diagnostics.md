@@ -1,7 +1,6 @@
 # Diagnostics
 
-This page lists compiler error messages verbatim so they can be searched. Placeholders are written in braces:
-`{n}` is a number, `{x}` a parameter name, `{f}` a function name, and `[T; M]` the type as written in your code.
+This page lists compiler error messages verbatim so they can be searched. Placeholders are written in braces: `{n}` is a number, `{x}` a parameter name, `{f}` a function name, and `[T; M]` the type as written in your code.
 
 ---
 
@@ -9,8 +8,7 @@ This page lists compiler error messages verbatim so they can be searched. Placeh
 
 ### `array literal has {n} element(s), but '[T; M]' needs {m}`
 
-A [list literal](/docs/language/collections/#list-literals) initializes a fixed array of a different length. The literal is not silently turned into a
-slice.
+A [list literal](/docs/language/collections/#list-literals) initializes a fixed array of a different length. The literal is not silently turned into a slice.
 
 ```kairo
 var x: [i32; 4] = [1, 2, 3]    // error: array literal has 3 element(s), but '[i32; 4]' needs 4
@@ -33,9 +31,7 @@ var f: [i32] = []              // ok
 
 ## Slice Literal Lifetime
 
-A list literal that becomes a slice `[T;]` is a view of a temporary array. These errors report the positions
-where the view would outlive that array. See
-[Primitives](/docs/language/collections/#how-long-a-slice-literals-storage-lives).
+A list literal that becomes a slice `[T;]` is a view of a temporary array. These errors report the positions where the view would outlive that array. See [Primitives](/docs/language/collections/#how-long-a-slice-literals-storage-lives).
 
 ### `a list literal returned from a function is a view of a temporary array and would outlive it; use '[T]' to own the elements, or bind the literal to a 'var' first`
 
@@ -66,12 +62,10 @@ struct S {
 var t = S{ xs: [1, 2] }        // error
 ```
 
-**Fix, for all four:** declare the target `[T]` so it owns its elements, or bind the literal to a `var` in a
-scope that outlives the slice and use that variable.
+**Fix, for all four:** declare the target `[T]` so it owns its elements, or bind the literal to a `var` in a scope that outlives the slice and use that variable.
 
 > [!NOTE]
-> Passing a slice literal to a function that stores the slice is not diagnosed. Until
-> [Tether](/docs/language/tether/) checks it, it is the programmer's responsibility.
+> Passing a slice literal to a function that stores the slice is not diagnosed. Until [Tether](/docs/language/tether/) checks it, it is the programmer's responsibility.
 
 ---
 
@@ -117,8 +111,7 @@ fn g(@inout out: [i32; 3]) { } // ok
 
 ### `call to '{f}' is ambiguous: more than one candidate matches at the same rank`
 
-Two or more [overloads](/docs/language/functions-overloading/#overload-resolution) are viable and neither is an exact match, so there is nothing to choose between them.
-Conversions are not ranked against each other.
+Two or more [overloads](/docs/language/functions-overloading/#overload-resolution) are viable and neither is an exact match, so there is nothing to choose between them. Conversions are not ranked against each other.
 
 ```kairo
 fn f(xs: [i32;]) { }
@@ -128,8 +121,7 @@ f([1, 2, 3])                   // error: call to 'f' is ambiguous
 f([1, 2, 3] as [i32])          // ok
 ```
 
-**Fix:** make the argument's type explicit with `as` or a typed local. See
-[Primitives](/docs/language/conversion-lattice/#list-literal-arguments).
+**Fix:** make the argument's type explicit with `as` or a typed local. See [Primitives](/docs/language/conversion-lattice/#list-literal-arguments).
 
 ---
 
@@ -144,21 +136,18 @@ fn a(x: i32, y: i32 = x) { }          // error SC106E
 fn m(self, y: i32 = self.v) { }       // error SC106E
 ```
 
-**Fix:** add an overload that leaves the parameter out and forwards the value. See
-[Functions](/docs/language/functions-parameters/#a-default-stands-alone).
+**Fix:** add an overload that leaves the parameter out and forwards the value. See [Functions](/docs/language/functions-parameters/#a-default-stands-alone).
 
 ### SC107E: a named argument skips a defaulted parameter of an imported C++ function
 
-C++ applies an imported function's defaults and can only leave out trailing arguments. A call that names a
-later parameter while an earlier defaulted one is omitted cannot be expressed.
+C++ applies an imported function's defaults and can only leave out trailing arguments. A call that names a later parameter while an earlier defaulted one is omitted cannot be expressed.
 
 ```kairo
 // C++: void blit(int x, int y = 0, int scale = 1);
 blit(4, scale: 2)            // error SC107E
 ```
 
-**Fix:** pass the earlier arguments explicitly: `blit(4, y: 0, scale: 2)`. See
-[Functions](/docs/language/functions-parameters/#defaults-on-imported-c-functions).
+**Fix:** pass the earlier arguments explicitly: `blit(4, y: 0, scale: 2)`. See [Functions](/docs/language/functions-parameters/#defaults-on-imported-c-functions).
 
 ---
 
@@ -166,9 +155,7 @@ blit(4, scale: 2)            // error SC107E
 
 ### SC057E: more than one transfer constructor
 
-A class has exactly one transfer constructor. It is an error to declare both a `@copy` and a `@move`
-transfer constructor, unless both are `= delete` (the non-transferable form), and it is an error to
-declare two transfer constructors of the same kind, such as `@copy` with and without `const`.
+A class has exactly one transfer constructor. It is an error to declare both a `@copy` and a `@move` transfer constructor, unless both are `= delete` (the non-transferable form), and it is an error to declare two transfer constructors of the same kind, such as `@copy` with and without `const`.
 
 ```
 '{X}' declares both a '@copy' and a '@move' transfer constructor; pick one (both may be '= delete' together, which makes the class non-transferable)
@@ -187,13 +174,11 @@ class TwoCopies {
 }
 ```
 
-**Fix:** keep one transfer constructor. See
-[Classes](/docs/language/classes-lifecycle/#the-transfer-constructor).
+**Fix:** keep one transfer constructor. See [Classes](/docs/language/classes-lifecycle/#the-transfer-constructor).
 
 ### SC110E: a constructor has the shape of a transfer constructor but is not declared as one
 
-A constructor that takes `Self` first and defaults every later parameter is a transfer constructor, and is
-written only as `@copy fn X(self, const other: Self)` or `@move fn X(self, other: Self)`.
+A constructor that takes `Self` first and defaults every later parameter is a transfer constructor, and is written only as `@copy fn X(self, const other: Self)` or `@move fn X(self, other: Self)`.
 
 ```kairo
 class A {
@@ -207,13 +192,11 @@ class C {
 }
 ```
 
-**Fix:** put `@copy` or `@move` on the constructor and write the parameter bare. See
-[Classes](/docs/language/classes-lifecycle/#the-transfer-constructor).
+**Fix:** put `@copy` or `@move` on the constructor and write the parameter bare. See [Classes](/docs/language/classes-lifecycle/#the-transfer-constructor).
 
 ### SC129E: a defaulted transfer constructor cannot be generated
 
-A defaulted `@copy` constructor needs every base and field to be copyable; a defaulted `@move` needs every
-base and field to be movable or copyable. The error names the field or base that is not.
+A defaulted `@copy` constructor needs every base and field to be copyable; a defaulted `@move` needs every base and field to be movable or copyable. The error names the field or base that is not.
 
 ```
 '{X}' cannot have a defaulted copy constructor: field '{f}' of type '{T}' is move-only
@@ -232,8 +215,7 @@ class CopiesUnique {
 }
 ```
 
-**Fix:** write the transfer constructor body yourself, change its kind, or `= delete` it. See
-[Classes](/docs/language/classes-lifecycle/#defaulted-moves-of-non-movable-members).
+**Fix:** write the transfer constructor body yourself, change its kind, or `= delete` it. See [Classes](/docs/language/classes-lifecycle/#defaulted-moves-of-non-movable-members).
 
 ---
 
@@ -241,8 +223,7 @@ class CopiesUnique {
 
 ### SC128E: an enum discriminant does not evaluate or does not fit
 
-A discriminant must be an integer constant expression whose value fits the enum's underlying type. The
-message says which part failed.
+A discriminant must be an integer constant expression whose value fits the enum's underlying type. The message says which part failed.
 
 ```
 an enum discriminant must be an integer constant that fits '{T}'; this one does not evaluate: {reason}
@@ -261,8 +242,7 @@ enum Order {
 }
 ```
 
-**Fix:** use only literals, operators, `as` to an integer type, and earlier variants, and keep the value in
-range or widen the underlying type. See [Enums](/docs/language/enums-plain/#discriminant-values).
+**Fix:** use only literals, operators, `as` to an integer type, and earlier variants, and keep the value in range or widen the underlying type. See [Enums](/docs/language/enums-plain/#discriminant-values).
 
 ### SC130E: two variants of an enum have the same value
 
@@ -283,10 +263,7 @@ Imported C++ enums are exempt.
 
 ### SC123E: a variant name does not fit the expected type
 
-A `.V`, or a pattern head, must name a variant of the enum it is checked against. It covers construction
-as well as [`match` patterns](/docs/language/pattern-matching/#enum-variant-matching): `.V` with no expected enum type, `.V` against a type that is not an enum, a
-variant the enum does not have, a variant of another enum, a type that is not the matched type, and a
-name that is not a variant, a constant or a type.
+A `.V`, or a pattern head, must name a variant of the enum it is checked against. It covers construction as well as [`match` patterns](/docs/language/pattern-matching/#enum-variant-matching): `.V` with no expected enum type, `.V` against a type that is not an enum, a variant the enum does not have, a variant of another enum, a type that is not the matched type, and a name that is not a variant, a constant or a type.
 
 ```
 '.{V}' names an enum variant, but nothing here gives it an enum type; write the enum's name before it
@@ -314,13 +291,11 @@ fn main() -> i32 {
 }
 ```
 
-**Fix:** give `.V` an expected enum type, or write the enum's name before it (`Dir::North`). See
-[Enums](/docs/language/enums/#shorthand-syntax).
+**Fix:** give `.V` an expected enum type, or write the enum's name before it (`Dir::North`). See [Enums](/docs/language/enums/#shorthand-syntax).
 
 ### SC131E: a variant is built with the wrong shape
 
-A variant is built from its own payload: every field once, by name, in braces exactly when it has a
-payload. A field name the payload does not have is SC040E, as for a struct.
+A variant is built from its own payload: every field once, by name, in braces exactly when it has a payload. A field name the payload does not have is SC040E, as for a struct.
 
 ```
 '{E}::{V}' carries a payload; give its fields in braces after the name
@@ -362,8 +337,7 @@ See [Enums](/docs/language/enums-adt/#construction).
 
 ### SC116E: a feature is not yet supported
 
-The construct is part of the language but the current compiler does not handle it yet. The message names
-it:
+The construct is part of the language but the current compiler does not handle it yet. The message names it:
 
 ```
 {what} is not yet supported
@@ -375,13 +349,11 @@ It is reported for:
 - `label!` and `jump!` in user code
 - matching a string against a pattern that isn't a string literal or a constant initialized with one
 - matching a record value against a literal-style pattern
-- a non-generic payload enum whose payload holds a type whose copy, move and destruction are not known
-  until instantiation
+- a non-generic payload enum whose payload holds a type whose copy, move and destruction are not known until instantiation
 - an initializer on a `static`, `eval` or array-typed field
 - a generic record's field default that reads another field
 
-It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot
-build.
+It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot build.
 
 ```kairo
 class <T> Box { pub var v: T }
@@ -408,8 +380,7 @@ enum W { Has { b: Box<i32> }, Empty }   // error SC116E
 
 ### SC111E: `yield` where nothing can yield
 
-`yield` is allowed only in a function declared `-> yield T`. It is an error outside a function, inside a
-closure, or in a function with any other return type.
+`yield` is allowed only in a function declared `-> yield T`. It is an error outside a function, inside a closure, or in a function with any other return type.
 
 ```kairo
 fn count() -> i32 {
@@ -418,13 +389,11 @@ fn count() -> i32 {
 }
 ```
 
-**Fix:** declare the function `-> yield T`, or remove the `yield`. See
-[Generators](/docs/language/functions-generators/#generators).
+**Fix:** declare the function `-> yield T`, or remove the `yield`. See [Generators](/docs/language/functions-generators/#generators).
 
 ### SC112E: this kind of function cannot be a generator
 
-`main`, constructors, destructors (`op delete`), `eval` functions, C-variadic functions, and functions
-returning `!` cannot be declared `-> yield T`.
+`main`, constructors, destructors (`op delete`), `eval` functions, C-variadic functions, and functions returning `!` cannot be declared `-> yield T`.
 
 ```kairo
 fn main() -> yield i32 { }   // error SC112E
@@ -438,26 +407,21 @@ fn main() -> yield i32 { }   // error SC112E
 
 ### P003E: a primitive type is not available on the target
 
-`f80` exists only where the target ABI's `long double` is x87 extended precision. The error names the target
-and what its `long double` is.
+`f80` exists only where the target ABI's `long double` is x87 extended precision. The error names the target and what its `long double` is.
 
-**Fix:** use `f64` where `long double` is binary64, or `f128` where it is binary128. See
-[Primitives](/docs/language/primitives/#f80-follows-the-targets-long-double).
+**Fix:** use `f64` where `long double` is binary64, or `f128` where it is binary128. See [Primitives](/docs/language/primitives/#f80-follows-the-targets-long-double).
 
 ### P007E: bundled sysroot for the target is malformed
 
-A `--target` matched a folder under `<prefix>/sysroot/`, but the folder is not a directory, has no
-`SYSROOT.toml`, or the manifest does not parse. A note says which.
+A `--target` matched a folder under `<prefix>/sysroot/`, but the folder is not a directory, has no `SYSROOT.toml`, or the manifest does not parse. A note says which.
 
-**Fix:** restore the manifest by re-extracting the sysroot, or remove the folder to fall back to `--sysroot`.
-See [Cross-compilation](/docs/language/c-cpp-toolchain/#cross-compilation).
+**Fix:** restore the manifest by re-extracting the sysroot, or remove the folder to fall back to `--sysroot`. See [Cross-compilation](/docs/language/c-cpp-toolchain/#cross-compilation).
 
 ---
 
 ## Value Arms
 
-The value forms of `if`, `match`, and `try`. See
-[Control Flow](/docs/language/control-flow/#if-as-an-expression-ternary-equivalent).
+The value forms of `if`, `match`, and `try`. See [Control Flow](/docs/language/control-flow/#if-as-an-expression-ternary-equivalent).
 
 ### S073E: braced value arm in an 'if', 'try' or 'match' expression
 
@@ -467,9 +431,7 @@ Messages:
 
 #### value arms are written '=> expr'
 
-the expression forms of `if`, `try` and `match` give each arm its value with `=>`. a `{ }`
-after a control keyword is always a statement block, so braces cannot hold an arm's value.
-`=>` introduces exactly one value expression.
+the expression forms of `if`, `try` and `match` give each arm its value with `=>`. a `{ }` after a control keyword is always a statement block, so braces cannot hold an arm's value. `=>` introduces exactly one value expression.
 
 ##### example
 
@@ -481,8 +443,7 @@ var k = match s { case 2 { x + y } default { 0 } }  // error
 
 ##### how to fix
 
-replace each `{` with `=>` and drop its `}`; the fix-it does this when the braces hold a
-single expression:
+replace each `{` with `=>` and drop its `}`; the fix-it does this when the braces hold a single expression:
 
 ```kairo
 var z = if a == b => 2 else => 0
@@ -493,9 +454,7 @@ var k = match s {
 }
 ```
 
-an arm that needs several statements belongs in the statement form (`if c { ... }`, a
-statement-form `match`), or in a `({ ... })` statement expression. to `try` a brace
-expression such as a set literal, parenthesize it: `try ({1, 2}) catch => {}`.
+an arm that needs several statements belongs in the statement form (`if c { ... }`, a statement-form `match`), or in a `({ ... })` statement expression. to `try` a brace expression such as a set literal, parenthesize it: `try ({1, 2}) catch => {}`.
 
 ### S074E: expected '=>' before a value arm
 
@@ -508,8 +467,7 @@ Messages:
 
 #### expected '=>'
 
-in the expression forms of `if`, `try` and `match`, the condition, the `else`, the case
-pattern and the catch arm are each followed by `=>` and then the arm's value.
+in the expression forms of `if`, `try` and `match`, the condition, the `else`, the case pattern and the catch arm are each followed by `=>` and then the arm's value.
 
 ##### example
 
@@ -530,8 +488,7 @@ Messages:
 
 #### match arms mix '=>' and '{ }' forms
 
-a `match` in statement position is either a statement (every arm is a `{ }` block) or a
-value (every arm is `=> expr`). an arm of each kind in one `match` is neither.
+a `match` in statement position is either a statement (every arm is a `{ }` block) or a value (every arm is `=> expr`). an arm of each kind in one `match` is neither.
 
 ##### example
 
@@ -544,8 +501,7 @@ match s {
 
 ##### how to fix
 
-pick one form for every arm: `default { g() }` for a statement match, or `case 1 => f()`
-for a value match.
+pick one form for every arm: `default { g() }` for a statement match, or `case 1 => f()` for a value match.
 
 ### S076E: match arms separated by a comma
 
@@ -555,8 +511,7 @@ Messages:
 
 #### match arms are not separated by ','
 
-the arms of a `match` follow each other directly; a value arm ends where its expression
-does. a `,` after an arm (the Rust spelling) is not part of the grammar.
+the arms of a `match` follow each other directly; a value arm ends where its expression does. a `,` after an arm (the Rust spelling) is not part of the grammar.
 
 ##### example
 
@@ -580,10 +535,7 @@ Messages:
 
 #### nested 'if' or 'try' expression must be parenthesized
 
-the last arm of an `if` or `try` expression runs to the end of the surrounding
-expression. where such an expression sits in front of more of the enclosing construct,
-it is ambiguous to the reader which construct the following `else`, `=>` or `catch`
-belongs to, so it must be parenthesized. the positions are:
+the last arm of an `if` or `try` expression runs to the end of the surrounding expression. where such an expression sits in front of more of the enclosing construct, it is ambiguous to the reader which construct the following `else`, `=>` or `catch` belongs to, so it must be parenthesized. the positions are:
 
 - the `then` arm, or an `else if` arm, of an `if` expression
 - the condition of an `if` or `else if`
@@ -607,12 +559,9 @@ var z = if a => (if b => 1 else => 2) else => 3
 var n = try (try f() catch => 1) catch => 2
 ```
 
-an inner `try` takes every `catch` that follows it, so in `try try f() ...` the outer
-`try` is left without arms and the intended split cannot be recovered; no fix-it is
-offered there. parenthesize the inner `try` together with its own arms.
+an inner `try` takes every `catch` that follows it, so in `try try f() ...` the outer `try` is left without arms and the intended split cannot be recovered; no fix-it is offered there. parenthesize the inner `try` together with its own arms.
 
-an `if` or `try` needs no parentheses as the final `else` arm, the final catch arm, a
-match arm value, a whole initializer, a call argument or a return value.
+an `if` or `try` needs no parentheses as the final `else` arm, the final catch arm, a match arm value, a whole initializer, a call argument or a return value.
 
 ### S078W: 'if' or 'try' expression as an operator's operand
 
@@ -623,17 +572,13 @@ Messages:
 
 #### this 'if'/'try' expression extends to the end of the expression
 
-the last arm of an `if` or `try` expression takes everything up to the end of the
-surrounding expression. as the right operand of a binary operator, or the operand of a
-prefix operator, that is easy to misread:
+the last arm of an `if` or `try` expression takes everything up to the end of the surrounding expression. as the right operand of a binary operator, or the operand of a prefix operator, that is easy to misread:
 
 ```kairo
 var z = x + if c => 1 else => 2 + 5     // x + (if c => 1 else => (2 + 5))
 ```
 
-the parse is well-defined; the warning is only about readability. assignment operators
-and variable initializers are exempt, since their right side runs to the end of the
-expression anyway.
+the parse is well-defined; the warning is only about readability. assignment operators and variable initializers are exempt, since their right side runs to the end of the expression anyway.
 
 ##### how to fix
 
@@ -647,13 +592,11 @@ Messages:
 
 #### write 'else if'
 
-`else => if c => a else => b` and `else if c => a else => b` parse to the same thing, an
-`if` expression whose final arm is another `if`. only `else if` is idiomatic.
+`else => if c => a else => b` and `else if c => a else => b` parse to the same thing, an `if` expression whose final arm is another `if`. only `else if` is idiomatic.
 
 ##### how to fix
 
-delete the `=>`; the fix-it does this. to keep a nested `if` as the final arm on purpose,
-parenthesize it: `else => (if c => a else => b)`.
+delete the `=>`; the fix-it does this. to keep a nested `if` as the final arm on purpose, parenthesize it: `else => (if c => a else => b)`.
 
 ## See also
 

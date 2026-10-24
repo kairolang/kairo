@@ -22,8 +22,7 @@ Plain enums (no payloads) cannot be [generic](/docs/language/generics/) there is
 
 ## Discriminant values
 
-Variants are assigned sequential integers starting from 0 by default. Explicit values can be assigned
-with `=`:
+Variants are assigned sequential integers starting from 0 by default. Explicit values can be assigned with `=`:
 
 ```kairo
 enum HttpStatus {
@@ -34,17 +33,9 @@ enum HttpStatus {
 }
 ```
 
-A discriminant is an integer constant expression evaluated by the compiler: literals, `+ - * | & ^ << >>`,
-unary `-` and `~`, parentheses, `as` to an integer type, and earlier variants of the same enum. Inside a
-discriminant, an earlier variant has the enum's [underlying type](#underlying-type), so `Exec = Read << 2`
-and `RW = Read | Write` work. `~` works in the underlying type: `All = ~0` in a `u32` enum is `0xFFFFFFFF`.
-A variant without a discriminant is the previous value plus one, or 0 if it is first.
+A discriminant is an integer constant expression evaluated by the compiler: literals, `+ - * | & ^ << >>`, unary `-` and `~`, parentheses, `as` to an integer type, and earlier variants of the same enum. Inside a discriminant, an earlier variant has the enum's [underlying type](#underlying-type), so `Exec = Read << 2` and `RW = Read | Write` work. `~` works in the underlying type: `All = ~0` in a `u32` enum is `0xFFFFFFFF`. A variant without a discriminant is the previous value plus one, or 0 if it is first.
 
-A value that doesn't evaluate or doesn't fit the underlying type is
-[SC128E](/docs/language/diagnostics/#sc128e-an-enum-discriminant-does-not-evaluate-or-does-not-fit). Two
-variants with the same value is
-[SC130E](/docs/language/diagnostics/#sc130e-two-variants-of-an-enum-have-the-same-value); imported C++
-enums are exempt.
+A value that doesn't evaluate or doesn't fit the underlying type is [SC128E](/docs/language/diagnostics/#sc128e-an-enum-discriminant-does-not-evaluate-or-does-not-fit). Two variants with the same value is [SC130E](/docs/language/diagnostics/#sc130e-two-variants-of-an-enum-have-the-same-value); imported C++ enums are exempt.
 
 Compound expressions are valid for bit flags:
 
@@ -66,15 +57,13 @@ fn main() -> i32 {
 }
 ```
 
-[Bitwise operators](/docs/language/operators/#bitwise) are not defined on the enum type itself, so test a flag on the underlying integer:
-cast both sides with `as` and compare the result with `0`.
+[Bitwise operators](/docs/language/operators/#bitwise) are not defined on the enum type itself, so test a flag on the underlying integer: cast both sides with `as` and compare the result with `0`.
 
 ---
 
 ## Underlying Type
 
-The default underlying type is `u32`. The compiler promotes to a wider unsigned integer if the number of
-variants exceeds what `u32` can represent, though a warning is emitted for enums exceeding 2^32 variants.
+The default underlying type is `u32`. The compiler promotes to a wider unsigned integer if the number of variants exceeds what `u32` can represent, though a warning is emitted for enums exceeding 2^32 variants.
 
 Specify an explicit underlying type with `derives` followed by an integer type:
 
@@ -87,22 +76,18 @@ enum Opcode derives u8 {
 }
 ```
 
-Only integer types (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `usize`, `isize`) are
-permitted. The compiler errors if any discriminant does not fit in the specified type.
+Only integer types (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `usize`, `isize`) are permitted. The compiler errors if any discriminant does not fit in the specified type.
 
 > [!NOTE]
-> `derives` on an enum specifies the underlying integer type. This is distinct from `derives` on a
-> [class](/docs/language/classes-inheritance/#inheritance), which declares inheritance.
+> `derives` on an enum specifies the underlying integer type. This is distinct from `derives` on a [class](/docs/language/classes-inheritance/#inheritance), which declares inheritance.
 
 ---
 
 ## No Associated Data in Variants (Plain Enums Only)
 
-For plain enums without the `{ field: Type }` payload syntax, variants are strictly integer constants.
-If you need per-variant data, use an [ADT enum](/docs/language/enums-adt/#adt-enums).
+For plain enums without the `{ field: Type }` payload syntax, variants are strictly integer constants. If you need per-variant data, use an [ADT enum](/docs/language/enums-adt/#adt-enums).
 
-For untagged memory overlays where you manage the active member yourself, use
-[Unions](/docs/language/unions/).
+For untagged memory overlays where you manage the active member yourself, use [Unions](/docs/language/unions/).
 
 ---
 
@@ -143,8 +128,7 @@ enum Opcode derives u8 {
 }
 ```
 
-Without an explicit underlying type, forward declaration is not permitted the compiler needs the
-size, which depends on the variant count and payload sizes.
+Without an explicit underlying type, forward declaration is not permitted the compiler needs the size, which depends on the variant count and payload sizes.
 
 ## See also
 

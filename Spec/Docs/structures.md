@@ -1,9 +1,6 @@
 # Structures
 
-Structs are plain data types no constructors, no methods in the body, trivially copyable via `memcpy`.
-They exist for cases where you want a named bag of fields with aggregate initialization and no lifecycle
-management. If you need constructors, destructors, inheritance, or virtual dispatch, use a
-[class](/docs/language/classes/).
+Structs are plain data types no constructors, no methods in the body, trivially copyable via `memcpy`. They exist for cases where you want a named bag of fields with aggregate initialization and no lifecycle management. If you need constructors, destructors, inheritance, or virtual dispatch, use a [class](/docs/language/classes/).
 
 ---
 
@@ -19,16 +16,13 @@ var p = Point { x: 1.0, y: 2.0 }
 p.x   // 1.0
 ```
 
-The body contains only field declarations (`var`, `const`, `eval`, `static`) and nested type definitions.
-Methods and constructors are not permitted inside the struct body use
-[extends](/docs/language/extends/) to add behavior.
+The body contains only field declarations (`var`, `const`, `eval`, `static`) and nested type definitions. Methods and constructors are not permitted inside the struct body use [extends](/docs/language/extends/) to add behavior.
 
 ---
 
 ## Aggregate Initialization
 
-Structs are constructed with brace-delimited field assignment. All fields must be provided unless they have
-a default value at the declaration site:
+Structs are constructed with brace-delimited field assignment. All fields must be provided unless they have a default value at the declaration site:
 
 ```kairo
 struct Color {
@@ -42,14 +36,11 @@ var red = Color { r: 255, g: 0, b: 0 }         // a defaults to 255
 var blue = Color { r: 0, g: 0, b: 255, a: 128 } // explicit alpha
 ```
 
-A field's default may read fields declared before it, and no others. Defaults run in declaration order,
-so a later field, or the field itself, is not built yet.
+A field's default may read fields declared before it, and no others. Defaults run in declaration order, so a later field, or the field itself, is not built yet.
 
-Field names are required in the initializer positional initialization is not supported. The order of
-fields in the initializer does not need to match the declaration order.
+Field names are required in the initializer positional initialization is not supported. The order of fields in the initializer does not need to match the declaration order.
 
-There are no user-defined constructors. If you need construction logic, extend a factory function onto the
-struct:
+There are no user-defined constructors. If you need construction logic, extend a factory function onto the struct:
 
 ```kairo
 extend Color {
@@ -69,9 +60,7 @@ var teal = Color::from_hex(0x008080)
 
 ## Visibility
 
-All struct members default to `pub`. You can explicitly mark a member `priv` or `prot`, but the compiler
-emits a warning if you need access control on fields, a [class](/docs/language/classes/) is the better
-fit.
+All struct members default to `pub`. You can explicitly mark a member `priv` or `prot`, but the compiler emits a warning if you need access control on fields, a [class](/docs/language/classes/) is the better fit.
 
 ```kairo
 struct Packet {
@@ -86,8 +75,7 @@ Extended functions can be `pub`, `prot`, or `priv` without warning.
 
 ## Const and `mutable` Members
 
-`const` members must be initialized at the declaration site or in the aggregate initializer. Unlike class
-`const` members, there is no constructor body to provide a one-shot assignment:
+`const` members must be initialized at the declaration site or in the aggregate initializer. Unlike class `const` members, there is no constructor body to provide a one-shot assignment:
 
 ```kairo
 struct Config {
@@ -119,8 +107,7 @@ See [Classes](/docs/language/classes/#mutable-members) for the `mutable` rationa
 
 ## Copy Semantics
 
-Structs are always trivially copyable. Assignment and parameter passing use `memcpy` there are no
-copy constructors, move constructors, or assignment operator overloads:
+Structs are always trivially copyable. Assignment and parameter passing use `memcpy` there are no copy constructors, move constructors, or assignment operator overloads:
 
 ```kairo
 var a = Point { x: 1.0, y: 2.0 }
@@ -129,16 +116,13 @@ b.x = 9.0
 a.x   // still 1.0
 ```
 
-This is a hard guarantee. Extending a destructor (`fn op delete`), copy assignment (`fn op =`), or
-move assignment onto a struct is a compile error. If you need custom lifecycle management, use a
-[class](/docs/language/classes-lifecycle/#the-rule-of-three).
+This is a hard guarantee. Extending a destructor (`fn op delete`), copy assignment (`fn op =`), or move assignment onto a struct is a compile error. If you need custom lifecycle management, use a [class](/docs/language/classes-lifecycle/#the-rule-of-three).
 
 ---
 
 ## Extends
 
-Since structs cannot contain methods in their body, behavior is added via `extend` blocks. An `extend`
-block can add methods, operators, and static functions:
+Since structs cannot contain methods in their body, behavior is added via `extend` blocks. An `extend` block can add methods, operators, and static functions:
 
 ```kairo
 struct Vec2 {
@@ -190,9 +174,7 @@ extend Vec2 impl Drawable {
 }
 ```
 
-The `extend` block and the struct definition must be in the same file the same restriction as Rust's
-`impl` blocks. See [Extends](/docs/language/extends/) for the full `extend` system and
-[Interfaces](/docs/language/interfaces/) for interface declarations.
+The `extend` block and the struct definition must be in the same file the same restriction as Rust's `impl` blocks. See [Extends](/docs/language/extends/) for the full `extend` system and [Interfaces](/docs/language/interfaces/) for interface declarations.
 
 ---
 
@@ -253,8 +235,7 @@ var pkt = Packet {
 }
 ```
 
-Nested types are accessed via `StructName::NestedType`. Interfaces cannot be nested they must be
-declared at the top level.
+Nested types are accessed via `StructName::NestedType`. Interfaces cannot be nested they must be declared at the top level.
 
 ---
 
@@ -276,8 +257,7 @@ var c = Composed { base: Base { x: 10 }, y: 20 }
 c.base.x   // 10
 ```
 
-This keeps aggregate initialization unambiguous and avoids layout questions that inheritance introduces.
-If you need polymorphism or a type hierarchy, use [classes](/docs/language/classes-inheritance/#inheritance).
+This keeps aggregate initialization unambiguous and avoids layout questions that inheritance introduces. If you need polymorphism or a type hierarchy, use [classes](/docs/language/classes-inheritance/#inheritance).
 
 ---
 
@@ -297,15 +277,13 @@ var { r, g, b } = color
 // r = 255, g = 128, b = 0
 ```
 
-Use `_` to discard fields you do not need. See
-[Variables](/docs/language/variables/#destructuring) for the full destructuring syntax.
+Use `_` to discard fields you do not need. See [Variables](/docs/language/variables/#destructuring) for the full destructuring syntax.
 
 ---
 
 ## Memory Layout
 
-Struct layout follows the platform's C++ ABI members in declaration order with standard padding and
-alignment rules. Control layout with [attributes](/docs/language/attributes/#layout-attributes):
+Struct layout follows the platform's C++ ABI members in declaration order with standard padding and alignment rules. Control layout with [attributes](/docs/language/attributes/#layout-attributes):
 
 ```kairo
 @packed
@@ -320,8 +298,7 @@ struct Aligned {
 }
 ```
 
-Structs are always value types. A plain `var` declaration allocates on the stack. Heap allocation uses
-`@create T()`:
+Structs are always value types. A plain `var` declaration allocates on the stack. Heap allocation uses `@create T()`:
 
 ```kairo
 var local = Point { x: 1.0, y: 2.0 }           // stack
@@ -365,8 +342,7 @@ struct Node {
 | Virtual dispatch | No | Yes |
 | Aggregate initialization | Yes | No |
 
-Use structs for plain data configuration records, protocol headers, math vectors, tuple-like types.
-Use classes when you need lifecycle control, inheritance, or encapsulation.
+Use structs for plain data configuration records, protocol headers, math vectors, tuple-like types. Use classes when you need lifecycle control, inheritance, or encapsulation.
 
 ---
 

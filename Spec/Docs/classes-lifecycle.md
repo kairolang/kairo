@@ -59,30 +59,22 @@ delete r   // safe: idempotent delete operator
 
 ## Lifecycle Categories
 
-Every class has a lifecycle category that determines how its instances can be transferred between
-variables. A class's category is what its transfer constructors leave usable. If it can be copied, it is
-**COPY**. If it can only be moved, it is **MOVE**. If it can be neither, it is **NON_TRANSFER**. Deleting
-either transfer constructor on its own makes the class NON_TRANSFER: a declared copy constructor, even a
-deleted one, means no move is generated, and a deleted move constructor removes the copy. The canonical form
-deletes both, which says so explicitly.
+Every class has a lifecycle category that determines how its instances can be transferred between variables. A class's category is what its transfer constructors leave usable. If it can be copied, it is **COPY**. If it can only be moved, it is **MOVE**. If it can be neither, it is **NON_TRANSFER**. Deleting either transfer constructor on its own makes the class NON_TRANSFER: a declared copy constructor, even a deleted one, means no move is generated, and a deleted move constructor removes the copy. The canonical form deletes both, which says so explicitly.
 
 ### Attribute syntax
 
-`@copy` and `@move` are attributes attached to a constructor. The convention is one attribute per line
-above the declaration:
+`@copy` and `@move` are attributes attached to a constructor. The convention is one attribute per line above the declaration:
 
 ```kairo
 @copy
 fn Buffer(self, const other: Self) = default
 ```
 
-Inline placement (`@copy fn Buffer(self, const other: Self) = default`) is permitted but discouraged. See
-[Attributes](/docs/language/attributes/) for the full attribute syntax.
+Inline placement (`@copy fn Buffer(self, const other: Self) = default`) is permitted but discouraged. See [Attributes](/docs/language/attributes/) for the full attribute syntax.
 
 ### The transfer constructor
 
-The **transfer constructor** governs how instances of the class are passed by value. It is written in
-exactly one of two forms, with the marker on the constructor and the parameter otherwise bare:
+The **transfer constructor** governs how instances of the class are passed by value. It is written in exactly one of two forms, with the marker on the constructor and the parameter otherwise bare:
 
 | Form | Meaning | C++ |
 |---|---|---|
@@ -101,11 +93,9 @@ class UniqueFile {
 }
 ```
 
-`@copy` without `const` (`@copy fn X(self, other: Self)`, C++ `X(X&)`) is allowed, but it cannot copy from a
-`const` object or from a temporary. `@move` cannot take `const`: a move leaves its source empty.
+`@copy` without `const` (`@copy fn X(self, other: Self)`, C++ `X(X&)`) is allowed, but it cannot copy from a `const` object or from a temporary. `@move` cannot take `const`: a move leaves its source empty.
 
-Any other constructor that takes `Self` first and defaults every later parameter is a compile error
-(SC110E):
+Any other constructor that takes `Self` first and defaults every later parameter is a compile error (SC110E):
 
 ```kairo
 class X {
@@ -116,8 +106,7 @@ class X {
 }
 ```
 
-A constructor that takes `Self` first and then a parameter **without** a default is an ordinary
-constructor:
+A constructor that takes `Self` first and then a parameter **without** a default is an ordinary constructor:
 
 ```kairo
 class X {
@@ -127,9 +116,7 @@ class X {
 
 A move is written bare at the call site, `X(h)`, with no marker on the argument.
 
-A class with no transfer constructor takes the weakest category its bases and fields allow: **COPY** if all
-of them are COPY, **MOVE** if any is move-only, **NON_TRANSFER** if any cannot be transferred. Its special
-members are compiler-generated to match.
+A class with no transfer constructor takes the weakest category its bases and fields allow: **COPY** if all of them are COPY, **MOVE** if any is move-only, **NON_TRANSFER** if any cannot be transferred. Its special members are compiler-generated to match.
 
 A class cannot define both `@copy` and `@move` transfer constructors pick one:
 
@@ -142,8 +129,7 @@ class Bad {
 
 The one exception is both being `= delete`, the canonical **NON_TRANSFER** form.
 
-A class also cannot declare two transfer constructors of the same kind, such as `@copy` with and without
-`const` ([SC057E](/docs/language/diagnostics/#sc057e-more-than-one-transfer-constructor)).
+A class also cannot declare two transfer constructors of the same kind, such as `@copy` with and without `const` ([SC057E](/docs/language/diagnostics/#sc057e-more-than-one-transfer-constructor)).
 
 ### The four categories
 
@@ -180,10 +166,7 @@ The user writes at most three special members:
 
 Each may have a user body, `= default`, or `= delete`. Anything not written is compiler-generated.
 
-A `= default` member is what the compiler would have generated: it is trivial when the same member of
-every base and field is. A transfer constructor or destructor with a body makes the class non-trivial,
-and so does a deleted one or a `virtual` destructor. A polymorphic class (a `virtual` method
-or a virtual base) is never trivially copyable, and neither is a NON_TRANSFER class.
+A `= default` member is what the compiler would have generated: it is trivial when the same member of every base and field is. A transfer constructor or destructor with a body makes the class non-trivial, and so does a deleted one or a `virtual` destructor. A polymorphic class (a `virtual` method or a virtual base) is never trivially copyable, and neither is a NON_TRANSFER class.
 
 ```kairo
 class Buffer {
@@ -211,8 +194,7 @@ class Buffer {
 
 ### Assignment is auto-derived
 
-`op =` is generated from the transfer constructor the user does not write it. Writing it explicitly is a
-compile error.
+`op =` is generated from the transfer constructor the user does not write it. Writing it explicitly is a compile error.
 
 | Transfer ctor form | Generated `op =` |
 |---|---|
@@ -221,21 +203,13 @@ compile error.
 | `= delete` | `= delete` |
 | `{ body }` | checks for self-assignment, destroys `self`, rebuilds it in place through the transfer constructor, returns `self` |
 
-The body case first checks for self-assignment: `x = x` does nothing. Otherwise it destroys `self`,
-builds a new value in its place by running the transfer constructor on the right-hand side, and returns
-`self`.
+The body case first checks for self-assignment: `x = x` does nothing. Otherwise it destroys `self`, builds a new value in its place by running the transfer constructor on the right-hand side, and returns `self`.
 
-Member-by-member assignment needs every base and field to be assignable. If one is not, the class has
-no `op =`.
+Member-by-member assignment needs every base and field to be assignable. If one is not, the class has no `op =`.
 
-A polymorphic class whose transfer constructor has a body has no `op =` either. Rebuilding it in place
-would give the object this class's vtable pointer, which is wrong when the object is really a derived
-class or is the base part of one. A polymorphic class with a `= default` transfer constructor, or with
-none, assigns member by member as usual.
+A polymorphic class whose transfer constructor has a body has no `op =` either. Rebuilding it in place would give the object this class's vtable pointer, which is wrong when the object is really a derived class or is the base part of one. A polymorphic class with a `= default` transfer constructor, or with none, assigns member by member as usual.
 
-Assigning a value whose class has no `op =` is a compile error (SC071E). When the reason is a
-polymorphic class whose transfer constructor has a body, the error adds: "a polymorphic class whose
-transfer constructor has a body cannot be assigned; construct a new value".
+Assigning a value whose class has no `op =` is a compile error (SC071E). When the reason is a polymorphic class whose transfer constructor has a body, the error adds: "a polymorphic class whose transfer constructor has a body cannot be assigned; construct a new value".
 
 This implies a consistency rule: if the transfer ctor has a body and `op delete` is `= delete`d, the class fails to compile the auto-derived `op =` needs to invoke the destructor and cannot. Fix by providing a destructor or by changing the transfer ctor to `= default` / `= delete`.
 
@@ -243,15 +217,11 @@ This implies a consistency rule: if the transfer ctor has a body and `op delete`
 
 `= default` on a `@move` ctor performs memberwise move: each member is moved through its own `@move` ctor. If a member is COPY-only (no `@move` available), that member is **copied** as part of the move matching C++ semantics. This is silent and almost always what you want; if a member must be moved or nothing, write the transfer ctor body explicitly and let the compiler error on the COPY-only field.
 
-The converse is checked too. A defaulted `@copy` constructor requires every base and field to be copyable, and
-a defaulted `@move` requires every base and field to be movable or copyable. Otherwise it is a compile error
-([SC129E](/docs/language/diagnostics/#sc129e-a-defaulted-transfer-constructor-cannot-be-generated)) naming the field. A transfer constructor with a body is exempt; it decides for itself how each field
-is transferred.
+The converse is checked too. A defaulted `@copy` constructor requires every base and field to be copyable, and a defaulted `@move` requires every base and field to be movable or copyable. Otherwise it is a compile error ([SC129E](/docs/language/diagnostics/#sc129e-a-defaulted-transfer-constructor-cannot-be-generated)) naming the field. A transfer constructor with a body is exempt; it decides for itself how each field is transferred.
 
 ### Implicit-copy-with-custom-destructor warning
 
-A class with a custom destructor but no explicit `@copy` or `@move` transfer constructor compiles, but emits a warning. The class is implicitly copyable, and a custom destructor almost always means the class owns a resource silent copies of that resource cause double-free and aliasing bugs. The warning applies only when the class
-is actually copyable; a class that is move-only or non-transferable because of its fields does not get it.
+A class with a custom destructor but no explicit `@copy` or `@move` transfer constructor compiles, but emits a warning. The class is implicitly copyable, and a custom destructor almost always means the class owns a resource silent copies of that resource cause double-free and aliasing bugs. The warning applies only when the class is actually copyable; a class that is move-only or non-transferable because of its fields does not get it.
 
 ```kairo
 class UniqueFile {
@@ -268,8 +238,7 @@ class UniqueFile {
 
 ### Tether copy elision
 
-For COPY classes, [Tether](/docs/language/tether/) may emit a move instead of a copy when it proves the source is unused after the transfer. This is a pure optimization with no observable semantic difference the source is destroyed either way, just earlier when elided. Tether does not elide if the move constructor is
-deleted. Users do not opt into or out of this optimization.
+For COPY classes, [Tether](/docs/language/tether/) may emit a move instead of a copy when it proves the source is unused after the transfer. This is a pure optimization with no observable semantic difference the source is destroyed either way, just earlier when elided. Tether does not elide if the move constructor is deleted. Users do not opt into or out of this optimization.
 
 ---
 

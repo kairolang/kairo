@@ -1,15 +1,12 @@
 # Pointers & Raw Pointers
 
-Kairo has two pointer types: safe pointers (`*T`) with compiler-tracked lifetime and a non-null guarantee, and
-raw pointers (`unsafe *T`) with no tracking and no checks. Both are 8 bytes on 64-bit platforms and
-hold a memory address.
+Kairo has two pointer types: safe pointers (`*T`) with compiler-tracked lifetime and a non-null guarantee, and raw pointers (`unsafe *T`) with no tracking and no checks. Both are 8 bytes on 64-bit platforms and hold a memory address.
 
 ---
 
 ## Safe Pointers (`*T`)
 
-`*T` is the default pointer type. The compiler tracks its provenance via
-[Tether](/docs/language/tether/). It is never null, so a dereference needs no check:
+`*T` is the default pointer type. The compiler tracks its provenance via [Tether](/docs/language/tether/). It is never null, so a dereference needs no check:
 
 ```kairo
 var x = 42
@@ -68,8 +65,7 @@ ptr->port   // 8080
 
 ## Raw Pointers (`unsafe *T`)
 
-[`unsafe *T`](/docs/language/unsafe/#raw-pointers-unsafe-t) is an untracked pointer with no null checks, no bounds checks, and no [Tether provenance
-tracking](/docs/language/tether-bounds/). It is equivalent to a raw C/C++ pointer:
+[`unsafe *T`](/docs/language/unsafe/#raw-pointers-unsafe-t) is an untracked pointer with no null checks, no bounds checks, and no [Tether provenance tracking](/docs/language/tether-bounds/). It is equivalent to a raw C/C++ pointer:
 
 ```kairo
 var x = 42
@@ -79,8 +75,7 @@ var p: unsafe *i32 = unsafe &x   // create raw pointer from safe binding
 
 Dereferencing a null `unsafe *T` is undefined behavior. The compiler will not insert a check.
 
-Raw pointers are required for [C/C++ interop](/docs/language/c-cpp/), custom allocators, hardware
-register access, and any scenario where Tether tracking is not possible or not desired.
+Raw pointers are required for [C/C++ interop](/docs/language/c-cpp/), custom allocators, hardware register access, and any scenario where Tether tracking is not possible or not desired.
 
 ### Creating raw pointers
 
@@ -135,9 +130,7 @@ d = &y       // compile error
 *d = 10      // compile error
 ```
 
-Each question has exactly one place it can be answered. `var ptr: const *const i32` would mean the
-same thing as `const ptr: *const i32`, but it is rejected, because the pointer question belongs to
-the declaration keyword.
+Each question has exactly one place it can be answered. `var ptr: const *const i32` would mean the same thing as `const ptr: *const i32`, but it is rejected, because the pointer question belongs to the declaration keyword.
 
 See [Variables](/docs/language/variables/#the-const-binding-rule) for the full `const` model.
 
@@ -158,14 +151,10 @@ var third = *(p + 2)     // 30
 p = p - 1                // ok: reposition pointer
 ```
 
-Pointer-to-pointer arithmetic (`p1 - p2`) is not permitted on safe pointers use `unsafe *T` for
-that.
+Pointer-to-pointer arithmetic (`p1 - p2`) is not permitted on safe pointers use `unsafe *T` for that.
 
 > [!CAUTION]
-> Safe pointer arithmetic is bounds-checked by [Tether](/docs/language/tether-bounds/#pointer-arithmetic) only when provenance is trackable. If the pointer
-> originates from a context where Tether cannot determine the allocation bounds, the arithmetic compiles
-> but bounds safety is not guaranteed. Prefer array/vector indexing over pointer arithmetic when
-> possible.
+> Safe pointer arithmetic is bounds-checked by [Tether](/docs/language/tether-bounds/#pointer-arithmetic) only when provenance is trackable. If the pointer originates from a context where Tether cannot determine the allocation bounds, the arithmetic compiles but bounds safety is not guaranteed. Prefer array/vector indexing over pointer arithmetic when possible.
 
 ### On raw pointers (`unsafe *T`)
 
@@ -192,15 +181,13 @@ p[0]    // same as *(p + 0)
 p[2]    // same as *(p + 2)
 ```
 
-Bounds checking follows the same rules as pointer arithmetic Tether checks when provenance is
-trackable, no checks on `unsafe *T`.
+Bounds checking follows the same rules as pointer arithmetic Tether checks when provenance is trackable, no checks on `unsafe *T`.
 
 ---
 
 ## Void Pointers
 
-`*void` and `unsafe *void` are opaque pointers that hold an address without type information.
-They cannot be dereferenced cast to a typed pointer first:
+`*void` and `unsafe *void` are opaque pointers that hold an address without type information. They cannot be dereferenced cast to a typed pointer first:
 
 ```kairo
 var handle: unsafe *void = get_opaque_handle()
@@ -210,8 +197,7 @@ var typed = handle as unsafe *i32
 var value = *typed     // ok: typed pointer
 ```
 
-Void pointers are used for type-erased APIs, opaque handles, and [C interop](/docs/language/c-cpp-calling/#pointers-and-references) where the concrete type
-is not known at the Kairo call site.
+Void pointers are used for type-erased APIs, opaque handles, and [C interop](/docs/language/c-cpp-calling/#pointers-and-references) where the concrete type is not known at the Kairo call site.
 
 ---
 
@@ -240,10 +226,7 @@ const pp: *const *i32 = &p
 
 ## Smart Pointer Promotion
 
-[Tether](/docs/language/tether-promotion/) analyzes pointer usage and determines when a safe pointer needs smart
-pointer ownership semantics. In **debug** builds it performs the promotion and warns; in **release**
-builds the same situation is a hard error naming the type to annotate. The smart pointer types are
-compiler intrinsics exposed through the standard library:
+[Tether](/docs/language/tether-promotion/) analyzes pointer usage and determines when a safe pointer needs smart pointer ownership semantics. In **debug** builds it performs the promotion and warns; in **release** builds the same situation is a hard error naming the type to annotate. The smart pointer types are compiler intrinsics exposed through the standard library:
 
 | Type | Description |
 |---|---|
@@ -262,19 +245,16 @@ fn make_config() -> *Config {
 }
 ```
 
-If Tether cannot determine a safe promotion path (e.g., the pointer escapes in a way that prevents
-tracking), it emits a compile error in both modes rather than allowing unsafe behavior.
+If Tether cannot determine a safe promotion path (e.g., the pointer escapes in a way that prevents tracking), it emits a compile error in both modes rather than allowing unsafe behavior.
 
-Release code spells the smart pointer type explicitly, which is also how you override Tether's choice
-in debug:
+Release code spells the smart pointer type explicitly, which is also how you override Tether's choice in debug:
 
 ```kairo
 var ptr: std::Unique<Config> = @create Config(8080)
 var shared: std::Shared<Config> = @create Config(8080)
 ```
 
-See [Tether](/docs/language/tether/) for the full lifetime and promotion model, and
-[Ownership](/docs/language/ownership/) for borrowing semantics.
+See [Tether](/docs/language/tether/) for the full lifetime and promotion model, and [Ownership](/docs/language/ownership/) for borrowing semantics.
 
 ---
 
@@ -320,9 +300,7 @@ var r: *i32? = &a
 p == r    // true: same address
 ```
 
-`===` needs at least one nullable operand; on two `*T` it is an error. To compare what two `*T` point to,
-dereference them: `*x == *y`. For raw pointers (`unsafe *T`), use `==` for address comparison and
-dereference manually after a null check.
+`===` needs at least one nullable operand; on two `*T` it is an error. To compare what two `*T` point to, dereference them: `*x == *y`. For raw pointers (`unsafe *T`), use `==` for address comparison and dereference manually after a null check.
 
 See [Operators](/docs/language/operators/#comparison) for the full comparison model.
 
@@ -330,8 +308,7 @@ See [Operators](/docs/language/operators/#comparison) for the full comparison mo
 
 ## Function Pointers
 
-Function pointers (`fn(T) -> R`) are a separate type from `*T`. They are opaque values that cannot
-be cast to data pointers or vice versa:
+Function pointers (`fn(T) -> R`) are a separate type from `*T`. They are opaque values that cannot be cast to data pointers or vice versa:
 
 ```kairo
 fn add(a: i32, b: i32) -> i32 = a + b
@@ -340,15 +317,13 @@ var f: fn(i32, i32) -> i32 = add
 // var p = f as unsafe *void   // compile error: function pointers are not data pointers
 ```
 
-See [Functions](/docs/language/functions/#function-pointers) for function pointer syntax and
-[Closures](/docs/language/closures/) for closures as function pointers.
+See [Functions](/docs/language/functions/#function-pointers) for function pointer syntax and [Closures](/docs/language/closures/) for closures as function pointers.
 
 ---
 
 ## Pointers and Nullable Types
 
-`*T` is non-null by construction. To represent a pointer that might not exist, use `*T?` which
-wraps the pointer in the standard [`Nullable<T>` system](/docs/language/nullables/#pointers-and-nullability):
+`*T` is non-null by construction. To represent a pointer that might not exist, use `*T?` which wraps the pointer in the standard [`Nullable<T>` system](/docs/language/nullables/#pointers-and-nullability):
 
 | | `*T` | `*T?` | `unsafe *T` |
 |---|---|---|---|
@@ -357,8 +332,7 @@ wraps the pointer in the standard [`Nullable<T>` system](/docs/language/nullable
 | Dereference null | Cannot happen | Compile error (must check first) | Undefined behavior |
 | Tether tracked | Yes | Yes | No |
 
-`*T?` supports the same null-handling operators as any other nullable type. `unsafe *T` uses
-manual null comparison, it does not participate in the `Nullable<T>` system.
+`*T?` supports the same null-handling operators as any other nullable type. `unsafe *T` uses manual null comparison, it does not participate in the `Nullable<T>` system.
 
 ```kairo
 var p: *i32 = &x            // always valid, no null check needed

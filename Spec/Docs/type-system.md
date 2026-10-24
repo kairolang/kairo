@@ -1,8 +1,6 @@
 # Type System
 
-Kairo is statically typed with full type inference. Every value has a single concrete type known at compile
-time. The type system is nominal two types are the same if they have the same name and generic arguments,
-not if they happen to have the same structure.
+Kairo is statically typed with full type inference. Every value has a single concrete type known at compile time. The type system is nominal two types are the same if they have the same name and generic arguments, not if they happen to have the same structure.
 
 ## In this section
 
@@ -18,8 +16,7 @@ Type aliases are covered in [Type Aliases](/docs/language/type-aliases/).
 
 ## Type Inference
 
-The compiler infers types from initializers, return expressions, and generic arguments. Explicit
-annotations are optional where inference succeeds.
+The compiler infers types from initializers, return expressions, and generic arguments. Explicit annotations are optional where inference succeeds.
 
 ### Variable inference
 
@@ -53,8 +50,7 @@ var nums: [i32] = [1, 2, 3]
 first(nums)   // T inferred as i32 from [T] matching [i32]
 ```
 
-Explicit generic arguments are required only when inference is ambiguous or when no arguments provide
-type information:
+Explicit generic arguments are required only when inference is ambiguous or when no arguments provide type information:
 
 ```kairo
 var s = Stack<i32>()   // no arguments to infer from, must specify
@@ -62,16 +58,14 @@ var s = Stack<i32>()   // no arguments to infer from, must specify
 
 ### Return type inference
 
-Return types are never inferred for block-bodied functions or forward declarations. They must be declared
-explicitly, or they default to `void`:
+Return types are never inferred for block-bodied functions or forward declarations. They must be declared explicitly, or they default to `void`:
 
 ```kairo
 fn add(a: i32, b: i32) -> i32 { return a + b }   // explicit
 fn log(msg: string) { std::println(msg) }        // defaults to void
 ```
 
-Expression-bodied functions (`fn foo() = expr`) are the one exception: if the return
-type annotation is omitted, it is inferred from the expression.
+Expression-bodied functions (`fn foo() = expr`) are the one exception: if the return type annotation is omitted, it is inferred from the expression.
 
 ```kairo
 fn square(x: i32) = x * x          // inferred as i32
@@ -103,8 +97,7 @@ Narrowing conversions require an explicit `as` cast. See [Casting](/docs/languag
 
 ### Integer widening into C/C++ parameters
 
-An argument to an [imported C/C++ function](/docs/language/c-cpp-calling/#argument-conversions) widens into a `size_t`/`ptrdiff_t` parameter
-when no 32- or 64-bit target could lose a value:
+An argument to an [imported C/C++ function](/docs/language/c-cpp-calling/#argument-conversions) widens into a `size_t`/`ptrdiff_t` parameter when no 32- or 64-bit target could lose a value:
 
 ```kairo
 // buf.h: void buf_reserve(size_t n);
@@ -115,8 +108,7 @@ fn grow(n: u32) {
 }
 ```
 
-`u64` to `usize` still needs `as`, because it narrows on 32-bit targets; on 16-bit
-targets `u32` to `usize` does too. The full rule is in the [Conversion Lattice section 4.1](/docs/language/conversion-lattice/#41-the-cc-boundary).
+`u64` to `usize` still needs `as`, because it narrows on 32-bit targets; on 16-bit targets `u32` to `usize` does too. The full rule is in the [Conversion Lattice section 4.1](/docs/language/conversion-lattice/#41-the-cc-boundary).
 
 ### `T` to `T?` - Non-nullable to Nullable
 
@@ -129,8 +121,7 @@ var s = "hello"
 maybe_log(s)   // string implicitly converts to string?
 ```
 
-The reverse (`T?` to `T`) requires explicit unwrapping see
-[Variables](/docs/language/nullables/#nullable-types).
+The reverse (`T?` to `T`) requires explicit unwrapping see [Variables](/docs/language/nullables/#nullable-types).
 
 ### Derived-to-base pointer
 
@@ -146,13 +137,11 @@ var dog = Dog("Rex", "Labrador")
 feed(&dog)   // *Dog implicitly converts to *Animal
 ```
 
-This is always safe the base subobject is at a known offset. The reverse (base-to-derived) requires
-an explicit cast because it can fail at runtime. See [Casting](/docs/language/casting/).
+This is always safe the base subobject is at a known offset. The reverse (base-to-derived) requires an explicit cast because it can fail at runtime. See [Casting](/docs/language/casting/).
 
 ### List literal to a container
 
-A [list literal](/docs/language/collections/#list-literals) takes the type its target asks for: an array `[T; N]` with a matching element count, a slice
-`[T;]`, or a vector `[T]`. With no target it is an array.
+A [list literal](/docs/language/collections/#list-literals) takes the type its target asks for: an array `[T; N]` with a matching element count, a slice `[T;]`, or a vector `[T]`. With no target it is an array.
 
 ```kairo
 fn total(xs: [i32;]) -> i32 { ... }
@@ -165,8 +154,7 @@ This applies to the literal only. Array and vector variables convert only to a s
 
 ### Array or vector to slice
 
-An array `[T; N]` converts to a slice `[T;]` implicitly. The slice is a view of the array; nothing is copied.
-A `const` array converts only to `[const T;]`. A vector `[T]` also converts to a slice implicitly.
+An array `[T; N]` converts to a slice `[T;]` implicitly. The slice is a view of the array; nothing is copied. A `const` array converts only to `[const T;]`. A vector `[T]` also converts to a slice implicitly.
 
 ```kairo
 fn total(xs: [i32;]) -> i32 { ... }
@@ -181,8 +169,7 @@ The other direction, `[T;]` to `[T]`, stays explicit because it allocates.
 
 ### `@implicit` conversion operators
 
-A type's `op as` marked `@implicit` applies without `as` where its exact result type is wanted. See
-[Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as).
+A type's `op as` marked `@implicit` applies without `as` where its exact result type is wanted. See [Implicit `op as`](/docs/language/operator-overloading/#implicit-op-as).
 
 ### No other implicit conversions
 
@@ -204,17 +191,13 @@ Kairo has a limited subtyping hierarchy:
 - `!` (never type) is a subtype of every type
 - A derived class is a subtype of its base class(es)
 
-Interface-satisfying types are not subtypes of the interface. [Interfaces](/docs/language/interfaces/) are constraints checked at
-compile time via `impl` bounds, not runtime-dispatchable types. For runtime polymorphism, use
-base class pointers with [virtual dispatch](/docs/language/classes-inheritance/#virtual-dispatch) or
-`unsafe *void` for type-erased pointers.
+Interface-satisfying types are not subtypes of the interface. [Interfaces](/docs/language/interfaces/) are constraints checked at compile time via `impl` bounds, not runtime-dispatchable types. For runtime polymorphism, use base class pointers with [virtual dispatch](/docs/language/classes-inheritance/#virtual-dispatch) or `unsafe *void` for type-erased pointers.
 
 ---
 
 ## The Never Type (`!`)
 
-`!` is the return type of functions that never return they [panic](/docs/language/panic/#panic-and-no-return-), loop forever, or call a no-return
-function:
+`!` is the return type of functions that never return they [panic](/docs/language/panic/#panic-and-no-return-), loop forever, or call a no-return function:
 
 ```kairo
 fn fatal(msg: string) panic -> ! {
@@ -228,8 +211,7 @@ fn fatal(msg: string) panic -> ! {
 var x: i32 = if valid => compute() else => fatal("bad state")
 ```
 
-`!` can only appear as a function return type. It cannot be used as a variable type, type parameter,
-or in any other type position:
+`!` can only appear as a function return type. It cannot be used as a variable type, type parameter, or in any other type position:
 
 ```kairo
 // var x: !          // compile error
@@ -242,8 +224,7 @@ See [Functions](/docs/language/functions/#no-return-) for no-return function sem
 
 ## Void - The Absence of a Value - Unit Types
 
-`void` represents the absence of a value. It is the default return type for functions with no explicit
-return type.
+`void` represents the absence of a value. It is the default return type for functions with no explicit return type.
 
 `void` can be used as a type parameter, but can not be used as a variable type:
 
@@ -261,8 +242,7 @@ See [Primitives](/docs/language/primitives/#void) for details.
 
 ## Nullable Types in the Type System
 
-`T?` is syntactic sugar for the compiler-intrinsic `Nullable<T>` tagged union. `Nullable` is not
-directly usable as a type name use the `?` suffix:
+`T?` is syntactic sugar for the compiler-intrinsic `Nullable<T>` tagged union. `Nullable` is not directly usable as a type name use the `?` suffix:
 
 ```kairo
 var x: i32? = 42
@@ -271,8 +251,7 @@ var y: string? = null
 
 ### Nested nullables
 
-`T??` is a parser error because `??` is the [null-coalescing operator](/docs/language/nullables/#null-coalescing-). Use parentheses for nested
-nullables:
+`T??` is a parser error because `??` is the [null-coalescing operator](/docs/language/nullables/#null-coalescing-). Use parentheses for nested nullables:
 
 ```kairo
 // var x: i32??     // parse error: ?? is an operator
@@ -294,8 +273,7 @@ var point: (f64, f64) = (1.0, 2.0)
 var record: (i32, string, bool) = (42, "answer", true)
 ```
 
-Single-element tuples do not exist. `(T)` is just `T` the parentheses are grouping, not a tuple
-constructor:
+Single-element tuples do not exist. `(T)` is just `T` the parentheses are grouping, not a tuple constructor:
 
 ```kairo
 var x: (i32) = 42   // same as var x: i32 = 42
@@ -303,8 +281,7 @@ var x: (i32) = 42   // same as var x: i32 = 42
 
 There is no unit type or empty tuple `()`. Functions that return nothing use `void`.
 
-See [Primitives](/docs/language/collections/#tuples-t1-t2-) for tuple syntax and
-[Variables](/docs/language/variables/#destructuring) for tuple destructuring.
+See [Primitives](/docs/language/collections/#tuples-t1-t2-) for tuple syntax and [Variables](/docs/language/variables/#destructuring) for tuple destructuring.
 
 ---
 
@@ -317,8 +294,7 @@ var add: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 var log: fn(string) -> void = std::println
 ```
 
-The [`panic` modifier](/docs/language/panic/#the-panic-specifier) can appear on function types to indicate the function may panic. Callers must
-handle the panic via `try`/`catch`:
+The [`panic` modifier](/docs/language/panic/#the-panic-specifier) can appear on function types to indicate the function may panic. Callers must handle the panic via `try`/`catch`:
 
 ```kairo
 var risky: fn(i32) panic -> i32 = some_panicking_function
@@ -330,13 +306,9 @@ try {
 }
 ```
 
-No other modifiers (`const`, `async`, `eval`, `unsafe`) are valid on function pointer types. `const`
-is a property of methods (it constrains `self`), not of the function signature. `unsafe` selects a
-different overload namespace, not a different type. `async` and `eval` require named function
-declarations.
+No other modifiers (`const`, `async`, `eval`, `unsafe`) are valid on function pointer types. `const` is a property of methods (it constrains `self`), not of the function signature. `unsafe` selects a different overload namespace, not a different type. `async` and `eval` require named function declarations.
 
-See [Functions](/docs/language/functions/#function-pointers) and
-[Closures](/docs/language/closures/) for function pointer usage.
+See [Functions](/docs/language/functions/#function-pointers) and [Closures](/docs/language/closures/) for function pointer usage.
 
 ---
 
@@ -352,8 +324,7 @@ Collection literal syntax maps to built-in types:
 | `{K: V}` | Map | Hash map |
 | `{T}` | Set | Hash set |
 
-These are primitives in the type system, not generic library types. The standard library provides
-[type aliases](/docs/language/type-aliases/) for the explicit names:
+These are primitives in the type system, not generic library types. The standard library provides [type aliases](/docs/language/type-aliases/) for the explicit names:
 
 ```kairo
 // In module std:
@@ -365,13 +336,9 @@ type <T> HashSet = {T}
 
 The literal syntax and the aliased names are interchangeable.
 
-A list literal `[a, b, c]` is an array `[T; 3]` unless its target is a slice or a vector. Arrays are not
-value types: they cannot be copied, assigned, passed by value, or returned. See
-[Primitives](/docs/language/collections/) for the full rules on arrays, slices, vectors, and list
-literals.
+A list literal `[a, b, c]` is an array `[T; 3]` unless its target is a slice or a vector. Arrays are not value types: they cannot be copied, assigned, passed by value, or returned. See [Primitives](/docs/language/collections/) for the full rules on arrays, slices, vectors, and list literals.
 
-`N` in `[T; N]` must be a compile-time evaluable expression. Runtime-dependent array sizes are not
-supported use `[T]` (vector) for dynamically sized collections:
+`N` in `[T; N]` must be a compile-time evaluable expression. Runtime-dependent array sizes are not supported use `[T]` (vector) for dynamically sized collections:
 
 ```kairo
 eval SIZE = 256
@@ -434,12 +401,10 @@ enum TypeKind {
 }
 ```
 
-`get_name()` returns the [mangled name](/docs/language/c-cpp-abi/#name-mangling) following the platform's C++ ABI (Itanium on Unix and MinGW, MSVC on
-`*-windows-msvc`). `get_pretty_name()` returns a human-readable string including generic arguments.
+`get_name()` returns the [mangled name](/docs/language/c-cpp-abi/#name-mangling) following the platform's C++ ABI (Itanium on Unix and MinGW, MSVC on `*-windows-msvc`). `get_pretty_name()` returns a human-readable string including generic arguments.
 
 > [!IMPORTANT]
-> The `TypeInfo` API is still being finalized. Additional methods for querying members, base classes,
-> and interface conformance may be added in a future update.
+> The `TypeInfo` API is still being finalized. Additional methods for querying members, base classes, and interface conformance may be added in a future update.
 
 ### Compile-time `typeof`
 
@@ -456,8 +421,7 @@ fn <T> process(x: T) {
 }
 ```
 
-See [Eval](/docs/language/eval/) for compile-time evaluation and
-[Control Flow](/docs/language/control-flow/#compile-time-branching) for `eval if`.
+See [Eval](/docs/language/eval/) for compile-time evaluation and [Control Flow](/docs/language/control-flow/#compile-time-branching) for `eval if`.
 
 ---
 
@@ -469,8 +433,7 @@ See [Eval](/docs/language/eval/) for compile-time evaluation and
 - [Interface](/docs/language/interfaces-requirements/#operators-in-interfaces) signatures
 - [Extend](/docs/language/extends/) blocks
 
-`Self` always refers to a reference to the type. For a pointer, use `*Self`. In a generic class
-`class <T> Foo`, `Self` resolves to `Foo<T>`:
+`Self` always refers to a reference to the type. For a pointer, use `*Self`. In a generic class `class <T> Foo`, `Self` resolves to `Foo<T>`:
 
 ```kairo
 class <T> Hold {
@@ -491,8 +454,7 @@ class <T> Hold {
 
 ## Type Identity
 
-Two types are the same if they have the same fully qualified name and the same generic arguments.
-This is nominal identity, not structural:
+Two types are the same if they have the same fully qualified name and the same generic arguments. This is nominal identity, not structural:
 
 ```kairo
 struct Point { var x: f64; var y: f64 }
@@ -502,9 +464,7 @@ struct Vec2  { var x: f64; var y: f64 }
 // var p: Point = Vec2 { x: 1.0, y: 2.0 }   // compile error
 ```
 
-[Generic types](/docs/language/generics/) are identified by their monomorphized form. `Foo<i32>` and `Foo<i64>` are different
-types. `Foo<i32>` in one translation unit is the same type as `Foo<i32>` in another identity
-follows the platform's C++ ABI mangling rules.
+[Generic types](/docs/language/generics/) are identified by their monomorphized form. `Foo<i32>` and `Foo<i64>` are different types. `Foo<i32>` in one translation unit is the same type as `Foo<i32>` in another identity follows the platform's C++ ABI mangling rules.
 
 Type alias identity is covered in [Type Aliases](/docs/language/type-aliases/).
 
