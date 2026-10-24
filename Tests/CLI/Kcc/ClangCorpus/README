@@ -1,0 +1,45 @@
+clang's own tests, as a regression suite for kcc
+===============================================
+
+kcc is clang with Kairo in front of it, so whatever clang accepts, rejects
+or prints for C, C++ and Objective-C(++), kcc must as well. These lists take
+that straight from clang's test tree (Lib/llvm-runtimes/clang/test):
+
+  verify.txt  -verify tests: kcc -fsyntax-only -Xclang <cc1 flags> must
+              pass clang's expected-error/warning/note checks. Run by
+              ../clang_verify_corpus.k.
+  pp.txt      preprocessor tests: kcc -E -P and the bundled clang -E -P (same
+              target and sysroot) must print the same thing. Run by
+              ../clang_pp_corpus.k.
+
+Each line is `<path under clang/test>\t<cc1 flags>`. The flags come from the
+file's first usable `%clang_cc1 ... %s` RUN line. Lines with a pipe (in
+verify mode), %t, -emit-*, -ast-*, plugins, modules, -x, -triple or the MS
+modes are not used, because the driver writes its own target and language
+into the cc1 line. A RUN line with no -std= gets clang's default
+(gnu++17 / gnu17) spelled out, because kcc's own default is c++23. kcc runs
+each file with what a bare `clang -cc1` assumes and the driver does not: no
+error limit, no exceptions, and the macOS Objective-C runtime.
+
+Regenerating (after a clang update, or to widen the dirs):
+
+  python3 clang_corpus.py gen --mode verify --kcc '<kcc + -Xkairo roots>' \
+      --clang build/llvm/bin/clang --root Lib/llvm-runtimes/clang/test \
+      --list verify.txt --ext .c .cpp .m .mm \
+      --dirs SemaCXX Sema Parser Lexer SemaTemplate CXX C SemaObjCXX SemaObjC
+  python3 clang_corpus.py gen --mode pp ... --sysroot <x86_64-linux-musl sysroot> \
+      --list pp.txt --dirs Preprocessor Lexer --ext .c .cpp
+
+gen lists the files that the bundled clang -cc1 AND kcc pass, and writes
+<list>.kcc-fails with the ones only kcc fails. Each of those is a kcc bug
+until shown otherwise. Fix it, or note it below.
+
+Known divergences (not listed):
+  Preprocessor/header_lookup1.c  <stddef.h> resolves to clang's resource
+      header under kcc, and to musl's under the plain clang driver for this
+      target: kairo orders the resource dir ahead of the sysroot.
+
+Found by this corpus and fixed:
+  every -verify run through kcc failed: ClangJobs judged success by the
+  diagnostics ENGINE's error count, which counts the errors -verify expects.
+  It now uses the client's, as clang's ExecuteAction does.

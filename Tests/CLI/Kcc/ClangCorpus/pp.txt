@@ -1,0 +1,90 @@
+Preprocessor/SOURCE_DATE_EPOCH.c	-std=gnu17 -source-date-epoch 0
+Preprocessor/_Pragma-physloc.c	-std=gnu17
+Preprocessor/builtin_line.c	-std=gnu17
+Preprocessor/c90.c	-std=c89
+Preprocessor/c99-6_10_3_3_p4.c	-std=gnu17
+Preprocessor/c99-6_10_3_4_p5.c	-std=gnu17
+Preprocessor/c99-6_10_3_4_p6.c	-std=gnu17
+Preprocessor/c99-6_10_3_4_p7.c	-std=gnu17
+Preprocessor/c99-6_10_3_4_p9.c	-std=gnu17
+Preprocessor/clang_headers.c	-std=gnu17 -ffreestanding
+Preprocessor/comment_save.c	-std=gnu17 -C
+Preprocessor/comment_save_macro.c	-std=gnu17 -C
+Preprocessor/cxx_and.cpp	-std=gnu++17 -DA -DB
+Preprocessor/cxx_bitand.cpp	-std=gnu++17 -DA=1 -DB=2
+Preprocessor/cxx_bitor.cpp	-std=gnu++17 -DA=1 -DB=1
+Preprocessor/cxx_compl.cpp	-std=gnu++17 -DA=1
+Preprocessor/cxx_not.cpp	-std=gnu++17 -DA=1
+Preprocessor/cxx_not_eq.cpp	-std=gnu++17 -DA=1 -DB=1
+Preprocessor/cxx_oper_spelling.cpp	-std=gnu++17
+Preprocessor/cxx_or.cpp	-std=gnu++17 -DA -DB
+Preprocessor/cxx_xor.cpp	-std=gnu++17 -DA=1 -DB=1
+Preprocessor/dump-macros-undef.c	-std=gnu17 -dD
+Preprocessor/embed_preprocess_to_file.c	-std=c23 --embed-dir=%S/Inputs
+Preprocessor/expr_comma.c	-std=c99 -pedantic-errors
+Preprocessor/expr_liveness.c	-std=gnu17 -DNO_ERRORS -Werror -Wundef
+Preprocessor/file_name_macro.c	-std=gnu17 -I%S/Inputs
+Preprocessor/first-line-indent.c	-std=gnu17
+Preprocessor/function_macro_file.c	-std=gnu17
+Preprocessor/hash_line.c	-std=gnu17
+Preprocessor/hash_space.c	-std=gnu17
+Preprocessor/import_self.c	-std=gnu17 -I%S
+Preprocessor/include-macros.c	-std=gnu17 -Dtest=FOO -imacros %S/pr2086.h
+Preprocessor/indent_macro.c	-std=gnu17
+Preprocessor/lang-std.cpp	-std=gnu++17 -dM
+Preprocessor/macro_arg_empty.c	-std=gnu17
+Preprocessor/macro_arg_keyword.c	-std=gnu17
+Preprocessor/macro_backslash.c	-std=gnu17 '-Dfoo=bar\'
+Preprocessor/macro_disable.c	-std=gnu17
+Preprocessor/macro_expand.c	-std=gnu17
+Preprocessor/macro_expand_empty.c	-std=gnu17
+Preprocessor/macro_fn_comma_swallow.c	-std=gnu17
+Preprocessor/macro_fn_comma_swallow2.c	-std=gnu17
+Preprocessor/macro_fn_disable_expand.c	-std=gnu17
+Preprocessor/macro_fn_lparen_scan.c	-std=gnu17
+Preprocessor/macro_fn_lparen_scan2.c	-std=gnu17
+Preprocessor/macro_fn_placemarker.c	-std=gnu17
+Preprocessor/macro_fn_preexpand.c	-std=gnu17
+Preprocessor/macro_fn_varargs_iso.c	-std=gnu17
+Preprocessor/macro_fn_varargs_named.c	-std=gnu17
+Preprocessor/macro_not_define.c	-std=gnu17
+Preprocessor/macro_paste_commaext.c	-std=gnu17
+Preprocessor/macro_paste_empty.c	-std=gnu17
+Preprocessor/macro_paste_hard.c	-std=gnu17
+Preprocessor/macro_paste_hashhash.c	-std=gnu17
+Preprocessor/macro_paste_none.c	-std=gnu17
+Preprocessor/macro_paste_simple.c	-std=gnu17
+Preprocessor/macro_paste_spacing.c	-std=gnu17
+Preprocessor/macro_paste_spacing2.c	-std=gnu17
+Preprocessor/macro_rescan.c	-std=gnu17
+Preprocessor/macro_rescan2.c	-std=gnu17
+Preprocessor/macro_rescan_varargs.c	-std=gnu17
+Preprocessor/macro_rparen_scan.c	-std=gnu17
+Preprocessor/macro_rparen_scan2.c	-std=gnu17
+Preprocessor/macro_space.c	-std=gnu17
+Preprocessor/macro_undef.c	-std=gnu17 -dM -undef -Dfoo=1
+Preprocessor/macro_vaopt_expand.cpp	-pedantic -std=c++20
+Preprocessor/macro_vaopt_p1042r1.cpp	-pedantic -std=c++2a
+Preprocessor/mi_opt2.c	-std=gnu17
+Preprocessor/openacc.c	-std=gnu17 -fopenacc
+Preprocessor/pr2086.c	-std=gnu17
+Preprocessor/pragma-captured.c	-std=gnu17
+Preprocessor/pragma.c	-std=gnu17
+Preprocessor/pragma_assume_nonnull.c	-std=gnu17
+Preprocessor/pragma_diagnostic_output.c	-std=gnu17
+Preprocessor/pragma_sysheader.c	-std=gnu17
+Preprocessor/print_empty_include.c	-std=gnu17
+Preprocessor/print_line_empty_file.c	-std=gnu17
+Preprocessor/print_line_include.c	-std=gnu17
+Preprocessor/print_line_track.c	-std=gnu17
+Preprocessor/skipping_unclean.c	-std=gnu17
+Preprocessor/static_assert-already-defined.c	-std=gnu17 -DFIRST_WAY -dM
+Preprocessor/stringize_misc.c	-std=gnu17 -DTEST1
+Preprocessor/stringize_space.c	-std=gnu17
+Preprocessor/sycl-macro.cpp	-std=gnu++17 -dM
+Preprocessor/traditional-cpp.c	-std=gnu17 -traditional-cpp
+Lexer/block_cmt_end.c	-std=gnu17 -ftrigraphs
+Lexer/escape_newline.c	-std=gnu17 -ftrigraphs
+Lexer/ms-compatibility.c	-std=gnu17
+Lexer/token-concat.c	-std=gnu17
+Lexer/unicode.c	-std=c99 -DPP_ONLY=1

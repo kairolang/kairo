@@ -287,6 +287,17 @@ if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
     _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic"] + _shlex.split(kairo_roots))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
+# clang's own test corpus, run through kcc (Tests/CLI/Kcc/ClangCorpus): the
+# fork's clang/test and the bundled clang the preprocessor mode compares with.
+_repo = os.path.dirname(config.test_source_root)
+_clang_tests = os.path.join(_repo, "Lib", "llvm-runtimes", "clang", "test")
+_bundled_clang = os.path.join(_repo, "build", "llvm", "bin", "clang")
+if os.path.isdir(_clang_tests) and os.path.isfile(_bundled_clang):
+    config.available_features.add("clang-corpus")
+    config.substitutions.append(("%clang_tests", _sh(_clang_tests)))
+    config.substitutions.append(("%bundled_clang", _sh(_bundled_clang)))
+    config.substitutions.append(("%musl_sysroot", _sh(os.path.join(
+        os.path.dirname(os.path.dirname(kairo_bin)), "..", "release", "sysroot", "x86_64-linux-musl"))))
 # A kcc link builds and caches the Kairo library (builtin, std, the runtime)
 # on first use. One cache for the suite, under the build tree, never the
 # user's ~/.cache; parallel tests that race to build it are safe (the
