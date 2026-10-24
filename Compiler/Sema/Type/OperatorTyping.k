@@ -958,7 +958,9 @@ class <T> OperatorTyping {
         if dyn()->propagate(n, n->rhs) { return &null; }
         if rt == &null { return &null; }
         rt = dyn()->tu.as_value(rt);
-        if self._is_dependent(lt) || self._is_dependent(rt) { dyn()->mark_unknown(n); return &null; }
+        // A bounded parameter on the left binds through its bounds, as in
+        // the binary case; any other dependent operand defers.
+        if (self._is_dependent(lt) || self._is_dependent(rt)) && (!self._bounded(lt)) { dyn()->mark_unknown(n); return &null; }
 
         var l_rec = dyn()->tu.kind_of(lt) == BuiltinKind::COUNT;
         var r_rec = dyn()->tu.kind_of(rt) == BuiltinKind::COUNT;
@@ -1018,6 +1020,7 @@ class <T> OperatorTyping {
             return &null;
         }
         if !(has_c || has_b) {
+            if self._bounded(lt) { dyn()->mark_unknown(n); return &null; }   // nothing in the bounds: defer, as before.
             if !l_rec { return &null; }
             dyn()->fail(n, DiagID::SC066E, f"no operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' on '{dyn()->tu.str(lt)}\x27");
             return &null;
