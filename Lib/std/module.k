@@ -6,8 +6,9 @@
 ///   SPELLED `std`, so source writes `import std::io`. Nothing reaches std
 ///   without importing it; builtin is the only prelude.
 ///
-///   Re-exports only (CONTRACT.txt 2): each file here is a module of its
-///   own, reached as `std::<file>`.
+///   The pin and re-exports only (CONTRACT.txt 2): `module kairo::std` pins
+///   this directory as the library the driver registers it as, and each file
+///   here is a module of its own, reached as `std::<file>`.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -17,5 +18,7 @@
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
+
+module kairo::std
 
 pub import io

@@ -19,7 +19,7 @@ What every file in std may assume, may not do, and must ship with. Supervision c
 2. NAMING AND LAYOUT
 --------------------
 
-  - One module per file, one file per concept: std/vec.k is kairo::std::vec and extends [T], std/string.k extends string, std/fmt.k formatting, std/io.k I/O. A directory with a module.k is a module; module.k only re-exports. At the ROOT's top level the directory is the root, so std/module.k is kairo::std itself and not kairo::std::module.
+  - One module per file, one file per concept: std/vec.k is kairo::std::vec and extends [T], std/string.k extends string, std/fmt.k formatting, std/io.k I/O. A directory with a module.k is a module; module.k only re-exports, after its optional pin. The pin is a bare `module a::b` as the file's first declaration: it makes the directory the root of library a::b whatever the folder is called, and is the one non-re-export a module.k may hold. std/module.k pins `module kairo::std`, the name the driver registers std under; the two must agree. At the ROOT's top level the directory is the root, so std/module.k is kairo::std itself and not kairo::std::module.
 
   - TEMPORARY: std/module.k currently declares one function, print, instead of only re-exporting. It exists so the root can be tested end to end -- resolution, module path, and emitted spelling -- before there is a library to test with. It goes the moment there is a second file here.
 
