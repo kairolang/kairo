@@ -108,6 +108,14 @@ class InterfaceEmitter {
     /// EmitCXXHeader (which may see the HeaderSet; this file may not).
     priv var _ffi_lines: vec::<string>;
 
+    /// The host C++ TU already holds the lowering helpers / the const-field
+    /// constructor helpers: an earlier `#include "*.k"` in it wrote them
+    /// (Backend/IncludeEmitter.k). They are definitions, and a token stream
+    /// has no `#ifndef` to guard them with, so they are left out. run() sets
+    /// each once it writes them, for the next include to read.
+    pub var have_helpers:    bool = false;
+    pub var have_ctor_slots: bool = false;
+
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
         self._plan  = plan;
@@ -135,43 +143,50 @@ class InterfaceEmitter {
         // A header carries the module's inline and template bodies too
         // (EmitPlan::visible_bodies), so it needs these as much as a
         // preamble. Guarded there: one C++ TU may include several Kairo
-        // headers, and __kairo_tmp is a DEFINITION.
-        if header { self._cg->sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
-        if header { self._cg->sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
-        // The array-prvalue alias, once per TU, ahead of every body that
-        // can name it.
-        self._cg->sink->spell(self._tu_at(),
-            "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
-        self._cg->sink->brk();
-        // The materialized-temporary helper: the one place it is spelled.
-        // A forwarding reference binds the prvalue, so the address is the
-        // temporary's, which lives to the end of the full-expression.
-        self._cg->sink->spell(self._tu_at(),
-            "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
-        self._cg->sink->brk();
-        // An ADT's variant tags: `E(::__kairo_vt<I>{}, ...)` picks variant I's
-        // constructor. The explicit default constructor keeps a bare `{}`
-        // from converting into a tag.
-        self._cg->sink->spell(self._tu_at(),
-            "template <" + builtin_info(BuiltinKind::U32)->cxx + " I> struct " + LowerTargets::adt_variant_tag()
-            + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };");
-        self._cg->sink->brk();
-        // Construction and destruction in place. `new (p) T(...)` finds T's
-        // own placement operator new first (an ADT payload declares one),
-        // which needs no <new>, so it is never `::new`.
-        self._cg->sink->spell(self._tu_at(),
-            "template <class T, class... A> inline void " + LowerTargets::construct_at()
-            + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }");
-        self._cg->sink->brk();
-        self._cg->sink->spell(self._tu_at(),
-            "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
-        self._cg->sink->brk();
-        if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+        // headers, and __kairo_tmp is a DEFINITION. An include's token
+        // stream cannot be guarded; have_helpers stands in for the macro.
+        if !self.have_helpers {
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef __KAIRO_LOWER_HELPERS"); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define __KAIRO_LOWER_HELPERS"); }
+            // The array-prvalue alias, once per TU, ahead of every body that
+            // can name it.
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
+            self._cg->sink->brk();
+            // The materialized-temporary helper: the one place it is spelled.
+            // A forwarding reference binds the prvalue, so the address is the
+            // temporary's, which lives to the end of the full-expression.
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
+            self._cg->sink->brk();
+            // An ADT's variant tags: `E(::__kairo_vt<I>{}, ...)` picks variant I's
+            // constructor. The explicit default constructor keeps a bare `{}`
+            // from converting into a tag.
+            self._cg->sink->spell(self._tu_at(),
+                "template <" + builtin_info(BuiltinKind::U32)->cxx + " I> struct " + LowerTargets::adt_variant_tag()
+                + " { explicit " + LowerTargets::adt_variant_tag() + "() = default; };");
+            self._cg->sink->brk();
+            // Construction and destruction in place. `new (p) T(...)` finds T's
+            // own placement operator new first (an ADT payload declares one),
+            // which needs no <new>, so it is never `::new`.
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T, class... A> inline void " + LowerTargets::construct_at()
+                + "(T* p, A&&... a) { new (p) T(static_cast<A&&>(a)...); }");
+            self._cg->sink->brk();
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
+            self._cg->sink->brk();
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self.have_helpers = true;
+        }
         // A constructor that initializes a const field (_ctor_slot_helpers).
         // Only when one is planned, so no other TU's text changes; guarded
         // apart from the helpers above, which an earlier header may have
         // defined without these.
-        if self._needs_ctor_slots() { self._ctor_slot_helpers(header); }
+        if (!self.have_ctor_slots) && self._needs_ctor_slots() {
+            self._ctor_slot_helpers(header);
+            self.have_ctor_slots = true;
+        }
 
         var i: usize = 0;
         var n = self._plan->entries.size();

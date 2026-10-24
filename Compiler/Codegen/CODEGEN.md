@@ -52,7 +52,10 @@ TextSink; `--emit-headers <dir>` runs `EmitPlan(Header)` into
 `<dir>/<module path>.hh`. Both work under `--type-check-only`.
 `#include "foo.k"` from a C++ input runs `EmitPlan(Preamble)` and
 `InterfaceEmitter::run` into a TokenSink bound to the host's preprocessor
-(`IncludeEmitter`): no bodies, no eof.
+(`IncludeEmitter`): no bodies, no eof. A stream cannot carry `#ifndef`,
+so a second include in the same C++ TU drops what an earlier one already
+put there (`IncludedDecls`: the helpers, and plan entries keyed by decl
+and tier).
 
 Layout. Only `Backend/` imports emitters, and only `Backend/` and `Sink/`
 import clang headers:
@@ -237,7 +240,8 @@ temporary, valid to the end of the full-expression: ExtensionLowering's
 `::__kairo_tmp(e)`. The preamble is the one place it is spelled. A header
 needs them for its bodies and wraps them in `#ifndef __KAIRO_LOWER_HELPERS`,
 because one C++ TU may include several Kairo headers and `__kairo_tmp` is a
-definition.
+definition. An include stream is not guarded; `InterfaceEmitter::have_helpers`
+leaves them out instead.
 
 Namespace wrapping: an entry-TU decl lives in `namespace <file stem>`, the
 stem sanitized to an identifier, with a trailing `_` when it is a C++

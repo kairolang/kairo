@@ -17,8 +17,7 @@ fn main() -> i32 { return 0 }
 // SHAPES-NEXT: ~Tracer()
 
 // geo.k is not on the command line: twice.k imports it, which makes it part
-// of the build, so the .cc can include it. 4 + 2. (Including twice.k as well
-// is two Kairo files in one TU, which M2 makes work.) From %t.d: lit's cwd
+// of the build, so the .cc can include it. 4 + 2. From %t.d: lit's cwd
 // holds both Output/ and output.k, which the import scan rejects as a case
 // clash.
 // RUN: cd %t.d && %kairo %S/Inputs/include_k/use_twice.cc %S/Inputs/include_k/twice.k -o %t.d/twice --cache-dir %t.d/o2
@@ -30,6 +29,22 @@ fn main() -> i32 { return 0 }
 // tokens. Boxed() sets v to 1.
 // RUN: %kairo %S/Inputs/include_k/use_boxed.cc %S/Inputs/include_k/boxed.k -o %t.d/boxed --cache-dir %t.d/o3
 // RUN: %t.d/boxed; test $? -eq 1
+
+// Several Kairo files in one C++ TU. Each stream declares everything its
+// module reaches, so geo is in both geo.k's and twice.k's, shapes::Point in
+// both shapes.k's and moved.k's, and the lowering helpers and std::io in
+// all of them: a later include leaves out what an earlier one put in the
+// TU. Both orders, so the own copy is the skipped one in one and the foreign
+// copy in the other. The second twice.k is include-once. many.k imports the
+// lot: two Kairo files on one command line do not build yet.
+// RUN: cd %t.d && %kairo %S/Inputs/include_k/use_many.cc %S/Inputs/include_k/many.k -o %t.d/many --cache-dir %t.d/o5
+// RUN: %t.d/many; test $? -eq 14
+// RUN: cd %t.d && %kairo %S/Inputs/include_k/use_many_rev.cc %S/Inputs/include_k/many.k -o %t.d/many_rev --cache-dir %t.d/o6
+// RUN: %t.d/many_rev > %t.d/many_rev.out; test $? -eq 15
+// RUN: %FileCheck %s --check-prefix=MANY --input-file=%t.d/many_rev.out
+// MANY:      Tracer()
+// MANY-NEXT: ~Tracer()
+// MANY-NEXT: greet hi 6
 
 // Objective-C is C to the include. The refusal is the only error: what
 // stands in for the file must not parse as C into more of them.

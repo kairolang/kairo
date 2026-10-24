@@ -9,8 +9,9 @@
 ///   time clang meets the include, foo.k is through sema and lowering.
 ///
 ///   Per host TU: one ClangLocMap bound to the host's CompilerInstance
-///   (every Kairo fid registered once, on the first .k it includes), and
-///   the TokenSinks the streams were built in, all released at end_tu.
+///   (every Kairo fid registered once, on the first .k it includes), the
+///   TokenSinks the streams were built in, and what the streams so far put
+///   in it (IncludedDecls), all released at end_tu.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -48,6 +49,7 @@ class DriverIncludeSource derives KairoIncludeSource {
     priv var _locmap:    opt::<ClangLocMap> = &null;   ///< owned; this host TU's
     priv var _bound:     obs::<clang::CompilerInstance> = &null;
     priv var _sinks:     vec::<*TokenSink>;            ///< owned; this host TU's
+    priv var _seen:      IncludedDecls;                ///< this host TU's
 
     fn DriverIncludeSource(self, ksm: *SourceManager, scope: *GlobalDisambigTable,
                            psym: *PreprocessorSymbolTable, lowered: bool) {
@@ -94,7 +96,7 @@ class DriverIncludeSource derives KairoIncludeSource {
         var ksize = static_cast::<u32>(self._ksm->get_file_size(kfid));
         var em = IncludeEmitter();
         if !em.emit(ci, self._locmap, ctx, kfid, ksize, self._psym, self._scope->instances(), out,
-                    &(self._sinks), &(self.system_headers)) {
+                    &(self._sinks), &(self.system_headers), &(self._seen)) {
             self.error = em.error;
             return false;
         }
@@ -104,6 +106,7 @@ class DriverIncludeSource derives KairoIncludeSource {
     override fn end_tu(self) {
         for var i: usize = 0; i < self._sinks.size(); ++i { std::destroy(self._sinks[i]); }
         self._sinks.clear();
+        self._seen.clear();
         self._bound = &null;
     }
 
