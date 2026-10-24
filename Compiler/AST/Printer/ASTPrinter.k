@@ -1602,8 +1602,35 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._generic_params(ta->generic_params);
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ta->name));
+        self._alias_rest(ta);
+    }
+
+    /// ` = T`, or for an associated type its bounds and optional default:
+    /// `type N impl X, Y = D` (the bounds are its requires clause's conjuncts).
+    fn _alias_rest(self, ta: *TypeAliasDecl) {
+        if ta->is_associated && (ta->requires_clause != &null) {
+            self.p.put(" ");
+            self.p.paint(Color::Keyword, "impl");
+            self.p.put(" ");
+            self._assoc_bounds(ta->requires_clause, true);
+        }
+        if (ta->aliased == &null) && ta->is_associated { return; }
         self.p.paint(Color::Punct, " = ");
         self.src_type(ta->aliased);
+    }
+
+    /// The interfaces of an `N impl X && N impl Y` conjunction, comma-separated.
+    fn _assoc_bounds(self, e: *Expr, first: bool) -> bool {
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if b != &null {
+            var f = self._assoc_bounds(b->lhs, first);
+            return self._assoc_bounds(b->rhs, f);
+        }
+        var c = dyn_cast::<ConstraintExpr>(e);
+        if c == &null { return first; }
+        if !first { self.p.paint(Color::Punct, ", "); }
+        self.src_type(c->rhs);
+        return false;
     }
 
     fn _d_module(self, md: *ModuleDecl) {
@@ -3416,8 +3443,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(ta));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ta->name));
-        self.p.paint(Color::Punct, " = ");
-        self.src_type(ta->aliased);
+        self._alias_rest(ta);
         self.p.newline();
         if self._has_annotations(static_cast::<*Decl>(ta)) {
             self.p.enter(is_last);

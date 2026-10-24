@@ -3476,25 +3476,86 @@ class <T> DeclParse {
             return static_cast::<*Decl>(ita);
         }
 
-        if !dyn()->check(TokenKind::OpEqual) {
-            dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '=' in type alias declaration"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        // Inside an interface, `type N` is an ASSOCIATED type
+        // (interfaces.md, "Associated Types"): `=` gives its default and is
+        // optional, and `impl X, Y` bounds it. Anywhere else it is an alias,
+        // `=` is required and `impl` has no meaning.
+        var cur = dyn()->scope.current_dc();
+        var in_iface = (cur != &null) && (cur->dc_kind == DeclContextKind::Interface);
+        var bounds: *Expr = &null;
+        if dyn()->check(TokenKind::KwImpl) {
+            if !in_iface {
+                var it = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S001E, it.start,
+                    "'impl' bounds an associated type, which is only declared inside an interface"
+                ).first(it).emit();
+                self._sync_decl(DeclSyncCtx::TopLevel);
+                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
+            bounds = self._parse_assoc_bounds(name);
+            if bounds == &null {
+                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
         }
-        dyn()->advance(T::SkipNL::After); // consume `=`
 
-        var aliased = dyn()->parse_type();
-        if (aliased == &null) || is_recovery(aliased) {
+        var aliased: *Type = &null;
+        if dyn()->check(TokenKind::OpEqual) {
+            dyn()->advance(T::SkipNL::After); // consume `=`
+            aliased = dyn()->parse_type();
+            if (aliased == &null) || is_recovery(aliased) {
+                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
+        } else if !in_iface {
+            var b = dyn()->diag->report(DiagID::S050E, start.start,
+                "expected '=' in type alias declaration");
+            b.first(start);
+            b.note(start.start,
+                "a 'type' with no '=' is an associated type, which is only declared inside an interface");
+            b.emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
 
         var ta = TypeAliasDecl::create(dyn()->ctx, start | dyn()->prev().range, name, aliased);
+        ta->is_associated   = in_iface;
+        ta->requires_clause = bounds;
         if has_generics {
             ta->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
         return static_cast::<*Decl>(ta);
+    }
+
+    /// `impl X, Y` on associated type \p name: its bounds as the requires
+    /// clause every bound is, `N impl X && N impl Y` (ConstraintExpr
+    /// conjuncts), so ConstraintExtraction partitions them as it does any
+    /// decl's. Null after a diagnostic.
+    priv fn _parse_assoc_bounds(self, name: Token) -> *Expr {
+        var impl_tok = dyn()->current();
+        dyn()->advance(T::SkipNL::After); // consume `impl`
+        var clause: *Expr = &null;
+        while true {
+            var ty = dyn()->parse_type();
+            if (ty == &null) || is_recovery(ty) {
+                dyn()->diag->report(DiagID::S001E, dyn()->current_ptr()->range.start,
+                    "expected an interface after 'impl\x27"
+                ).first(dyn()->current_ptr()->range).emit();
+                return &null;
+            }
+            var lhs = NamedIdentExpr::create(dyn()->ctx, name.range, name);
+            var c = static_cast::<*Expr>(ConstraintExpr::create(dyn()->ctx, name.range | ty->range, static_cast::<*Expr>(lhs), ty, impl_tok));
+            if clause == &null {
+                clause = c;
+            } else {
+                var and_tok = dyn()->ctx->make_token(ty->range, TokenKind::OpAmpAmp, "&&");
+                clause = static_cast::<*Expr>(BinaryOperatorExpr::create(dyn()->ctx, clause->range | c->range, clause, c, and_tok));
+            }
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                continue;
+            }
+            break;
+        }
+        return clause;
     }
 
     //  Module

@@ -1280,7 +1280,11 @@ class UnionDecl
 ///
 class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<TypeAliasDecl> {
     pub var name:    Token;
-    pub var aliased: *Type;   ///< the right-hand-side type.
+    pub var aliased: *Type;   ///< the right-hand-side type; an associated type's DEFAULT, or null.
+    /// An interface's associated type (`type N`, `type N impl X`, `type N =
+    /// D`; interfaces.md "Associated Types"). Its bounds are its
+    /// requires_clause, `N impl X && N impl Y`, as any requires clause is.
+    pub var is_associated: bool = false;
 
     static fn create(
         ctx:     *ASTContext,
@@ -1294,6 +1298,7 @@ class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<
         node->init_annotations(&(ctx->ast_alloc));;
         node->name    = name;
         node->aliased = aliased;
+        node->is_associated = false;
         return node;
     }
 
