@@ -81,8 +81,9 @@ class SearchRoot {
         }
     }
 
-    /// The name as written, for dumps and diagnostics. `<entry>` for the
-    /// unnamed entry root, so a reader never sees a blank column.
+    /// The name as written, for dumps and diagnostics. `<entry>` for an
+    /// unnamed search dir (the cwd, an unpinned -I), so a reader never sees a
+    /// blank column.
     fn name_str(self) -> string {
         if self.name.size() == 0 { return "<entry>"; }
         var out = string();
@@ -112,9 +113,9 @@ class SearchRoot {
 }
 
 /// Split a root name written as a module path (`kairo::std`) into its
-/// segments. One home for the split so `-I name=path`, the driver's own
+/// segments. One home for the split so a module.k pin, the driver's own
 /// registrations and any future caller agree on what a dotted name means.
-/// An empty or all-separator name yields an empty vec -- the entry root.
+/// An empty or all-separator name yields an empty vec -- an unnamed search dir.
 fn split_module_name(name: string) -> vec::<string> {
     var out     = vec::<string>();
     var current = string();
@@ -145,7 +146,7 @@ fn root_names_equal(a: vec::<string>, b: vec::<string>) -> bool {
 }
 
 /// True when \p name is a leading-segment prefix of \p segments. The empty
-/// name (the entry root) is a prefix of everything, so callers that must not
+/// name (an unnamed search dir) is a prefix of everything, so callers that must not
 /// match it check `name.size() > 0` first.
 fn root_name_matches(name: vec::<string>, segments: vec::<string>) -> bool {
     if name.size() > segments.size() { return false; }

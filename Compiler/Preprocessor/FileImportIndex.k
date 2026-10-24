@@ -234,7 +234,15 @@ class FileImportIndex {
             }
 
             if rr.found {
-                if rr.ambiguous {
+                if rr.ambiguous && rr.cross_root {
+                    // Two unnamed search dirs hold one path. Qualifying
+                    // cannot help, as it does for a sibling: an unnamed dir
+                    // has no name to write. One file has to go, or be pinned
+                    // into a library of its own.
+                    self._diag->report(DiagCode(DiagID::R017E), at.start,
+                        f"ambiguous import '{self._join(try_segs)}': it matches both '{rr.path.full_path()}' and '{rr.other_path.full_path()}', in two search directories; a search directory adds nothing to a module path, so no spelling tells them apart: remove or rename one, or pin one as a library with a module.k"
+                    ).first(at).emit();
+                } else if rr.ambiguous {
                     // Sibling and root both matched. Erroring here is what
                     // keeps sibling-first from becoming Python 2's implicit
                     // relative import, where adding a file at the root

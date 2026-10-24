@@ -97,9 +97,10 @@ enum ModuleOrigin derives u8 {
 ///          importer's spelling.
 ///
 ///          `ambiguous` means the name matched BOTH a sibling module and a
-///          root module: a hard error at the import site (R017E). The sibling
-///          is still returned so resolution does not cascade into a second
-///          "not found" for the same import.
+///          root module, or (`cross_root`) two different files through two
+///          unnamed search dirs: a hard error at the import site (R017E).
+///          The winner is still returned so resolution does not cascade into
+///          a second "not found" for the same import.
 class ModuleResolution {
     pub var found:      bool         = false;
     pub var path:       Path;                        ///< the resolved file.
@@ -107,6 +108,7 @@ class ModuleResolution {
     pub var origin:     ModuleOrigin = ModuleOrigin::Root;
     pub var ambiguous:  bool         = false;        ///< sibling AND root both matched.
     pub var other_path: Path;                        ///< the losing (root) candidate, iff ambiguous.
+    pub var cross_root: bool         = false;        ///< ambiguous between two unnamed search dirs, not sibling/root.
     pub var file_dir:   bool         = false;        ///< a file AND a directory matched the last segment.
 }
 
@@ -229,22 +231,23 @@ class ImportResolver {
         /// \return pointer to self for chaining
         /// \param name the root's MODULE name -- the leading SEGMENTS every
         ///             module under it carries (IMPORTS.md §2.1), written as a
-        ///             module path (`kairo::std`). Empty means "use the
-        ///             directory's basename"; only the ENTRY root is
-        ///             legitimately unnamed.
+        ///             module path (`kairo::std`). Empty means "whatever
+        ///             the directory's module.k pins, else an unnamed search
+        ///             dir" -- what every `-I dir` is. Only the driver's own
+        ///             registrations (builtin, kairo::std) pass a name.
         ///
         /// \param spelling what an import writes to reach the root, when it
         ///             differs from the name (SearchRoot::spelling). Empty
         ///             means "the name".
         ///
-        /// The `::` split happens HERE and nowhere else, so `-I name=path`,
-        /// the driver's own registrations and any future caller agree on what
-        /// a dotted name means.
+        /// The `::` split happens HERE and nowhere else, so the driver's own
+        /// registrations and any future caller agree on what a dotted name
+        /// means.
         fn add_include(self, path: Path, name: string = "", spelling: string = "") -> ref!(Builder) {
             self._include_paths.push_back(path);
-            // Empty stays empty: build_index tells an EXPLICIT name from an
-            // implicit one by it, because only the implicit (basename) name
-            // yields to the directory's own pinned module.k.
+            // Empty stays empty: build_index tells an EXPLICIT name from
+            // none by it, because only a nameless dir takes its pinned
+            // module.k's name.
             self._include_names.push_back(split_module_name(name));
             self._include_spellings.push_back(split_module_name(spelling));
             return self;
@@ -322,19 +325,23 @@ class ImportResolver {
         var priority: u32 = 1;
         for var i: usize = 0; i < include_paths.size(); ++i {
             var p = include_paths[i];
-            if p.exists() && p.is_directory() {
+            // The same directory twice (`-I inc -I inc`, or an -I naming the
+            // cwd) is one search dir, as it is to clang: a second root over
+            // it would only make every file in it ambiguous with itself.
+            if p.exists() && p.is_directory() && (!self._is_root_dir(p)) {
                 var nm = (include_names[i]) if (i < include_names.size()) else (vec::<string>());
-                // No explicit name: the directory's own pin names it, and only
-                // then its basename. An explicit name (`-I name=dir`, the
-                // driver's builtin/std) wins over the pin -- std's and
-                // builtin's module.k pin the very names the driver registers,
-                // so for them the two always agree.
+                // No explicit name: the directory's own pin names it, or it
+                // stays an UNNAMED search dir, as the cwd is -- never its
+                // basename, which made every `-I .../include` the same root
+                // (TICKETS.TXT:210). An explicit name (the driver's builtin
+                // and kairo::std; the CLI has no way to give one) wins over
+                // the pin -- std's and builtin's module.k pin the very names
+                // the driver registers, so for them the two always agree.
                 var pinned = false;
                 if nm.size() == 0 {
                     nm = self._pin_of_dir(p.full_path());
                     pinned = nm.size() > 0;
                 }
-                if nm.size() == 0 { nm = split_module_name(p.filename()); }
                 var sp = (include_spellings[i]) if (i < include_spellings.size()) else (vec::<string>());
                 if sp.size() == 0 { sp = nm; }
                 self._add_root(p, priority, nm, sp, pinned);
@@ -388,9 +395,16 @@ class ImportResolver {
     /// too: two roots an import reaches by one path would make that path
     /// ambiguous even with two names. One home for the check, so a pinned
     /// library colliding with a -I root or with another pin is the same R018E.
+    ///
+    /// Unnamed search dirs (the cwd, every unpinned -I) never collide here:
+    /// an empty name prefixes no module path, so two of them share nothing a
+    /// root name could clash on. What they CAN share is one module path
+    /// spelled by two files, and that is decided per import, by the files
+    /// that exist (resolve_module_rel), not by registering the dirs.
     priv fn _add_root(self, p: Path, priority: u32, nm: vec::<string>, sp: vec::<string>,
                       pinned: bool) -> *SearchRoot {
-        for var k: usize = 0; k < self._roots.size(); ++k {
+        for var k: usize = 0; (nm.size() > 0) && (k < self._roots.size()); ++k {
+            if self._roots[k]->name.size() == 0 { continue; }
             if (!root_names_equal(self._roots[k]->name, nm))
             && (!root_names_equal(self._roots[k]->spelling, sp)) { continue; }
             var c = RootNameCollision{};
@@ -598,20 +612,22 @@ class ImportResolver {
         //      a. the importing file's OWN root, with the path as written
         //      b. any root whose NAME is the leading segment, with the rest
         //      c. every other root with the path as written -- except that a
-        //         file under a NAMED root never falls back into the entry
-        //         root: the entry TU is a leaf of the import graph and nothing
-        //         outside it can name it.
+        //         file under a NAMED root never falls back into an unnamed
+        //         search dir (the cwd, an unpinned -I): a library cannot
+        //         depend on what happens to sit on one build's command line.
         var own_root: *SearchRoot = &null;
         if has_from { own_root = self.root_for_dir(from_dir); }
 
         var root_hit  = false;
         var root_path: Path;
+        var hit_root: *SearchRoot = &null;   // the root that answered, for the search-dir check
 
         if own_root != &null {
             var h = self._probe_root(own_root, segments, is_module);
             if h.found {
                 root_hit  = true;
                 root_path = h.path;
+                hit_root  = own_root;
                 if !sib_hit { out.file_dir = h.file_dir; }
             }
         }
@@ -690,13 +706,40 @@ class ImportResolver {
             var r = self._roots[ri];
             ri += 1;
             if r == own_root { continue; }                       // already tried
-            if from_library && (r->name.size() == 0) { continue; } // library -> entry root
+            if from_library && (r->name.size() == 0) { continue; } // library -> unnamed search dir
             if r->discovered { continue; }                       // a pinned library: by name only
             var h = self._probe_root(r, segments, is_module);
             if h.found {
                 root_hit  = true;
                 root_path = h.path;
+                hit_root  = r;
                 if !sib_hit { out.file_dir = h.file_dir; }
+            }
+        }
+
+        // 4. Two unnamed search dirs answering one path with two files. Both
+        //    are that path's module -- an unnamed dir adds no prefix -- so
+        //    they would be one module identity and one C++ namespace, and
+        //    the first-searched would win silently: the day `inc/a.k`
+        //    appears beside `./a.k`, an `import a` elsewhere changes meaning.
+        //    Same fault as rule 3, one level out, and the same error
+        //    (IMPORTS.md §2.1, decision E). Every unnamed dir is probed,
+        //    not just those after the winner: the importer's own dir wins
+        //    the search but must not hide a twin. A library never searches
+        //    unnamed dirs, and a sibling collision is already reported.
+        var other_hit = false;
+        var other_path: Path;
+        if root_hit && (!sib_hit) && (hit_root != &null) && (hit_root->name.size() == 0) {
+            var oi: usize = 0;
+            while (oi < self._roots.size()) && (!other_hit) {
+                var r = self._roots[oi];
+                oi += 1;
+                if (r == hit_root) || (r->name.size() > 0) || r->discovered { continue; }
+                var h = self._probe_root(r, segments, is_module);
+                if h.found && (h.path.full_path() != root_path.full_path()) {
+                    other_hit  = true;
+                    other_path = h.path;
+                }
             }
         }
 
@@ -715,6 +758,11 @@ class ImportResolver {
             out.found  = true;
             out.path   = root_path;
             out.origin = ModuleOrigin::Root;
+            if other_hit {
+                out.ambiguous  = true;
+                out.cross_root = true;
+                out.other_path = other_path;
+            }
         }
 
         out.canonical = self.canonical_module_path(out.path);
@@ -781,12 +829,12 @@ class ImportResolver {
             walk = up;
         }
 
-        // The root's name is the leading SEGMENTS: `~/foo/a.k` under
-        // `-I ~/foo` is `foo::a` from EVERY importer, and `Lib/std/vec.k`
-        // under `-I kairo::std=Lib/std` is `kairo::std::vec`. That is what
-        // makes a file's identity -- and therefore its C++ namespace --
-        // independent of who imported it. The entry root is unnamed and
-        // contributes no prefix.
+        // The root's name is the leading SEGMENTS: `~/foo/a.k` under a
+        // `~/foo/module.k` pinning `foo` is `foo::a` from EVERY importer, and
+        // `Lib/std/vec.k` under the driver's `kairo::std` root is
+        // `kairo::std::vec`. That is what makes a file's identity -- and
+        // therefore its C++ namespace -- independent of who imported it. An
+        // unnamed search dir (the cwd, an unpinned -I) contributes no prefix.
         for var bi: usize = 0; bi < best_name.size(); ++bi {
             out.push_back(self.module_ident(best_name[bi]));
         }

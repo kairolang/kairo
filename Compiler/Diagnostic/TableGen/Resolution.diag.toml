@@ -332,12 +332,12 @@ group = "import"
     """
 
 [R017]
-brief = "ambiguous relative import"
+brief = "ambiguous import"
 group = "import"
 
     [R017.E]
     explain = """
-    # ambiguous relative import
+    # ambiguous import
 
     an unqualified import path matched BOTH a module in the importing file's own directory and a
     module in a search root. unqualified imports resolve sibling-first, then root, so the sibling
@@ -349,10 +349,22 @@ group = "import"
     import baz;   // which one?
     ```
 
+    the same holds between two search directories. the working directory and every `-I dir` are
+    searched alike, and neither adds anything to a module path, so `./a.k` and `inc/a.k` under
+    `-I inc` are both module `a`. the first one searched would win silently.
+
+    ```kairo
+    // kairo main.k -I inc, with both ./a.k and inc/a.k on disk
+    import a;     // which one?
+    ```
+
     ## how to fix
 
     qualify the path so it names exactly one module (`import Foo::baz` for the sibling), or rename
-    one of the two files so the name is unambiguous across the tree.
+    one of the two files so the name is unambiguous across the tree. between two search
+    directories there is no spelling to qualify with: remove or rename one file, or give its
+    directory a `module.k` whose first line pins a library name (`module mylib`), so its files
+    become `mylib::...`.
     """
 
 [R018]

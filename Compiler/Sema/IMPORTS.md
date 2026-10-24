@@ -94,67 +94,82 @@ import, `0` for unresolved or ffi. See §4.1.
 
 [DONE] **Module roots and paths.**
 
-A module path is `[root name] + directories + file`, and every part of
+A module path is `[library name] + directories + file`, and every part of
 that is fixed by where the file sits, never by who imports it.
 
-- **Every root has a name, and the name is a module PATH.** `-I ~/foo`
-  registers a root named `foo` (the directory basename; `-I name=path`
-  overrides, and the name is split on `::`). `import foo::a` resolves to
-  `~/foo/a.k`, whose module path is `foo::a`. A name may have several
-  segments: Kairo's own standard library registers as `kairo::std`, so
-  `Lib/std/vec.k` is `kairo::std::vec`. `module.k` names its directory --
-  and at a root's TOP level the directory IS the root, so `Lib/std/module.k`
-  is `kairo::std`, not `kairo::std::module`. `module X { }` inside a file
-  appends `X`.
-- **A module.k can pin its directory's library name.** A `module.k` whose
-  FIRST declaration is the bare `module a::b` (a module path, ended by a
-  newline or `;`) makes its directory the root of library `a::b`, named by
-  the declaration and not the folder: `geometry/module.k` saying
+- **Search dirs are unnamed.** The cwd and every `-I dir` (and
+  `--macro-search-path dir`) is a search dir with NO name: a file under one,
+  and under no pinned library, is its path relative to that dir, so `./a.k`
+  is `a` and `inc/sub/b.k` under `-I inc` is `sub::b`. The folder's own name
+  is never part of it -- it used to be, which made every
+  `-I .../include` the same root `include` (TICKETS.TXT:210, F20). `-I` is
+  also clang's -I: the same dir is a header path for C/C++ inputs, ffi
+  headers and `#include "x.k"` (`CompilerInvocation::clang_include_dirs`),
+  so a .k beside the headers of one -I dir is reachable both ways.
+  `--ffi-include` / `--cxx-include` stay clang-only. The old
+  `-I name=dir` form is gone: the driver reports it (U001E) and points at
+  the module.k pin, unless the whole spec is an existing directory.
+- **A library has a name, and the name is a module PATH.** A `module.k`
+  whose FIRST declaration is the bare `module a::b` (a module path, ended
+  by a newline or `;`) makes its directory the root of library `a::b`,
+  named by the declaration and not the folder: `geometry/module.k` saying
   `module geo` is imported as `geo`, and `geometry/inner/x.k` is
-  `geo::inner::x`. Pins are DISCOVERED only in each root directory and its
-  immediate subdirectories (one readdir per root, one small read per
-  module.k, never a recursive walk); a subdirectory pin registers a library
-  root (`SearchRoot::discovered`) reached by its name only -- the
-  "every other root with the path as written" fallback skips it. A pin
-  deeper than that still fixes its files' paths: `canonical_module_path`
-  walks up from the file to the nearest pinned directory below its root
-  and uses the pin's name as the prefix. A root directory's own pin names
-  an implicit `-I dir` root; an explicit name (`-I name=dir`, the driver's
-  `builtin` and `kairo::std`) wins, and `Lib/std/module.k` /
-  `Lib/builtin/module.k` pin exactly those names. The cwd stays the
-  unnamed entry root even if its module.k pins. Two pins with one name, or
-  a pin colliding with a registered root, are R018E. The bare form parses
-  in any file; outside module.k it has no effect yet (the parser records it
-  on `TranslationUnit::pin_segments` and nothing reads that).
-- **Root names match longest first.** An import path is matched against
-  each root's segment list on its LEADING segments, longest name winning:
-  with roots `kairo::std` and a hypothetical `kairo`, `import kairo::std::vec`
-  is the former's `vec.k` and never the latter's `std/vec.k`. Longest-first
-  is what makes prefix pairs legal; only EQUAL names are the collision
-  below. A name that consumes the whole path names the root itself and
-  resolves to its own `module.k` -- that is how `import builtin` and
-  `import kairo::std` resolve.
-- **The entry root is unnamed.** The directory of the entry file is a
-  root with no name, so `./a.k` is `a`. It is the only unnamed root, and
-  therefore the only root whose files are importable with a bare first
-  segment. The entry TU itself has no path (`module_self` null) and emits
-  into the global namespace; every non-`main` decl in it gets internal
-  linkage (unnamed C++ namespace), because no path can reach the entry TU
-  and nothing outside it will ever link against it.
-- **A file's path is fixed by its root.** `~/foo/b.k` writing `import a`
-  resolves inside its own root to `~/foo/a.k`, and that file is still
-  `foo::a` same file, same path, same C++ namespace from every
-  importer. This is what invariant #9 requires and why root names cannot
-  be optional.
+  `geo::inner::x`. A name may have several segments: Kairo's own standard
+  library is `kairo::std`, so `Lib/std/vec.k` is `kairo::std::vec`.
+  `module.k` names its directory -- and at a root's TOP level the directory
+  IS the root, so `Lib/std/module.k` is `kairo::std`, not
+  `kairo::std::module`. `module X { }` inside a file appends `X`.
+- **Where pins are found.** In each search dir itself (an -I dir whose own
+  module.k pins is that library) and in its immediate subdirectories (one
+  readdir per root, one small read per module.k, never a recursive walk);
+  a subdirectory pin registers a library root (`SearchRoot::discovered`)
+  reached by its name only -- the "every other root with the path as
+  written" fallback skips it. A pin deeper than that still fixes its
+  files' paths: `canonical_module_path` walks up from the file to the
+  nearest pinned directory below its root and uses the pin's name as the
+  prefix. The cwd stays unnamed even if its module.k pins. The driver's
+  `builtin` and `kairo::std` registrations are the only names given
+  outside a pin (`Builder::add_include(path, name, spelling)`; std's
+  spelling `std` is not expressible as a pin), and `Lib/std/module.k` /
+  `Lib/builtin/module.k` pin exactly those names. The bare form parses in
+  any file; outside module.k it has no effect yet (the parser records it on
+  `TranslationUnit::pin_segments` and nothing reads that).
+- **Library names match longest first.** An import path is matched against
+  each library's segment list on its LEADING segments, longest name
+  winning: with `kairo::std` and a hypothetical `kairo`,
+  `import kairo::std::vec` is the former's `vec.k` and never the latter's
+  `std/vec.k`. Longest-first is what makes prefix pairs legal; only EQUAL
+  names are the collision below. A name that consumes the whole path names
+  the library itself and resolves to its own `module.k` -- that is how
+  `import builtin` and `import kairo::std` resolve.
+- **The entry TU.** A command-line input still has no path (`module_self`
+  null) and emits into the global namespace; every non-`main` decl in it
+  gets internal linkage (unnamed C++ namespace), because nothing outside it
+  links against it. (Inputs-as-modules is the next phase of module
+  pinning: PLAN-module-pinning.md decision C.)
+- **A file's path is fixed by its root.** `~/foo/b.k` writing `import a`,
+  under a `~/foo/module.k` pinning `foo`, resolves inside its own library to
+  `~/foo/a.k`, and that file is still `foo::a` -- same file, same path, same
+  C++ namespace from every importer. This is what invariant #9 requires and
+  why a library's name cannot come from search order.
 - **Resolution order for an import path:** the importing file's own root
-  first, then named roots matched by leading segment. Library roots
-  never see the entry root: it is a leaf of the import graph.
-- **Two roots with the same name is a build error** from the
-  ImportResolver, before anything is parsed. Never first-wins, never a
-  merge.
+  first, then libraries matched by leading segment, then the other
+  undiscovered roots with the path as written. A file in a library never
+  falls back into an unnamed search dir: a library cannot depend on what
+  one build's command line happens to hold.
+- **One path, two files, is an error -- never first-wins.** Two libraries
+  with one name (or one spelling) are R018E from the ImportResolver, before
+  anything is parsed; unnamed search dirs never collide that way (an empty
+  name prefixes nothing). Two unnamed search dirs answering one import path
+  with two different files (`./a.k` and `inc/a.k` under `-I inc`, both
+  module `a`) is R017E at the import, naming both files
+  (`ModuleResolution::cross_root`) -- the same rule as sibling-vs-root, one
+  level out. Every unnamed dir is probed once one answers, so the
+  importer's own dir winning the search cannot hide a twin. The same
+  directory given twice (`-I inc -I inc`, `-I .`) is one search dir.
 - **Reopening never crosses a root.** Two files under the same root
-  producing the same path are one module (§4.3). `module a { }` in an
-  entry-root file reopens `a`, never `foo::a`.
+  producing the same path are one module (§4.3). `module a { }` in a
+  cwd file reopens `a`, never `foo::a`.
 - **One module is one C++ namespace and obeys C++'s definition rules,
   checked by Kairo.** Across every reopening of a module: a forward
   declaration plus one definition of a signature is a redecl chain; two
@@ -165,19 +180,20 @@ that is fixed by where the file sits, never by who imports it.
   ambiguous at overload resolution); the definition site does not.
 
 Mechanically: `ImportResolver::Builder::add_include(path, name)`;
-`SearchRoot::name` carries it (empty = the entry root);
+`SearchRoot::name` carries it (empty = an unnamed search dir);
 `canonical_module_path` prefixes it, so `module_base` for a file under a
-root is `[root name] + relative directories`. `-I path` takes the
-directory's basename unless the directory's own module.k pins a name;
-`-I name=path` overrides both, split on the first `=`. `build_index` then
-registers each pinned immediate subdirectory of every root as a root named
-by its pin (`read_module_pin`: a byte scan of the file's first declaration,
-no lex, cached per directory in `_dir_pins`). `resolve_module_rel` probes the importing file's OWN root with the
-path as written, then any root whose name is the leading segment with
-the rest of the path, then the remaining roots except that a file
-under a named root never falls back into the entry root, which is a leaf
-of the import graph. Two roots claiming one name is an R018E from the
-driver before anything is parsed (`take_root_collisions`).
+root is `[root name] + relative directories`. `-I path` registers an
+unnamed root unless the directory's own module.k pins a name. `build_index`
+then registers each pinned immediate subdirectory of every root as a root
+named by its pin (`read_module_pin`: a byte scan of the file's first
+declaration, no lex, cached per directory in `_dir_pins`).
+`resolve_module_rel` probes the importing file's OWN root with the path as
+written, then any root whose name is the leading segment with the rest of
+the path, then the remaining roots -- except that a file under a named root
+never falls back into an unnamed one -- and, when the answer came from an
+unnamed root, every other unnamed root for a twin. Two roots claiming one
+name is an R018E from the driver before anything is parsed
+(`take_root_collisions`).
 
 **The std root.** `Lib/std` is a named root with a NAME and a SPELLING
 (`SearchRoot::name` / `::spelling`). The name is the two-segment path
