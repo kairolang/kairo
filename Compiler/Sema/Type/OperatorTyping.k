@@ -74,6 +74,7 @@ import AST::OperatorFacts::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Resolve::NameLookup::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::DeclContext::*;
 import AST::Context::InstantiationRegistry::*;
@@ -131,6 +132,35 @@ class <T> OperatorTyping {
         if t == &null { return false; }
         return t->is_dependent() || t->is_instantiation_dependent();
     }
+
+    /// The interfaces a bounded generic parameter \p t promises, as their
+    /// canonical instances (`T impl Same`, `T impl Container<U>`), or none
+    /// when \p t is not a bare parameter or has no interface bound. An
+    /// operator on such an operand is the bound's requirement, as a member
+    /// call on it is (ChainBinding's dependent path): binding it here is what
+    /// sends it through the interface's witness (CODEGEN.md §7b.5).
+    priv fn _bound_ifaces(self, t: *Type) -> vec::<*Type> {
+        var out = vec::<*Type>();
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
+        var g = cast::<GenericParamType>(c);
+        var it = dyn()->sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        if it == dyn()->sc->bounds.end() { return out; }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+            var k = _set->impl_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
+            if (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+            out.push_back(canon_unqual(k->rhs->canonical));
+        }
+        return out;
+    }
+
+    priv fn _bounded(self, t: *Type) -> bool { return self._bound_ifaces(t).size() > 0; }
 
     /// A class, struct or union. Not an enum: a plain enum compares natively.
     priv fn _is_plain_record(self, t: *Type) -> bool {
@@ -218,6 +248,14 @@ class <T> OperatorTyping {
     /// `op l++` and `op r++` share a cell and differ only there.
     priv fn _gather(self, name: DeclName, recv_ty: *Type, other: *Type, want_postfix: i32,
                     cands: *vec::<*Decl>, frees: *vec::<*Decl>) {
+        // A bounded parameter offers its bounds' requirements and nothing
+        // else: no ADL, no free operator, since neither can be known to apply
+        // to every T the bound admits.
+        var bound = self._bound_ifaces(recv_ty);
+        if bound.size() > 0 {
+            for var i: usize = 0; i < bound.size(); ++i { dyn()->ml.lookup(bound[i], name, cands); }
+            return;
+        }
         if recv_ty != &null { dyn()->ml.lookup(dyn()->tu.strip_nullable(recv_ty), name, cands); }
         // A C++ hidden friend sits in its class's table but is no member: it
         // takes every operand as an argument, and ADL reaches it through
@@ -451,8 +489,11 @@ class <T> OperatorTyping {
         // A DEPENDENT operand has no operator table yet: which `op +` applies
         // to `T` is decided by the instantiation, not here. Rejecting it at
         // definition time would make every generic that adds ill-formed, so
-        // the answer is deferred (M2) rather than diagnosed.
-        if self._is_dependent(lt) || self._is_dependent(rt) {
+        // the answer is deferred (M2) rather than diagnosed. A left operand
+        // that is a BOUNDED parameter is the exception: its bounds say which
+        // operators it has, and the user-operator path below binds one.
+        var bounded = self._bounded(lt);
+        if (self._is_dependent(lt) || self._is_dependent(rt)) && (!bounded) {
             dyn()->mark_unknown(n);
             return &null;
         }
@@ -522,6 +563,12 @@ class <T> OperatorTyping {
                     if n->is_poisoned() || n->is_instantiation_dependent() { return &null; }
                     return canon_unqual(lt);
                 }
+            }
+            // Nothing in the bounds: deferred as any dependent operand is,
+            // which is what it was before bounds were consulted.
+            if bounded {
+                dyn()->mark_unknown(n);
+                return &null;
             }
 
             // No user operator. Equality is builtin on pointers, nullables and
@@ -756,7 +803,7 @@ class <T> OperatorTyping {
 
         // user operator first for non-primitives. `++`/`--` keep only the
         // declared fixity that matches the use.
-        if (dyn()->tu.kind_of(ot) == BuiltinKind::COUNT) && (!self._is_dependent(ot))
+        if (dyn()->tu.kind_of(ot) == BuiltinKind::COUNT) && ((!self._is_dependent(ot)) || self._bounded(ot))
         && (k != TokenKind::OpAmp) && (k != TokenKind::OpStar) {
             var fix: i32 = -1;
             if (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus) { fix = (1) if (n->is_postfix()) else (0); }

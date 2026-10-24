@@ -1,17 +1,9 @@
 // witness/operator.k -- exit 1
 // An operator on a bounded `T` goes through the witness too, under the
 // extension-operator name: `a == b` is `::N::Same_witness<T>::__kairo_op_eq(a, b)`
-// (CODEGEN.md §7b.5). The primary and the specialization already carry the
-// member.
-//
-// XFAIL: *
-// Waiting on OperatorTyping: on a bounded `T` it binds no `resolved_op`,
-// so OperatorLowering leaves `a == b` a builtin operator and it reaches C++
-// as `a == b`. That links here only because ADL finds the extension's
-// namespace-scope `operator==` forwarder in P's namespace; a builtin
-// conformer, or an extension in another module, would not. When the
-// operator binds to the requirement, OperatorLowering turns it into a call
-// and ExtensionLowering's witness arm takes it: this XPASSes, drop the XFAIL.
+// (CODEGEN.md §7b.5). OperatorTyping binds an operator on a bounded `T` to
+// the bound's requirement, as a member call on it is bound, so it is never
+// left to ADL finding an extension's C++ forwarder.
 pub interface Same {
     fn op ==(const self, other: Self) -> bool
 }
