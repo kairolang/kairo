@@ -829,7 +829,7 @@ class UnaryOperatorExpr derives Expr {
 enum OpRewrite derives u8 {
     None = 0,   ///< resolved_op is the operator itself.
     Not,        ///< `a != b` from `op ==`:  `!(a.op==(b))`.
-    Cmp,        ///< `a < b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
+    Cmp,        ///< `a < b`, `a == b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
 }
 
 ///
