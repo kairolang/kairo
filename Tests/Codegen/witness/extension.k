@@ -40,8 +40,8 @@ fn main() -> i32 {
 // CXX-NEXT: static signed int scale(const{{ ?}}::{{.*}}::Metric * self, signed int factor) {
 // CXX-NEXT: return{{ ?}}::{{.*}}::__kairo_ext_Metric::scale(self, static_cast<decltype(factor) &&>(factor));
 // The bound renders as the concept, declaration and body alike.
-// CXX: template<class T> requires{{ ?}}::{{.*}}::Scalable_c<T> signed int twice(T a);
-// CXX: template<class T> requires{{ ?}}::{{.*}}::Scalable_c<T> signed int twice(T a) {
+// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int twice(T a);
+// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int twice(T a) {
 // CXX-NEXT: return{{ ?}}::{{.*}}::Scalable_witness<T>::scale((& a), 2);
 
 // REQUIRES: clang

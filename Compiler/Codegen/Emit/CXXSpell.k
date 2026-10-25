@@ -915,7 +915,7 @@ class CXXSpell {
         return v;
     }
 
-    /// ` requires ::ns::I_c<T> && ...` for \p d's interface bounds, one
+    /// ` requires (::ns::I_c<T> && ...)` for \p d's interface bounds, one
     /// conjunct per `P impl I<A...>` in clause order, or "". Only bounds on
     /// \p d's OWN template parameters (template_params: an extension
     /// member's extension's, then its own), read off \p d's clause and, for
@@ -945,9 +945,14 @@ class CXXSpell {
             if !isa::<RecordType>(rhs) { continue; }
             var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
             if !isa::<InterfaceDecl>(idecl) { continue; }
-            s += (" requires ") if (s.size() == 0) else (" && ");
+            s += (" requires (") if (s.size() == 0) else (" && ");
             s += self.concept_name(idecl) + self.witness_args(self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner))), rhs);
         }
+        // Parenthesized: what follows the head is often a return type that
+        // starts with `::` (`::builtin::Tuple2<...> f(...)`), and C++ reads a
+        // `::` after `I_c<T>` as continuing the concept's qualified name --
+        // no spacing separates them, only the closing paren.
+        if s.size() > 0 { s += ")"; }
         return s;
     }
 

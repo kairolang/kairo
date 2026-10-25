@@ -713,11 +713,11 @@ in module `ring`:
             static signed int scale(const ::ring::Metric* self, signed int factor)
             { return ::ring::__kairo_ext_Metric::scale(self, static_cast<decltype(factor)&&>(factor)); }
         };
-        template <class T> requires ::ring::Scalable_c<T> signed int twice(T a);
+        template <class T> requires (::ring::Scalable_c<T>) signed int twice(T a);
     }
     ...                                                  // bodies
     namespace ring {
-        template <class T> requires ::ring::Scalable_c<T> inline signed int twice(T a)
+        template <class T> requires (::ring::Scalable_c<T>) inline signed int twice(T a)
         { return ::ring::Scalable_witness<T>::scale(&a, 2); }
     }
 

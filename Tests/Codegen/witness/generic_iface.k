@@ -30,7 +30,7 @@ fn main() -> i32 {
 // CXX: template<class __kairo_Self, class E> concept Container_c =
 // CXX-NEXT: Container_witness<__kairo_Self, E>::get(__kairo_r0, __kairo_a0);
 // CXX: template<> struct Container_witness<{{ ?}}::{{.*}}::Bag, signed int> {
-// CXX: requires{{ ?}}::{{.*}}::Container_c<T, U> U first(T c, U seed);
+// CXX: requires{{ ?}}({{ ?}}::{{.*}}::Container_c<T, U>) U first(T c, U seed);
 // CXX: Container_witness<T, U>::get((& c), 1)
 
 // REQUIRES: clang
