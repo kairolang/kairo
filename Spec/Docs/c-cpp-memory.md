@@ -6,7 +6,7 @@ Heap ownership crosses the boundary in both directions, using the mechanism C++ 
 
 ### Class-specific `operator new` and `operator delete`
 
-Every exported Kairo class carries its own allocation operators, bound to Kairo's [global allocator](/docs/language/tether/#global-allocator):
+Every exported Kairo class carries its own allocation operators, bound to Kairo's [global allocator](/docs/language/allocators/#global-allocator):
 
 ```cpp
 class MyKairoClass {
@@ -26,7 +26,7 @@ MyKairoClass *p = new MyKairoClass("hi");
 delete p;   // runs Kairo's destructor, then returns memory to Kairo's global allocator
 ```
 
-This works because Kairo emits the class, and therefore emits the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators). `~MyKairoClass` performs Kairo's destruction semantics; C++'s `delete` merely sequences destructor-then-deallocate, which is the same pair of operations Kairo spells as [`delete obj`](/docs/language/tether/#delete-operation) followed by `@free`.
+This works because Kairo emits the class, and therefore emits the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators). `~MyKairoClass` performs Kairo's destruction semantics; C++'s `delete` merely sequences destructor-then-deallocate, which is the same pair of operations Kairo spells as [`delete obj`](/docs/language/classes-lifecycle/#delete-does-not-free) followed by `@free`.
 
 Pointer parameters and return values stay raw `*T`. There is no wrapper type, no ABI change, and no cost at the call boundary.
 
@@ -36,7 +36,7 @@ A class-specific `operator new` takes precedence over a global replacement. A C+
 
 ### The operators bind to the *global* allocator, always
 
-Kairo's [scoped allocator](/docs/language/tether/#scoped-allocator) mechanism works by swapping the allocator the process is currently using. The emitted `operator new` and `operator delete` deliberately **bypass** that indirection and address the global allocator directly.
+Kairo's [scoped allocator](/docs/language/allocators/#scoped-allocator) mechanism works by swapping the allocator the process is currently using. The emitted `operator new` and `operator delete` deliberately **bypass** that indirection and address the global allocator directly.
 
 This matters. Consider a C++ `delete` that happens while a Kairo scoped allocator is active:
 
@@ -69,7 +69,7 @@ For code that wants Kairo's *own* allocations to follow C++'s allocation path, s
 @mem::set_allocator(core::CxxNewAllocator)
 ```
 
-This is the unusual case, not the default. The [intentional friction](/docs/language/tether/#global-allocator) rule applies: the annotation must appear at the top of every file in the affected dependency graph.
+This is the unusual case, not the default. The [intentional friction](/docs/language/allocators/#global-allocator) rule applies: the annotation must appear at the top of every file in the affected dependency graph.
 
 ### Ownership annotations in generated headers
 

@@ -90,7 +90,7 @@ Every allocation carries a **generation** (an epoch) in its provenance fact. Any
 - scope exit of the owning binding
 - [ownership transfer](/docs/language/ownership/#transfer-semantics) (move) out of the owning binding
 - reallocation (e.g. a `Vec` growing its backing buffer)
-- the close of a [scoped allocator](/docs/language/tether/#scoped-allocator) that owns the allocation
+- the close of a [scoped allocator](/docs/language/allocators/#scoped-allocator) that owns the allocation
 
 A pointer value derived at epoch *e* records *e* in its provenance. Clause C1 requires `epoch(prov(p)) == live_epoch(alloc(prov(p)))` at the dereference. Statically, most epochs are provably equal there is no intervening freeing operation between derivation and use so C1 is `Proven` and emits nothing. When Tether cannot prove the epochs equal (a free *might* have happened on some path), C1 is residual:
 

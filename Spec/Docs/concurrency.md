@@ -21,9 +21,9 @@ Launching concurrent work. Syntax and runtime model (green threads, OS threads, 
 
 Thread-safe wrapper type for lock-free operations. Referenced in [Functions](/docs/language/functions-generators/#special-return-types).
 
-### Thread-Local Storage (`thread T`)
+### Thread-Local Variables
 
-Per-thread storage modifier. Referenced in [Functions](/docs/language/functions-generators/#special-return-types).
+See [Thread-Local Variables](/docs/language/variables/#thread-local-variables).
 
 ### Synchronization Primitives
 
@@ -51,7 +51,6 @@ fn get_tokens() -> yield string {
 - `yield some_value` coroutine syntax, function must have `-> yield T` return type
 - `fn op await (self) -> T` overloadable for custom async types
 - `atomic T` thread-safe wrapper type
-- `thread T` thread-local storage type
 
 ## See also
 

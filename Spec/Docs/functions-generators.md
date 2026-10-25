@@ -68,7 +68,6 @@ These return type modifiers interact with Kairo's concurrency and type system. E
 |---|---|---|
 | `yield T` | Generator: produces a sequence of `T` values | [Generators](#generators) |
 | `atomic T` | Atomic wrapper thread-safe operations | [Concurrency](/docs/language/concurrency/) |
-| `thread T` | Thread-local storage | [Concurrency](/docs/language/concurrency/) |
 
 ## See also
 

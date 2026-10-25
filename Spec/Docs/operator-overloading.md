@@ -269,7 +269,7 @@ class FileHandle {
 }
 ```
 
-See [Tether](/docs/language/tether/) for details on destruction order and allocator interaction.
+See [Tether](/docs/language/tether/#destruction-timing) for destruction timing and [Allocators](/docs/language/allocators/) for allocator interaction.
 
 ---
 

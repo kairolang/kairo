@@ -5,6 +5,7 @@
 | `var` | Yes | Automatic | Optional (default-initialized) | Optional (inferred) |
 | `const` | No | Automatic | Required | Optional (inferred) |
 | `static` | Yes | Static | Optional | Required |
+| `thread` | Yes | Thread-local (one instance per thread) | Optional | Required |
 | `eval` | No | Compile-time | Required | Optional (inferred) |
 
 > Variables in Kairo are mutable by default. `const` bindings at local scope require an initializer, but class-level `const` members can be left uninitialized at declaration and assigned exactly once in the constructor body. See [Classes](/docs/language/classes/#const-members-in-constructors) for details.
@@ -133,6 +134,23 @@ static counter: i32 = 0
 ```
 
 `static` can be combined with `const` for immutable static data. See [Modules](/docs/language/modules/) for `static` at module scope.
+
+---
+
+## Thread-Local Variables
+
+`thread` declares a binding with thread storage duration: every thread gets its own instance, initialized when the thread first touches it and destroyed when that thread exits. Like `static`, it requires an explicit type annotation and is allowed at file scope and class scope only; a `thread` declaration inside a function body is a compile error.
+
+```kairo
+thread counter: i32 = 0
+thread const WORKER_NAME: string = "worker"
+
+class Pool {
+    thread current: *Pool?
+}
+```
+
+`thread` combines with `const` the way `static` does. A `thread` binding without an initializer is default-initialized per thread under the rules in [Default Initialization](#default-initialization). Access is `name` at file scope and `Self::name` / `Type::name` at class scope, the same as `static`. Lowering is C++ `thread_local`.
 
 ---
 
@@ -349,7 +367,7 @@ See [Tether](/docs/language/tether/) and [Ownership](/docs/language/ownership/) 
 
 ---
 
-All four declaration keywords `var`, `const`, `static`, `eval` work in both local and class/struct scope.
+All five declaration keywords `var`, `const`, `static`, `eval`, `thread` work in class/struct scope. All except `thread` also work in local scope.
 
 ## See also
 

@@ -27,7 +27,7 @@ fn op delete(self) = default   // compiler-generated, memberwise destroy in reve
 fn op delete(self) = delete    // prevent destruction (and therefore stack allocation)
 ```
 
-Destructors automatically run at the end of the enclosing scope in reverse declaration order. The delete operator can also be called explicitly to clean up a resource before the end of the scope - the recommended design pattern is to make the delete operator idempotent and safe to call multiple times:
+Destructors automatically run at the end of the enclosing scope in reverse declaration order. The delete operator can also be called explicitly to clean up a resource before the end of the scope. The recommended design is to make the delete operator idempotent: the first call runs the destructor and releases the resources the members own, and later calls have no effect, so an object can be deleted more than once without double deletion or dangling pointers:
 
 ```kairo
 class Resource {
@@ -54,6 +54,37 @@ delete r   // explicit cleanup
 r.set_new_handle(open_handle())   // safe: previous handle was released
 delete r   // safe: idempotent delete operator
 ```
+
+### `delete` does not free
+
+`delete` in kairo does not free memory. It is a **destruction operation** that runs the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) and any side effects, but does not reclaim the allocation. Meaning if the class can be re-constructed with a separate function call, the memory is still valid and can be reused. The `delete` operation is used to explicitly clean up resources without deallocating the memory, which is useful in certain scenarios where you want to manage memory manually or reuse it.
+
+```kairo
+class MyClass {
+    var data: unsafe *i32 = &null
+
+    fn MyClass(self) = default
+
+    fn init(self) {
+        data = unsafe std::alloc<i32>(sizeof i32 * 10) // 10 i32's allocated
+    }
+
+    fn op delete(self) {
+        if data != &null {
+            unsafe std::free(data)
+            data = &null
+        }
+    }
+}
+
+var obj = MyClass() // stack allocated the object itself
+obj.init() // allocate the buffer data points to
+// do something with obj.data
+delete obj // runs obj's destructor, which frees the buffer; obj's own storage is not freed
+obj.init() // obj is still valid storage and can be re-initialized
+```
+
+What `delete` frees is whatever the destructor frees: here the buffer owned by the `data` member. The object `delete` is applied to is not freed; its storage stays valid.
 
 ---
 

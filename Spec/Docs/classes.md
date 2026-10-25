@@ -32,7 +32,7 @@ var obj = Foo(10, 3.14)
 obj.sum()   // 13.14
 ```
 
-Members are declared with `var`, `const`, `static`, or `eval` inside the class body. Methods are declared with `fn` and take `self` as the first parameter for instance methods. Omitting `self` requires the `static` modifier. If `self` is present, it is an instance method; if not, it must be `static`.
+Members are declared with `var`, `const`, `static`, `eval`, or `thread` inside the class body. Methods are declared with `fn` and take `self` as the first parameter for instance methods. Omitting `self` requires the `static` modifier. If `self` is present, it is an instance method; if not, it must be `static`.
 
 ---
 
@@ -120,7 +120,7 @@ Modifiers are applied per-declaration. There are no visibility blocks (`public:`
 
 | Member kind | Default |
 |---|---|
-| Instance / static / const / eval variables | `priv` |
+| Instance / static / const / eval / thread variables | `priv` |
 | Methods, constructors, destructors | `pub` |
 | Operator overloads | `pub` |
 | Static methods | `pub` |

@@ -21,6 +21,8 @@ interface Serializable {
 
 An interface body contains method signatures (including generic methods), static function signatures, operator signatures, constructor requirements, and [associated types](#associated-types). It has no method bodies, variables, constants, or nested classes, structs, enums or interfaces. Every member is implicitly `pub` the `priv` and `prot` modifiers are compile errors on interface members. Explicit `pub` is permitted but has no effect.
 
+An interface must have at least one requirement, declared or derived. An empty interface is a compile error: conformance is structural, so every type would satisfy it, and it would constrain nothing.
+
 ---
 
 ## Conformance
@@ -215,6 +217,18 @@ interface Store {
 
 A generic body names a generic associated type with its arguments: `T::Map<K>`.
 
+A bound on an associated type is written with `impl`, and several are separated by commas. The type a conformer supplies must satisfy each of them:
+
+```kairo
+interface Catalog {
+    type Item impl Display
+    type Key impl Hashable, Comparable
+    fn lookup(const self, k: Self::Key) -> Self::Item
+}
+```
+
+Associated types are declared only inside an interface. Outside one, a `type` declaration is an alias and needs `=`.
+
 ### Defaults
 
 An associated type may have a default:
@@ -328,6 +342,43 @@ interface Loggable derives Serializable, Printable {
 }
 ```
 
+### Composing interfaces
+
+A `derives` clause is an expression over interfaces. It combines their requirements as sets:
+
+| Operator | The derived interface requires |
+|---|---|
+| `X + Y` | everything `X` or `Y` requires (union) |
+| `X - Y` | what `X` requires, minus anything `Y` also requires (difference) |
+| `X & Y` | only what both require (intersection) |
+
+`derives A, B` is the same as `derives A + B`. Parentheses group, and `+` and `-` bind tighter than `&`: `A + B & C` is `(A + B) & C`. Writing `&` next to `+` or `-` without parentheses is a warning.
+
+```kairo
+interface Readable { fn read(self) -> i32 }
+interface Seekable { fn seek(self, at: i64) }
+interface Closable { fn close(self) }
+
+interface Cursor derives (Readable + Seekable + Closable) - Closable { }   // read and seek
+interface Shared derives Readable & Stream { }                            // read: in both
+```
+
+More requirements make an interface harder to satisfy, so `X + Y` is the stricter interface and `X & Y` the looser one. There is no `|`, no `^`, and no complement: a requirement set has nothing to take a complement against. A single member can't be removed by name; declare an interface with that member and subtract it.
+
+Two requirements are the same requirement when they have the same name, the same receiver (none, `self` or `const self`), the same generic parameters with the same bounds, and the same parameter types. The return type is not part of that identity:
+
+- In a union, the same requirement from two sides is one requirement. Two with the same name and different parameters are both kept, as overloads. The same requirement with two different return types is a compile error.
+- `-` and `&` match requirements by that identity alone, whatever they return.
+- Generic bounds count: `fn <T> process(self, v: T)` and `fn <T impl Serializable> process(self, v: T)` are different requirements, so subtracting the second from an interface that has the first keeps it.
+
+[Associated types](#associated-types) are matched by name:
+
+- In a union, two `type Item`s are one associated type whose bounds are the bounds of both. If both give a default and the defaults differ, that's a compile error.
+- `-` removes the associated type by name. If the result keeps a method whose signature names it (`Self::Item`), that's a compile error: nothing would supply the type.
+- `&` keeps it when both sides declare it, with only the bounds both state.
+
+A composed interface is an ordinary interface: a type conforms to it structurally, by having every requirement in the result, and a requirement that was subtracted is not required. If the result has no requirements, the interface is a compile error.
+
 ---
 
 ## Using Interfaces as Bounds
@@ -370,6 +421,7 @@ Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and e
 
 - `x.method()` resolves against `Foo`'s methods.
 - A generic method requirement is called with explicit arguments, `x.liz<i32>()`, or with deduced ones.
+- `T(args)` constructs a `T`; it requires a constructor requirement taking those arguments in some bound (see [Constructors in Interfaces](/docs/language/interfaces-requirements/#constructors-in-interfaces)).
 - `var x: T` with no initializer requires a constructor requirement `fn Foo(self)` in some bound.
 - `T::Name` names an [associated type](#associated-types).
 
@@ -397,28 +449,28 @@ See [Generic Classes](/docs/language/generics/#type-parameter-constraints) for t
 
 ## Virtual Interfaces
 
-An interface declared `virtual interface` can also be used for runtime dispatch. A pointer to it, `*Allocator`, can point at a value of any conforming type; calls through the pointer go through a witness table built for each conforming type, so the caller doesn't need to know at compile time which type it holds:
+An interface declared `virtual interface` can also be used for runtime dispatch. A pointer to it, `*Heap`, can point at a value of any conforming type; calls through the pointer go through a witness table built for each conforming type, so the caller doesn't need to know at compile time which type it holds:
 
 > [!NOTE]
 > Virtual interfaces are not compiled yet. See [Status](/docs/status/#not-compiled-yet).
 
 ```kairo
-virtual interface Allocator {
+virtual interface Heap {
     fn alloc(self, size: usize, align: usize) -> unsafe *u8
     fn free(self, ptr: unsafe *u8, size: usize)
 }
 
-class LibcAllocator impl Allocator {
+class LibcHeap impl Heap {
     fn alloc(self, size: usize, align: usize) -> unsafe *u8 { return &null }
     fn free(self, ptr: unsafe *u8, size: usize) { }
 }
 
-fn release(alloc: *Allocator, ptr: unsafe *u8, size: usize) {
-    alloc->free(ptr, size)   // dispatched through LibcAllocator's (or any conformer's) witness table
+fn release(heap: *Heap, ptr: unsafe *u8, size: usize) {
+    heap->free(ptr, size)   // dispatched through LibcHeap's (or any conformer's) witness table
 }
 ```
 
-A virtual interface is still an ordinary interface when used as a bound: `fn <T impl Allocator>` is checked at compile time and costs nothing. The witness table is paid for only where the interface is used for runtime dispatch.
+A virtual interface is still an ordinary interface when used as a bound: `fn <T impl Heap>` is checked at compile time and costs nothing. The witness table is paid for only where the interface is used for runtime dispatch.
 
 ---
 

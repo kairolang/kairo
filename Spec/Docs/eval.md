@@ -102,7 +102,7 @@ Eval bodies must be deterministic and free of side effects. The following are no
 | Pointer operations (`*T`, `unsafe *T`) | No addressable memory at compile time |
 | `async` / `await` / `spawn` | No runtime scheduler at compile time |
 | `panic` | No runtime error handler at compile time |
-| Mutable global / static variables | Side effects across evaluations |
+| Mutable global, static, or thread variables | Side effects across evaluations |
 | Calls to non-`eval` functions | Cannot guarantee compile-time evaluation |
 
 ### What is allowed

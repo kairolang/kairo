@@ -298,6 +298,7 @@ priv class ConnectionPool { ... }
 
 pub eval MAX_CONNECTIONS = 1024
 priv static request_count: i32 = 0
+priv thread request_id: u64 = 0
 ```
 
 See [Imports](/docs/language/imports/#visibility-on-imports) for how visibility affects what is re-exported via `pub import`.
