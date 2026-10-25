@@ -37,9 +37,11 @@
 ///     named requirements (a member template, gated on the callable form and
 ///     left out of the concept, §7b.7), and every row with a concrete
 ///     conformer (a full specialization each, also for a row a generic
-///     extension supplies). Not built: generic operator requirements,
-///     associated types, constructor requirements in the concept, partial
-///     specializations for generic conformances (§7b.3, for C++ hosts).
+///     extension supplies), and requirements inherited through a generic
+///     interface instance, concrete or dependent (§7b.9). Not built:
+///     generic operator requirements, associated types, partial
+///     specializations for generic conformances (§7b.3, for C++ hosts). A
+///     constructor requirement is SC001E in Sema before it gets here.
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -52,6 +54,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/Support/Allocator.h";
 import Codegen::CodegenContext::*;
 import Codegen::CodegenICE::*;
 import Codegen::Emit::CXXSpell::*;
@@ -91,6 +94,14 @@ class WitnessPiece {
 class EmitWitness {
     priv var _cg:    obs::<CodegenContext>;
     priv var _spell: obs::<CXXSpell>;
+    /// Substitutions for requirements inherited through a DEPENDENT generic
+    /// instance (members_with): no registry entry exists for one, so they
+    /// are minted here and live as long as this emitter, which outlives
+    /// every member list it hands out. `_dep_src` is parallel: the source
+    /// type each was made for, so one leaf's requirements share an entry.
+    priv var _dep_arena: llvm::SpecificBumpPtrAllocator::<InstanceEntry>;
+    priv var _dep_src:   vec::<*Type>;
+    priv var _dep_ent:   vec::<*InstanceEntry>;
 
     fn EmitWitness(self, cg: *CodegenContext, spell: *CXXSpell) {
         self._cg    = cg;
@@ -116,11 +127,18 @@ class EmitWitness {
     /// through: a requirement inherited through a CONCRETE generic instance
     /// (`derives Container<i32>`) is spelled at that instance's arguments,
     /// as a specialization's are. Null for an own member or a non-generic
-    /// source -- the caller's own substitution applies. One inherited
-    /// through a DEPENDENT instance (`interface <T> F derives Container<T>`)
-    /// would need its types re-spelled in F's parameters, which Sema
-    /// substitutes and codegen cannot: an ICE naming the gap.
-    fn members_with(self, idecl: *InterfaceDecl, substs: *vec::<*InstanceEntry>) -> vec::<*FunctionDecl> {
+    /// source -- the caller's own substitution applies.
+    ///
+    /// One inherited through a DEPENDENT instance (`interface <T> F derives
+    /// Container<T>`) is two substitutions deep: Container's E is F's T, and
+    /// F's T is the row's argument. Without \p row (the primary, the
+    /// concept) only the first applies, and it is enough: the text is
+    /// written inside F's template, where F's T is in scope. With \p row (a
+    /// specialization) the source as Sema substituted it at the row's
+    /// arguments (ConformanceRow::sources, `Container<i32>`) is a concrete
+    /// instance, and its entry is both at once.
+    fn members_with(self, idecl: *InterfaceDecl, substs: *vec::<*InstanceEntry>,
+                    row: *ConformanceRow = &null) -> vec::<*FunctionDecl> {
         var out = vec::<*FunctionDecl>();
         if idecl->compose_state != 2 {
             for var i: usize = 0; i < idecl->methods.size(); ++i { out.push_back(idecl->methods[i]); substs->push_back(&null); }
@@ -135,10 +153,18 @@ class EmitWitness {
                 var src = cast::<RecordType>(canon_unqual(r->source));
                 var sd = CXXSpell::rep(decl_pattern(CXXSpell::rep(src->decl)));
                 if (sd != me) && (decl_generic_params(sd).size() > 0) {
-                    if src->is_dependent() {
-                        self._ice(CXXSpell::at(r->decl), "EmitWitness: a requirement inherited through a dependent generic interface instance; its types are not re-spelled in the composed interface's parameters yet");
+                    if !src->is_dependent() {
+                        sub = self._iface_subst(static_cast::<*Type>(src));
+                    } else if row == &null {
+                        sub = self._dep_subst(sd, src);
+                    } else {
+                        var at_row = (row->sources[i]) if (i < row->sources.size()) else (&null);
+                        sub = self._iface_subst(at_row);
+                        // A row is recorded only at concrete arguments, so its
+                        // sources are instances; a null here would spell the
+                        // leaf's own parameters, which are not in scope.
+                        if sub == &null { self._ice(CXXSpell::at(r->decl), "EmitWitness: a row whose source for an inherited requirement is not a concrete instance; ConformanceChecking records it at the row's arguments"); }
                     }
-                    sub = self._iface_subst(static_cast::<*Type>(src));
                 }
             }
             out.push_back(f);
@@ -162,7 +188,7 @@ class EmitWitness {
         var idecl = cast::<InterfaceDecl>(row->iface_decl);
         var subst = self._iface_subst(row->iface);
         var subs = vec::<*InstanceEntry>();
-        var ms = self.members_with(idecl, &subs);
+        var ms = self.members_with(idecl, &subs, row);
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
             if m == &null { continue; }   // an associated type: no member yet.
@@ -320,7 +346,7 @@ class EmitWitness {
         self._cg->sink->spell(at, "template <> struct " + self._leaf_witness(p->iface)
                                   + self._spell->witness_args(x, row->iface) + " {");
         var subs = vec::<*InstanceEntry>();
-        var ms = self.members_with(idecl, &subs);
+        var ms = self.members_with(idecl, &subs, row);
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
             if (m == &null) || m->is_poisoned() { continue; }
@@ -502,6 +528,23 @@ class EmitWitness {
         var d = cast::<RecordType>(iface)->decl;
         if !decl_is_instance(d) { return &null; }
         return self._cg->instances->entry_of(d);
+    }
+
+    /// The substitution a requirement inherited through dependent instance
+    /// \p src of interface \p sd is spelled through: sd's parameters bound
+    /// to src's arguments, which are written in the composing interface's
+    /// parameters. CXXSpell spells a substituted argument with no further
+    /// substitution, so `T` comes out as the composing interface's own name.
+    priv fn _dep_subst(self, sd: *Decl, src: *RecordType) -> *InstanceEntry {
+        var key = static_cast::<*Type>(src);
+        for var i: usize = 0; i < self._dep_src.size(); ++i { if self._dep_src[i] == key { return self._dep_ent[i]; } }
+        var e = self._dep_arena.Allocate(1);
+        libcxx::construct_at(e);
+        e->primary = sd;
+        for var i: usize = 0; i < src->args.size(); ++i { e->args.push_back(src->args[i]); }
+        self._dep_src.push_back(key);
+        self._dep_ent.push_back(e);
+        return e;
     }
 
     priv fn _unsupported(self, m: *FunctionDecl) {

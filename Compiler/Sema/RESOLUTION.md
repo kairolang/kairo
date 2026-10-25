@@ -1226,6 +1226,10 @@ is
     witnesses   each of the interface's OWN requirements -> the decl that
                 implements it: an own or inherited member, an extension
                 member, or an imported C++ member
+    sources     per requirement, the interface instance it came through at
+                the row's arguments (`F<T> derives Container<T>` met as
+                `F<i32>`: `Container<i32>`), so codegen spells an inherited
+                requirement without substituting types itself
 
 keyed `(conformer, interface)`. Two rows for one key are an error at the
 second one's use (open: overlapping generic conformances, CODEGEN.md §7b.12

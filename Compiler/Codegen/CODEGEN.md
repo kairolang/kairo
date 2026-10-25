@@ -644,8 +644,11 @@ Not built, each the ICE or diagnostic that names it:
 - A qualified call to a GENERIC interface's requirement (`Container<i32>::
   get(c, 0)`): SC001E, not supported yet; the interface's arguments are
   not on the call.
-- Generic operator requirements, constructor requirements in the concept,
-  associated types, value-parameter interfaces: EmitWitness ICEs.
+- Generic operator requirements, associated types, value-parameter
+  interfaces: EmitWitness ICEs.
+- Constructor requirements: SC001E at the use (no member of the
+  conformer has the requirement's name, a constructor being named for its
+  class), so none reaches EmitWitness; its own ICE stays as the backstop.
 - Rows for a generic conformance are full specializations per concrete
   conformer, not the partial specialization 7b.3 describes (a C++ host
   instantiating with its own `Pair<U>` does not get one).
@@ -974,10 +977,13 @@ inside the class template's member bodies.
   `Stream_witness<T>::read`, Stream's single row covers every requirement in
   its list, and Stream's concept lists them all rather than conjoining
   Readable's. A requirement inherited through a concrete generic instance
-  (`derives Container<i32>`) is spelled at that instance's arguments; one
+  (`derives Container<i32>`) is spelled at that instance's arguments. One
   inherited through a DEPENDENT instance (`interface <T> F derives
-  Container<T>`) is an EmitWitness ICE for now: its types would have to be
-  re-spelled in F's parameters, which Sema substitutes and codegen cannot.
+  Container<T>`) is two substitutions deep, Container's E := F's T := the
+  row's argument: the primary and concept apply only the first (they are
+  written inside F's template, where T is in scope), and a specialization
+  spells it through the source Sema substituted at the row's arguments
+  (`ConformanceRow::sources`, `Container<i32>`), which is both at once.
 - **Multiple bounds.** Each call is bound to one requirement and goes
   through the bound whose list contains it. Two bounds both declaring `m` is
   the typer's ambiguity (RESOLUTION.md §2b, "collide at the use"), never

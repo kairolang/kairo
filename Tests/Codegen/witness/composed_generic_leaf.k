@@ -3,7 +3,7 @@
 // Container<i32> + Sized. The inherited `get` returns Container's E, which
 // the witness spells at the leaf's arguments (signed int), as a
 // specialization's members are spelled. (A DEPENDENT leaf, `interface <T> F
-// derives Container<T>`, is not compiled yet.)
+// derives Container<T>`, is composed_dependent_leaf.k.)
 pub interface <E> Container { fn get(const self) -> E }
 pub interface Sized { fn size(const self) -> i32 }
 pub interface IntBox derives Container<i32> + Sized { }

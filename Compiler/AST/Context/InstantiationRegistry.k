@@ -85,6 +85,13 @@ class ConformanceRow {
     /// them per witness, in witness order, zero for any other.
     pub var ext_args:      vec::<*Type>;
     pub var ext_arg_count: vec::<usize>;
+    /// Parallel to `witnesses`: the interface instance requirement i came
+    /// through, at THIS row's arguments (`interface <T> F derives
+    /// Container<T>` met as `F<i32>`: Container<i32>). The composed list
+    /// keeps a source in the composing interface's own parameters, which
+    /// codegen cannot substitute; a specialization spells the requirement
+    /// through this instance instead.
+    pub var sources:   vec::<*Type>;
     pub var ok:        bool  = false;
     fn ConformanceRow(self) { }
 
@@ -263,6 +270,7 @@ class InstantiationRegistry {
         for var i: usize = 0; i < r->witnesses.size(); ++i { row->witnesses.push_back(r->witnesses[i]); }
         for var i: usize = 0; i < r->ext_args.size(); ++i { row->ext_args.push_back(r->ext_args[i]); }
         for var i: usize = 0; i < r->ext_arg_count.size(); ++i { row->ext_arg_count.push_back(r->ext_arg_count[i]); }
+        for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }
         self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
         return row;
     }
