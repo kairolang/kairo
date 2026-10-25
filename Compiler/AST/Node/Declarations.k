@@ -208,6 +208,18 @@ enum AdtRole derives u8 {
     Dtor,
     Destroy,         ///< destroys the active payload: `__kairo_destroy()`.
     ConstructFrom,   ///< builds a payload from another value's: `__kairo_construct_from(o)`.
+
+    // The Nullable lang item's C++ surface (NULLABLE.md 1.2); only that
+    // enum's record has them. Every implicit `T -> T?` / `null -> T?` is one
+    // of the four constructors, so none is `explicit`.
+    NullDefault,     ///< `Nullable()`: null.
+    NullFrom,        ///< `Nullable(null_t)`: null. Its one parameter carries null_t's type.
+    ValueCopy,       ///< `Nullable(const T&)`: present, the payload copied in place.
+    ValueMove,       ///< `Nullable(T&&)`: present, the payload moved in place.
+    IsNull,          ///< `bool is_null() const`.
+    ValueRef,        ///< `T& __value()`, UNCHECKED: the desugars call it only where non-null is proven.
+    ValueCref,       ///< `const T& __value() const`, the same.
+    Equal,           ///< `operator==`, when T has one: null == null, null != a value. C++20 derives `!=`.
 }
 
 /// Which of the three forms of an ADT special member a role function is
@@ -838,6 +850,12 @@ class StructDecl
     /// identity, never the name `TupleN` (a user may declare one). One
     /// writer: TupleRecords.
     pub var tuple_arity:    u32           = 0;
+    /// This record is the `null_t` lang item: InterfaceEmitter writes the
+    /// one constant of it, `null`, after its definition, for C++ hosts
+    /// (`null` is a Kairo keyword, so no Kairo declaration can name it).
+    /// Codegen has no route to well_known, hence a flag. One writer:
+    /// NameResolution::fill_lang_items.
+    pub var is_null_type:   bool          = false;
 
     static fn create(
         ctx:    *ASTContext,
@@ -856,6 +874,7 @@ class StructDecl
         node->adt_of         = &null;
         node->assign_from    = &null;
         node->assign_form    = AssignForm::Implicit;
+        node->is_null_type   = false;
         return node;
     }
 

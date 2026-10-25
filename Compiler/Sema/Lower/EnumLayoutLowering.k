@@ -243,6 +243,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
                                                AdtRole::Destroy, AdtForm::Body, 0, VisibilityKind::Private));
         self._member(ldc, &methods, self._role(en, self.synth.ident(at, LowerTargets::adt_construct_from()),
                                                AdtRole::ConstructFrom, AdtForm::Body, 0, VisibilityKind::Private));
+        if self._is_nullable(en) { self._nullable_surface(ldc, &methods, en); }
         methods.freeze_into(&(lay->methods));
 
         en->adt_layout    = static_cast::<*Decl>(lay);
@@ -309,6 +310,42 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         self._place(static_cast::<*Decl>(f), edc, VisibilityKind::Public, at);
         ldc->add_decl(static_cast::<*Decl>(f));
         fields->push(f);
+    }
+
+    // --- the Nullable lang item -----------------------------------------------------
+
+    /// By identity with the lang item, never by name: a user may declare an
+    /// enum called Nullable.
+    priv fn _is_nullable(self, en: *EnumDecl) -> bool {
+        var nd = self.sc->well_known->get(WellKnownType::Nullable);
+        if nd == &null { return false; }
+        return NameLookup::representative(nd) == static_cast::<*Decl>(en);
+    }
+
+    /// `T?`'s C++ surface on top of the ADT (NULLABLE.md 1.2): the ADT
+    /// already holds a real T only while present and transfers it as T
+    /// does; these are the constructors every implicit conversion into a
+    /// nullable is, and the primitives the desugars and a C++ host call.
+    /// The null constructor's parameter is a real ParamDecl so its null_t is
+    /// spelled like any type; the rest are rendered from the payload.
+    priv fn _nullable_surface(self, ldc: *DeclContext, methods: *ListBuilder::<*FunctionDecl>, en: *EnumDecl) {
+        var at = en->name.range;
+        self._member(ldc, methods, self._role(en, en->name, AdtRole::NullDefault, AdtForm::Body, 0, VisibilityKind::Public));
+        var from = self._role(en, en->name, AdtRole::NullFrom, AdtForm::Body, 0, VisibilityKind::Public);
+        var nt   = self.sc->well_known->get(WellKnownType::NullT);
+        ICE_IF(nt == &null, "EnumLayoutLowering: the Nullable lang item without null_t; Lib/builtin declares both");
+        var ps = self.list_builder::<*ParamDecl>();
+        ps.push(ParamDecl::create(self.ctx, at, self.synth.ident(at, "n"), self._type_of(NameLookup::representative(nt)), 0));
+        ps.freeze_into(&(from->params));
+        self._member(ldc, methods, from);
+        self._member(ldc, methods, self._role(en, en->name, AdtRole::ValueCopy, AdtForm::Body, 0, VisibilityKind::Public));
+        self._member(ldc, methods, self._role(en, en->name, AdtRole::ValueMove, AdtForm::Body, 0, VisibilityKind::Public));
+        var is_null = self.synth.ident(at, LowerTargets::nullable_is_null());
+        var value   = self.synth.ident(at, LowerTargets::nullable_value());
+        self._member(ldc, methods, self._role(en, is_null, AdtRole::IsNull,    AdtForm::Body, 0, VisibilityKind::Public));
+        self._member(ldc, methods, self._role(en, value,   AdtRole::ValueRef,  AdtForm::Body, 0, VisibilityKind::Public));
+        self._member(ldc, methods, self._role(en, value,   AdtRole::ValueCref, AdtForm::Body, 0, VisibilityKind::Public));
+        self._member(ldc, methods, self._role(en, en->name, AdtRole::Equal,    AdtForm::Body, 0, VisibilityKind::Public));
     }
 
     // --- the special members ------------------------------------------------------

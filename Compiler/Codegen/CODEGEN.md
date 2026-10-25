@@ -368,6 +368,19 @@ members, nested types, layout edges and by-value parameters off the record
 (`EmitPlan::adt_record`, through `layout_decl`), and sees through the
 anonymous union and the payload structs as through ordinary fields.
 
+The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
+1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
+eight more roles (AdtRole::NullDefault on, `InterfaceEmitter::
+_nullable_member`): `Nullable()` and `Nullable(::builtin::null_t)` (null),
+`Nullable(const T&) requires __kairo_copyable` and `Nullable(T&&) requires
+__kairo_movable` (present, the payload built in place; constrained because
+the explicit instantiation defines every member whose constraints hold),
+`is_null() const`, the unchecked `T& __value()` / `const T& __value()
+const`, and `operator==` when `const T&` compares. None is `explicit`:
+every implicit `T -> T?` / `null -> T?` is C++ copy-initialization through
+one of them. `null_t` (`StructDecl::is_null_type`) is followed by `inline
+constexpr null_t null{};`, the constant a C++ host spells `::builtin::null`.
+
 A static field is declared in the class (`static [thread_local] T s;`, no
 initializer: C++ takes one in-class only on a const static) and DEFINED
 after the outermost record's `};`, inside its namespace wrapper, as an

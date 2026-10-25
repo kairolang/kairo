@@ -28,7 +28,6 @@ pub enum Ordering derives i8 {
     Equal   = 0,
     Greater = 1,
 }
-pub struct <T> Null    { var value: T; var has: bool }
 pub struct <T> Future  { var state: *void }
 
 /// What `byte` is in C++: a scoped enum over u8, which is `std::byte`'s own

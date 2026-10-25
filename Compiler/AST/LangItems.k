@@ -48,7 +48,8 @@ enum WellKnownType derives u8 {
     Range,      ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
     Yield,      ///< yield T desugar target: Yield<T>.
     Ordering,   ///< <=> builtin value type: Ordering::Less | Equal | Greater.
-    Null,       ///< T? desugar type: Null<T>.
+    Nullable,   ///< T? lowering target: Nullable<T> (NullableTypeLowering).
+    NullT,      ///< `null`'s type: null_t, whose constant C++ spells `null`.
     Panic,      ///< fn () panic -> T desugar type: Panic<T>.
 
     String,   ///< ""     library type: string.
@@ -86,7 +87,8 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::Range      { return "Range";      }
         case WellKnownType::Yield      { return "Yield";      }
         case WellKnownType::Ordering   { return "Ordering";   }
-        case WellKnownType::Null       { return "Null";       }
+        case WellKnownType::Nullable   { return "Nullable";   }
+        case WellKnownType::NullT      { return "null_t";     }
         case WellKnownType::Panic      { return "Panic";      }
         case WellKnownType::String     { return "string";     }
         case WellKnownType::Vector     { return "Vector";     }
@@ -493,6 +495,12 @@ class LowerTargets {
     static fn adt_destructible() -> string           { return "__kairo_destructible"; }
     static fn adt_copyable() -> string               { return "__kairo_copyable"; }
     static fn adt_movable() -> string                { return "__kairo_movable"; }
+    /// The Nullable lang item's C++ members and `null_t`'s constant (writer:
+    /// EnumLayoutLowering names the roles, InterfaceEmitter spells them).
+    /// Not `__kairo_`-prefixed: a C++ host calls them.
+    static fn nullable_is_null() -> string           { return "is_null"; }
+    static fn nullable_value() -> string             { return "__value"; }
+    static fn null_constant() -> string              { return "null"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
 

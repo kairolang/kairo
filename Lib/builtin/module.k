@@ -20,6 +20,28 @@ pub import string::*
 pub import types::*
 pub import fmt::*
 
+/// `null` as a value: the type of the constant every null converts from. A
+/// C++ host spells the constant `::builtin::null` (InterfaceEmitter writes
+/// it after this record; `null` is a Kairo keyword, so it has no Kairo
+/// declaration of its own). Empty: a null carries nothing.
+pub struct null_t {}
+
+/// `T?`. Kairo code never names it (the `?` suffix is the only spelling);
+/// C++ code does. Tagged, Stage 1's only storage (NULLABLE.md 1.2): an ADT,
+/// so the payload is a real T only while present, constructed in place and
+/// destroyed exactly once, and copy and move follow T's own -- the special
+/// members EnumLayoutLowering gives every generic ADT. That pass also gives
+/// THIS one, the lang item, the C++ surface the desugars and a C++ host
+/// use: `Nullable()` and `Nullable(null_t)` (null), `Nullable(const T&)`
+/// and `Nullable(T&&)` (present), `is_null()`, the unchecked `__value()`
+/// and `==` when T has one. Every implicit `T -> T?` and `null -> T?` is
+/// one of those constructors. Nothing outside this declaration may depend
+/// on the layout: the niche storages (G2b) replace it.
+pub enum <T> Nullable {
+    Value { v: T },
+    Null,
+}
+
 /// `^^` on a primitive base. Repeated squaring, so overflow is exactly `*`'s.
 /// A negative exponent is `(1 / base) ^^ -exp` under the base type's own
 /// division: for an integer base that reciprocal is 0, 1 or -1 and nothing

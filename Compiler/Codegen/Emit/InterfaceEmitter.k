@@ -606,6 +606,11 @@ class InterfaceEmitter {
         self._friends(d);
 
         self._cg->sink->spell(at, "};");
+        // `null_t`'s one value, `::builtin::null` to a C++ host. Inline, so
+        // every TU that includes the record has it and none owns it.
+        if isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_null_type {
+            self._cg->sink->spell(at, "inline constexpr " + self._spell->leaf(d) + " " + LowerTargets::null_constant() + "{};");
+        }
         self._cg->sink->brk();
     }
 
@@ -1051,6 +1056,7 @@ class InterfaceEmitter {
     /// of the role, the form and whether the enum is generic, every invented
     /// name from LowerTargets and every other from the record's own decls.
     priv fn _adt_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string, generic: bool) -> string {
+        if m->adt_role >= AdtRole::NullDefault { return self._nullable_member(en, m, nm); }
         var tag  = LowerTargets::adt_tag_field();
         var tt   = LowerTargets::adt_tag_type();
         var ds   = LowerTargets::adt_destroy();
@@ -1126,6 +1132,65 @@ class InterfaceEmitter {
             default { 0; }
         }
         self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
+        return "";
+    }
+
+    /// One member of the Nullable lang item's surface (AdtRole, from
+    /// NullDefault on). The enum is `Value { v: T }, Null` and nothing else
+    /// (Lib/builtin/module.k): the present variant is the one with a
+    /// payload, the null one the one without, and both are found, not
+    /// assumed.
+    priv fn _nullable_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string) -> string {
+        var at  = self._at(static_cast::<*Decl>(m));
+        var tag = LowerTargets::adt_tag_field();
+        var tt  = LowerTargets::adt_tag_type();
+        var some: *EnumVariantDecl = &null;
+        var none: *EnumVariantDecl = &null;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if v == &null { continue; }
+            if v->adt_member != &null { some = v; } else { none = v; }
+        }
+        if (some == &null) || (none == &null) || (some->payload.size() != 1) {
+            self._ice(at, "InterfaceEmitter: the Nullable lang item is not one one-field variant and one empty one");
+            return "";
+        }
+        var d     = static_cast::<*Decl>(en);
+        var mem   = self._spell->leaf(static_cast::<*Decl>(some->adt_member));
+        var field = some->payload[0];
+        var fld   = self._spell->leaf(static_cast::<*Decl>(field));
+        var t     = self._spell->decl(field->type_, "", &null, d);
+        var is_null = tag + " == " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(none));
+        var null_init    = " : " + tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(none)) + ") {}";
+        var present_init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(some)) + "), " + mem;
+        var val = LowerTargets::nullable_value();
+        switch m->adt_role {
+            case AdtRole::NullDefault { return nm + "()" + null_init; }
+            case AdtRole::NullFrom {
+                if m->params.size() != 1 { self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter"); return ""; }
+                return nm + "(" + self._spell->decl(m->params[0]->type_, "", &null, d) + ")" + null_init;
+            }
+            // Brace-initialized: the payload struct is an aggregate, so its
+            // one field is built straight from the argument. Constrained by
+            // the ADT's own flags, because an explicit instantiation defines
+            // every member whose constraints hold: an unconstrained copy
+            // constructor of a `Nullable<MoveOnly>` is a hard error there.
+            case AdtRole::ValueCopy {
+                return nm + "(const " + t + "& v) requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}";
+            }
+            case AdtRole::ValueMove {
+                return nm + "(" + t + "&& v) requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}";
+            }
+            case AdtRole::IsNull    { return "bool " + LowerTargets::nullable_is_null() + "() const { return " + is_null + "; }"; }
+            case AdtRole::ValueRef  { return t + "& " + val + "() { return " + mem + "." + fld + "; }"; }
+            case AdtRole::ValueCref { return "const " + t + "& " + val + "() const { return " + mem + "." + fld + "; }"; }
+            case AdtRole::Equal {
+                return "bool operator==(const " + nm + "& o) const requires requires (const " + t + "& a) { a == a; } { return "
+                     + tag + " == o." + tag + " && ((" + is_null + ") || " + mem + "." + fld + " == o." + mem + "." + fld + "); }";
+            }
+            default { 0; }
+        }
+        self._ice(at, "InterfaceEmitter: a Nullable role with no rendering");
         return "";
     }
 

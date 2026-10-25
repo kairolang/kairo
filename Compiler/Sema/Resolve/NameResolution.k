@@ -499,7 +499,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::Ordering,   "Ordering");
         self._bind_lang(root, WellKnownType::Future,     "Future");
         self._bind_lang(root, WellKnownType::Yield,      "Yield");
-        self._bind_lang(root, WellKnownType::Null,       "Null");
+        self._bind_lang(root, WellKnownType::Nullable,   "Nullable");
+        self._bind_lang(root, WellKnownType::NullT,      "null_t");
         self._bind_lang(root, WellKnownType::Panic,      "Panic");
 
         self._bind_lang(root, WellKnownType::BigInt,     "BigInt");
@@ -518,6 +519,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var bd = self.sc->well_known->get(WellKnownType::Byte);
         var bt = self.sc->types->builtin(BuiltinKind::Byte);
         if (bd != &null) && (bt != &null) { cast::<BuiltinType>(bt)->lang_decl = bd; }
+
+        // `null_t`'s constant has no Kairo declaration (`null` is a
+        // keyword), so codegen writes it from a mark on the record.
+        var nd = dyn_cast::<StructDecl>(self.sc->well_known->get(WellKnownType::NullT));
+        if nd != &null { nd->is_null_type = true; }
     }
 
     /// One lang item, by the name it is DECLARED with in Lib/builtin. The old

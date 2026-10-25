@@ -736,7 +736,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     }
 
     /// `?.`/`?->` peel the nullable they guard. `T?` may have been lowered to
-    /// `Null<T>` (lang item), so that spelling peels too. `?.` on a
+    /// `Nullable<T>` (lang item), so that spelling peels too. `?.` on a
     /// non-nullable is a warning's worth, not an error; the nullable checker
     /// owns it, and the type proceeds as-is.
     priv fn _peel_maybe(self, t: *Type, st: *ChainExpr::Step) -> *Type {
@@ -746,7 +746,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if isa::<NullableType>(t) { return cast::<NullableType>(t)->inner; }
         if isa::<RecordType>(t) {
             var rt = cast::<RecordType>(t);
-            var null_decl = self.sc->well_known->get(WellKnownType::Null);
+            var null_decl = self.sc->well_known->get(WellKnownType::Nullable);
             if (null_decl != &null) && (rt->decl == null_decl) && (rt->args.size() == 1) {
                 return rt->args[0];
             }
