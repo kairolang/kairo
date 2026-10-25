@@ -303,7 +303,11 @@ class <T> TypeParse {
     ///                     type tokens.
     /// \return a pointer to the parsed `Type` node, or `null` on exhaustion or
     ///         error.
-    fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false, gen_arg: bool = false) -> *Type {
+    /// \p no_nullable leaves a trailing `?` for the caller: a pointer's
+    /// pointee is parsed that way, so `*T?` is a nullable POINTER, `(*T)?`,
+    /// as nullables.md and pointers.md write it. A pointer to a nullable is
+    /// spelled `*(T?)`.
+    fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false, gen_arg: bool = false, no_nullable: bool = false) -> *Type {
         if dyn()->is_eof() {
             return &null;
         }
@@ -358,7 +362,7 @@ class <T> TypeParse {
         }
 
         // secondary pass
-        if (dyn()->check(TokenKind::OpQuestion)) || (dyn()->check(TokenKind::OpQuestionQuestion)) {
+        if (!no_nullable) && ((dyn()->check(TokenKind::OpQuestion)) || (dyn()->check(TokenKind::OpQuestionQuestion))) {
             ty = self._parse_nullable_type(ty);
         }
 
@@ -1169,8 +1173,10 @@ class <T> TypeParse {
         }
 
         // parse_type() recurses handles `**T`, `*const T`, etc.
-        // because parse_type() will see `const` as a qualifier and `*` as another pointer
-        var pointee = self.parse_type();
+        // because parse_type() will see `const` as a qualifier and `*` as another pointer.
+        // The `?` is left for the parse_type this pointer is the primary of:
+        // `*T?` is `(*T)?`, and `**T?` is `(**T)?`.
+        var pointee = self.parse_type(false, false, false, true);
         if pointee == &null {
             dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after '*\x27"

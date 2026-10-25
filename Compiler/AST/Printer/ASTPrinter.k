@@ -230,7 +230,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<TypeOfType>(ty)            { self._quals(ty); self.p.paint(Color::Keyword, "typeof"); self.p.paint(Color::Punct, "(...)"); return; }
         if isa::<VariadicPackType>(ty)      { self.p.paint(Color::Punct, "..."); self.src_type(cast::<VariadicPackType>(ty)->param); return; }
         if isa::<PackExpansionType>(ty)     { self.src_type(cast::<PackExpansionType>(ty)->pattern); self.p.paint(Color::Punct, "..."); return; }
-        if isa::<PointerType>(ty)           { self._quals(ty); self.p.paint(Color::Punct, "*"); self.src_type(cast::<PointerType>(ty)->pointee); return; }
+        if isa::<PointerType>(ty) {
+            // `*(T?)`: unparenthesized it would read back as `(*T)?`.
+            var pte = cast::<PointerType>(ty)->pointee;
+            self._quals(ty); self.p.paint(Color::Punct, "*");
+            if isa::<NullableType>(pte) { self.p.paint(Color::Punct, "("); self.src_type(pte); self.p.paint(Color::Punct, ")"); return; }
+            self.src_type(pte);
+            return;
+        }
         if isa::<NullableType>(ty)          { self._quals(ty); self.src_type(cast::<NullableType>(ty)->inner); self.p.paint(Color::Punct, "?"); return; }
         if isa::<TupleType>(ty)             { self._t_tuple(cast::<TupleType>(ty));                       return; }
         if isa::<FixedArrayType>(ty)        { self._t_fixed_array(cast::<FixedArrayType>(ty));            return; }
