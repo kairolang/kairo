@@ -207,7 +207,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
             c->value_category = Expr::ValueCategory::RValue;
             recv = static_cast::<*Expr>(c);
         }
-        return self._call_tokens(static_cast::<*Expr>(n), recv, self._bracket_tokens(n), n->resolved_op, n->op_via_free, &args, &null);
+        return self._call_tokens(static_cast::<*Expr>(n), recv, self._bracket_tokens(n), n->resolved_op, n->op_via_free, &args, n->op_instance);
     }
 
     fn transform_type_cast_expr(self, n: *TypeCastExpr) -> *Expr {

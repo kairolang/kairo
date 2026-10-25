@@ -622,8 +622,10 @@ Built, end to end (`Tests/Codegen/witness/`):
 Also built: the qualified form `I::m(x)` (Self is the first argument's
 type; on a concrete conformer the call carries its own row,
 `CallExpr::witness_row`); compound assignment and every other operator on
-a bounded `T`; generic requirements (a member template, gated on the
-callable form, left out of the concept); a generic extension's member as
+a bounded `T`, `op []` included (a static member `__kairo_op_index`,
+`[]` having no extension name); generic requirements, named and operator
+alike (a member template, gated on the callable form -- `self.template
+operator[]<K>(k)` for an operator -- left out of the concept); a generic extension's member as
 a witness (the row records the extension's arguments); the concept on
 every bounded head -- records, methods, extension members -- with the
 concepts in tier 0 ahead of the bounded records' forward declarations;
@@ -644,8 +646,7 @@ Not built, each the ICE or diagnostic that names it:
 - A qualified call to a GENERIC interface's requirement (`Container<i32>::
   get(c, 0)`): SC001E, not supported yet; the interface's arguments are
   not on the call.
-- Generic operator requirements, associated types, value-parameter
-  interfaces: EmitWitness ICEs.
+- Associated types, value-parameter interfaces: EmitWitness ICEs.
 - Constructor requirements: SC001E at the use (no member of the
   conformer has the requirement's name, a constructor being named for its
   class), so none reaches EmitWitness; its own ICE stays as the backstop.
@@ -740,6 +741,8 @@ verbatim and there is one receiver convention, not two:
     fn op ++ (self), postfix      static R __kairo_op_postinc(S& s, int)        the postfix dummy forwarded as is
     static fn make() -> Self       static __kairo_Self make()                    __kairo_Self::make() / __kairo_ext_X::make()
     fn <U> m(self, u: U)           template <class U> static void m(S* self, U u) self->template m<U>(u) / __kairo_ext_X::m<U>(self, u)
+    fn op [](const self, k: K)     static R __kairo_op_index(const S& s, K k)    s.operator[](k) in both (member-only: no extension form)
+    fn <U> op +(const self, u: U)  template <class U> static R __kairo_op_plus(const S& s, U u)  s.template operator+<U>(u) / __kairo_ext_X::__kairo_op_plus<U>(s, u)
     fn I(self, ...)  (constructor) none                                           -- see below
     type Node        (associated)  using Node = ...;                              -- see below
 
@@ -750,7 +753,9 @@ an operator, `[const ]Self&` (`CXXSpell::ext_receiver`) are the whole list;
 there is no `@inout` or by-value receiver to spell. An operator's member is
 named by `LowerTargets::ext_op` (a static member cannot be `operator==`),
 or by its LowerTargets name for `in`, `^^`, `await`, `spawn`, `thread`:
-the name `CXXSpell::operator_name` gives an extension member. Parameters
+the name `CXXSpell::operator_name` gives an extension member. `op []` is
+member-only, so it has no extension name; its witness member alone is
+`LowerTargets::witness_subscript()`. Parameters
 are spelled by `param_decl` and returns by `return_spelling`, each with
 `Self` replaced by `__kairo_Self` -- so the DECIDED `const T&` rule for
 by-value records, when it lands, lands in the witness too -- and every

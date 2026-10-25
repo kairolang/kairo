@@ -369,7 +369,17 @@ class <T> MemberTyping {
                             || (dyn()->tu.element_of(bt) != &null) || dyn()->tu.is_tuple(bt) || (dyn()->tu.pointee(bt) != &null);
             if (!is_container) || array_range {
                 var cands = vec::<*Decl>();
-                dyn()->ml.lookup(recv, DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &cands);
+                var sub_name = DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare);
+                // A bounded parameter has no members of its own: its `op []`
+                // is a bound's requirement, as a binary operator's is
+                // (OperatorTyping::_gather), which sends the call through the
+                // interface's witness (CODEGEN.md §7b.5).
+                var bound = dyn()->bound_ifaces(recv);
+                if bound.size() > 0 {
+                    for var i: usize = 0; i < bound.size(); ++i { dyn()->ml.lookup(bound[i], sub_name, &cands); }
+                } else {
+                    dyn()->ml.lookup(recv, sub_name, &cands);
+                }
                 if cands.size() == 0 {
                     dyn()->type_of(n->index, &null);
                     dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' has no subscript operator");
@@ -390,6 +400,10 @@ class <T> MemberTyping {
                 // seeded r.ded, and call_result_type substitutes a dependent
                 // result through it.
                 var rt = dyn()->call_result_type(r.decl, &r);
+                // call_result_type registers a generic winner's instance, so
+                // EmitIR spells its arguments rather than leaving them to
+                // C++ deduction (resolve_user_op's order).
+                n->op_instance = reinterpret_cast::<*void>(r.instance);
                 if rt == &null { return &null; }
                 // A C++ `operator[]` (std::unordered_map, ...) already returns
                 // the place as `T&`, and one returning a real `T*` means the

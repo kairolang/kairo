@@ -385,7 +385,10 @@ conjuncts, read from `sc->bounds`):
                    "'T' has no known members; add 'impl I' or ': type'".
     <T impl I>     member lookup over I (and I's derives), unioned across
                    bounds. Binds to I's REQUIREMENT decl. `derives B`
-                   bounds expose B's members likewise. Definition-side
+                   bounds expose B's members likewise. An operator on
+                   T -- `op []` included (MemberTyping) -- gathers from
+                   the same bounds (OperatorTyping::bound_ifaces) and
+                   nothing else. Definition-side
                    checking: the error lands on the template, not on the
                    40th instantiation.
     <T: type>      duck. Every step Dependent; M2 checks per instance.

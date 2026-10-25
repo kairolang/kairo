@@ -34,14 +34,14 @@
 ///
 ///     Built: named, operator and static requirements (a static member,
 ///     gated on a plain function pointer and called through Self), generic
-///     named requirements (a member template, gated on the callable form and
-///     left out of the concept, §7b.7), and every row with a concrete
-///     conformer (a full specialization each, also for a row a generic
-///     extension supplies), and requirements inherited through a generic
-///     interface instance, concrete or dependent (§7b.9). Not built:
-///     generic operator requirements, associated types, partial
-///     specializations for generic conformances (§7b.3, for C++ hosts). A
-///     constructor requirement is SC001E in Sema before it gets here.
+///     requirements, named and operator (a member template, gated on the
+///     callable form and left out of the concept, §7b.7), and every row
+///     with a concrete conformer (a full specialization each, also for a row
+///     a generic extension supplies), and requirements inherited through a
+///     generic interface instance, concrete or dependent (§7b.9). Not built:
+///     associated types, partial specializations for generic conformances
+///     (§7b.3, for C++ hosts). A constructor requirement is SC001E in Sema
+///     before it gets here.
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -547,7 +547,6 @@ class EmitWitness {
     }
 
     priv fn _unsupported(self, m: *FunctionDecl) {
-        if (m->generic_params.size() > 0) && m->is_operator { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a generic operator requirement; its witness member is not built"); }
         // A constructor requirement is met by an own constructor, never
         // through the witness (§7b.3); it belongs in the concept, not built.
         var dc = reinterpret_cast::<*DeclContext>(m->semantic_dc);

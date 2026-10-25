@@ -219,6 +219,7 @@ class CXXSpell {
         var sym = self._op_symbol(f);
         var named = CXXSpell::named_operator(sym, f);
         if named.size() > 0 { return named; }
+        if sym == "[]" { return LowerTargets::witness_subscript(); }
         var key = sym;
         if (sym == "++") || (sym == "--") { key = (("r") if (CXXSpell::op_is_postfix(f)) else ("l")) + sym; }
         var m = LowerTargets::ext_op(key);

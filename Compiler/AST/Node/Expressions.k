@@ -242,6 +242,10 @@ class SubscriptExpr derives Expr {
     /// read by OperatorLowering, which rewrites the node into the call.
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    /// The registry entry of a GENERIC `op []`'s instance (a member
+    /// template's, or a bound's generic requirement), as on
+    /// BinaryOperatorExpr. `*InstanceEntry`, stored as `*void`.
+    pub var op_instance: *void = &null;
 
     static fn create(
         ctx:   *ASTContext,
@@ -256,6 +260,7 @@ class SubscriptExpr derives Expr {
         node->index = index;
         node->resolved_op = &null;
         node->op_via_free = false;
+        node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -272,6 +277,7 @@ class SubscriptExpr derives Expr {
         node->index         = &null;
         node->resolved_op   = &null;
         node->op_via_free   = false;
+        node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

@@ -407,6 +407,12 @@ class LowerTargets {
         return "";
     }
 
+    /// A witness member's name for an `op []` requirement. A witness member
+    /// is static, as an extension member is, but `op []` is member-only
+    /// (OperatorSignatureCheck), so ext_op has no row for it: only the
+    /// witness ever needs this name, and no forwarder goes with it.
+    static fn witness_subscript() -> string { return "__kairo_op_index"; }
+
     // --- Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR) ----------
 
     /// `template <class T> auto* __kairo_tmp(T&& t)`: the address of a

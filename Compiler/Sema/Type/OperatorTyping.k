@@ -139,7 +139,9 @@ class <T> OperatorTyping {
     /// operator on such an operand is the bound's requirement, as a member
     /// call on it is (ChainBinding's dependent path): binding it here is what
     /// sends it through the interface's witness (CODEGEN.md §7b.5).
-    priv fn _bound_ifaces(self, t: *Type) -> vec::<*Type> {
+    /// MemberTyping's `op []` reads it too, so a subscript and a binary
+    /// operator on one T see the same bounds.
+    fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
         var out = vec::<*Type>();
         var c = canon_unqual(t);
         if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
@@ -160,7 +162,7 @@ class <T> OperatorTyping {
         return out;
     }
 
-    priv fn _bounded(self, t: *Type) -> bool { return self._bound_ifaces(t).size() > 0; }
+    priv fn _bounded(self, t: *Type) -> bool { return self.bound_ifaces(t).size() > 0; }
 
     /// A class, struct or union. Not an enum: a plain enum compares natively.
     priv fn _is_plain_record(self, t: *Type) -> bool {
@@ -251,7 +253,7 @@ class <T> OperatorTyping {
         // A bounded parameter offers its bounds' requirements and nothing
         // else: no ADL, no free operator, since neither can be known to apply
         // to every T the bound admits.
-        var bound = self._bound_ifaces(recv_ty);
+        var bound = self.bound_ifaces(recv_ty);
         if bound.size() > 0 {
             for var i: usize = 0; i < bound.size(); ++i { dyn()->ml.lookup(bound[i], name, cands); }
             return;
