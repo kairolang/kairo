@@ -957,6 +957,16 @@ class ClassDecl
 ///  as FunctionDecl with body_kind == None. `derives_list` is interface
 ///  inheritance (additive, no state).
 ///
+/// One requirement of an interface AFTER composition (InterfaceComposition):
+/// the interface normalized into a plain list, as if written out by hand.
+struct Requirement {
+    var decl:       *Decl;   ///< the ORIGINAL member: a FunctionDecl, or an associated TypeAliasDecl.
+    var source:     *Type;   ///< the canonical interface instance it came through (`Y<i32>`); its own interface's for an own member.
+    var leaf:       u32;     ///< the derives_list index it came through (provenance); u32(-1) for an own member.
+    var bounds:     *Expr;   ///< an associated type's bounds after `+` / `&` merged them (requires-style `&&`); else its own clause.
+    var default_ty: *Type;   ///< an associated type's kept default, or null.
+}
+
 class InterfaceDecl
   derives Decl,
           DeclContext,
@@ -979,6 +989,12 @@ class InterfaceDecl
     pub var derives_composed: bool = false;
     /// End of the derives clause: where an LSP shows the derived body.
     pub var derives_end: SourceRange;
+    /// Every requirement, own and derived, deduplicated: what binding,
+    /// conformance and witnesses read. Written once by InterfaceComposition.
+    pub var requirements: FrozenList::<Requirement>;
+    /// InterfaceComposition's progress: 0 not yet, 1 in progress (a cycle
+    /// reaching it again is an error), 2 done.
+    pub var compose_state: u8 = 0;
 
     static fn create(
         ctx:    *ASTContext,
@@ -992,6 +1008,7 @@ class InterfaceDecl
         node->name  = name;
         node->derives_expr     = &null;
         node->derives_composed = false;
+        node->compose_state    = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Interface, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();

@@ -1108,6 +1108,18 @@ module); an FFI-extracted C++ type can never be plain-extended.
 MISSING -> ConformanceChecking]. Without this `interface Dummy {}` in any
 file re-opens every cross-file conflict the orphan rule exists to prevent.
 
+**An interface's members are its composed requirement list** [DONE].
+InterfaceComposition (T stage, after RedeclMerge, before ConstraintExtraction
+and ChainBinding) normalizes every interface into `InterfaceDecl::
+requirements`: its own members plus its `derives` expression's result (`+`
+union, `-` difference, `&` intersection), deduplicated by identity (name,
+receiver, own generic parameters with their bounds, parameter modes and
+types; not the return type). MemberLookup answers an interface's names from
+that list, not from its table plus a walk of its derives edges, and
+ConformanceChecking builds one row over it. Conflicts, a removed associated
+type a kept method names, cycles and an empty result are errors there.
+private/PLAN-interface-algebra.md has the full rule set.
+
 **Interface-conformance methods are ordinary members at lookup**
 [DECIDED]. `v.push(x)` resolves the `VectorI` method bare. Two interfaces
 both declaring `push` on one type collide at the use; the qualified call

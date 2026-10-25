@@ -66,6 +66,7 @@ import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
+import Token::TokenKind::*;
 
 class MemberLookup {
     pub var sc: *SemaContext;
@@ -279,6 +280,22 @@ class MemberLookup {
         //    was about to get. A failed fill leaves it unfilled, and 2b walks
         //    the pattern exactly as before fills existed.
         MemberLookup::ensure_filled(self.sc, d);
+
+        // An interface's members are its COMPOSED requirement list
+        // (InterfaceComposition): own and derived, deduplicated, `-` and `&`
+        // applied. Not its table plus a walk of its derives edges -- that
+        // would answer `X - Y` with Y's members too.
+        var cid = dyn_cast::<InterfaceDecl>(d);
+        if (cid != &null) && (cid->compose_state == 2) {
+            for var i: usize = 0; i < cid->requirements.size(); ++i {
+                var rd = cid->requirements.get(i)->decl;
+                if !self._names(rd, name) { continue; }
+                var dup = false;
+                for var j: usize = 0; j < out->size(); ++j { if (*out)[j] == rd { dup = true; break; } }
+                if !dup { out->push_back(rd); }
+            }
+            return;
+        }
 
         // 1. own table. Unlike C++, an anonymous union field's members are
         //    not injected here and never found by name: only compiler-minted
@@ -524,6 +541,23 @@ class MemberLookup {
 
     /// Append every decl of a cell, skipping duplicates by identity (a decl
     /// reached through two paths is one candidate).
+    /// Requirement \p d is named \p name. The requirement may be another
+    /// TU's, so an identifier compares by this lookup's spelling, not imm.
+    priv fn _names(self, d: *Decl, name: DeclName) -> bool {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f != &null) && f->is_operator {
+            if name.kind != DeclNameKind::Operator { return false; }
+            var k0 = TokenKind::TkUnknown; var k1 = TokenKind::TkUnknown;
+            if f->op_token.size() > 0 { k0 = f->op_token[0].kind; }
+            if f->op_token.size() > 1 { k1 = f->op_token[1].kind; }
+            return DeclName::op_name(k0, k1).as_key() == name.as_key();
+        }
+        if name.kind != DeclNameKind::Identifier { return false; }
+        var ctx = NameLookup::ctx_of(d);
+        if ctx == &null { return false; }
+        return ctx->get_spelling(decl_name_tok(d)) == self._cur_spelling;
+    }
+
     priv fn _append_cell(self, cell: *OverloadCell, out: *vec::<*Decl>) {
         for var i: usize = 0; i < cell->size(); ++i {
             var d = cell->get(i);

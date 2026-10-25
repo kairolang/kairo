@@ -101,6 +101,52 @@ class EmitWitness {
         codegen_ice(self._cg->ctx, at, msg);
     }
 
+    // --- the members -----------------------------------------------------------------
+
+    /// \p idecl's requirements as witness members, PARALLEL to its composed
+    /// requirement list (and so to a row's witnesses): null for an
+    /// associated type, which has no member yet. An interface never composed
+    /// (poisoned upstream) gives its own methods.
+    fn members(self, idecl: *InterfaceDecl) -> vec::<*FunctionDecl> {
+        var substs = vec::<*InstanceEntry>();
+        return self.members_with(idecl, &substs);
+    }
+
+    /// members(), and per member the instance entry its types are spelled
+    /// through: a requirement inherited through a CONCRETE generic instance
+    /// (`derives Container<i32>`) is spelled at that instance's arguments,
+    /// as a specialization's are. Null for an own member or a non-generic
+    /// source -- the caller's own substitution applies. One inherited
+    /// through a DEPENDENT instance (`interface <T> F derives Container<T>`)
+    /// would need its types re-spelled in F's parameters, which Sema
+    /// substitutes and codegen cannot: an ICE naming the gap.
+    fn members_with(self, idecl: *InterfaceDecl, substs: *vec::<*InstanceEntry>) -> vec::<*FunctionDecl> {
+        var out = vec::<*FunctionDecl>();
+        if idecl->compose_state != 2 {
+            for var i: usize = 0; i < idecl->methods.size(); ++i { out.push_back(idecl->methods[i]); substs->push_back(&null); }
+            return out;
+        }
+        var me = CXXSpell::rep(static_cast::<*Decl>(idecl));
+        for var i: usize = 0; i < idecl->requirements.size(); ++i {
+            var r = idecl->requirements.get(i);
+            var f = dyn_cast::<FunctionDecl>(r->decl);
+            var sub: *InstanceEntry = &null;
+            if (f != &null) && (r->source != &null) && isa::<RecordType>(canon_unqual(r->source)) {
+                var src = cast::<RecordType>(canon_unqual(r->source));
+                var sd = CXXSpell::rep(decl_pattern(CXXSpell::rep(src->decl)));
+                if (sd != me) && (decl_generic_params(sd).size() > 0) {
+                    if src->is_dependent() {
+                        self._ice(CXXSpell::at(r->decl), "EmitWitness: a requirement inherited through a dependent generic interface instance; its types are not re-spelled in the composed interface's parameters yet");
+                    }
+                    sub = self._iface_subst(static_cast::<*Type>(src));
+                }
+            }
+            out.push_back(f);
+            substs->push_back(sub);
+        }
+        return out;
+    }
+
     // --- the decision (§7b.4) --------------------------------------------------------
 
     /// False when the primary serves \p row: every requirement is met by a
@@ -115,14 +161,18 @@ class EmitWitness {
         if decl_is_imported(CXXSpell::rep(x)) { return true; }
         var idecl = cast::<InterfaceDecl>(row->iface_decl);
         var subst = self._iface_subst(row->iface);
-        for var i: usize = 0; i < idecl->methods.size(); ++i {
-            var m = idecl->methods[i];
+        var subs = vec::<*InstanceEntry>();
+        var ms = self.members_with(idecl, &subs);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
+            if m == &null { continue; }   // an associated type: no member yet.
             var w = dyn_cast::<FunctionDecl>((row->witnesses[i]) if (i < row->witnesses.size()) else (&null));
             if w == &null { return true; }
             if decl_extension_of(static_cast::<*Decl>(w)) != &null { return true; }
             if decl_is_imported(static_cast::<*Decl>(w)) { return true; }
             if w->is_operator != m->is_operator { return true; }
-            if self._member_sig(w, &null, "") != self._member_sig(m, subst, self._spell->_type(row->conformer)) { return true; }
+            var ms_sub = (subs[i]) if (subs[i] != &null) else (subst);
+            if self._member_sig(w, &null, "") != self._member_sig(m, ms_sub, self._spell->_type(row->conformer)) { return true; }
         }
         return false;
     }
@@ -174,12 +224,14 @@ class EmitWitness {
         var at = self._at(p);
         var me = LowerTargets::witness_self();
         self._cg->sink->spell(at, self._head(p->iface) + " struct " + self._leaf_witness(p->iface) + " {");
-        for var i: usize = 0; i < idecl->methods.size(); ++i {
-            var m = idecl->methods[i];
+        var subs = vec::<*InstanceEntry>();
+        var ms = self.members_with(idecl, &subs);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
             if (m == &null) || m->is_poisoned() { continue; }
             self._unsupported(m);
-            var sig  = self._member_sig(m, &null, me);
-            var decl = self._member_decl(m, &null, me);
+            var sig  = self._member_sig(m, subs[i], me);
+            var decl = self._member_decl(m, subs[i], me);
             var leaf = self._spell->leaf(static_cast::<*Decl>(m));
             var targs = self._own_args(m);
             var gate = "";
@@ -209,20 +261,16 @@ class EmitWitness {
         var me = LowerTargets::witness_self();
         var self_args = self._self_params(p->iface);
         var s = self._head(p->iface) + " concept " + self._leaf_concept(p->iface) + " = ";
+        // No base concepts: the requirement list already holds everything
+        // the interface derives (InterfaceComposition, D4).
         var conj = "";
-        var bases = decl_bases(p->iface);
-        for var i: usize = 0; i < bases.size(); ++i {
-            var b = bases.get(i)->base;
-            if (b == &null) || (b->canonical == &null) || (!isa::<RecordType>(canon_unqual(b->canonical))) { continue; }
-            var bd = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(canon_unqual(b->canonical))->decl)));
-            if conj.size() > 0 { conj += " && "; }
-            conj += self._spell->concept_name(bd) + self._spell->witness_args(me, canon_unqual(b->canonical));
-        }
         var parms = "";
         var body  = "";
         var k: usize = 0;
-        for var i: usize = 0; i < idecl->methods.size(); ++i {
-            var m = idecl->methods[i];
+        var subs = vec::<*InstanceEntry>();
+        var ms = self.members_with(idecl, &subs);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
             if (m == &null) || m->is_poisoned() { continue; }
             // A generic requirement has no argument to call it with (§7b.7).
             if m->generic_params.size() > 0 { continue; }
@@ -243,7 +291,7 @@ class EmitWitness {
                 var a = LowerTargets::witness_arg(k);
                 k += 1;
                 if parms.size() > 0 { parms += ", "; }
-                parms += self._spell->param_decl(q, a);
+                parms += self._spell->param_decl(q, a, subs[i]);
                 if args.size() > 0 { args += ", "; }
                 args += a;
             }
@@ -271,13 +319,15 @@ class EmitWitness {
         var x     = self._spell->_type(row->conformer);
         self._cg->sink->spell(at, "template <> struct " + self._leaf_witness(p->iface)
                                   + self._spell->witness_args(x, row->iface) + " {");
-        for var i: usize = 0; i < idecl->methods.size(); ++i {
-            var m = idecl->methods[i];
+        var subs = vec::<*InstanceEntry>();
+        var ms = self.members_with(idecl, &subs);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
             if (m == &null) || m->is_poisoned() { continue; }
             self._unsupported(m);
             var w = dyn_cast::<FunctionDecl>((row->witnesses[i]) if (i < row->witnesses.size()) else (&null));
             if (w == &null) { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a row with no decl for a requirement; ConformanceChecking records only complete rows on an instance"); }
-            var decl = self._member_decl(m, subst, x);
+            var decl = self._member_decl(m, (subs[i]) if (subs[i] != &null) else (subst), x);
             var ea = vec::<*Type>();
             row->ext_args_of(i, &ea);
             self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x, &ea) + "; }");

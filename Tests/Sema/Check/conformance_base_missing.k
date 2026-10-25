@@ -1,12 +1,12 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_base_missing.k:30:12: error [SC001E]: 'File' does not conform to 'Readable': no member 'read' with the requirement's signature
+// CHECK: conformance_base_missing.k:30:12: error [SC001E]: 'File' does not conform to 'Stream': no member 'read' with the requirement's signature
 // CHECK: conformance_base_missing.k:24:9: note [I900N]: required by this bound
 // CHECK: conformance_base_missing.k:12:5: note [I900N]: 'read' is required here
 //
-// `impl Stream` promises Stream's `derives` closure too: File meets
-// Stream's own `seek` but not Readable's `read`, and that is the bound's
-// failure at the call -- a base row is checked like the bound's own, never
-// left to clang's constraint failure (CODEGEN.md §7b.9, §7b.10).
+// `impl Stream` promises everything Stream derives: its requirement list
+// holds Readable's `read` with its own `seek` (InterfaceComposition), so
+// File, meeting only `seek`, fails Stream itself at the call -- never left
+// to clang's constraint failure (CODEGEN.md §7b.10).
 
 pub interface Readable {
     fn read(self) -> i32

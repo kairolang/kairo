@@ -1,7 +1,9 @@
 // witness/derives.k -- exit 7
-// A call bound to a BASE interface's requirement goes through the base's
-// witness (CODEGEN.md §7b.9): `impl Stream` yields a row for Stream and for
-// Readable, and Stream's concept conjoins Readable's.
+// A call bound to an INHERITED requirement goes through the BOUND's witness:
+// every interface's requirement list holds what it derives
+// (InterfaceComposition), so `T impl Stream` calling `read` is
+// `Stream_witness<T>::read`, Stream's row covers read and seek both, and
+// Stream's concept lists every requirement rather than conjoining Readable's.
 pub interface Readable {
     fn read(self) -> i32
 }
@@ -31,12 +33,12 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/derives.k
-// CXX-DAG: concept Stream_c = {{ ?}}::{{.*}}::Readable_c<__kairo_Self> && requires(
-// CXX-DAG: template<> struct Readable_witness<{{ ?}}::{{.*}}::File> {
-// CXX-DAG: template<> struct Stream_witness<{{ ?}}::{{.*}}::File> {
+// CXX: concept Stream_c = requires(__kairo_Self * __kairo_r0, __kairo_Self * __kairo_r1, signed int __kairo_a0) {
+// CXX-NOT: template<> struct Readable_witness
+// CXX: template<> struct Stream_witness<{{ ?}}::{{.*}}::File> {
 // A pointer receiver is passed as it is.
 // CXX: Stream_witness<T>::seek(s, 2);
-// CXX: Readable_witness<T>::read(s);
+// CXX: Stream_witness<T>::read(s);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

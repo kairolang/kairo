@@ -966,13 +966,20 @@ inside the class template's member bodies.
 
 ### 7b.9 Interfaces, case by case
 
-- **`derives`.** A witness belongs to the interface that DECLARES the
-  requirement. A call bound to `Readable::read` through `T impl Stream` is
-  `Readable_witness<T>::read`; `impl Stream` therefore yields a row for
-  Stream, Readable and Seekable each, and the interface instance's
-  arguments come through the derives edge's substitution.
+- **`derives`, and composition.** Every interface is normalized before
+  binding into a plain requirement list, its own members and everything its
+  `derives` expression yields (`+` union, `-` difference, `&` intersection;
+  Sema/Check/InterfaceComposition.k). A witness belongs to the BOUND: a call
+  bound to `Readable::read` through `T impl Stream` is
+  `Stream_witness<T>::read`, Stream's single row covers every requirement in
+  its list, and Stream's concept lists them all rather than conjoining
+  Readable's. A requirement inherited through a concrete generic instance
+  (`derives Container<i32>`) is spelled at that instance's arguments; one
+  inherited through a DEPENDENT instance (`interface <T> F derives
+  Container<T>`) is an EmitWitness ICE for now: its types would have to be
+  re-spelled in F's parameters, which Sema substitutes and codegen cannot.
 - **Multiple bounds.** Each call is bound to one requirement and goes
-  through that requirement's interface. Two bounds both declaring `m` is
+  through the bound whose list contains it. Two bounds both declaring `m` is
   the typer's ambiguity (RESOLUTION.md §2b, "collide at the use"), never
   codegen's.
 - **Default methods** do not exist (interfaces.md, "No Default

@@ -401,23 +401,12 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     priv fn _push_closure(self, row: *ConformanceRow, x: *Type, out: *vec::<*ConformanceRow>,
                           at: SourceRange, b: *ConstraintExpr) -> bool {
         for var i: usize = 0; i < out->size(); ++i { if (*out)[i] == row { return true; } }
+        // One row covers the interface's whole composed requirement list,
+        // inherited requirements included (InterfaceComposition): a call
+        // through the bound goes through the bound's witness, so there are no
+        // base rows to add.
         out->push_back(row);
-        var ok = true;
-        var idecl = row->iface_decl;
-        var edges = decl_bases(idecl);
-        for var i: usize = 0; i < edges.size(); ++i {
-            var base = edges.get(i)->base;
-            if (base == &null) || (base->canonical == &null) { continue; }
-            var bi = self._through_iface(canon_unqual(base->canonical), row->iface);
-            var br = self.conforms(x, bi);
-            if (br == &null) || (!br->ok) {
-                self._report(at, b, x, bi, br);
-                ok = false;
-                continue;
-            }
-            if !self._push_closure(br, x, out, at, b) { ok = false; }
-        }
-        return ok;
+        return true;
     }
 
     // --- the table -----------------------------------------------------------------
@@ -436,16 +425,42 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         row.iface      = iface;
         row.iface_decl = static_cast::<*Decl>(idecl);
         row.ok         = true;
-        for var i: usize = 0; i < idecl->methods.size(); ++i {
-            var m = idecl->methods[i];
-            var w = self._implementation(x, iface, idecl, m);
-            row.witnesses.push_back(w);
+        // Parallel to the interface's composed requirement list. An
+        // associated type's entry has no witness decl yet (they are not
+        // compiled) and does not fail the row.
+        var decls = vec::<*Decl>();
+        var srcs  = vec::<*Type>();
+        self._reqs(idecl, iface, &decls, &srcs);
+        for var i: usize = 0; i < decls.size(); ++i {
+            var m = dyn_cast::<FunctionDecl>(decls[i]);
+            var w: *Decl = &null;
             var ea = vec::<*Type>();
-            if (w == &null) || (!self._ext_args(cast::<FunctionDecl>(w), x, &ea)) { row.ok = false; }
+            if m != &null {
+                var k = self._iface_decl(srcs[i]);
+                w = self._implementation(x, srcs[i], k, m);
+                if (w == &null) || (!self._ext_args(cast::<FunctionDecl>(w), x, &ea)) { row.ok = false; }
+            }
+            row.witnesses.push_back(w);
             row.ext_arg_count.push_back(ea.size());
-            for var k: usize = 0; k < ea.size(); ++k { row.ext_args.push_back(ea[k]); }
+            for var k2: usize = 0; k2 < ea.size(); ++k2 { row.ext_args.push_back(ea[k2]); }
         }
         return self.sc->instances->row_add(&row);
+    }
+
+    /// \p idecl's requirement decls and, for each, the interface instance it
+    /// came through, at \p iface's arguments. The composed list
+    /// (InterfaceComposition); an interface it never composed (it was
+    /// poisoned) contributes its own methods.
+    priv fn _reqs(self, idecl: *InterfaceDecl, iface: *Type, decls: *vec::<*Decl>, srcs: *vec::<*Type>) {
+        if idecl->compose_state != 2 {
+            for var i: usize = 0; i < idecl->methods.size(); ++i { decls->push_back(static_cast::<*Decl>(idecl->methods[i])); srcs->push_back(iface); }
+            return;
+        }
+        for var i: usize = 0; i < idecl->requirements.size(); ++i {
+            var r = idecl->requirements.get(i);
+            decls->push_back(r->decl);
+            srcs->push_back(self._through_iface(self._canon(r->source), iface));
+        }
     }
 
     /// The arguments \p x binds a GENERIC extension's parameters to, when
@@ -653,10 +668,14 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var missing = "";
         var req: *FunctionDecl = &null;
         if row != &null {
-            var idecl = cast::<InterfaceDecl>(row->iface_decl);
-            for var i: usize = 0; i < row->witnesses.size(); ++i {
+            var decls = vec::<*Decl>();
+            var srcs  = vec::<*Type>();
+            self._reqs(cast::<InterfaceDecl>(row->iface_decl), row->iface, &decls, &srcs);
+            for var i: usize = 0; (i < row->witnesses.size()) && (i < decls.size()); ++i {
                 if row->witnesses[i] != &null { continue; }
-                req = idecl->methods[i];
+                var f = dyn_cast::<FunctionDecl>(decls[i]);
+                if f == &null { continue; }   // an associated type: not checked yet.
+                req = f;
                 missing = self._req_name(req);
                 break;
             }

@@ -2,10 +2,14 @@
 // than the limit; 0 is unlimited. Two interfaces: a limit of 2 accepts, 1
 // rejects.
 
-interface A { }
-interface B { }
+interface A { fn a(self) }
+interface B { fn b(self) }
 
-class C impl A, B { }
+class C impl A, B {
+    fn C(self) { }
+    fn a(self) { }
+    fn b(self) { }
+}
 
 fn main() -> i32 { return 0 }
 

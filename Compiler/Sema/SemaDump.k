@@ -65,6 +65,7 @@
 
 ffi "c++" import "llvm/ADT/DenseMap.h";
 import Sema::SemaContext::*;
+import Sema::Check::InterfaceComposition::*;
 import Sema::Lower::PatternCompilation::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Resolve::NameLookup::*;
@@ -359,6 +360,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._dump_scopes();
         self._dump_bindings(tu);
         self._dump_expr_types(tu);
+        self._dump_compositions(static_cast::<*DeclContext>(tu), true);
         self._dump_summary();
 
         std::print(self._p.out);
@@ -1527,6 +1529,48 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     priv fn _is_inferred_slot(self, t: *Type) -> bool {
         if t == &null { return false; }
         return !t->range.is_valid();
+    }
+
+    // --- interface composition ---------------------------------------------
+
+    /// Every interface with a derives clause: its requirement count and the
+    /// derived body as InterfaceComposition::derived_text spells it -- the
+    /// text an LSP inlay hint shows after the clause (D10), pinned here.
+    priv fn _dump_compositions(self, dc: *DeclContext, top: bool) {
+        if top {
+            self._p.paint(Color::NodeKind, "-- interface composition --");
+            self._p.newline();
+        }
+        var ic = InterfaceComposition(self.sc);
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if d == &null { continue; }
+            if isa::<ModuleDecl>(d) { self._dump_compositions(static_cast::<*DeclContext>(cast::<ModuleDecl>(d)), false); continue; }
+            var id = dyn_cast::<InterfaceDecl>(d);
+            if (id == &null) || (id->derives_expr == &null) { continue; }
+            self._p.paint(Color::Tree, "  ");
+            self._p.paint(Color::TypeName, self.ctx->get_spelling(id->name));
+            self._p.put(f"  {id->requirements.size()} requirement(s)");
+            if id->is_poisoned() { self._p.paint(Color::Error, "  (poisoned)"); }
+            self._p.newline();
+            var text = ic.derived_text(id);
+            var line = "";
+            for var k: usize = 0; k < text.size(); ++k {
+                if text[k] == '\n' {
+                    self._p.paint(Color::Tree, "    ");
+                    self._p.put(line);
+                    self._p.newline();
+                    line = "";
+                    continue;
+                }
+                line += text[k];
+            }
+            if line.size() > 0 {
+                self._p.paint(Color::Tree, "    ");
+                self._p.put(line);
+                self._p.newline();
+            }
+        }
     }
 
     // --- section 6 + summary ----------------------------------------------

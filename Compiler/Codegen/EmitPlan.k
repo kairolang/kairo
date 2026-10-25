@@ -752,20 +752,13 @@ fn EmitPlan::_witness_primary(iface_in: *Decl) -> usize {
     self._witnesses.push_back(fresh);
     var k = self._witnesses.size() - 1;
 
-    var idecl = cast::<InterfaceDecl>(iface);
-    for var i: usize = 0; i < idecl->methods.size(); ++i {
-        var m = idecl->methods[i];
+    // Every requirement it derives is its own member (InterfaceComposition),
+    // and its concept conjoins no base's: no base primary is needed first.
+    var ms = EmitWitness(self._cg, &(self._spell)).members(cast::<InterfaceDecl>(iface));
+    for var i: usize = 0; i < ms.size(); ++i {
+        var m = ms[i];
         if (m == &null) || m->is_poisoned() { continue; }
         self._witness_sig(k, m);
-    }
-    var bases = decl_bases(iface);
-    for var i: usize = 0; i < bases.size(); ++i {
-        var b = bases.get(i)->base;
-        if (b == &null) || (b->canonical == &null) || (!isa::<RecordType>(canon_unqual(b->canonical))) { continue; }
-        var bd = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(canon_unqual(b->canonical))->decl)));
-        if !isa::<InterfaceDecl>(bd) { continue; }
-        self._witness_primary(bd);
-        self._witnesses[k].after.push_back(bd);
     }
     return k;
 }
@@ -790,9 +783,9 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     var k = self._witnesses.size() - 1;
 
     self._witness_dep(k, row->conformer);
-    var idecl = cast::<InterfaceDecl>(iface);
-    for var i: usize = 0; i < idecl->methods.size(); ++i {
-        var m = idecl->methods[i];
+    var ms = ew.members(cast::<InterfaceDecl>(iface));
+    for var i: usize = 0; i < ms.size(); ++i {
+        var m = ms[i];
         if (m == &null) || m->is_poisoned() { continue; }
         self._witness_sig(k, m);
     }
