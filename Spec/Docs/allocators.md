@@ -1,6 +1,6 @@
 # Allocators
 
-Allocation goes through [`@create T()`](/docs/language/pointers/#heap-allocation) and `@destroy`; both route to the allocator in effect at that point. Three kinds exist, chosen by scope: **global**, **scoped** and **freestanding**.
+Allocation goes through [`@create T()`](/docs/language/pointers/#heap-allocation) and `@destroy`; both route to the allocator in effect at that point. `@destroy p` runs the destructor (`delete *p`) and returns the memory to the allocator (`@free p`); `delete` alone never frees. See [`delete` does not free](/docs/language/classes-lifecycle/#delete-does-not-free). Three kinds exist, chosen by scope: **global**, **scoped** and **freestanding**.
 
 ### Global allocator
 
@@ -38,13 +38,13 @@ interface Allocator {
     static fn alloc(size: usize, align: usize) -> unsafe *u8
     static fn free(ptr: unsafe *u8, size: usize, align: usize)
 }
+
+interface Reallocator derives Allocator {
+    static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8
+}
 ```
 
-`realloc` is optional. An allocator that defines it with this signature has it used for growth; one that does not gets the default of `alloc` + copy + `free`:
-
-```kairo
-static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8
-```
+An allocator that does not conform to `Reallocator` is grown with `alloc`, a copy, and `free`.
 
 This is not the same thing as the `Heap` example on the Interfaces page. That is a [virtual interface](/docs/language/interfaces/#virtual-interfaces): instance-based, called through a pointer with dynamic dispatch. `Allocator` is static and resolved at compile time.
 

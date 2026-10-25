@@ -139,7 +139,7 @@ static counter: i32 = 0
 
 ## Thread-Local Variables
 
-`thread` declares a binding with thread storage duration: every thread gets its own instance, initialized when the thread first touches it and destroyed when that thread exits. Like `static`, it requires an explicit type annotation and is allowed at file scope and class scope only; a `thread` declaration inside a function body is a compile error.
+`thread` declares a binding with thread storage duration: every thread gets its own instance, initialized when the thread first touches it and destroyed when that thread exits. Like `static`, it requires an explicit type annotation and may appear at file scope, class scope, or inside a function body. A function-local `thread` keeps its value across calls on the same thread, like a static local, and is independent per thread.
 
 ```kairo
 thread counter: i32 = 0
@@ -148,9 +148,15 @@ thread const WORKER_NAME: string = "worker"
 class Pool {
     thread current: *Pool?
 }
+
+fn next_id() -> u64 {
+    thread counter: u64 = 0
+    counter += 1
+    return counter
+}
 ```
 
-`thread` combines with `const` the way `static` does. A `thread` binding without an initializer is default-initialized per thread under the rules in [Default Initialization](#default-initialization). Access is `name` at file scope and `Self::name` / `Type::name` at class scope, the same as `static`. Lowering is C++ `thread_local`.
+`thread` combines with `const` the way `static` does. A `thread` binding without an initializer is default-initialized per thread under the rules in [Default Initialization](#default-initialization). Access is `name` at file scope and `Self::name` / `Type::name` at class scope, the same as `static`. Seen from C++, a `thread` binding is a `thread_local` variable.
 
 ---
 
@@ -367,7 +373,7 @@ See [Tether](/docs/language/tether/) and [Ownership](/docs/language/ownership/) 
 
 ---
 
-All five declaration keywords `var`, `const`, `static`, `eval`, `thread` work in class/struct scope. All except `thread` also work in local scope.
+All five declaration keywords `var`, `const`, `static`, `eval`, `thread` work in both local and class/struct scope.
 
 ## See also
 

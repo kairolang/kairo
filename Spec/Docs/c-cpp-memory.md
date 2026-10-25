@@ -26,7 +26,7 @@ MyKairoClass *p = new MyKairoClass("hi");
 delete p;   // runs Kairo's destructor, then returns memory to Kairo's global allocator
 ```
 
-This works because Kairo emits the class, and therefore emits the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators). `~MyKairoClass` performs Kairo's destruction semantics; C++'s `delete` merely sequences destructor-then-deallocate, which is the same pair of operations Kairo spells as [`delete obj`](/docs/language/classes-lifecycle/#delete-does-not-free) followed by `@free`.
+This works because Kairo emits the class, and therefore emits the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators). `~MyKairoClass` performs Kairo's destruction semantics; C++'s `delete` merely sequences destructor-then-deallocate, which is the same pair of operations Kairo spells as [`delete obj`](/docs/language/classes-lifecycle/#delete-does-not-free) followed by `@free`, which together are `@destroy`.
 
 Pointer parameters and return values stay raw `*T`. There is no wrapper type, no ABI change, and no cost at the call boundary.
 
