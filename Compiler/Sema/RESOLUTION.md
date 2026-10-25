@@ -810,7 +810,11 @@ declared in (`MemberLookup::declaring_scope`): a free `op *` beside a
 file-scope type is otherwise unreachable from every file, its own included.
 A comparison the type does not declare is derived: `!=` from `op ==`,
 `<`/`<=`/`>`/`>=` from `op <=>` (C++20's rewritten candidates, minus the
-reversed ones), recorded in `op_rewrite`. `==`/`!=` on two values of one ADT
+reversed ones), and `==`/`!=` from `op <=>` when no `op ==` answers (Kairo's
+rule, not C++'s: never on an imported record), recorded in `op_rewrite`. A
+comparison the type declares beside an `op <=>` wins every use and is
+warned about as shadowing the derived one (OperatorSignatureCheck, SC001W
+for now). `==`/`!=` on two values of one ADT
 enum -- one canonical type, so one instance of a generic enum, never a
 nullable -- with no `op ==` found compares variants, not payloads: X sets
 `tag_eq` and binds nothing, and OperatorLowering writes the builtin

@@ -308,6 +308,18 @@ The class definitions stay byte-identical, because the bodies are emitted
 outside the class. `--emit-headers` therefore runs EmitIR, needs a lowered
 tree, and writes nothing after an error.
 
+A record with a member `op <=>` gets the comparisons Kairo derives from it
+written into the class (`_derived_cmps`), after the methods and before the
+derived `op =`: `bool operator<(<other>) [const] { return static_cast<signed
+char>(this->operator<=>(static_cast<decltype(o)&&>(o))) < 0; }` for each of
+`<` `<=` `>` `>=` `==` `!=`, the operand, cv and access the `<=>`'s own. C++20
+cannot find them: its rewrite `(a <=> b) < 0` does not compile against
+`Ordering`, a scoped enum, and it never derives `==` from a user `<=>`. A
+comparison the record declares is skipped, as is `!=` beside a declared
+`==` (C++20 rewrites it as Kairo derives it). In the class, like the derived
+`op =` (invariant 12's exception). Not yet: a generic `<=>`, an extension
+`<=>`, an ADT's.
+
 A record's `op =` is derived from its transfer constructor, never written
 (classes.md); ClassLifecycle decides how (`assign_from`, `assign_form`) and
 `_derived_assign` writes it after the methods, public, its operand spelled

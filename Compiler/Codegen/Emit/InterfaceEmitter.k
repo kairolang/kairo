@@ -88,6 +88,7 @@ import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::LangItems::*;
+import AST::OperatorFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
@@ -590,6 +591,9 @@ class InterfaceEmitter {
             self._split_ctor_decls(m, d);
         }
 
+        // The comparisons derived from a member `op <=>` (_derived_cmps).
+        cur_access = self._derived_cmps(d, cur_access, at);
+
         // `op =`, derived from the transfer constructor (_derived_assign).
         // Public, as C++'s implicit one is.
         if self._assign_form_of(d) != AssignForm::Implicit {
@@ -659,6 +663,86 @@ class InterfaceEmitter {
             if self._rebuilds(CXXSpell::rep(nd)) { return true; }
         }
         return false;
+    }
+
+    /// The six comparisons OperatorTyping derives from a member `op <=>`,
+    /// written into the class so a C++ host sees what a Kairo caller does.
+    /// C++20 cannot find them itself: it rewrites `a < b` as `(a <=> b) < 0`,
+    /// which `Ordering` -- a scoped enum, not a comparison category -- cannot
+    /// answer, and it never derives `==` from a user `<=>` at all. Each is
+    /// `bool operator<(<other>) [const] { return static_cast<signed char>(
+    /// this->operator<=>(o)) < 0; }`, the operand and cv the `<=>`'s own, in
+    /// the class (invariant 12's exception, as the derived `op =`), with the
+    /// `<=>`'s access and anchored on it. A comparison the record declares
+    /// is its own and wins in Kairo (OperatorSignatureCheck warns), so it is
+    /// not written; nor is `!=` beside a declared `==`, which C++20 rewrites
+    /// exactly as Kairo derives it. A generic `<=>` has no one operand to
+    /// spell and derives nothing here. Returns the access in force.
+    priv fn _derived_cmps(self, d: *Decl, cur: u8, at: SourceRange) -> u8 {
+        var methods = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        var has_eq = false;
+        var declared = vec::<TokenKind>();
+        for var i: usize = 0; i < methods.size(); ++i {
+            var m = methods[i];
+            if (m == &null) || (!m->is_operator) { continue; }
+            var k = OperatorFacts::op_kind(m);
+            // `not_eq` is `!=` to C++.
+            if k == TokenKind::KwNotEq { k = TokenKind::OpExclaimEqual; }
+            if k == TokenKind::OpEqualEqual { has_eq = true; }
+            declared.push_back(k);
+        }
+
+        var ops = vec::<TokenKind>();
+        ops.push_back(TokenKind::OpLess);
+        ops.push_back(TokenKind::OpLessEqual);
+        ops.push_back(TokenKind::OpGreater);
+        ops.push_back(TokenKind::OpGreaterEqual);
+        ops.push_back(TokenKind::OpEqualEqual);
+        ops.push_back(TokenKind::OpExclaimEqual);
+        var syms = vec::<string>();
+        syms.push_back("<");
+        syms.push_back("<=");
+        syms.push_back(">");
+        syms.push_back(">=");
+        syms.push_back("==");
+        syms.push_back("!=");
+
+        var acc = cur;
+        var sc8 = builtin_info(BuiltinKind::I8)->cxx;
+        for var i: usize = 0; i < methods.size(); ++i {
+            var m = methods[i];
+            if (m == &null) || (!m->is_operator) || (!m->is_method()) { continue; }
+            if OperatorFacts::op_kind(m) != TokenKind::OpLessEqualGreater { continue; }
+            if self._spell->template_head(static_cast::<*Decl>(m)).size() > 0 { continue; }
+            var other: *ParamDecl = &null;
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var p = m->params[j];
+                if (p != &null) && (!p->is_self) { other = p; break; }
+            }
+            if other == &null { continue; }   // OperatorSignatureCheck rejected it already.
+
+            var mat   = self._at(static_cast::<*Decl>(m));
+            var param = self._spell->param_decl(other, "o", &null, d);
+            var quals = "";
+            if m->is_const()  { quals += " const"; }
+            if m->no_unwind   { quals += " noexcept"; }
+            // Forwarded as the `<=>` takes it: a by-value or `&&` operand
+            // is an lvalue `o` here and must be moved on.
+            var call  = "static_cast<" + sc8 + ">(this->" + self._spell->leaf(m) + "(static_cast<decltype(o)&&>(o)))";
+            for var j: usize = 0; j < ops.size(); ++j {
+                var k = ops[j];
+                var mine = false;
+                for var q: usize = 0; q < declared.size(); ++q {
+                    if declared[q] == k { mine = true; break; }
+                }
+                if mine { continue; }
+                if (k == TokenKind::OpExclaimEqual) && has_eq { continue; }
+                acc = self._access(acc, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
+                self._cg->sink->spell(mat, "bool operator" + syms[j] + "(" + param + ")" + quals
+                                         + " { return " + call + " " + syms[j] + " 0; }");
+            }
+        }
+        return acc;
     }
 
     /// `X& operator=(...)`, as ClassLifecycle chose it (AssignForm). The

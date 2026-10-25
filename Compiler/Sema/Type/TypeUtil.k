@@ -600,6 +600,9 @@ class TypeUtil {
             case TypeKind::PointerType {
                 var p = cast::<PointerType>(t);
                 var pre = ("unsafe *") if (p->is_unsafe) else ("*");
+                // `*T?` reads as a nullable pointer, so a pointer TO a
+                // nullable is written the only way that parses back to it.
+                if isa::<NullableType>(p->pointee) { return pre + "(" + self.str(p->pointee) + ")"; }
                 return pre + self.str(p->pointee);
             }
             case TypeKind::NullableType   { return self.str(cast::<NullableType>(t)->inner) + "?"; }

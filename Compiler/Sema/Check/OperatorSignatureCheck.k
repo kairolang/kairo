@@ -226,18 +226,29 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
 
     // === one definition per pair ===========================================
 
-    fn visit_class_decl(self, n: *ClassDecl) -> bool   { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
-    fn visit_struct_decl(self, n: *StructDecl) -> bool { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
-    fn visit_union_decl(self, n: *UnionDecl) -> bool   { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+    fn visit_class_decl(self, n: *ClassDecl) -> bool   { self._table(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+    fn visit_struct_decl(self, n: *StructDecl) -> bool { self._table(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+    fn visit_union_decl(self, n: *UnionDecl) -> bool   { self._table(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+
+    priv fn _table(self, dc: *DeclContext, at: *Decl) {
+        self._pairs(dc, at);
+        self._cmp_shadows(dc, dc);
+    }
 
     /// An extension's table against itself and against the target's own body.
     fn visit_extension_decl(self, n: *ExtensionDecl) -> bool {
         var dc = static_cast::<*DeclContext>(n);
-        self._pairs(dc, static_cast::<*Decl>(n));
+        self._table(dc, static_cast::<*Decl>(n));
         if (n->target != &null) && (n->target->canonical != &null) && isa::<RecordType>(canon_unqual(n->target->canonical)) {
             var td = cast::<RecordType>(canon_unqual(n->target->canonical))->decl;
             var tdc = NameLookup::context_of(decl_pattern(td));
-            if tdc != &null { self._pairs_across(dc, tdc, static_cast::<*Decl>(n)); }
+            if tdc != &null {
+                self._pairs_across(dc, tdc, static_cast::<*Decl>(n));
+                // Either side may hold the `<=>`; each warning lands on the
+                // comparison, wherever it is declared.
+                self._cmp_shadows(dc, tdc);
+                self._cmp_shadows(tdc, dc);
+            }
         }
         return true;
     }
@@ -268,6 +279,46 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
              .note(g->range.start, f"'op {bsym}' is declared here").first(g->range)
              .emit();
             f->poison();
+        }
+    }
+
+    // === comparisons beside `op <=>` ========================================
+
+    /// The comparisons OperatorTyping derives from `op <=>`.
+    priv fn _derived_from_cmp(self, k: TokenKind) -> bool {
+        return (k == TokenKind::OpLess) || (k == TokenKind::OpLessEqual)
+            || (k == TokenKind::OpGreater) || (k == TokenKind::OpGreaterEqual)
+            || (k == TokenKind::OpEqualEqual) || (k == TokenKind::OpExclaimEqual)
+            || (k == TokenKind::KwNotEq);
+    }
+
+    /// A comparison declared in \p a beside an `op <=>` in \p b. Legal --
+    /// an `op ==` cheaper than a three-way compare is a real reason to write
+    /// one -- but the declared operator wins every use (OperatorTyping looks
+    /// it up first), so the one derived from `<=>` is never reached, and a C++
+    /// host gets the declared one too (InterfaceEmitter skips it). If the two
+    /// disagree, `a < b` and `a <=> b` silently answer differently: warn, do
+    /// not poison.
+    priv fn _cmp_shadows(self, a: *DeclContext, b: *DeclContext) {
+        if (a == &null) || (b == &null) || (a->dc_symbols == &null) { return; }
+        var cmp = b->lookup_symbol(DeclName::op_name(TokenKind::OpLessEqualGreater, TokenKind::TkUnknown));
+        if (cmp == &null) || (cmp->size() == 0) { return; }
+        var g = cmp->get(0);
+        if (g == &null) || decl_is_imported(g) { return; }
+        var rows = vec::<SymbolTable::Entry>();
+        a->dc_symbols->collect_entries(rows);
+        for var i: usize = 0; i < rows.size(); ++i {
+            var cell = rows[i].cell;
+            if (cell == &null) || (cell->size() == 0) { continue; }
+            var f = dyn_cast::<FunctionDecl>(cell->get(0));
+            if (f == &null) || (!f->is_operator) || f->is_poisoned() { continue; }
+            if !self._derived_from_cmp(OperatorFacts::op_kind(f)) { continue; }
+            var sym = OperatorFacts::symbol(f);
+            self.sc->diag->report(DiagID::SC001W, f->range.start,
+                f"'op {sym}' shadows the '{sym}' derived from 'op <=>'; every '{sym}' calls this declaration instead"
+            ).first(f->range)
+             .note(g->range.start, "'op <=>' is declared here; it already derives '<', '<=', '>', '>=', '==' and '!=\x27").first(g->range)
+             .emit();
         }
     }
 

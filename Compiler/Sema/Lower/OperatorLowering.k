@@ -279,7 +279,8 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         return static_cast::<*Expr>(no);
     }
 
-    /// `a < b` -> `((a.op<=>(b)) as i8) < 0`, the original token against 0.
+    /// `a < b` -> `((a.op<=>(b)) as i8) < 0`, the original token against 0
+    /// (`==` / `!=` from `op <=>` as well).
     /// Ordering's discriminants are -1 / 0 / 1 (Lib/builtin/lang.k), so the
     /// comparison needs no variant spelled and no lookup here.
     priv fn _derived_cmp(self, n: *BinaryOperatorExpr, f: *FunctionDecl) -> *Expr {

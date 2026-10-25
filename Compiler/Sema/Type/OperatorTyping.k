@@ -32,8 +32,13 @@
 ///   \par Derived operators
 ///     `!=` from `op ==`, and the four relationals from `op <=>`, when the
 ///     type declares no operator of its own (C++20's rewritten candidates,
-///     minus the reversed ones). resolved_op is the underlying decl and
-///     op_rewrite says how it is rendered; the lowering looks nothing up.
+///     minus the reversed ones). `==` and `!=` also come from `op <=>` when
+///     there is no `op ==` -- Kairo's rule, not C++'s, so never on an
+///     imported record. resolved_op is the underlying decl and op_rewrite
+///     says how it is rendered; the lowering looks nothing up. A declared
+///     comparison always wins over the derived one (OperatorSignatureCheck
+///     warns that it shadows it); InterfaceEmitter writes the derived six
+///     into the C++ class, so a C++ host sees what Kairo does.
 ///
 ///     Compound assignment is ONE definition per pair. A type declares `op +`
 ///     or `op +=`, never both, and the other is derived: `a += b` is
@@ -551,6 +556,19 @@ class <T> OperatorTyping {
             }
             // Derived: `<` `<=` `>` `>=` from `op <=>`.
             if self._is_relational(k) {
+                ut = self.resolve_user_op(static_cast::<*Expr>(n), TokenKind::OpLessEqualGreater, TokenKind::TkUnknown,
+                                          n->lhs, lt, rt, &args, -1, "op <=>", &found);
+                if found {
+                    if ut == &null { return &null; }
+                    n->op_rewrite = OpRewrite::Cmp;
+                    return dyn()->tu.builtin(BuiltinKind::Bool);
+                }
+            }
+            // Derived: `==` `!=` from `op <=>`, when no `op ==` answered
+            // (`!=` tried it above): `(a <=> b) == 0`. Kairo's rule, not
+            // C++20's -- C++ never derives equality from a user `<=>`, so an
+            // imported record keeps exactly what C++ declares.
+            if self._is_equality(k) && (!self._is_imported_record(lt)) && (!self._is_imported_record(rt)) {
                 ut = self.resolve_user_op(static_cast::<*Expr>(n), TokenKind::OpLessEqualGreater, TokenKind::TkUnknown,
                                           n->lhs, lt, rt, &args, -1, "op <=>", &found);
                 if found {
