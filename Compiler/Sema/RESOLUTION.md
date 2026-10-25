@@ -1228,7 +1228,20 @@ is
                 or STRUCTURAL (found at a use)
     witnesses   each of the interface's OWN requirements -> the decl that
                 implements it: an own or inherited member, an extension
-                member, or an imported C++ member
+                member, or an imported C++ member. A CONSTRUCTOR
+                requirement (named after its interface,
+                `decl_is_ctor_requirement`) is met by an own constructor
+                of the conformer -- its own table under DeclName::ctor(),
+                never a base's -- matched on the non-self parameters, or,
+                for a zero-parameter one on a record declaring none, by
+                the implicit `X()` (the record decl stands as the
+                witness). A builtin meets none: `i32()` is SC037E. A
+                LIFECYCLE one (`@copy` / `@move`) is met by category
+                (ClassLifecycle): `@copy` by COPY, `@move` by COPY or
+                MOVE, builtins included.
+                `T(args)` on a parameter whose bound promises a
+                constructor of that arity types as T; any other `T(args)`
+                stays unknown, as before
     sources     per requirement, the interface instance it came through at
                 the row's arguments (`F<T> derives Container<T>` met as
                 `F<i32>`: `Container<i32>`), so codegen spells an inherited

@@ -418,7 +418,7 @@ class <T> CallTyping {
                 if rec == &null { dyn()->poison_only(n); return &null; }
                 return self._ctor_call(n, rec);
             }
-            if isa::<GenericParamDecl>(d) { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
+            if isa::<GenericParamDecl>(d) { return self._param_ctor_call(n, cast::<GenericParamDecl>(d)); }
             // a value: must be a function pointer.
             var vt = dyn()->type_of(callee, &null);
             return self._call_through(n, vt);
@@ -721,6 +721,38 @@ class <T> CallTyping {
         n->ctor_decl = static_cast::<*Decl>(r.decl);
         if dep { n->value_category = Expr::ValueCategory::RValue; }
         return rec;
+    }
+
+    /// `T(args)` on a generic parameter. Typed as T when one of T's bounds
+    /// promises a constructor of that arity (decl_is_ctor_requirement):
+    /// every instance's `X(args)` then exists, ConformanceChecking having
+    /// found it, so `var t = T()` has a type to carry into `t.m()`. Any
+    /// other `T(args)` stays unknown, as it always was -- clang decides it
+    /// per instance -- so a bound only ever adds a type, never accepts a
+    /// call that was rejected. The arguments are not checked against the
+    /// requirement: a conformer's constructor is matched exactly, so the
+    /// C++ `T(args)` reaches it or fails at the concept.
+    priv fn _param_ctor_call(self, n: *CallExpr, gp: *GenericParamDecl) -> *Type {
+        self._type_args_blind(n);
+        var t = dyn()->sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
+        var bs = dyn()->bound_ifaces(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var rt = dyn_cast::<RecordType>(bs[i]);
+            if rt == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(rt->decl)));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
+                if (m == &null) || (!decl_is_ctor_requirement(m)) { continue; }
+                var arity: usize = 0;
+                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { arity += 1; } }
+                if arity != n->args.size() { continue; }
+                n->value_category = Expr::ValueCategory::RValue;
+                return t;
+            }
+        }
+        dyn()->mark_unknown(n);
+        return &null;
     }
 
     /// finish_call_args with no winner: there is no parameter to type an

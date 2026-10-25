@@ -792,6 +792,9 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     for var i: usize = 0; i < row->witnesses.size(); ++i {
         var w = row->witnesses[i];
         if w == &null { continue; }
+        // A constructor slot is forwarded to by nothing: the bounded body
+        // constructs `T(args)` itself, wherever the conformer is complete.
+        if (i < ms.size()) && (ms[i] != &null) && decl_is_ctor_requirement(ms[i]) { continue; }
         var x = decl_extension_of(w);
         if x != &null { self._witness_scope(k, x); continue; }
         self._admit_use(w);   // an own member: its owner complete.

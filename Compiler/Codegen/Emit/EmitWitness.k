@@ -38,10 +38,11 @@
 ///     callable form and left out of the concept, §7b.7), and every row
 ///     with a concrete conformer (a full specialization each, also for a row
 ///     a generic extension supplies), and requirements inherited through a
-///     generic interface instance, concrete or dependent (§7b.9). Not built:
-///     associated types, partial specializations for generic conformances
-///     (§7b.3, for C++ hosts). A constructor requirement is SC001E in Sema
-///     before it gets here.
+///     generic interface instance, concrete or dependent (§7b.9), and
+///     constructor requirements: no member anywhere, since `T(args)` is
+///     already the C++ for every conformer, only a concept clause (§7b.3).
+///     Not built: associated types, partial specializations for generic
+///     conformances (§7b.3, for C++ hosts).
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -181,6 +182,10 @@ class EmitWitness {
     /// specialized, since its C++ type is not Kairo's to compare.
     fn needs_specialization(self, row: *ConformanceRow) -> bool {
         if (row == &null) || (row->conformer == &null) { return true; }
+        // Nothing to forward -- every requirement a constructor (or an
+        // associated type) -- and the primary is already right, for a
+        // builtin conformer too: an empty specialization would be noise.
+        if !self._has_members(cast::<InterfaceDecl>(row->iface_decl)) { return false; }
         if !isa::<RecordType>(row->conformer) { return true; }   // a builtin has no members.
         var x = cast::<RecordType>(row->conformer)->decl;
         if decl_is_imported(CXXSpell::rep(x)) { return true; }
@@ -191,6 +196,9 @@ class EmitWitness {
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
             if m == &null { continue; }   // an associated type: no member yet.
+            // A constructor slot has no member to forward to, and its witness
+            // may be the record itself (its implicit default constructor).
+            if decl_is_ctor_requirement(m) { continue; }
             var w = dyn_cast::<FunctionDecl>((row->witnesses[i]) if (i < row->witnesses.size()) else (&null));
             if w == &null { return true; }
             if decl_extension_of(static_cast::<*Decl>(w)) != &null { return true; }
@@ -199,6 +207,14 @@ class EmitWitness {
             var ms_sub = (subs[i]) if (subs[i] != &null) else (subst);
             if self._member_sig(w, &null, "") != self._member_sig(m, ms_sub, self._spell->_type(row->conformer)) { return true; }
         }
+        return false;
+    }
+
+    /// Some requirement of \p idecl is a witness member: neither an
+    /// associated type nor a constructor.
+    priv fn _has_members(self, idecl: *InterfaceDecl) -> bool {
+        var ms = self.members(idecl);
+        for var i: usize = 0; i < ms.size(); ++i { if (ms[i] != &null) && (!decl_is_ctor_requirement(ms[i])) { return true; } }
         return false;
     }
 
@@ -253,8 +269,7 @@ class EmitWitness {
         var ms = self.members_with(idecl, &subs);
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
-            if (m == &null) || m->is_poisoned() { continue; }
-            self._unsupported(m);
+            if (m == &null) || m->is_poisoned() || decl_is_ctor_requirement(m) { continue; }
             var sig  = self._member_sig(m, subs[i], me);
             var decl = self._member_decl(m, subs[i], me);
             var leaf = self._spell->leaf(static_cast::<*Decl>(m));
@@ -299,9 +314,15 @@ class EmitWitness {
             if (m == &null) || m->is_poisoned() { continue; }
             // A generic requirement has no argument to call it with (§7b.7).
             if m->generic_params.size() > 0 { continue; }
+            // A constructor requirement is the one clause that names no
+            // witness member: `__kairo_Self(a0)`, the construction a bounded
+            // body's `T(args)` performs, so a host's class without it fails
+            // at the call.
+            var ctor = decl_is_ctor_requirement(m);
             // A static requirement is called with no receiver.
             var args = "";
-            if m->is_method() {
+            var fwd  = "";
+            if m->is_method() && (!ctor) {
                 var r = LowerTargets::witness_recv(i);
                 if parms.size() > 0 { parms += ", "; }
                 parms += self._receiver(m, me) + " " + r;
@@ -319,9 +340,15 @@ class EmitWitness {
                 parms += self._spell->param_decl(q, a, subs[i]);
                 if args.size() > 0 { args += ", "; }
                 args += a;
+                // Forwarded as the witness forwards: a by-value `other: Self`
+                // is then an rvalue, so a `@move` requirement's clause asks
+                // for a move constructor, not a copy one.
+                if fwd.size() > 0 { fwd += ", "; }
+                fwd += "static_cast<decltype(" + a + ")&&>(" + a + ")";
             }
             self._spell->self_iface    = saved_i;
             self._spell->self_spelling = saved_s;
+            if ctor { body += " " + me + "(" + fwd + ");"; continue; }
             if CXXSpell::op_is_postfix(m) { args += ((", ") if (args.size() > 0) else ("")) + "0"; }
             body += " " + self._spell->witness_name(p->iface) + self_args + "::"
                   + self._spell->witness_member_name(m) + "(" + args + ");";
@@ -348,8 +375,7 @@ class EmitWitness {
         var ms = self.members_with(idecl, &subs, row);
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
-            if (m == &null) || m->is_poisoned() { continue; }
-            self._unsupported(m);
+            if (m == &null) || m->is_poisoned() || decl_is_ctor_requirement(m) { continue; }
             var w = dyn_cast::<FunctionDecl>((row->witnesses[i]) if (i < row->witnesses.size()) else (&null));
             if (w == &null) { self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a row with no decl for a requirement; ConformanceChecking records only complete rows on an instance"); }
             var decl = self._member_decl(m, (subs[i]) if (subs[i] != &null) else (subst), x);
@@ -544,16 +570,6 @@ class EmitWitness {
         self._dep_src.push_back(key);
         self._dep_ent.push_back(e);
         return e;
-    }
-
-    priv fn _unsupported(self, m: *FunctionDecl) {
-        // A constructor requirement is met by an own constructor, never
-        // through the witness (§7b.3); it belongs in the concept, not built.
-        var dc = reinterpret_cast::<*DeclContext>(m->semantic_dc);
-        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
-        if (owner != &null) && (self._spell->leaf(static_cast::<*Decl>(m)) == self._spell->leaf(owner)) {
-            self._ice(CXXSpell::at(static_cast::<*Decl>(m)), "EmitWitness: a constructor requirement; it never goes through the witness, and the concept does not list it yet");
-        }
     }
 
     priv fn _at(self, p: *WitnessPiece) -> SourceRange {

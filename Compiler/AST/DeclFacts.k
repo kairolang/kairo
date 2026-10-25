@@ -333,3 +333,23 @@ fn decl_extension_of(d: *Decl) -> *ExtensionDecl {
     if (lex == &null) || (lex->dc_kind != DeclContextKind::Extension) { return &null; }
     return dyn_cast::<ExtensionDecl>(lex->dc_owner);
 }
+
+// === Interface requirements ===============================================
+
+/// \p m is a CONSTRUCTOR requirement: a method of an interface named after
+/// that interface (`interface Defaultable { fn Defaultable(self) }`). A
+/// conformer meets it with its own constructor, named after ITSELF, so a
+/// lookup by the requirement's name can never find the witness; Sema and
+/// Codegen both branch on this. The owner is the semantic one, the
+/// interface that wrote it, so a requirement composed into a derived
+/// interface is still one. Names are interned per file and a method shares
+/// its interface's file, so the imms compare.
+fn decl_is_ctor_requirement(m: *FunctionDecl) -> bool {
+    if (m == &null) || m->is_operator || (m->semantic_dc == &null) { return false; }
+    var owner = reinterpret_cast::<*DeclContext>(m->semantic_dc)->owner_decl();
+    if (owner == &null) || (!isa::<InterfaceDecl>(owner)) { return false; }
+    var a = decl_name_tok(static_cast::<*Decl>(m));
+    var b = decl_name_tok(owner);
+    if (!a.has_imm()) || (!b.has_imm()) { return false; }
+    return a.imm == b.imm;
+}

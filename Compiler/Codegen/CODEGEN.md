@@ -625,7 +625,10 @@ type; on a concrete conformer the call carries its own row,
 a bounded `T`, `op []` included (a static member `__kairo_op_index`,
 `[]` having no extension name); generic requirements, named and operator
 alike (a member template, gated on the callable form -- `self.template
-operator[]<K>(k)` for an operator -- left out of the concept); a generic extension's member as
+operator[]<K>(k)` for an operator -- left out of the concept);
+constructor requirements (no member in the primary or any
+specialization, a concept clause `__kairo_Self(a0, ...)`, and `T(args)`
+in the body plain C++ construction); a generic extension's member as
 a witness (the row records the extension's arguments); the concept on
 every bounded head -- records, methods, extension members -- with the
 concepts in tier 0 ahead of the bounded records' forward declarations;
@@ -647,9 +650,6 @@ Not built, each the ICE or diagnostic that names it:
   get(c, 0)`): SC001E, not supported yet; the interface's arguments are
   not on the call.
 - Associated types, value-parameter interfaces: EmitWitness ICEs.
-- Constructor requirements: SC001E at the use (no member of the
-  conformer has the requirement's name, a constructor being named for its
-  class), so none reaches EmitWitness; its own ICE stays as the backstop.
 - Rows for a generic conformance are full specializations per concrete
   conformer, not the partial specialization 7b.3 describes (a C++ host
   instantiating with its own `Pair<U>` does not get one).
@@ -769,8 +769,9 @@ constructor requirement is met by an own constructor and `T(args)` / `T{}`
 is already the right C++ for every conformer; lifecycle requirements
 (`@copy` / `@move` constructors) are C++'s implicit special members. The
 concept still lists them (`requires { __kairo_Self(a0); }`), so a host's
-non-conforming class fails at the call. Whether a PRIMITIVE satisfies a
-constructor requirement is open (question 7).
+non-conforming class fails at the call. A PRIMITIVE satisfies none
+(question 7, decided): `i32()` is not a call in Kairo (SC037E), so `i32`
+has no constructor for a row to name, though C++ `int()` would compile.
 
 **Associated types are not compiled yet** (interfaces.md, Status), and
 their witness shape is reserved, not built: a member alias, `using Node =
@@ -1074,9 +1075,11 @@ exit code is computed, as §9's lowering tests are:
    specialization forwarding to it qualified.
 6. **What `I_c` checks.** Generic requirements, bounds on the interface's
    own parameters, and associated types are out of it today. Include any?
-7. **Primitives and constructor requirements.** Does `i32` satisfy
-   `interface Defaultable { fn Defaultable(self) }` (C++ `int()` would
-   compile)?
+7. **Primitives and constructor requirements.** DECIDED: `i32` does not
+   satisfy `interface Defaultable { fn Defaultable(self) }`, since Kairo
+   rejects `i32()` (SC037E) though C++ `int()` would compile. A record
+   with no declared constructor meets a zero-parameter one, as `S()`
+   types.
 8. **Conditional conformance.** Is `extend <T impl Comparable> Pair<T>
    impl Sorted`'s partial specialization constrained with `requires
    Comparable_c<T>`, so a host's `Pair<NotComparable>` fails at the call,

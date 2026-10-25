@@ -20,6 +20,8 @@
 ///     modes and types, the same return type. Exact because the witness
 ///     forwards to the decl the row names and must reach the same one in
 ///     every TU (CODEGEN.md §7b.3); a looser match is a different design.
+///     A constructor requirement is the exception to looking up by name:
+///     X's own constructors are, named after X (_ctor_implementation).
 ///
 ///     A row is shared build-wide (the registry's table): a row TU A found
 ///     is the one every TU holding the same instance reads. The row is
@@ -45,6 +47,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::TranslationUnit::*;
@@ -438,7 +441,10 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if m != &null {
                 var k = self._iface_decl(srcs[i]);
                 w = self._implementation(x, srcs[i], k, m);
-                if (w == &null) || (!self._ext_args(cast::<FunctionDecl>(w), x, &ea)) { row.ok = false; }
+                // A constructor slot's witness may be the record itself (its
+                // implicit default constructor), which has no extension.
+                var wf = dyn_cast::<FunctionDecl>(w);
+                if (w == &null) || ((wf != &null) && (!self._ext_args(wf, x, &ea))) { row.ok = false; }
             }
             row.witnesses.push_back(w);
             row.sources.push_back(srcs[i]);
@@ -491,6 +497,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// forward to; the one whose signature is \p m's exactly wins.
     priv fn _implementation(self, x: *Type, iface: *Type, idecl: *InterfaceDecl, m: *FunctionDecl) -> *Decl {
         if (m == &null) || m->is_poisoned() { return &null; }
+        if decl_is_ctor_requirement(m) { return self._ctor_implementation(x, iface, idecl, m); }
         var cands = vec::<*Decl>();
         self.ml.lookup(x, self._name_of(m), &cands);
         for var i: usize = 0; i < cands.size(); ++i {
@@ -500,6 +507,101 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if self._signature_matches(f, m, x, iface, idecl) { return NameLookup::representative(static_cast::<*Decl>(f)); }
         }
         return &null;
+    }
+
+    /// The constructor of \p x that meets constructor requirement \p m, or
+    /// null. Looked up as CallTyping's `_ctor_call` looks up `X(args)`: X's
+    /// OWN table under DeclName::ctor(), never member lookup, whose walk
+    /// reaches a base's constructors and no extension can add one. A record
+    /// that declares none has the implicit default constructor `X()` types
+    /// against; the record itself stands for it, so the row is complete. A
+    /// builtin has no constructor to call -- `i32()` is SC037E -- and so
+    /// meets none.
+    priv fn _ctor_implementation(self, x: *Type, iface: *Type, idecl: *InterfaceDecl, m: *FunctionDecl) -> *Decl {
+        var c = self._canon(x);
+        if c == &null { return &null; }
+        if m->transfer != TransferKind::NotTransfer { return self._transfer_implementation(c, m); }
+        if !isa::<RecordType>(c) { return &null; }
+        var d = self.tu.record_decl(c);
+        if (d == &null) || isa::<InterfaceDecl>(d) { return &null; }
+        var dc = NameLookup::context_of(self.tu.pattern_of(d));   // an unfilled instance has an empty table.
+        var cands = vec::<*Decl>();
+        if dc != &null {
+            var cell = self.sc->lookup.in_context(dc, DeclName::ctor());
+            if cell.found() {
+                for var i: usize = 0; i < cell.cell->size(); ++i { cands.push_back(cell.cell->get(i)); }
+            }
+        }
+        if cands.size() == 0 {
+            if self._arity(m) == 0 { return NameLookup::representative(d); }
+            return &null;
+        }
+        for var i: usize = 0; i < cands.size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cands[i]);
+            if (f == &null) || f->is_poisoned() || (f->adt_role != AdtRole::None) { continue; }
+            if self._ctor_matches(f, m, c, iface, idecl) { return NameLookup::representative(static_cast::<*Decl>(f)); }
+        }
+        return &null;
+    }
+
+    /// A LIFECYCLE requirement (`@copy fn Copyable(self, const other: Self)`)
+    /// asks for a category, not a declared constructor (Doc: Interface
+    /// Requirements): `@copy` is met by COPY types, `@move` by COPY and
+    /// MOVE, NON_TRANSFER by neither -- an implicit transfer counts, and a
+    /// builtin is COPY. The record stands as the witness; a builtin has no
+    /// decl, so the requirement itself does, which no consumer forwards to
+    /// (a constructor slot never reaches a witness member).
+    priv fn _transfer_implementation(self, c: *Type, m: *FunctionDecl) -> *Decl {
+        var f = lifecycle_of(self.sc)->facts_of_type(c);
+        var ok = (f.category == LifecycleCategory::Copy);
+        if m->transfer == TransferKind::Move { ok = ok || (f.category == LifecycleCategory::Move); }
+        if !ok { return &null; }
+        var d = self.tu.record_decl(c);
+        if d != &null { return NameLookup::representative(d); }
+        return static_cast::<*Decl>(m);
+    }
+
+    /// _signature_matches for a constructor: no receiver constness and no
+    /// return type to compare, and a generic record's parameters in the
+    /// candidate bound from \p x, as `Box<i32>(n)` binds them.
+    priv fn _ctor_matches(self, f: *FunctionDecl, m: *FunctionDecl, x: *Type, iface: *Type, idecl: *InterfaceDecl) -> bool {
+        if f->generic_params.size() != m->generic_params.size() { return false; }
+        if f->params.size() != m->params.size() { return false; }
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var fp = f->params[i];
+            var mp = m->params[i];
+            if (fp == &null) || (mp == &null) { return false; }
+            if fp->is_self != mp->is_self { return false; }
+            if fp->is_self { continue; }
+            if (fp->mode != mp->mode) || (fp->is_pack != mp->is_pack) { return false; }
+            if self._as_ctor_param(fp->type_, f, x) != self._as_conformer(mp->type_, x, iface, idecl, m, f) { return false; }
+        }
+        return true;
+    }
+
+    /// Constructor \p f's parameter type \p t as `X(args)` sees it: the
+    /// record's parameters bound to \p x's arguments, \p f's own left as
+    /// themselves. Top-level cv dropped.
+    priv fn _as_ctor_param(self, t: *Type, f: *FunctionDecl, x: *Type) -> *Type {
+        var c = self._canon(t);
+        if (c == &null) || (!c->is_dependent()) { return c; }
+        var d = Deduction(self.sc, &null);
+        d.bind_from_record(x);
+        var frep = NameLookup::representative(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < f->generic_params.size(); ++i {
+            var gp = f->generic_params[i];
+            if gp == &null { continue; }
+            d.bind(frep, gp->index, self.sc->types->generic_param(frep, gp->index, gp->is_pack));
+        }
+        var s = d.substitute(c);
+        return (canon_unqual(s)) if (s != &null) else (c);
+    }
+
+    /// Parameters after the receiver.
+    priv fn _arity(self, m: *FunctionDecl) -> usize {
+        var n: usize = 0;
+        for var i: usize = 0; i < m->params.size(); ++i { if (m->params[i] != &null) && (!m->params[i]->is_self) { n += 1; } }
+        return n;
     }
 
     priv fn _signature_matches(self, f: *FunctionDecl, m: *FunctionDecl, x: *Type, iface: *Type, idecl: *InterfaceDecl) -> bool {
@@ -663,6 +765,21 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         return s;
     }
 
+    /// `Counter(i32, Counter)`: constructor requirement \p m as conformer
+    /// \p x would declare it, Self and the interface's parameters replaced.
+    priv fn _ctor_spelling(self, m: *FunctionDecl, x: *Type, iface: *Type, idecl: *InterfaceDecl) -> string {
+        var s = self.tu.str(x) + "(";
+        var k: usize = 0;
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var p = m->params[i];
+            if (p == &null) || p->is_self { continue; }
+            if k > 0 { s += ", "; }
+            s += self.tu.str(self._as_conformer(p->type_, x, iface, idecl, m, m));
+            k += 1;
+        }
+        return s + ")";
+    }
+
     priv fn _report(self, at: SourceRange, b: *ConstraintExpr, x: *Type, iface: *Type, row: *ConformanceRow) {
         var xs = self.tu.str(x);
         var is = self.tu.str(iface);
@@ -682,11 +799,24 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             }
         }
         var msg = f"'{xs}' does not conform to '{is}\x27";
-        if missing.size() > 0 { msg = f"'{xs}' does not conform to '{is}': no member '{missing}' with the requirement's signature"; }
+        var req_note = f"'{missing}' is required here";
+        if (req != &null) && decl_is_ctor_requirement(req) {
+            // Named as the conformer's constructor would be, since that is what
+            // is missing: the requirement's own name is the interface's.
+            var ctor = self._ctor_spelling(req, x, row->iface, cast::<InterfaceDecl>(row->iface_decl));
+            msg = f"'{xs}' does not conform to '{is}': no constructor '{ctor}\x27";
+            req_note = "the constructor is required here";
+            // A lifecycle requirement asks for a category, which is what to
+            // name: the transfer constructor may well be implicit.
+            if req->transfer == TransferKind::Copy { msg = f"'{xs}' does not conform to '{is}': '{xs}' is not a COPY type"; }
+            if req->transfer == TransferKind::Move { msg = f"'{xs}' does not conform to '{is}': '{xs}' is neither COPY nor MOVE"; }
+        } else if missing.size() > 0 {
+            msg = f"'{xs}' does not conform to '{is}': no member '{missing}' with the requirement's signature";
+        }
         var d = self.sc->diag->report(DiagID::SC001E, at.start, msg);
         d.first(at);
         if b != &null { d.note(b->range.start, f"required by this bound").first(b->range); }
-        if req != &null { d.note(req->range.start, f"'{missing}' is required here").first(req->range); }
+        if req != &null { d.note(req->range.start, req_note).first(req->range); }
         d.emit();
     }
 }
