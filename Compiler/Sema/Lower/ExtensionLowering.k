@@ -207,6 +207,9 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     /// (`I::m(a)`, a method named through `T::`) is left for EmitIR's ICE.
     priv fn _static_witness(self, n: *CallExpr, ch: *ChainExpr, st: *ChainExpr::Step,
                             f: *FunctionDecl, req: *InterfaceDecl) {
+        // CallTyping's qualifier, not a witness: a form left unrewritten
+        // must still reach EmitIR's ICE rather than spell a Self-less one.
+        n->witness_iface = &null;
         if f->is_method() || (ch->steps.size() != 1) || (ch->base == &null) { return; }
         var q = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(ch->base));
         if q == &null { return; }
@@ -229,7 +232,9 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         n->callee       = self._head(st, f);
         n->witness_self = me;
         if isa::<GenericParamType>(me) {
-            n->witness_iface = self._declaring_iface(me, f, n);
+            // The bound ConformanceChecking chose by the qualifier; the first
+            // bound with the requirement serves only a call that named none.
+            if n->witness_iface == &null { n->witness_iface = self._declaring_iface(me, f, n); }
         } else {
             var row = reinterpret_cast::<*ConformanceRow>(n->witness_row);
             ICE_IF(row == &null, "ExtensionLowering: a qualified requirement call on a concrete type with no row; ConformanceChecking records it");

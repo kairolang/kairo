@@ -260,7 +260,7 @@ class <T> CallTyping {
                 }
             }
             if (p == &null) || (p->type_ == &null) { if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); } continue; }
-            var pt = p->type_->canonical;
+            var pt = self._self_first(f, r, p->type_->canonical, true);
             if (pt != &null) && pt->is_dependent() { pt = r->ded.substitute(pt); }
             // `other: Self` is `other: T`. Resolution already judged the
             // argument this way; this is the same rule applied to the winner.
@@ -303,12 +303,40 @@ class <T> CallTyping {
         }
     }
 
+    /// \p t with an interface member's `Self` read as the receiver, BEFORE
+    /// the deduction substitutes: a generic interface's Self is `I<T>` over
+    /// its own parameters, and once `Container<i32>::get` binds T it reads
+    /// `I<i32>`, which the Self rule no longer recognizes. A dependent
+    /// receiver (a bound's T) goes first only for a parameter \p (any): a
+    /// parameter left dependent is the instance's to check either way, while
+    /// a return type has to substitute, and call_result_type says why that
+    /// fails once Self is the caller's T.
+    priv fn _self_first(self, f: *FunctionDecl, r: *OvlResult, t: *Type, any: bool) -> *Type {
+        if (t == &null) || (r->receiver == &null) { return t; }
+        if r->receiver->is_dependent() && (!any) { return t; }
+        return r->ded.through_receiver(f, r->receiver, t);
+    }
+
     /// The declared return type of \p f after deduction. Expression-bodied
     /// functions without an annotation are inferred on demand.
     fn call_result_type(self, f: *FunctionDecl, r: *OvlResult) -> *Type {
         if f->is_noreturn { return dyn()->tu.builtin(BuiltinKind::Never); }
-        var rt = dyn()->fn_return_type(f);
+        var rt = self._self_first(f, r, dyn()->fn_return_type(f), false);
         if rt == &null { return &null; }
+        // A GENERIC interface's `-> Self` through a bound `C`: Self is
+        // `I<T>`, dependent, so substituting first does not leave it alone
+        // as it does a non-generic `record(I)` -- with the qualifier binding
+        // T, it would read `I<i32>`. Read Self as C first, and let C stand
+        // for itself in the substitution that follows, which the rest of
+        // the type (`-> (Self, U)`) still needs.
+        if rt->is_dependent() && (r->receiver != &null) && r->receiver->is_dependent() {
+            var g = dyn_cast::<GenericParamType>(canon_unqual(r->receiver));
+            var rs = r->ded.through_receiver(f, r->receiver, rt);
+            if (g != &null) && (rs != rt) {
+                r->ded.bind(g->owner, g->param_index, static_cast::<*Type>(g));
+                rt = rs;
+            }
+        }
         if rt->is_dependent() {
             var s = r->ded.substitute(rt);
             if s == &null { return &null; }   // still dependent: caller marks unknown.
@@ -512,11 +540,34 @@ class <T> CallTyping {
         // qualifier is the interface, not the receiver. `self` is the first
         // argument, so Self is ITS type, and the requirement's `Self` reads
         // as that (through_receiver), as it would for `x.m(...)`.
+        // The qualifier stays on the call (CallExpr::witness_iface, until
+        // ExtensionLowering writes the declaring instance over it): a GENERIC
+        // interface's arguments are on it and nowhere else, and resolution
+        // binds the requirement's interface parameters from it.
+        var qual: *Type = &null;
         if (!has_receiver) && (args.size() > 0) && (args[0].ty != &null) && self._is_interface_type(recv) {
+            qual = canon_unqual(recv);
+            n->witness_iface = qual;
             recv = dyn()->tu.as_value(args[0].ty);
+            // Bare `Container::get(b, 0)` names no instance. Which one b
+            // conforms to could be deduced from its declarations when only one
+            // fits, but that is a second lookup to keep sound; the arguments
+            // are one edit away.
+            var qr = dyn_cast::<RecordType>(qual);
+            var qd = (NameLookup::representative(dyn()->tu.pattern_of(qr->decl))) if (qr != &null) else (&null);
+            if (qd != &null) && (decl_generic_params(qd).size() > 0) && dyn()->ded_scratch()->own_args(qr, qd) {
+                var iname = dyn()->tu.decl_name(qd);
+                var d = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    f"'{iname}' is generic, and a qualified call names its instance: write '{iname}<...>::{name}\x27");
+                d.first(n->range);
+                d.note(qd->range.start, f"'{iname}' is declared here").first(qd->range);
+                d.emit();
+                dyn()->poison_only(n);
+                return &null;
+            }
         }
 
-        var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv);
+        var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv, qual);
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
         if !ok { dyn()->poison_only(n); return &null; }

@@ -269,9 +269,15 @@ class OverloadResolution {
     ///                against `Drawable` would reject a correct call. Null
     ///                when there is no receiver, or when the caller has none
     ///                to offer.
+    /// \param qualifier  the interface instance a qualified requirement call
+    ///                   names (`Container<i32>::get(b, 0)`): its arguments
+    ///                   are the requirement's interface parameters, decided
+    ///                   before any argument is ranked, as an extension's are
+    ///                   by the receiver. Null on every other call.
     fn resolve(self, cands: *vec::<*Decl>, args: *vec::<ArgInfo>, has_receiver: bool,
-               at: SourceRange, name: string, receiver: *Type = &null) -> OvlResult {
-        return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver);
+               at: SourceRange, name: string, receiver: *Type = &null,
+               qualifier: *Type = &null) -> OvlResult {
+        return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver, false, qualifier);
     }
 
     /// resolve() for a call whose callee is DEPENDENT but nameable -- a
@@ -318,7 +324,7 @@ class OverloadResolution {
     fn resolve_mixed(self, members: *vec::<*Decl>, margs: *vec::<ArgInfo>, has_receiver: bool,
                      frees: *vec::<*Decl>, fargs: *vec::<ArgInfo>,
                      at: SourceRange, name: string, receiver: *Type = &null,
-                     defer: bool = false) -> OvlResult {
+                     defer: bool = false, qualifier: *Type = &null) -> OvlResult {
         var out = OvlResult{};
         // \p receiver carries the OBJECT's cv (a const object's method call
         // ranks on it, _judge_receiver); everything downstream of the
@@ -331,7 +337,7 @@ class OverloadResolution {
         }
 
         var cs = vec::<Candidate>();
-        self._collect(&cs, members, margs, has_receiver, receiver, false, defer);
+        self._collect(&cs, members, margs, has_receiver, receiver, false, defer, qualifier);
         if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true, defer); }
 
         if cs.size() == 0 {
@@ -616,7 +622,8 @@ class OverloadResolution {
     /// \p cs, skipping one \p cs already holds (fwd + def are one entity,
     /// RedeclMerge; and a decl reached as both member and ADL free is one).
     priv fn _collect(self, cs: *vec::<Candidate>, cands: *vec::<*Decl>, args: *vec::<ArgInfo>,
-                     has_receiver: bool, receiver: *Type, free: bool, defer: bool = false) {
+                     has_receiver: bool, receiver: *Type, free: bool, defer: bool = false,
+                     qualifier: *Type = &null) {
         if cands == &null { return; }
         for var i: usize = 0; i < cands->size(); ++i {
             var f = dyn_cast::<FunctionDecl>((*cands)[i]);
@@ -635,7 +642,7 @@ class OverloadResolution {
             c.defer   = defer;
             c.generic = f->generic_params.size() > 0;
             c.ded     = Deduction(self.sc, self.conv);
-            self._judge(&c, args, has_receiver, receiver);
+            self._judge(&c, args, has_receiver, receiver, qualifier);
             cs->push_back(c);
         }
     }
@@ -663,7 +670,7 @@ class OverloadResolution {
     }
 
     priv fn _judge(self, c: *Candidate, args: *vec::<ArgInfo>, has_receiver: bool,
-                   receiver: *Type) {
+                   receiver: *Type, qualifier: *Type = &null) {
         var f = c->f;
 
         // parameter slots, skipping the receiver when it is bound elsewhere.
@@ -685,6 +692,13 @@ class OverloadResolution {
             c->viable = false;
             c->reason = "the receiver is not an instance this extension applies to";
             return;
+        }
+        // `Container<i32>::get(b, 0)`: the requirement's interface parameters
+        // are the qualifier's, so `-> T` reads i32 and `x: T` takes one. Left
+        // to the arguments, nothing binds a T the parameters never name.
+        if qualifier != &null {
+            var di = c->ded.declaring_instance(f, qualifier);
+            if di != &null { c->ded.bind_from_record(di); c->ded.seeded = true; }
         }
 
         var nparams = params.size();

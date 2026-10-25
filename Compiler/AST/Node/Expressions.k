@@ -93,6 +93,10 @@ class CallExpr derives Expr {
     /// `witness_iface` is the canonical instance of the DECLARING interface,
     /// `witness_self` the canonical Self (a dependent `T` in a generic body).
     /// EmitIR spells the witness from both. Null on every other call.
+    /// A qualified call (`Container<i32>::m(x)`) has `witness_iface` earlier:
+    /// CallTyping writes the qualifier there, the only place a generic
+    /// interface's arguments are, and ConformanceChecking narrows it to the
+    /// bound it names before ExtensionLowering reads it.
     pub var witness_iface: *Type = &null;
     pub var witness_self:  *Type = &null;
     /// A qualified requirement call on a CONCRETE Self (`I::m(x)` with x a

@@ -1004,13 +1004,27 @@ class CXXSpell {
         return ty + " " + name;
     }
 
+    /// \p r's arguments are exactly \p iface's own parameters, in order.
+    priv fn _own_args(self, r: *RecordType, iface: *Decl) -> bool {
+        var gps = decl_generic_params(iface);
+        if gps.size() != r->args.size() { return false; }
+        for var i: usize = 0; i < r->args.size(); ++i {
+            var g = dyn_cast::<GenericParamType>(canon_unqual(r->args[i]));
+            if (g == &null) || (g->param_index != static_cast::<u32>(i)) { return false; }
+            if CXXSpell::rep(g->owner) != iface { return false; }
+        }
+        return true;
+    }
+
     priv fn _record(self, r: *RecordType, subst: *InstanceEntry, scope: *Decl) -> string {
         var d = r->decl;
         ICE_IF(d == &null, "CXXSpell: RecordType with no decl");
         if isa::<InterfaceDecl>(d) {
-            var bare = (r->args.size() == 0) && (self.self_iface != &null)
-                    && (CXXSpell::rep(decl_pattern(CXXSpell::rep(d))) == self.self_iface);
-            if bare { return self.self_spelling; }
+            var mine = (self.self_iface != &null) && (CXXSpell::rep(decl_pattern(CXXSpell::rep(d))) == self.self_iface);
+            // Self is `I` bare, or in a GENERIC interface `I<T...>` over its
+            // own parameters (TypeResolve::_self_record) -- unsubstituted
+            // here, the member's substitution applying only below it.
+            if mine && ((r->args.size() == 0) || self._own_args(r, self.self_iface)) { return self.self_spelling; }
             self._ice(d->range, "CXXSpell: an interface has no C++ type; only its Self inside a witness is spelled");
         }
         if decl_is_imported(d) { return decl_cxx_spelling(d); }

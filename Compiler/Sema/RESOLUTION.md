@@ -767,6 +767,15 @@ the extension's target is UNIFIED with the receiver, so `extend <T>
 Vec<Box<T>>` binds what it names and a receiver it does not match makes
 the candidate non-viable. No receiver, or a dependent one, binds nothing
 (`Vec::m(v)` deduces from its `self` argument). It sets `seeded`.
+A qualified requirement call (`Container<i32>::get(b, 0)`) seeds the same
+way from its qualifier: `declaring_instance(f, Q)` is the instance of the
+requirement's declaring interface Q names (through the composed list's
+`Requirement::source` when Q derives it), and its arguments bind the
+interface's parameters before any argument is ranked. In a GENERIC
+interface `Self` is `I<T...>` over its own parameters, so the Self rule
+(`through_receiver`) also takes that spelling, and CallTyping applies it
+before the substitution for a concrete receiver: substituted first, `I<T>`
+reads `I<i32>` and is no longer recognizable as Self.
 
 **Calls** (`CallTyping.k`). Callee shapes: name (function / set / type ->
 ctor / fn-pointer value), chain (method or set with the chain's receiver /

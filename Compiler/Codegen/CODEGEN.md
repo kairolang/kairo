@@ -621,7 +621,14 @@ Built, end to end (`Tests/Codegen/witness/`):
 
 Also built: the qualified form `I::m(x)` (Self is the first argument's
 type; on a concrete conformer the call carries its own row,
-`CallExpr::witness_row`); compound assignment and every other operator on
+`CallExpr::witness_row`), a generic interface's included
+(`Container<i32>::get(x, 0)`: CallTyping keeps the qualifier on
+`CallExpr::witness_iface`, overload resolution binds the requirement's
+interface parameters from it, and the witness is the declaring instance's,
+`Container_witness<X, int>`; on a bounded parameter ConformanceChecking
+picks the bound the qualifier names, SC001E when none does); a generic
+interface's `Self` (`I<T>` over its own parameters, which CXXSpell spells
+as the witness's Self like a bare `I`); compound assignment and every other operator on
 a bounded `T`, `op []` included (a static member `__kairo_op_index`,
 `[]` having no extension name); generic requirements, named and operator
 alike (a member template, gated on the callable form -- `self.template
@@ -646,9 +653,9 @@ weak symbol in that object. Homing what M1 reaches is M1's.
 Not built, each the ICE or diagnostic that names it:
 
 - `T::m(a)` for a METHOD: R027E, by design (use `.`).
-- A qualified call to a GENERIC interface's requirement (`Container<i32>::
-  get(c, 0)`): SC001E, not supported yet; the interface's arguments are
-  not on the call.
+- A bare qualified call to a GENERIC interface's requirement
+  (`Container::get(c, 0)`): SC001E asking for the arguments, by choice --
+  deducing the one instance c conforms to is a second lookup to keep sound.
 - Associated types, value-parameter interfaces: EmitWitness ICEs.
 - Rows for a generic conformance are full specializations per concrete
   conformer, not the partial specialization 7b.3 describes (a C++ host

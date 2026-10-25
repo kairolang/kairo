@@ -178,21 +178,63 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var a = c->args[static_cast::<usize>(ai)];
         if (a == &null) || (a->type_ == &null) { return; }
         var x = self._object(a->type_);
-        if (x == &null) || x->is_dependent() || x->is_instantiation_dependent() { return; }
+        if x == &null { return; }
+        if isa::<GenericParamType>(x) { self._qualified_bound(c, cast::<GenericParamType>(x), f); return; }
+        if x->is_dependent() || x->is_instantiation_dependent() { return; }
+        // The requirement's DECLARING interface at the qualifier's arguments
+        // (CallTyping left the qualifier on the call): `Container<i32>::get`
+        // checks Box against Container<i32>, and `Sub<i32>::get` against the
+        // Container instance Sub derives.
         var home = reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl();
         var idecl = NameLookup::representative(home);
-        if decl_generic_params(idecl).size() > 0 {
-            var d = self.sc->diag->report(DiagID::SC001E, c->range.start,
-                "a qualified call to a generic interface's requirement is not supported yet; call it through a value ('x.m()')");
-            d.first(c->range);
-            d.emit();
-            return;
+        var iface: *Type = &null;
+        if c->witness_iface != &null {
+            var d = Deduction(self.sc, &null);
+            iface = d.declaring_instance(f, c->witness_iface);
         }
-        var empty = vec::<*Type>();
-        var iface = self.sc->types->record(idecl, &empty);
+        if iface == &null {
+            var empty = vec::<*Type>();
+            iface = self.sc->types->record(idecl, &empty);
+        }
         var row = self.conforms(x, iface);
         if (row == &null) || (!row->ok) { self._report(c->range, &null, x, iface, row); return; }
         c->witness_row = reinterpret_cast::<*void>(row);
+    }
+
+    /// `I<A>::m(c, ...)` with c a bounded parameter: the bound the call goes
+    /// through is the one whose `m` is the qualifier's -- with `C impl
+    /// Container<i32> + Container<bool>`, `Container<bool>::get(c, 0)` is
+    /// the second -- and the call keeps it (CallExpr::witness_iface) for
+    /// ExtensionLowering. No such bound is an error here: the first bound
+    /// with an `m` would type, and spell a witness the call did not name.
+    priv fn _qualified_bound(self, c: *CallExpr, g: *GenericParamType, f: *FunctionDecl) {
+        if c->witness_iface == &null { return; }
+        var d = Deduction(self.sc, &null);
+        var want = d.declaring_instance(f, c->witness_iface);
+        if want == &null { return; }
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        if it != self.sc->bounds.end() {
+            var _set = &(it->second);
+            for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+                var b = _set->impl_constraints[i];
+                var id = dyn_cast::<NamedIdentExpr>(b->lhs);
+                if id == &null { continue; }
+                var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+                if (gp == &null) || (gp->index != g->param_index) { continue; }
+                if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
+                if (b->rhs == &null) || (b->rhs->canonical == &null) { continue; }
+                var t = canon_unqual(b->rhs->canonical);
+                if d.declaring_instance(f, t) == want { c->witness_iface = t; return; }
+            }
+        }
+        var xs = self.tu.str(static_cast::<*Type>(g));
+        var is = self.tu.str(c->witness_iface);
+        var r = self.sc->diag->report(DiagID::SC001E, c->range.start,
+            f"no bound on '{xs}' provides '{is}::{self._req_name(f)}'; bound it 'impl {is}\x27");
+        r.first(c->range);
+        r.note(f->range.start, f"'{self._req_name(f)}' is required here").first(f->range);
+        r.emit();
+        c->poison();
     }
 
     /// The object a value of type \p t is: through a C++ reference, unqualified.
@@ -649,6 +691,12 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var c = self._canon(t);
         if c == &null { return &null; }
         var d = Deduction(self.sc, &null);
+        // Self first: in a GENERIC interface it is `I<T>` over I's own
+        // parameters, which the substitution below would turn into an
+        // instance (`I<i32>`) that no longer reads as Self.
+        // A dependent x waits: the substitution cannot bind the caller's
+        // parameters, and would give up on the whole type.
+        if !x->is_dependent() { c = d.replace_self(c, static_cast::<*Decl>(idecl), x, true); }
         if c->is_dependent() {
             d.bind_from_record(iface);
             var mrep = NameLookup::representative(static_cast::<*Decl>(m));
