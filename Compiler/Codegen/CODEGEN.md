@@ -178,8 +178,12 @@ emitters use the same instance; a declaration and a body cannot disagree.
 - `_type(t)`: canonical → C++; builtins by table (`i32` is
   `::std::int32_t`), records qualified with instance args from the
   registry, pointers, references, arrays through `decl()`. Structural
-  containers are gone (builtin records); `T?` and tuples ICE naming their
-  lowering.
+  containers are gone (builtin records); a tuple canonical ICEs naming
+  TypeResolve. `T?` stays a NullableType canonical (Sema's later passes
+  ask it), and is spelled -- and planned, EmitPlan `_nullable_record` --
+  as the `::builtin::Nullable<T>` record NullableTypeLowering put in its
+  `lowered` slot; with none, it ICEs naming that pass. A `null` typed as a
+  nullable arrives as that record's null VariantInitExpr.
 - `decl(t, name)`: the declarator form, the name folded in. `[T; N]` is a C
   array: it is a local, a field, a literal, a `const`/`@inout` parameter,
   and what a slice views; it is not copied, assigned, passed by value or

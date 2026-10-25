@@ -39,7 +39,7 @@ int main() {
     std::cout << "from kairo\n";
     {
         Nullable<widgets::Widget> k = widgets::boxed(9);
-        std::cout << "boxed holds " << k.__value().id << "\n";
+        std::cout << "boxed holds " << k.__value().id << ", nothing null " << widgets::nothing().is_null() << "\n";
     }                                                       // ~Widget 9
     std::cout << "uniq\n";
     {

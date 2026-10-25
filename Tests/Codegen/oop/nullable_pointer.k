@@ -2,13 +2,13 @@
 // Pointers and Nullable Types), including after a derived-to-base step,
 // and `??` picks the fallback only when it is null.
 //
-// Spelled `(*T)?`: the compiler parses `*T?` as `*(T?)` (see
-// checked_downcast.k).
+// Spelled `(*T)?`, which `*T?` also means since NULLABLE.md G1.
 //
 // XFAIL: *
-// Waiting on NullableTypeLowering being run: this type-checks, and codegen
-// ICEs on the first `T?` ("CXXSpell: T? reached codegen"). A value
-// `i32?` fails the same way.
+// Waiting on `??` lowering (NULLABLE.md G8). The `T?`s themselves lower
+// since G3 (Codegen/nullable/value.k); every `??` here reaches codegen
+// unlowered and ICEs in TokenSink::create ("no clang punctuator for this
+// Kairo token kind").
 // When it lands this test XPASSes; delete the XFAIL -- the run below is
 // already the real assertion.
 

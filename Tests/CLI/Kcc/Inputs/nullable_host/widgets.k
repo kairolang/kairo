@@ -18,6 +18,7 @@ pub class Uniq {
     fn op delete(self) { if self.id != 0 { println(f"  ~Uniq {self.id}") } }
 }
 
-/// A present nullable built on the Kairo side and handed to the host.
-/// Spelled by its lang-item name only until `T?` lowers to it (G3).
-pub fn boxed(id: i32) -> Nullable<Widget> { return Nullable<Widget>::Value { v: Widget(id) } }
+/// Nullables built on the Kairo side and handed to the host: `T?` is the
+/// same ::builtin::Nullable the host names.
+pub fn boxed(id: i32) -> Widget? { return Widget(id) }
+pub fn nothing() -> Widget? { return null }

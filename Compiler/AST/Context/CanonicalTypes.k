@@ -589,7 +589,8 @@ class CanonicalTypeStore {
             }
             case TypeKind::NullableType {
                 var n = self._alloc::<NullableType>();
-                n->inner = child;
+                n->inner   = child;
+                n->lowered = &null;
                 ty = static_cast::<*Type>(n);
             }
             case TypeKind::VectorType {
@@ -737,6 +738,32 @@ class CanonicalTypeStore {
             if cast::<OpaqueFFIType>(c)->name == name_imm { return c; }
         }
         return &null;
+    }
+
+    // --- nullable lowering (writer: NullableTypeLowering) ---------------------
+
+    /// Every canonical `T?` interned so far, by any TU. A snapshot: the
+    /// caller lowers each after the lock is released, since minting the
+    /// record re-enters this table.
+    fn nullables(self) -> vec::<*NullableType> {
+        var out = vec::<*NullableType>();
+        var lock = std::LockGuard(self._mu);
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            for var i: usize = 0; i < it->second.size(); ++i {
+                var c = it->second[i];
+                if c->kind == TypeKind::NullableType { out.push_back(cast::<NullableType>(c)); }
+            }
+        }
+        return out;
+    }
+
+    /// Record \p r as what \p n is to C++, once. TUs lower in parallel and
+    /// all reach the same interned record, so a second writer is a no-op,
+    /// never a different answer.
+    fn set_nullable_lowered(self, n: *NullableType, r: *Type) {
+        if (n == &null) || (r == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        if n->lowered == &null { n->lowered = r; }
     }
 
     // --- stats (dumps only) ---------------------------------------------------

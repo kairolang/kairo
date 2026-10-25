@@ -68,6 +68,7 @@ import Sema::Lower::CtorInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
 import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
+import Sema::Lower::NullableTypeLowering::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
 import Sema::Lower::IterLowering::*;
@@ -452,6 +453,14 @@ class Sema {
         // value; before OperatorLowering, so an operator on `t.0` sees a
         // field path.
         { var _p = TimeRegion("TupleLowering"); TupleLowering(&self.sc).run(); }
+        // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (NULLABLE.md
+        // §5). After CopyMoveLowering: a transfer is decided from the value's
+        // lifecycle, which ClassLifecycle answers for `T?` from T; the minted
+        // record instance has no facts yet. Before OperatorLowering, the last
+        // nullable pass: CoalesceLowering, NullTestLowering and
+        // NarrowedAccessLowering go here, just above it, and still see
+        // NullableType.
+        { var _p = TimeRegion("NullableTypeLowering"); NullableTypeLowering(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before

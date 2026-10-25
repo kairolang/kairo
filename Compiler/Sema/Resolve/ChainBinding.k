@@ -1133,7 +1133,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if isa::<BuiltinType>(t) { return cast::<BuiltinType>(t)->spelling(); }
         if isa::<RecordType>(t)  { return self._decl_name_str(cast::<RecordType>(t)->decl); }
         if isa::<PointerType>(t) { return f"*{self._type_name_str(cast::<PointerType>(t)->pointee)}"; }
-        if isa::<NullableType>(t){ return f"{self._type_name_str(cast::<NullableType>(t)->inner)}?"; }
+        if isa::<NullableType>(t){
+            var inner = cast::<NullableType>(t)->inner;
+            if isa::<NullableType>(inner) { return f"({self._type_name_str(inner)})?"; }   // `T??` is the operator.
+            return f"{self._type_name_str(inner)}?";
+        }
         if isa::<CXXLValueRefType>(t) {
             var lr = cast::<CXXLValueRefType>(t);
             return f"{self._type_name_str(lr->referee)}&";

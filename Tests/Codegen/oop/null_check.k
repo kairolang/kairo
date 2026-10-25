@@ -6,8 +6,8 @@
 // Waiting on Sema typing postfix `?`: every use is SC066E "unary operator
 // '?' is not defined on 'i32?'" (and on `(*i32)?`). After it, `p->m()` on
 // a narrowed `(*A)?` must look through the Nullable -- today it is R027E
-// "'->' requires a pointer on its left". Then NullableTypeLowering
-// (nullable_pointer.k) for the run.
+// "'->' requires a pointer on its left". NullableTypeLowering runs since
+// NULLABLE.md G3, so the run needs only those (G5, G16).
 // When it lands this test XPASSes; delete the XFAIL -- the run below is
 // already the real assertion.
 

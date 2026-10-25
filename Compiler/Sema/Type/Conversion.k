@@ -305,6 +305,14 @@ class Conversion {
         var to_inner = self.tu.nullable_inner(tq);
         if to_inner != &null {
             var from_inner = self.tu.nullable_inner(fu);
+            // One level per conversion (NULLABLE.md 1.5): a value becomes
+            // present in ONE `?`. `T -> (T?)?` would be two wraps, which no
+            // single constructor of Nullable<Nullable<T>> is -- C++ refuses
+            // the second user conversion, and so does Kairo. `T? -> (T?)?`
+            // wraps the whole nullable, its null included, as the present
+            // outer value.
+            if (from_inner == &null) && (self.tu.nullable_inner(to_inner) != &null) { return ImplicitRank::None; }
+            if (from_inner != &null) && (canon_unqual(to_inner) == fu) { return ImplicitRank::Converted; }
             if from_inner != &null {
                 // T? -> U?: only when the inners relate; never Exact (different type).
                 return (ImplicitRank::Converted) if (self._seq(from_inner, to_inner, false) != ImplicitRank::None)

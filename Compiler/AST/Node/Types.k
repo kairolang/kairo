@@ -386,6 +386,13 @@ class PointerType derives Type {
 ///
 class NullableType derives Type {
     pub var inner: *Type;
+    /// On a canonical: the `::builtin::Nullable<inner>` record this `T?` IS
+    /// to C++, or null before NullableTypeLowering. Every pass up to that
+    /// one asks the NullableType (NULLABLE.md 1.1); codegen spells and plans
+    /// the record instead. A slot rather than a rewrite: canonicals are
+    /// build-wide and interned, and `Box<i32?>`'s instance key holds this
+    /// node. Written once, through CanonicalTypes::set_nullable_lowered.
+    pub var lowered: *Type = &null;
 
     static fn create(
         ctx:   *ASTContext,

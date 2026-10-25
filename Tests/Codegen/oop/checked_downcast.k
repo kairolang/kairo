@@ -2,17 +2,16 @@
 // pointer. Null when the dynamic type is not the target or a class below
 // it; the right pointer -- adjusted, from a second base -- when it is.
 //
-// Spelled `as (*Dog)?`: the compiler parses `*Dog?` as `*(Dog?)`, a pointer
-// to a nullable Dog, while casting.md and pointers.md write `*T?` for a
-// nullable pointer. That divergence is a language decision, not this
-// test's. The result is read with `??` because `if d?` does not type-check
-// yet (null_check.k).
+// Spelled `as (*Dog)?` (`*Dog?` means the same since NULLABLE.md G1). The
+// result is read with `??` because `if d?` does not type-check yet
+// (null_check.k).
 //
 // XFAIL: *
-// Waiting on NullableTypeLowering: it exists but is never run, so any `T?`
-// that reaches codegen ICEs ("CXXSpell: T? reached codegen;
-// NullableTypeLowering must reduce it first"). Sema already types the cast
-// as `(*Dog)?` (Tests/Sema/ExprTyper/casts.k).
+// Waiting on the checked downcast's lowering (NULLABLE.md G18) and `??`
+// (G8). `(*Dog)?` itself lowers since G3, but the cast is emitted as a
+// static_cast from `Animal*` to `Nullable<Dog*>`, which clang rejects;
+// nothing emits dynamic_cast yet. Sema already types the cast as
+// `(*Dog)?` (Tests/Sema/ExprTyper/casts.k).
 // When it lands this test XPASSes; delete the XFAIL -- the run below is
 // already the real assertion.
 

@@ -247,6 +247,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _admit(self, d: *Decl, need: PlanNeed);
     fn _admit_instance(self, e: *InstanceEntry, need: PlanNeed);
     fn _admit_type(self, t: *Type, need: PlanNeed);
+    fn _nullable_record(self, c: *Type) -> *Type;
     fn _expand(self, d: *Decl, need: PlanNeed);
     fn _expand_fn(self, n: *FunctionDecl);
     fn _expand_member_sig(self, n: *FunctionDecl);
@@ -331,6 +332,8 @@ class LayoutSpine {
         if c == &null { c = t; }
         switch c->kind {
             case TypeKind::QualifiedType { return self.reaches(cast::<QualifiedType>(c)->inner); }
+            // `T?` holds its record by value (NullableTypeLowering).
+            case TypeKind::NullableType  { return self.reaches(cast::<NullableType>(c)->lowered); }
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
                 var d = self._plan->layout_decl(r->decl);
@@ -696,6 +699,7 @@ fn EmitPlan::_same_scope(k: usize, x: *ExtensionDecl) -> bool {
 fn EmitPlan::_scope_dep(k: usize, t: *Type) {
     if (t == &null) || (t->canonical == &null) { return; }
     var c = canon_unqual(t->canonical);
+    if isa::<NullableType>(c) { self._scope_dep(k, self._nullable_record(c)); return; }
     if !isa::<RecordType>(c) { return; }
     var d = self.layout_decl(cast::<RecordType>(c)->decl);
     if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
@@ -707,6 +711,14 @@ fn EmitPlan::_scope_dep(k: usize, t: *Type) {
 /// references, arrays, as a generic argument -- makes its outermost owner a
 /// Complete dep of scope \p k: a member type is named only through a
 /// complete enclosing class.
+/// The record a canonical `T?` is to C++ (NullableType::lowered). None means
+/// NullableTypeLowering never saw it: the same ICE CXXSpell raises.
+fn EmitPlan::_nullable_record(c: *Type) -> *Type {
+    var lw = cast::<NullableType>(c)->lowered;
+    if lw == &null { self._ice(c->range, "EmitPlan: T? reached codegen with no lowered record; NullableTypeLowering must run first"); }
+    return lw;
+}
+
 fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
     if t == &null { return; }
     var c = t->canonical;
@@ -716,7 +728,7 @@ fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
         case TypeKind::PointerType      { self._scope_sig_dep(k, cast::<PointerType>(c)->pointee); }
         case TypeKind::CXXLValueRefType { self._scope_sig_dep(k, cast::<CXXLValueRefType>(c)->referee); }
         case TypeKind::CXXRValueRefType { self._scope_sig_dep(k, cast::<CXXRValueRefType>(c)->referee); }
-        case TypeKind::NullableType     { self._scope_sig_dep(k, cast::<NullableType>(c)->inner); }
+        case TypeKind::NullableType     { self._scope_sig_dep(k, self._nullable_record(c)); }
         case TypeKind::FixedArrayType   { self._scope_sig_dep(k, cast::<FixedArrayType>(c)->element); }
         case TypeKind::TupleType {
             var tp = cast::<TupleType>(c);
@@ -1333,7 +1345,8 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::PointerType      { self._admit_type(cast::<PointerType>(c)->pointee, PlanNeed::Fwd); }
         case TypeKind::CXXLValueRefType { self._admit_type(cast::<CXXLValueRefType>(c)->referee, PlanNeed::Fwd); }
         case TypeKind::CXXRValueRefType { self._admit_type(cast::<CXXRValueRefType>(c)->referee, PlanNeed::Fwd); }
-        case TypeKind::NullableType     { self._admit_type(cast::<NullableType>(c)->inner, PlanNeed::Fwd); }
+        // `T?` is its record to C++ (NullableTypeLowering), held by value.
+        case TypeKind::NullableType     { self._admit_type(self._nullable_record(c), need); }
         // No Vector/Set/Map/Tuple arms: they are RecordTypes now and admit
         // through the record path, which already walks their generic
         // arguments (a tuple's elements are by value, so at \p need).
@@ -1679,6 +1692,7 @@ fn EmitPlan::_type_reaches_param(t: *Type, prim: *Decl, idx: u32) -> bool {
     if c == &null { c = t; }
     switch c->kind {
         case TypeKind::QualifiedType { return self._type_reaches_param(cast::<QualifiedType>(c)->inner, prim, idx); }
+        case TypeKind::NullableType  { return self._type_reaches_param(cast::<NullableType>(c)->lowered, prim, idx); }
         case TypeKind::GenericParamType {
             var g = cast::<GenericParamType>(c);
             // Both through layout_decl: walking an ADT's record, \p prim is

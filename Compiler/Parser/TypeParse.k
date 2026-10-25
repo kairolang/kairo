@@ -1865,11 +1865,17 @@ class <T> TypeParse {
             return err_nt;
         }
 
+        // `(T?)?` is a real type, Nullable<Nullable<T>> (NULLABLE.md 1.5):
+        // it is warned about, never collapsed -- a collapse here would make
+        // the written type disagree with the same type reached by generic
+        // substitution (`V?` with `V = T?`), which never collapses.
         if isa::<NullableType>(ty) {
-            dyn()->diag->report(DiagID::S055W, end_range.start,
-                "redundant '?': type is already nullable"
-            ).first(end_range).emit();
-            return cast::<NullableType>(ty);
+            var b = dyn()->diag->report(DiagID::S055W, end_range.start,
+                "nested nullable '(T?)?': legal and distinct from 'T?', but rarely what you want"
+            );
+            b.first(end_range);
+            b.note(ty->range.start, "outside generic code this is usually a mistake; a single '?' is one level of null");
+            b.emit();
         }
 
         var nt = NullableType::create(dyn()->ctx, ty->range | end_range, ty);

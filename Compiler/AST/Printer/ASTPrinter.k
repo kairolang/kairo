@@ -238,7 +238,15 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.src_type(pte);
             return;
         }
-        if isa::<NullableType>(ty)          { self._quals(ty); self.src_type(cast::<NullableType>(ty)->inner); self.p.paint(Color::Punct, "?"); return; }
+        if isa::<NullableType>(ty) {
+            // `(T?)?`: `T??` would read back as the `??` operator.
+            var inner = cast::<NullableType>(ty)->inner;
+            self._quals(ty);
+            if isa::<NullableType>(inner) { self.p.paint(Color::Punct, "("); self.src_type(inner); self.p.paint(Color::Punct, ")"); }
+            else { self.src_type(inner); }
+            self.p.paint(Color::Punct, "?");
+            return;
+        }
         if isa::<TupleType>(ty)             { self._t_tuple(cast::<TupleType>(ty));                       return; }
         if isa::<FixedArrayType>(ty)        { self._t_fixed_array(cast::<FixedArrayType>(ty));            return; }
         if isa::<VectorType>(ty)            { self._quals(ty); self.p.paint(Color::Punct, "["); self.src_type(cast::<VectorType>(ty)->element); self.p.paint(Color::Punct, "]"); return; }

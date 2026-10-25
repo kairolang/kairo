@@ -706,7 +706,13 @@ class CXXSpell {
                 var o = cast::<OpaqueFFIType>(t);
                 return self._join(self.imm_name(o->name, self._cg->tu->fid), name);
             }
-            case TypeKind::NullableType { self._ice(t_in->range, "CXXSpell: T? reached codegen; NullableTypeLowering must reduce it first"); return ""; }
+            // `T?` is spelled as the record NullableTypeLowering gave it; with
+            // none, that pass never saw this canonical.
+            case TypeKind::NullableType {
+                var lw = cast::<NullableType>(t)->lowered;
+                if lw == &null { self._ice(t_in->range, "CXXSpell: T? reached codegen with no lowered record; NullableTypeLowering must run first"); return ""; }
+                return self.decl(lw, name, subst, scope);
+            }
             case TypeKind::TupleType  { self._ice(t_in->range, "CXXSpell: TupleType canonical reached codegen; TypeResolve canonicalizes every tuple to its TupleN record"); return ""; }
             default {
                 self._ice(t_in->range, f"CXXSpell: {to_string(t->kind)} is not a canonical kind");

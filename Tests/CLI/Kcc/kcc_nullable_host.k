@@ -6,6 +6,9 @@
 // destroys its payload exactly once -- on replacement and at scope exit --
 // and a Nullable of a move-only class is move-only (static_asserts in the
 // host). Widget has no default constructor, so neither does the payload.
+// widgets.k returns a `Widget?` built from a value and from `null`, so the
+// host also sees what Kairo's `T?` lowers to. Widget is COPY (its move is
+// its copy), so each temporary it is built through is a live Widget too.
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -28,7 +31,8 @@ fn main() -> i32 { return 0 }
 // CHECK-NEXT:   ~Widget 8
 // CHECK-NEXT:   ~Widget 7
 // CHECK-NEXT: from kairo
-// CHECK-NEXT: boxed holds 9
+// CHECK-NEXT:   ~Widget 9
+// CHECK-NEXT: boxed holds 9, nothing null 1
 // CHECK-NEXT:   ~Widget 9
 // CHECK-NEXT: uniq
 // CHECK-NEXT: u null 0, u id 0, w id 3

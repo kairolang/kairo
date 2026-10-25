@@ -605,7 +605,13 @@ class TypeUtil {
                 if isa::<NullableType>(p->pointee) { return pre + "(" + self.str(p->pointee) + ")"; }
                 return pre + self.str(p->pointee);
             }
-            case TypeKind::NullableType   { return self.str(cast::<NullableType>(t)->inner) + "?"; }
+            // `T??` is the `??` operator, so a nested nullable is written
+            // the only way that parses back to it.
+            case TypeKind::NullableType {
+                var inner = cast::<NullableType>(t)->inner;
+                if isa::<NullableType>(canon_unqual(inner)) { return "(" + self.str(inner) + ")?"; }
+                return self.str(inner) + "?";
+            }
             case TypeKind::VectorType     { return "[" + self.str(cast::<VectorType>(t)->element) + "]"; }
             case TypeKind::SetType        { return "{" + self.str(cast::<SetType>(t)->element) + "}"; }
             case TypeKind::MapType {

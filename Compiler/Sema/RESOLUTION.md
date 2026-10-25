@@ -921,17 +921,20 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> NullableTypeLowering -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
-NullableTypeLowering -> NullTestLowering ->
-CoalesceLowering -> MatchLowering/PatternCompilation ->
+NullTestLowering -> CoalesceLowering (both before NullableTypeLowering,
+NULLABLE.md §5) -> MatchLowering/PatternCompilation ->
 PanicLowering -> YieldLowering ->
 TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
 CopyMoveLowering (copies) -> DestructorInsertion. Sugar first, control flow second,
 lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
-codegen is an ICE naming the pass.
+codegen is an ICE naming the pass. NullableTypeLowering is the exception
+on types: it rewrites no type in the tree, it fills each canonical `T?`'s
+`lowered` slot with its `::builtin::Nullable<T>` record (NULLABLE.md 1.1),
+and only a `T?` with no record is the ICE.
 
 EnumLayoutLowering [DONE]. Every ADT pattern gets one StructDecl,
 `EnumDecl::adt_layout`: a tag enum (`__kairo_Tag`, the variants by name and
