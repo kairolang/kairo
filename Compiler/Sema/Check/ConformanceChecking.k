@@ -25,10 +25,11 @@
 ///
 ///     A row is shared build-wide (the registry's table): a row TU A found
 ///     is the one every TU holding the same instance reads. The row is
-///     STRUCTURAL -- found at this use. Declared rows at the `impl`
-///     declaration, the impl-only rule and extension visibility are this
-///     pass's too and are not built yet; neither is the transitive case
-///     (`f<T>` calling `g<T>`, M2's dependent conformance).
+///     STRUCTURAL -- found at this use -- or DECLARED, found at the `impl`
+///     declaration (`class X impl I`, `extend X impl I`) and recorded
+///     under it for EmitPlan (visit_decl). The impl-only rule and extension
+///     visibility are this pass's too and are not built yet: a declared row
+///     that does not hold is not reported.
 ///
 ///   Phase: CHECK, after ExprTyper (it reads every call's registered
 ///   instance).
@@ -137,6 +138,57 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     fn visit_type(self, t: *Type) -> bool {
         if t != &null { self._check_type(t, t->range, 0); }
         return true;
+    }
+
+    fn visit_decl(self, d: *Decl) -> bool {
+        if (d == &null) || d->is_poisoned() { return true; }
+        if isa::<ClassDecl>(d) {
+            var cd = cast::<ClassDecl>(d);
+            for var i: usize = 0; i < cd->implements.size(); ++i { self._check_declared(d, self._self_type(d), cd->implements.get(i)->base); }
+        } else if isa::<StructDecl>(d) {
+            var sd = cast::<StructDecl>(d);
+            for var i: usize = 0; i < sd->implements.size(); ++i { self._check_declared(d, self._self_type(d), sd->implements.get(i)->base); }
+        } else if isa::<ExtensionDecl>(d) {
+            var x = cast::<ExtensionDecl>(d);
+            var t = (self._canon(x->target)) if (x->target != &null) else (&null);
+            for var i: usize = 0; i < x->implements.size(); ++i { self._check_declared(d, t, x->implements.get(i)->base); }
+        }
+        return true;
+    }
+
+    /// The type a record declares, as its uses name it: no arguments, so
+    /// null for a generic record, or one nested in a generic (its own
+    /// `R<T>` is not one type).
+    priv fn _self_type(self, d: *Decl) -> *Type {
+        var o = d;
+        for var depth: u32 = 0; (o != &null) && (depth < 32); ++depth {
+            if decl_generic_params(o).size() > 0 { return &null; }
+            var dc = reinterpret_cast::<*DeclContext>(o->semantic_dc);
+            o = (dc->owner_decl()) if (dc != &null) else (&null);
+        }
+        var empty = vec::<*Type>();
+        return self.sc->types->record(NameLookup::representative(d), &empty);
+    }
+
+    /// A DECLARED conformance of \p x to \p base, written on \p by: its
+    /// row, recorded so EmitPlan can admit the witness specialization where
+    /// \p by is emitted, with no Kairo instance to reach it -- a C++ host
+    /// instantiating a bounded template with X is the use Kairo never sees
+    /// (CODEGEN.md §7b.6). A dependent conformer or interface (`extend <E>
+    /// Wrap<E> impl I`) has no concrete row. A row that does not hold is
+    /// left unreported: the impl-only rule is not built, and a host's
+    /// instantiation then fails at the concept, as a structural one does.
+    priv fn _check_declared(self, by: *Decl, x: *Type, base: *Type) {
+        if (x == &null) || (base == &null) { return; }
+        var c = self._canon(x);
+        var iface = self._canon(base);
+        if (c == &null) || (iface == &null) { return; }
+        if c->is_dependent() || c->is_instantiation_dependent() { return; }
+        if iface->is_dependent() || iface->is_instantiation_dependent() { return; }
+        if self._iface_decl(iface) == &null { return; }
+        var row = self.conforms(c, iface);
+        if (row == &null) || (!row->ok) { return; }
+        self.sc->instances->declare_row(by, row);
     }
 
     /// Every record instance in \p t, its arguments included (`Vec<Box<M>>`).

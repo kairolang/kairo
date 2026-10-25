@@ -230,6 +230,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _scope_add_dep(self, k: usize, d: *Decl);
     fn _witness_primary(self, iface: *Decl) -> usize;
     fn _witness_row(self, row: *ConformanceRow);
+    fn _witness_declared(self, d: *Decl);
     fn _witness_bounds(self, f: *Decl);
     fn _witness_sig(self, k: usize, f: *FunctionDecl);
     fn _witness_dep(self, k: usize, t: *Type);
@@ -525,6 +526,7 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
             visible = true;
         }
         if visible { self._scope_for(x, true); }
+        self._witness_declared(d);
         return;
     }
     if !self._plannable(d) { return; }
@@ -533,6 +535,7 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
         // A definition here means every own type is Complete; its own
         // dependencies come in through _expand.
         self._admit(d, PlanNeed::Complete);
+        self._witness_declared(d);
     } else {
         self._admit(d, PlanNeed::Fwd);
     }
@@ -798,6 +801,25 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
         var x = decl_extension_of(w);
         if x != &null { self._witness_scope(k, x); continue; }
         self._admit_use(w);   // an own member: its owner complete.
+    }
+}
+
+/// The rows \p d DECLARES (`class X impl I`, `extend X impl I`), where \p d
+/// is emitted: there both X and I are complete -- \p d defines or extends
+/// X and names I -- and a C++ host instantiating a bounded template with X
+/// finds the specialization in the header that defines X, though no Kairo
+/// instance ever paired them (§7b.6). A header leaves out a row whose X or
+/// I it does not carry: the host cannot name either.
+fn EmitPlan::_witness_declared(d: *Decl) {
+    var rows = vec::<*ConformanceRow>();
+    self._cg->instances->declared_rows(d, &rows);
+    for var i: usize = 0; i < rows.size(); ++i {
+        var row = rows[i];
+        if self._mode != PlanMode::Preamble {
+            if _hidden_in_header(CXXSpell::vis_of(row->iface_decl)) { continue; }
+            if isa::<RecordType>(row->conformer) && _hidden_in_header(CXXSpell::vis_of(cast::<RecordType>(row->conformer)->decl)) { continue; }
+        }
+        self._witness_row(row);
     }
 }
 

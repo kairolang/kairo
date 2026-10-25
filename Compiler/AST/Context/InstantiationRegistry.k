@@ -148,6 +148,13 @@ class InstantiationRegistry {
     /// The conformance table: hash of (conformer, interface) -> rows. Same
     /// arena and lock as the instances; rows are immutable once added.
     priv var _rows: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
+    /// DECLARED rows (`class X impl I`, `extend X impl I`), keyed by the
+    /// declaring decl's address: the rows EmitPlan admits where that decl is
+    /// emitted, with no Kairo instance to reach them (CODEGEN.md §7b.6). A
+    /// row here is also in `_rows` -- the same identity a use finds -- since
+    /// `ConformanceRow::declared` is first-writer and a use may build the
+    /// row before the declaration is checked.
+    priv var _declared: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
 
     fn InstantiationRegistry(self) {
         self._table.reserve(128);
@@ -273,6 +280,25 @@ class InstantiationRegistry {
         for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }
         self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
         return row;
+    }
+
+    /// Record \p row as declared by \p by. Once per pair: a decl's TU
+    /// checks it once, but a re-run must not double the list.
+    fn declare_row(self, by: *Decl, row: *ConformanceRow) {
+        if (by == &null) || (row == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        var l = &(self._declared[reinterpret_cast::<u64>(by)]);
+        for var i: usize = 0; i < l->size(); ++i { if (*l)[i] == row { return; } }
+        l->push_back(row);
+    }
+
+    /// The rows \p by declared, in declaration order, appended to \p out.
+    fn declared_rows(self, by: *Decl, out: *vec::<*ConformanceRow>) {
+        if (by == &null) || (out == &null) { return; }
+        var rlock = std::SharedLock(self._mu);
+        var it = self._declared.find(reinterpret_cast::<u64>(by));
+        if it == self._declared.end() { return; }
+        for var i: usize = 0; i < it->second.size(); ++i { out->push_back(it->second[i]); }
     }
 
     /// Write \p e's rows, once: the first TU to check the instance wins, and

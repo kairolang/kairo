@@ -639,7 +639,14 @@ in the body plain C++ construction); a generic extension's member as
 a witness (the row records the extension's arguments); the concept on
 every bounded head -- records, methods, extension members -- with the
 concepts in tier 0 ahead of the bounded records' forward declarations;
-rows for record instances wherever their type is named; and the
+rows for record instances wherever their type is named; DECLARED rows
+(`class X impl I`, `extend X impl I`, concrete X and I): ConformanceChecking
+builds the row at the declaration and records it on the registry under the
+declaring decl (`declare_row`), and EmitPlan admits it wherever that decl
+is emitted, the conformer's header included, so a C++ host instantiating
+with a declared conformer Kairo never paired finds the specialization
+(`witness/header_declared`; a row that does not hold is not recorded, and
+the host then fails at the concept); and the
 instances a generic's body reaches (`outer<T>` calling
 `inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
 arguments (`CallExpr::dep_args`) and ConformanceChecking substitutes them
@@ -660,8 +667,6 @@ Not built, each the ICE or diagnostic that names it:
 - Rows for a generic conformance are full specializations per concrete
   conformer, not the partial specialization 7b.3 describes (a C++ host
   instantiating with its own `Pair<U>` does not get one).
-- Declared rows (`class X impl I`) admitted without a Kairo instance (a
-  C++ host instantiating with a declared conformer Kairo never paired).
 - A member template of a class template gets no explicit instantiation:
   its registry entry carries only its own arguments, so it is
   instantiated implicitly from its visible body.
@@ -907,9 +912,10 @@ that is the unnamed namespace, and only that TU can reach it).
   primary instead, ill-formed NDR ([temp.expl.spec]/7); and the
   `extern template` line itself checks `Scalable_c<Metric>`. The row is
   also admitted, for DECLARED rows only (`class X impl I`, `extend X impl
-  I`), in every TU whose plan holds both X at Complete and I's primary: a
-  C++ host instantiates Kairo templates with types Kairo never paired, and
-  a declared conformance is enumerable where a structural one is not. A
+  I`), in every TU and header that emits the declaring decl -- there X is
+  complete and I named, and X's own header is where a host looks: a C++
+  host instantiates Kairo templates with types Kairo never paired, and a
+  declared conformance is enumerable where a structural one is not. A
   STRUCTURAL row met by extension members reaches only the TUs that hold a
   Kairo instance needing it; a C++ host instantiating with that type
   itself fails `I_c` at its call, never compiles a different witness
