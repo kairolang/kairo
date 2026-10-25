@@ -587,6 +587,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// carries that flag through the store's flag absorption.
     priv fn _self_record(self, owner: *Decl) -> *Type {
         var canon = NameLookup::representative(owner);
+        var spec = self._spec_self_record(canon);
+        if spec != &null { return spec; }
         var gps   = decl_generic_params(canon);
         var args  = vec::<*Type>();
         for var i: usize = 0; i < gps.size(); ++i {
@@ -595,6 +597,30 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             args.push_back(self.sc->types->generic_param(canon, gp->index, gp->is_pack));
         }
         return self.sc->types->record(canon, &args);
+    }
+
+    /// Self inside a registered specialization is the instance it stands
+    /// for, spelled through the primary as every other mention of it is:
+    /// `<P> Store<*P>` is `Store<*P>` (dependent, the primary's; member
+    /// lookup selects the partial back from the pattern) and `<> Store<bool>`
+    /// is `Store<bool>`, the very canonical a use names. A record over the
+    /// spec's own parameters instead would substitute into `Store<i32>` for
+    /// `Store<*i32>` -- the partial's P against the primary's slot -- and
+    /// spell `Store<P>` in C++, the primary. Null for anything else, or for
+    /// a spec whose pattern did not resolve.
+    priv fn _spec_self_record(self, canon: *Decl) -> *Type {
+        var k = decl_spec_kind(canon);
+        if (k != SpecKind::Partial) && (k != SpecKind::Explicit) { return &null; }
+        var primary = decl_instantiated_from(canon);
+        if primary == &null { return &null; }
+        var sargs = decl_spec_args(canon);
+        var args  = vec::<*Type>();
+        for var i: usize = 0; i < sargs.size(); ++i {
+            if (sargs[i] == &null) || (sargs[i]->canonical == &null) { return &null; }
+            args.push_back(sargs[i]->canonical);
+        }
+        if k == SpecKind::Explicit { return self.sc->types->record(canon, &args); }
+        return self.sc->types->record(NameLookup::representative(primary), &args);
     }
 
     // === Generic params =======================================================
@@ -848,8 +874,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // dependent spelling, not clang's `unsigned long`.
             head = owner_decl;
             MemberLookup::ensure_filled(self.sc, owner_decl);
-            var pat = decl_instantiated_from(owner_decl);
-            if (pat != &null) && self._is_unfilled_instance(owner_decl) { head = pat; }
+            var body = self.sc->record_body(owner);   // unfilled instance, or a partial's dependent Self.
+            if body != &null { head = body; }
         } else {
             // --- 2. head: generic frames, then the DC chain + overlay --------
             var imm = self._name_imm(tok);
@@ -1224,6 +1250,9 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var e = self.sc->instances->instance_for(canon, &args, self.sc->ctx->fid,
                                                      NameLookup::ctx_of(canon));
             if e != &null { inst = e->decl; }
+            if (e != &null) && (e->ambiguous_a != &null) && (!e->ambiguity_reported) {
+                self._ambiguous_partials(e, seg->range);
+            }
         }
         return self.sc->types->record(inst, &args);
     }
@@ -2049,8 +2078,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var d = self._self_decl_of(self._selfs[(n - 1) - i]);
             if d == &null { continue; }   // `extend i32`: no scope to look in.
             MemberLookup::ensure_filled(self.sc, d);
-            var pat = decl_instantiated_from(d);
-            if (pat != &null) && self._is_unfilled_instance(d) { d = pat; }
+            // An unfilled instance, or a dependent `Store<*P>` (a partial's
+            // own Self, `extend <P> Store<*P>`): the body the args select.
+            var b = self.sc->record_body(self._selfs[(n - 1) - i]);
+            if b != &null { d = b; }
             var dc = NameLookup::context_of(d);
             if dc == &null { continue; }
             var r = self.sc->lookup.in_context(dc, DeclName::ident(imm), spelling);
@@ -2141,7 +2172,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if isa::<ModuleDecl>(d) { self._register_specs_in(NameLookup::context_of(d)); return; }
 
         var k = decl_spec_kind(d);
-        if ((k == SpecKind::Explicit) || (k == SpecKind::Partial)) && !isa::<FunctionDecl>(d) {
+        // `extend <> Store<bool>` / `extend <P> Store<*P>` are extensions
+        // whose TARGET is the specialization; they specialize nothing
+        // themselves. Registered, they found no primary and were poisoned
+        // silently, which hid their members from codegen (lookup ignores
+        // the poison; EmitPlan's scope walk does not).
+        if ((k == SpecKind::Explicit) || (k == SpecKind::Partial)) && (!isa::<FunctionDecl>(d)) && (!isa::<ExtensionDecl>(d)) {
             self._register_type_spec(d);            // function specs: OverloadResolution's.
         }
         var child = NameLookup::context_of(d);
@@ -2179,8 +2215,21 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if !ok { d->poison(); return; }
 
         if (decl_spec_kind(d) == SpecKind::Partial) || dep {
-            // A pattern: matched against concrete args by M2. Never a RecordType::decl.
-            self.sc->instances->register_partial(primary, d);
+            // Selection by a `requires` clause needs the clause evaluated per
+            // instance (requires-dispatch, eval lowering), and neither
+            // exists: registered, the pattern alone would select it whether
+            // or not the clause holds. Refused, so the primary keeps every
+            // instance and nothing is silently misselected.
+            if decl_requires_clause(d) != &null {
+                self._requires_partial_unsupported(d);
+                d->poison();
+                return;
+            }
+            // A pattern: the registry matches it against each concrete
+            // instance's args as the instance is minted. Never a
+            // RecordType::decl. The representative, because its params'
+            // GenericParamType owner is, and matching binds by owner.
+            self.sc->instances->register_partial(primary, NameLookup::representative(d));
             return;
         }
 
@@ -2246,6 +2295,34 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
          .note(DiagID::R045N, d->range.start,
             "write it at module scope to make that visible")
          .emit();
+    }
+
+    /// `struct <P> X<*P> requires pred<P>()`. NameResolution reports the
+    /// same thing for the form whose pattern is only its own parameters
+    /// (`<P> X<P> requires ...`), which the parser files as a second primary.
+    priv fn _requires_partial_unsupported(self, d: *Decl) {
+        var rc = decl_requires_clause(d);
+        var b = self.sc->diag->report(DiagID::SC001E, d->range.start,
+            "a partial specialization selected by 'requires' is not supported yet; the primary is used for every instance");
+        b.first(rc->range);
+        b.note(DiagID::SC001N, d->range.start,
+            "partial specializations are selected by their argument pattern alone (`<P> X<*P>`); write the pattern instead");
+        b.emit();
+    }
+
+    /// Two partial specializations match \p e's args and neither is more
+    /// specialized than the other: C++ rejects the instance, so Kairo does,
+    /// at the first written mention of it (one report per instance; later
+    /// mentions and unwritten ones -- a substitution -- stay quiet).
+    priv fn _ambiguous_partials(self, e: *InstanceEntry, at: SourceRange) {
+        e->ambiguity_reported = true;
+        var nm = self._decl_name_str(e->primary);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"ambiguous partial specializations of '{nm}' for these arguments");
+        b.first(at);
+        b.note(DiagID::SC001N, e->ambiguous_a->range.start, "matches this partial specialization");
+        b.note(DiagID::SC001N, e->ambiguous_b->range.start, "and this one, and neither is more specialized than the other");
+        b.emit();
     }
 
     /// The primary this spec specializes: same name, same kind, not itself a

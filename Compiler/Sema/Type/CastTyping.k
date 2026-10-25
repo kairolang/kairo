@@ -338,7 +338,7 @@ class <T> CastTyping {
         // 5d. a converting constructor on the target
         var td2 = dyn()->tu.record_decl(dyn()->tu.strip_nullable(target));
         if td2 != &null {
-            var body = dyn()->tu.pattern_of(td2);
+            var body = dyn()->sc->body_of(td2);   // a partial spec's ctors for an instance it was selected for.
             var dc   = NameLookup::context_of(body);
             if dc != &null {
                 var cell = dyn()->sc->lookup.in_context(dc, DeclName::ctor());

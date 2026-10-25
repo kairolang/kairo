@@ -96,6 +96,14 @@ class Deduction {
         for var i: usize = 0; i < args.size(); ++i {
             self.bind(pat, static_cast::<u32>(i), args[i]);
         }
+        // A member of a partial specialization is typed over the PARTIAL's
+        // parameters, which the args above do not bind: `Store<*i32>` is
+        // T := *i32 for the primary but P := i32 for `<P> Store<*P>`.
+        var pargs = vec::<*Type>();
+        var part = self.sc->record_partial(rec, &pargs);
+        if part != &null {
+            for var i: usize = 0; i < pargs.size(); ++i { self.bind(part, static_cast::<u32>(i), pargs[i]); }
+        }
     }
 
     /// `extend <T> Vec<T>` reached through a `Vec<i64>`: T := i64, before any

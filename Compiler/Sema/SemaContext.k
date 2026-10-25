@@ -33,6 +33,8 @@ import AST::Context::GlobalDisambigTable::*;
 import AST::Context::CanonicalTypes::*;
 import AST::Node::Base::*;
 import AST::Node::CanonicalNodes::*;
+import AST::Node::Declarations::*;
+import AST::Node::Casting::*;
 import AST::LangItems::*;
 import AST::DeclFacts::*;
 import Sema::Check::ConstraintSet::*;
@@ -404,6 +406,65 @@ class SemaContext {
             if e != &null { inst = e->decl; }
         }
         return self.types->record(inst, &trimmed);
+    }
+
+    // === Specialization bodies ================================================
+    //
+    // `instantiated_from` / pattern_of answer "which template is this an
+    // instance of" -- always the primary, which deduction and every
+    // lang-item test compare against. These answer the other question,
+    // "whose TABLE are this record's members in", which a partial
+    // specialization makes different. Only table readers ask it.
+
+    /// The decl whose table holds \p d's members: \p d itself when it has
+    /// its own (a primary, a spec, a filled instance), else the partial the
+    /// registry selected for it, else its primary.
+    fn body_of(self, d: *Decl) -> *Decl {
+        if d == &null { return &null; }
+        if (!decl_is_instance(d)) || decl_instantiated(d) { return d; }
+        if self.instances != &null {
+            var e = self.instances->entry_of(d);
+            if (e != &null) && (e->pattern != &null) { return e->pattern; }
+        }
+        var p = decl_instantiated_from(d);
+        return (p) if (p != &null) else (d);
+    }
+
+    /// The decl whose table holds the members of record type \p t, or null
+    /// for a non-record. A DEPENDENT use of a primary (`Store<*P>`: an
+    /// extension's receiver, a partial's own Self) has no instance to carry
+    /// a selection, so it is matched here, its parameters opaque.
+    fn record_body(self, t: *Type) -> *Decl {
+        var u = canon_unqual(t);
+        if (u == &null) || (!isa::<RecordType>(u)) { return &null; }
+        var r = cast::<RecordType>(u);
+        var d = r->decl;
+        if d == &null { return &null; }
+        if decl_is_instance(d) { return self.body_of(d); }
+        var binds = vec::<*Type>();
+        var sel = self.record_partial(t, &binds);
+        return (sel) if (sel != &null) else (d);
+    }
+
+    /// The partial \p rec's members come from, with its parameters'
+    /// bindings in \p out; null when they come from the primary or an
+    /// explicit spec (whose parameters, if any, bind positionally).
+    fn record_partial(self, rec: *Type, out: *vec::<*Type>) -> *Decl {
+        var u = canon_unqual(rec);
+        if (u == &null) || (!isa::<RecordType>(u)) || (self.instances == &null) { return &null; }
+        var r = cast::<RecordType>(u);
+        var d = r->decl;
+        if d == &null { return &null; }
+        if decl_is_instance(d) {
+            var e = self.instances->entry_of(d);
+            if (e == &null) || (e->pattern == &null) { return &null; }
+            for var i: usize = 0; i < e->pattern_args.size(); ++i { out->push_back(e->pattern_args[i]); }
+            return e->pattern;
+        }
+        if (r->args.size() == 0) || (decl_spec_kind(d) == SpecKind::Explicit) || (decl_spec_kind(d) == SpecKind::Partial) { return &null; }
+        var args = vec::<*Type>();
+        for var i: usize = 0; i < r->args.size(); ++i { args.push_back(r->args[i]); }
+        return self.instances->select_partial(NameLookup::representative(d), &args, out);
     }
 
     /// Errors produced since sema began.

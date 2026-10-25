@@ -580,6 +580,53 @@ InterfaceEmitter from adt_role/adt_form, and a generic record's derived
 assignment from its assign_form; they are not Kairo constraints and have no
 requires_clause.
 
+### 7a. Specializations of a generic record [DONE]
+
+A partial specialization (`class <P> Store<*P>`) is a C++ partial
+specialization and an explicit one (`class <> Store<bool>`) a C++ explicit
+specialization; C++ then selects them itself, exactly as Sema did
+(RESOLUTION.md §2b, Instances):
+
+    template<class T> class Store;               // tier 0, primary first
+    template<class P> class Store<P *>;
+    template<> class Store<bool>;
+    template<class P> class Store<P *> { ... };  // tier 1, after the primary
+    template<class P> int Store<P *>::tag() const { ... }
+    int Store<bool>::tag() const { ... }         // no `template <>`
+    template class ::ns::Store<int *>;           // tier 3 names the instance
+
+- **Spelling.** `CXXSpell::record_head` (`template <>` for an explicit
+  spec, else template_head) heads the spec's own declaration and
+  definition; `spec_suffix` (the pattern, a partial's parameters by name)
+  follows its leaf there and in every out-of-line member's qualifier
+  (`owner_segment`). Inside a spec, Self is the instance it stands for,
+  spelled through the primary (`Store<P *>`, `Store<bool>`), never the
+  spec decl.
+- **Admission.** A primary admits every specialization of it at its own
+  strength (`EmitPlan::_admit_specs`, `InstantiationRegistry::specs_of`):
+  a TU or header that can name `Store<X>` sees each one before any use
+  would instantiate the primary instead -- an ODR violation no linker
+  reports. Tier 0 moves a spec written above its primary after it; tier 1
+  orders a spec after its primary. An instance a partial lays out is
+  `layout_decl`'d to the partial, and its by-value needs are read off the
+  partial's parameters.
+- **Members.** A partial's members are templates (visible bodies, §7); an
+  explicit spec's are ordinary members of a non-template class, defined in
+  the home TU like any record's, `inline` only when marked
+  ([temp.expl.spec]/5: no template head out of line).
+- **Tier 3.** An instance whose body is a partial is explicitly
+  instantiated by its own name (`template class Store<int *>;`); an
+  explicit spec is never an instance and gets no line.
+- **Extensions.** Every block on any form of a template -- `extend <T>
+  Store<T>`, `extend <P> Store<*P>`, `extend <> Store<bool>` -- is one
+  scope struct `__kairo_ext_Store` (keyed by the primary, `ExtScope::key`),
+  each member over its own receiver, befriended by every specialization.
+
+Not built: a partial selected by `requires` (SC001E at the declaration,
+the primary kept); a pack parameter in a partial's pattern (never
+matches); a qualifier that matches only by subset (`const P` against
+`const volatile i32` -- a non-match, never a wrong binding).
+
 ## 7b. Witnesses: calls through an interface bound [DECIDED, PARTIAL]
 
 `Codegen/Emit/EmitWitness.k`. This section supersedes the

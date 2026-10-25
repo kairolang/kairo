@@ -1029,7 +1029,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         // struct destructure: by field name.
         var d = dyn()->tu.record_decl(dyn()->tu.strip_nullable(t));
         if (t != &null) && (d == &null) { dyn()->fail(n->value, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' by field name"); return n; }
-        var dc = (NameLookup::context_of(dyn()->tu.pattern_of(d))) if (d != &null) else (&null);
+        var dc = (NameLookup::context_of(dyn()->sc->body_of(d))) if (d != &null) else (&null);
         for var i: usize = 0; i < n->bindings.size(); ++i {
             var b = n->bindings.get(i);
             if (b == &null) || b->is_discard || (b->name == &null) { continue; }

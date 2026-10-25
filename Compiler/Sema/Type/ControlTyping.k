@@ -353,7 +353,10 @@ class <T> ControlTyping {
             return &null;
         }
         if d == &null { dyn()->fail(n, DiagID::SC088E, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
-        var body = dyn()->tu.pattern_of(d);
+        // The table the fields live in: a partial specialization's, for an
+        // instance (or a dependent `Pair<X, i32>`) its args select.
+        var body = dyn()->sc->record_body(rec);
+        if body == &null { body = dyn()->tu.pattern_of(d); }
         var dc   = NameLookup::context_of(body);
         var ok   = true;
         for var i: usize = 0; i < fields.size(); ++i {

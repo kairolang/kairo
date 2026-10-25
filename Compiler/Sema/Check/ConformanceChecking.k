@@ -578,7 +578,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if (!isa::<RecordType>(x)) || x->is_dependent() { return &null; }
         var xd = cast::<RecordType>(x)->decl;
         if (xd == &null) || (!decl_is_instance(xd)) { return &null; }
-        var pat = NameLookup::representative(self.tu.pattern_of(xd));
+        var pat = NameLookup::representative(self.sc->body_of(xd));   // a selected partial's `impl` list.
         if pat == &null { return &null; }
         if isa::<ClassDecl>(pat) {
             var cd = cast::<ClassDecl>(pat);
@@ -712,7 +712,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if !isa::<RecordType>(c) { return &null; }
         var d = self.tu.record_decl(c);
         if (d == &null) || isa::<InterfaceDecl>(d) { return &null; }
-        var dc = NameLookup::context_of(self.tu.pattern_of(d));   // an unfilled instance has an empty table.
+        var dc = NameLookup::context_of(self.sc->body_of(d));   // an unfilled instance has an empty table; its body's.
         var cands = vec::<*Decl>();
         if dc != &null {
             var cell = self.sc->lookup.in_context(dc, DeclName::ctor());

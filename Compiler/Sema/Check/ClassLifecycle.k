@@ -318,7 +318,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         var d = NameLookup::representative(d_in);
         MemberLookup::ensure_filled(self.sc, d);
         if MemberLookup::unfilled(d) {
-            var pat = decl_instantiated_from(d);
+            var pat = self.sc->body_of(d);   // the selected partial spec's, if one was.
             if pat != &null { d = NameLookup::representative(pat); }
         }
         var key = reinterpret_cast::<u64>(d);

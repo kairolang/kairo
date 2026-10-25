@@ -706,6 +706,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         for var i: usize = 0; i < group->size(); ++i {
             var cur = cast::<T>((*group)[i]);
             if cur == &null { continue; }
+            if (i > 0) && self._requires_selected_partial((*group)[i]) { continue; }
             if cur->is_this_definition { defs.push_back((*group)[i]); }
         }
 
@@ -727,6 +728,28 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         } else {
             first->retarget_canonical(first->first_decl());
         }
+    }
+
+    /// `struct <P> X<P> requires pred<P>()` beside a primary `X`: a partial
+    /// specialization whose pattern is only its own parameters, selected by
+    /// the clause alone. The parser cannot tell it from a second primary, so
+    /// without this it is a redefinition, which names the wrong problem.
+    /// Requires-dispatch is not built (TypeResolve refuses the `<*P>` form
+    /// with a clause the same way); reported and poisoned, so the primary
+    /// keeps every instance. True when \p d was one.
+    priv fn _requires_selected_partial(self, d: *Decl) -> bool {
+        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) { return false; }
+        var rc = decl_requires_clause(d);
+        if (rc == &null) || (decl_spec_args(d).size() == 0) || (decl_generic_params(d).size() == 0) { return false; }
+        if d->is_poisoned() { return true; }
+        var b = self.sc->diag->report(DiagID::SC001E, d->range.start,
+            "a partial specialization selected by 'requires' is not supported yet; the primary is used for every instance");
+        b.first(rc->range);
+        b.note(DiagID::SC001N, d->range.start,
+            "partial specializations are selected by their argument pattern alone (`<P> X<*P>`); write the pattern instead");
+        b.emit();
+        d->poison();
+        return true;
     }
 
     /// `Self` names the enclosing TYPE BODY's decl: the class/struct/... or

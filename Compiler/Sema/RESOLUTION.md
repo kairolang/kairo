@@ -1100,7 +1100,24 @@ extensions on structural types keyed by shape (goes away with the
 container migration); exact non-generic targets by canonical pointer.
 
 **Instances** [DONE]: an explicit spec walks its own body. An unfilled
-implicit instance walks its pattern (`instantiated_from`). An instance of an
+implicit instance walks its pattern (`instantiated_from`) -- or, when a
+partial specialization's pattern matches its args, that partial
+(`SemaContext::body_of`). Partial selection is done by the registry as the
+instance is minted, not by M2: an exact structural match of each partial's
+canonical `spec_args` against the args (`InstantiationRegistry::_select`;
+no conversions, a qualifier must match exactly), then the strictly more
+specialized one ([temp.class.order], simplified); two with no order
+between them are SC001E at the first written mention. The choice lives on
+`InstanceEntry::pattern` / `pattern_args` (the partial's own parameters'
+bindings: `Store<*i32>` is P := i32 where `args` say T := *i32), and
+`instantiated_from` stays the primary -- every reader of it asks "an
+instance of which template", which deduction and the lang-item tests
+compare. `Deduction::bind_from_record` binds both parameter spaces. A
+DEPENDENT use (`Store<*P>`: an extension's receiver, a partial's own Self,
+which TypeResolve spells through the primary) selects the same way at
+lookup (`SemaContext::record_body`), its parameters opaque. A partial
+selected by `requires` is refused (SC001E): requires-dispatch is M2's and
+not built. An instance of an
 IMPORTED template is filled by clang, not M2: the first lookup into it
 calls `ForeignInstantiate::fill` (IMPORTS.md §5), after which it is
 `instantiated` and walks its own table like any filled instance. A failed
@@ -1435,7 +1452,8 @@ Type domain (each unblocks the next):
 Mono / codegen:
 
     o. M1 enumeration over the registry (types AND functions)
-    p. M2: fill + partial selection + dependent conformance +
+    p. M2: fill + dependent conformance + (partial selection: done at
+       registry mint, §2b Instances; requires-selected partials open) +
        `: type` re-check (`ExprTyper::retype_instance`)
     q. EmitWitness + EmitPlan witness edge + EmitIR witness calls   PARTIAL
        (CODEGEN.md §7b; calls, statics, operators, `I::m(x)`, generic

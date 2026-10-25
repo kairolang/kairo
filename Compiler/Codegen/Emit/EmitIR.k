@@ -530,16 +530,7 @@ class EmitIR {
         var s = "";
         for var i: usize = 0; i < chain.size(); ++i {
             if i > 0 { s += "::"; }
-            s += self._spell.leaf(chain[i]);
-            var gps = decl_generic_params(chain[i]);
-            if gps.size() > 0 {
-                s += "<";
-                for var j: usize = 0; j < gps.size(); ++j {
-                    if j > 0 { s += ", "; }
-                    s += self._spell.imm_name(gps[j]->name.imm, CXXSpell::fid_of(chain[i]));
-                }
-                s += ">";
-            }
+            s += self._spell.owner_segment(chain[i]);
         }
         return s;
     }

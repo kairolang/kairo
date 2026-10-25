@@ -999,6 +999,65 @@ class CXXSpell {
         return s;
     }
 
+    // --- Specializations of a generic record ----------------------------------
+
+    /// \p d is a registered explicit or partial specialization of a record
+    /// (TypeResolve sets `instantiated_from` to the primary). A function
+    /// spec is OverloadResolution's and never a C++ specialization here.
+    static fn is_record_spec(d: *Decl) -> bool {
+        if (d == &null) || (!(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d))) { return false; }
+        var k = decl_spec_kind(d);
+        if (k != SpecKind::Explicit) && (k != SpecKind::Partial) { return false; }
+        return decl_instantiated_from(d) != &null;
+    }
+
+    /// The head of a record's own declaration and definition: an explicit
+    /// specialization's `template <>`, else template_head. Not for an
+    /// out-of-line MEMBER of one: [temp.expl.spec]/5 writes those with no
+    /// `template <>` at all, and _owner_template_head's template_head gives
+    /// exactly that, since an explicit spec has no parameters.
+    fn record_head(self, d: *Decl) -> string {
+        if CXXSpell::is_record_spec(d) && (decl_spec_kind(d) == SpecKind::Explicit) {
+            return "template <> " + self.requires_clause(d);
+        }
+        return self.template_head(d);
+    }
+
+    /// `<P*>` / `<bool>`: a specialization's pattern, the arguments it
+    /// specializes the primary at, with a partial's own parameters by name.
+    /// "" for anything that is not a record spec. Appended to the leaf
+    /// wherever the spec itself is named -- its declarations and the
+    /// qualifier of its out-of-line members -- because C++ has no other way
+    /// to say which specialization of `Store` is meant.
+    fn spec_suffix(self, d: *Decl) -> string {
+        if !CXXSpell::is_record_spec(d) { return ""; }
+        var sargs = decl_spec_args(d);
+        var args  = vec::<*Type>();
+        for var i: usize = 0; i < sargs.size(); ++i {
+            ICE_IF((sargs[i] == &null) || (sargs[i]->canonical == &null),
+                "CXXSpell: a specialization's pattern reached codegen unresolved");
+            args.push_back(sargs[i]->canonical);
+        }
+        return self.args_str(&args);
+    }
+
+    /// One segment of an out-of-line member's qualifier: the leaf, then a
+    /// specialization's pattern or a generic owner's own parameters as its
+    /// arguments (`Store<P*>`, `Store<bool>`, `Box<T>`).
+    fn owner_segment(self, d: *Decl) -> string {
+        var s = self.leaf(d);
+        if CXXSpell::is_record_spec(d) { return s + self.spec_suffix(d); }
+        var gps = decl_generic_params(d);
+        if gps.size() == 0 { return s; }
+        s += "<";
+        for var j: usize = 0; j < gps.size(); ++j {
+            if j > 0 { s += ", "; }
+            s += self.imm_name(gps[j]->name.imm, CXXSpell::fid_of(d));
+        }
+        s += ">";
+        return s;
+    }
+
     // --- internals ---------------------------------------------------------------
 
     priv fn _join(self, ty: string, name: string) -> string {

@@ -118,6 +118,9 @@ class ExtScope {
     /// The target's layout decl for a record (a generic one's primary), or
     /// null for a builtin, which is keyed by `target_ty` instead.
     pub var target:    *Decl = &null;
+    /// The record target's TEMPLATE (EmitPlan::_scope_key): what scopes are
+    /// matched on, so every specialization's extensions share one struct.
+    pub var key:       *Decl = &null;
     pub var target_ty: *Type = &null;
     /// The first extend block in source order: where the scope sits.
     pub var anchor:    *ExtensionDecl = &null;
@@ -255,6 +258,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _collect_ext_in(self, cand: *Decl, target: *Decl);
     fn _ext_target(self, x: *ExtensionDecl) -> *Decl;
     fn layout_decl(self, d: *Decl) -> *Decl;
+    fn _scope_key(self, d: *Decl) -> *Decl;
+    fn _admit_specs(self, c: *Decl, need: PlanNeed);
+    fn _specs_after_primary(self, v: *vec::<PlanEntry>);
     fn adt_record(self, d: *Decl) -> *Decl;
     fn anon_union_of(self, f: *FieldDecl) -> *UnionDecl;
     fn param_by_value(self, prim: *Decl, idx: u32) -> bool;
@@ -420,9 +426,10 @@ fn EmitPlan::is_empty() -> bool { return self._empty; }
 /// closed at the file.
 fn EmitPlan::friend_scopes_of(d: *Decl, out: *vec::<*ExtScope>) {
     var c = self.layout_decl(d);
+    var key = self._scope_key(d);
     for var i: usize = 0; i < self._scopes.size(); ++i {
         var s = &(self._scopes[i]);
-        if (s->target == &null) || (s->target != c) { continue; }
+        if (s->target == &null) || (s->key != key) { continue; }
         if CXXSpell::fid_of(static_cast::<*Decl>(s->anchor)) != CXXSpell::fid_of(c) { continue; }
         out->push_back(s);
     }
@@ -587,6 +594,7 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
     var c = canon_unqual(x->target->canonical);
     if isa::<RecordType>(c) {
         fresh.target = self.layout_decl(cast::<RecordType>(c)->decl);
+        fresh.key    = self._scope_key(cast::<RecordType>(c)->decl);
     } else {
         fresh.target_ty = c;
     }
@@ -618,6 +626,10 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
     var nm = self._scopes[k].members.size();
     for var i: usize = 0; i < nm; ++i {
         var m = self._scopes[k].members[i];
+        // Each block's own target: one scope holds the blocks of every
+        // specialization (`extend <> Store<bool>` beside `extend <T>
+        // Store<T>`), and a member's receiver names its block's.
+        self._scope_dep(k, self._scopes[k].exts[i]->target);
         self._expand_fn(m);
         self._scope_sig_dep(k, m->return_type);
         for var j: usize = 0; j < m->params.size(); ++j {
@@ -675,7 +687,7 @@ fn EmitPlan::_fill_scope(k: usize, cand: *Decl) {
 fn EmitPlan::_same_scope(k: usize, x: *ExtensionDecl) -> bool {
     var c = canon_unqual(x->target->canonical);
     var s = &(self._scopes[k]);
-    if isa::<RecordType>(c) { return (s->target != &null) && (self.layout_decl(cast::<RecordType>(c)->decl) == s->target); }
+    if isa::<RecordType>(c) { return (s->target != &null) && (self._scope_key(cast::<RecordType>(c)->decl) == s->key); }
     return (s->target == &null) && (s->target_ty == c);
 }
 
@@ -1222,11 +1234,30 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
         self._set.push_back(c);
         self._need.push_back(need);
         self._queue.push_back(self._set.size() - 1);
+        self._admit_specs(c, need);
         return;
     }
     if static_cast::<u8>(need) > static_cast::<u8>(self._need[at]) {
         self._need[at] = need;
         self._queue.push_back(at);
+        self._admit_specs(c, need);
+    }
+}
+
+/// A generic record's specializations ride with it at the same strength:
+/// every C++ TU that can name `Store<X>` must have seen each `Store<P*>` /
+/// `Store<bool>` before the first use that would instantiate one, or it
+/// instantiates the primary for it ([temp.expl.spec]/7, no diagnostic
+/// required). A Complete primary admits them Complete so an instance
+/// selected into a partial is laid out by it.
+fn EmitPlan::_admit_specs(c: *Decl, need: PlanNeed) {
+    if (decl_generic_params(c).size() == 0) || CXXSpell::is_record_spec(c) { return; }
+    var specs = vec::<*Decl>();
+    self._cg->instances->specs_of(c, &specs);
+    for var i: usize = 0; i < specs.size(); ++i {
+        var sd = CXXSpell::rep(specs[i]);
+        if (sd == &null) || sd->is_poisoned() { continue; }
+        self._admit(sd, need);
     }
 }
 
@@ -1265,6 +1296,14 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
         var n = need;
         if !self.param_by_value(prim, static_cast::<u32>(i)) { n = PlanNeed::Fwd; }
         self._admit_type(e->args[i], n);
+    }
+    // Laid out by a partial specialization: what IT holds by value is what
+    // the instance needs complete, read off its own parameters' bindings.
+    if e->pattern != &null {
+        var part = CXXSpell::rep(e->pattern);
+        for var i: usize = 0; i < e->pattern_args.size(); ++i {
+            if self.param_by_value(part, static_cast::<u32>(i)) { self._admit_type(e->pattern_args[i], need); }
+        }
     }
 }
 
@@ -1513,8 +1552,25 @@ fn EmitPlan::_ext_target(x: *ExtensionDecl) -> *Decl {
 /// record (adt_record); the representative otherwise.
 fn EmitPlan::layout_decl(d: *Decl) -> *Decl {
     var r = CXXSpell::rep(d);
-    if (r != &null) && decl_is_instance(r) { r = CXXSpell::rep(decl_pattern(r)); }
+    if (r != &null) && decl_is_instance(r) {
+        // Laid out by the partial specialization the registry selected for
+        // it, when one was: `Store<*i32>` has the partial's fields, not T's.
+        var e = self._cg->instances->entry_of(r);
+        if (e != &null) && (e->pattern != &null) { r = CXXSpell::rep(e->pattern); }
+        else { r = CXXSpell::rep(decl_pattern(r)); }
+    }
     return self.adt_record(r);
+}
+
+/// The extension scope a record-targeted extension belongs to, keyed by
+/// TEMPLATE: the primary's layout decl for every form of it. One struct
+/// per name (ext_scope_name spells the primary), so `extend <> Store<bool>`
+/// and `extend <P> Store<*P>` join `extend <T> Store<T>`'s scope, each
+/// member over its own receiver, rather than three structs named alike.
+fn EmitPlan::_scope_key(d: *Decl) -> *Decl {
+    var r = CXXSpell::rep(d);
+    if r == &null { return &null; }
+    return self.adt_record(CXXSpell::rep(decl_pattern(r)));
 }
 
 /// THE redirect from an ADT enum to the record it is written as
@@ -1681,6 +1737,7 @@ fn EmitPlan::_order() {
         t0.push_back(e);
     }
     self._sort(&t0);
+    self._specs_after_primary(&t0);
     // Three runs: every forward declaration whose head names no concept,
     // then the concepts (a requires-parameter needs its type declared, not
     // complete; a base's concept first), then the bounded records' forward
@@ -1872,7 +1929,40 @@ fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
         }
         return false;
     }
+    // A specialization's definition follows its primary's: a partial
+    // whose pattern instantiates the primary (`Store<Store<P>*>`) needs it
+    // defined, and keeping the pair in order costs nothing otherwise.
+    if CXXSpell::is_record_spec(who->decl) && (CXXSpell::rep(decl_instantiated_from(who->decl)) == dep->decl) { return true; }
     return self._needs_complete(who->decl, dep->decl);
+}
+
+/// Tier 0 is (fid, offset) order, which puts a specialization written
+/// above its primary, or in a file sorting before the primary's, ahead of
+/// the primary's declaration: C++ rejects a specialization of an
+/// undeclared template. Each such entry moves to just after its primary;
+/// everything else keeps its place.
+fn EmitPlan::_specs_after_primary(v: *vec::<PlanEntry>) {
+    var moved = true;
+    var guard: usize = 0;
+    while moved && (guard < v->size() + 1) {
+        moved = false;
+        guard += 1;
+        for var i: usize = 0; i < v->size(); ++i {
+            var d = (*v)[i].decl;
+            if ((*v)[i].scope != &null) || ((*v)[i].witness != &null) || (!CXXSpell::is_record_spec(d)) { continue; }
+            var prim = CXXSpell::rep(decl_instantiated_from(d));
+            var at = usize(-1);
+            for var j: usize = i + 1; j < v->size(); ++j {
+                if ((*v)[j].scope == &null) && ((*v)[j].witness == &null) && ((*v)[j].decl == prim) { at = j; break; }
+            }
+            if at == usize(-1) { continue; }
+            var e = (*v)[i];
+            for var j: usize = i; j < at; ++j { (*v)[j] = (*v)[j + 1]; }
+            (*v)[at] = e;
+            moved = true;
+            break;
+        }
+    }
 }
 
 /// True when \p who's definition requires \p dep's definition first. An

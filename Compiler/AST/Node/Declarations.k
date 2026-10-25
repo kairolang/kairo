@@ -82,8 +82,11 @@ class <T> TemplateParams {
     /// (`<i32>`, `<[T]>`). Empty for None/Primary-via-`<T>` forms.
     pub var spec_args: FrozenList::<*Type>;
 
-    ///   Instantiated   the pattern: the primary, or a partial spec once M2
-    ///                  selects one. Written by the registry, repointed by M2.
+    ///   Instantiated   the primary, always: "an instance of which template".
+    ///                  A partial spec whose pattern the args select is the
+    ///                  BODY, kept on the registry entry (InstanceEntry::
+    ///                  pattern; SemaContext::body_of), never here. Written
+    ///                  by the registry.
     ///   Explicit/Partial  the primary. Written by T at registration.
     ///   None/Primary   null.
     pub var instantiated_from: *Decl = &null;

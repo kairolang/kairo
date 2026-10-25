@@ -728,7 +728,8 @@ class <T> CallTyping {
             return &null;
         }
 
-        var body = dyn()->tu.pattern_of(d);   // an unfilled instance has an empty table.
+        var body = dyn()->sc->record_body(rec);   // an unfilled instance has an empty table; its body's (a selected partial's).
+        if body == &null { body = dyn()->tu.pattern_of(d); }
         var dc   = NameLookup::context_of(body);
         var cands = vec::<*Decl>();
         if dc != &null {

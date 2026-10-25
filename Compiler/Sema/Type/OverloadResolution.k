@@ -73,6 +73,7 @@ import Location::SourceRange::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
 import AST::Context::InstantiationRegistry::*;
+import AST::Context::DeclContext::*;
 
 /// \enum LitKind
 /// \brief An argument that is an untyped literal carries its shape so the
@@ -656,6 +657,15 @@ class OverloadResolution {
     /// reference would: a const object cannot bind a plain `self`, and
     /// either object binds `const self`. \p receiver's own cv is the
     /// object's; null means no object is known, and nothing is judged.
+    /// \p f is declared in the body of a partial specialization.
+    priv fn _member_of_partial(self, f: *FunctionDecl) -> bool {
+        if f->semantic_dc == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+        var owner = dc->owner_decl();
+        return (owner != &null) && (decl_spec_kind(owner) == SpecKind::Partial);
+    }
+
     priv fn _judge_receiver(self, c: *Candidate, p: *ParamDecl, receiver: *Type) {
         if (receiver == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return; }
         var sq = canon_quals(p->type_->canonical);
@@ -692,6 +702,16 @@ class OverloadResolution {
             c->viable = false;
             c->reason = "the receiver is not an instance this extension applies to";
             return;
+        }
+        // A member of a PARTIAL specialization is over the partial's own
+        // parameters, which no argument need name the way it is passed:
+        // `Store(self, v: *const P)` called with a `*i32` deduces nothing
+        // (the pointee lacks the const), yet `Store<*const i32>` already
+        // says P := i32. The receiver binds them before any argument is
+        // ranked. A primary's members keep deducing from their arguments.
+        if (receiver != &null) && self._member_of_partial(f) {
+            c->ded.bind_from_record(canon_unqual(receiver));
+            c->ded.seeded = true;
         }
         // `Container<i32>::get(b, 0)`: the requirement's interface parameters
         // are the qualifier's, so `-> T` reads i32 and `x: T` takes one. Left

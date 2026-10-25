@@ -15,14 +15,16 @@
 ///       - an IMPLICIT instantiation node, created HERE on first mention: the
 ///         primary's DeclKind, `spec_kind = Instantiated`,
 ///         `instantiated_from = primary`, empty body, own (empty) table. M2
-///         fills it, and may repoint `instantiated_from` at a partial
-///         specialization it selected. Until then name lookup walks the
-///         pattern (MemberLookup::_walk_record).
+///         fills it. The partial specialization its args select, if any, is
+///         chosen here at mint (_select) and kept on the entry (`pattern`,
+///         `pattern_args`); `instantiated_from` stays the primary. Until M2
+///         name lookup walks that body: the partial, else the primary
+///         (MemberLookup::_walk_record, SemaContext::body_of).
 ///
 ///     Dependent uses (`Foo<T>`, `Self` in a generic body) never come here:
 ///     their RecordType::decl is the primary -- a pattern -- and that is what
 ///     "deferred" means (#5). Partial specializations never back a RecordType
-///     at all; they are patterns, kept per primary for M2's selection.
+///     at all; they are patterns, kept per primary for the selection at mint.
 ///
 ///     The node is created at NAMING time, not at instantiation time, for the
 ///     same reason Clang does it: the type needs a decl to point at the moment
@@ -56,7 +58,11 @@ import AST::ASTSupport::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
+import AST::DeclFacts::*;
 import AST::Kind::DeclKind::*;
+import AST::Kind::TypeKind::*;
 
 /// \class ConformanceRow
 /// \brief `(conformer, interface)` and, for each of the interface's OWN
@@ -129,6 +135,24 @@ class InstanceEntry {
     /// and one not yet checked are told apart.
     pub var rows:              vec::<*ConformanceRow>;
     pub var rows_done:         bool  = false;
+    /// The partial specialization whose BODY an implicit instance takes, or
+    /// null for the primary's. `decl`'s `instantiated_from` stays the
+    /// primary either way: every reader of that link asks "which template
+    /// is this an instance of" (deduction compares it, is_lang and the
+    /// tuple tests key on it), and only the table walks want the body --
+    /// they ask Sema's body_of, which reads this.
+    pub var pattern:           *Decl = &null;
+    /// Parallel to `pattern`'s generic params: each one's binding for
+    /// `args`. `Store<*i32>` against `<P> Store<*P>` is [i32], where `args`
+    /// is [*i32]: args are in the PRIMARY's parameter space, so nothing
+    /// positional may bind a partial's parameters from them.
+    pub var pattern_args:      vec::<*Type>;
+    /// Two partials both match and neither is more specialized: `pattern`
+    /// stays null and these name the first two for Sema's diagnostic,
+    /// reported once (`ambiguity_reported`) at a naming site.
+    pub var ambiguous_a:       *Decl = &null;
+    pub var ambiguous_b:       *Decl = &null;
+    pub var ambiguity_reported: bool = false;
     fn InstanceEntry(self) { }
 }
 
@@ -201,6 +225,7 @@ class InstantiationRegistry {
         var e = self._new_entry(primary, args, node, false, fid);
         self._table[h].push_back(e);
         self._by_node[reinterpret_cast::<u64>(node)] = e;
+        self._select_into(e);
         return e;
     }
 
@@ -237,6 +262,11 @@ class InstantiationRegistry {
 
     // === Partial specializations ===============================================
 
+    /// \p spec is a REPRESENTATIVE: its parameters' GenericParamType owner
+    /// is that decl, and matching binds by owner identity. Entries already
+    /// minted for \p primary are re-selected: T registers a TU's specs before
+    /// it resolves anything else in it, so a re-selection here only ever
+    /// moves an instance no body has been typed against yet.
     fn register_partial(self, primary: *Decl, spec: *Decl) {
         if (primary == &null) || (spec == &null) { return; }
         var lock = std::LockGuard(self._mu);
@@ -247,6 +277,12 @@ class InstantiationRegistry {
             (*slot) = v;
         }
         (*slot)->push_back(spec);
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            for var i: usize = 0; i < it->second.size(); ++i {
+                var e = it->second[i];
+                if (e->primary == primary) && (!e->is_explicit) { self._select_into(e); }
+            }
+        }
     }
 
     fn partials_of(self, primary: *Decl) -> *vec::<*Decl> {
@@ -254,6 +290,193 @@ class InstantiationRegistry {
         var it = self._partials.find(reinterpret_cast::<u64>(primary));
         if it == self._partials.end() { return &null; }
         return it->second;
+    }
+
+    /// Every user-written specialization of \p primary, partial and
+    /// explicit, appended to \p out: partials in registration order, then
+    /// the explicit ones in NO defined order (hash order, as collect()).
+    /// EmitPlan declares them wherever it declares the primary -- a TU that
+    /// sees `Store` but not `Store<bool>` would instantiate the primary for
+    /// it, an ODR violation no linker reports.
+    fn specs_of(self, primary: *Decl, out: *vec::<*Decl>) {
+        if (primary == &null) || (out == &null) { return; }
+        var rlock = std::SharedLock(self._mu);
+        var it = self._partials.find(reinterpret_cast::<u64>(primary));
+        if it != self._partials.end() {
+            for var i: usize = 0; i < it->second->size(); ++i { out->push_back((*(it->second))[i]); }
+        }
+        for var t = self._table.begin(); t != self._table.end(); ++t {
+            for var i: usize = 0; i < t->second.size(); ++i {
+                var e = t->second[i];
+                if (e->primary == primary) && e->is_explicit { out->push_back(e->decl); }
+            }
+        }
+    }
+
+    /// The partial specialization of \p primary that \p args select, with
+    /// its parameters' bindings in \p out_args; null for the primary (none
+    /// matched, or an ambiguity -- the instance path reports that one).
+    /// For a DEPENDENT use (`Store<*P>` as an extension's receiver, a
+    /// partial's own Self), which has no entry to cache on: the args'
+    /// parameters are opaque here, so `*P` selects `<Q> Store<*Q>` with
+    /// Q := P, and a bare `T` selects nothing.
+    fn select_partial(self, primary: *Decl, args: *vec::<*Type>, out_args: *vec::<*Type>) -> *Decl {
+        if (primary == &null) || (args == &null) { return &null; }
+        var rlock = std::SharedLock(self._mu);
+        var a: *Decl = &null; var b: *Decl = &null;
+        return self._select(primary, args, out_args, &a, &b);
+    }
+
+    // --- matching (under the lock; pure: reads canonical types only) ---------
+
+    /// C++ partial-specialization selection, simplified: every partial whose
+    /// pattern matches \p args, then the one strictly more specialized than
+    /// each other match ([temp.class.order]); two with no order between them
+    /// are ambiguous, reported through \p amb_a / \p amb_b. An IMPORTED
+    /// primary's instances are clang's to fill, partial included
+    /// (ForeignInstantiate), so it never selects here.
+    priv fn _select(self, primary: *Decl, args: *vec::<*Type>, out_args: *vec::<*Type>,
+                    amb_a: *(*Decl), amb_b: *(*Decl)) -> *Decl {
+        if decl_is_imported(primary) { return &null; }
+        var it = self._partials.find(reinterpret_cast::<u64>(primary));
+        if it == self._partials.end() { return &null; }
+        var ps = it->second;
+        var hits  = vec::<*Decl>();
+        for var i: usize = 0; i < ps->size(); ++i {
+            var binds = vec::<*Type>();
+            if self._matches((*ps)[i], args, &binds) { hits.push_back((*ps)[i]); }
+        }
+        if hits.size() == 0 { return &null; }
+        var best: *Decl = &null;
+        for var i: usize = 0; i < hits.size(); ++i {
+            var wins = true;
+            for var j: usize = 0; j < hits.size(); ++j {
+                if i == j { continue; }
+                if !self._more_specialized(hits[i], hits[j]) { wins = false; break; }
+            }
+            if wins { best = hits[i]; break; }
+        }
+        if best == &null {
+            (*amb_a) = hits[0];
+            (*amb_b) = hits[1];
+            return &null;
+        }
+        if out_args != &null {
+            out_args->clear();
+            self._matches(best, args, out_args);
+        }
+        return best;
+    }
+
+    /// Under the write lock. Idempotent: a re-selection (register_partial)
+    /// overwrites every field it owns.
+    priv fn _select_into(self, e: *InstanceEntry) {
+        e->pattern = &null;
+        e->pattern_args.clear();
+        e->ambiguous_a = &null;
+        e->ambiguous_b = &null;
+        var a: *Decl = &null; var b: *Decl = &null;
+        e->pattern = self._select(e->primary, &(e->args), &(e->pattern_args), &a, &b);
+        e->ambiguous_a = a;
+        e->ambiguous_b = b;
+    }
+
+    /// \p spec's pattern against \p args; \p binds gets one type per
+    /// generic param of \p spec, all of them bound or the match fails (a
+    /// parameter the pattern never names cannot be deduced, which C++
+    /// rejects at the declaration).
+    priv fn _matches(self, spec: *Decl, args: *vec::<*Type>, binds: *vec::<*Type>) -> bool {
+        var pat = decl_spec_args(spec);
+        if pat.size() != args->size() { return false; }
+        var gps = decl_generic_params(spec);
+        binds->clear();
+        for var i: usize = 0; i < gps.size(); ++i { binds->push_back(&null); }
+        for var i: usize = 0; i < pat.size(); ++i {
+            var p = pat[i];
+            if (p == &null) || (p->canonical == &null) { return false; }
+            if !self._match(p->canonical, (*args)[i], spec, binds) { return false; }
+        }
+        for var i: usize = 0; i < binds->size(); ++i { if (*binds)[i] == &null { return false; } }
+        return true;
+    }
+
+    /// \p a is strictly more specialized than \p b: b's pattern matches a's
+    /// (a's parameters standing as opaque types) and not the reverse.
+    priv fn _more_specialized(self, a: *Decl, b: *Decl) -> bool {
+        return self._covers(b, a) && (!self._covers(a, b));
+    }
+
+    priv fn _covers(self, general: *Decl, special: *Decl) -> bool {
+        var sp = decl_spec_args(special);
+        var args = vec::<*Type>();
+        for var i: usize = 0; i < sp.size(); ++i {
+            if (sp[i] == &null) || (sp[i]->canonical == &null) { return false; }
+            args.push_back(sp[i]->canonical);
+        }
+        var binds = vec::<*Type>();
+        return self._matches(general, &args, &binds);
+    }
+
+    /// Exact structural match, never a conversion: a partial is chosen by
+    /// what the argument IS. Canonicals are hash-consed, so a pattern with
+    /// no parameter in it matches by identity. A qualifier must match
+    /// exactly -- `const P` against `const volatile i32` (C++ would bind
+    /// P := volatile i32) needs the type store to build the remainder,
+    /// which this layer does not hold, so it is a non-match, never a wrong
+    /// binding. A pack parameter never matches: pack patterns are not
+    /// selected yet.
+    priv fn _match(self, p: *Type, a: *Type, spec: *Decl, binds: *vec::<*Type>) -> bool {
+        if (p == &null) || (a == &null) { return false; }
+        // Identity settles a concrete pattern only: a dependent one matched
+        // against itself (a partial's own Self) must still bind its params.
+        if (p == a) && (!p->is_dependent()) { return true; }
+        if isa::<GenericParamType>(p) {
+            var g = cast::<GenericParamType>(p);
+            if (g->owner == spec) && (!g->is_pack) && (static_cast::<usize>(g->param_index) < binds->size()) {
+                var idx = static_cast::<usize>(g->param_index);
+                if (*binds)[idx] == &null { (*binds)[idx] = a; return true; }
+                return (*binds)[idx] == a;
+            }
+            return p == a;   // another template's parameter: only itself.
+        }
+        if !p->is_dependent() { return false; }   // concrete and not identical.
+        if p->kind != a->kind { return false; }
+        switch p->kind {
+            case TypeKind::PointerType {
+                var pp = cast::<PointerType>(p); var ap = cast::<PointerType>(a);
+                if pp->is_unsafe != ap->is_unsafe { return false; }
+                return self._match(pp->pointee, ap->pointee, spec, binds);
+            } case TypeKind::QualifiedType {
+                var pq = cast::<QualifiedType>(p); var aq = cast::<QualifiedType>(a);
+                if pq->quals != aq->quals { return false; }
+                return self._match(pq->inner, aq->inner, spec, binds);
+            } case TypeKind::NullableType {
+                return self._match(cast::<NullableType>(p)->inner, cast::<NullableType>(a)->inner, spec, binds);
+            } case TypeKind::FixedArrayType {
+                if p->size_bits != a->size_bits { return false; }
+                return self._match(cast::<FixedArrayType>(p)->element, cast::<FixedArrayType>(a)->element, spec, binds);
+            } case TypeKind::FunctionPointerType {
+                var pf = cast::<FunctionPointerType>(p); var af = cast::<FunctionPointerType>(a);
+                if pf->params.size() != af->params.size() { return false; }
+                for var i: usize = 0; i < pf->params.size(); ++i {
+                    if pf->modes[i] != af->modes[i] { return false; }
+                    if !self._match(pf->params[i], af->params[i], spec, binds) { return false; }
+                }
+                if (pf->return_type == &null) || (af->return_type == &null) { return pf->return_type == af->return_type; }
+                return self._match(pf->return_type, af->return_type, spec, binds);
+            } case TypeKind::RecordType {
+                // `Box<P>` against `Box<i32>`: the same template (an instance
+                // node and an explicit spec both lead back to the primary),
+                // then argument by argument.
+                var pr = cast::<RecordType>(p); var ar = cast::<RecordType>(a);
+                if decl_pattern(pr->decl) != decl_pattern(ar->decl) { return false; }
+                if pr->args.size() != ar->args.size() { return false; }
+                for var i: usize = 0; i < pr->args.size(); ++i {
+                    if !self._match(pr->args[i], ar->args[i], spec, binds) { return false; }
+                }
+                return true;
+            } default { return false; }
+        }
     }
 
     // === Conformance rows ======================================================

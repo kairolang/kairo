@@ -787,6 +787,37 @@ class <T> DeclParse {
         return SpecKind::Primary; // all simple idents; sema refines vs Explicit
     }
 
+    /// \brief _classify_spec for a RECORD, which can say more: the head's own
+    ///        parameter names are known here, so an all-simple-idents
+    ///        pattern is the primary form only when it is exactly those
+    ///        parameters, in order (`<T> Box<T>`, `<A, B> Pair<A, B>`).
+    ///        Anything else -- a name the head does not bind (`<X> Pair<X,
+    ///        i32>`), a repeat or a reordering (`<A> Pair<A, A>`) -- is a
+    ///        pattern over the head's variables: Partial. Left as Primary it
+    ///        was a second primary to N, a redefinition of the first.
+    ///        Functions keep _classify_spec: a partial function spec is an
+    ///        error, and widening what lands there would change which
+    ///        function forms are rejected.
+    fn _classify_record_spec(
+        self,
+        spec_args: *std::StackBuf::<*Type, 4>,
+        gparams:   *std::StackBuf::<*GenericParamDecl, 2>
+    ) -> SpecKind {
+        var k = self._classify_spec(spec_args, !gparams->is_empty());
+        if k != SpecKind::Primary { return k; }
+        if spec_args->size() != gparams->size() { return SpecKind::Partial; }
+        for var i: usize = 0; i < spec_args->size(); ++i {
+            var ct = cast::<ChainType>((*spec_args)[i]);
+            var seg = ct->segments.get(0);
+            if (seg == &null) || (seg->name == &null) { return k; }
+            var arg = dyn()->ctx->get_spelling(seg->name->name);
+            var gp  = (*gparams)[i];
+            if gp == &null { return k; }
+            if arg != dyn()->ctx->get_spelling(gp->name) { return SpecKind::Partial; }
+        }
+        return k;
+    }
+
     /// \brief true if `ty` is a single-segment `ChainType` naming a bare
     ///        identifier with no generic args of its own (`T`, `i32`, `Foo`).
     ///        Structured types (`[T]`, `*T`, `Vec<T>`, `A::B`) return false.
@@ -2878,7 +2909,7 @@ class <T> DeclParse {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             cd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            cd->spec_kind = self._classify_spec(&sargs, has_generics);
+            cd->spec_kind = self._classify_record_spec(&sargs, &gparams);
         } else if cls_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2985,7 +3016,7 @@ class <T> DeclParse {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             sd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            sd->spec_kind = self._classify_spec(&sargs, has_generics);
+            sd->spec_kind = self._classify_record_spec(&sargs, &gparams);
         } else if struct_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -3075,7 +3106,7 @@ class <T> DeclParse {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             ud->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            ud->spec_kind = self._classify_spec(&sargs, has_generics);
+            ud->spec_kind = self._classify_record_spec(&sargs, &gparams);
         } else if union_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "

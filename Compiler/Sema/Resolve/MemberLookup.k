@@ -191,7 +191,15 @@ class MemberLookup {
 
         if isa::<RecordType>(c) {
             var seen = set::<u64>();
-            self._walk_record(cast::<RecordType>(c)->decl, name, out, &seen);
+            // A dependent `Store<*P>` whose pattern a partial specialization
+            // matches has that partial's members, not the primary's (an
+            // instance carries the same choice; 2b below).
+            var root = cast::<RecordType>(c)->decl;
+            if (root != &null) && (!decl_is_instance(root)) && (self.sc != &null) {
+                var b = self.sc->record_body(c);
+                if b != &null { root = b; }
+            }
+            self._walk_record(root, name, out, &seen);
         } else {
             var exts = self.extensions_of_type(c);
             if exts != &null { self._append_from_extensions(exts, name, out); }
@@ -320,7 +328,13 @@ class MemberLookup {
             //     via step 0) has an empty table and an empty base list. The
             //     names it WILL have are the pattern's: walk that instead
             //     (seen dedups).
-            if MemberLookup::unfilled(d) { self._walk_record(pat, name, out, seen); return; }
+            //     The pattern is the partial specialization the registry
+            //     selected for these args, when one was.
+            if MemberLookup::unfilled(d) {
+                var body = (self.sc->body_of(d)) if (self.sc != &null) else (pat);
+                self._walk_record(body, name, out, seen);
+                return;
+            }
         }
 
         // 3. bases and implemented interfaces (default bodies join the set).

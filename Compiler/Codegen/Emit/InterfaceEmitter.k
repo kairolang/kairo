@@ -414,7 +414,7 @@ class InterfaceEmitter {
     // --- Tier 0 ----------------------------------------------------------------------
 
     priv fn _fwd_decl(self, d: *Decl) {
-        var s = self._spell->template_head(d);
+        var s = self._spell->record_head(d);
         switch d->kind {
             case DeclKind::ClassDecl  { s += "class ";  }
             case DeclKind::StructDecl { s += "struct "; }
@@ -441,6 +441,7 @@ class InterfaceEmitter {
             default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
         s += self._spell->leaf(d);
+        s += self._spell->spec_suffix(d);   // `Store<P*>`: which specialization.
         s += ";";
         // On the decl's first byte, not its name: the name's byte goes to
         // the definition's name token (TokenSink::_claim).
@@ -483,10 +484,11 @@ class InterfaceEmitter {
     priv fn _record_def(self, d: *Decl, kw: string) {
         var at = self._at(d);
         var is_class = (d->kind == DeclKind::ClassDecl);
-        var s = self._spell->template_head(d);
+        var s = self._spell->record_head(d);
         s += kw;
         s += " ";
         s += self._spell->leaf(d);
+        s += self._spell->spec_suffix(d);
 
         if is_class {
             var n = cast::<ClassDecl>(d);
@@ -1308,16 +1310,7 @@ class InterfaceEmitter {
         var s = "";
         for var i: usize = 0; i < chain.size(); ++i {
             if i > 0 { s += "::"; }
-            s += self._spell->leaf(chain[i]);
-            var gps = decl_generic_params(chain[i]);
-            if gps.size() > 0 {
-                s += "<";
-                for var j: usize = 0; j < gps.size(); ++j {
-                    if j > 0 { s += ", "; }
-                    s += self._spell->imm_name(gps[j]->name.imm, CXXSpell::fid_of(chain[i]));
-                }
-                s += ">";
-            }
+            s += self._spell->owner_segment(chain[i]);
         }
         return s;
     }
