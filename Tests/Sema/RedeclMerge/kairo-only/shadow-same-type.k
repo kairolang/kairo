@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -33,8 +33,9 @@
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: warning [R048W]:
-// END-GENERATED-CHECKS
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: warning [R048W]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R048N]:
+// END-GENERATED-CHECKS(AST)
 
 // NO ORACLE: Rust does not lint shadowing at all; C++ -Wshadow fires on
 // every shadow regardless of type and is off by default for that reason.

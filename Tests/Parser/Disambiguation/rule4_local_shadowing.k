@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -42,7 +42,10 @@
 // AST-NEXT:     `-ReturnStmt
 // AST-NEXT:       `-NamedIdentExpr c
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+//
+// -- diagnostics (order matches emission order) --
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC067E]:
+// END-GENERATED-CHECKS(AST)
 
 // Locals shadow globals in the verdict:
 // 1. A local var bound to a GENERIC CLOSURE commits `<` as generic args

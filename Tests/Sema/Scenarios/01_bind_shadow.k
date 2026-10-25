@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -69,7 +69,12 @@
 // AST-NEXT:         |-NamedIdentExpr x
 // AST-NEXT:         `-NamedIdentExpr g
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+//
+// -- diagnostics (order matches emission order) --
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC001E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: warning [R048W]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R048N]:
+// END-GENERATED-CHECKS(AST)
 
 // EXPECT: 0 errors. `x` in inner block shadows param x (trace shows shadows).
 // EXPECT: two `for var i` loops -> no redefinition.

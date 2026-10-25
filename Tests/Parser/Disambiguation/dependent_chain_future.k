@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -46,7 +46,15 @@
 // AST-NEXT:     `-ReturnStmt
 // AST-NEXT:       `-IntegerLiteralExpr 0
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+//
+// -- diagnostics (order matches emission order) --
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R051E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R051N]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R051E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R051N]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R051E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R051N]:
+// END-GENERATED-CHECKS(AST)
 
 // CONTRACT for dependent postfix chains (supersedes the old DependentChain
 // design from the handoff, per the simplified-resolver decision):

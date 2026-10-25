@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -10,7 +10,7 @@
 // AST-NEXT:           |-NamedIdentExpr foo_reexport
 // AST-NEXT:           `-Step ::helper
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+// END-GENERATED-CHECKS(AST)
 
 // CASE 7: re-export. main imports foo_reexport, which does
 // `pub import bar::*`. That edge is PUBLIC, so bar's names are part of
