@@ -54,7 +54,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "llvm/Support/Allocator.h";
 import Codegen::CodegenContext::*;
 import Codegen::CodegenICE::*;
 import Codegen::Emit::CXXSpell::*;

@@ -34,6 +34,8 @@ extend WB {
 
 pub fn <C impl Fancy<i32>> g(c: C) -> i32 { return c.get(1) + c.shine() }
 pub fn <C impl Deep<i64>> d(c: C) -> i64 { return c.get(1) + c.shine() + c.dig() }
+// The temporary is load-bearing: `c.get(1).w` is a separate EmitIR ICE
+// (unbound member step on a bound call's result; TICKETS.TXT).
 pub fn <C impl Wrapped<i32>> w(c: C) -> i32 { var r: Wrap<i32> = c.get(1); return r.w + c.raw() }
 pub fn <E, C impl Fancy<E>> h(c: C, z: E) -> E { return c.get(2) + z }
 
