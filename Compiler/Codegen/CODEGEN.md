@@ -646,7 +646,15 @@ declaring decl (`declare_row`), and EmitPlan admits it wherever that decl
 is emitted, the conformer's header included, so a C++ host instantiating
 with a declared conformer Kairo never paired finds the specialization
 (`witness/header_declared`; a row that does not hold is not recorded, and
-the host then fails at the concept); and the
+the host then fails at the concept); a GENERIC declared conformance
+(`extend <E> Wrap<E> impl I`, `class <T> Box impl I`) as ONE partial
+specialization, its row's conformer over the declaring decl's own
+parameters (`ConformanceRow::declared` names that decl, whose
+`template_head` -- bounds included, so a conditional `extend <E impl I>`
+gets `requires I_c<E>` -- heads it), and every concrete row it covers
+(same witnesses, conformer and interface at the row's arguments:
+`ConformanceRow::covered_by`) admitting the partial in place of a full
+specialization of its own; and the
 instances a generic's body reaches (`outer<T>` calling
 `inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
 arguments (`CallExpr::dep_args`) and ConformanceChecking substitutes them
@@ -664,9 +672,6 @@ Not built, each the ICE or diagnostic that names it:
   (`Container::get(c, 0)`): SC001E asking for the arguments, by choice --
   deducing the one instance c conforms to is a second lookup to keep sound.
 - Associated types, value-parameter interfaces: EmitWitness ICEs.
-- Rows for a generic conformance are full specializations per concrete
-  conformer, not the partial specialization 7b.3 describes (a C++ host
-  instantiating with its own `Pair<U>` does not get one).
 - A member template of a class template gets no explicit instantiation:
   its registry entry carries only its own arguments, so it is
   instantiated implicitly from its visible body.
@@ -793,10 +798,13 @@ specialization, with `T::Node` in a bounded body spelled `typename
 one. Until then a `T::Node` reaching codegen ICEs naming the feature.
 
 **Specializations** are full (`template <>`) for a non-generic conformance
-and PARTIAL for a generic one: `extend <T> Pair<T> impl Container<T>` is
-`template <class T> struct Container_witness<::m::Pair<T>, T> { ... }`, its
-head `CXXSpell::template_params` of the extension, and a generic extension
-member is called with its arguments spelled, never deduced (§6, `_call`).
+and PARTIAL for a generic DECLARED one: `extend <T> Pair<T> impl
+Container<T>` is `template <class T> struct Container_witness<::m::Pair<T>,
+T> { ... }`, its head `CXXSpell::template_head` of the extension, and a
+generic extension member is called with its arguments spelled, never
+deduced (§6, `_call`). A STRUCTURAL generic one (a plain `extend <T>
+Pair<T>` meeting I) stays a full specialization per concrete conformer a
+Kairo instance reaches (7b.6: a structural row is no host's to find).
 A specialization forwards each requirement to the decl its row names
 (7b.4), which may be an own member too: one non-structural requirement
 makes the whole (X, I) a specialization. Its members are defined IN the

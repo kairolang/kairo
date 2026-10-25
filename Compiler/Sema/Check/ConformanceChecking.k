@@ -27,7 +27,9 @@
 ///     is the one every TU holding the same instance reads. The row is
 ///     STRUCTURAL -- found at this use -- or DECLARED, found at the `impl`
 ///     declaration (`class X impl I`, `extend X impl I`) and recorded
-///     under it for EmitPlan (visit_decl). The impl-only rule and extension
+///     under it for EmitPlan (visit_decl). A generic declared conformance
+///     is one row over the declaring decl's own parameters, and a concrete
+///     row it covers says so (_covering). The impl-only rule and extension
 ///     visibility are this pass's too and are not built yet: a declared row
 ///     that does not hold is not reported.
 ///
@@ -48,6 +50,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::Conversion::*;
 import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
@@ -156,37 +159,47 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         return true;
     }
 
-    /// The type a record declares, as its uses name it: no arguments, so
-    /// null for a generic record, or one nested in a generic (its own
-    /// `R<T>` is not one type).
+    /// The type a record declares for itself: `R`, or `R<T, U>` over its
+    /// own parameters for a generic one (TypeResolve's `_self_record`).
+    /// Null for a record nested in a generic: its witness would be a member
+    /// of a template, which a partial specialization cannot key on.
     priv fn _self_type(self, d: *Decl) -> *Type {
-        var o = d;
+        var rep = NameLookup::representative(d);
+        var dc0 = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        var o = (dc0->owner_decl()) if (dc0 != &null) else (&null);
         for var depth: u32 = 0; (o != &null) && (depth < 32); ++depth {
             if decl_generic_params(o).size() > 0 { return &null; }
             var dc = reinterpret_cast::<*DeclContext>(o->semantic_dc);
             o = (dc->owner_decl()) if (dc != &null) else (&null);
         }
-        var empty = vec::<*Type>();
-        return self.sc->types->record(NameLookup::representative(d), &empty);
+        var gps = decl_generic_params(rep);
+        var args = vec::<*Type>();
+        for var i: usize = 0; i < gps.size(); ++i {
+            if gps[i] == &null { continue; }
+            args.push_back(self.sc->types->generic_param(rep, gps[i]->index, gps[i]->is_pack));
+        }
+        return self.sc->types->record(rep, &args);
     }
 
     /// A DECLARED conformance of \p x to \p base, written on \p by: its
     /// row, recorded so EmitPlan can admit the witness specialization where
     /// \p by is emitted, with no Kairo instance to reach it -- a C++ host
     /// instantiating a bounded template with X is the use Kairo never sees
-    /// (CODEGEN.md §7b.6). A dependent conformer or interface (`extend <E>
-    /// Wrap<E> impl I`) has no concrete row. A row that does not hold is
-    /// left unreported: the impl-only rule is not built, and a host's
+    /// (CODEGEN.md §7b.6). A GENERIC conformance (`extend <E> Wrap<E> impl
+    /// I`, `class <T> Box impl I`) is one row over \p by's own parameters,
+    /// the partial specialization's. A row that does not hold is left
+    /// unreported: the impl-only rule is not built, and a host's
     /// instantiation then fails at the concept, as a structural one does.
     priv fn _check_declared(self, by: *Decl, x: *Type, base: *Type) {
         if (x == &null) || (base == &null) { return; }
         var c = self._canon(x);
         var iface = self._canon(base);
         if (c == &null) || (iface == &null) { return; }
-        if c->is_dependent() || c->is_instantiation_dependent() { return; }
-        if iface->is_dependent() || iface->is_instantiation_dependent() { return; }
         if self._iface_decl(iface) == &null { return; }
-        var row = self.conforms(c, iface);
+        // Dependent on anything but \p by's own parameters (an enclosing
+        // generic's), it is not one partial specialization.
+        if (c->is_dependent() || iface->is_dependent()) && (!isa::<RecordType>(c)) { return; }
+        var row = self.conforms(c, iface, by);
         if (row == &null) || (!row->ok) { return; }
         self.sc->instances->declare_row(by, row);
     }
@@ -511,7 +524,11 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// THE row for (\p x, \p iface): the table's, else built by the
     /// requirement match below and recorded. Never null for an interface
     /// type; `ok` false when some requirement has no implementation on \p x.
-    fn conforms(self, x: *Type, iface: *Type) -> *ConformanceRow {
+    ///
+    /// \p declared is the `impl` that declares it, for a GENERIC row (\p x
+    /// over that decl's own parameters): the row is born with it, since
+    /// codegen spells the partial specialization's head from it.
+    fn conforms(self, x: *Type, iface: *Type, declared: *Decl = &null) -> *ConformanceRow {
         var hit = self.sc->instances->row_find(x, iface);
         if hit != &null { return hit; }
         var idecl = self._iface_decl(iface);
@@ -521,6 +538,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         row.conformer  = x;
         row.iface      = iface;
         row.iface_decl = static_cast::<*Decl>(idecl);
+        row.declared   = declared;
         row.ok         = true;
         // Parallel to the interface's composed requirement list. An
         // associated type's entry has no witness decl yet (they are not
@@ -545,7 +563,75 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             row.ext_arg_count.push_back(ea.size());
             for var k2: usize = 0; k2 < ea.size(); ++k2 { row.ext_args.push_back(ea[k2]); }
         }
+        if row.ok { row.covered_by = self._covering(x, iface, &row); }
         return self.sc->instances->row_add(&row);
+    }
+
+    /// The GENERIC declared row that covers concrete \p row of instance \p x:
+    /// declared on x's pattern (`class <T> Box impl I`) or by a generic
+    /// extension of it (`extend <E> Wrap<E> impl I`), its conformer and
+    /// interface at x's arguments \p x and \p iface, and its witnesses
+    /// \p row's. Then its partial specialization is \p row's witness, and a
+    /// full one would only repeat it. Null otherwise: a non-instance, an
+    /// explicit specialization's own members, a conformance only structural.
+    priv fn _covering(self, x: *Type, iface: *Type, row: *ConformanceRow) -> *ConformanceRow {
+        if (!isa::<RecordType>(x)) || x->is_dependent() { return &null; }
+        var xd = cast::<RecordType>(x)->decl;
+        if (xd == &null) || (!decl_is_instance(xd)) { return &null; }
+        var pat = NameLookup::representative(self.tu.pattern_of(xd));
+        if pat == &null { return &null; }
+        if isa::<ClassDecl>(pat) {
+            var cd = cast::<ClassDecl>(pat);
+            for var i: usize = 0; i < cd->implements.size(); ++i {
+                var g = self._covers(pat, self._self_type(pat), cd->implements.get(i)->base, x, iface, row);
+                if g != &null { return g; }
+            }
+        } else if isa::<StructDecl>(pat) {
+            var sd = cast::<StructDecl>(pat);
+            for var i: usize = 0; i < sd->implements.size(); ++i {
+                var g = self._covers(pat, self._self_type(pat), sd->implements.get(i)->base, x, iface, row);
+                if g != &null { return g; }
+            }
+        }
+        var exts = self.ml.extensions_of_decl(pat);
+        if exts == &null { exts = self.ml.extensions_of_decl(self.tu.pattern_of(xd)); }
+        if exts == &null { return &null; }
+        for var i: usize = 0; i < exts->size(); ++i {
+            var e = (*exts)[i];
+            if (e == &null) || e->is_poisoned() || (e->target == &null) { continue; }
+            if decl_generic_params(static_cast::<*Decl>(e)).size() == 0 { continue; }
+            for var k: usize = 0; k < e->implements.size(); ++k {
+                var g = self._covers(static_cast::<*Decl>(e), self._canon(e->target), e->implements.get(k)->base, x, iface, row);
+                if g != &null { return g; }
+            }
+        }
+        return &null;
+    }
+
+    /// _covering for one `impl` edge \p base of \p by, whose conformer is
+    /// \p gx: its generic row when that covers \p row, else null.
+    priv fn _covers(self, by: *Decl, gx: *Type, base: *Type, x: *Type, iface: *Type, row: *ConformanceRow) -> *ConformanceRow {
+        if (gx == &null) || (base == &null) || (!gx->is_dependent()) { return &null; }
+        var bi = self._canon(base);
+        if (bi == &null) || (static_cast::<*Decl>(self._iface_decl(bi)) != row->iface_decl) { return &null; }
+        var d = Deduction(self.sc, &null);
+        if d.unify(gx, x, false) == ImplicitRank::None { return &null; }
+        var at = d.substitute(bi);
+        if (at == &null) || (canon_unqual(at) != iface) { return &null; }
+        var g = self.conforms(gx, bi, by);
+        if (g == &null) || (!g->ok) || (g->witnesses.size() != row->witnesses.size()) { return &null; }
+        for var i: usize = 0; i < g->witnesses.size(); ++i {
+            if self._entity(g->witnesses[i]) != self._entity(row->witnesses[i]) { return &null; }
+        }
+        return g;
+    }
+
+    /// \p d as one entity across a pattern and its instances: a constructor
+    /// slot's witness is the record, `Wrap` in a generic row and `Wrap<i32>`
+    /// in a concrete one.
+    priv fn _entity(self, d: *Decl) -> *Decl {
+        if d == &null { return &null; }
+        return NameLookup::representative(self.tu.pattern_of(d));
     }
 
     /// \p idecl's requirement decls and, for each, the interface instance it
@@ -574,13 +660,21 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var eps = decl_generic_params(static_cast::<*Decl>(ext));
         if eps.size() == 0 { return true; }
         var d = Deduction(self.sc, &null);
-        if !d.bind_from_extension(f, x) { return false; }
+        // A GENERIC row's conformer is dependent (`Wrap<E>`), which
+        // bind_from_extension declines; unified directly, the extension's
+        // parameters bind to the row's own (E := E), which the partial
+        // specialization then spells by name.
+        var dep = x->is_dependent();
+        if dep {
+            if (ext->target == &null) || (ext->target->canonical == &null) { return false; }
+            if d.unify(canon_unqual(ext->target->canonical), canon_unqual(x), false) == ImplicitRank::None { return false; }
+        } else if !d.bind_from_extension(f, x) { return false; }
         for var i: usize = 0; i < eps.size(); ++i {
             var gp = eps[i];
             if gp == &null { return false; }
             var b = d.lookup(NameLookup::representative(static_cast::<*Decl>(ext)), gp->index);
             if b == &null { b = d.lookup(static_cast::<*Decl>(ext), gp->index); }
-            if (b == &null) || b->is_dependent() { return false; }
+            if (b == &null) || (b->is_dependent() && (!dep)) { return false; }
             out->push_back(b);
         }
         return true;

@@ -92,6 +92,11 @@ class ConformanceRow {
     /// codegen cannot substitute; a specialization spells the requirement
     /// through this instance instead.
     pub var sources:   vec::<*Type>;
+    /// A concrete row that a GENERIC declared row (`extend <E> Wrap<E> impl
+    /// I`, conformer over its own parameters) covers -- same witnesses, its
+    /// conformer and interface at this row's arguments -- or null. EmitPlan
+    /// admits that row's partial specialization in place of a full one.
+    pub var covered_by: *ConformanceRow = &null;
     pub var ok:        bool  = false;
     fn ConformanceRow(self) { }
 
@@ -273,6 +278,7 @@ class InstantiationRegistry {
         row->iface      = r->iface;
         row->iface_decl = r->iface_decl;
         row->declared   = r->declared;
+        row->covered_by = r->covered_by;
         row->ok         = r->ok;
         for var i: usize = 0; i < r->witnesses.size(); ++i { row->witnesses.push_back(r->witnesses[i]); }
         for var i: usize = 0; i < r->ext_args.size(); ++i { row->ext_args.push_back(r->ext_args[i]); }

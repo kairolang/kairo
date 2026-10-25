@@ -37,12 +37,14 @@
 ///     requirements, named and operator (a member template, gated on the
 ///     callable form and left out of the concept, §7b.7), and every row
 ///     with a concrete conformer (a full specialization each, also for a row
-///     a generic extension supplies), and requirements inherited through a
-///     generic interface instance, concrete or dependent (§7b.9), and
-///     constructor requirements: no member anywhere, since `T(args)` is
-///     already the C++ for every conformer, only a concept clause (§7b.3).
-///     Not built: associated types, partial specializations for generic
-///     conformances (§7b.3, for C++ hosts).
+///     a generic extension supplies structurally), a GENERIC declared
+///     conformance (`extend <E> Wrap<E> impl I`: one partial
+///     specialization, headed by the declaring decl, which the concrete
+///     rows it covers use in place of their own), and requirements
+///     inherited through a generic interface instance, concrete or
+///     dependent (§7b.9), and constructor requirements: no member anywhere,
+///     since `T(args)` is already the C++ for every conformer, only a
+///     concept clause (§7b.3). Not built: associated types.
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -136,7 +138,9 @@ class EmitWitness {
     /// written inside F's template, where F's T is in scope. With \p row (a
     /// specialization) the source as Sema substituted it at the row's
     /// arguments (ConformanceRow::sources, `Container<i32>`) is a concrete
-    /// instance, and its entry is both at once.
+    /// instance, and its entry is both at once -- or, for a generic row, an
+    /// instance over the declaring decl's parameters (`Container<E>`),
+    /// spelled through _dep_subst inside the partial specialization.
     fn members_with(self, idecl: *InterfaceDecl, substs: *vec::<*InstanceEntry>,
                     row: *ConformanceRow = &null) -> vec::<*FunctionDecl> {
         var out = vec::<*FunctionDecl>();
@@ -159,11 +163,12 @@ class EmitWitness {
                         sub = self._dep_subst(sd, src);
                     } else {
                         var at_row = (row->sources[i]) if (i < row->sources.size()) else (&null);
-                        sub = self._iface_subst(at_row);
-                        // A row is recorded only at concrete arguments, so its
-                        // sources are instances; a null here would spell the
+                        sub = self._subst_of(at_row);
+                        // A row's sources are at its own arguments: instances,
+                        // or for a generic row instances over its declaring
+                        // decl's parameters; a null here would spell the
                         // leaf's own parameters, which are not in scope.
-                        if sub == &null { self._ice(CXXSpell::at(r->decl), "EmitWitness: a row whose source for an inherited requirement is not a concrete instance; ConformanceChecking records it at the row's arguments"); }
+                        if sub == &null { self._ice(CXXSpell::at(r->decl), "EmitWitness: a row with no source for an inherited requirement; ConformanceChecking records it at the row's arguments"); }
                     }
                 }
             }
@@ -190,7 +195,7 @@ class EmitWitness {
         var x = cast::<RecordType>(row->conformer)->decl;
         if decl_is_imported(CXXSpell::rep(x)) { return true; }
         var idecl = cast::<InterfaceDecl>(row->iface_decl);
-        var subst = self._iface_subst(row->iface);
+        var subst = self._subst_of(row->iface);
         var subs = vec::<*InstanceEntry>();
         var ms = self.members_with(idecl, &subs, row);
         for var i: usize = 0; i < ms.size(); ++i {
@@ -367,9 +372,9 @@ class EmitWitness {
         var row   = p->row;
         var idecl = cast::<InterfaceDecl>(row->iface_decl);
         var at    = self._at(p);
-        var subst = self._iface_subst(row->iface);
+        var subst = self._subst_of(row->iface);
         var x     = self._spell->_type(row->conformer);
-        self._cg->sink->spell(at, "template <> struct " + self._leaf_witness(p->iface)
+        self._cg->sink->spell(at, self._spec_head(row) + "struct " + self._leaf_witness(p->iface)
                                   + self._spell->witness_args(x, row->iface) + " {");
         var subs = vec::<*InstanceEntry>();
         var ms = self.members_with(idecl, &subs, row);
@@ -545,6 +550,36 @@ class EmitWitness {
 
     priv fn _leaf_witness(self, iface: *Decl) -> string { return self._spell->leaf(iface) + LowerTargets::witness_suffix(); }
     priv fn _leaf_concept(self, iface: *Decl) -> string { return self._spell->leaf(iface) + LowerTargets::concept_suffix(); }
+
+    /// A GENERIC row (§7b.3): a declared conformance whose conformer is
+    /// over the declaring decl's own parameters (`extend <E> Wrap<E> impl
+    /// I`), one partial specialization for every `Wrap<X>`.
+    static fn is_generic_row(row: *ConformanceRow) -> bool {
+        return (row->declared != &null) && (row->conformer != &null) && row->conformer->is_dependent();
+    }
+
+    /// `template <> `, or for a generic row its declaring decl's head,
+    /// `template <class E> `, interface bounds included: a conditional
+    /// conformance's partial specialization matches only the arguments that
+    /// meet them, and every other `Wrap<X>` gets the primary.
+    priv fn _spec_head(self, row: *ConformanceRow) -> string {
+        if !EmitWitness::is_generic_row(row) { return "template <> "; }
+        var h = self._spell->template_head(CXXSpell::rep(row->declared));
+        if h.size() == 0 { self._ice(CXXSpell::at(row->declared), "EmitWitness: a generic row whose declaring decl has no template parameters"); }
+        return h;
+    }
+
+    /// _iface_subst, or for a DEPENDENT instance (a generic row's
+    /// `Container<E>`, which has no registry entry) _dep_subst: its
+    /// arguments are the row's own parameters, spelled by name.
+    priv fn _subst_of(self, iface: *Type) -> *InstanceEntry {
+        if (iface == &null) || (!isa::<RecordType>(canon_unqual(iface))) { return &null; }
+        var r = cast::<RecordType>(canon_unqual(iface));
+        if !r->is_dependent() { return self._iface_subst(static_cast::<*Type>(r)); }
+        var sd = CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl)));
+        if decl_generic_params(sd).size() == 0 { return &null; }
+        return self._dep_subst(sd, r);
+    }
 
     /// The registry entry an interface instance's arguments come from, so a
     /// specialization of `Container<i32>` spells its `T` as `signed int`.

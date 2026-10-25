@@ -774,6 +774,13 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     var iface = CXXSpell::rep(row->iface_decl);
     self._witness_primary(iface);
     var ew = EmitWitness(self._cg, &(self._spell));
+    // A generic declared row's partial specialization is this row's witness
+    // already (§7b.3): admitting it, never a full one beside it, keeps one
+    // definition per conformance. Only when it is emitted at all -- were the
+    // primary to serve the generic row but not this one, the full one is
+    // still the only witness this row has.
+    var g = row->covered_by;
+    if (g != &null) && ew.needs_specialization(g) { self._witness_row(g); return; }
     if !ew.needs_specialization(row) { return; }
     for var i: usize = 0; i < self._witnesses.size(); ++i { if self._witnesses[i].row == row { return; } }
 
@@ -786,6 +793,19 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     var k = self._witnesses.size() - 1;
 
     self._witness_dep(k, row->conformer);
+    if EmitWitness::is_generic_row(row) && isa::<RecordType>(row->conformer) {
+        // A partial specialization names the conformer's template, which
+        // _witness_dep leaves alone as dependent: the primary must be
+        // declared, and is defined first, as a full specialization's is.
+        var cd = self.layout_decl(cast::<RecordType>(row->conformer)->decl);
+        if (cd != &null) && (!decl_is_imported(cd)) {
+            var o = self._outermost_type(cd);
+            self._admit(o, PlanNeed::Complete);
+            var have = false;
+            for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == o { have = true; } }
+            if !have { self._witnesses[k].deps.push_back(o); }
+        }
+    }
     var ms = ew.members(cast::<InterfaceDecl>(iface));
     for var i: usize = 0; i < ms.size(); ++i {
         var m = ms[i];

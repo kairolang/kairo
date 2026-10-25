@@ -25,3 +25,18 @@ pub class Own impl Scalable {
 pub fn <T impl Scalable> twice(a: T) -> i32 {
     return a.scale(2)
 }
+// GENERIC declared conformances: one partial specialization each, for
+// every argument, the ones no Kairo code names included.
+pub struct <E> Wrap {
+    pub var item: E
+}
+extend <E> Wrap<E> impl Scalable {
+    pub fn scale(const self, factor: i32) -> i32 = factor + 100
+}
+pub class <T> Pod impl Scalable {
+    pub var t: T
+    fn Pod(self, t: T) { self.t = t }
+}
+extend <T> Pod<T> {
+    pub fn scale(const self, factor: i32) -> i32 = factor + 1
+}
