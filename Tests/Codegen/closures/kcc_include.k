@@ -27,7 +27,7 @@ pub class <T> Box {
 // RUN: %FileCheck %s --check-prefix=HDR < %t.d/h/kcc_include.hh
 // HDR: #ifndef __KAIRO_FN_HELPERS
 // HDR: template<class S> class __kairo_fn;
-// HDR: ::__kairo_fn<signed int(signed int)> make_scaler(signed int k);
+// HDR: ::__kairo_fn<signed int(signed int)> make_scaler(signed int k) noexcept;
 // RUN: cd %S && %kcc -c kcc_include.k -o %t.d/lib.o
 // RUN: cd %S && %kcc -c kcc_include_host.cc -o %t.d/host.o
 // RUN: %kcc %t.d/host.o %t.d/lib.o -o %t.d/app && %t.d/app; test $? -eq 42

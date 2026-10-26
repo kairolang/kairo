@@ -35,11 +35,11 @@ fn main() -> i32 {
 // C++ operator is a forwarder in the file's namespace. A pointer operand is
 // dereferenced, not re-addressed; a prvalue one is `*__kairo_tmp(...)`.
 // CXX: struct __kairo_ext_Num {
-// CXX: inline bool operator ==(const::operators::Num & __kairo_a0, const::operators::Num & __kairo_a1) {
-// CXX: inline signed int operator -( ::operators::Num & __kairo_a0) {
-// CXX: inline void operator +=( ::operators::Num & __kairo_a0, signed int __kairo_a1) {
-// CXX: inline signed int operator++( ::operators::Num & __kairo_a0, int __kairo_a1) {
-// CXX: int main() {
+// CXX: inline bool operator ==(const::operators::Num & __kairo_a0, const::operators::Num & __kairo_a1) noexcept {
+// CXX: inline signed int operator -( ::operators::Num & __kairo_a0) noexcept {
+// CXX: inline void operator +=( ::operators::Num & __kairo_a0, signed int __kairo_a1) noexcept {
+// CXX: inline signed int operator++( ::operators::Num & __kairo_a0, int __kairo_a1) noexcept {
+// CXX: int main() noexcept {
 // CXX: __kairo_ext_Num::__kairo_op_eq(a, ::operators::mk(3))
 // CXX: __kairo_ext_Num::__kairo_op_minus((* ::__kairo_tmp( ::operators::mk(4))))
 // CXX: __kairo_ext_Num::__kairo_op_minus((* p))

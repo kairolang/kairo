@@ -32,7 +32,7 @@ fn main() -> i32 {
 // HDR: template<class T> struct Scalable_witness<{{ ?}}::lib::Pod<T>> {
 // HDR-NEXT: static signed int scale(const{{ ?}}::lib::Pod<T>{{ ?}}* self, signed int factor) {
 // HDR-NEXT: return{{ ?}}::lib::__kairo_ext_Pod::scale<T>(self,
-// HDR: signed int twice(T a);
+// HDR: signed int twice(T a) noexcept;
 
 // Main's own TU reaches Wrap<i32>'s row, which the partial covers.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX

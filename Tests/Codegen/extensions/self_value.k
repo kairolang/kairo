@@ -32,10 +32,10 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // `self` read as a value: returned, compared, in an enum's extension.
-// CXX: __kairo_ext_P::copy(const::self_value::P * self) {
+// CXX: __kairo_ext_P::copy(const::self_value::P * self) noexcept {
 // CXX-NEXT: return(* self);
 // CXX: if((* self) == ::self_value::Dir::North) {
-// CXX: int main() {
+// CXX: int main() noexcept {
 // CXX: __kairo_ext_Dir::flip( ::__kairo_tmp( ::self_value::Dir::North))
 
 // REQUIRES: clang

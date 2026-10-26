@@ -22,7 +22,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // `Foo::add(a, 4)` takes `self` positionally, by address; a static member
 // through the type is the callee alone.
-// CXX: int main() {
+// CXX: int main() noexcept {
 // CXX: ::qualified::__kairo_ext_Foo::zero();
 // CXX: __kairo_ext_Foo::add((& a), 4)
 

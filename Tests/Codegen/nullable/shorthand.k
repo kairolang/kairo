@@ -59,7 +59,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      template<class T> signed int gen(T t) {
+// CXX:      template<class T> signed int gen(T t) noexcept {
 // CXX-NEXT:     ::builtin::Nullable<T> x = t;
 // CXX:      ::builtin::Nullable<signed int> g = static_cast< ::builtin::Nullable<signed int>>(4);
 // CXX:      ::builtin::Nullable<signed int> a = static_cast< ::builtin::Nullable<signed int>>(10);

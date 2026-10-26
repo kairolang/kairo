@@ -36,10 +36,10 @@ fn main() -> i32 {
 // CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) class Box;
 // CXX: template<> struct Scalable_witness<{{ ?}}::{{.*}}::Metric> {
 // CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) class Box {
-// CXX: template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int both(U other) const;
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int Box<T>::twice() const {
+// CXX: template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int both(U other) const noexcept;
+// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int Box<T>::twice() const noexcept {
 // CXX-NEXT: {{.*}}Scalable_witness<T>::scale((& this->item), 2);
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int Box<T>::both(U other) const {
+// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int Box<T>::both(U other) const noexcept {
 // CXX: template class{{ ?}}::{{.*}}::Box<{{ ?}}::{{.*}}::Metric>;
 
 // REQUIRES: clang

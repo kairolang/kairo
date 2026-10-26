@@ -2,7 +2,7 @@
 import std::io::println
 ffi "c++" import "thrower.hh"
 
-fn relay(x: i32) -> i32 {
+@unwind fn relay(x: i32) -> i32 {
     return checked_double(x) + 1             // no try: a Kairo frame between the throw and the catch
 }
 

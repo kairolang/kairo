@@ -58,4 +58,4 @@ fn main() -> i32 {
 // OUT-NEXT: returned: 7 live=1
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: own(new auto([h = static_cast<{{.*}}::move_only::Handle &&>(h)]() mutable->signed int {
+// CXX: own(new auto([h = static_cast<{{.*}}::move_only::Handle &&>(h)]() mutable noexcept->signed int {

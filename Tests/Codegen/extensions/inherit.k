@@ -22,7 +22,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // A member found through a base takes the BASE's receiver: the derived
 // object's address is cast up, keeping its cv.
-// CXX: int main() {
+// CXX: int main() noexcept {
 // CXX: static_cast< ::inherit::Shape *>((& q))
 // CXX: static_cast<const::inherit::Shape *>(p)
 

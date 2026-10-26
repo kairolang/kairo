@@ -13,5 +13,5 @@ fn main() -> i32 { return f((1, 2)) as i32 }
 // CHECK-NEXT: T0 _0;
 // CHECK-NEXT: T1 _1;
 // CHECK-NEXT: };
-// CHECK: f(::builtin::Tuple2<signed int, [[CXX_I64]]> p);
+// CHECK: f(::builtin::Tuple2<signed int, [[CXX_I64]]> p) noexcept;
 // CHECK-NOT: Tuple3

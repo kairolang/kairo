@@ -45,10 +45,10 @@ fn main() -> i32 {
 // the receiver's VALUE (a `Foo`, never a `Foo*`, whose temporary would end
 // at its own `;`).
 // CXX: struct __kairo_ext_Foo {
-// CXX: __kairo_ext_Foo::twice( ::receivers::Foo * self) {
+// CXX: __kairo_ext_Foo::twice( ::receivers::Foo * self) noexcept {
 // CXX-NEXT: __kairo_ext_Foo::bump(self, 1);
 // CXX-NEXT: __kairo_ext_Foo::get(self);
-// CXX: int main() {
+// CXX: int main() noexcept {
 // CXX: __kairo_ext_Foo::bump((& a), 3);
 // CXX: __kairo_ext_Foo::bump((& b.f), 1);
 // CXX: __kairo_ext_Foo::bump(p, 1);

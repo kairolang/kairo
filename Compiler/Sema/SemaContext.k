@@ -130,6 +130,7 @@ class SemaOptions {
     // Defaults are "off" / unlimited so a hand-built SemaOptions (tests that
     // skip load) never trips a gate; load() applies the real defaults.
     pub var no_unsafe:  bool = false;  ///< --no-unsafe or -fno-unsafe.
+    pub var unwind_all: bool = false;  ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
     pub var no_fp:      bool = false;  ///< --no-fp.
     pub var no_ffi:     bool = false;  ///< --no-ffi.
     pub var no_cxx:     bool = false;  ///< --no-cxx.
@@ -161,6 +162,7 @@ class SemaOptions {
         // switch as --no-unsafe spelled as a feature, so both fold in here
         // rather than making the pass know two spellings.
         self.no_unsafe  = ci->lang.no_unsafe || (ci->lang.unsafe_feature == 0);
+        self.unwind_all = (ci->lang.unwind == 1);
         self.no_fp      = ci->lang.no_fp;
         self.no_ffi     = ci->lang.no_ffi;
         self.no_cxx     = ci->lang.no_cxx;

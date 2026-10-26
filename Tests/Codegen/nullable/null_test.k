@@ -82,7 +82,7 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      template<class T> bool present( ::builtin::Nullable<T> t) {
+// CXX:      template<class T> bool present( ::builtin::Nullable<T> t) noexcept {
 // CXX-NEXT:     return(!t.is_null());
 // CXX:      "!b?"{{.*}}, b.is_null());
 // CXX:      "!(a?)"{{.*}}, a.is_null());

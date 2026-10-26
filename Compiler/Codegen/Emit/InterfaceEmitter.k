@@ -1321,10 +1321,13 @@ class InterfaceEmitter {
         if header { self._cg->sink->directive(at, "#define " + LowerTargets::fn_value_guard()); }
         self._cg->sink->spell(at, "template <class S> class " + fv + ";");
         self._cg->sink->brk();
+        // The call path is a Kairo frame: noexcept unless -funwind, as the
+        // closures it holds are.
+        var nx = (("") if (self._cg->opts.unwind) else (" noexcept"));
         var t = "template <class R, class... A> class " + fv + "<R(A...)> {";
         t += " using __ptr = R (*)(A...);";
-        t += " struct __ops { R (*call)(void*, A&&...); void* (*copy)(const void*); void (*drop)(void*) noexcept; };";
-        t += " template <class F> static R __call(void* o, A&&... a) { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
+        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*); void (*drop)(void*) noexcept; };";
+        t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
         t += " template <class F> static void* __copy(const void* o) {";
         t +=   " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }";
         t +=   " else { __builtin_trap(); } }";
@@ -1343,7 +1346,7 @@ class InterfaceEmitter {
         t +=   " __ptr f = __f; void* p = __o; const __ops* q = __t;";
         t +=   " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }";
         t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }";
-        t += " R operator()(A... a) const { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
+        t += " R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
         t += " operator __ptr() const noexcept { if (__o) { __builtin_trap(); } return __f; }";
         t += " };";
         self._cg->sink->spell(at, t);

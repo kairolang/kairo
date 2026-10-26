@@ -38,8 +38,8 @@ fn main() -> i32 {
 
 // RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
 // IR:      class Shape {
-// IR-NEXT:     public: virtual signed int area() const = 0;
-// IR-NEXT:     virtual signed int sides() const = 0;
+// IR-NEXT:     public: virtual signed int area() const noexcept = 0;
+// IR-NEXT:     virtual signed int sides() const noexcept = 0;
 // IR-NEXT: };
 
 // REQUIRES: clang

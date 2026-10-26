@@ -58,30 +58,30 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: class Ver {
-// CXX:       Ordering operator<=>({{.*}}Ver other) const;
-// CXX-NEXT:  bool operator<({{.*}}Ver o) const {
+// CXX:       Ordering operator<=>({{.*}}Ver other) const noexcept;
+// CXX-NEXT:  bool operator<({{.*}}Ver o) const noexcept {
 // CXX-NEXT:  return static_cast<signed char>(this -> operator<=>(static_cast<decltype(o)&&>(o))){{ ?}}<{{ ?}}0;
-// CXX:       bool operator<=({{.*}}Ver o) const {
+// CXX:       bool operator<=({{.*}}Ver o) const noexcept {
 // CXX-NEXT:  operator<=>({{.*}}<= 0;
-// CXX:       bool operator>({{.*}}Ver o) const {
+// CXX:       bool operator>({{.*}}Ver o) const noexcept {
 // CXX-NEXT:  operator<=>({{.*}}>{{ ?}}0;
-// CXX:       bool operator>=({{.*}}Ver o) const {
+// CXX:       bool operator>=({{.*}}Ver o) const noexcept {
 // CXX-NEXT:  operator<=>({{.*}}>= 0;
-// CXX:       bool operator==({{.*}}Ver o) const {
+// CXX:       bool operator==({{.*}}Ver o) const noexcept {
 // CXX-NEXT:  operator<=>({{.*}}== 0;
-// CXX:       bool operator!=({{.*}}Ver o) const {
+// CXX:       bool operator!=({{.*}}Ver o) const noexcept {
 // CXX-NEXT:  operator<=>({{.*}}!= 0;
 // CXX-LABEL: class Part {
-// CXX:       Ordering operator<=>({{.*}}Part other) const;
-// CXX-NEXT:  bool operator<({{.*}}Part other) const;
-// CXX-NEXT:  bool operator==({{.*}}Part other) const;
-// CXX-NEXT:  bool operator!=({{.*}}Part other) const;
+// CXX:       Ordering operator<=>({{.*}}Part other) const noexcept;
+// CXX-NEXT:  bool operator<({{.*}}Part other) const noexcept;
+// CXX-NEXT:  bool operator==({{.*}}Part other) const noexcept;
+// CXX-NEXT:  bool operator!=({{.*}}Part other) const noexcept;
 // CXX-NOT:   bool operator<({{.*}}Part o)
 // CXX-NOT:   bool operator==({{.*}}Part o)
 // CXX-NOT:   bool operator!=({{.*}}Part o)
-// CXX:       bool operator<=({{.*}}Part o) const {
-// CXX:       bool operator>({{.*}}Part o) const {
-// CXX:       bool operator>=({{.*}}Part o) const {
+// CXX:       bool operator<=({{.*}}Part o) const noexcept {
+// CXX:       bool operator>({{.*}}Part o) const noexcept {
+// CXX:       bool operator>=({{.*}}Part o) const noexcept {
 // CXX-NOT:   bool operator{{.*}}(::{{.*}}Part o)
 // CXX:       };
 

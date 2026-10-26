@@ -46,5 +46,5 @@ fn main() -> i32 {
 // OUT-NEXT: on the spot: 4
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: ::__kairo_fn<signed int(signed int, signed int)> add = ::__kairo_fn<signed int(signed int, signed int)>(+[](signed int a, signed int b)->signed int {
+// CXX: ::__kairo_fn<signed int(signed int, signed int)> add = ::__kairo_fn<signed int(signed int, signed int)>(+[](signed int a, signed int b) noexcept->signed int {
 // CXX-NOT: own(

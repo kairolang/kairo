@@ -44,6 +44,10 @@ class LangOptions {
     pub var union_inference:     i32 = -1;
     pub var exceptions:          i32 = -1;
     pub var unsafe_feature:      i32 = -1;
+    /// -funwind: Kairo functions are not `noexcept`, so a C++ exception may
+    /// pass through every Kairo frame. Unset or -fno-unwind: each is
+    /// `noexcept` unless marked `@unwind`.
+    pub var unwind:              i32 = -1;
 
     // -- hard kill-switches ------------------------------------------------
     pub var no_assert:       bool = false;
@@ -118,6 +122,7 @@ class LangOptions {
         (o.rtti)                = (args.get_feature("rtti"));
         (o.union_inference)     = (args.get_feature("union-inference"));
         (o.exceptions)          = (args.get_feature("exceptions"));
+        (o.unwind)              = (args.get_feature("unwind"));
         (o.unsafe_feature)      = (args.get_feature("unsafe"));
 
         // -- sema / type system limits -------------------------------------

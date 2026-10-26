@@ -71,6 +71,6 @@ fn main() -> i32 {
 // OUT-NEXT: generic: 21
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: own(new auto([this](signed int d) mutable->signed int {
-// CXX: own(new auto([this, k = & k]() mutable->void {
-// CXX: own(new auto([self, k]() mutable->signed int {
+// CXX: own(new auto([this](signed int d) mutable noexcept->signed int {
+// CXX: own(new auto([this, k = & k]() mutable noexcept->void {
+// CXX: own(new auto([self, k]() mutable noexcept->signed int {

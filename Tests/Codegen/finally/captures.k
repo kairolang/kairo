@@ -183,12 +183,12 @@ fn main() -> i32 {
 // parameter as a pointer to const, the global named and never a field,
 // `self` in a const method as a pointer to a const owner.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX %datamodel
-// CXX:      void consts(const [[CXX_I64]] c) {
+// CXX:      void consts(const [[CXX_I64]] c) noexcept {
 // CXX:      struct __kairo_Fin{{[0-9]+}} {
 // CXX-NEXT:   const [[CXX_I64]] * c;
 // CXX-NEXT:   const [[CXX_I64]] * k;
 // CXX-NEXT:   ~__kairo_Fin
-// CXX:      get() const {
+// CXX:      get() const noexcept {
 // CXX:      struct __kairo_Fin{{[0-9]+}} {
 // CXX-NEXT:   const{{.*}}Probe * __kairo_owner;
 // CXX-NEXT:   ~__kairo_Fin

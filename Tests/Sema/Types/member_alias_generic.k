@@ -49,8 +49,8 @@ fn main() -> i32 {
 // CXX: template<class T> class Box {
 // CXX:     T e;
 // CXX:     T v;
-// CXX:     T get();
-// CXX:     T* addr();
+// CXX:     T get() noexcept;
+// CXX:     T* addr() noexcept;
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

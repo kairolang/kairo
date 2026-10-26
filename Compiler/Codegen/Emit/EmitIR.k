@@ -1508,6 +1508,10 @@ class EmitIR {
         }
         head += ")";
         if caps.size() > 0 { head += " mutable"; }
+        // A closure is a Kairo frame like any function: noexcept unless
+        // -funwind. A closure cannot carry `@unwind` yet (an attribute
+        // before `fn` in expression position is an expression attribute).
+        if !self._cg->opts.unwind { head += " noexcept"; }
         var ret = "void";
         if (!n->is_noreturn) && (n->return_type != &null) { ret = self._spell._type(n->return_type); }
         head += " -> " + ret;

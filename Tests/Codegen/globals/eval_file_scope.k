@@ -30,7 +30,7 @@ fn main() -> i32 { return f() }
 // DEF-LABEL: CODEGEN C++: {{.*}}eval_file_scope.k
 // DEF: {{^ *}}extern signed int const N;
 // DEF: {{^ *}}extern signed int const M;
-// DEF: {{^ *}}signed int sq(signed int x);
+// DEF: {{^ *}}signed int sq(signed int x) noexcept;
 // DEF: {{^ *}}constexpr signed int const N = 10;
 // DEF: {{^ *}}constexpr signed int const M = 4;
 // DEF: {{^ *}}constexpr signed int k = 4;

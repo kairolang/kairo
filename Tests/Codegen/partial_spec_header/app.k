@@ -28,9 +28,9 @@ fn main() -> i32 {
 // HDR-NEXT: template<> class Store<bool>;
 // HDR: template<class P> class Store<P*> {
 // HDR: template<> class Store<bool> {
-// HDR: static bool on(const{{ ?}}::store::Store<bool>* self);
-// HDR: template<class P> static P read(const{{ ?}}::store::Store<P*>* self);
-// HDR: template<class P> signed int Store<P*>::tag() const {
+// HDR: static bool on(const{{ ?}}::store::Store<bool>* self) noexcept;
+// HDR: template<class P> static P read(const{{ ?}}::store::Store<P*>* self) noexcept;
+// HDR: template<class P> signed int Store<P*>::tag() const noexcept {
 // The explicit spec's members are ordinary functions: defined in store's
 // object, only declared here.
 // HDR-NOT: Store<bool>::tag() const {

@@ -69,7 +69,7 @@ fn main() -> i32 {
 // CXX:      struct __kairo_slot
 // CXX:      class F {
 // CXX:      const signed int x;
-// CXX:      F(signed int x);
+// CXX:      F(signed int x) noexcept;
 // CXX:      private{{ ?}}:
 // CXX-NEXT: struct __kairo_ci0;
 // CXX-NEXT: static auto __kairo_ctor_pre0({{.*}}__kairo_ci0{{ ?}}&&{{ ?}}__kairo_s{{.*}}__kairo_lref{{.*}}x{{.*}}__kairo_ci0{{ ?}}&;

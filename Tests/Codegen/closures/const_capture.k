@@ -38,5 +38,5 @@ fn main() -> i32 {
 // OUT-NEXT: all: 12
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: own(new auto([x = static_cast<const signed int *>(& x), y = static_cast<const signed int *>(& y), z = static_cast<const signed int *>(& z)](signed int a) mutable->signed int {
-// CXX: own(new auto([w = static_cast<const signed int *>(& w)]() mutable->signed int {
+// CXX: own(new auto([x = static_cast<const signed int *>(& x), y = static_cast<const signed int *>(& y), z = static_cast<const signed int *>(& z)](signed int a) mutable noexcept->signed int {
+// CXX: own(new auto([w = static_cast<const signed int *>(& w)]() mutable noexcept->signed int {

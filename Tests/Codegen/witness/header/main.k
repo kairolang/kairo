@@ -26,7 +26,7 @@ fn main() -> i32 {
 // HDR-NEXT: #define __KAIRO_W_{{.*}}Scalable_witness
 // HDR: struct Scalable_witness {
 // HDR: #endif
-// HDR: requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int twice(T a);
+// HDR: requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int twice(T a) noexcept;
 // RUN: %clangxx -std=c++23 -fsyntax-only -I%t.h %S/host.cc
 // RUN: not %clangxx -std=c++23 -fsyntax-only -I%t.h -DWRONG %S/host.cc 2>&1 | %FileCheck %s --check-prefix=WRONG
 // WRONG: constraints not satisfied

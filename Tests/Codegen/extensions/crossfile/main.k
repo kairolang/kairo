@@ -22,8 +22,8 @@ fn main() -> i32 {
 // CXX: CODEGEN C++: {{.*}}crossfile/drawable.k
 // CXX-DAG: struct __kairo_ext_point__Point {
 // CXX-DAG: struct __kairo_ext_shape__Point {
-// CXX-DAG: signed int __kairo_ext_point__Point::draw(const::point::Point * self) {
-// CXX-DAG: signed int __kairo_ext_shape__Point::draw(const::shape::Point * self) {
+// CXX-DAG: signed int __kairo_ext_point__Point::draw(const::point::Point * self) noexcept {
+// CXX-DAG: signed int __kairo_ext_shape__Point::draw(const::shape::Point * self) noexcept {
 // CXX: CODEGEN C++: {{.*}}crossfile/point.k
 // CXX-NOT: drawable
 // CXX: friend struct::point::__kairo_ext_Point;
@@ -31,7 +31,7 @@ fn main() -> i32 {
 // CXX: CODEGEN C++: {{.*}}crossfile/main.k
 // CXX: class Box {
 // CXX: struct __kairo_ext_Point {
-// CXX: peek(const::point::Point * self, ::point::Box::Inner i);
+// CXX: peek(const::point::Point * self, ::point::Box::Inner i) noexcept;
 // CXX: ::point::__kairo_ext_Point::sum((& p))
 // CXX-SAME: ::drawable::__kairo_ext_point__Point::draw((& p))
 // CXX-SAME: ::drawable::__kairo_ext_shape__Point::draw((& q))

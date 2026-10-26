@@ -113,8 +113,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}value.k
 // CXX:      ::builtin::Nullable< ::value::Widget> cache = __kairo_init_cache();
-// CXX:      ::builtin::Nullable<signed int> find(signed int n);
-// CXX:      signed int ptr( ::builtin::Nullable<signed int *> p);
+// CXX:      ::builtin::Nullable<signed int> find(signed int n) noexcept;
+// CXX:      signed int ptr( ::builtin::Nullable<signed int *> p) noexcept;
 // CXX:      return static_cast< ::builtin::Nullable<signed int>>(n);
 // CXX:      return static_cast< ::builtin::Nullable<signed int>>( ::builtin::Nullable<signed int>( ::__kairo_vt<1> {
 // CXX:      ::builtin::Nullable<decltype(sizeof(0))> __kairo_default_opt_x() {

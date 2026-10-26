@@ -52,8 +52,8 @@ fn main() -> i32 {
 // OUT-NEXT: outer param: 23
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: own(new auto([total = & total]() mutable->void {
-// CXX: own(new auto([total](signed int d) mutable->void {
-// CXX: own(new auto([total]() mutable->void {
-// CXX: own(new auto([c]() mutable->signed int {
-// CXX: own(new auto([c = & c]() mutable->void {
+// CXX: own(new auto([total = & total]() mutable noexcept->void {
+// CXX: own(new auto([total](signed int d) mutable noexcept->void {
+// CXX: own(new auto([total]() mutable noexcept->void {
+// CXX: own(new auto([c]() mutable noexcept->signed int {
+// CXX: own(new auto([c = & c]() mutable noexcept->void {

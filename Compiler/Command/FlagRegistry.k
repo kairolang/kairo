@@ -260,6 +260,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
     cmd->define::<FlagKind::Feature>("union-inference",    "union type inference: x = 1; x = \"s\" -> x: i32|string");
     cmd->define::<FlagKind::Feature>("exceptions",         "C++ style exception handling");
+    cmd->define::<FlagKind::Feature>("unwind",             "let C++ exceptions pass through Kairo frames: no Kairo function is noexcept (off: each is noexcept unless @unwind)");
     cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks (-fno-unsafe makes them an error)");
 
     // codegen / optimization (off by default unless noted) -----------------

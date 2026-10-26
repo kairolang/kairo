@@ -25,7 +25,7 @@ fn main() -> i32 {
 // CXX: class Acct {
 // CXX-DAG: friend struct::module_scopes::__kairo_ext_Acct;
 // CXX-DAG: friend struct::module_scopes::Geo::__kairo_ext_module_scopes__Acct;
-// CXX: int main() {
+// CXX: int main() noexcept {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

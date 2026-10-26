@@ -42,9 +42,9 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: Handle({{.*}}Handle&& other);
-// CXX: Plain(const{{.*}}Plain& other);
-// CXX: Wrapped({{.*}}Wrapped other, signed int extra);
+// CXX: Handle({{.*}}Handle&& other) noexcept;
+// CXX: Plain(const{{.*}}Plain& other) noexcept;
+// CXX: Wrapped({{.*}}Wrapped other, signed int extra) noexcept;
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d

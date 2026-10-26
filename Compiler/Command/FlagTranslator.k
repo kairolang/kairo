@@ -471,13 +471,24 @@ class FlagTranslator {
         }
 
         // -- language-level C++ switches (Config::Language) -----------------
-        // Exceptions are OFF in a bare cc1 line (the driver is what adds
-        // them), so only -fexceptions has anything to add there; RTTI is on
-        // by default, so only -fno-rtti does. The driver turns exceptions on
-        // for C++ by itself, so it needs both directions.
-        if lg.exceptions == 1 {
+        // Exceptions are ON by default on a hosted target: a Kairo TU's C++
+        // includes C++ headers that throw, and a C++ exception must reach
+        // a Kairo frame to be stopped there (noexcept, the default) or
+        // passed on (@unwind / -funwind). A freestanding target (no OS in
+        // the triple, --freestanding, kernel mode) keeps them off unless
+        // -fexceptions asks: it has no unwinder, and on ARM EHABI every
+        // function would reference a personality routine. A bare cc1 line
+        // has them off, so it needs both switches when they are on; RTTI
+        // is on by default, so only -fno-rtti does. The driver turns
+        // exceptions on for C++ by itself, so it needs both directions.
+        var hosted = !(lg.freestanding || cgo.kernel_mode);
+        if hosted && (triple.size() > 0) {
+            var etri = llvm::Triple(llvm::Triple::normalize(sref(triple)));
+            if etri.getOS() == llvm::Triple::UnknownOS { hosted = false; }
+        }
+        if (lg.exceptions == 1) || ((lg.exceptions == -1) && hosted) {
             if cc1 { _fx_push(&o, "-fcxx-exceptions"); _fx_push(&o, "-fexceptions"); }
-            else   { _fx_push(&o, "-fexceptions"); }
+            else if lg.exceptions == 1 { _fx_push(&o, "-fexceptions"); }
         }
         if (!cc1) && (lg.exceptions == 0) { _fx_push(&o, "-fno-exceptions"); }
         if lg.rtti == 0 { _fx_push(&o, "-fno-rtti"); }

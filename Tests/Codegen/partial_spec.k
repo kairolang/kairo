@@ -82,19 +82,19 @@ fn main() -> i32 {
 // CXX: template<class X> struct Pair<X, signed int>;
 // CXX: template<class P> class Store<P *> {
 // CXX-NEXT: P * ptr;
-// CXX: {{ ?}}::{{.*}}::Store<P *> same() const;
+// CXX: {{ ?}}::{{.*}}::Store<P *> same() const noexcept;
 // CXX: template<class P> class Store<const P *> {
 // CXX: template<> class Store<bool> {
 // One extension scope holds every specialization's blocks.
 // CXX: struct __kairo_ext_Store {
-// CXX-NEXT: static bool on(const{{ ?}}::{{.*}}::Store<bool> * self);
-// CXX-NEXT: template<class P> static P read(const{{ ?}}::{{.*}}::Store<P *> * self);
+// CXX-NEXT: static bool on(const{{ ?}}::{{.*}}::Store<bool> * self) noexcept;
+// CXX-NEXT: template<class P> static P read(const{{ ?}}::{{.*}}::Store<P *> * self) noexcept;
 // A partial's members are templates over ITS parameters; an explicit
 // spec's are ordinary members with no `template <>` (C++ [temp.expl.spec]).
-// CXX: template<class P> signed int Store<P *>::tag() const {
-// CXX: template<class P> signed int Store<const P *>::tag() const {
-// CXX: {{^ *}}Store<bool>::Store(bool v) {
-// CXX: {{^ *}}signed int Store<bool>::tag() const {
+// CXX: template<class P> signed int Store<P *>::tag() const noexcept {
+// CXX: template<class P> signed int Store<const P *>::tag() const noexcept {
+// CXX: {{^ *}}Store<bool>::Store(bool v) noexcept {
+// CXX: {{^ *}}signed int Store<bool>::tag() const noexcept {
 // The instances are named, never re-specialized; the explicit one is not
 // instantiated at all.
 // CXX: template class{{ ?}}::{{.*}}::Store<signed int *>;

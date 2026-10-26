@@ -40,13 +40,13 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      friend struct::generic::__kairo_ext_Cell;
 // CXX:      struct __kairo_ext_Cell {
-// CXX-NEXT:   template<class T> static void put( ::generic::Cell<T> * self, T v);
-// CXX-NEXT:   template<class T> static T get(const::generic::Cell<T> * self);
-// CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, ::__kairo_fn<U(T)> f);
-// CXX-NEXT:   template<class T> static::generic::Cell<T> make(T v);
+// CXX-NEXT:   template<class T> static void put( ::generic::Cell<T> * self, T v) noexcept;
+// CXX-NEXT:   template<class T> static T get(const::generic::Cell<T> * self) noexcept;
+// CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, ::__kairo_fn<U(T)> f) noexcept;
+// CXX-NEXT:   template<class T> static::generic::Cell<T> make(T v) noexcept;
 // CXX:      template<class T, class U>::generic::Cell<U> __kairo_ext_Cell::map(
 // CXX:      return::generic::Cell<U> {
-// CXX:      template<class T>::generic::Cell<T> __kairo_ext_Cell::make(T v) {
+// CXX:      template<class T>::generic::Cell<T> __kairo_ext_Cell::make(T v) noexcept {
 // CXX-NEXT: return::generic::Cell<T> {
 // i64 is `long` or `long long` by target (Codegen/target_int64.k).
 // CXX:      ::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>(0);

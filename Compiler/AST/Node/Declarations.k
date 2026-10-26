@@ -506,11 +506,14 @@ class FunctionDecl
     /// accepts. EmitIR reads it to give an empty generator the `co_return;`
     /// that makes it a coroutine at all, rather than walking the body itself.
     pub var has_yield:     bool = false;
-    /// `@no_unwind`: the C++ spelling carries `noexcept`, and that is all it
-    /// does. Writer: X (StmtTyping::traverse_function_decl), onto EVERY link
-    /// of the redeclaration chain, because C++ requires each declaration of
-    /// a function to agree on it and the attribute may be written on only
-    /// one of them.
+    /// The C++ spelling carries `noexcept`: every Kairo function by default,
+    /// not one marked `@unwind` or built with -funwind, always one marked
+    /// `@no_unwind` (StmtTyping::_stamp_no_unwind has the rule). Writer: X
+    /// (StmtTyping::traverse_function_decl), onto EVERY link of the
+    /// redeclaration chain, because C++ requires each declaration of a
+    /// function to agree on it and an attribute may be written on only one
+    /// of them. A function X never types (one a lowering mints) stays
+    /// false, on its declaration and definition alike.
     pub var no_unwind:     bool = false;
     pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.

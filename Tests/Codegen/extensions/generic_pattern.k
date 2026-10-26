@@ -22,8 +22,8 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      friend struct::generic_pattern::__kairo_ext_Wrap;
-// CXX:      template<class T> static T unbox(const::generic_pattern::Wrap< ::generic_pattern::Box<T>> * self);
-// CXX:      template<class T> T __kairo_ext_Wrap::unbox(const::generic_pattern::Wrap< ::generic_pattern::Box<T>> * self) {
+// CXX:      template<class T> static T unbox(const::generic_pattern::Wrap< ::generic_pattern::Box<T>> * self) noexcept;
+// CXX:      template<class T> T __kairo_ext_Wrap::unbox(const::generic_pattern::Wrap< ::generic_pattern::Box<T>> * self) noexcept {
 // CXX:      return::generic_pattern::__kairo_ext_Wrap::unbox<signed int>((& w));
 // CXX:      template signed int({{ *}}::generic_pattern::__kairo_ext_Wrap::unbox<signed int>)(const::generic_pattern::Wrap< ::generic_pattern::Box<signed int>> *);
 

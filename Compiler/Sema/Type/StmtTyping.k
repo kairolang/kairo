@@ -491,16 +491,46 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
-    /// `@no_unwind` on any link marks the whole chain (FunctionDecl::no_unwind).
-    /// Probed, never interned: a name this file never spelled is on no decl.
+    /// Whether the function is spelled `noexcept` (FunctionDecl::no_unwind),
+    /// decided once for the whole redeclaration chain, because C++ requires
+    /// every declaration of a function to agree and an attribute may be
+    /// written on only one of them:
+    ///   - `@no_unwind` on any link: noexcept, even under -funwind;
+    ///   - else `@unwind` on any link, or -funwind: not noexcept, so a C++
+    ///     exception from a callee passes through this frame;
+    ///   - else noexcept: a C++ exception reaching the frame terminates.
+    /// A function with ffi linkage, or one imported from a header, is never
+    /// stamped: it is C/C++'s own declaration, whose exception spec its
+    /// header already states. Both attributes on one function is SC001E.
+    /// Names probed, never interned: a name this file never spelled is on
+    /// no decl.
     priv fn _stamp_no_unwind(self, n: *FunctionDecl) {
-        var k = dyn()->sc->imm_table()->find_ident("no_unwind");
-        if k == u32(-1) { return; }
-        if !n->has_attribute_named(k) { return; }
         var head = n->first_decl();
+        if n->has_ffi_linkage() || (n->clang_decl != &null) { return; }
+        var k_no = dyn()->sc->imm_table()->find_ident("no_unwind");
+        var k_un = dyn()->sc->imm_table()->find_ident("unwind");
+        var no_at: *FunctionDecl = &null;
+        var un_at: *FunctionDecl = &null;
         var cur  = head;
         while true {
-            cur->no_unwind = true;
+            if (k_no != u32(-1)) && cur->has_attribute_named(k_no) && (no_at == &null) { no_at = cur; }
+            if (k_un != u32(-1)) && cur->has_attribute_named(k_un) && (un_at == &null) { un_at = cur; }
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
+        // Reported once, from the link that carries `@unwind`.
+        if (no_at != &null) && (un_at == n) {
+            var nm = dyn()->tu.decl_name(static_cast::<*Decl>(n));
+            var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"'{nm}' is marked both '@unwind' and '@no_unwind\x27");
+            b.first(n->range);
+            b.note(DiagID::SC001N, no_at->range.start, "'@no_unwind' is here; it wins: the function is 'noexcept\x27").first(no_at->range);
+            b.emit();
+        }
+        var spell = (no_at != &null) || ((un_at == &null) && (!dyn()->sc->opts.unwind_all));
+        cur = head;
+        while true {
+            cur->no_unwind = spell;
             cur = cur->next_in_chain();
             if cur == head { break; }
         }

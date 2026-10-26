@@ -6,7 +6,8 @@
 struct Rect : shape::Shape {
     double w, h;
     Rect(double w, double h) : w(w), h(h) {}
-    double area() const override { return w * h; }
+    // Kairo methods are noexcept, and an override may not be laxer.
+    double area() const noexcept override { return w * h; }
 };
 
 int main() {

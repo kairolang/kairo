@@ -25,7 +25,7 @@ fn main() -> i32 {
 // Two targets, two scopes: same member names, no collision.
 // CXX: struct __kairo_ext_Point {
 // CXX: struct __kairo_ext_Vec2 {
-// CXX: int main() {
+// CXX: int main() noexcept {
 // CXX: ::statics::__kairo_ext_Point::one()
 // CXX-SAME: ::statics::__kairo_ext_Vec2::one()
 
