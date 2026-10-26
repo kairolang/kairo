@@ -2203,6 +2203,16 @@ class <T> DeclParse {
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
         vd->is_thread = is_thread;
 
+        // `var x? = e`: the nullable shorthand. Read before the index-mode
+        // skip so both parses see the same name; left for the statement
+        // parser, the `?` became an expression and S052E.
+        var q_range = SourceRange();
+        if dyn()->check(TokenKind::OpQuestion) {
+            q_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+            vd->nullable_shorthand = true;
+        }
+
         // index mode: the name is all the table needs; skip type and init
         // (the init is an expression parsing it here would query the
         // half-built table).
@@ -2216,6 +2226,25 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpColon) {
             dyn()->advance(T::SkipNL::After); // consume `:`
             var ty = dyn()->parse_type();
+            if (ty != &null) && (!is_recovery(ty)) && vd->nullable_shorthand {
+                // `var x?: T`. The shorthand exists to infer the type, and
+                // the annotation says it outright, so one of them is a
+                // mistake: refused rather than read as redundant, because
+                // `var x?: i32` would otherwise mean `x: i32?` through a
+                // spelling no other declaration uses. Recovered as the
+                // annotation made nullable (`x: T?`, or `x: T` when T is
+                // already nullable), which is what the fix-it writes.
+                var already = isa::<NullableType>(ty);
+                var b = dyn()->diag->report(DiagID::S058E, q_range.start,
+                    f"'{dyn()->ctx->get_spelling(name)}?' infers a nullable type, but the declaration also annotates one; write the '?' on the type"
+                );
+                b.first(q_range);
+                b.remove(q_range, "remove the shorthand");
+                if !already { b.insert(ty->range.end, "?", "make the annotated type nullable"); }
+                b.emit();
+                vd->nullable_shorthand = false;
+                if !already { ty = NullableType::create(dyn()->ctx, ty->range, ty); }
+            }
             if (ty != &null) && (!is_recovery(ty)) {
                 vd->type_ = ty;
                 // `var x: const T` is `const x: T`: legal and identical in
@@ -2317,11 +2346,37 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
+        // `var f? = e` in a type body. A field's type is declared, never
+        // inferred (StmtTyping types a field's default against it), so the
+        // shorthand has nothing to reshape. Refused here, where the `?` is
+        // still known to be the shorthand: left alone it parses as the
+        // start of the next member and the real mistake is lost.
+        var q_range = SourceRange();
+        var has_q   = false;
+        if dyn()->check(TokenKind::OpQuestion) {
+            q_range = dyn()->current_ptr()->range;
+            has_q   = true;
+            dyn()->advance();
+        }
+
         var fty: *Type = &null;
         if dyn()->check(TokenKind::OpColon) {
             dyn()->advance(T::SkipNL::After); // consume `:`
             fty = dyn()->parse_type();
             if (fty != &null) && is_recovery(fty) { fty = &null; }
+        }
+        if has_q {
+            // Reported after the type so the fix-it can move the `?` onto
+            // it when one is written (and drop it when that is nullable).
+            var b = dyn()->diag->report(DiagID::S058E, q_range.start,
+                f"a field declares its type and cannot use the '?' shorthand; write '{dyn()->ctx->get_spelling(name)}: T?\x27"
+            );
+            b.first(q_range);
+            b.remove(q_range, "remove the shorthand");
+            if (fty != &null) && (!isa::<NullableType>(fty)) {
+                b.insert(fty->range.end, "?", "make the field's type nullable");
+            }
+            b.emit();
         }
 
         var fd = FieldDecl::create(dyn()->ctx, start, name, storage, fty, idx);

@@ -224,12 +224,55 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         }
         if st == ResolveState::Resolved { return (v->type_->canonical) if (v->type_ != &null) else (&null); }
         if !dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(v), v->range) { return &null; }
+        if !self._shorthand_has_source(v) {
+            dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), false);
+            return &null;
+        }
         var t = dyn()->type_of(v->init, &null);
         dyn()->mark_list_storage(v->init);
         self._reject_array_copy(v, t);
-        if t != &null { v->type_ = canon_unqual(t); }
+        if t != &null { v->type_ = self._shorthand_type(v, t); }
         dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), t != &null);
-        return t;
+        return (v->type_) if ((t != &null) && v->nullable_shorthand) else (t);
+    }
+
+    /// The inferred slot of `var x = e` / `var x? = e`. The shorthand wraps
+    /// ONE level and never a second: `typeof(e)` is already the nullable
+    /// when `e` is one (`var b? = find()` with `find() -> i32?` is `i32?`,
+    /// not `(i32?)?`), because the shorthand says "this may be null", not
+    /// "add a level". A deliberate `(T?)?` is still writable as a type.
+    priv fn _shorthand_type(self, v: *VariableDecl, t: *Type) -> *Type {
+        var c = canon_unqual(t);
+        if !v->nullable_shorthand { return c; }
+        return self._nullable_once(c);
+    }
+
+    /// `T` -> `T?`, `T?` -> `T?`: what every `?` shorthand (declaration or
+    /// binder) makes of the type it infers.
+    priv fn _nullable_once(self, c: *Type) -> *Type {
+        if (c == &null) || (dyn()->tu.nullable_inner(c) != &null) { return c; }
+        return dyn()->sc->types->nullable(c);
+    }
+
+    /// `var x? = null` (or `&null`): the shorthand infers the payload from
+    /// the initializer, and a null literal has none. Caught before typing
+    /// the literal so the error names the shorthand, not the generic
+    /// "annotate the target" SC076E that `type_null_literal` would give;
+    /// same code, it is the same mistake (nothing to infer from).
+    priv fn _shorthand_has_source(self, v: *VariableDecl) -> bool {
+        if (!v->nullable_shorthand) || (v->init == &null) { return true; }
+        var e = dyn()->tu.strip_parens(v->init);
+        if (e == &null) || (!isa::<NullLiteralExpr>(e)) { return true; }
+        var nm  = dyn()->tu.decl_name(static_cast::<*Decl>(v));
+        var lit = ("&null") if (cast::<NullLiteralExpr>(e)->is_ref) else ("null");
+        var b = dyn()->sc->diag->report(DiagID::SC076E, v->init->range.start,
+            f"nothing to infer the nullable's type from: '{nm}?' takes its type from the initializer, and '{lit}' has none"
+        );
+        b.first(v->init->range);
+        b.second(v->range, f"declare the type instead: 'var {nm}: T? = null\x27");
+        b.emit();
+        v->poison();
+        return false;
     }
 
     priv fn _reject_array_return(self, f: *FunctionDecl, t: *Type) {
@@ -560,6 +603,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(n));
         if st != ResolveState::Unresolved { return n; }   // demand-typed already.
         dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(n), n->range);
+        if !self._shorthand_has_source(n) {
+            dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), false);
+            return n;
+        }
         var t = dyn()->type_of(n->init, declared);
         dyn()->mark_list_storage(n->init);
         self._reject_array_copy(n, (declared) if (declared != &null) else (t));
@@ -573,7 +620,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 ).first(n->range).emit();
                 n->poison(); ok = false;
             } else {
-                n->type_ = canon_unqual(t);   // inferred slot := the value's type; a copy has no cv.
+                n->type_ = self._shorthand_type(n, t);   // inferred slot := the value's type (a copy has no cv), `?` applied.
             }
         } else if n->init->is_poisoned() {
             ok = false;
@@ -988,7 +1035,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             shaped = dyn()->sc->types->pointer(shaped, (sh & static_cast::<u8>(BindingShorthand::Unsafe)) != 0);
         }
         if (sh & static_cast::<u8>(BindingShorthand::Nullable)) != 0 {
-            shaped = dyn()->sc->types->nullable(shaped);
+            shaped = self._nullable_once(shaped);
         }
         vd->type_ = shaped;
     }

@@ -1401,6 +1401,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(vd->name));
+        if vd->nullable_shorthand { self.p.paint(Color::Punct, "?"); }
         if vd->type_ != &null {
             self.p.paint(Color::Punct, ": ");
             self.src_type(vd->type_);
@@ -3154,6 +3155,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(vd->name));
+        if vd->nullable_shorthand { self.p.paint(Color::Punct, "?"); }
         // a generic-bearing type becomes its own child subtree; a leaf type
         // stays inline on this row.
         var ty_child = (vd->type_ != &null) && self._type_is_expandable(vd->type_);

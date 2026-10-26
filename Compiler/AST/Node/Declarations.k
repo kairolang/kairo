@@ -674,6 +674,13 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     pub var type_:   *Type = &null;   ///< null => inferred from init.
     pub var init:    *Expr = &null;   ///< initializer; null for `var x: T` default-init.
     pub var is_thread: bool = false;  ///< `static thread` thread_local storage.
+    /// `var x? = e`, the nullable shorthand (variables.md, Declaration
+    /// Shorthands): the type is inferred from `init` and then made nullable,
+    /// once (`typeof(e)?`, or `typeof(e)` when that is already nullable).
+    /// The parser sets it only when `type_` is null: `var x?: T` is refused
+    /// there and recovered as `var x: T?`, so a set flag always means
+    /// "infer, then wrap" and StmtTyping has one case to handle.
+    pub var nullable_shorthand: bool = false;
 
     static fn create(
         ctx:     *ASTContext,
