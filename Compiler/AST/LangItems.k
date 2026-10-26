@@ -74,6 +74,8 @@ enum WellKnownType derives u8 {
     RangeFrom,  ///< `a..` / `..` as a subscript index: RangeFrom<T>{ begin }.
     RangeTo,    ///< `..b` / `..=b` as a subscript index: RangeTo<T>{ end, inclusive }.
 
+    UnwrapFailed, ///< `unwrap!(x)` on null: `fn unwrap_failed(msg, len) -> !` (CoalesceLowering).
+
     COUNT,      ///< keep last.
 }
 
@@ -106,6 +108,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::Byte       { return "Byte";       }
         case WellKnownType::RangeFrom  { return "RangeFrom";  }
         case WellKnownType::RangeTo    { return "RangeTo";    }
+        case WellKnownType::UnwrapFailed { return "unwrap_failed"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";

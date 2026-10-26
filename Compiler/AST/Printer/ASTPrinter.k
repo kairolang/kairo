@@ -99,6 +99,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::RangeExpr                { return "RangeExpr";                }
         case ExprKind::ClosureExpr              { return "ClosureExpr";              }
         case ExprKind::AwaitExpr                { return "AwaitExpr";                }
+        case ExprKind::UnwrapExpr               { return "UnwrapExpr";               }
         case ExprKind::SpawnExpr                { return "SpawnExpr";                }
         case ExprKind::ThreadExpr               { return "ThreadExpr";               }
         case ExprKind::ConstraintExpr           { return "ConstraintExpr";           }
@@ -377,6 +378,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<RangeExpr>(e)            { self._e_range(cast::<RangeExpr>(e));   return; }
         if isa::<ClosureExpr>(e)          { self._e_closure(cast::<ClosureExpr>(e)); return; }
         if isa::<AwaitExpr>(e)            { self._kw_operand("await ",  cast::<AwaitExpr>(e)->operand);  return; }
+        if isa::<UnwrapExpr>(e) {
+            self.p.paint(Color::Keyword, "unwrap!");
+            self.p.paint(Color::Punct, "(");
+            self.src_expr(cast::<UnwrapExpr>(e)->operand);
+            self.p.paint(Color::Punct, ")");
+            return;
+        }
         if isa::<SpawnExpr>(e)            { self._kw_operand("spawn ",  cast::<SpawnExpr>(e)->operand);  return; }
         if isa::<ThreadExpr>(e)           { self._kw_operand("thread ", cast::<ThreadExpr>(e)->operand); return; }
         if isa::<EvalExpr>(e)             { self._kw_operand("eval ",   cast::<EvalExpr>(e)->operand);   return; }
@@ -2229,6 +2237,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<RangeExpr>(e)            { self._dx_range(cast::<RangeExpr>(e), is_last);             return; }
         if isa::<ClosureExpr>(e)          { self._dx_closure(cast::<ClosureExpr>(e), is_last);         return; }
         if isa::<AwaitExpr>(e)            { self._dx_kw("AwaitExpr",  cast::<AwaitExpr>(e)->operand,  is_last); return; }
+        if isa::<UnwrapExpr>(e)           { self._dx_kw("UnwrapExpr", cast::<UnwrapExpr>(e)->operand, is_last); return; }
         if isa::<SpawnExpr>(e)            { self._dx_kw("SpawnExpr",  cast::<SpawnExpr>(e)->operand,  is_last); return; }
         if isa::<ThreadExpr>(e)           { self._dx_kw("ThreadExpr", cast::<ThreadExpr>(e)->operand, is_last); return; }
         if isa::<EvalExpr>(e)             { self._dx_kw("EvalExpr",   cast::<EvalExpr>(e)->operand,   is_last); return; }

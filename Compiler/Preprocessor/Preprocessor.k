@@ -740,13 +740,15 @@ class PPWalker
 
         var name_tok = path_toks[path_toks.size() - 1];
 
-        // label!/jump! are PARSER intrinsics, not macros: leave the raw
-        // tokens in the stream untouched; StmtParse owns the grammar
-        // (`label` `!` `(` ident `)`). Qualified forms (`a::label!`) are
-        // NOT intrinsics and still resolve as ordinary macros.
+        // label!/jump!/unwrap! are PARSER intrinsics, not macros: leave the
+        // raw tokens in the stream untouched; the parser owns the grammar
+        // (`label` `!` `(` ident `)` in StmtParse, `unwrap` `!` `(` expr `)`
+        // in ExprParse, whose operand must stay an ordinary expression).
+        // Qualified forms (`a::label!`) are NOT intrinsics and still resolve
+        // as ordinary macros.
         if path_toks.size() == 1 {
             var sp = TokenText::spelling(name_tok, self._tcm);
-            if (sp == "label") || (sp == "jump") { return result; }
+            if (sp == "label") || (sp == "jump") || (sp == "unwrap") { return result; }
         }
 
         result.found   = true;
@@ -1322,7 +1324,8 @@ class PPWalker
             // parser intrinsics (no _try_builtin entry: _detect_invocation
             // passes them through raw): reserved so a user macro named
             // label/jump can never be reached at an unqualified call site.
-            || (name == "label")       || (name == "jump");
+            || (name == "label")       || (name == "jump")
+            || (name == "unwrap");
     }
 
     //  Builtin helpers

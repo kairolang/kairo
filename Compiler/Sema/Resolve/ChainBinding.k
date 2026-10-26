@@ -760,8 +760,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
 
     /// `?.`/`?->` peel the nullable they guard. `T?` may have been lowered to
     /// `Nullable<T>` (lang item), so that spelling peels too. `?.` on a
-    /// non-nullable is a warning's worth, not an error; the nullable checker
-    /// owns it, and the type proceeds as-is.
+    /// non-nullable proceeds as-is here; MemberTyping reports it (SC001E,
+    /// NULLABLE.md 2.5).
     priv fn _peel_maybe(self, t: *Type, st: *ChainExpr::Step) -> *Type {
         var maybe = (st->access_kind == ChainExpr::AccessKind::QuestionDot)
                  || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);

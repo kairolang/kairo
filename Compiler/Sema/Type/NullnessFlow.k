@@ -773,6 +773,7 @@ fn null_scan_rhs_value(rhs: *Expr) -> bool {
         if (null_literal_of(b->lhs) != &null) || (null_literal_of(b->rhs) != &null) { return true; }   // `x == null`: a bool.
         return null_scan_scalar_operand(b->lhs) && null_scan_scalar_operand(b->rhs);
     }
+    if isa::<UnwrapExpr>(x) { return true; }   // `unwrap!(e)`: a value, or the program ended.
     if isa::<TypeCastExpr>(x) {
         var tc = cast::<TypeCastExpr>(x);
         if (tc->target == &null) || (tc->target->canonical == &null) { return false; }
@@ -2078,6 +2079,21 @@ class NullnessFlow {
             return c;
         }
         return c;
+    }
+
+    /// `unwrap!(e)` was just typed: past it, a place \p e names holds a
+    /// value, since on null the program ended there (NULLABLE.md 2.6), as
+    /// after `if !e? { abort }`.
+    fn unwrapped(self, e: *Expr, at: SourceRange) {
+        var place = null_place_of(e);
+        if (place.size() == 0) || self.env.dead { return; }
+        var f = NullFact{};
+        f.place  = place;
+        f.state  = Nullness::NonNull;
+        f.why    = NullWhy::Tested;
+        f.at     = at;
+        f.global = null_flow_is_global(place[0]);
+        null_env_put(&(self.env), f);
     }
 
     /// Record \p e's sets (an `&&` / `||`, computed while it was typed).

@@ -20,6 +20,8 @@ pub import string::*
 pub import types::*
 pub import fmt::*
 
+ffi "c" import "rt/unwrap.h"
+
 /// `null` as a value: the type of the constant every null converts from. A
 /// C++ host spells the constant `::builtin::null` (InterfaceEmitter writes
 /// it after this record; `null` is a Kairo keyword, so it has no Kairo
@@ -61,4 +63,12 @@ priv fn <B, E> pow(base: B, exp: E) -> B {
         e = e / 2
     }
     return r
+}
+
+/// `unwrap!(x)` on null (NULLABLE.md 2.6): `msg` (the expression and where
+/// it is, built at compile time) to stderr, then abort. A lang item the
+/// lowering calls; `-> !` makes the null arm of the expansion `Never`. Not
+/// a panic: no `try` catches it and it is in no panic set.
+pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
+    unsafe { kairo_rt_unwrap_failed(msg as unsafe *const u8, len) }
 }

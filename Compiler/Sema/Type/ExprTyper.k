@@ -474,6 +474,7 @@ class ExprTyper
             case ExprKind::RangeExpr            { return self.type_range(cast::<RangeExpr>(e), expected); }
             case ExprKind::ClosureExpr          { return self.type_closure(cast::<ClosureExpr>(e), expected); }
             case ExprKind::AwaitExpr            { return self.type_await(cast::<AwaitExpr>(e), expected); }
+            case ExprKind::UnwrapExpr           { return self.type_unwrap(cast::<UnwrapExpr>(e), expected); }
             case ExprKind::SpawnExpr            { return self.type_spawn(e, cast::<SpawnExpr>(e)->operand, expected); }
             case ExprKind::ThreadExpr           { return self.type_spawn(e, cast::<ThreadExpr>(e)->operand, expected); }
             case ExprKind::SizeOfExpr           { return self.type_sizeof(cast::<SizeOfExpr>(e), expected); }

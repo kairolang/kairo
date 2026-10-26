@@ -5,8 +5,9 @@
 ///   \detail
 ///     Infer each fn's panic set from its body; verify try/catch discharges
 ///     every reachable error type or the fn is marked `panic`. Bare catch =
-///     catch-all. `panic` + `!` is contradictory -> error. Runs AFTER
-///     MacroExpansion (unwrap! adds panics), BEFORE PanicLowering.
+///     catch-all. `panic` + `!` is contradictory -> error. Runs BEFORE
+///     PanicLowering. `unwrap!` adds no panic: on null it aborts the
+///     process (NULLABLE.md 2.6), which nothing catches.
 ///
 ///   Phase: CHECK
 ///

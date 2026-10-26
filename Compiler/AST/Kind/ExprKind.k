@@ -364,6 +364,12 @@ enum ExprKind derives u8 {
     /// construction was written as.
     VariantInitExpr,
 
+    /// `unwrap!(e)`: the value of a nullable, or the program aborts.
+    /// Node: UnwrapExpr: operand: *Expr. A parser intrinsic (the PP passes
+    /// `unwrap!` through raw, like `label!`), so `e` is an ordinary parsed
+    /// expression; CoalesceLowering expands it (NULLABLE.md 2.6).
+    UnwrapExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -418,6 +424,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::InitListExpr { return "InitListExpr"; }
         case ExprKind::StmtExpr { return "StmtExpr"; }
         case ExprKind::VariantInitExpr { return "VariantInitExpr"; }
+        case ExprKind::UnwrapExpr { return "UnwrapExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

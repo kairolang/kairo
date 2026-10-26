@@ -603,6 +603,7 @@ class <D> ASTWriter {
             case ExprKind::RangeExpr                { return self.dyn()->transform_range_expr(                 cast::<RangeExpr>(e)                ); }
             case ExprKind::ClosureExpr              { return self.dyn()->transform_closure_expr(               cast::<ClosureExpr>(e)              ); }
             case ExprKind::AwaitExpr                { return self.dyn()->transform_await_expr(                 cast::<AwaitExpr>(e)                ); }
+            case ExprKind::UnwrapExpr               { return self.dyn()->transform_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
             case ExprKind::SpawnExpr                { return self.dyn()->transform_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->transform_thread_expr(                cast::<ThreadExpr>(e)               ); }
             case ExprKind::ConstraintExpr           { return self.dyn()->transform_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
@@ -828,6 +829,11 @@ class <D> ASTWriter {
     }
 
     fn transform_await_expr(self, n: *AwaitExpr) -> *Expr {
+        if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
+        return n;
+    }
+
+    fn transform_unwrap_expr(self, n: *UnwrapExpr) -> *Expr {
         if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
         return n;
     }

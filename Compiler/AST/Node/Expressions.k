@@ -1282,6 +1282,41 @@ class RangeExpr derives Expr {
 }
 
 ///
+///  UnwrapExpr
+///  unwrap!(expr)
+///
+///  The value of a nullable, or the program aborts with a message naming
+///  the expression and where it is (NULLABLE.md 2.6). Not a panic. `range`
+///  covers `unwrap!(...)`; the operand's own range is the text the message
+///  quotes.
+///
+class UnwrapExpr derives Expr {
+    pub var operand: *Expr;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *UnwrapExpr {
+        var node      = ctx->alloc::<UnwrapExpr>();
+        node->kind    = ExprKind::UnwrapExpr;
+        node->range   = range;
+        node->operand = operand;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *UnwrapExpr {
+        var node            = ctx->alloc::<UnwrapExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::UnwrapExpr;
+        node->range         = range;
+        node->operand       = &null;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::UnwrapExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::UnwrapExpr; }
+}
+
+///
 ///  AwaitExpr
 ///  await expr
 ///

@@ -1007,6 +1007,37 @@ class <T> ExprParse {
         return TypeOfExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
     }
 
+    /// \brief parses the unwrap intrinsic (NULLABLE.md 2.6).
+    ///  Grammar:  'unwrap' '!' '(' expr ')'
+    inline fn _parse_unwrap_intrinsic(self) -> *Expr {
+        var kw_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `unwrap`
+        dyn()->advance(); // consume `!`
+        if !dyn()->check(TokenKind::OpLParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected '(' after 'unwrap!': write 'unwrap!(expr)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return UnwrapExpr::create_error(dyn()->ctx, kw_range | dyn()->prev().range);
+        }
+        dyn()->advance(T::SkipNL::After); // consume `(`
+
+        var operand = self.parse_expr(ExprStopKind::StopParen);
+        if operand == &null {
+            dyn()->diag->report(DiagID::S052E, kw_range.start,
+                "expected expression inside 'unwrap!(...)\x27"
+            ).first(kw_range).emit();
+            return UnwrapExpr::create_error(dyn()->ctx, kw_range);
+        }
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected ')' to close 'unwrap!(...)\x27"
+            ).first(kw_range | operand->range).emit();
+            return UnwrapExpr::create_error(dyn()->ctx, kw_range | operand->range);
+        }
+        dyn()->advance(); // consume `)`
+        return UnwrapExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
+    }
+
     //  Postfix expression loop
 
     /// \brief parses a primary expression then loops consuming postfix ops.
@@ -2024,6 +2055,13 @@ class <T> ExprParse {
         }) && (((dyn()->ig_peek_kind()) == TokenKind::OpLParen)
             || ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon)) {
             return self._parse_ident_expr();
+        }
+
+        // -- unwrap!(expr): a parser intrinsic, passed through raw by the
+        // PP (Preprocessor::_detect_invocation), as label!/jump! are.
+        if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
+        && (dyn()->ctx->get_spelling(dyn()->current()) == "unwrap") {
+            return self._parse_unwrap_intrinsic();
         }
 
         // -- identifier (including `self`) ---------------------------

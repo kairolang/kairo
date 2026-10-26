@@ -4,9 +4,13 @@
 ///          if-expressions NULLABLE.md §2 writes for them.
 ///
 ///   \detail
-///     NULLABLE.md 2.4, §5 step 1:
+///     NULLABLE.md 2.4-2.6, §5 step 1:
 ///
 ///       x ?? y        ->  if x? => x else y
+///       x?.m          ->  if x? => x.m else null       (`?->` alike; a chain
+///       x?.f(args)    ->  if x? => x.f(args) else null  tests left to right)
+///       unwrap!(x)    ->  if x? => x else <abort>      (a statement, see
+///                                                       transform_unwrap_expr)
 ///
 ///     The expansion is built TYPED, in the exact shape the typer gives the
 ///     same code written by hand, so the passes after this one lower it
@@ -48,6 +52,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
@@ -278,6 +283,93 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         if inner == &null { return t; }
         if canon_has_const(t) { return self.sc->types->qualified(inner, QUAL_CONST()); }
         return inner;
+    }
+
+    // --- `unwrap!` ------------------------------------------------------------------
+
+    /// `unwrap!(x)` -> `if x? => x else <abort>` (NULLABLE.md 2.6). Not as an
+    /// if-expression: C++'s `?:` takes no `void` arm that is not a `throw`,
+    /// so the abort is a statement in front of the read:
+    ///
+    ///   place      `*({ if !x? { unwrap_failed(m, n) }  &x })`   an lvalue
+    ///   otherwise  `({ var t = e; if !t? { unwrap_failed(m, n) }  t as T&& })`
+    ///
+    /// A place is read through its address so the result is the place
+    /// itself (`unwrap!(f).v = 4` writes `f`'s payload); anything else is
+    /// bound once and its value moved out. `m` is the whole message, built
+    /// here: "unwrap!(x) on null at file.k:12:9" and a newline.
+    fn transform_unwrap_expr(self, n: *UnwrapExpr) -> *Expr {
+        var out = ASTWriter::<CoalesceLowering>::transform_unwrap_expr(n);
+        if n->is_poisoned() || (n->type_ == &null) || (n->operand == &null) || (n->operand->type_ == &null) { return out; }
+        var val   = n->operand;
+        var nt    = self.tu.as_value(val->type_);
+        var inner = self._inner(nt);
+        var stmts = self.list_builder::<*Stmt>();
+        var x = self.tu.strip_parens(val);
+
+        if LowerSynth::pure(x) && (isa::<NamedIdentExpr>(x) || isa::<ChainExpr>(x)) {
+            stmts.push(self._abort_unless(n, x));
+            var addr = self.synth.addr_of(self._marked_copy(x, nt, inner));
+            stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, addr)));
+            var se = self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, addr->type_);
+            var d = UnaryOperatorExpr::create(self.ctx, n->range, se, self.synth.punct(n->range, TokenKind::OpStar),
+                                              UnaryOperatorExpr::Fix::Prefix);
+            d->adopt_sema(static_cast::<*Expr>(n));
+            d->type_          = inner;
+            d->value_category = Expr::ValueCategory::LValue;
+            return static_cast::<*Expr>(d);
+        }
+
+        var vd = self.synth.local(val->range, "unwrap", nt, val);
+        stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, val->range, static_cast::<*Decl>(vd))));
+        stmts.push(self._abort_unless(n, self.synth.use_of(vd, val->range, Expr::ValueCategory::LValue)));
+        var use = self._marked_copy(self.synth.use_of(vd, val->range, Expr::ValueCategory::LValue), nt, inner);
+        var mv  = TypeCastExpr::create(self.ctx, val->range, use, self.sc->types->cxx_rref(canon_unqual(inner)));
+        mv->type_          = canon_unqual(inner);
+        mv->value_category = Expr::ValueCategory::RValue;
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, static_cast::<*Expr>(mv))));
+        return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, canon_unqual(inner));
+    }
+
+    /// `if !test? { unwrap_failed("<message>", <len>) }` for \p n.
+    priv fn _abort_unless(self, n: *UnwrapExpr, test: *Expr) -> *Stmt {
+        var d = self.sc->well_known->get(WellKnownType::UnwrapFailed);
+        ICE_IF(d == &null, "CoalesceLowering: the 'unwrap_failed' lang item is unbound; Lib/builtin/module.k declares it");
+        var f = dyn_cast::<FunctionDecl>(NameLookup::representative(d));
+        ICE_IF(f == &null, "CoalesceLowering: the 'unwrap_failed' lang item is not a function");
+
+        // The message, whole: the expression as written and where it is.
+        var at   = n->range;
+        var full = self.ctx->sm->get_line_col(at.start);
+        var text = f"{self.ctx->get_spelling(at)} on null at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
+        var bytes = vec::<u8>();
+        for var i: usize = 0; i < text.size(); ++i { bytes.push_back(static_cast::<u8>(text[i])); }   // MIGRATE(raw_string)
+        bytes.push_back(10);
+
+        var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
+        var pu8  = self.sc->types->pointer(u8t);
+        var lit  = self.synth.bytes_literal(at, &bytes, pu8);
+        var args = self.list_builder::<*Expr>();
+        args.push(self.synth.cast_to(at, lit, pu8, CastMode::Unsafe));   // `"..."` is const char*; the parameter is const unsigned char*.
+        args.push(self.synth.int_literal(at, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
+
+        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, self.tu.decl_name(static_cast::<*Decl>(f))));
+        callee->resolved_decl = static_cast::<*Decl>(f);
+        var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
+        args.freeze_into(&(call->args));
+        call->type_          = self.sc->builtin(BuiltinKind::Never);
+        call->value_category = Expr::ValueCategory::RValue;
+
+        var no = UnaryOperatorExpr::create(self.ctx, at, self._test(at, test), self.synth.punct(at, TokenKind::OpExclaim),
+                                           UnaryOperatorExpr::Fix::Prefix);
+        no->type_          = self.sc->builtin(BuiltinKind::Bool);
+        no->value_category = Expr::ValueCategory::RValue;
+
+        var blk  = CompoundStmt::create(self.ctx, at);
+        var body = self.list_builder::<*Stmt>();
+        body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, call)));
+        body.freeze_into(&(blk->body));
+        return static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, static_cast::<*Expr>(no), blk, &null));
     }
 
     // --- the shared pieces ------------------------------------------------------

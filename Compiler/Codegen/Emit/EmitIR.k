@@ -987,6 +987,7 @@ class EmitIR {
             case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
             case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }
             case ExprKind::AwaitExpr            { self._ice(e->range, "EmitIR: await; the async lowering owns it"); }
+            case ExprKind::UnwrapExpr           { self._ice(e->range, "EmitIR: unwrap!; CoalesceLowering owns it"); }
             case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
             case ExprKind::ThreadExpr           { self._ice(e->range, "EmitIR: thread; the async lowering owns it"); }
             case ExprKind::EvalExpr             { self._ice(e->range, "EmitIR: eval; EvalLowering owns it"); }

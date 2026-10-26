@@ -6,10 +6,12 @@
 // AST-NEXT:   `-CompoundStmt (1)
 // AST-NEXT:     `-DeclStmt
 // AST-NEXT:       `-VariableDecl var x
+// AST-NEXT:         `-UnwrapExpr
+// AST-NEXT:           `-NamedIdentExpr maybe_val
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R013E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
 // END-GENERATED-CHECKS(AST)
 
 fn Test() { var x = unwrap!(maybe_val); }

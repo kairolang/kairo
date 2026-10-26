@@ -892,6 +892,52 @@ class <T> OperatorTyping {
 
     // === unary ==============================================================
 
+    /// `unwrap!(x)`: `x`'s value, `T` for an `x: T?` (NULLABLE.md 2.6). It
+    /// is not a read of `x` as `T` (§4), so `x` needs no check; it IS one
+    /// afterwards, since on null the program has ended: `x` is non-null
+    /// after it. An lvalue when `x` is a place, so `unwrap!(x).v = 1`
+    /// writes `x`'s payload. Not a panic site. A dependent `T?` answers
+    /// `T` now; any other dependent operand defers.
+    fn type_unwrap(self, n: *UnwrapExpr, expected: *Type) -> *Type {
+        if n->operand == &null { dyn()->poison_only(n); return &null; }
+        var want: *Type = (dyn()->sc->types->nullable(canon_unqual(expected))) if ((expected != &null) && (dyn()->tu.nullable_inner(expected) == &null) && (!dyn()->tu.is_builtin(expected, BuiltinKind::Void))) else (&null);
+        var ot = dyn()->type_of(n->operand, want);
+        if dyn()->propagate(static_cast::<*Expr>(n), n->operand) { return &null; }
+        if ot == &null { dyn()->mark_unknown(n); return &null; }
+        var inner = dyn()->flow.narrowed_type(ot);
+        if inner == &null {
+            if self._is_dependent(ot) { dyn()->mark_unknown(n); return &null; }
+            self._not_nullable_unwrap(n, dyn()->tu.as_value(ot));
+            return &null;
+        }
+        var place = null_place_of(n->operand);
+        if (place.size() > 0) && (n->operand->value_category == Expr::ValueCategory::LValue) {
+            n->value_category = Expr::ValueCategory::LValue;
+        } else {
+            n->value_category = Expr::ValueCategory::RValue;
+        }
+        dyn()->flow.unwrapped(n->operand, n->range);
+        return inner;
+    }
+
+    /// `unwrap!(x)` on an `x` that is never null: SC001E, with the fix-it
+    /// that leaves `x` alone.
+    priv fn _not_nullable_unwrap(self, n: *UnwrapExpr, ot: *Type) {
+        var x  = dyn()->tu.strip_parens(n->operand);
+        var id = (cast::<NamedIdentExpr>(x)) if ((x != &null) && isa::<NamedIdentExpr>(x)) else (&null);
+        var text = dyn()->sc->ctx->get_spelling(n->operand->range);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"'{text}' is not nullable ('{dyn()->tu.str(ot)}'); 'unwrap!' takes a nullable, and this value is never null");
+        b.first(n->range);
+        if (id != &null) && (id->resolved_decl != &null) {
+            b.note(id->resolved_decl->range.start, f"'{text}' is declared '{dyn()->tu.str(ot)}' here");
+        }
+        b.remove(SourceRange(n->range.start, n->operand->range.start), "use the value as it is");
+        b.remove(SourceRange(n->operand->range.end, n->range.end), "use the value as it is");
+        b.emit();
+        n->poison();
+    }
+
     fn type_unary(self, n: *UnaryOperatorExpr, expected: *Type) -> *Type {
         var k = n->op_token.kind;
 
