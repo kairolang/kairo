@@ -782,6 +782,32 @@ class <T> CallTyping {
         n->pack_len = u32(pack_n);
     }
 
+    /// An object of an abstract class -- one with a pure virtual method
+    /// (a bodyless `virtual fn`) that it and its bases leave unoverridden --
+    /// cannot be made: `A()`, `A{ ... }`. Said here, at the construction,
+    /// with a note at the method that keeps it abstract; left to clang it
+    /// is CL001E "allocating an object of abstract class type" pointing into
+    /// the generated C++. A pointer or reference to one is fine. Reports,
+    /// poisons `n` and returns true when `d` is abstract.
+    fn reject_abstract(self, n: *Expr, d: *Decl) -> bool {
+        var pure = dyn()->tu.first_pure_left(d);
+        if pure == &null { return false; }
+        var cname = dyn()->tu.decl_name(d);
+        var mname = dyn()->tu.decl_name(static_cast::<*Decl>(pure));
+        var odc   = reinterpret_cast::<*DeclContext>(pure->semantic_dc);
+        var od    = (odc->owner_decl()) if (odc != &null) else (&null);
+        var owner = (dyn()->tu.decl_name(od)) if (od != &null) else (cname);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"cannot create an object of abstract class '{cname}\x27");
+        b.first(n->range);
+        var why = f"'{owner}::{mname}' is pure virtual and '{cname}' does not override it";
+        if owner == cname { why = f"'{mname}' is pure virtual: a 'virtual fn' with no body"; }
+        b.note(DiagID::SC001N, pure->range.start, why).first(pure->range);
+        b.emit();
+        n->poison();
+        return true;
+    }
+
     /// `Foo(args)` on a record type: constructors live in the type's own
     /// table under DeclName::ctor(). No ctor + no args is the default ctor.
     ///
@@ -805,6 +831,7 @@ class <T> CallTyping {
             dyn()->fail(n, DiagID::SC037E, f"'{dyn()->tu.str(rec)}' is not constructible with a call; use 'as\x27");
             return &null;
         }
+        if (!dep) && self.reject_abstract(static_cast::<*Expr>(n), d) { self._type_args_blind(n); return &null; }
 
         var body = dyn()->sc->record_body(rec);   // an unfilled instance has an empty table; its body's (a selected partial's).
         if body == &null { body = dyn()->tu.pattern_of(d); }

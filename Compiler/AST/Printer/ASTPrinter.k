@@ -1371,10 +1371,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _fn_body(self, fd: *FunctionDecl) {
         if      fd->body_kind == FnBodyKind::Default { self.p.paint(Color::Punct, " = "); self.p.paint(Color::Keyword, "default"); }
         else if fd->body_kind == FnBodyKind::Delete  { self.p.paint(Color::Punct, " = "); self.p.paint(Color::Keyword, "delete");  }
-        else if fd->body_kind == FnBodyKind::Virtual { self.p.paint(Color::Punct, " = "); self.p.paint(Color::Keyword, "virtual"); }
         else if fd->body_kind == FnBodyKind::Expr    { self.p.paint(Color::Punct, " = "); self.src_expr(fd->body_expr); }
         else if fd->body_kind == FnBodyKind::Block   { self.p.put(" "); self.src_stmt(static_cast::<*Stmt>(fd->body_block)); }
-        // FnBodyKind::None: signature only, nothing trailing.
+        // FnBodyKind::None: signature only, nothing trailing. Virtual (pure)
+        // too: it is a `virtual fn` with no body, and the modifier prints.
     }
 
     fn _d_function(self, fd: *FunctionDecl) {
@@ -3149,6 +3149,8 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Punct, " -> ");
             self.src_type(fd->return_type);
         }
+        // a bodyless `virtual fn` (or an imported `= 0`) has no body to show
+        if fd->body_kind == FnBodyKind::Virtual { self.p.paint(Color::Keyword, " pure"); }
         self.p.newline();
 
         var has_attrs    = self._has_annotations(static_cast::<*Decl>(fd));

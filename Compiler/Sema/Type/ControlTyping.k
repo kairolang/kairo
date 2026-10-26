@@ -529,6 +529,10 @@ class <T> ControlTyping {
             return &null;
         }
         if d == &null { dyn()->fail(n, DiagID::SC088E, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
+        if (!rec->is_dependent()) && dyn()->reject_abstract(n, d) {
+            for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
+            return &null;
+        }
         // The table the fields live in: a partial specialization's, for an
         // instance (or a dependent `Pair<X, i32>`) its args select.
         var body = dyn()->sc->record_body(rec);

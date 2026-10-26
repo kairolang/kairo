@@ -2138,8 +2138,9 @@ class <T> DeclParse {
     /// \brief parses the function body, setting body_kind + body_block/expr.
     ///  Grammar:  block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
     priv fn _parse_fn_body(self, fd: *FunctionDecl) {
-        // `= default` / `= delete` / `= virtual` / `= expr`
+        // `= default` / `= delete` / `= expr`
         if dyn()->check(TokenKind::OpEqual) {
+            var before_eq = dyn()->prev().range;
             dyn()->advance(T::SkipNL::After); // consume `=`
 
             if dyn()->check(TokenKind::KwDefault) {
@@ -2148,11 +2149,25 @@ class <T> DeclParse {
             if dyn()->check(TokenKind::KwDelete) {
                 dyn()->advance(); fd->body_kind = FnBodyKind::Delete; return;
             }
+            // `= virtual` was the old pure-virtual spelling. A pure virtual
+            // method is now a `virtual fn` with no body (_parse_class marks
+            // it), so the fix-it rewrites to that, and recovery reads the
+            // method as pure virtual so the class is not also reported for
+            // a missing body or a non-abstract instantiation.
             if dyn()->check(TokenKind::KwVirtual) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "virtual functions must be declared with the 'virtual' modifier"
+                var vr = dyn()->current_ptr()->range;
+                var gone = SourceRange(before_eq.end, vr.end);
+                var b = dyn()->diag->report(DiagID::S047E, vr.start,
+                    "'= virtual' is not a function body; a pure virtual method is a 'virtual fn' with no body"
                 );
+                b.first(vr);
+                b.remove(gone, "remove '= virtual\x27");
+                if fd->abi != AbiKind::Virtual {
+                    b.insert(fd->range.start, "virtual ", "declare the method 'virtual\x27");
+                }
+                b.emit();
                 dyn()->advance();
+                fd->abi = AbiKind::Virtual;
                 return;
             }
             if dyn()->check(TokenKind::KwStatic) {
@@ -3210,12 +3225,16 @@ class <T> DeclParse {
             cd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
             cd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
-            // mark abstract if any method is `= virtual`.
+            // A `virtual fn` with no body is pure virtual, and its class
+            // abstract (a bodyless method that is not virtual stays a
+            // declaration). FnBodyKind::Virtual is what every later stage
+            // reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
             for var i: usize = 0; i < cd->methods.size(); ++i {
-                if cd->methods[i]->body_kind == FnBodyKind::Virtual {
-                    cd->is_abstract = true;
-                    break;
+                var m = cd->methods[i];
+                if (m->abi == AbiKind::Virtual) && (m->body_kind == FnBodyKind::None) {
+                    m->body_kind = FnBodyKind::Virtual;
                 }
+                if m->body_kind == FnBodyKind::Virtual { cd->is_abstract = true; }
             }
 
             cd->mark_definition();

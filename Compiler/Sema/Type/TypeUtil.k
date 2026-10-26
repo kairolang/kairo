@@ -297,6 +297,65 @@ class TypeUtil {
         return create_empty_frozen_list::<InheritEdge>();
     }
 
+    /// The first pure virtual method (FnBodyKind::Virtual: a bodyless
+    /// `virtual fn`, or an imported C++ `= 0`) that `d` or one of its bases
+    /// declares and nothing between it and `d` overrides; null when `d` is
+    /// not abstract. A derived class that overrides some but not all of its
+    /// base's pure methods stays abstract, as in C++. An override is matched
+    /// by name and arity: overload resolution on the receiver is not this
+    /// question's, and two same-named, same-arity methods in one chain are
+    /// an override in practice (C++ would make a differing one a hide).
+    fn first_pure_left(self, d: *Decl) -> *FunctionDecl {
+        if d == &null { return &null; }
+        var chain  = vec::<*Decl>();
+        var depths = vec::<u32>();
+        self._chain_walk(NameLookup::representative(d), &chain, &depths, 0);
+        for var i: usize = 0; i < chain.size(); ++i {
+            var cd = dyn_cast::<ClassDecl>(chain[i]);
+            if cd == &null { continue; }
+            for var j: usize = 0; j < cd->methods.size(); ++j {
+                var p = cd->methods[j];
+                if (p == &null) || (p->body_kind != FnBodyKind::Virtual) { continue; }
+                if !self._overridden_below(p, &chain, &depths, depths[i]) { return p; }
+            }
+        }
+        return &null;
+    }
+
+    priv fn _overridden_below(self, p: *FunctionDecl, chain: *vec::<*Decl>, depths: *vec::<u32>, depth: u32) -> bool {
+        var pname = self.decl_name(static_cast::<*Decl>(p));
+        for var i: usize = 0; i < chain->size(); ++i {
+            if (*depths)[i] >= depth { continue; }
+            var cd = dyn_cast::<ClassDecl>((*chain)[i]);
+            if cd == &null { continue; }
+            for var j: usize = 0; j < cd->methods.size(); ++j {
+                var m = cd->methods[j];
+                if (m == &null) || (m->body_kind == FnBodyKind::Virtual) { continue; }
+                if m->params.size() != p->params.size() { continue; }
+                if self.decl_name(static_cast::<*Decl>(m)) == pname { return true; }
+            }
+        }
+        return false;
+    }
+
+    priv fn _chain_walk(self, d: *Decl, out: *vec::<*Decl>, depths: *vec::<u32>, depth: u32) {
+        if depth > 64 { return; }
+        for var i: usize = 0; i < out->size(); ++i { if (*out)[i] == d { return; } }
+        out->push_back(d);
+        depths->push_back(depth);
+        var cd = dyn_cast::<ClassDecl>(d);
+        if cd == &null { return; }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) { continue; }
+            var bd = self.record_decl(e->base->canonical);
+            if bd != &null { self._chain_walk(NameLookup::representative(bd), out, depths, depth + 1); }
+        }
+        // an instance's methods and bases are its pattern's.
+        var pat = self.pattern_of(d);
+        if pat != d { self._chain_walk(pat, out, depths, depth); }
+    }
+
     /// Any virtual/override/pure method here or in a base: a vtable exists.
     fn is_polymorphic(self, d: *Decl) -> bool {
         if d == &null { return false; }

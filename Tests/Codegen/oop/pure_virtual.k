@@ -1,19 +1,13 @@
-// A pure virtual method, `fn m(self) -> T = virtual` (classes-inheritance.md,
-// Abstract classes): no body, implies a vtable slot without a `virtual`
-// prefix, overridden in each concrete derived class, dispatched through a
-// base pointer.
-//
-// XFAIL: *
-// Waiting on the parser: _parse_fn_body reports S047E "virtual functions
-// must be declared with the 'virtual' modifier" on `= virtual` and never
-// sets FnBodyKind::Virtual. Everything downstream already handles that body
-// kind (TypeUtil's abstractness, ClassLifecycle, InterfaceEmitter's `= 0`).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// A pure virtual method is a `virtual fn` with no body (classes-
+// inheritance.mdx, Abstract classes): a vtable slot with no definition,
+// spelled `= 0` in C++, overridden in each concrete derived class and
+// dispatched through a base pointer. `= virtual`, the old spelling, is
+// S047E (Tests/Parser/Grammar/pure_virtual_spelling.k); constructing the
+// abstract class is SC001E (Tests/Sema/Check/abstract_construct.k).
 
 class Shape {
-    fn area(const self) -> i32 = virtual
-    fn sides(const self) -> i32 = virtual
+    virtual fn area(const self) -> i32
+    virtual fn sides(const self) -> i32
 }
 
 class Square derives Shape {
@@ -41,6 +35,12 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
+
+// RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
+// IR:      class Shape {
+// IR-NEXT:     public: virtual signed int area() const = 0;
+// IR-NEXT:     virtual signed int sides() const = 0;
+// IR-NEXT: };
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
