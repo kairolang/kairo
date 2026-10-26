@@ -825,6 +825,16 @@ class <T> OperatorTyping {
         else if isa::<CXXRValueRefType>(place) { place = cast::<CXXRValueRefType>(place)->referee; }
         ot = dyn()->tu.as_value(ot);
 
+        // `x?` on a nullable is the null test (NULLABLE.md 2.1), whatever
+        // its inner: before the user-operator lookup, so a payload record's
+        // own `op ?` never answers for its nullable, and before the
+        // dependent deferral, so `t?` on a `T?` is `bool` in a generic body
+        // too. Only the OUTER level is tested: `x?` on `(i32?)?` asks the
+        // outer nullable. NullTestLowering lowers it (null_test_of).
+        if (k == TokenKind::OpQuestion) && n->is_postfix() && (dyn()->tu.nullable_inner(ot) != &null) {
+            return dyn()->tu.builtin(BuiltinKind::Bool);
+        }
+
         // user operator first for non-primitives. `++`/`--` keep only the
         // declared fixity that matches the use.
         if (dyn()->tu.kind_of(ot) == BuiltinKind::COUNT) && ((!self._is_dependent(ot)) || self._bounded(ot))
@@ -903,11 +913,38 @@ class <T> OperatorTyping {
                 dyn()->mark_unknown(n);
                 return &null;
             }
+            case TokenKind::OpQuestion {
+                if n->is_postfix() { self._not_nullable_test(n, ot); return &null; }
+                dyn()->fail(n, DiagID::SC066E, f"unary operator '?' is not defined on '{dyn()->tu.str(ot)}\x27");
+                return &null;
+            }
             default {
                 dyn()->fail(n, DiagID::SC066E, f"unary operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on '{dyn()->tu.str(ot)}\x27");
                 return &null;
             }
         }
+    }
+
+    /// `x?` on a value that cannot be null. SC066E (no operator for this
+    /// operand type): `?` is the null test and has nothing to test on a
+    /// `T`; a record's own `op ?` was already tried. No fix-it: dropping
+    /// the `?` leaves a non-bool where a condition wanted one, and which
+    /// test was meant is not knowable. The note points at the declaration
+    /// that made it non-nullable, when the operand names one.
+    priv fn _not_nullable_test(self, n: *UnaryOperatorExpr, ot: *Type) {
+        if n->is_poisoned() { return; }
+        var x  = dyn()->tu.strip_parens(n->operand);
+        var id = (cast::<NamedIdentExpr>(x)) if ((x != &null) && isa::<NamedIdentExpr>(x)) else (&null);
+        var what = ("the operand") if (id == &null) else (f"'{dyn()->sc->ctx->get_spelling(id->name)}\x27");
+        var b = dyn()->sc->diag->report(DiagID::SC066E, n->range.start,
+            f"{what} is not nullable; '?' tests a nullable, and '{dyn()->tu.str(ot)}' is never null"
+        );
+        b.first(n->range);
+        if (id != &null) && (id->resolved_decl != &null) {
+            b.note(id->resolved_decl->range.start, f"declared '{dyn()->tu.str(ot)}' here; a type that may be null is written 'T?\x27");
+        }
+        b.emit();
+        n->poison();
     }
 
     priv fn _unary_bool(self, n: *UnaryOperatorExpr, ot: *Type) -> *Type {

@@ -3,12 +3,14 @@
 // `*p` and `p->m()` on a pointer, the value itself on a `T?`.
 //
 // XFAIL: *
-// Waiting on Sema typing postfix `?`: every use is SC066E "unary operator
-// '?' is not defined on 'i32?'" (and on `(*i32)?`). After it, `p->m()` on
-// a narrowed `(*A)?` must look through the Nullable -- today it is R027E
-// "'->' requires a pointer on its left". NullableTypeLowering runs since
-// NULLABLE.md G3, so the run needs only those (G5, G16).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
+// Postfix `?` is typed and lowered since NULLABLE.md G5 (`p?` is bool,
+// `!p.is_null()` in C++); what remains is the NARROWING. `p->m()` on a
+// narrowed `(*A)?` must look through the Nullable -- today it is R027E
+// "'->' requires a pointer on its left" (G16), which stops the build before
+// typing; past it, `return p` / `*p` inside `if p?` still read `i32?` /
+// `(*i32)?` and are SC028E / SC070E until the nullness environment narrows
+// them (G11) and NarrowedAccessLowering reads them (G16).
+// When those land this test XPASSes; delete the XFAIL -- the run below is
 // already the real assertion.
 
 class A { virtual fn k(self) -> i32 { return 3 } }
