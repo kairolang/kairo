@@ -16,7 +16,7 @@ class F derives R, W { }
 fn main() -> i32 {
     var r = 0
     var x: i32 = 5
-    var p = &x
+    var *p = &x
     if (p as usize) != 0 { r += 1 }
     var f = F()
     var pr: *R = &f

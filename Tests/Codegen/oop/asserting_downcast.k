@@ -19,7 +19,7 @@ class Dog derives Animal {
 class Cat derives Animal { }
 
 fn bones(a: *Animal) panic -> i32 {
-    var d = a as *Dog
+    var *d = a as *Dog
     return d->bones
 }
 

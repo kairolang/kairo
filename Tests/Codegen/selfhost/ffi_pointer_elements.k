@@ -25,8 +25,8 @@ fn main() -> i32 {
     var a = Node(3)
     var b = Node(4)
     var ptrs: cxx::std::vector<*Node>
-    var pa = &a
-    var pb = &b
+    var *pa = &a
+    var *pb = &b
     ptrs.push_back(pa)
     ptrs.push_back(pb)
     return ptrs[0]->id + ptrs[1]->id           // 3 + 4
