@@ -1314,6 +1314,16 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         return "var";
     }
 
+    /// The binding keywords as one canonical spelling: `thread` for Static
+    /// storage with is_thread, then `const` when the binding is const
+    /// (`static const` / `thread const`, whichever order was written).
+    fn _binding_kw(self, s: StorageClass, is_thread: bool, const_binding: bool) -> string {
+        var kw = self._storage_kw(s);
+        if (s == StorageClass::Static) && is_thread { kw = "thread"; }
+        if const_binding { kw += " const"; }
+        return kw;
+    }
+
     // -- FunctionDecl -------------------------------------------------------
 
     fn _fn_modifiers(self, fd: *FunctionDecl) {
@@ -1406,7 +1416,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     // -- VariableDecl / FieldDecl / ParamDecl -------------------------------
 
     fn _d_variable(self, vd: *VariableDecl) {
-        self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(vd->storage, vd->is_thread, vd->const_binding));
         self.p.put(" ");
         if vd->pointer_unsafe { self.p.paint(Color::Keyword, "unsafe "); }
         for var i: u32 = 0; i < vd->pointer_depth; ++i { self.p.paint(Color::Punct, "*"); }
@@ -1424,7 +1434,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     fn _d_field(self, fd: *FieldDecl) {
         if fd->is_mutable { self.p.paint(Color::Keyword, "mutable "); }
-        self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(fd->storage, fd->is_thread, fd->const_binding));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(fd->name));
         if fd->type_ != &null {
@@ -3163,7 +3173,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_vis(static_cast::<*Decl>(vd));
         self._dump_ffi_linkage(static_cast::<*Decl>(vd));
         self.p.put(" ");
-        self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(vd->storage, vd->is_thread, vd->const_binding));
         self.p.put(" ");
         if vd->pointer_unsafe { self.p.paint(Color::Keyword, "unsafe "); }
         for var i: u32 = 0; i < vd->pointer_depth; ++i { self.p.paint(Color::Punct, "*"); }
@@ -3192,7 +3202,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(fd));
         self.p.put(" ");
         if fd->is_mutable { self.p.paint(Color::Keyword, "mutable "); }
-        self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(fd->storage, fd->is_thread, fd->const_binding));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(fd->name));
         var ty_child = (fd->type_ != &null) && self._type_is_expandable(fd->type_);

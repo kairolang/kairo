@@ -485,12 +485,20 @@ class ASTParse
 
     /// \brief decl-vs-stmt routing for the top-level loop.
     ///
-    /// \details var/const always take the stmt path (it owns the plain-decl vs
-    ///          destructuring split). `eval` is a decl only when followed by
-    ///          `{`; `eval for/if/var` are statements.
+    /// \details var/const take the stmt path (it owns the plain-decl vs
+    ///          destructuring split), except `const static` / `const thread`
+    ///          / `const eval`: those are the same declaration as `static
+    ///          const` (DeclParse::_parse_storage_head), so they route where
+    ///          `static` does and both orders build the same tree. `eval` is a
+    ///          decl only when followed by `{`; `eval for/if/var` are
+    ///          statements.
     priv fn _routes_to_decl(self, k: TokenKind) -> bool {
+        if k == TokenKind::KwConst {
+            return self.check_peek(TokenKind::KwStatic) || self.check_peek(TokenKind::KwThread)
+                || self.check_peek(TokenKind::KwEval);
+        }
         if !self._starts_decl_kw(k) { return false; }
-        if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) { return false; }
+        if k == TokenKind::KwVar { return false; }
         if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) { return false; }
         return true;
     }

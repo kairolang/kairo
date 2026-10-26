@@ -2156,6 +2156,108 @@ class <T> DeclParse {
 
     //  Variable / field declaration
 
+    /// \struct StorageHead
+    /// \brief the keywords that open a binding, read by _parse_storage_head.
+    struct StorageHead {
+        var storage:       StorageClass;
+        var is_thread:     bool;
+        var const_binding: bool;   ///< `static const` / `thread const`: the binding itself is const.
+        var saw_const:     bool;   ///< a `const` was read, whatever it meant (`eval const` sets nothing else).
+    }
+
+    /// \brief reads the keywords that open a binding or a field, in either
+    ///        order where `const` combines with a storage keyword.
+    ///  Grammar:  'var'
+    ///          | 'const' ( 'static' 'thread'? | 'thread' | 'eval' )?
+    ///          | 'static' 'thread'? 'const'?
+    ///          | 'thread' 'const'?
+    ///          | 'eval' 'const'?
+    ///
+    /// \details `static const x` and `const static x` are one declaration
+    ///          (variables.mdx): the storage keyword says where the object
+    ///          lives, `const` that the binding cannot be reassigned. Both
+    ///          orders land on the same node -- `storage` keeps the storage
+    ///          keyword and `const_binding` the const -- so nothing after the
+    ///          parser can tell which was written. `eval` is const already, so
+    ///          `eval const` / `const eval` is plain `eval` and sets nothing.
+    ///          `thread` is `static` storage with `is_thread`, the shape
+    ///          `static thread` always had: every consumer that asks
+    ///          is_static() (`Type::name` lookup, nullness, the C++ spelling)
+    ///          is already right for it. Anything else after the keyword is
+    ///          left for the name check, whose S046E names the real problem.
+    priv fn _parse_storage_head(self) -> StorageHead {
+        var first = dyn()->current();
+        var h     = self._storage_head_core();
+
+        // A keyword of the set still on the cursor is a combination the
+        // grammar above refuses (`var thread`, `static eval`, `const const`).
+        // Named here, where both keywords are known: left for the name check
+        // it was S046E "expected a name", which hides the real mistake. The
+        // extra keyword is dropped and the declaration parses on.
+        // FIXME(diag-table): S045 is "unexpected token in parsing"; a
+        // storage-class combination wants its own code.
+        while dyn()->check(TokenKind::KwVar)  || dyn()->check(TokenKind::KwConst)
+           || dyn()->check(TokenKind::KwStatic) || dyn()->check(TokenKind::KwEval)
+           || dyn()->check(TokenKind::KwThread) {
+            var extra = dyn()->current();
+            var msg   = f"'{dyn()->ctx->get_spelling(first)}' cannot be combined with '{dyn()->ctx->get_spelling(extra)}'; a binding takes one of 'var', 'static', 'thread' or 'eval', and 'const' once";
+            if dyn()->check(TokenKind::KwConst) && h.saw_const { msg = "'const' is written twice; a binding takes it once"; }
+            var b = dyn()->diag->report(DiagID::S045E, extra.range.start, msg);
+            b.first(extra.range);
+            b.remove(extra.range, "remove it");
+            b.emit();
+            dyn()->advance();   // consume the extra keyword
+        }
+        return h;
+    }
+
+    priv fn _storage_head_core(self) -> StorageHead {
+        var h = StorageHead{};
+        h.storage       = StorageClass::Var;
+        h.is_thread     = false;
+        h.const_binding = false;
+        h.saw_const     = false;
+
+        var lead_const = dyn()->check(TokenKind::KwConst);
+        if lead_const {
+            h.storage   = StorageClass::Const;
+            h.saw_const = true;
+            dyn()->advance();   // consume `const`
+            if dyn()->check(TokenKind::KwStatic) || dyn()->check(TokenKind::KwThread) {
+                h.storage       = StorageClass::Static;
+                h.is_thread     = dyn()->check(TokenKind::KwThread);
+                h.const_binding = true;
+                dyn()->advance();   // consume `static` / `thread`
+                if (!h.is_thread) && dyn()->check(TokenKind::KwThread) {
+                    h.is_thread = true;
+                    dyn()->advance();   // consume `thread` of `const static thread`
+                }
+            } else if dyn()->check(TokenKind::KwEval) {
+                h.storage = StorageClass::Eval;
+                dyn()->advance();   // consume `eval`
+            }
+            return h;
+        }
+
+        if      dyn()->check(TokenKind::KwStatic) { h.storage = StorageClass::Static; }
+        else if dyn()->check(TokenKind::KwThread) { h.storage = StorageClass::Static; h.is_thread = true; }
+        else if dyn()->check(TokenKind::KwEval)   { h.storage = StorageClass::Eval;   }
+        var is_var = dyn()->check(TokenKind::KwVar);
+        dyn()->advance();   // consume the storage keyword
+        if is_var { return h; }
+
+        if (h.storage == StorageClass::Static) && (!h.is_thread) && dyn()->check(TokenKind::KwThread) {
+            h.is_thread = true;
+            dyn()->advance();   // consume `thread` of `static thread`
+        }
+        if dyn()->check(TokenKind::KwConst) {
+            if h.storage == StorageClass::Static { h.const_binding = true; }
+            h.saw_const = true;
+            dyn()->advance();   // consume `const`
+        }
+        return h;
+    }
+
     /// \brief parses a var/const/static/eval binding as a VariableDecl.
     ///  Grammar:  ('var'|'const'|'static'|'eval') identifier (':' type)?
     ///            ('=' expr)?
@@ -2166,29 +2268,9 @@ class <T> DeclParse {
     fn _parse_var_decl(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
 
-        var storage = StorageClass::Var;
-        if      dyn()->check(TokenKind::KwConst)  { storage = StorageClass::Const;  }
-        else if dyn()->check(TokenKind::KwStatic) { storage = StorageClass::Static; }
-        else if dyn()->check(TokenKind::KwEval)   { storage = StorageClass::Eval;   }
-        dyn()->advance(); // consume the storage keyword
+        var head    = self._parse_storage_head();
+        var storage = head.storage;
         dyn()->_reject_mode_binding();   // `var @inout x`: modes are parameter-only.
-
-        // `static thread X: T` - thread_local storage duration.
-        var is_thread = false;
-        if dyn()->check(TokenKind::KwThread) {
-            var thread_range = dyn()->current_ptr()->range;
-            dyn()->advance();
-            if storage != StorageClass::Static {
-                // FIXME(diag-table): placeholder id. This is a storage-class
-                // combination error; it wants its own code, not S046 ("expected
-                // identifier or name in declaration").
-                dyn()->diag->report(DiagID::S045E, thread_range.start,
-                    "'thread' requires 'static'; thread-local storage has static "
-                    "storage duration"
-                ).first(thread_range).emit();
-            }
-            is_thread = true;
-        }
 
         // `var *y = e`, `var **y = e`, `var unsafe *y = e`: the pointer
         // shorthand (NULLABLE.md 1.7). Before the name, so the name check
@@ -2220,7 +2302,8 @@ class <T> DeclParse {
         dyn()->advance();
 
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
-        vd->is_thread      = is_thread;
+        vd->is_thread      = head.is_thread;
+        vd->const_binding  = head.const_binding;
         vd->pointer_depth  = p_depth;
         vd->pointer_unsafe = p_unsafe;
         vd->pointer_range  = p_range;
@@ -2298,7 +2381,7 @@ class <T> DeclParse {
                     b.fix(start, "const", "make the binding 'const\x27");
                     b.remove(c_range, "and drop it from the type");
                     b.emit();
-                } else if (storage == StorageClass::Const) && ty->is_const() {
+                } else if ((storage == StorageClass::Const) || vd->const_binding) && ty->is_const() {
                     // `const x: const T` says it twice. The second is the one
                     // at fault: the binding keyword is the idiomatic place.
                     var c_range = dyn()->top_const_range(ty);
@@ -2344,35 +2427,17 @@ class <T> DeclParse {
             dyn()->advance();
         }
 
-        var storage = StorageClass::Var;
-        if      dyn()->check(TokenKind::KwConst)  { storage = StorageClass::Const;  }
-        else if dyn()->check(TokenKind::KwStatic) { storage = StorageClass::Static; }
-        else if dyn()->check(TokenKind::KwEval)   { storage = StorageClass::Eval;   }
-        else if dyn()->check(TokenKind::KwVar)    { storage = StorageClass::Var;    }
-        else {
+        if !(dyn()->check(TokenKind::KwConst) || dyn()->check(TokenKind::KwStatic)
+          || dyn()->check(TokenKind::KwEval)  || dyn()->check(TokenKind::KwVar)
+          || dyn()->check(TokenKind::KwThread)) {
             dyn()->diag->report(DiagID::S048E, start.start,
-                "expected 'var', 'const', 'static', or 'eval' to begin a field"
+                "expected 'var', 'const', 'static', 'thread', or 'eval' to begin a field"
             ).first(start).emit();
             return FieldDecl::create_error(dyn()->ctx, start);
         }
-        dyn()->advance(); // consume storage keyword
+        var head    = self._parse_storage_head();
+        var storage = head.storage;
         dyn()->_reject_mode_binding();   // `var @inout f: T` on a field.
-
-        // `static thread x: T` - thread_local storage duration.
-        var is_thread = false;
-        if dyn()->check(TokenKind::KwThread) {
-            var thread_range = dyn()->current_ptr()->range;
-            dyn()->advance();
-            if storage != StorageClass::Static {
-                // FIXME(diag-table): placeholder id - same storage-class rule as
-                // the binding path in _parse_var_decl; wants the same new code.
-                dyn()->diag->report(DiagID::S045E, thread_range.start,
-                    "'thread' requires 'static'; thread-local storage has static "
-                    "storage duration"
-                ).first(thread_range).emit();
-            }
-            is_thread = true;
-        }
 
         // `var *f = e` in a type body: refused for the reason `var f? = e`
         // is below (a field never infers). Read here so the name is still
@@ -2445,7 +2510,8 @@ class <T> DeclParse {
 
         var fd = FieldDecl::create(dyn()->ctx, start, name, storage, fty, idx);
         fd->is_mutable = is_mutable;
-        fd->is_thread  = is_thread;
+        fd->is_thread  = head.is_thread;
+        fd->const_binding = head.const_binding;
 
         if dyn()->check(TokenKind::OpEqual) {
             dyn()->advance(T::SkipNL::After); // consume `=`

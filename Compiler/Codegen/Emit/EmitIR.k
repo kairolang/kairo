@@ -726,6 +726,9 @@ class EmitIR {
             case StorageClass::Eval   { self._cg->sink->kw_constexpr(n->name); }
             default { }
         }
+        // `static const x` (either order): the const is the binding's, so
+        // C++ gets `static const T x`, which is what a const local would add.
+        if n->const_binding { self._cg->sink->kw_const(n->name); }
         var c: *Type = &null;
         if (n->type_ != &null) && (n->type_->canonical != &null) { c = canon_unqual(n->type_->canonical); }
         if (c != &null) && (c->kind == TypeKind::FixedArrayType) {

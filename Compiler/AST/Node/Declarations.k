@@ -721,7 +721,13 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     pub var storage: StorageClass = StorageClass::Var;
     pub var type_:   *Type = &null;   ///< null => inferred from init.
     pub var init:    *Expr = &null;   ///< initializer; null for `var x: T` default-init.
-    pub var is_thread: bool = false;  ///< `static thread` thread_local storage.
+    pub var is_thread: bool = false;  ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
+    /// `static const x` / `const static x` (or `thread const`): the binding
+    /// of a Static-storage variable is const. `storage` stays the storage
+    /// keyword so every is_static() reader is unchanged; is_const() folds
+    /// this in, so every const reader is too. Never set with Const or Eval
+    /// storage (`eval const` is plain `eval`).
+    pub var const_binding: bool = false;
     /// `var x? = e`, the nullable shorthand (variables.md, Declaration
     /// Shorthands): the type is inferred from `init` and then made nullable,
     /// once (`typeof(e)?`, or `typeof(e)` when that is already nullable).
@@ -773,7 +779,7 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
         return DeclKind::VariableDecl;
     }
 
-    fn is_const(self)  -> bool { return self.storage == StorageClass::Const; }
+    fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || self.const_binding; }
     fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
     fn is_eval(self)   -> bool { return self.storage == StorageClass::Eval; }
     fn is_inferred(self) -> bool { return self.type_ == &null; }
@@ -818,7 +824,8 @@ class FieldDecl derives Decl {
     pub var type_:      *Type = &null;   ///< field type; null only in recovery.
     pub var init:       *Expr = &null;   ///< at-decl default; null if none, or once FieldInitLowering has consumed it.
     pub var is_mutable: bool = false;    ///< `mutable var` escapes const-self.
-    pub var is_thread:  bool = false;    ///< `static thread` thread_local storage.
+    pub var is_thread:  bool = false;    ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
+    pub var const_binding: bool = false; ///< `static const` member; see VariableDecl::const_binding.
     pub var index:      u32 = 0;         ///< declaration order in the owning type.
     /// `type_` is the record type of an anonymous UnionDecl (`is_anonymous`),
     /// and this field is that union's one and only declaration: C++ gets
@@ -885,7 +892,7 @@ class FieldDecl derives Decl {
     }
 
     fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
-    fn is_const(self)  -> bool { return self.storage == StorageClass::Const; }
+    fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || self.const_binding; }
 }
 
 ///

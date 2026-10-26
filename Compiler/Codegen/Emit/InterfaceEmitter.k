@@ -1410,6 +1410,9 @@ class InterfaceEmitter {
         var folded = (f->init_fold == FieldFold::Int) || (f->init_fold == FieldFold::True) || (f->init_fold == FieldFold::False) || (f->init_fold == FieldFold::Null);
         if folded { s += "constinit "; }
         if f->is_thread { s += "thread_local "; }
+        // The class body declared it `static const T s;` (`static const`
+        // member); C++ rejects a definition whose type drops the const.
+        if f->is_const() { s += "const "; }
         var nm = self._owner_qual(owner) + "::" + self._spell->leaf(static_cast::<*Decl>(f));
         s += self._spell->decl(f->type_, nm);
         if f->init_fold == FieldFold::None {
