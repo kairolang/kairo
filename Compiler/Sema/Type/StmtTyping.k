@@ -663,7 +663,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
     fn traverse_break_stmt(self, n: *BreakStmt) -> *BreakStmt {
         if n == &null { return n; }
-        dyn()->flow.on_break(n->has_label);
+        dyn()->flow.on_break((dyn()->sc->ctx->get_spelling(n->label)) if (n->has_label) else (""));
         return n;
     }
 
@@ -748,12 +748,22 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
-    /// The head assumes whatever the loop assigns (NullnessFlow::
+    /// `outer: while ...`: the loop's `break outer` joins into it, not into
+    /// whichever loop is innermost (NULLABLE.md 3.5).
+    fn traverse_labeled_stmt(self, n: *LabeledStmt) -> *LabeledStmt {
+        if n == &null { return n; }
+        dyn()->flow.label_next(dyn()->sc->ctx->get_spelling(n->label));
+        if n->inner != &null { dyn()->dispatch_stmt(n->inner); }
+        dyn()->flow.label_next("");
+        return n;
+    }
+
+    /// The head holds what every back edge brings (NullnessFlow::
     /// loop_enter); the condition, typed there, narrows the body; after the
     /// loop, its false set joined with each `break`.
     fn traverse_while_loop_stmt(self, n: *WhileLoopStmt) -> *WhileLoopStmt {
         if n == &null { return n; }
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->cond, &null);
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
         if n->cond != &null { dyn()->require_bool(n->cond, "the 'while' condition"); }
         var c = dyn()->flow.cond_of(n->cond);
         dyn()->flow.env = c.t;
@@ -766,7 +776,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// `loop { }`: left only by a `break` (or not at all).
     fn traverse_loop_stmt(self, n: *LoopStmt) -> *LoopStmt {
         if n == &null { return n; }
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null, &null);
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
         dyn()->flow.env = dyn()->flow.loop_leave();
         return n;
@@ -775,7 +785,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     fn traverse_indexed_for_stmt(self, n: *IndexedForStmt) -> *IndexedForStmt {
         if n == &null { return n; }
         if n->init   != &null { dyn()->dispatch_stmt(n->init); }
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->cond, n->update);
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->update);
         var head = dyn()->flow.env;
         if n->cond   != &null { dyn()->require_bool(n->cond, "the loop condition"); }
         var c = dyn()->flow.cond_of(n->cond);
@@ -1135,7 +1145,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         self._bind_list(&(n->bindings), elem, n->iterable);
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
-        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null, &null);
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
         var head = dyn()->flow.env;
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
         var brk = dyn()->flow.loop_leave();

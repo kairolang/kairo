@@ -37,8 +37,8 @@
 ///                              `break` / `continue` / `panic` / a `-> !`
 ///                              call (the env becomes unreachable, which a
 ///                              join ignores: that is the early exit)
-///       loop_enter/leave,      loops (see below), and `break`'s state
-///         on_break
+///       loop_enter/leave,      loops (see below), and `break`'s state;
+///         on_break, label_next a label names the loop it precedes
 ///       after_call             any call: globals, statics and escaped
 ///                              places are Maybe again
 ///       weaken, inout_arg,     a write the analysis cannot see the value
@@ -76,13 +76,18 @@
 ///     pointer, a `const self` call and a by-value pass weaken nothing; a
 ///     move is MoveCheck's (its moved-from rule reports the later use).
 ///
-///     Deliberately conservative (batch-B scope; NULLABLE.md G13 / G17
-///     refine it):
+///     LOOPS (3.5): the body is typed once, from the head, so the head's
+///     state must hold on every back edge. loop_enter pre-scans the body
+///     path by path (NullLoopScan): a place proven before the loop stays
+///     proven unless some path may bring it back holding anything else.
+///     The condition is typed at the head, so `while x?` proves `x` at the
+///     top of the body whatever the body does; after a loop, its false set
+///     joined with each `break` (a labeled one joins into its own loop).
+///
+///     Deliberately conservative (batch-B scope; NULLABLE.md G17 refines
+///     it):
 ///       - a place whose root a closure captures by pointer (`|*x|`) is
 ///         never narrowed;
-///       - a loop's head makes every place the loop assigns (and every
-///         global) Maybe; `while x?` still narrows `x` at the top of its
-///         body, since the condition is typed at the head;
 ///       - a closure body starts with nothing known: what it captures is
 ///         Maybe inside it.
 ///
@@ -114,6 +119,9 @@ import AST::Node::Declarations::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Visitor::RecursiveASTVisitor::*;
+import AST::Context::SymbolTable::*;
+import AST::ParamMode::*;
+import AST::Kind::StmtKind::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
@@ -292,6 +300,7 @@ struct NullFrame {
 
 struct NullLoop {
     var breaks: vec::<NullEnv>;
+    var label:  string = "";   ///< the loop's label, or empty.
 }
 
 /// \p a and \p b name the same place.
@@ -500,9 +509,8 @@ class NullAddrScan derives RecursiveASTVisitor::<NullAddrScan> {
     }
 }
 
-/// Every place a loop body (or a `try` body) assigns, with where: at the
-/// loop's head each is Maybe, since the back edge may bring any value
-/// (batch B's stand-in for the 3.5 pre-scan). A target whose place cannot
+/// Every place a `try` body assigns, with where: a `catch` arm may start
+/// after any of them, so at its start each is Maybe. A target whose place cannot
 /// be named yet (a step after an inferred value is still unbound) is
 /// widened to its root, which drops every path under it.
 class NullAssignScan derives RecursiveASTVisitor::<NullAssignScan> {
@@ -558,6 +566,657 @@ class NullAssignScan derives RecursiveASTVisitor::<NullAssignScan> {
     }
 }
 
+// =============================================================================
+// The loop pre-scan (3.5)
+// =============================================================================
+
+/// What the paths through a loop body may have done to one place, as bits:
+/// left it alone, written a value proven non-null, or something else (a
+/// `null`, a value that may be null, a write the analysis cannot see).
+fn NULL_SCAN_KEPT()  -> u8 { return 1; }
+fn NULL_SCAN_VALUE() -> u8 { return 2; }
+fn NULL_SCAN_LOST()  -> u8 { return 4; }
+
+/// One path's effect on each candidate place, by index; `at` is where the
+/// candidate was last lost on it. A dead path (it returned, broke out, or
+/// went back to an outer loop) reaches no back edge.
+struct NullScanState {
+    var flags: vec::<u8>;
+    var at:    vec::<SourceRange>;
+    var dead:  bool = false;
+}
+
+/// A loop the scan is inside: the scanned loop itself first, then each
+/// nested one, with the paths that leave it by `break` and go back to its
+/// head by `continue`.
+struct NullScanLoop {
+    var label:  string = "";
+    var breaks: vec::<NullScanState>;
+    var conts:  vec::<NullScanState>;
+}
+
+/// The merge of two paths: each place may have had what either did to it.
+fn null_scan_join(a: *NullScanState, b: *NullScanState) -> NullScanState {
+    if a->dead { return *b; }
+    if b->dead { return *a; }
+    var out = *a;
+    for var i: usize = 0; i < out.flags.size(); ++i {
+        var lost_a = (a->flags[i] & NULL_SCAN_LOST()) != 0;
+        out.flags[i] = a->flags[i] | b->flags[i];
+        if (!lost_a) && ((b->flags[i] & NULL_SCAN_LOST()) != 0) { out.at[i] = b->at[i]; }
+    }
+    return out;
+}
+
+/// \p t is a builtin scalar (through a nullable): an operator on it is the
+/// builtin one, whose result is never null.
+fn null_scan_is_scalar(t: *Type) -> bool {
+    if t == &null { return false; }
+    var c = canon_unqual(t);
+    if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
+    return (c != &null) && isa::<BuiltinType>(c);
+}
+
+/// The declared type of the decl \p d names, if it is known yet.
+fn null_scan_decl_type(d: *Decl) -> *Type {
+    if d == &null { return &null; }
+    if isa::<VariableDecl>(d) {
+        var v = cast::<VariableDecl>(d);
+        return (v->type_->canonical) if (v->type_ != &null) else (&null);
+    }
+    if isa::<ParamDecl>(d) {
+        var p = cast::<ParamDecl>(d);
+        return (p->type_->canonical) if (p->type_ != &null) else (&null);
+    }
+    if isa::<FieldDecl>(d) {
+        var f = cast::<FieldDecl>(d);
+        return (f->type_->canonical) if (f->type_ != &null) else (&null);
+    }
+    return &null;
+}
+
+/// \p f is known to return no nullable: a declared, non-dependent,
+/// non-nullable return type (a block body with none returns nothing).
+fn null_scan_returns_value(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) { return false; }
+    var f = cast::<FunctionDecl>(d);
+    if f->return_type == &null { return f->body_kind != FnBodyKind::Expr; }
+    var t = f->return_type->canonical;
+    if (t == &null) || t->is_dependent() { return false; }
+    return !null_flow_type_is_nullable(t);
+}
+
+/// Every decl \p cell holds returns no nullable.
+fn null_scan_cell_returns_value(cell: *OverloadCell) -> bool {
+    if (cell == &null) || (cell->size() == 0) { return false; }
+    for var i: usize = 0; i < cell->size(); ++i {
+        if !null_scan_returns_value(cell->get(i)) { return false; }
+    }
+    return true;
+}
+
+/// \p d is a function with no `@inout` parameter.
+fn null_scan_no_inout(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) { return false; }
+    var f = cast::<FunctionDecl>(d);
+    for var i: usize = 0; i < f->params.size(); ++i {
+        if (f->params[i] != &null) && (f->params[i]->mode == ParamMode::Inout) { return false; }
+    }
+    return true;
+}
+
+fn null_scan_cell_no_inout(cell: *OverloadCell) -> bool {
+    if (cell == &null) || (cell->size() == 0) { return false; }
+    for var i: usize = 0; i < cell->size(); ++i {
+        if !null_scan_no_inout(cell->get(i)) { return false; }
+    }
+    return true;
+}
+
+/// \p d is a method taking a `const self`.
+fn null_scan_const_method(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) { return false; }
+    var f = cast::<FunctionDecl>(d);
+    if !f->is_method() { return false; }
+    return f->is_const() || f->params[0]->is_const;
+}
+
+fn null_scan_cell_const(cell: *OverloadCell) -> bool {
+    if (cell == &null) || (cell->size() == 0) { return false; }
+    for var i: usize = 0; i < cell->size(); ++i {
+        if !null_scan_const_method(cell->get(i)) { return false; }
+    }
+    return true;
+}
+
+/// \p e, an operand, is known to be a builtin scalar: a numeric, `bool` or
+/// character literal, or a place declared as one (or as one's nullable).
+fn null_scan_scalar_operand(e: *Expr) -> bool {
+    var x = null_flow_strip_parens(e);
+    if x == &null { return false; }
+    if isa::<IntegerLiteralExpr>(x) || isa::<FloatingLiteralExpr>(x) || isa::<BooleanLiteralExpr>(x) || isa::<CharacterLiteralExpr>(x) { return true; }
+    var p = null_place_of(x);
+    if p.size() == 0 { return false; }
+    return null_scan_is_scalar(null_scan_decl_type(p[p.size() - 1]));
+}
+
+/// Read before typing, \p rhs is known to be no null (NULLABLE.md 3.2's
+/// rows, on what the syntax and the declarations already say): a literal,
+/// `&e`, an initializer, a call to a function declared to return a `T`, a
+/// constructor, a place declared `T`, a builtin operator on scalars, a cast
+/// to a `T`, an if-expression whose every arm is one. Anything else may be
+/// null (false): sound, not complete.
+fn null_scan_rhs_value(rhs: *Expr) -> bool {
+    var x = null_flow_strip_parens(rhs);
+    if x == &null { return false; }
+    if isa::<NullLiteralExpr>(x) { return false; }
+    if isa::<IntegerLiteralExpr>(x) || isa::<FloatingLiteralExpr>(x) || isa::<BooleanLiteralExpr>(x)
+    || isa::<CharacterLiteralExpr>(x) || isa::<StringLiteralExpr>(x) { return true; }
+    if isa::<NamedInitializerExpr>(x) || isa::<AnonInitializerExpr>(x) || isa::<ListLiteralExpr>(x)
+    || isa::<TupleLiteralExpr>(x) || isa::<SetLiteralExpr>(x) || isa::<MapLiteralExpr>(x) { return true; }
+    if isa::<UnaryOperatorExpr>(x) {
+        var u = cast::<UnaryOperatorExpr>(x);
+        var k = u->op_token.kind;
+        if u->is_prefix() && (k == TokenKind::OpAmp) { return true; }
+        if u->is_prefix() && ((k == TokenKind::OpMinus) || (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) || (k == TokenKind::OpTilde)) {
+            return null_scan_scalar_operand(u->operand);
+        }
+        if u->is_postfix() && (k == TokenKind::OpQuestion) { return true; }   // the null test is a bool.
+        return false;
+    }
+    if isa::<BinaryOperatorExpr>(x) {
+        var b = cast::<BinaryOperatorExpr>(x);
+        var k = b->op_token.kind;
+        if (k == TokenKind::OpQuestionQuestion) { return false; }
+        if (null_literal_of(b->lhs) != &null) || (null_literal_of(b->rhs) != &null) { return true; }   // `x == null`: a bool.
+        return null_scan_scalar_operand(b->lhs) && null_scan_scalar_operand(b->rhs);
+    }
+    if isa::<TypeCastExpr>(x) {
+        var tc = cast::<TypeCastExpr>(x);
+        if (tc->target == &null) || (tc->target->canonical == &null) { return false; }
+        return !null_flow_type_is_nullable(tc->target->canonical);
+    }
+    if isa::<IfExpr>(x) {
+        var ie = cast::<IfExpr>(x);
+        if !null_scan_rhs_value(ie->then_expr) { return false; }
+        for var i: usize = 0; i < ie->else_ifs.size(); ++i {
+            if !null_scan_rhs_value(ie->else_ifs.get(i)->body) { return false; }
+        }
+        return null_scan_rhs_value(ie->else_expr);
+    }
+    if isa::<CallExpr>(x) {
+        var callee = null_flow_strip_parens(cast::<CallExpr>(x)->callee);
+        if callee == &null { return false; }
+        if isa::<NamedIdentExpr>(callee) {
+            var id = cast::<NamedIdentExpr>(callee);
+            if id->resolved_decl != &null {
+                var d = id->resolved_decl;
+                if isa::<FunctionDecl>(d) { return null_scan_returns_value(d); }
+                // A record's name called is its constructor.
+                return isa::<StructDecl>(d) || isa::<ClassDecl>(d);
+            }
+            return null_scan_cell_returns_value(id->candidate_cell);
+        }
+        if isa::<ChainExpr>(callee) {
+            var c = cast::<ChainExpr>(callee);
+            if c->steps.size() == 0 { return false; }
+            var st = c->steps.get(c->steps.size() - 1);
+            if st->resolved_decl != &null {
+                var d = st->resolved_decl;
+                if isa::<FunctionDecl>(d) { return null_scan_returns_value(d); }
+                return isa::<StructDecl>(d) || isa::<ClassDecl>(d);
+            }
+            return null_scan_cell_returns_value(st->candidate_cell);
+        }
+        return false;
+    }
+    var p = null_place_of(x);
+    if p.size() > 0 {
+        var t = null_scan_decl_type(p[p.size() - 1]);
+        return (t != &null) && (!t->is_dependent()) && (!null_flow_type_is_nullable(t));
+    }
+    return false;
+}
+
+/// The loop pre-scan (3.5): what one pass through a loop body may have
+/// done to each place proven at its head (`cands`) by the time it gets
+/// back there, path by path. The typer walks the body once, from the
+/// head's state, so that state must already hold on every back edge: a
+/// candidate the body may leave anything but what it found (or, for a
+/// NonNull one, a value proven non-null) is Maybe at the head.
+///
+/// The scan runs before the body is typed, so it reads only the syntax
+/// and what is already known (bound names, declared types), and errs
+/// toward "lost". It must lose at least what the typer itself weakens
+/// there: an assignment of anything not known non-null (null_scan_rhs_
+/// value), `&e` (an `@inout` marker or a pointer kept), a place passed to
+/// a call that may take it `@inout` unmarked, a method or user operator
+/// on a place that may take it as mutable `self` (the paths under it),
+/// and anything in an if-expression, a `&&` / `||` right side, a `catch`
+/// or `finally`, where the order is not followed. Calls' effect on globals
+/// and on escaped places is the caller's (it weakens those always). It
+/// does not look into closures: their bodies do not run where they are
+/// written, and a by-pointer capture is followed elsewhere.
+class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
+    pub var sc:    *SemaContext = &null;
+    pub var cands: vec::<vec::<*Decl>>;
+    pub var st:    NullScanState;
+    pub var loops: vec::<NullScanLoop>;
+    /// > 0: inside a part whose order is not followed; an effect adds to
+    /// what a place may have instead of replacing it.
+    pub var taint: u32 = 0;
+    /// A label waiting for the loop statement it labels.
+    pub var pending: string = "";
+
+    fn NullLoopScan(self) { }
+
+    /// The back edge of the loop over \p body (with \p update run after
+    /// it), labeled \p label: the join of the end of the body and every
+    /// `continue` to it, then the update.
+    fn run(self, body: *Stmt, update: *Expr, label: string) -> NullScanState {
+        self.st = NullScanState{};
+        for var i: usize = 0; i < self.cands.size(); ++i {
+            self.st.flags.push_back(NULL_SCAN_KEPT());
+            self.st.at.push_back(SourceRange());
+        }
+        var l = NullScanLoop{};
+        l.label = label;
+        self.loops.push_back(l);
+        if body != &null { self.scan_stmt(body); }
+        var back = self.st;
+        var top = self.loops.back();
+        for var i: usize = 0; i < top.conts.size(); ++i { back = null_scan_join(&back, &(top.conts[i])); }
+        self.loops.pop_back();
+        if update != &null {
+            self.st = back;
+            self.scan_expr(update);
+            back = self.st;
+        }
+        return back;
+    }
+
+    // --- effects ----------------------------------------------------------------
+
+    priv fn _set(self, i: usize, v: u8, at: SourceRange) {
+        if self.st.dead { return; }
+        if self.taint > 0 { self.st.flags[i] = self.st.flags[i] | v; }
+        else { self.st.flags[i] = v; }
+        if v == NULL_SCAN_LOST() { self.st.at[i] = at; }
+    }
+
+    /// `q = rhs`: \p q itself takes the value, every path under it is lost.
+    priv fn _write(self, q: *vec::<*Decl>, value: bool, at: SourceRange) {
+        for var i: usize = 0; i < self.cands.size(); ++i {
+            var p = &(self.cands[i]);
+            if !null_place_under(p, q) { continue; }
+            if p->size() == q->size() { self._set(i, (NULL_SCAN_VALUE()) if (value) else (NULL_SCAN_LOST()), at); }
+            else { self._set(i, NULL_SCAN_LOST(), at); }
+        }
+    }
+
+    /// \p q and every path under it (only those strictly under it, when
+    /// \p strict) may hold anything.
+    priv fn _lose(self, q: *vec::<*Decl>, strict: bool, at: SourceRange) {
+        if q->size() == 0 { return; }
+        for var i: usize = 0; i < self.cands.size(); ++i {
+            var p = &(self.cands[i]);
+            if !null_place_under(p, q) { continue; }
+            if strict && (p->size() == q->size()) { continue; }
+            self._set(i, NULL_SCAN_LOST(), at);
+        }
+    }
+
+    /// \p e is a receiver a call may take as mutable `self`.
+    priv fn _lose_inside(self, e: *Expr, at: SourceRange) {
+        var q = null_place_of(e);
+        self._lose(&q, true, at);
+    }
+
+    // --- expressions --------------------------------------------------------------
+
+    fn scan_expr(self, e: *Expr) {
+        if e != &null { self.dispatch_expr(e); }
+    }
+
+    priv fn _tainted(self, e: *Expr) {
+        self.taint = self.taint + 1;
+        self.scan_expr(e);
+        self.taint = self.taint - 1;
+    }
+
+    fn visit_closure_expr(self, n: *ClosureExpr) -> bool { return false; }
+
+    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
+        if n == &null { return false; }
+        var k = n->op_token.kind;
+        if k == TokenKind::OpColon { self.scan_expr(n->rhs); return false; }   // `f(x: v)`: a named argument.
+        self.scan_expr(n->rhs);
+        self.scan_expr(n->lhs);
+        var q = null_place_of(n->lhs);
+        if k != TokenKind::OpEqual {
+            // In place: a narrowed place stays what it is; a record's `op +=`
+            // may be a mutable `self`.
+            if q.size() > 0 { self._lose(&q, true, n->range); }
+            return false;
+        }
+        if q.size() == 0 {
+            // A step not bound yet: the whole root may be the target.
+            var d = null_root_decl(n->lhs);
+            if (d != &null) && (isa::<VariableDecl>(d) || isa::<ParamDecl>(d)) {
+                var r = vec::<*Decl>();
+                r.push_back(d);
+                self._lose(&r, false, n->range);
+            }
+            return false;
+        }
+        self._write(&q, null_scan_rhs_value(n->rhs), n->range);
+        return false;
+    }
+
+    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
+        if n == &null { return false; }
+        var k = n->op_token.kind;
+        if n->is_prefix() && (k == TokenKind::OpAmp) {
+            var q = null_place_of(n->operand);
+            self._lose(&q, false, n->range);
+        } else if (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus) {
+            var q = null_place_of(n->operand);
+            self._lose(&q, true, n->range);
+        }
+        return true;
+    }
+
+    fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
+        if n == &null { return false; }
+        var k = n->op_token.kind;
+        self.scan_expr(n->lhs);
+        if (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd) || (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr) || (k == TokenKind::OpQuestionQuestion) {
+            self._tainted(n->rhs);   // runs on one outcome only.
+            return false;
+        }
+        self.scan_expr(n->rhs);
+        // A record's operator may take its left side as a mutable `self`.
+        if (null_literal_of(n->lhs) == &null) && (null_literal_of(n->rhs) == &null) {
+            var q = null_place_of(n->lhs);
+            if (q.size() > 0) && (!null_scan_is_scalar(null_scan_decl_type(q[q.size() - 1]))) { self._lose(&q, true, n->range); }
+        }
+        return false;
+    }
+
+    fn visit_if_expr(self, n: *IfExpr) -> bool {
+        if n == &null { return false; }
+        self.scan_expr(n->condition);
+        self.taint = self.taint + 1;
+        self.scan_expr(n->then_expr);
+        for var i: usize = 0; i < n->else_ifs.size(); ++i {
+            self.scan_expr(n->else_ifs.get(i)->condition);
+            self.scan_expr(n->else_ifs.get(i)->body);
+        }
+        self.scan_expr(n->else_expr);
+        self.taint = self.taint - 1;
+        return false;
+    }
+
+    fn visit_match_expr(self, n: *MatchExpr) -> bool {
+        if n == &null { return false; }
+        self.scan_expr(n->scrutinee);
+        self.taint = self.taint + 1;
+        for var i: usize = 0; i < n->cases.size(); ++i {
+            var mc = n->cases.get(i);
+            self.scan_expr(mc->guard);
+            if mc->body != &null { self.dispatch_stmt(static_cast::<*Stmt>(mc->body)); }
+            self.scan_expr(mc->expression);
+        }
+        self.taint = self.taint - 1;
+        return false;
+    }
+
+    fn visit_try_catch_expr(self, n: *TryCatchExpr) -> bool {
+        if n == &null { return false; }
+        self.taint = self.taint + 1;
+        self.scan_expr(n->try_expr);
+        for var i: usize = 0; i < n->catch_arms.size(); ++i { self.scan_expr(n->catch_arms.get(i)->body); }
+        self.taint = self.taint - 1;
+        return false;
+    }
+
+    fn visit_call_expr(self, n: *CallExpr) -> bool {
+        if n == &null { return false; }
+        self.scan_expr(n->callee);
+        for var i: usize = 0; i < n->args.size(); ++i { self.scan_expr(n->args[i]); }
+        var callee = null_flow_strip_parens(n->callee);
+        // An unmarked argument to `@inout` binds (warned): unless no
+        // candidate has an `@inout` parameter, a place passed may be written.
+        if self._may_inout(callee) {
+            for var i: usize = 0; i < n->args.size(); ++i {
+                var a = n->args[i];
+                var v = named_call_arg_value(a);
+                if v != &null { a = v; }
+                var q = null_place_of(a);
+                self._lose(&q, false, n->range);
+            }
+        }
+        // A method taking a mutable `self` may write any field of its receiver.
+        if (callee != &null) && isa::<ChainExpr>(callee) {
+            var c = cast::<ChainExpr>(callee);
+            var k = c->steps.size();
+            if k > 0 {
+                var last = c->steps.get(k - 1);
+                var known_const = (null_scan_const_method(last->resolved_decl)) if (last->resolved_decl != &null) else (null_scan_cell_const(last->candidate_cell));
+                if (last->access_kind == ChainExpr::AccessKind::Dot) && (!known_const) {
+                    var q = (null_place_of(c->base)) if (k == 1) else (null_chain_place(c, k - 2));
+                    self._lose(&q, true, n->range);
+                }
+            }
+        }
+        return false;
+    }
+
+    /// The call through \p callee may take an argument `@inout`.
+    priv fn _may_inout(self, callee: *Expr) -> bool {
+        if callee == &null { return true; }
+        if isa::<NamedIdentExpr>(callee) {
+            var id = cast::<NamedIdentExpr>(callee);
+            var d = id->resolved_decl;
+            if d == &null { return !null_scan_cell_no_inout(id->candidate_cell); }
+            if isa::<FunctionDecl>(d) { return !null_scan_no_inout(d); }
+            var t = null_scan_decl_type(d);
+            if (t != &null) && isa::<FunctionPointerType>(canon_unqual(t)) {
+                var fp = cast::<FunctionPointerType>(canon_unqual(t));
+                for var i: usize = 0; i < fp->modes.size(); ++i { if fp->modes[i] == ParamMode::Inout { return true; } }
+                return false;
+            }
+            return true;
+        }
+        if isa::<ChainExpr>(callee) {
+            var c = cast::<ChainExpr>(callee);
+            if c->steps.size() == 0 { return true; }
+            var st = c->steps.get(c->steps.size() - 1);
+            if st->resolved_decl != &null { return !null_scan_no_inout(st->resolved_decl); }
+            return !null_scan_cell_no_inout(st->candidate_cell);
+        }
+        return true;
+    }
+
+    // --- statements ---------------------------------------------------------------
+
+    /// The loop a `break` / `continue` with \p label (empty: none) leaves,
+    /// as an index into `loops`; -1 when it leaves the scanned loop's
+    /// enclosing ones.
+    priv fn _target(self, has_label: bool, label: Token) -> i64 {
+        if self.loops.size() == 0 { return -1; }
+        if !has_label { return i64(self.loops.size() - 1); }
+        var nm = self.sc->ctx->get_spelling(label);
+        var i = self.loops.size();
+        while i > 0 {
+            i = i - 1;
+            if self.loops[i].label == nm { return i64(i); }
+        }
+        return -1;
+    }
+
+    priv fn _take_label(self) -> string {
+        var l = self.pending;
+        self.pending = "";
+        return l;
+    }
+
+    /// A loop nested in the scanned body: one pass over \p body from the
+    /// state before it, its head the join of that and the back edge (one
+    /// pass is enough: an effect is a constant or nothing, so a second pass
+    /// adds no path), the state after it the head (\p may_skip: the
+    /// condition, or an exhausted range) joined with every `break`.
+    priv fn _nested(self, cond: *Expr, body: *Stmt, update: *Expr, may_skip: bool) {
+        var l = NullScanLoop{};
+        l.label = self._take_label();
+        self.loops.push_back(l);
+        var s0 = self.st;
+        if cond != &null { self.scan_expr(cond); }
+        if body != &null { self.scan_stmt(body); }
+        var back = self.st;
+        var me = self.loops.back();
+        for var i: usize = 0; i < me.conts.size(); ++i { back = null_scan_join(&back, &(me.conts[i])); }
+        if update != &null {
+            self.st = back;
+            self.scan_expr(update);
+            back = self.st;
+        }
+        var head = null_scan_join(&s0, &back);
+        self.st = head;
+        if cond != &null { self.scan_expr(cond); }
+        me = self.loops.back();
+        self.loops.pop_back();
+        var after = self.st;
+        if !may_skip {
+            after = NullScanState{};
+            after.dead = true;
+            if me.breaks.size() > 0 { after = back; }
+        }
+        for var i: usize = 0; i < me.breaks.size(); ++i { after = null_scan_join(&after, &(me.breaks[i])); }
+        self.st = after;
+    }
+
+    fn scan_stmt(self, s: *Stmt) {
+        if s == &null { return; }
+        switch s->kind {
+            case StmtKind::CompoundStmt {
+                var c = cast::<CompoundStmt>(s);
+                for var i: usize = 0; i < c->body.size(); ++i { self.scan_stmt(c->body[i]); }
+            }
+            case StmtKind::ExpressionStmt { self.scan_expr(cast::<ExpressionStmt>(s)->expr); }
+            case StmtKind::DeclStmt {
+                var d = cast::<DeclStmt>(s)->decl;
+                if (d != &null) && isa::<VariableDecl>(d) { self.scan_expr(cast::<VariableDecl>(d)->init); }
+            }
+            case StmtKind::ReturnStmt {
+                self.scan_expr(cast::<ReturnStmt>(s)->value);
+                self.st.dead = true;
+            }
+            case StmtKind::PanicStmt {
+                self.scan_expr(cast::<PanicStmt>(s)->payload);
+                self.st.dead = true;
+            }
+            case StmtKind::BreakStmt {
+                var b = cast::<BreakStmt>(s);
+                var t = self._target(b->has_label, b->label);
+                if (t >= 0) && (!self.st.dead) { self.loops[usize(t)].breaks.push_back(self.st); }
+                self.st.dead = true;
+            }
+            case StmtKind::ContinueStmt {
+                var c = cast::<ContinueStmt>(s);
+                var t = self._target(c->has_label, c->label);
+                if (t >= 0) && (!self.st.dead) { self.loops[usize(t)].conts.push_back(self.st); }
+                self.st.dead = true;
+            }
+            case StmtKind::ConditionalStmt {
+                var c = cast::<ConditionalStmt>(s);
+                self.scan_expr(c->cond);
+                var s0 = self.st;
+                if c->then_ != &null { self.scan_stmt(static_cast::<*Stmt>(c->then_)); }
+                var s1 = self.st;
+                self.st = s0;
+                if c->else_ != &null { self.scan_stmt(c->else_); }
+                self.st = null_scan_join(&s1, &(self.st));
+            }
+            case StmtKind::WhileLoopStmt {
+                var w = cast::<WhileLoopStmt>(s);
+                self._nested(w->cond, static_cast::<*Stmt>(w->body), &null, true);
+            }
+            case StmtKind::LoopStmt {
+                self._nested(&null, static_cast::<*Stmt>(cast::<LoopStmt>(s)->body), &null, false);
+            }
+            case StmtKind::IndexedForStmt {
+                var f = cast::<IndexedForStmt>(s);
+                var lbl = self._take_label();
+                if f->init != &null { self.scan_stmt(f->init); }
+                self.pending = lbl;
+                self._nested(f->cond, static_cast::<*Stmt>(f->body), f->update, true);
+            }
+            case StmtKind::RangedForStmt {
+                var f = cast::<RangedForStmt>(s);
+                var lbl = self._take_label();
+                self.scan_expr(f->iterable);
+                self.pending = lbl;
+                self._nested(&null, static_cast::<*Stmt>(f->body), &null, true);
+            }
+            case StmtKind::MatchStmt {
+                var m = cast::<MatchStmt>(s);
+                self.scan_expr(m->scrutinee);
+                var s0 = self.st;
+                var acc = s0;
+                for var i: usize = 0; i < m->cases.size(); ++i {
+                    var mc = m->cases.get(i);
+                    self.st = s0;
+                    self.scan_expr(mc->guard);
+                    if mc->body != &null { self.scan_stmt(static_cast::<*Stmt>(mc->body)); }
+                    self.scan_expr(mc->expression);
+                    acc = null_scan_join(&acc, &(self.st));
+                }
+                self.st = acc;
+            }
+            case StmtKind::LabeledStmt {
+                var l = cast::<LabeledStmt>(s);
+                self.pending = self.sc->ctx->get_spelling(l->label);
+                self.scan_stmt(l->inner);
+                self.pending = "";
+            }
+            case StmtKind::TryCatchStmt {
+                // A catch arm may start after any part of the body ran: from
+                // everything the body may have done along the way.
+                var t = cast::<TryCatchStmt>(s);
+                var s0 = self.st;
+                if t->try_body != &null { self.scan_stmt(static_cast::<*Stmt>(t->try_body)); }
+                var end = self.st;
+                self.st = s0;
+                self.taint = self.taint + 1;
+                if t->try_body != &null { self.dispatch_stmt(static_cast::<*Stmt>(t->try_body)); }
+                self.taint = self.taint - 1;
+                var entry = self.st;
+                entry.dead = s0.dead;
+                var acc = end;
+                for var i: usize = 0; i < t->arms.size(); ++i {
+                    self.st = entry;
+                    var arm = t->arms.get(i);
+                    if arm->body != &null { self.scan_stmt(static_cast::<*Stmt>(arm->body)); }
+                    acc = null_scan_join(&acc, &(self.st));
+                }
+                self.st = acc;
+            }
+            case StmtKind::UnsafeBlockStmt {
+                var u = cast::<UnsafeBlockStmt>(s);
+                if u->body != &null { self.scan_stmt(static_cast::<*Stmt>(u->body)); }
+            }
+            default {
+                // Anything else (`finally`, `with`, a destructuring, `yield`,
+                // an assert): its effects, in no particular order.
+                self.taint = self.taint + 1;
+                self.dispatch_stmt(s);
+                self.taint = self.taint - 1;
+            }
+        }
+    }
+}
+
 class NullnessFlow {
     pub var sc: *SemaContext = &null;
     pub var tu: *TypeUtil    = &null;
@@ -570,6 +1229,8 @@ class NullnessFlow {
     priv var _addr:   llvm::DenseSet::<u64>;
     /// The pointers taken in this body that may still be written through.
     priv var _escapes: vec::<NullEscape>;
+    /// A label waiting for the loop statement it labels (label_next).
+    priv var _label: string = "";
     /// expr -> index in _read_list: the fact its place had where it was written.
     priv var _reads:     llvm::DenseMap::<u64, usize>;
     priv var _read_list: vec::<NullFact>;
@@ -930,12 +1591,54 @@ class NullnessFlow {
 
     // --- loops (3.5, conservatively) ------------------------------------------
 
-    /// The head of a loop over \p body (with \p e1 / \p e2, its condition
-    /// and update, which run on the back edge too): every place they assign
-    /// is Maybe, and every global, since any call in them may write one.
-    fn loop_enter(self, body: *Stmt, e1: *Expr, e2: *Expr) {
-        self._weaken_assigned(body, e1, e2);
+    /// The next loop statement is labeled \p name (`outer: while ...`).
+    fn label_next(self, name: string) { self._label = name; }
+
+    /// The head of a loop over \p body, with \p update (a `for`'s) run on
+    /// the back edge after it (3.5). The body is typed once, from here, so
+    /// the state here must hold on every back edge too: a place proven here
+    /// stays proven only when no path through the body (and the update)
+    /// may bring it back holding anything else (NullLoopScan), and a
+    /// global or an escaped place never does, since any call may write it.
+    /// The condition is typed after this, at the head, so `while x?`
+    /// proves `x` at the top of the body whatever the body does to it.
+    fn loop_enter(self, body: *Stmt, update: *Expr) {
         var l = NullLoop{};
+        l.label = self._label;
+        self._label = "";
+        if !self.env.dead {
+            var scan = NullLoopScan();
+            scan.sc = self.sc;
+            var idx = vec::<usize>();
+            for var i: usize = 0; i < self.env.facts.size(); ++i {
+                var f = &(self.env.facts[i]);
+                if f->global || (f->state == Nullness::Maybe) { continue; }
+                idx.push_back(i);
+                scan.cands.push_back(f->place);
+            }
+            var back = scan.run(body, update, l.label);
+            for var j: usize = 0; j < idx.size(); ++j {
+                if back.dead { break; }
+                var f = &(self.env.facts[idx[j]]);
+                var fl = back.flags[j];
+                // NonNull survives what may only keep it or give it a
+                // proven value; Null survives only being left alone.
+                var ok = (fl & NULL_SCAN_LOST()) == 0;
+                if f->state == Nullness::Null { ok = fl == NULL_SCAN_KEPT(); }
+                if ok { continue; }
+                f->state = Nullness::Maybe;
+                f->why   = NullWhy::Looped;
+                f->at    = (back.at[j]) if ((fl & NULL_SCAN_LOST()) != 0) else (body->range);
+            }
+            var keep = vec::<NullFact>();
+            for var i: usize = 0; i < self.env.facts.size(); ++i {
+                if !self.env.facts[i].global { keep.push_back(self.env.facts[i]); }
+            }
+            self.env.facts = keep;
+            for var i: usize = 0; i < self._escapes.size(); ++i {
+                null_env_weaken_under(&(self.env), &(self._escapes[i].place), false, NullWhy::Escaped, self._escapes[i].at);
+            }
+        }
         self._loops.push_back(l);
     }
 
@@ -949,15 +1652,28 @@ class NullnessFlow {
         return out;
     }
 
-    /// `break`: this state reaches the end of the loop. A labeled break may
-    /// leave any enclosing loop; it is given to each (a join only weakens).
-    fn on_break(self, labeled: bool) {
+    /// `break` (`break label` when \p label is not empty): this state
+    /// reaches the end of the loop it leaves. A label naming no loop here
+    /// gives it to each (a join only weakens).
+    fn on_break(self, label: string) {
         var base = self._loops_base();
         if self._loops.size() > base {
-            if labeled {
-                for var i = base; i < self._loops.size(); ++i { self._loops[i].breaks.push_back(self.env); }
-            } else {
+            if label.size() == 0 {
                 self._loops[self._loops.size() - 1].breaks.push_back(self.env);
+            } else {
+                var found = false;
+                var i = self._loops.size();
+                while i > base {
+                    i = i - 1;
+                    if self._loops[i].label == label {
+                        self._loops[i].breaks.push_back(self.env);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    for var k = base; k < self._loops.size(); ++k { self._loops[k].breaks.push_back(self.env); }
+                }
             }
         }
         self.diverge();
