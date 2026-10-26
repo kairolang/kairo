@@ -1287,24 +1287,32 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
-    /// Each arm starts from the state before the match (what a pattern
-    /// proves is G14's); after it, every arm's end joined with that state.
+    /// Each arm starts from the state before the match, refined by what its
+    /// pattern proves (NULLABLE.md 3.6: on a `T?`, `case null` sees the
+    /// place Null and every later arm NonNull) and by its guard's true set.
+    /// After it, the join of the arms' ends, a diverging arm excluded: the
+    /// state before the match is not joined in, since a match is exhaustive
+    /// (a non-exhaustive one is SC120E), so no path skips every arm.
     fn traverse_match_stmt(self, n: *MatchStmt) -> *MatchStmt {
         if n == &null { return n; }
         var st = dyn()->type_of(n->scrutinee, &null);
         var entry = dyn()->flow.env;
-        var acc = entry;
+        n->null_arm = dyn()->match_null_first(n->scrutinee, &(n->cases), st, n->range, true);
+        var bad_null = (!n->null_arm) && (st != &null) && (dyn()->tu.nullable_inner(dyn()->tu.as_value(st)) != &null);
+        var acc = dyn()->flow.dead_env();
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);
-            dyn()->flow.env = entry;
-            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], st); }
-            if mc->guard != &null { dyn()->require_bool(mc->guard, "a 'where' guard"); }
+            var col = dyn()->match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry);
+            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], col); }
+            dyn()->match_guard(mc);
             if mc->body  != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(mc->body)); }
             if mc->expression != &null { dyn()->type_of(mc->expression, &null); }
             var end = dyn()->flow.env;
             acc = dyn()->flow.join(&acc, &end);
         }
+        if n->cases.size() == 0 { acc = entry; }
         dyn()->flow.env = acc;
+        if bad_null { n->scrutinee->poison(); }
         return n;
     }
 

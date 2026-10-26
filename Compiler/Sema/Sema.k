@@ -463,9 +463,10 @@ class Sema {
         // value; before OperatorLowering, so an operator on `t.0` sees a
         // field path.
         { var _p = TimeRegion("TupleLowering"); TupleLowering(&self.sc).run(); }
-        // `x ?? y` -> `if x? => x else y`, `x?.m`, `unwrap!(x)` and `a ===
-        // b` likewise, each read after its test marked narrowed (NULLABLE.md
-        // §5 step 1). Before OperatorLowering: `===`'s `==` may be a user
+        // `x ?? y` -> `if x? => x else y`, `x?.m`, `unwrap!(x)`, `a === b`
+        // and a `match` on a `T?` likewise, each read after its test marked
+        // narrowed (NULLABLE.md §5 step 1). Before MatchLowering, which
+        // lowers the match left on the value with PatternCompilation's tree. Before OperatorLowering: `===`'s `==` may be a user
         // `op ==`, recorded by typing and lowered there. Before NullTestLowering and
         // NarrowedAccessLowering, which lower the test and the marked read it
         // builds; after CopyMoveLowering, whose moves it binds as operands.

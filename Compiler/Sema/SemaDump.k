@@ -1413,15 +1413,17 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         }
         if isa::<MatchExpr>(n) {
             var m = cast::<MatchExpr>(n);
-            self._note_match_facts(m->is_exhaustive, m->covering_arm, m->open_tail);
+            self._note_match_facts(m->is_exhaustive, m->covering_arm, m->open_tail, m->null_arm);
         }
     }
 
-    /// `  [exhaustive=1 covering_arm=2 open_tail=1]`: PatternChecking's facts.
-    priv fn _note_match_facts(self, exhaustive: bool, covering: i32, open_tail: bool) {
+    /// `  [exhaustive=1 covering_arm=2 open_tail=1]`: PatternChecking's facts,
+    /// and ` null_arm=1` on a match on a `T?` that answers null first.
+    priv fn _note_match_facts(self, exhaustive: bool, covering: i32, open_tail: bool, null_arm: bool) {
         var e = ("1") if (exhaustive) else ("0");
         var o = ("1") if (open_tail) else ("0");
-        self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}]");
+        var na = (" null_arm=1") if (null_arm) else ("");
+        self._p.paint(Color::Dim, f"  [exhaustive={e} covering_arm={covering} open_tail={o}{na}]");
     }
 
     /// `Enum::Variant` for \p v.
@@ -1441,7 +1443,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._p.paint(Color::Ident, self._pad("MatchStmt", 24));
         self._p.paint(Color::Dim,
             self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
-        self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail);
+        self._note_match_facts(n->is_exhaustive, n->covering_arm, n->open_tail, n->null_arm);
         self._p.newline();
         self._dump_decision(n->decision);
         return true;

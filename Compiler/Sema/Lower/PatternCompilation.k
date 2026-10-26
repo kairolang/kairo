@@ -284,19 +284,23 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
 
     fn visit_match_stmt(self, n: *MatchStmt) -> bool {
         if (n == &null) || (!n->is_exhaustive) { return true; }
-        n->decision = reinterpret_cast::<*void>(self._compile(n->scrutinee, &(n->cases)));
+        n->decision = reinterpret_cast::<*void>(self._compile(n->scrutinee, &(n->cases), n->null_arm));
         return true;
     }
 
     fn visit_match_expr(self, n: *MatchExpr) -> bool {
         if (n == &null) || (!n->is_exhaustive) { return true; }
-        n->decision = reinterpret_cast::<*void>(self._compile(n->scrutinee, &(n->cases)));
+        n->decision = reinterpret_cast::<*void>(self._compile(n->scrutinee, &(n->cases), n->null_arm));
         return true;
     }
 
     // === one match ========================================================
 
-    priv fn _compile(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>) -> *DecisionTree {
+    /// \p null_arm (NULLABLE.md 3.6): arm 0 is `case null`, which this tree
+    /// never reaches; CoalesceLowering answers it before the match, whose
+    /// scrutinee it makes the unwrapped value. So the rows start at arm 1
+    /// (arm numbers kept) and the root is `T`.
+    priv fn _compile(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>, null_arm: bool) -> *DecisionTree {
         self._bad = false;
         if (scrutinee == &null) || (scrutinee->type_ == &null) || scrutinee->is_poisoned() { return &null; }
         if canon_unqual(scrutinee->type_) == &null { return &null; }
@@ -307,10 +311,12 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             }
         }
 
-        var rows = self._rows(cases);
+        var rows = self._rows(cases, (1) if (null_arm) else (0));
+        var root_ty = scrutinee->type_;
+        if null_arm { root_ty = self._tu.nullable_inner(self._tu.as_value(root_ty)); }
         self._reset();
         self._budget = usize(16) * rows.size() + usize(64);
-        var root_occ = self._root(scrutinee->type_);
+        var root_occ = self._root(root_ty);
         var occs = vec::<u32>();
         occs.push_back(root_occ);
 
@@ -318,7 +324,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
         var automaton = false;
         if self._over {
             self._reset();
-            root_occ = self._root(scrutinee->type_);
+            root_occ = self._root(root_ty);
             root = self._automaton(&rows, root_occ);
             automaton = true;
         }
@@ -327,9 +333,9 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     }
 
     /// One row per case-level alternative; `default` is one wildcard row.
-    priv fn _rows(self, cases: *FrozenList::<MatchCase>) -> vec::<CRow> {
+    priv fn _rows(self, cases: *FrozenList::<MatchCase>, first: usize) -> vec::<CRow> {
         var rows = vec::<CRow>();
-        for var i: usize = 0; i < cases->size(); ++i {
+        for var i: usize = first; i < cases->size(); ++i {
             var mc = cases->get(i);
             if mc->is_default || (mc->patterns.size() == 0) {
                 var r = CRow{};

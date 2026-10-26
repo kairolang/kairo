@@ -1203,6 +1203,12 @@ class MatchExpr derives Expr {
     pub var covering_arm:  i32  = -1;
     pub var open_tail:     bool = false;
     pub var decision:      *void = &null; ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
+    /// A match on a `T?` whose first arm is `case null` (NULLABLE.md 3.6):
+    /// every later arm matches the unwrapped `T`. One writer: X (the match
+    /// typing, which also reports a `T?` match without it); read by
+    /// PatternChecking and PatternCompilation (arm 0 is no row; the column
+    /// is `T`), CoalesceLowering (which splits arm 0 off) and SemaDump.
+    pub var null_arm:      bool  = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchExpr {
         var node        = ctx->alloc::<MatchExpr>();

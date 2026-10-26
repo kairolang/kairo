@@ -129,7 +129,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     fn visit_match_stmt(self, n: *MatchStmt) -> bool {
         if n == &null { return true; }
-        var v = self._check(n->scrutinee, &(n->cases), n->range, true);
+        var v = self._check(n->scrutinee, &(n->cases), n->range, true, n->null_arm);
         n->is_exhaustive = v.is_exhaustive;
         n->covering_arm  = v.covering_arm;
         n->open_tail     = v.open_tail;
@@ -138,7 +138,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     fn visit_match_expr(self, n: *MatchExpr) -> bool {
         if n == &null { return true; }
-        var v = self._check(n->scrutinee, &(n->cases), n->range, false);
+        var v = self._check(n->scrutinee, &(n->cases), n->range, false, n->null_arm);
         n->is_exhaustive = v.is_exhaustive;
         n->covering_arm  = v.covering_arm;
         n->open_tail     = v.open_tail;
@@ -150,8 +150,12 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     // === one match ========================================================
 
+    /// \p null_arm: a match on `T?` whose arm 0 is `case null` (NULLABLE.md
+    /// 3.6). That arm is no row: it answers the null the other arms never
+    /// see, and they were typed against `T`, so the column is `T` (a
+    /// `bool?` with `case null`, `true`, `false` is exhaustive).
     priv fn _check(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>,
-                   at: SourceRange, stmt_form: bool) -> MatchVerdict {
+                   at: SourceRange, stmt_form: bool, null_arm: bool) -> MatchVerdict {
         var v = MatchVerdict{};
         if (scrutinee == &null) || (scrutinee->type_ == &null) || scrutinee->is_poisoned() { return v; }
         if canon_unqual(scrutinee->type_) == &null { return v; }
@@ -166,7 +170,8 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
         // One row per case-level alternative; `default` is one wildcard row.
         var rows = vec::<PatRow>();
-        for var i: usize = 0; i < cases->size(); ++i {
+        var first: usize = (1) if (null_arm) else (0);
+        for var i: usize = first; i < cases->size(); ++i {
             var mc = cases->get(i);
             if mc->is_default || (mc->patterns.size() == 0) {
                 var r = PatRow{};

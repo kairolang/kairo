@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------- Sema/Lower/CoalesceLowering.k --- ///
 ///
-///   \brief The nullable operators that choose a value become the
-///          if-expressions NULLABLE.md §2 writes for them.
+///   \brief The nullable operators that choose a value, and a `match` on a
+///          `T?`, become the if-expressions NULLABLE.md §2 / 3.6 write.
 ///
 ///   \detail
 ///     NULLABLE.md 2.4-2.6, §5 step 1:
@@ -13,6 +13,8 @@
 ///                                                       transform_unwrap_expr)
 ///       a === b       ->  (a? && b?) && a == b         (`*a == *b` through
 ///                                                       nullable pointers)
+///       match x { case null { A } arms }
+///                     ->  if !x? { A } else { match <x> { arms } }   (3.6)
 ///
 ///     The expansion is built TYPED, in the exact shape the typer gives the
 ///     same code written by hand, so the passes after this one lower it
@@ -192,6 +194,80 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         both->type_          = self.sc->builtin(BuiltinKind::Bool);
         both->value_category = Expr::ValueCategory::RValue;
         return static_cast::<*Expr>(both);
+    }
+
+    // --- `match` on a `T?` ------------------------------------------------------------
+
+    /// `match x { case null { A } arms }` -> `if !x? { A } else { match <x> {
+    /// arms } }` (NULLABLE.md 3.6), where `<x>` is the marked read, so the
+    /// match runs on the value. PatternCompilation built the match's tree
+    /// over the arms after `case null` with the column `T` (null_arm); the
+    /// arm stays in the list, unreached and emptied, so its index and every
+    /// other arm's are what the tree names. A scrutinee that is no place is
+    /// bound once and its value moved into the match.
+    fn transform_match_stmt(self, n: *MatchStmt) -> vec::<*Stmt> {
+        var out = ASTWriter::<CoalesceLowering>::transform_match_stmt(n);
+        if (!n->null_arm) || (n->scrutinee == &null) || n->scrutinee->is_poisoned() || (n->cases.size() == 0) { return out; }
+        var stmts = self.list_builder::<*Stmt>();
+        var opd = self._operand(n->scrutinee, &stmts);
+        var arm0 = n->cases.get(0);
+        var none = self._take_null_arm(arm0, n->range);
+        n->scrutinee = opd.value;
+
+        var some = CompoundStmt::create(self.ctx, n->range);
+        var sb = self.list_builder::<*Stmt>();
+        sb.push(static_cast::<*Stmt>(n));
+        sb.freeze_into(&(some->body));
+        stmts.push(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, n->range, self._absent(n->range, opd.test), none,
+                                                                static_cast::<*Stmt>(some))));
+        var blk = CompoundStmt::create(self.ctx, n->range);
+        stmts.freeze_into(&(blk->body));
+        return self._one_stmt(static_cast::<*Stmt>(blk));
+    }
+
+    /// The value form: `if x? => match <x> { arms } else A` (a value arm is
+    /// always `=> expr`, S073E). An if-expression, as `??` is.
+    fn transform_match_expr(self, n: *MatchExpr) -> *Expr {
+        var out = ASTWriter::<CoalesceLowering>::transform_match_expr(n);
+        if (!n->null_arm) || (n->scrutinee == &null) || n->scrutinee->is_poisoned() || (n->cases.size() == 0) || (n->type_ == &null) { return out; }
+        var arm0 = n->cases.get(0);
+        if arm0->expression == &null { return out; }
+        var stmts = self.list_builder::<*Stmt>();
+        var opd = self._operand(n->scrutinee, &stmts);
+        var a0 = arm0->expression;
+        arm0->expression = &null;
+        n->scrutinee = opd.value;
+        var ie = IfExpr::create(self.ctx, n->range, self._test(n->range, opd.test), static_cast::<*Expr>(n), a0);
+        ie->type_          = n->type_;
+        ie->value_category = Expr::ValueCategory::RValue;
+        return self._wrap(static_cast::<*Expr>(n), opd, &stmts, static_cast::<*Expr>(ie));
+    }
+
+    /// Arm 0's code as a block of its own, the arm left empty: one node is
+    /// never reachable from two places, or every later pass would rewrite
+    /// it twice.
+    priv fn _take_null_arm(self, arm0: *MatchCase, at: SourceRange) -> *CompoundStmt {
+        var blk = arm0->body;
+        if blk == &null {
+            blk = CompoundStmt::create(self.ctx, arm0->range);
+            if arm0->expression != &null {
+                var b = self.list_builder::<*Stmt>();
+                b.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, arm0->range, arm0->expression)));
+                b.freeze_into(&(blk->body));
+            }
+        }
+        arm0->body       = CompoundStmt::create(self.ctx, arm0->range);
+        arm0->expression = &null;
+        return blk;
+    }
+
+    /// `!test?`, typed bool.
+    priv fn _absent(self, at: SourceRange, test: *Expr) -> *Expr {
+        var no = UnaryOperatorExpr::create(self.ctx, at, self._test(at, test), self.synth.punct(at, TokenKind::OpExclaim),
+                                           UnaryOperatorExpr::Fix::Prefix);
+        no->type_          = self.sc->builtin(BuiltinKind::Bool);
+        no->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(no);
     }
 
     // --- `?.` / `?->` --------------------------------------------------------------

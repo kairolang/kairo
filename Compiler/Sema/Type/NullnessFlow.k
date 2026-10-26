@@ -2085,21 +2085,22 @@ class NullnessFlow {
         if isa::<BinaryOperatorExpr>(x) {
             var b = cast::<BinaryOperatorExpr>(x);
             if (b->op_token.kind != TokenKind::OpEqualEqualEqual) || b->is_poisoned() || self.env.dead { return c; }
-            self._present_if_place(&(c.t), b->lhs, x->range);
-            self._present_if_place(&(c.t), b->rhs, x->range);
+            self.put_state(&(c.t), b->lhs, Nullness::NonNull, x->range);
+            self.put_state(&(c.t), b->rhs, Nullness::NonNull, x->range);
             return c;
         }
         return c;
     }
 
-    /// \p e, when it is a nullable place, NonNull in \p env (tested at \p at).
-    priv fn _present_if_place(self, env: *NullEnv, e: *Expr, at: SourceRange) {
-        if !null_flow_is_nullable(e) { return; }
+    /// \p e, when it is a nullable place, \p state in \p env, decided by the
+    /// test at \p at (`===`'s true set; a `match` arm, NULLABLE.md 3.6).
+    fn put_state(self, env: *NullEnv, e: *Expr, state: Nullness, at: SourceRange) {
+        if env->dead || (!null_flow_is_nullable(e)) { return; }
         var place = null_place_of(e);
         if place.size() == 0 { return; }
         var f = NullFact{};
         f.place  = place;
-        f.state  = Nullness::NonNull;
+        f.state  = state;
         f.why    = NullWhy::Tested;
         f.at     = at;
         f.global = null_flow_is_global(place[0]);

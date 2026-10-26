@@ -149,22 +149,132 @@ class <T> ControlTyping {
         return t;
     }
 
+    // === match on a nullable (NULLABLE.md 3.6) ===============================
+
+    /// \p p is the `null` literal pattern.
+    priv fn _null_pattern(self, p: *Pattern) -> bool {
+        if (p == &null) || (p->kind != PatternKind::LiteralPattern) { return false; }
+        return null_literal_of(cast::<LiteralPattern>(p)->value) != &null;
+    }
+
+    /// \p p is, or has as an alternative, the `null` literal pattern.
+    priv fn _has_null_pattern(self, p: *Pattern) -> bool {
+        if self._null_pattern(p) { return true; }
+        if (p == &null) || (p->kind != PatternKind::AlternationPattern) { return false; }
+        var a = cast::<AlternationPattern>(p);
+        for var i: usize = 0; i < a->alternatives.size(); ++i { if self._has_null_pattern(a->alternatives[i]) { return true; } }
+        return false;
+    }
+
+    priv fn _arm_has_null(self, mc: *MatchCase) -> bool {
+        for var j: usize = 0; j < mc->patterns.size(); ++j { if self._has_null_pattern(mc->patterns[j]) { return true; } }
+        return false;
+    }
+
+    /// The `null_arm` of a match on \p st: whether its first arm is `case
+    /// null`, alone and unguarded, so every later arm, `default` included,
+    /// matches only a value. A match on a `T?` that does not answer null
+    /// first is an error (DECIDED, NULLABLE.md 3.6): with a fix-it inserting
+    /// the arm when the match has none (statement form; an expression arm
+    /// needs a value the fix-it cannot invent), else a note at the
+    /// `case null` that is out of place. The scrutinee is then poisoned, so
+    /// the pattern checks after typing do not judge a match whose arms were
+    /// typed for a shape it does not have.
+    fn match_null_first(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>, st: *Type,
+                        at: SourceRange, stmt_form: bool) -> bool {
+        if st == &null { return false; }
+        var nt = dyn()->tu.as_value(st);
+        if dyn()->tu.nullable_inner(nt) == &null { return false; }
+        if cases->size() == 0 { return false; }
+        var first = cases->get(0);
+        if (!first->is_default) && (first->patterns.size() == 1) && self._null_pattern(first->patterns[0]) && (first->guard == &null) {
+            return true;
+        }
+        var ts = dyn()->tu.str(nt);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, at.start, f"a match on '{ts}' must answer null first");
+        b.first(scrutinee->range);
+        var late: usize = cases->size();
+        for var i: usize = 0; i < cases->size(); ++i {
+            if self._arm_has_null(cases->get(i)) { late = i; break; }
+        }
+        if (late == 0) && (first->guard != &null) {
+            b.note(first->guard->range.start, "'case null' takes no 'where' guard: null is answered once, by the first arm");
+        } else if late == 0 {
+            b.note(first->range.start, "write 'case null' as an arm of its own: every arm after it matches only a value");
+        } else if late < cases->size() {
+            b.note(cases->get(late)->range.start, "move this arm to the top: every arm after the first matches only a value");
+        } else if stmt_form {
+            var lc = dyn()->sc->ctx->sm->get_line_col(first->range.start);
+            var pad = "";
+            for var c: u32 = 1; c < lc.column; ++c { pad = pad + " "; }
+            b.insert(first->range.start, "case null { }\n" + pad, "answer null in the first arm");
+        } else {
+            b.note(first->range.start, "add 'case null => <value>' as the first arm");
+        }
+        b.emit();
+        return false;
+    }
+
+    /// Arm \p i of a match on \p st enters: sets the nullness state its body
+    /// starts from (out of \p entry) and returns the column its patterns are
+    /// typed against. A `T?` scrutinee: the `case null` arm sees the place
+    /// Null and matches the `T?`; every other arm sees it NonNull and matches
+    /// the unwrapped `T` (`case var v` binds a `T`, `1..=3` is an integer
+    /// range). A `case null` after the first arm is an error when \p null_arm
+    /// already answered null (unless `T` is itself nullable: then it is
+    /// `T`'s own null).
+    fn match_arm_enter(self, null_arm: bool, scrutinee: *Expr, mc: *MatchCase, i: usize, st: *Type,
+                       entry: *NullEnv) -> *Type {
+        dyn()->flow.env = *entry;
+        if st == &null { return st; }
+        var nt = dyn()->tu.as_value(st);
+        var inner = dyn()->tu.nullable_inner(nt);
+        if inner == &null { return st; }
+        if self._arm_has_null(mc) {
+            if null_arm && (i > 0) && (dyn()->tu.nullable_inner(inner) == &null) {
+                for var j: usize = 0; j < mc->patterns.size(); ++j {
+                    var p = mc->patterns[j];
+                    if !self._has_null_pattern(p) { continue; }
+                    dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                        f"'null' is answered by the first arm; this arm matches only a '{dyn()->tu.str(inner)}' value"
+                    ).first(p->range).emit();
+                    p->poison();
+                }
+                dyn()->flow.put_state(&(dyn()->flow.env), scrutinee, Nullness::NonNull, mc->range);
+                return inner;
+            }
+            if (i == 0) && null_arm { dyn()->flow.put_state(&(dyn()->flow.env), scrutinee, Nullness::Null, mc->range); }
+            return st;
+        }
+        dyn()->flow.put_state(&(dyn()->flow.env), scrutinee, Nullness::NonNull, mc->range);
+        return inner;
+    }
+
+    /// A `where` guard: bool, and its true set refines the arm (3.6).
+    fn match_guard(self, mc: *MatchCase) {
+        if mc->guard == &null { return; }
+        self.require_bool(mc->guard, "a 'where' guard");
+        dyn()->flow.env = dyn()->flow.cond_of(mc->guard).t;
+    }
+
     fn type_match_expr(self, n: *MatchExpr, expected: *Type) -> *Type {
         var st = dyn()->type_of(n->scrutinee, &null);
         var acc: *Type = &null;
         var ok = true;
         // As the statement form (StmtTyping::traverse_match_stmt).
         var entry = dyn()->flow.env;
-        var fl = entry;
+        n->null_arm = self.match_null_first(n->scrutinee, &(n->cases), st, n->range, false);
+        var bad_null = (!n->null_arm) && (st != &null) && (dyn()->tu.nullable_inner(dyn()->tu.as_value(st)) != &null);
+        var fl = dyn()->flow.dead_env();
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);
             if i > 0 {
                 var end = dyn()->flow.env;
                 fl = dyn()->flow.join(&fl, &end);
             }
-            dyn()->flow.env = entry;
-            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], st); }
-            if mc->guard != &null { self.require_bool(mc->guard, "a 'where' guard"); }
+            var col = self.match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry);
+            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], col); }
+            self.match_guard(mc);
             if mc->expression != &null {
                 var t = dyn()->type_of(mc->expression, (expected) if (expected != &null) else (acc));
                 ok = self._join_into(&acc, t, mc->expression, "this 'case' value") && ok;
@@ -177,6 +287,7 @@ class <T> ControlTyping {
             fl = dyn()->flow.join(&fl, &last);
         }
         dyn()->flow.env = fl;
+        if bad_null { n->scrutinee->poison(); }
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
         for var i: usize = 0; i < n->cases.size(); ++i {
