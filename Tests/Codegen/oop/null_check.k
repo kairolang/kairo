@@ -2,16 +2,11 @@
 // and using the checked value inside the branch as the non-null type:
 // `*p` and `p->m()` on a pointer, the value itself on a `T?`.
 //
-// XFAIL: *
-// Postfix `?` is typed and lowered since NULLABLE.md G5 (`p?` is bool,
-// `!p.is_null()` in C++); what remains is the NARROWING. `p->m()` on a
-// narrowed `(*A)?` must look through the Nullable -- today it is R027E
-// "'->' requires a pointer on its left" (G16), which stops the build before
-// typing; past it, `return p` / `*p` inside `if p?` still read `i32?` /
-// `(*i32)?` and are SC028E / SC070E until the nullness environment narrows
-// them (G11) and NarrowedAccessLowering reads them (G16).
-// When those land this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Was XFAIL until G11/G15/G16 (Compiler/Sema/NULLABLE.md): `p->k()` on a
+// `(*A)?` was R027E "'->' requires a pointer on its left" in ChainBinding,
+// and `return p` / `*p` inside `if p?` read `i32?` / `(*i32)?` (SC028E /
+// SC070E). The nullness analysis now proves `p` inside each branch and
+// NarrowedAccessLowering reads it as `p.__value()`.
 
 class A { virtual fn k(self) -> i32 { return 3 } }
 
@@ -43,6 +38,11 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
+
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// CXX: return p.__value();
+// CXX: return(* p.__value());
+// CXX: return p.__value()->k();
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

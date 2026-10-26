@@ -69,6 +69,7 @@ import Sema::Lower::CopyMoveLowering::*;
 import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
 import Sema::Lower::NullTestLowering::*;
+import Sema::Lower::NarrowedAccessLowering::*;
 import Sema::Lower::NullableTypeLowering::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::CallLowering::*;
@@ -462,12 +463,21 @@ class Sema {
         // record; before OperatorLowering, which would leave a `x == null`
         // with a record operand for EmitIR to ICE on.
         { var _p = TimeRegion("NullTestLowering"); NullTestLowering(&self.sc).run(); }
+        // Every read the nullness analysis narrowed -> `x.__value()`, the
+        // unchecked accessor (NULLABLE.md §5 step 3). After CopyMoveLowering:
+        // a `x as T&&` it put around a narrowed `x` then moves the VALUE.
+        // After EnumLayoutLowering, which mints `__value()`. Before
+        // NullableTypeLowering: the receiver it restores is the `T?`, still a
+        // NullableType there. Free against NullTestLowering (a test's operand
+        // is never narrowed); after it, as §5 lists them.
+        { var _p = TimeRegion("NarrowedAccessLowering"); NarrowedAccessLowering(&self.sc).run(); }
         // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (NULLABLE.md
         // §5). After CopyMoveLowering: a transfer is decided from the value's
         // lifecycle, which ClassLifecycle answers for `T?` from T; the minted
         // record instance has no facts yet. Before OperatorLowering, the last
-        // nullable pass: CoalesceLowering and NarrowedAccessLowering go here,
-        // with NullTestLowering just above it, and still see NullableType.
+        // nullable pass: CoalesceLowering goes here, with NullTestLowering
+        // and NarrowedAccessLowering just above it, and still sees
+        // NullableType.
         { var _p = TimeRegion("NullableTypeLowering"); NullableTypeLowering(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After

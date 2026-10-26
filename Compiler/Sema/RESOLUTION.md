@@ -937,14 +937,13 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> NullableTypeLowering -> OperatorLowering -> FStringLowering
+§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> NullTestLowering -> NarrowedAccessLowering -> NullableTypeLowering -> OperatorLowering -> FStringLowering
 -> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
 SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
 `Sema.k` runs today), then
-NullTestLowering -> CoalesceLowering (both before NullableTypeLowering,
-NULLABLE.md §5) -> MatchLowering/PatternCompilation ->
-PanicLowering -> YieldLowering ->
-TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
+CoalesceLowering (before NullTestLowering, NULLABLE.md §5) ->
+MatchLowering/PatternCompilation -> PanicLowering -> YieldLowering ->
+TypeQueryLowering -> label lowering ->
 CopyMoveLowering (copies) -> DestructorInsertion. Sugar first, control flow second,
 lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
 codegen is an ICE naming the pass. NullableTypeLowering is the exception
