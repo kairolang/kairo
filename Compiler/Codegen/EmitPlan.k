@@ -1040,7 +1040,7 @@ fn EmitPlan::_bodies(want_own: bool) -> vec::<*FunctionDecl> {
             continue;
         }
         if d->kind != DeclKind::FunctionDecl { continue; }
-        if (CXXSpell::template_params(d).size() == 0) && (!cast::<FunctionDecl>(d)->is_inline()) { continue; }
+        if (CXXSpell::template_params(d).size() == 0) && (!cast::<FunctionDecl>(d)->is_inline()) && (!cast::<FunctionDecl>(d)->is_eval()) { continue; }
         self._push_body(cast::<FunctionDecl>(d), &out);
     }
 
@@ -1052,7 +1052,7 @@ fn EmitPlan::_bodies(want_own: bool) -> vec::<*FunctionDecl> {
             var m = sc->members[k];
             if m == &null { continue; }
             if (CXXSpell::fid_of(static_cast::<*Decl>(m)) == self._home) != want_own { continue; }
-            if (CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0) && (!m->is_inline()) { continue; }
+            if (CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0) && (!m->is_inline()) && (!m->is_eval()) { continue; }
             self._push_body(m, &out);
         }
     }
@@ -1073,7 +1073,7 @@ fn EmitPlan::_visible_record_bodies(d: *Decl, in_template: bool, out: *vec::<*Fu
             var m = (*methods)[i];
             if m == &null { continue; }
             // Neither template nor inline: linked from its own TU.
-            if (!templ) && (m->generic_params.size() == 0) && (!m->is_inline()) { continue; }
+            if (!templ) && (m->generic_params.size() == 0) && (!m->is_inline()) && (!m->is_eval()) { continue; }
             self._push_body(m, out);
         }
     }

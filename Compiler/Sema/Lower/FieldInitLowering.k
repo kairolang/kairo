@@ -64,8 +64,18 @@
 ///     a static member: the definition's initializer is in the class's
 ///     scope, so it calls the thunk by leaf exactly as a default does.
 ///
+///   \par Eval fields
+///     An eval field is static (FieldDecl::is_static), lowered as a static
+///     is: a constant is recorded, anything else becomes a static thunk,
+///     marked `eval` so it is C++ `consteval`. The definition is
+///     `inline constexpr T const R::k = <constant>;` after the class, or,
+///     for a thunk, the same with `= R::__kairo_init_k()` written by EmitIR
+///     after the thunk's body: a consteval function must be DEFINED where
+///     a constant expression calls it, and the class's out-of-line statics
+///     come before any body (EVAL.md 1.2).
+///
 ///   \par Not lowered
-///     An eval field and an array-typed one keep `init`. FeatureGateCheck
+///     An array-typed field keeps `init`. FeatureGateCheck
 ///     rejects their initializers (SC116E) before this pass runs, so
 ///     reaching one here is a hole in the gate, and InterfaceEmitter ICEs on
 ///     it.
@@ -160,7 +170,6 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     /// and a poisoned one, which is not this pass's to judge.
     priv fn _kept(self, f: *FieldDecl) -> bool {
         if f->is_poisoned() || f->init->is_poisoned() || (f->type_ == &null) { return true; }
-        if f->storage == StorageClass::Eval { return true; }
         var c = canon_unqual(f->type_->canonical);
         return (c != &null) && (c->kind == TypeKind::FixedArrayType);
     }
@@ -203,6 +212,10 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         th->visibility  = VisibilityKind::Public;
         th->is_implicit = true;
         th->return_type = f->type_;
+        // An eval field's value is computed by C++ at compile time: its thunk
+        // is `consteval`, and EmitIR writes the field's `constexpr`
+        // definition right after the thunk's body (EVAL.md 1.2).
+        if f->is_eval() { th->modifiers = th->modifiers | FnModifier::IsEval; }
 
         var ps = self.list_builder::<*ParamDecl>();
         if !f->is_static() { ps.push(ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self"))); }

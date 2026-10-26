@@ -116,6 +116,10 @@ class EmitIR {
     /// returns from the lambda, with the closure's type. `_cur_fn` stays
     /// the enclosing function, which still decides what `self` is.
     priv var _closure: *ClosureExpr = &null;
+    /// emit_tu's first pass: only eval free functions are emitted, and the
+    /// second pass skips them (EVAL.md 1.1).
+    priv var _eval_pass: bool = false;
+    priv var _eval_done: vec::<*FunctionDecl>;
 
     fn EmitIR(self, cg: *CodegenContext) {
         self._cg    = cg;
@@ -132,6 +136,21 @@ class EmitIR {
         var tu = self._cg->tu;
         ICE_IF(tu == &null, "EmitIR: no TU");
         var items = &(tu->program->items);
+
+        // Every consteval body first, foreign then own: a constant
+        // expression may call a consteval function only where it is already
+        // DEFINED, and Kairo declarations have no order (EVAL.md 1.1). A
+        // consteval body only names other consteval bodies and declarations,
+        // so it can always go first.
+        var vis = plan->visible_bodies();
+        for var i: usize = 0; i < vis.size(); ++i { if vis[i]->is_eval() { self._visible_body(vis[i]); } }
+        self._eval_pass = true;
+        for var i: usize = 0; i < items->size(); ++i {
+            var item = *(items->get(i));
+            if item.kind == TopLevelKind::Decl { self.emit(item.as_decl()); }
+        }
+        self._eval_pass = false;
+
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
             switch item.kind {
@@ -150,7 +169,7 @@ class EmitIR {
             }
         }
 
-        self.emit_visible(plan);
+        for var i: usize = 0; i < vis.size(); ++i { if !vis[i]->is_eval() { self._visible_body(vis[i]); } }
     }
 
     /// Every template and inline definition visible here (EmitPlan::
@@ -178,6 +197,23 @@ class EmitIR {
         ICE_IF(d == &null, "EmitIR: null decl reached codegen");
         if (d->kind == DeclKind::RecoveryDecl) { self._ice(d->range, "EmitIR: poisoned decl reached codegen; sema gate failure"); }
         if d->is_poisoned() { return; }
+
+        // The eval pass reaches free functions only, through modules and
+        // visibility groups (emit_tu).
+        if self._eval_pass {
+            if d->kind == DeclKind::FunctionDecl {
+                if cast::<FunctionDecl>(d)->is_eval() {
+                    self._free_fn(cast::<FunctionDecl>(d), &null);
+                    self._eval_done.push_back(cast::<FunctionDecl>(d));
+                }
+                return;
+            }
+            if (d->kind != DeclKind::ModuleDecl) && (d->kind != DeclKind::VisibilityGroupDecl) { return; }
+        } else if (d->kind == DeclKind::FunctionDecl) && cast::<FunctionDecl>(d)->is_eval() {
+            for var i: usize = 0; i < self._eval_done.size(); ++i {
+                if self._eval_done[i] == cast::<FunctionDecl>(d) { return; }
+            }
+        }
 
         switch d->kind {
             case DeclKind::FunctionDecl  { self._free_fn(cast::<FunctionDecl>(d), &null); }
@@ -300,6 +336,8 @@ class EmitIR {
         // every TU that declares it defines it, its own TU included, with the
         // same text, and the linker keeps one.
         if n->is_inline() && (!is_main) { head += "inline "; }
+        // EVAL.md 1.1: the definition repeats the interface's `consteval`.
+        if n->is_eval() && (!is_main) { head += "consteval "; }
         head += (("int") if (is_main) else (self._ret(n)));
         head += " ";
         if ext != &null { head += self._spell.ext_scope_name(ext) + "::"; }
@@ -328,6 +366,7 @@ class EmitIR {
         // Out of line, so the class definition stays the same bytes in every
         // TU (invariant 11); see _free_fn.
         if m->is_inline() { head += "inline "; }
+        if m->is_eval()   { head += "consteval "; }   // EVAL.md 1.1
         var is_ctor = (self._spell.leaf(m) == self._spell.leaf(owner));
         var nm = self._spell.leaf(m);
         // `op as` spells `operator T`; C++ gives a conversion no return type.
@@ -352,7 +391,34 @@ class EmitIR {
         self._cg->sink->spell(at, head);
 
         self._body(m, &null);
+        self._eval_field_def(m, owner, at);
         self._close_ns(m->range, wrap);
+    }
+
+    /// `inline constexpr T const R::k = R::__kairo_init_k();` for the eval
+    /// field whose consteval thunk \p m is, right after the thunk's body: a
+    /// constant expression may call a consteval function only once it is
+    /// defined, so InterfaceEmitter, which writes the other statics after
+    /// the class, leaves this one here. The thunk is an eval fn, so its body
+    /// (and with it this definition) is in every TU that sees the class.
+    priv fn _eval_field_def(self, m: *FunctionDecl, owner: *Decl, at: SourceRange) {
+        if (!m->is_eval()) || (!m->is_implicit) { return; }
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        if isa::<ClassDecl>(owner)       { fields = &(cast::<ClassDecl>(owner)->fields);  }
+        else if isa::<StructDecl>(owner) { fields = &(cast::<StructDecl>(owner)->fields); }
+        if fields == &null { return; }
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = (*fields)[i];
+            if (f == &null) || (!f->is_eval()) || (f->init_fold != FieldFold::Thunk) { continue; }
+            if f->init_thunk != static_cast::<*Decl>(m) { continue; }
+            var q  = self._owner_qual(owner);
+            var nm = q + "::" + self._spell.leaf(static_cast::<*Decl>(f));
+            var s  = self._owner_template_head(owner) + "inline constexpr const ";
+            s += self._spell.decl(f->type_, nm);
+            s += " = " + q + "::" + self._spell.leaf(m) + "();";
+            self._cg->sink->spell(at, s);
+            return;
+        }
     }
 
     // --- Constructors that initialize a const field (file header) ----------------

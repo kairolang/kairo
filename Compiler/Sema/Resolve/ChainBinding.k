@@ -1069,7 +1069,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     priv fn _is_scope_member(self, d: *Decl) -> bool {
         if d == &null { return false; }
         var f = dyn_cast::<FieldDecl>(d);
-        if f != &null { return f->storage == StorageClass::Static; }
+        if f != &null { return f->is_static(); }
         var v = dyn_cast::<VariableDecl>(d);
         if v != &null { return v->is_static(); }
         var fn_ = dyn_cast::<FunctionDecl>(d);

@@ -2,7 +2,7 @@
 // compile as the module form does: a namespace-scope binding is a
 // `constexpr` definition behind the interface's `extern const`
 // declaration, a function-local one is a `constexpr` local, and an `eval
-// fn` is an ordinary function for now (consteval emission is not done).
+// fn` is `consteval` (EVAL.md 1.1).
 // Before the parser took them as declarations, `eval N = 10` at file scope
 // was an expression statement and `N` was undeclared.
 
@@ -30,7 +30,7 @@ fn main() -> i32 { return f() }
 // DEF-LABEL: CODEGEN C++: {{.*}}eval_file_scope.k
 // DEF: {{^ *}}extern signed int const N;
 // DEF: {{^ *}}extern signed int const M;
-// DEF: {{^ *}}signed int sq(signed int x) noexcept;
+// DEF: {{^ *}}consteval signed int sq(signed int x) noexcept;
 // DEF: {{^ *}}constexpr signed int const N = 10;
 // DEF: {{^ *}}constexpr signed int const M = 4;
 // DEF: {{^ *}}constexpr signed int k = 4;

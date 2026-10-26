@@ -27,12 +27,12 @@
 ///         EnumLayoutLowering picks its special members from those facts.
 ///         Reported at the enum, with a note at the payload field that left
 ///         the fact open.
-///       - an initializer on an eval or array-typed field.
+///       - an initializer on an array-typed field.
 ///         FieldInitLowering turns every other one into a C++ default member
-///         initializer (or, for a static, the initializer of its out-of-line
-///         definition); an eval field has no constant emission yet, and a C++
-///         function cannot return an array, so these keep theirs and codegen
-///         would ICE on them.
+///         initializer (or, for a static or eval field, the initializer of
+///         its out-of-line definition); a C++ function cannot return an
+///         array, so this one keeps its initializer and codegen would ICE on
+///         it.
 ///       - a generic record's field default that reads another field.
 ///         InitCheck reports it (SC116E too): it is the pass that walks what
 ///         a default reads.
@@ -229,9 +229,7 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         // Array first: a static array keeps its initializer too (no thunk
         // can return one), so `static` alone does not clear the gate.
         var c = canon_unqual(n->type_->canonical);
-        if n->storage == StorageClass::Eval {
-            what = "an eval field";
-        } else if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
+        if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
             what = "an array-typed field";
         } else {
             return true;

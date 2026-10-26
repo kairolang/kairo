@@ -894,7 +894,11 @@ class FieldDecl derives Decl {
         return DeclKind::FieldDecl;
     }
 
-    fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
+    /// An `eval` field is static: one compile-time value per class, not a
+    /// slot in every object (EVAL.md 1.2), so every reader that asks "is
+    /// this per object?" gets the same answer for both.
+    fn is_static(self) -> bool { return (self.storage == StorageClass::Static) || (self.storage == StorageClass::Eval); }
+    fn is_eval(self)   -> bool { return self.storage == StorageClass::Eval; }
     fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || self.const_binding; }
 }
 

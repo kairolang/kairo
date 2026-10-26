@@ -575,7 +575,9 @@ class InterfaceEmitter {
             if f->is_static()  { fs += "static "; }
             if f->is_static() && f->is_thread { fs += "thread_local "; }
             if f->is_mutable   { fs += "mutable "; }
-            if f->is_const()   { fs += "const "; }
+            // An eval field is `static const T k;` here and `constexpr` at its
+            // definition (_static_def; EVAL.md 1.2).
+            if f->is_const() || f->is_eval() { fs += "const "; }
             fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
             // A static's value is its definition's (_static_defs), never an
             // in-class initializer, which C++ refuses on a non-const static.
@@ -1226,9 +1228,9 @@ class InterfaceEmitter {
             default { 0; }
         }
         // An initializer still on the field is one FeatureGateCheck rejects
-        // (an eval or array-typed field) and FieldInitLowering leaves.
+        // (an array-typed field) and FieldInitLowering leaves.
         if f->init != &null {
-            self._ice(f->name.range, "InterfaceEmitter: initializer of an eval or array-typed field reached codegen; FeatureGateCheck rejects it");
+            self._ice(f->name.range, "InterfaceEmitter: initializer of an array-typed field reached codegen; FeatureGateCheck rejects it");
         }
         return "";
     }
@@ -1408,14 +1410,18 @@ class InterfaceEmitter {
     /// The initializer of a static member's definition is in its class's
     /// scope, so a thunk is called by leaf, as a default calls it.
     priv fn _static_def(self, f: *FieldDecl, owner: *Decl) {
+        // A thunked eval field is defined after its consteval thunk's body,
+        // which a constant expression needs DEFINED (EmitIR::_eval_field_def).
+        if f->is_eval() && (f->init_fold == FieldFold::Thunk) { return; }
         var s = self._owner_template_head(owner);
         s += "inline ";
         var folded = (f->init_fold == FieldFold::Int) || (f->init_fold == FieldFold::True) || (f->init_fold == FieldFold::False) || (f->init_fold == FieldFold::Null);
-        if folded { s += "constinit "; }
+        if f->is_eval()  { s += "constexpr "; }
+        else if folded   { s += "constinit "; }
         if f->is_thread { s += "thread_local "; }
         // The class body declared it `static const T s;` (`static const`
         // member); C++ rejects a definition whose type drops the const.
-        if f->is_const() { s += "const "; }
+        if f->is_const() || f->is_eval() { s += "const "; }
         var nm = self._owner_qual(owner) + "::" + self._spell->leaf(static_cast::<*Decl>(f));
         s += self._spell->decl(f->type_, nm);
         if f->init_fold == FieldFold::None {
@@ -1497,6 +1503,10 @@ class InterfaceEmitter {
         if (!is_method) && (!is_ctor) && !is_dtor { s += "static "; }
         if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual) { s += "virtual "; }
         if m->is_noreturn { s += "[[noreturn]] "; }
+        // EVAL.md 1.1: an eval fn runs at compile time only. `consteval` is
+        // implicitly inline, so EmitPlan makes its body visible as it does
+        // an `inline` one's.
+        if m->is_eval() { s += "consteval "; }
 
         if is_ctor {
             s += self._spell->leaf(owner);
@@ -1543,6 +1553,7 @@ class InterfaceEmitter {
         // type it is ill-formed.
         if f->is_noreturn { s += "[[noreturn]] "; }
         if ext != &null { s += "static "; }
+        if f->is_eval() { s += "consteval "; }   // EVAL.md 1.1
         s += self._ret(f);
         s += " ";
         s += self._fn_name(f);
@@ -1588,7 +1599,9 @@ class InterfaceEmitter {
         if _op.size() == 0 { return; }   // `in`, `^^`, ...: no C++ operator to forward from.
         var fid = CXXSpell::fid_of(static_cast::<*Decl>(f));
         var s = self._spell->template_head(static_cast::<*Decl>(f));
-        s += "inline ";
+        // A forwarder of an eval operator is one too: an `inline` one could
+        // not pass its parameters on to a consteval call.
+        s += (("consteval ") if (f->is_eval()) else ("inline "));
         s += self._ret(f);
         s += " ";
         s += _op;

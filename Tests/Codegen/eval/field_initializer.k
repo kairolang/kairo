@@ -1,27 +1,25 @@
-// A field initializer on an `eval` field and on an array-typed field
-// (classes.mdx; eval.mdx): both are defaults like any other field's.
-//
-// XFAIL: *
-// Ticket "[Sema/Codegen] An initializer on an `eval` or array-typed field is
-// SC116E" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today both are SC116E:
-// "an initializer on an eval field is not yet supported" and "an initializer
-// on an array-typed field is not yet supported" (status.mdx, Not Compiled
-// Yet). When it XPASSes, delete the XFAIL -- the run below is already the
-// real assertion.
+// An initializer on an `eval` field (eval.mdx, Eval in Classes): the field
+// is a static of the class, its value a compile-time constant (EVAL.md
+// 1.2). The array-typed half of the same ticket is
+// Tests/Codegen/eval/array_field_initializer.k (still XFAIL).
 
 class C {
-    eval K: i32 = 3
-    pub var a: [i32; 3] = [1, 2, 3]
+    pub eval K: i32 = 3
+    pub var a: i32 = 4
 }
 
 fn main() -> i32 {
     var c = C()
-    return C::K + c.a[0] + c.a[2]               // 3 + 1 + 3
+    return C::K + c.a                           // 3 + 4
 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
+
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
+// IR: static const signed int K;
+// IR: inline constexpr const signed int C::K = 3;
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
