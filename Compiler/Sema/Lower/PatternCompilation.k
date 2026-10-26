@@ -311,7 +311,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             }
         }
 
-        var rows = self._rows(cases, (1) if (null_arm) else (0));
+        var rows = self._rows(cases, match_first_row(null_arm));
         var root_ty = scrutinee->type_;
         if null_arm { root_ty = self._tu.nullable_inner(self._tu.as_value(root_ty)); }
         self._reset();

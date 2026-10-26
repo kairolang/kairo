@@ -1146,3 +1146,12 @@ struct MatchCase {
     var range:      SourceRange;
     var is_default: bool;
 }
+
+/// The first arm of a match that is a row of its pattern matrix: 1 when
+/// arm 0 is the `case null` of a match on `T?` (MatchStmt / MatchExpr::
+/// null_arm, NULLABLE.md 3.6), which is answered before the match and so
+/// is no row; else 0. Arm numbers are kept either way.
+fn match_first_row(null_arm: bool) -> usize {
+    if null_arm { return 1; }
+    return 0;
+}

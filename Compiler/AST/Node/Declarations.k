@@ -211,7 +211,8 @@ enum AdtRole derives u8 {
 
     // The Nullable lang item's C++ surface (NULLABLE.md 1.2); only that
     // enum's record has them. Every implicit `T -> T?` / `null -> T?` is one
-    // of the four constructors, so none is `explicit`.
+    // of the four constructors, so none is `explicit`. Kept last:
+    // adt_role_is_nullable is the range from NullDefault on.
     NullDefault,     ///< `Nullable()`: null.
     NullFrom,        ///< `Nullable(null_t)`: null. Its one parameter carries null_t's type.
     ValueCopy,       ///< `Nullable(const T&)`: present, the payload copied in place.
@@ -221,6 +222,10 @@ enum AdtRole derives u8 {
     ValueCref,       ///< `const T& __value() const`, the same.
     Equal,           ///< `operator==`, when T has one: null == null, null != a value. C++20 derives `!=`.
 }
+
+/// \p r is one of the Nullable lang item's surface roles, which
+/// InterfaceEmitter renders apart from every other ADT member.
+fn adt_role_is_nullable(r: AdtRole) -> bool { return r >= AdtRole::NullDefault; }
 
 /// Which of the three forms of an ADT special member a role function is
 /// (FunctionDecl::adt_form). A generic ADT declares all three, constrained

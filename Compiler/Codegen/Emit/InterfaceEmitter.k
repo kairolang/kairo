@@ -1056,7 +1056,7 @@ class InterfaceEmitter {
     /// of the role, the form and whether the enum is generic, every invented
     /// name from LowerTargets and every other from the record's own decls.
     priv fn _adt_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string, generic: bool) -> string {
-        if m->adt_role >= AdtRole::NullDefault { return self._nullable_member(en, m, nm); }
+        if adt_role_is_nullable(m->adt_role) { return self._nullable_member(en, m, nm); }
         var tag  = LowerTargets::adt_tag_field();
         var tt   = LowerTargets::adt_tag_type();
         var ds   = LowerTargets::adt_destroy();
@@ -1160,8 +1160,9 @@ class InterfaceEmitter {
         var field = some->payload[0];
         var fld   = self._spell->leaf(static_cast::<*Decl>(field));
         var t     = self._spell->decl(field->type_, "", &null, d);
-        var is_null = tag + " == " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(none));
-        var null_init    = " : " + tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(none)) + ") {}";
+        var null_tag = tt + "::" + self._spell->leaf(static_cast::<*Decl>(none));
+        var is_null = tag + " == " + null_tag;
+        var null_init    = " : " + tag + "(" + null_tag + ") {}";
         var present_init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(some)) + "), " + mem;
         var val = LowerTargets::nullable_value();
         switch m->adt_role {

@@ -707,10 +707,6 @@ fn EmitPlan::_scope_dep(k: usize, t: *Type) {
     self._scope_add_dep(k, self._outermost_type(d));
 }
 
-/// A NESTED record anywhere in a member signature \p t -- behind pointers,
-/// references, arrays, as a generic argument -- makes its outermost owner a
-/// Complete dep of scope \p k: a member type is named only through a
-/// complete enclosing class.
 /// The record a canonical `T?` is to C++ (NullableType::lowered). None means
 /// NullableTypeLowering never saw it: the same ICE CXXSpell raises.
 fn EmitPlan::_nullable_record(c: *Type) -> *Type {
@@ -719,6 +715,10 @@ fn EmitPlan::_nullable_record(c: *Type) -> *Type {
     return lw;
 }
 
+/// A NESTED record anywhere in a member signature \p t -- behind pointers,
+/// references, arrays, as a generic argument -- makes its outermost owner a
+/// Complete dep of scope \p k: a member type is named only through a
+/// complete enclosing class.
 fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
     if t == &null { return; }
     var c = t->canonical;

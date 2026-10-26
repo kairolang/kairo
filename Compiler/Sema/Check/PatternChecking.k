@@ -170,7 +170,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
         // One row per case-level alternative; `default` is one wildcard row.
         var rows = vec::<PatRow>();
-        var first: usize = (1) if (null_arm) else (0);
+        var first = match_first_row(null_arm);
         for var i: usize = first; i < cases->size(); ++i {
             var mc = cases->get(i);
             if mc->is_default || (mc->patterns.size() == 0) {
