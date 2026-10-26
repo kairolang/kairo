@@ -1514,7 +1514,10 @@ class InterfaceEmitter {
             if (ext == &null) && f->is_method() && f->is_const() { s += " const"; }
             s += ";";
         } else {
-            s += ("class ") if (d->kind == DeclKind::ClassDecl) else ("struct ");
+            var kw: string = "struct ";
+            if d->kind == DeclKind::ClassDecl { kw = "class "; }
+            if d->kind == DeclKind::UnionDecl { kw = "union "; }
+            s += kw;
             s += self._spell->qual_name(d);
             s += self._spell->args_str(&(ie->args));
             s += ";";
