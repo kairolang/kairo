@@ -296,7 +296,7 @@ class ASTParse
             }
 
             var annot: PendingAnnotations;
-            self.consume_leading_annotations(&annot);
+            self.consume_leading_annotations(&annot, true);
             if self.is_eof() { break; }
 
             // A leading comment binds to the NEXT construct, but the PP deletes
@@ -1954,6 +1954,64 @@ class ASTParse
 
     //  Annotation consumption
 
+    /// \brief at an `@` that starts a statement: true when the attribute (or
+    ///        a same-line run of them) applies to an expression, so the
+    ///        statement is an expression statement over an AttributedExpr.
+    ///  Lookahead:  ( '@' name ( '(' ... ')' )? )+  X
+    ///  true iff X is on the same line and begins an expression: not a
+    ///  newline / `;` / EOF, not `{` or `}`, not a declaration lead, not a
+    ///  statement keyword (`if`, `for`, `match`, `return`, `try`, `default`,
+    ///  ...), not `unsafe {`, and not a loop label (`name:`).
+    ///
+    /// \details `@destroy p` and `@create T()` are expression attributes
+    ///          (attributes.mdx, tether-promotion.mdx); before this rule the
+    ///          annotation pass took them as statement attributes named
+    ///          `destroy` / `create` on the statement `p` / `T()`, and they
+    ///          were accepted silently. What stays a statement attribute is
+    ///          what has no expression to attach to: a declaration (`@copy
+    ///          fn`, `@deprecated var`), a keyword statement (`@likely if`),
+    ///          a block (`@repeat(3) { }`), and an attribute on a line of its
+    ///          own, which attaches to whatever follows (`@always_inline` NL
+    ///          `fn`). Only a plain name: the expression grammar reads no
+    ///          `a::b` attribute path. The guard rolls back unconditionally.
+    pub fn _attr_opens_expr_stmt(self) -> bool {
+        var t = TentativeGuard(&self);
+        while self.check(TokenKind::OpAt) {
+            self.advance();                       // `@`
+            if !self.check(TokenKind::LitIdentifier) { return false; }
+            self.advance();                       // the name
+            if self.check(TokenKind::OpColonColon) { return false; }
+            if self.check(TokenKind::OpLParen) {
+                var depth: u32 = 0;
+                while !self.is_eof() {
+                    var pk = self.resolve_kind_deep(self._current);
+                    if pk == TokenKind::OpLParen { depth += 1; }
+                    else if pk == TokenKind::OpRParen {
+                        depth -= 1;
+                        if depth == 0 { self.advance(); break; }
+                    }
+                    self.advance_raw();
+                }
+            }
+        }
+        if self.is_eof() || self._is_terminator_tok(self._current) { return false; }
+        var k = self.resolve_kind_deep(self._current);
+        if (k == TokenKind::OpLBrace) || (k == TokenKind::OpRBrace) { return false; }
+        if self._starts_decl_here(k) { return false; }
+        if (k == TokenKind::KwIf)     || (k == TokenKind::KwWhile)   || (k == TokenKind::KwLoop)
+        || (k == TokenKind::KwFor)    || (k == TokenKind::KwMatch)   || (k == TokenKind::KwReturn)
+        || (k == TokenKind::KwBreak)  || (k == TokenKind::KwContinue) || (k == TokenKind::KwPanic)
+        || (k == TokenKind::KwYield)  || (k == TokenKind::KwAssert)  || (k == TokenKind::KwTry)
+        || (k == TokenKind::KwFinally) || (k == TokenKind::KwDefault) || (k == TokenKind::KwCase)
+        || (k == TokenKind::KwElse)   || (k == TokenKind::KwCatch) {
+            return false;
+        }
+        if (k == TokenKind::KwUnsafe) && self.check_peek(TokenKind::OpLBrace) { return false; }
+        if (k == TokenKind::LitIdentifier) && self.check_peek(TokenKind::OpColon) { return false; }
+        return true;
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
     /// \brief consumes doc-comments, @attributes, and visibility keywords
     ///        before a production into a PendingAnnotations buffer.
     ///
@@ -1962,7 +2020,12 @@ class ASTParse
     ///          distinguishes named/positional exactly like call sema does.
     ///          A visibility keyword followed by `{` is NOT consumed it
     ///          is the lead-in of a visibility group decl, owned by DeclParse.
-    pub fn consume_leading_annotations(self, out: *PendingAnnotations) {
+    ///
+    /// \param stmt_pos the production is a statement (a function body, or
+    ///        file scope), where an `@name` may instead open an expression
+    ///        statement: _attr_opens_expr_stmt decides, and when it does the
+    ///        `@` is left for the expression parser (AttributedExpr).
+    pub fn consume_leading_annotations(self, out: *PendingAnnotations, stmt_pos: bool = false) {
         out->clear();
 
         var prev_flag = self._no_comment_skip;
@@ -1984,6 +2047,9 @@ class ASTParse
             }
 
             // -- @attribute ( args? ) ------------------------------------
+            if (resolved.kind == TokenKind::OpAt) && stmt_pos && self._attr_opens_expr_stmt() {
+                break;
+            }
             if resolved.kind == TokenKind::OpAt {
                 var at_range = tok->range;
                 self.advance(); // consume `@`

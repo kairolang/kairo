@@ -217,7 +217,7 @@ class <T> StmtParse {
         if dyn()->is_eof() { return &null; }
 
         var annot: typename!(T::PendingAnnotations);
-        dyn()->consume_leading_annotations(&annot);
+        dyn()->consume_leading_annotations(&annot, true);
 
         if dyn()->is_eof() { return &null; }
 

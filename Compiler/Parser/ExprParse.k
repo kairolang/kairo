@@ -751,9 +751,10 @@ class <T> ExprParse {
     ///          result write `(@create Foo(1)).bar`. Binary operators bind
     ///          looser: `@a x + y` is `(@a x) + y`.
     ///
-    ///          At the start of a statement an `@name` is still the
-    ///          statement's attribute (the annotation pass runs first); this
-    ///          production is reached in expression position only.
+    ///          At the start of a statement the annotation pass runs first,
+    ///          and leaves the `@` here only when an expression follows it on
+    ///          the same line (ASTParse::_attr_opens_expr_stmt): `@destroy p`
+    ///          is this production, `@likely if` and `@copy fn` are not.
     priv fn _parse_attributed_expr(self, stop: ExprStopKind) -> *Expr {
         var at_range = dyn()->current_ptr()->range;
 
