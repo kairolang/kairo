@@ -7,8 +7,9 @@
 // The whole content of the pass is WHICH edges count. A by-value edge puts a
 // type's size inside another type's size: a value field, a base class, a fixed
 // array element, a tuple element, a generic argument the template stores by
-// value. Everything else is satisfied by a forward declaration and can never
-// close a cycle -- pointer, nullable, vector, map, set. Both halves are
+// value, a nullable's inner type (`T?` holds its T in place, NULLABLE.md
+// 1.2). Everything else is satisfied by a forward declaration and can never
+// close a cycle -- pointer, nullable pointer, vector, map, set. Both halves are
 // asserted below; the second half is the one a naive "does the type mention
 // itself" check gets wrong.
 
@@ -35,6 +36,16 @@ struct Arr2 { var t: (i32, Arr); }
 // DIAG: SC002E{{.*}}'Arr' contains itself by value
 // DIAG: 'Arr' holds 'Arr2' by value
 // DIAG: 'Arr2' holds 'Arr' by value, closing the cycle
+
+// --- through a nullable -----------------------------------------------------
+//
+// `T?` is `Nullable<T>`, which stores the T itself (tagged storage; a niche
+// would still be the T), so a nullable of the record is a by-value edge. A
+// nullable POINTER is the way to say "maybe a next one" (see below).
+
+class ByNullable { var next: ByNullable?; }
+// DIAG: SC002E{{.*}}'ByNullable' contains itself by value
+// DIAG: 'ByNullable' holds 'ByNullable' by value, closing the cycle
 
 // --- through base classes ---------------------------------------------------
 //
@@ -70,12 +81,12 @@ class UsesPtr { var p: Ptr<UsesPtr>; }
 // language stopped compiling.
 
 class ByPointer  { var next: *ByPointer;      }
-class ByNullable { var next: ByNullable?;     }
+class ByNullPtr  { var next: *ByNullPtr?;     }
 class ByVector   { var kids: [ByVector];      }
 class ByMap      { var kids: {i32: ByMap};    }
 class BySet      { var kids: {BySet};         }
 
 fn main() -> i32 { return 0; }
 
-// Exactly five errors, all SC002E, all above. No trailing diagnostics.
+// Exactly six errors, all SC002E, all above. No trailing diagnostics.
 // DIAG-NOT: SC002E
