@@ -343,8 +343,20 @@ class <T> StmtParse {
                     dyn()->advance(); // consume `eval`
                     return self._parse_conditional(); // FIXME: thread is_eval once ConditionalStmt carries it
                 }
-                // `eval var` / `eval const` -> decl with is_eval (decl parser owns)
-                if dyn()->check_peek(TokenKind::KwVar) || dyn()->check_peek(TokenKind::KwConst) {
+                // `eval fn f()`: a (local) function declaration, as in a
+                // module. Left to the expression path, `eval` took the
+                // `fn` as a closure and its parameters were undeclared.
+                if dyn()->_mods_lead_to_fn() {
+                    var d = dyn()->parse_decl(true);
+                    if d != &null {
+                        if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
+                        return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
+                    }
+                }
+                // `eval N = e`, `eval N: T = e`, `eval const N = e`: the
+                // binding (DeclParse::_storage_binding_ahead tells it from
+                // an `eval f(3)` expression).
+                if dyn()->_storage_binding_ahead() {
                     return self._parse_decl_stmt();
                 }
                 // otherwise `eval expr` unary fall through to expr-stmt.

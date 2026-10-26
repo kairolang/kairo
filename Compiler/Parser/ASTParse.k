@@ -489,9 +489,8 @@ class ASTParse
     ///          destructuring split), except `const static` / `const thread`
     ///          / `const eval`: those are the same declaration as `static
     ///          const` (DeclParse::_parse_storage_head), so they route where
-    ///          `static` does and both orders build the same tree. `eval` is a
-    ///          decl only when followed by `{`; `eval for/if/var` are
-    ///          statements.
+    ///          `static` does and both orders build the same tree. `thread`
+    ///          and `eval` are decls only when they open one (see below).
     priv fn _routes_to_decl(self, k: TokenKind) -> bool {
         if k == TokenKind::KwConst {
             return self.check_peek(TokenKind::KwStatic) || self.check_peek(TokenKind::KwThread)
@@ -501,7 +500,13 @@ class ASTParse
         if k == TokenKind::KwThread { return self._storage_binding_ahead(); }
         if !self._starts_decl_kw(k) { return false; }
         if k == TokenKind::KwVar { return false; }
-        if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) { return false; }
+        // `eval { }`, `eval fn f()` and `eval N = e` are declarations, the
+        // same nodes a module body builds for them; `eval if` / `eval for`
+        // and an `eval f(3)` expression are statements.
+        if k == TokenKind::KwEval {
+            return self.check_peek(TokenKind::OpLBrace) || self._mods_lead_to_fn()
+                || self._storage_binding_ahead();
+        }
         return true;
     }
 
