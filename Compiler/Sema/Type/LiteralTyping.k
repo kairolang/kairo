@@ -32,6 +32,7 @@ import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::NullnessFlow::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
@@ -366,6 +367,11 @@ class <T> LiteralTyping {
                 ok = false;
                 continue;
             }
+            // A nullable place the analysis proved is formatted as its value
+            // (NULLABLE.md §4). Unproven, it stays the nullable, which has no
+            // formatter yet (SC081E below): not the nullness error, since
+            // formatting a `T?` itself may well become legal.
+            if (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(e, false) == 1) { t = e->type_; }
 
             var h = FormatHole{};
             h.kind = FormatKind::None; h.spec = 0; h.put = &null; h.conv = &null;

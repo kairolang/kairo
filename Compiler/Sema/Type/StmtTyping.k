@@ -37,6 +37,7 @@ import Sema::Resolve::ResolutionState::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::NullnessFlow::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
@@ -116,6 +117,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             if args.size() > 0 { fr.yield_elem = args[0]; }
         }
         dyn()->frames.push_back(fr);
+        dyn()->flow.enter();   // a body starts knowing nothing about any nullable.
     }
 
     fn push_closure_frame(self, c: *ClosureExpr, declared: *Type) {
@@ -125,6 +127,9 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         fr.is_generator = (c != &null) && dyn()->tu.is_generator_return(c->return_type);
         if c != &null { fr.declared = self._effect_inner(c->return_type, declared); }
         dyn()->frames.push_back(fr);
+        // A closure may run anywhere: what it captures is Maybe inside it
+        // (NULLABLE.md 3.7), which a fresh state says.
+        dyn()->flow.enter(c);
     }
 
     /// `-> async T` canonicalizes to Future<T> (TypeResolve), but the body
@@ -140,7 +145,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     }
 
     fn pop_frame(self) {
-        if !dyn()->frames.empty() { dyn()->frames.pop_back(); }
+        if !dyn()->frames.empty() {
+            dyn()->frames.pop_back();
+            dyn()->flow.leave();
+        }
     }
 
     fn cur_frame(self) -> *TyperFrame {
@@ -228,7 +236,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), false);
             return &null;
         }
+        // Typed on demand from wherever the use is: the initializer must
+        // not see that body's nullness facts.
+        dyn()->flow.enter();
         var t = dyn()->type_of(v->init, &null);
+        dyn()->flow.leave();
         dyn()->mark_list_storage(v->init);
         self._reject_array_copy(v, t);
         if t != &null { v->type_ = self._shorthand_type(v, t); }
@@ -451,9 +463,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n == &null { return n; }
         if n->init != &null {
             var ft = (n->type_->canonical) if (n->type_ != &null) else (&null);
+            dyn()->flow.enter();   // a default runs in no body's state.
             dyn()->type_of(n->init, ft);
             dyn()->reject_slice_literal(n->init, "used as a field default");
             if ft != &null { dyn()->check_convertible(n->init, ft); }
+            dyn()->flow.leave();
         }
         return n;
     }
@@ -598,6 +612,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 ).first(n->range).emit();
                 n->poison();
             }
+            dyn()->flow.define(n);   // `var x: T?` starts null.
             return n;
         }
         var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(n));
@@ -626,6 +641,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             ok = false;
         }
         dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), ok);
+        if ok { dyn()->flow.define(n); }   // the value SETS the state (NULLABLE.md 3.2).
         return n;
     }
 
@@ -633,12 +649,32 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
     fn traverse_expression_stmt(self, n: *ExpressionStmt) -> *ExpressionStmt {
         if (n == &null) || (n->expr == &null) { return n; }
-        dyn()->type_of(n->expr, &null);
+        var t = dyn()->type_of(n->expr, &null);
+        if (t != &null) && dyn()->tu.is_never(t) { dyn()->flow.diverge(); }   // a `-> !` call ends the path.
         return n;
     }
 
     fn traverse_return_stmt(self, n: *ReturnStmt) -> *ReturnStmt {
         if n == &null { return n; }
+        self._type_return(n);
+        dyn()->flow.diverge();
+        return n;
+    }
+
+    fn traverse_break_stmt(self, n: *BreakStmt) -> *BreakStmt {
+        if n == &null { return n; }
+        dyn()->flow.on_break(n->has_label);
+        return n;
+    }
+
+    fn traverse_continue_stmt(self, n: *ContinueStmt) -> *ContinueStmt {
+        if n == &null { return n; }
+        // The loop's head already assumes whatever the back edge brings.
+        dyn()->flow.diverge();
+        return n;
+    }
+
+    priv fn _type_return(self, n: *ReturnStmt) -> *ReturnStmt {
         var fr = self.cur_frame();
         if fr == &null {
             if n->value != &null { dyn()->type_of(n->value, &null); }
@@ -695,27 +731,62 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
+    /// The branches start from the condition's true and false sets, and
+    /// the code after from their join; a branch that diverges contributes
+    /// nothing (NULLABLE.md 3.3).
     fn traverse_conditional_stmt(self, n: *ConditionalStmt) -> *ConditionalStmt {
         if n == &null { return n; }
         if n->cond != &null { dyn()->require_bool(n->cond, "the 'if' condition"); }
+        var c = dyn()->flow.cond_of(n->cond);
+        dyn()->flow.env = c.t;
         if n->then_ != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->then_)); }
+        var then_env = dyn()->flow.env;
+        dyn()->flow.env = c.f;
         if n->else_ != &null { dyn()->dispatch_stmt(n->else_); }
+        var else_env = dyn()->flow.env;
+        dyn()->flow.env = dyn()->flow.join(&then_env, &else_env);
         return n;
     }
 
+    /// The head assumes whatever the loop assigns (NullnessFlow::
+    /// loop_enter); the condition, typed there, narrows the body; after the
+    /// loop, its false set joined with each `break`.
     fn traverse_while_loop_stmt(self, n: *WhileLoopStmt) -> *WhileLoopStmt {
         if n == &null { return n; }
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->cond, &null);
         if n->cond != &null { dyn()->require_bool(n->cond, "the 'while' condition"); }
+        var c = dyn()->flow.cond_of(n->cond);
+        dyn()->flow.env = c.t;
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        var brk = dyn()->flow.loop_leave();
+        dyn()->flow.env = dyn()->flow.join(&(c.f), &brk);
+        return n;
+    }
+
+    /// `loop { }`: left only by a `break` (or not at all).
+    fn traverse_loop_stmt(self, n: *LoopStmt) -> *LoopStmt {
+        if n == &null { return n; }
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null, &null);
+        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        dyn()->flow.env = dyn()->flow.loop_leave();
         return n;
     }
 
     fn traverse_indexed_for_stmt(self, n: *IndexedForStmt) -> *IndexedForStmt {
         if n == &null { return n; }
         if n->init   != &null { dyn()->dispatch_stmt(n->init); }
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->cond, n->update);
+        var head = dyn()->flow.env;
         if n->cond   != &null { dyn()->require_bool(n->cond, "the loop condition"); }
+        var c = dyn()->flow.cond_of(n->cond);
+        // The update runs after the body or a `continue`: the head's state
+        // (which already assumes the body's assignments) covers both.
+        dyn()->flow.env = head;
         if n->update != &null { dyn()->type_of(n->update, &null); }
+        dyn()->flow.env = c.t;
         if n->body   != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        var brk = dyn()->flow.loop_leave();
+        dyn()->flow.env = dyn()->flow.join(&(c.f), &brk);
         return n;
     }
 
@@ -1062,7 +1133,13 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var it = dyn()->type_of(n->iterable, &null);
         var elem = (self.iter_elem_type(n->iterable, it, n)) if (it != &null) else (&null);
         self._bind_list(&(n->bindings), elem, n->iterable);
+        // No condition refines it; it may run zero times, so after it is
+        // the head's state joined with each `break`.
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null, &null);
+        var head = dyn()->flow.env;
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        var brk = dyn()->flow.loop_leave();
+        dyn()->flow.env = dyn()->flow.join(&head, &brk);
         return n;
     }
 
@@ -1109,22 +1186,36 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
+    /// Each arm starts from the state before the match (what a pattern
+    /// proves is G14's); after it, every arm's end joined with that state.
     fn traverse_match_stmt(self, n: *MatchStmt) -> *MatchStmt {
         if n == &null { return n; }
         var st = dyn()->type_of(n->scrutinee, &null);
+        var entry = dyn()->flow.env;
+        var acc = entry;
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);
+            dyn()->flow.env = entry;
             for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], st); }
             if mc->guard != &null { dyn()->require_bool(mc->guard, "a 'where' guard"); }
             if mc->body  != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(mc->body)); }
             if mc->expression != &null { dyn()->type_of(mc->expression, &null); }
+            var end = dyn()->flow.env;
+            acc = dyn()->flow.join(&acc, &end);
         }
+        dyn()->flow.env = acc;
         return n;
     }
 
+    /// A `catch` arm starts from the state before the `try` with whatever
+    /// the body assigns assumed (it may throw anywhere); after the
+    /// statement, the body's end joined with every arm's.
     fn traverse_try_catch_stmt(self, n: *TryCatchStmt) -> *TryCatchStmt {
         if n == &null { return n; }
+        var entry = dyn()->flow.env;
         if n->try_body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->try_body)); }
+        var acc = dyn()->flow.env;
+        var arm_entry = dyn()->flow.try_entry(&entry, static_cast::<*Stmt>(n->try_body), &null);
         for var i: usize = 0; i < n->arms.size(); ++i {
             var arm = n->arms.get(i);
             var vd = dyn_cast::<VariableDecl>(arm->decl);
@@ -1134,8 +1225,12 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 if ft == &null { var a = vec::<*Type>(); ft = dyn()->tu.lang_record(WellKnownType::Panic, &a); }
                 if ft != &null { vd->type_ = canon_unqual(ft); }
             }
+            dyn()->flow.env = arm_entry;
             if arm->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(arm->body)); }
+            var end = dyn()->flow.env;
+            acc = dyn()->flow.join(&acc, &end);
         }
+        dyn()->flow.env = acc;
         return n;
     }
 
@@ -1164,6 +1259,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     fn traverse_panic_stmt(self, n: *PanicStmt) -> *PanicStmt {
         if n == &null { return n; }
         if n->payload != &null { dyn()->type_of(n->payload, &null); }
+        dyn()->flow.diverge();
         return n;
     }
 

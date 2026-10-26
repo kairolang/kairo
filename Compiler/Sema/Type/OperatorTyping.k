@@ -479,6 +479,12 @@ class <T> OperatorTyping {
             }
         }
 
+        // `&&` / `||`: the right side runs only on one of the left side's
+        // outcomes, so it is typed under that outcome's nullness facts
+        // (NULLABLE.md 3.3). Both sides are typed here, in order; the
+        // operand typing below is then a memo hit.
+        if self._is_logical(k) { self._type_logical_operands(n); }
+
         // literal on one side takes the other's type.
         var l_lit = dyn()->is_untyped_literal(n->lhs);
         var r_lit = dyn()->is_untyped_literal(n->rhs);
@@ -507,6 +513,31 @@ class <T> OperatorTyping {
         // reads the receiver's cv off the operand node itself.
         lt = dyn()->tu.as_value(lt);
         rt = dyn()->tu.as_value(rt);
+
+        // A nullable operand of an operator that computes with it is a read
+        // of its value (NULLABLE.md §4): narrowed when its place is proven
+        // non-null here, else the nullness error, never "no operator for
+        // 'i32?'". `==` / `!=` compare nullables as they are (`a == 5` is
+        // false on a null `a`), so they only take a proven value, when the
+        // other side is no nullable; `??`, `===` and `in` take the nullable.
+        if self._reads_operands(k) {
+            if dyn()->tu.nullable_inner(lt) != &null {
+                var nl = dyn()->read_value(n->lhs);
+                if nl == &null { dyn()->poison_only(n); return &null; }
+                lt = dyn()->tu.as_value(nl);
+            }
+            if dyn()->tu.nullable_inner(rt) != &null {
+                var nr = dyn()->read_value(n->rhs);
+                if nr == &null { dyn()->poison_only(n); return &null; }
+                rt = dyn()->tu.as_value(nr);
+            }
+        } else if self._is_equality(k) && ((dyn()->tu.nullable_inner(lt) != &null) != (dyn()->tu.nullable_inner(rt) != &null)) {
+            var side = (n->lhs) if (dyn()->tu.nullable_inner(lt) != &null) else (n->rhs);
+            if dyn()->flow.read_value(side, false) == 1 {
+                lt = dyn()->tu.as_value(n->lhs->type_);
+                rt = dyn()->tu.as_value(n->rhs->type_);
+            }
+        }
 
         // A DEPENDENT operand has no operator table yet: which `op +` applies
         // to `T` is decided by the instantiation, not here. Rejecting it at
@@ -691,6 +722,42 @@ class <T> OperatorTyping {
         return &null;
     }
 
+    /// The operators whose operands are read as values: everything but
+    /// equality, `??`, `===` and `in` (and `^^`, typed on its own path).
+    priv fn _reads_operands(self, k: TokenKind) -> bool {
+        if self._is_equality(k) { return false; }
+        if (k == TokenKind::OpQuestionQuestion) || (k == TokenKind::OpEqualEqualEqual) || (k == TokenKind::KwIn) { return false; }
+        return self._is_arith(k) || self._is_bitwise(k) || self._is_shift(k) || self._is_logical(k)
+            || self._is_relational(k) || (k == TokenKind::OpLessEqualGreater);
+    }
+
+    /// Both sides of `&&` / `||`, in order, the right one under the left's
+    /// true set (`&&`) or false set (`||`); then the node's own sets for
+    /// NullnessFlow::cond_of, and the state after it, their join. The
+    /// right side of `t && y || z` is typed in a §4.1 trap, which decides
+    /// whether its access errors get the parenthesizing fix-it.
+    priv fn _type_logical_operands(self, n: *BinaryOperatorExpr) {
+        var k = n->op_token.kind;
+        var is_and = (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd);
+        dyn()->type_of(n->lhs, &null);
+        var cl = dyn()->flow.cond_of(n->lhs);
+        dyn()->flow.env = (cl.t) if (is_and) else (cl.f);
+        var trap = (!is_and) && dyn()->flow.trap_begin(n);
+        dyn()->type_of(n->rhs, &null);
+        if trap { dyn()->flow.trap_end(); }
+        var cr = dyn()->flow.cond_of(n->rhs);
+        var r = NullCond{};
+        if is_and {
+            r.t = cr.t;
+            r.f = dyn()->flow.join(&(cl.f), &(cr.f));
+        } else {
+            r.t = dyn()->flow.join(&(cl.t), &(cr.t));
+            r.f = cr.f;
+        }
+        dyn()->flow.env = dyn()->flow.join(&(r.t), &(r.f));
+        dyn()->flow.store_cond(static_cast::<*Expr>(n), r);
+    }
+
     /// The ADT enum a value of \p t is -- the pattern, for an instance of a
     /// generic one, as MatchLowering reaches it -- or null. \p t itself, not
     /// under a nullable: `Pt?` is no ADT here.
@@ -848,6 +915,19 @@ class <T> OperatorTyping {
         // outer nullable. NullTestLowering lowers it (null_test_of).
         if (k == TokenKind::OpQuestion) && n->is_postfix() && (dyn()->tu.nullable_inner(ot) != &null) {
             return dyn()->tu.builtin(BuiltinKind::Bool);
+        }
+
+        // Every other operator but `&` reads its operand's value (NULLABLE.md
+        // §4): `-a`, `*p`, `!b`, `++i` on a nullable place proven non-null
+        // here act on the value; on one that is not, the nullness error.
+        if (k != TokenKind::OpAmp) && (k != TokenKind::OpQuestion) && (k != TokenKind::OpEllipsis)
+        && (dyn()->tu.nullable_inner(ot) != &null) {
+            var nt = dyn()->read_value(n->operand);
+            if nt == &null { dyn()->poison_only(n); return &null; }
+            place = nt;
+            if isa::<CXXLValueRefType>(place)      { place = cast::<CXXLValueRefType>(place)->referee; }
+            else if isa::<CXXRValueRefType>(place) { place = cast::<CXXRValueRefType>(place)->referee; }
+            ot = dyn()->tu.as_value(nt);
         }
 
         // user operator first for non-primitives. `++`/`--` keep only the
@@ -1083,7 +1163,17 @@ class <T> OperatorTyping {
             if dyn()->reject_slice_literal(n->rhs, "assigned to a slice") { dyn()->poison_only(n); return &null; }
             if !dyn()->check_convertible(n->rhs, lt) { dyn()->poison_only(n); return &null; }
             n->value_category = Expr::ValueCategory::LValue;
+            // The value SETS the place's state (NULLABLE.md 3.2).
+            dyn()->flow.assign(n->lhs, n->rhs, n->range);
             return lt;
+        }
+
+        // compound: `a += b` reads both values (NULLABLE.md §4); a narrowed
+        // `a` is written through, so it stays proven.
+        if dyn()->tu.nullable_inner(lt) != &null {
+            var nl = dyn()->read_value(n->lhs);
+            if nl == &null { dyn()->poison_only(n); dyn()->type_of(n->rhs, &null); return &null; }
+            lt = dyn()->tu.as_value(nl);
         }
 
         // compound: the underlying binary op's rules, converting the RIGHT
@@ -1093,6 +1183,11 @@ class <T> OperatorTyping {
         if dyn()->propagate(n, n->rhs) { return &null; }
         if rt == &null { return &null; }
         rt = dyn()->tu.as_value(rt);
+        if dyn()->tu.nullable_inner(rt) != &null {
+            var nr = dyn()->read_value(n->rhs);
+            if nr == &null { dyn()->poison_only(n); return &null; }
+            rt = dyn()->tu.as_value(nr);
+        }
         // A bounded parameter on the left binds through its bounds, as in
         // the binary case; any other dependent operand defers.
         if (self._is_dependent(lt) || self._is_dependent(rt)) && (!self._bounded(lt)) { dyn()->mark_unknown(n); return &null; }

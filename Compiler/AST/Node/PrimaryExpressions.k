@@ -228,6 +228,13 @@ class NamedIdentExpr derives Expr {
     /// through variant_decl_of (Expressions.k).
     pub var variant_decl: *Decl = &null;
 
+    /// A narrowed read (NULLABLE.md §4): this use names a `T?` place the
+    /// nullness analysis proved non-null where the value is needed, so it
+    /// is typed `T` and this holds the `T?` it was. Null for every other
+    /// use. One writer: X (NullnessFlow::read_value); one reader that acts
+    /// on it, NarrowedAccessLowering, which makes the use `x.__value()`.
+    pub var narrowed_from: *Type = &null;
+
     fn is_bound(self)    -> bool { return self.resolved_decl != &null; }
     fn is_deferred(self) -> bool {
         return (self.resolved_decl == &null) && (self.candidate_cell != &null);
@@ -244,6 +251,7 @@ class NamedIdentExpr derives Expr {
         node->name  = name;
         node->ctx   = ctx;
         node->variant_decl = &null;
+        node->narrowed_from = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -355,6 +363,12 @@ class ChainExpr derives Expr {
         /// SymbolTable when overload resolution needs type info to pick.
         /// Same three-state contract as NamedIdentExpr::candidate_cell.
         pub var candidate_cell: *OverloadCell = &null;
+
+        /// The step's `T?` when the field path up to and including this
+        /// step is a narrowed read (NULLABLE.md §4, as on NamedIdentExpr):
+        /// `resolved_type` is then the `T`, and NarrowedAccessLowering
+        /// splits the chain after this step around a `__value()` call.
+        pub var narrowed_from: *Type = &null;
 
         fn is_operator(self) -> bool {
             return self.target == StepTarget::Operator;

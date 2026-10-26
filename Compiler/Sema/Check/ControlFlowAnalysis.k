@@ -4,8 +4,10 @@
 ///
 ///   \detail
 ///     Feeds: `!` (no-return) verification, unreachable-code, missing-return,
-///     match-arm reachability, AND the divergence check NullableNarrowing needs
-///     for early-return narrowing (if !x? { return } -> x non-null below).
+///     match-arm reachability. The nullness analysis's early-exit rule
+///     (if !x? { return } -> x non-null below) does not wait for it: it
+///     runs during typing and tracks divergence itself (Sema/Type/
+///     NullnessFlow.k).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

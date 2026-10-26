@@ -114,6 +114,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     pub var n_errored:   usize = 0;
 
     priv var _self_imm: u32 = u32(-1);
+    /// _bind_step is running for ExprTyper (bind_step), not for run().
+    priv var _from_typer: bool = false;
 
     /// Default ctor so ChainBinding can be a MEMBER of a pass that builds it
     /// in its own body (ExprTyper holds one). Leaves sc null: every entry
@@ -509,7 +511,10 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     /// Bind one `::`/`.` step against \p a, exactly as run() would.
     /// PRE: prepare() has been called on this instance.
     fn bind_step(self, chain: *ChainExpr, st: *ChainExpr::Step, a: Anchor) -> Anchor {
-        return self._bind_step(chain, st, a);
+        self._from_typer = true;
+        var r = self._bind_step(chain, st, a);
+        self._from_typer = false;
+        return r;
     }
 
     /// Anchor for a value of canonical type \p canonical. \p d is optional and
@@ -660,6 +665,24 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             st->name->poison();
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
             var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
+        }
+
+        // `.` / `->` on a declared NULLABLE value: whether it reads the value
+        // depends on whether the nullness analysis proves it non-null at
+        // this use (NULLABLE.md §4), which only MemberTyping knows; it binds
+        // the step on the narrowed type, or reports the nullness error.
+        // Left for it, as an inferred anchor is. Not when MemberTyping is
+        // the caller: its anchor is already what the analysis left, and an
+        // unproven nullable there is the error below ("no member in 'T?'").
+        if (!self._from_typer)
+        && ((st->access_kind == ChainExpr::AccessKind::Dot) || (st->access_kind == ChainExpr::AccessKind::Arrow)) {
+            var vc = canon_unqual(self.ml.peel_ref(a.ty));
+            if (vc != &null) && isa::<NullableType>(vc) {
+                self._record(loc, MemberOutcome::NeedsInference, &null, 0, a.decl);
+                self.n_inference += 1;
+                var r = Anchor{}; r.kind = AnchorKind::NeedsInference; r.decl = a.decl;
+                return r;
+            }
         }
 
         // Value. Peel the separator's expected wrapper off the canonical.

@@ -42,6 +42,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::NullnessFlow::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -87,25 +88,47 @@ class <T> ControlTyping {
         var t = dyn()->type_of(e, dyn()->tu.builtin(BuiltinKind::Bool));
         if t == &null { return !e->is_poisoned(); }
         if dyn()->tu.is_bool(t) { return true; }
+        // A `bool?` place as the condition reads its value (NULLABLE.md §4).
+        if dyn()->tu.is_bool(dyn()->tu.strip_nullable(t)) {
+            t = dyn()->read_value(e);
+            if t == &null { return false; }
+            if dyn()->tu.is_bool(t) { return true; }
+        }
         dyn()->fail(e, DiagID::SC084E, f"{what} must be 'bool', not '{dyn()->tu.str(t)}\x27");
         return false;
     }
 
     // === if / match / try as expressions ====================================
 
+    /// Each arm is typed under its condition's true set, the next
+    /// condition under the false sets before it (NULLABLE.md 3.3); after
+    /// the expression, the join of every arm's end.
     fn type_if_expr(self, n: *IfExpr, expected: *Type) -> *Type {
         self.require_bool(n->condition, "the 'if' condition");
+        var c = dyn()->flow.cond_of(n->condition);
         var acc: *Type = &null;
         var ok = true;
-        var t = dyn()->type_of(n->then_expr, expected);
+        dyn()->flow.env = c.t;
+        var t = self._arm_value(n->then_expr, expected);
+        var out = dyn()->flow.env;
+        var rest = c.f;
         ok = self._join_into(&acc, t, n->then_expr, "the 'if' branch") && ok;
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             var arm = n->else_ifs.get(i);
+            dyn()->flow.env = rest;
             self.require_bool(arm->condition, "the 'else if' condition");
-            var at = dyn()->type_of(arm->body, (expected) if (expected != &null) else (acc));
+            var ac = dyn()->flow.cond_of(arm->condition);
+            dyn()->flow.env = ac.t;
+            var at = self._arm_value(arm->body, (expected) if (expected != &null) else (acc));
+            var arm_end = dyn()->flow.env;
+            out  = dyn()->flow.join(&out, &arm_end);
+            rest = ac.f;
             ok = self._join_into(&acc, at, arm->body, "this 'else if' branch") && ok;
         }
-        var et = dyn()->type_of(n->else_expr, (expected) if (expected != &null) else (acc));
+        dyn()->flow.env = rest;
+        var et = self._arm_value(n->else_expr, (expected) if (expected != &null) else (acc));
+        var else_end = dyn()->flow.env;
+        dyn()->flow.env = dyn()->flow.join(&out, &else_end);
         ok = self._join_into(&acc, et, n->else_expr, "the 'else' branch") && ok;
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
@@ -116,12 +139,30 @@ class <T> ControlTyping {
         return acc;
     }
 
+    /// An arm of a value-producing `if`: a nullable place its condition
+    /// proved is its value (`if a? => a else 0` is an `i32`, the `??`
+    /// expansion of NULLABLE.md 2.4); one not proven stays the nullable,
+    /// which the join may well want.
+    priv fn _arm_value(self, e: *Expr, expected: *Type) -> *Type {
+        var t = dyn()->type_of(e, expected);
+        if (t != &null) && (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(e, false) == 1) { return e->type_; }
+        return t;
+    }
+
     fn type_match_expr(self, n: *MatchExpr, expected: *Type) -> *Type {
         var st = dyn()->type_of(n->scrutinee, &null);
         var acc: *Type = &null;
         var ok = true;
+        // As the statement form (StmtTyping::traverse_match_stmt).
+        var entry = dyn()->flow.env;
+        var fl = entry;
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);
+            if i > 0 {
+                var end = dyn()->flow.env;
+                fl = dyn()->flow.join(&fl, &end);
+            }
+            dyn()->flow.env = entry;
             for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], st); }
             if mc->guard != &null { self.require_bool(mc->guard, "a 'where' guard"); }
             if mc->expression != &null {
@@ -131,6 +172,11 @@ class <T> ControlTyping {
                 dyn()->dispatch_stmt(static_cast::<*Stmt>(mc->body));
             }
         }
+        if n->cases.size() > 0 {
+            var last = dyn()->flow.env;
+            fl = dyn()->flow.join(&fl, &last);
+        }
+        dyn()->flow.env = fl;
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
         for var i: usize = 0; i < n->cases.size(); ++i {
@@ -143,7 +189,12 @@ class <T> ControlTyping {
     fn type_try_expr(self, n: *TryCatchExpr, expected: *Type) -> *Type {
         var acc: *Type = &null;
         var ok = true;
+        // A catch arm may start after any part of the `try` value ran: from
+        // the state before it, with every global forgotten (calls).
+        var entry = dyn()->flow.env;
+        var arm_entry = dyn()->flow.try_entry(&entry, &null, n->try_expr);
         var t = dyn()->type_of(n->try_expr, expected);
+        var fl = dyn()->flow.env;
         ok = self._join_into(&acc, t, n->try_expr, "the 'try' value") && ok;
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var arm = n->catch_arms.get(i);
@@ -159,9 +210,13 @@ class <T> ControlTyping {
                     if ft != &null { vd->type_ = canon_unqual(ft); }
                 }
             }
+            dyn()->flow.env = arm_entry;
             var at = dyn()->type_of(arm->body, (expected) if (expected != &null) else (acc));
+            var arm_end = dyn()->flow.env;
+            fl = dyn()->flow.join(&fl, &arm_end);
             ok = self._join_into(&acc, at, arm->body, "this 'catch' value") && ok;
         }
+        dyn()->flow.env = fl;
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
         dyn()->check_convertible(n->try_expr, acc);

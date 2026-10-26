@@ -42,6 +42,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::NullnessFlow::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -115,6 +116,20 @@ class <T> MemberTyping {
             if cur_kind == 3 {
                 dyn()->fail(n, DiagID::SC100E, "cannot access a member of a function; call it first");
                 return &null;
+            }
+
+            // `.` / `->` on a nullable reads its value (NULLABLE.md §4): the
+            // base, or the field path so far, narrowed when its place is
+            // proven non-null here, else the nullness error. ChainBinding
+            // left the step unbound for this (its anchor was nullable), so
+            // it binds below on the narrowed type. A nullable that is no
+            // place (`f().v`) keeps the old answer, "no member in 'T?'".
+            if (cur_kind == 0) && (cur != &null)
+            && ((st->access_kind == ChainExpr::AccessKind::Dot) || (st->access_kind == ChainExpr::AccessKind::Arrow))
+            && (dyn()->tu.nullable_inner(dyn()->ml.peel_ref(cur)) != &null) {
+                var o = dyn()->flow.read_prefix(n, i);
+                if o == 2 { dyn()->poison_only(n); return &null; }
+                if o == 1 { cur = (n->base->type_) if (i == 0) else (n->steps.get(i - 1)->resolved_type); }
             }
 
             // NeedsInference: bind now with the anchor T could not see.
@@ -299,6 +314,12 @@ class <T> MemberTyping {
                 // `Opt::None` as a value is a construction (ControlTyping).
                 if last_variant != &null { return dyn()->type_variant_value(static_cast::<*Expr>(n), last_variant, cur); }
                 if saw_optional { return dyn()->sc->types->nullable(dyn()->tu.strip_nullable(cur)); }
+                // A nullable field path is a use of its place, as a name is
+                // (ExprTyper::_note_place_read).
+                if null_flow_type_is_nullable(cur) {
+                    var place = null_place_of(static_cast::<*Expr>(n));
+                    if place.size() > 0 { dyn()->flow.note_read(static_cast::<*Expr>(n), &place); }
+                }
                 return cur;
             }
             case 1 { info->last_is_type = true; dyn()->note_type_expr(static_cast::<*Expr>(n), cur_type); return &null; }
@@ -345,6 +366,11 @@ class <T> MemberTyping {
         var bt = dyn()->type_of(n->base, &null);
         if dyn()->propagate(n, n->base) { return &null; }
         if bt == &null { return &null; }
+        // `xs[i]` on a nullable reads its value (NULLABLE.md §4).
+        if dyn()->tu.nullable_inner(bt) != &null {
+            bt = dyn()->read_value(n->base);
+            if bt == &null { dyn()->poison_only(n); dyn()->type_of(n->index, &null); return &null; }
+        }
         bt = canon_unqual(bt);
 
         var ri = dyn_cast::<RangeExpr>(dyn()->tu.strip_parens(n->index));

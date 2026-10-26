@@ -34,6 +34,9 @@
 ///                          and InitField::field_decl on each field
 ///       loops              RangedForStmt::iter_kind / iter_op / iter_elem,
 ///                          and a C++ range's cxx_* slots
+///       narrowed reads     NamedIdentExpr / ChainExpr::Step narrowed_from,
+///                          with the read's `type_` rewritten to the `T`
+///                          (NullnessFlow::read_value, NULLABLE.md §4)
 ///
 ///     Nothing else in the tree. Outside it: its own side tables, sc.rstate
 ///     for the decls it infers, and instances it asks the registry for.
@@ -93,6 +96,7 @@ import Sema::Type::CastTyping::*;
 import Sema::Type::ControlTyping::*;
 import Sema::Type::StmtTyping::*;
 import Sema::Type::PatternTyping::*;
+import Sema::Type::NullnessFlow::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -212,6 +216,9 @@ class ExprTyper
     pub var ovl:  OverloadResolution;
     pub var ml:   MemberLookup;
     pub var cb:   ChainBinding;
+    /// The nullness analysis (NULLABLE.md §3): the mixins report into it
+    /// and ask it at each use; it owns every fact.
+    pub var flow: NullnessFlow;
 
     // --- scope state ------------------------------------------------------
     pub var frames:       vec::<TyperFrame>;
@@ -255,6 +262,7 @@ class ExprTyper
         self.ml   = MemberLookup(sc);
         self.cb   = ChainBinding(sc);
         self._scratch_ded = Deduction(sc, &(self.conv));
+        self.flow = NullnessFlow(sc, &(self.tu));
         self.discr_enum   = &null;
         self.variant_head = &null;
     }
@@ -283,6 +291,7 @@ class ExprTyper
 
         self.ml.index_extensions();
         self.cb.prepare();
+        self.flow.scan(tu);
 
         var items = &(tu->program->items);
         for var i: usize = 0; i < items->size(); ++i {
@@ -416,12 +425,30 @@ class ExprTyper
             case ExprKind::NamedInitializerExpr { return self.type_named_init(cast::<NamedInitializerExpr>(e), expected); }
             case ExprKind::AnonInitializerExpr  { return self.type_anon_init(cast::<AnonInitializerExpr>(e), expected); }
             case ExprKind::ChainExpr            { return self.type_chain(cast::<ChainExpr>(e), expected); }
-            case ExprKind::CallExpr             { return self.type_call(cast::<CallExpr>(e), expected); }
+            case ExprKind::CallExpr {
+                // Any call may write any global (NULLABLE.md 3.8). After the
+                // call: its own arguments were read before it ran.
+                var ct = self.type_call(cast::<CallExpr>(e), expected);
+                self.flow.after_call(e->range);
+                return ct;
+            }
             case ExprKind::SubscriptExpr        { return self.type_subscript(cast::<SubscriptExpr>(e), expected); }
             case ExprKind::NamedIdentExpr       { return self._type_ident(cast::<NamedIdentExpr>(e), expected); }
-            case ExprKind::UnaryOperatorExpr    { return self.type_unary(cast::<UnaryOperatorExpr>(e), expected); }
-            case ExprKind::BinaryOperatorExpr   { return self.type_binary(cast::<BinaryOperatorExpr>(e), expected); }
-            case ExprKind::AssignOperatorExpr   { return self.type_assign(cast::<AssignOperatorExpr>(e), expected); }
+            case ExprKind::UnaryOperatorExpr {
+                var ut = self.type_unary(cast::<UnaryOperatorExpr>(e), expected);
+                if cast::<UnaryOperatorExpr>(e)->resolved_op != &null { self.flow.after_call(e->range); }   // a user operator is a call.
+                return ut;
+            }
+            case ExprKind::BinaryOperatorExpr {
+                var bt = self.type_binary(cast::<BinaryOperatorExpr>(e), expected);
+                if cast::<BinaryOperatorExpr>(e)->resolved_op != &null { self.flow.after_call(e->range); }
+                return bt;
+            }
+            case ExprKind::AssignOperatorExpr {
+                var at = self.type_assign(cast::<AssignOperatorExpr>(e), expected);
+                if cast::<AssignOperatorExpr>(e)->resolved_op != &null { self.flow.after_call(e->range); }
+                return at;
+            }
             case ExprKind::ImplConformanceExpr  { return self.type_constraint(e, expected); }
             case ExprKind::DerivesRelationExpr  { return self.type_constraint(e, expected); }
             case ExprKind::ConstraintExpr       { return self.type_constraint(e, expected); }
@@ -505,6 +532,7 @@ class ExprTyper
                 n->value_category = Expr::ValueCategory::LValue;
                 var t = self.param_value_type(p);
                 if t == &null { self.mark_unknown(n); return &null; }
+                self._note_place_read(n, d, t);
                 return t;
             }
             case DeclKind::VariableDecl {
@@ -513,6 +541,7 @@ class ExprTyper
                 var t = self.var_type(v);
                 if t == &null { if d->is_poisoned() { self.poison_only(n); } else { self.mark_unknown(n); } }
                 else if v->is_const() { t = self.sc->types->qualified(t, QUAL_CONST()); }
+                if t != &null { self._note_place_read(n, d, t); }
                 return t;
             }
             case DeclKind::FieldDecl {
@@ -587,6 +616,27 @@ class ExprTyper
                 return &null;
             }
         }
+    }
+
+    /// A use of the nullable place \p d: the analysis remembers its state
+    /// here, for the consumer that may need the value (NullnessFlow::
+    /// read_value). The use itself stays `T?`: `x?`, `x = null` and a `T?`
+    /// argument never read the value.
+    priv fn _note_place_read(self, n: *NamedIdentExpr, d: *Decl, t: *Type) {
+        if !null_flow_type_is_nullable(t) { return; }
+        var place = vec::<*Decl>();
+        place.push_back(d);
+        self.flow.note_read(static_cast::<*Expr>(n), &place);
+    }
+
+    /// The consumer of \p e needs its value: narrow it when its place is
+    /// proven non-null here, else the §4 error (NullnessFlow::read_value).
+    /// Returns \p e's type after (the `T` when narrowed), or null when the
+    /// error was reported and \p e poisoned.
+    fn read_value(self, e: *Expr) -> *Type {
+        if e == &null { return &null; }
+        if self.flow.read_value(e, true) == 2 { return &null; }
+        return e->type_;
     }
 
     // === type-denoting expressions ==========================================
@@ -760,9 +810,27 @@ class ExprTyper
         if e->is_poisoned() { return false; }
         var from = e->type_;
         if from == &null { return true; }   // unknown: nothing to check here.
-        if to->is_dependent() { return true; }
+        if to->is_dependent() {
+            // `return t` from a `T?` into a `T` in a generic body: the same
+            // read of the value as below, decidable before instantiation.
+            var din = self.flow.narrowed_type(from);
+            if (din != &null) && (canon_unqual(din) == canon_unqual(to)) {
+                return self.flow.read_value(e, true) != 2;
+            }
+            return true;
+        }
         var r = self.conv.implicit(from, to);
         if r != ImplicitRank::None { return true; }
+
+        // A `T?` place where a `T` is wanted is a read of its value (§4):
+        // narrowed when proven non-null here, else the nullness error in
+        // place of "cannot convert". Only when the value would convert.
+        var nin = self.flow.narrowed_type(from);
+        if (nin != &null) && (self.conv.implicit(nin, to) != ImplicitRank::None) {
+            var o = self.flow.read_value(e, true);
+            if o == 2 { return false; }
+            if o == 1 { return true; }
+        }
 
         var hint = "";
         var fk = self.tu.kind_of(from);

@@ -5,7 +5,7 @@
 // add a level; a deliberate `(T?)?` is still writable as a type). File
 // scope and `const` infer the same way, including a global used before its
 // declaration (StmtTyping::var_type's demand path, which must hand back the
-// wrapped `i32?`: read_bare's `return early` into `i32` is SC028E). A null
+// wrapped `i32?`: read_bare's `return early` into `i32` is SC001E). A null
 // literal has no type to infer from: SC076E naming the shorthand, for
 // `null`, `&null` and a parenthesized `null`, and the binding is poisoned
 // so nothing cascades.
@@ -55,7 +55,7 @@ fn errors() {
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
-// DIAG: shorthand.k:17:32: error [SC028E]: cannot convert 'i32?' to 'i32'
+// DIAG: shorthand.k:17:32: error [SC001E]: 'early' may be null here
 // DIAG-NOT: {{error|warning}}
 // DIAG: shorthand.k:35:14: error [SC076E]: nothing to infer the nullable's type from: 'x?' takes its type from the initializer, and 'null' has none
 // DIAG-NOT: {{error|warning}}

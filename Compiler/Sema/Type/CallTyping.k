@@ -567,6 +567,7 @@ class <T> CallTyping {
             }
         }
 
+        if !self._narrow_args(&all, &args, has_receiver, recv) { dyn()->poison_only(n); return &null; }
         var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv, qual);
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
@@ -597,6 +598,51 @@ class <T> CallTyping {
         }
         if rt == &null { dyn()->mark_unknown(n); return &null; }
         return rt;
+    }
+
+    /// Nullable places passed where only their VALUE fits (NULLABLE.md §4).
+    /// Selection judges an argument by ArgInfo::ty, which for a `T?` place
+    /// is `T?`, so `take(a)` with `fn take(x: i32)` would be "no matching
+    /// overload" even after `if a?`. Only when no candidate takes the
+    /// arguments as they are, and one does with the nullable places read as
+    /// their values, are those reads made: each one narrowed when its place
+    /// is proven non-null, else the nullness error (false: reported). A
+    /// read some candidate does not need -- one still viable with that
+    /// argument left nullable -- is left alone, so a `T?` parameter keeps
+    /// its nullable and is never asked about. A `T?` overload, or a call
+    /// that type-checks as written, is untouched.
+    priv fn _narrow_args(self, cands: *vec::<*Decl>, args: *vec::<ArgInfo>, has_receiver: bool, recv: *Type) -> bool {
+        var idx = vec::<usize>();
+        for var i: usize = 0; i < args->size(); ++i {
+            var a = &((*args)[i]);
+            if (a->expr == &null) || a->marked || (a->ty == &null) { continue; }
+            if dyn()->flow.narrowed_type(a->ty) == &null { continue; }
+            idx.push_back(i);
+        }
+        if idx.size() == 0 { return true; }
+        if dyn()->ovl.any_viable(cands, args, has_receiver, &null, &null, recv) { return true; }
+        var alt = *args;
+        for var j: usize = 0; j < idx.size(); ++j {
+            alt[idx[j]].ty = dyn()->flow.narrowed_type(alt[idx[j]].ty);
+        }
+        if !dyn()->ovl.any_viable(cands, &alt, has_receiver, &null, &null, recv) { return true; }
+        // Keep only the reads some viable candidate needs.
+        var need = vec::<usize>();
+        for var j: usize = 0; j < idx.size(); ++j {
+            var keep = alt[idx[j]].ty;
+            alt[idx[j]].ty = (*args)[idx[j]].ty;
+            if dyn()->ovl.any_viable(cands, &alt, has_receiver, &null, &null, recv) { continue; }
+            alt[idx[j]].ty = keep;
+            need.push_back(idx[j]);
+        }
+        var ok = true;
+        for var j: usize = 0; j < need.size(); ++j {
+            var a = &((*args)[need[j]]);
+            var o = dyn()->flow.read_value(a->expr, true);
+            if o == 2 { ok = false; continue; }
+            if o == 1 { a->ty = a->expr->type_; }
+        }
+        return ok;
     }
 
     /// A clang builtin's `I` positions take an integer constant. Checked
@@ -751,6 +797,7 @@ class <T> CallTyping {
         }
         var args = vec::<ArgInfo>();
         var ok = self.build_args(n->args, &args);
+        if (!dep) && (!self._narrow_args(&cands, &args, true, rec)) { dyn()->poison_only(n); return &null; }
         var r = OvlResult{};
         if dep {
             r = dyn()->ovl.resolve_deferred(&cands, &args, true, n->range, dyn()->tu.decl_name(d), rec);
@@ -827,6 +874,13 @@ class <T> CallTyping {
             self._type_args_blind(n);
             if !n->callee->is_poisoned() { dyn()->mark_unknown(n); } else { dyn()->poison_only(n); }
             return &null;
+        }
+        // A nullable callable proven non-null here is called through its
+        // value (NULLABLE.md §4); one that is not is the nullness error.
+        if (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(n->callee, false) == 1) { t = n->callee->type_; }
+        else if dyn()->tu.nullable_inner(t) != &null {
+            var o = dyn()->flow.read_value(n->callee, true);
+            if o == 2 { self._type_args_blind(n); dyn()->poison_only(n); return &null; }
         }
         var ft = dyn()->tu.strip_nullable(t);
         if ft != t {

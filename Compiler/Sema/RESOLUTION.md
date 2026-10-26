@@ -363,7 +363,12 @@ Anchors: param/field/typed var -> Value; class/struct/enum/interface/
 alias -> Type; `Self` bound to an ExtensionDecl -> Type (its target);
 module -> Module; generic param -> Dependent (carrying its canonical);
 call / inferred var / overload set / operator or tuple-index step ->
-NeedsInference. An ffi alias denotes the header TUs' ModuleDecls, so it
+NeedsInference. So is a `.` / `->` step on a value whose declared type is
+NULLABLE: whether it reads the value depends on the nullness analysis at
+that use (NULLABLE.md §4), which only the typer has, so MemberTyping binds
+it on the narrowed `T` or reports the nullness error; when MemberTyping is
+the caller (`bind_step`) a nullable anchor is bound as is, and fails with
+"no member in 'T?'". An ffi alias denotes the header TUs' ModuleDecls, so it
 anchors as Module like any reopened namespace. A module anchor's scopes
 are its whole reopening RING (`NameLookup::module_scopes`, deduped), from a
 single decl as much as from an all-module cell: N collapses a same-TU
@@ -530,6 +535,9 @@ mechanisms with no traversal are components held by value.
     OperatorTyping.k     mixin: §6 of the lattice + user operators
     CallTyping.k         mixin: callee shapes, ctor calls, promotion
     MemberTyping.k       mixin: chains (NeedsInference re-entry), subscripts
+    NullnessFlow.k       component: the nullness analysis (NULLABLE.md §3-§5),
+                         which the mixins report into and ask at each use;
+                         also the null-test classifier NullTestLowering uses
     CastTyping.k         mixin: the `as` family
     ControlTyping.k      mixin: if/match/try joins, closures, initializers,
                          lang-item desugars, binder-typing half of patterns
@@ -560,6 +568,14 @@ the bound receiver in slot 0, which is no argument and has no default); and
 `CallExpr::ctor_decl` (a constructor call's selected constructor: the callee
 names the TYPE, so nothing else records which ctor `arg_map` is parallel
 to). `Lower/` reads them; codegen reads the instance slots and `ctor_decl`.
+
+And the narrowed-read mark (NULLABLE.md §4): `NamedIdentExpr::narrowed_from`
+/ `ChainExpr::Step::narrowed_from`, the `T?` of a read the nullness
+analysis proved non-null and typed `T` instead. The one place besides the
+`&` marker where a memoized `type_` is rewritten after the node was typed:
+by the CONSUMER that needs the value (an operator, `.` / `->`, a
+conversion to `T`, a call taking `T`), never by the use itself, so a use
+that does not read the value keeps `T?`. NarrowedAccessLowering reads it.
 
 And facts on an enum variant construction, which X checks and does not
 build: `variant_decl` on the node the construction was written as -- the
