@@ -692,8 +692,17 @@ class ExprTyper
     /// error was reported and \p e poisoned.
     fn read_value(self, e: *Expr) -> *Type {
         if e == &null { return &null; }
-        if self.flow.read_value(e, true) == 2 { return &null; }
+        if self.flow.read_value(e, true) == NULL_READ_REFUSED() { return &null; }
         return e->type_;
+    }
+
+    /// \p e, typed \p t, as a consumer that takes the nullable as well as
+    /// its value sees it: the `T` when \p e is a nullable place proven
+    /// non-null here (narrowed), else \p t unchanged and no error.
+    fn value_if_proven(self, e: *Expr, t: *Type) -> *Type {
+        if (t == &null) || (self.tu.nullable_inner(t) == &null) { return t; }
+        if self.flow.read_value(e, false) == NULL_READ_NARROWED() { return e->type_; }
+        return t;
     }
 
     // === type-denoting expressions ==========================================
@@ -872,7 +881,7 @@ class ExprTyper
             // read of the value as below, decidable before instantiation.
             var din = self.flow.narrowed_type(from);
             if (din != &null) && (canon_unqual(din) == canon_unqual(to)) {
-                return self.flow.read_value(e, true) != 2;
+                return self.flow.read_value(e, true) != NULL_READ_REFUSED();
             }
             return true;
         }
@@ -885,8 +894,8 @@ class ExprTyper
         var nin = self.flow.narrowed_type(from);
         if (nin != &null) && (self.conv.implicit(nin, to) != ImplicitRank::None) {
             var o = self.flow.read_value(e, true);
-            if o == 2 { return false; }
-            if o == 1 { return true; }
+            if o == NULL_READ_REFUSED() { return false; }
+            if o == NULL_READ_NARROWED() { return true; }
         }
 
         var hint = "";

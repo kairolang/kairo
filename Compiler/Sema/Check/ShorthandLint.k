@@ -127,14 +127,9 @@ class ShorthandLint derives RecursiveASTVisitor::<ShorthandLint> {
         var nullable = inner != &null;
         if nullable { base = canon_unqual(inner); }
 
-        var depth = u32(0);
-        var outer_unsafe = false;
-        var p = base;
-        while (p != &null) && isa::<PointerType>(p) {
-            if depth == 0 { outer_unsafe = cast::<PointerType>(p)->is_unsafe; }
-            depth += 1;
-            p = canon_unqual(cast::<PointerType>(p)->pointee);
-        }
+        var shape        = self._tu.pointer_shape(base);
+        var depth        = shape.depth;
+        var outer_unsafe = shape.outer_unsafe;
         if (!nullable) && (depth == 0) { return; }
 
         var nm    = self.sc->ctx->get_spelling(v->name);

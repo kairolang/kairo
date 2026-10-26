@@ -296,14 +296,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             }
         }
 
-        var depth = u32(0);
-        var outer_unsafe = false;
-        var leaf = base;
-        while (leaf != &null) && isa::<PointerType>(leaf) {
-            if depth == 0 { outer_unsafe = cast::<PointerType>(leaf)->is_unsafe; }
-            depth += 1;
-            leaf = canon_unqual(cast::<PointerType>(leaf)->pointee);
-        }
+        var shape        = dyn()->tu.pointer_shape(base);
+        var depth        = shape.depth;
+        var outer_unsafe = shape.outer_unsafe;
+        var leaf         = shape.leaf;
         var opaque = (leaf != &null) && self._is_opaque_dependent(leaf);
 
         var depth_ok = (v->pointer_depth == depth) || (opaque && (v->pointer_depth > depth));
@@ -1298,7 +1294,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var st = dyn()->type_of(n->scrutinee, &null);
         var entry = dyn()->flow.env;
         n->null_arm = dyn()->match_null_first(n->scrutinee, &(n->cases), st, n->range, true);
-        var bad_null = (!n->null_arm) && (st != &null) && (dyn()->tu.nullable_inner(dyn()->tu.as_value(st)) != &null);
+        var bad_null = dyn()->match_null_missed(n->null_arm, st);
         var acc = dyn()->flow.dead_env();
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);

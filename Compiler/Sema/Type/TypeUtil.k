@@ -37,6 +37,14 @@ import AST::Kind::TypeKind::*;
 import AST::Kind::ExprKind::*;
 import AST::ParamMode::*;
 
+/// The pointer levels of a canonical type (TypeUtil::pointer_shape): how
+/// many, whether the outermost is `unsafe`, and what is under the last.
+struct PointerShape {
+    var depth:        u32   = 0;
+    var outer_unsafe: bool  = false;
+    var leaf:         *Type = &null;
+}
+
 class TypeUtil {
     pub var sc: *SemaContext;
 
@@ -113,6 +121,22 @@ class TypeUtil {
     fn strip_nullable(self, t: *Type) -> *Type {
         var i = self.nullable_inner(t);
         return (i) if (i != &null) else (t);
+    }
+
+    /// \p t's pointer levels, each pointee read canonical and unqualified:
+    /// `unsafe **i32` is {2, true, i32}, a non-pointer {0, false, \p t}. What
+    /// a pointer shorthand (`var *y = e`, NULLABLE.md 1.7) states, so its
+    /// check and its lint count the same stars.
+    fn pointer_shape(self, t: *Type) -> PointerShape {
+        var out = PointerShape{};
+        var p = t;
+        while (p != &null) && isa::<PointerType>(p) {
+            if out.depth == 0 { out.outer_unsafe = cast::<PointerType>(p)->is_unsafe; }
+            out.depth += 1;
+            p = canon_unqual(cast::<PointerType>(p)->pointee);
+        }
+        out.leaf = p;
+        return out;
     }
 
     /// Whether `a === b` compares POINTEES (NULLABLE.md 2.3): when a

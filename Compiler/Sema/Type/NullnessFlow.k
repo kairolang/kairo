@@ -168,14 +168,33 @@ fn null_literal_of(e: *Expr) -> *NullLiteralExpr {
     return cast::<NullLiteralExpr>(x);
 }
 
+/// \p t read as a value: a C++ `T&` / `T&&` is its `T`, cv kept.
+fn null_flow_referee(t: *Type) -> *Type {
+    if t == &null { return &null; }
+    if isa::<CXXLValueRefType>(t)      { return cast::<CXXLValueRefType>(t)->referee; }
+    if isa::<CXXRValueRefType>(t)      { return cast::<CXXRValueRefType>(t)->referee; }
+    return t;
+}
+
+/// \p t is a nullable, read as a value (a C++ `T?&` is its `T?`).
+fn null_flow_type_is_nullable(t: *Type) -> bool {
+    if t == &null { return false; }
+    var c = canon_unqual(null_flow_referee(t));
+    return (c != &null) && isa::<NullableType>(c);
+}
+
 /// \p e has a nullable type, read as a value (a C++ `T?&` is its `T?`).
 fn null_flow_is_nullable(e: *Expr) -> bool {
-    if (e == &null) || (e->type_ == &null) { return false; }
-    var t = e->type_;
-    if isa::<CXXLValueRefType>(t)      { t = cast::<CXXLValueRefType>(t)->referee; }
-    else if isa::<CXXRValueRefType>(t) { t = cast::<CXXRValueRefType>(t)->referee; }
+    if e == &null { return false; }
+    return null_flow_type_is_nullable(e->type_);
+}
+
+/// The canonical of \p t through one nullable: `(*T)?` is `*T`, `T` is `T`.
+/// What a pointer or scalar test asks of a value that may be nullable.
+fn null_flow_through_nullable(t: *Type) -> *Type {
     var c = canon_unqual(t);
-    return (c != &null) && isa::<NullableType>(c);
+    if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
+    return c;
 }
 
 /// The null test \p e is, or one with no operand. See the file header for
@@ -515,16 +534,6 @@ fn null_chain_place(c: *ChainExpr, upto: usize) -> vec::<*Decl> {
     return root;
 }
 
-/// \p t is a nullable, read as a value (a C++ `T?&` is its `T?`).
-fn null_flow_type_is_nullable(t: *Type) -> bool {
-    if t == &null { return false; }
-    var x = t;
-    if isa::<CXXLValueRefType>(x)      { x = cast::<CXXLValueRefType>(x)->referee; }
-    else if isa::<CXXRValueRefType>(x) { x = cast::<CXXRValueRefType>(x)->referee; }
-    var c = canon_unqual(x);
-    return (c != &null) && isa::<NullableType>(c);
-}
-
 /// \p into with every place of \p from it does not hold yet.
 fn null_places_union(into: *vec::<vec::<*Decl>>, from: *vec::<vec::<*Decl>>) {
     for var i: usize = 0; i < from->size(); ++i {
@@ -653,8 +662,7 @@ fn null_scan_join(a: *NullScanState, b: *NullScanState) -> NullScanState {
 /// builtin one, whose result is never null.
 fn null_scan_is_scalar(t: *Type) -> bool {
     if t == &null { return false; }
-    var c = canon_unqual(t);
-    if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
+    var c = null_flow_through_nullable(t);
     return (c != &null) && isa::<BuiltinType>(c);
 }
 
@@ -1488,6 +1496,15 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
     }
 }
 
+/// What read_value / read_prefix did with a read of a nullable (§4).
+/// NONE: it is no recorded read of a nullable place, nothing changed.
+/// NARROWED: the place is NonNull here; the read is now typed `T` and
+/// marked narrowed. REFUSED: it is Maybe or Null; the §4.2 error is
+/// reported (or held by a trap) and the read is poisoned.
+fn NULL_READ_NONE()     -> u8 { return 0; }
+fn NULL_READ_NARROWED() -> u8 { return 1; }
+fn NULL_READ_REFUSED()  -> u8 { return 2; }
+
 class NullnessFlow {
     pub var sc: *SemaContext = &null;
     pub var tu: *TypeUtil    = &null;
@@ -1704,8 +1721,7 @@ class NullnessFlow {
     /// parameter cannot write \p e: its pointer is no escape.
     fn pass_pointer(self, arg: *Expr, pt: *Type) {
         if (arg == &null) || (pt == &null) { return; }
-        var c = canon_unqual(pt);
-        if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
+        var c = null_flow_through_nullable(pt);
         if (c == &null) || (!isa::<PointerType>(c)) { return; }
         if canon_has_const(cast::<PointerType>(c)->pointee) { self.consumed(arg); }
     }
@@ -1838,8 +1854,7 @@ class NullnessFlow {
         var set = self.carry_of(value);
         if set.size() == 0 { return; }
         self.consumed(value);
-        var c = canon_unqual(t);
-        if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
+        var c = null_flow_through_nullable(t);
         if (c != &null) && isa::<PointerType>(c) && canon_has_const(cast::<PointerType>(c)->pointee) { return; }
         var k = null_carrier_find(&(self._carriers), d);
         if k < 0 {
@@ -2289,9 +2304,7 @@ class NullnessFlow {
     /// `T?` -> `T` with the nullable's cv (a `const` binding reads `const T`).
     fn narrowed_type(self, t: *Type) -> *Type {
         if t == &null { return &null; }
-        var x = t;
-        if isa::<CXXLValueRefType>(x)      { x = cast::<CXXLValueRefType>(x)->referee; }
-        else if isa::<CXXRValueRefType>(x) { x = cast::<CXXRValueRefType>(x)->referee; }
+        var x = null_flow_referee(t);
         var c = canon_unqual(x);
         if (c == &null) || (!isa::<NullableType>(c)) { return &null; }
         var inner = cast::<NullableType>(c)->inner;
@@ -2300,20 +2313,18 @@ class NullnessFlow {
         return inner;
     }
 
-    /// The consumer of \p e needs its VALUE (§4). 0: \p e is no recorded read
-    /// of a nullable place, nothing changed. 1: the place is NonNull here, and
-    /// \p e (through its parentheses) is now typed `T` and marked narrowed.
-    /// 2: it is Maybe or Null, the §4.2 error is reported (or held by a
-    /// trap) and \p e is poisoned; only when \p must, else the answer is 0.
+    /// The consumer of \p e needs its VALUE (§4): a NULL_READ_* state.
+    /// NARROWED leaves \p e (through its parentheses) typed `T`; REFUSED
+    /// poisons it, and is the answer only when \p must, else NONE.
     fn read_value(self, e: *Expr, must: bool) -> u8 {
-        if (e == &null) || e->is_poisoned() { return 0; }
+        if (e == &null) || e->is_poisoned() { return NULL_READ_NONE(); }
         var x = null_flow_strip_parens(e);
-        if (x == &null) || (x->type_ == &null) { return 0; }
+        if (x == &null) || (x->type_ == &null) { return NULL_READ_NONE(); }
         var it = self._reads.find(reinterpret_cast::<u64>(x));
-        if it == self._reads.end() { return 0; }
+        if it == self._reads.end() { return NULL_READ_NONE(); }
         var f = self._read_list[it->second];
         var nt = self.narrowed_type(x->type_);
-        if nt == &null { return 0; }
+        if nt == &null { return NULL_READ_NONE(); }
         if f.state == Nullness::NonNull {
             if isa::<NamedIdentExpr>(x) {
                 cast::<NamedIdentExpr>(x)->narrowed_from = x->type_;
@@ -2323,7 +2334,7 @@ class NullnessFlow {
                 st->narrowed_from = x->type_;
                 st->resolved_type = nt;
             } else {
-                return 0;
+                return NULL_READ_NONE();
             }
             x->type_ = nt;
             var p = e;
@@ -2331,37 +2342,37 @@ class NullnessFlow {
                 p->type_ = nt;
                 p = cast::<ParenExpr>(p)->inner;
             }
-            return 1;
+            return NULL_READ_NARROWED();
         }
-        if !must { return 0; }
+        if !must { return NULL_READ_NONE(); }
         self._refuse(x, f);
         var p = e;
         while (p != &null) && (p != x) && isa::<ParenExpr>(p) {
             p->poison();
             p = cast::<ParenExpr>(p)->inner;
         }
-        return 2;
+        return NULL_READ_REFUSED();
     }
 
     /// A `.` / `->` step \p i of \p c reads the value before it, which is
     /// nullable: the base (i == 0) or the field path through step i-1.
-    /// Answers as read_value does; 1 leaves the narrowed type on the base
-    /// node or on step i-1's resolved_type.
+    /// Answers as read_value does; NARROWED leaves the narrowed type on the
+    /// base node or on step i-1's resolved_type.
     fn read_prefix(self, c: *ChainExpr, i: usize) -> u8 {
         if i == 0 { return self.read_value(c->base, true); }
         var place = null_chain_place(c, i - 1);
-        if place.size() == 0 { return 0; }
+        if place.size() == 0 { return NULL_READ_NONE(); }
         var st = c->steps.get(i - 1);
         var nt = self.narrowed_type(st->resolved_type);
-        if nt == &null { return 0; }
+        if nt == &null { return NULL_READ_NONE(); }
         var f = self.get(&place);
         if f.state == Nullness::NonNull {
             st->narrowed_from = st->resolved_type;
             st->resolved_type = nt;
-            return 1;
+            return NULL_READ_NARROWED();
         }
         self._refuse_at(static_cast::<*Expr>(c), SourceRange(c->range.start, st->range.end), f, nt);
-        return 2;
+        return NULL_READ_REFUSED();
     }
 
     /// A `.` / `->` step \p i of \p c reads a nullable that is no place,

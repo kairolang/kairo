@@ -144,9 +144,7 @@ class <T> ControlTyping {
     /// expansion of NULLABLE.md 2.4); one not proven stays the nullable,
     /// which the join may well want.
     priv fn _arm_value(self, e: *Expr, expected: *Type) -> *Type {
-        var t = dyn()->type_of(e, expected);
-        if (t != &null) && (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(e, false) == 1) { return e->type_; }
-        return t;
+        return dyn()->value_if_proven(e, dyn()->type_of(e, expected));
     }
 
     // === match on a nullable (NULLABLE.md 3.6) ===============================
@@ -215,6 +213,13 @@ class <T> ControlTyping {
         return false;
     }
 
+    /// The match on \p st is on a `T?` and does not answer null first: the
+    /// error match_null_first reported. Its scrutinee is poisoned once the
+    /// arms are typed.
+    fn match_null_missed(self, null_arm: bool, st: *Type) -> bool {
+        return (!null_arm) && (st != &null) && (dyn()->tu.nullable_inner(dyn()->tu.as_value(st)) != &null);
+    }
+
     /// Arm \p i of a match on \p st enters: sets the nullness state its body
     /// starts from (out of \p entry) and returns the column its patterns are
     /// typed against. A `T?` scrutinee: the `case null` arm sees the place
@@ -264,7 +269,7 @@ class <T> ControlTyping {
         // As the statement form (StmtTyping::traverse_match_stmt).
         var entry = dyn()->flow.env;
         n->null_arm = self.match_null_first(n->scrutinee, &(n->cases), st, n->range, false);
-        var bad_null = (!n->null_arm) && (st != &null) && (dyn()->tu.nullable_inner(dyn()->tu.as_value(st)) != &null);
+        var bad_null = self.match_null_missed(n->null_arm, st);
         var fl = dyn()->flow.dead_env();
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);

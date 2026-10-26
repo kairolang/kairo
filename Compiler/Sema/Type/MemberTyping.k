@@ -155,9 +155,9 @@ class <T> MemberTyping {
             && ((st->access_kind == ChainExpr::AccessKind::Dot) || (st->access_kind == ChainExpr::AccessKind::Arrow))
             && (dyn()->tu.nullable_inner(dyn()->ml.peel_ref(cur)) != &null) {
                 var o = dyn()->flow.read_prefix(n, i);
-                if o == 2 { dyn()->poison_only(n); return &null; }
-                if (o == 0) && dyn()->flow.refuse_unplaced(n, i) { return &null; }
-                if o == 1 { cur = (n->base->type_) if (i == 0) else (n->steps.get(i - 1)->resolved_type); }
+                if o == NULL_READ_REFUSED() { dyn()->poison_only(n); return &null; }
+                if (o == NULL_READ_NONE()) && dyn()->flow.refuse_unplaced(n, i) { return &null; }
+                if o == NULL_READ_NARROWED() { cur = (n->base->type_) if (i == 0) else (n->steps.get(i - 1)->resolved_type); }
             }
 
             // NeedsInference: bind now with the anchor T could not see.

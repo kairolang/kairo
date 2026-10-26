@@ -542,7 +542,7 @@ class <T> OperatorTyping {
             }
         } else if self._is_equality(k) && ((dyn()->tu.nullable_inner(lt) != &null) != (dyn()->tu.nullable_inner(rt) != &null)) {
             var side = (n->lhs) if (dyn()->tu.nullable_inner(lt) != &null) else (n->rhs);
-            if dyn()->flow.read_value(side, false) == 1 {
+            if dyn()->flow.read_value(side, false) == NULL_READ_NARROWED() {
                 lt = dyn()->tu.as_value(n->lhs->type_);
                 rt = dyn()->tu.as_value(n->rhs->type_);
             }
@@ -576,7 +576,7 @@ class <T> OperatorTyping {
         && ((dyn()->tu.nullable_inner(lt) != &null) || (dyn()->tu.nullable_inner(rt) != &null)) {
             if dyn()->tu.identity_derefs(lt, rt)
             && ((dyn()->tu.pointee(dyn()->tu.strip_nullable(lt)) == &null) || (dyn()->tu.pointee(dyn()->tu.strip_nullable(rt)) == &null)) {
-                dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify: on a nullable pointer '===' compares what it points to, so the other side must be a pointer too");
+                self._identity_not_pointers(n, lt, rt);
                 return &null;
             }
             return dyn()->tu.builtin(BuiltinKind::Bool);
@@ -871,7 +871,7 @@ class <T> OperatorTyping {
             var lp = dyn()->tu.pointee(li);
             var rp = dyn()->tu.pointee(ri);
             if (lp == &null) || (rp == &null) {
-                dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify: on a nullable pointer '===' compares what it points to, so the other side must be a pointer too");
+                self._identity_not_pointers(n, lt, rt);
                 return &null;
             }
             if (dyn()->tu.is_unsafe_ptr(li) || dyn()->tu.is_unsafe_ptr(ri)) && (!dyn()->in_unsafe()) {
@@ -888,6 +888,12 @@ class <T> OperatorTyping {
         }
         if self._identity_eq(n, canon_unqual(li), canon_unqual(ri)) { return dyn()->tu.builtin(BuiltinKind::Bool); }
         return &null;
+    }
+
+    /// SC033E for `===` through a nullable pointer whose other side is no
+    /// pointer: the pointees are what it compares (NULLABLE.md 2.3).
+    priv fn _identity_not_pointers(self, n: *BinaryOperatorExpr, lt: *Type, rt: *Type) {
+        dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify: on a nullable pointer '===' compares what it points to, so the other side must be a pointer too");
     }
 
     /// `x === null` / `null === x`: an error, since `===` is true only when

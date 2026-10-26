@@ -371,7 +371,7 @@ class <T> LiteralTyping {
             // (NULLABLE.md §4). Unproven, it stays the nullable, which has no
             // formatter yet (SC081E below): not the nullness error, since
             // formatting a `T?` itself may well become legal.
-            if (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(e, false) == 1) { t = e->type_; }
+            t = dyn()->value_if_proven(e, t);
 
             var h = FormatHole{};
             h.kind = FormatKind::None; h.spec = 0; h.put = &null; h.conv = &null;

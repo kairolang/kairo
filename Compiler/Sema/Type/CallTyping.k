@@ -57,6 +57,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::NullnessFlow::*;
 import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
@@ -670,8 +671,8 @@ class <T> CallTyping {
         for var j: usize = 0; j < need.size(); ++j {
             var a = &((*args)[need[j]]);
             var o = dyn()->flow.read_value(a->expr, true);
-            if o == 2 { ok = false; continue; }
-            if o == 1 { a->ty = a->expr->type_; }
+            if o == NULL_READ_REFUSED() { ok = false; continue; }
+            if o == NULL_READ_NARROWED() { a->ty = a->expr->type_; }
         }
         return ok;
     }
@@ -908,10 +909,10 @@ class <T> CallTyping {
         }
         // A nullable callable proven non-null here is called through its
         // value (NULLABLE.md §4); one that is not is the nullness error.
-        if (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(n->callee, false) == 1) { t = n->callee->type_; }
+        if (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(n->callee, false) == NULL_READ_NARROWED()) { t = n->callee->type_; }
         else if dyn()->tu.nullable_inner(t) != &null {
             var o = dyn()->flow.read_value(n->callee, true);
-            if o == 2 { self._type_args_blind(n); dyn()->poison_only(n); return &null; }
+            if o == NULL_READ_REFUSED() { self._type_args_blind(n); dyn()->poison_only(n); return &null; }
         }
         var ft = dyn()->tu.strip_nullable(t);
         if ft != t {
