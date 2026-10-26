@@ -475,8 +475,10 @@ class <T> CallTyping {
                 var last = ce->steps.get(ce->steps.size() - 1);
                 var nm = "<operator>";
                 if last->name != &null { nm = dyn()->sc->ctx->get_spelling(last->name->name); }
-                return self._call_candidates(n, &(info->callable_cands), info->has_receiver, info->receiver,
-                                             nm, &null, last);
+                var r = self._call_candidates(n, &(info->callable_cands), info->has_receiver, info->receiver,
+                                              nm, &null, last);
+                if ce->has_optional_chaining() { return self._safe_call_result(n, r); }
+                return r;
             }
             if info->unknown { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
             return self._call_through(n, callee->type_);
@@ -486,6 +488,23 @@ class <T> CallTyping {
         var t = dyn()->type_of(callee, &null);
         if callee->is_poisoned() { dyn()->poison_only(n); return &null; }
         return self._call_through(n, t);
+    }
+
+    /// `x?.f(args)` whose call typed \p r: the expression is `if x? =>
+    /// x.f(args) else null` (NULLABLE.md 2.5), so `R?`, and `R` itself when
+    /// it is already nullable (the one flattening, 1.5). A `void` method is
+    /// a statement either way; a `-> !` one is `void` too, since on null
+    /// the expression completes. \p r is kept on the node for the lowering.
+    priv fn _safe_call_result(self, n: *CallExpr, r: *Type) -> *Type {
+        if (r == &null) || n->is_poisoned() { return r; }
+        n->safe_result = r;
+        if dyn()->tu.is_never(r) || dyn()->tu.is_builtin(r, BuiltinKind::Void) { return dyn()->tu.builtin(BuiltinKind::Void); }
+        if r->is_dependent() || r->is_instantiation_dependent() {
+            if dyn()->tu.nullable_inner(r) != &null { return r; }
+            return dyn()->sc->types->nullable(r);
+        }
+        if dyn()->tu.nullable_inner(dyn()->tu.as_value(r)) != &null { return dyn()->tu.as_value(r); }
+        return dyn()->sc->types->nullable(dyn()->tu.as_value(r));
     }
 
     /// \p t is an interface's own type: `I` as a call's qualifier.

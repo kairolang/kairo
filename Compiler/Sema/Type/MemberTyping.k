@@ -73,6 +73,28 @@ class ChainInfo {
 class <T> MemberTyping {
     priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
 
+    /// Step \p i of \p n is `?.` / `?->` on \p val, which is not nullable:
+    /// SC001E, with the fix-it that drops the `?`.
+    priv fn _not_nullable_step(self, n: *ChainExpr, i: usize, val: *Type) {
+        var st  = n->steps.get(i);
+        var sep = ("?->") if (st->access_kind == ChainExpr::AccessKind::QuestionArrow) else ("?.");
+        var to  = ("->") if (st->access_kind == ChainExpr::AccessKind::QuestionArrow) else (".");
+        var end = (n->base->range.end) if (i == 0) else (n->steps.get(i - 1)->range.end);
+        var r   = SourceRange(n->range.start, end);
+        var text = dyn()->sc->ctx->get_spelling(r);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, st->range.start,
+            f"'{text}' is not nullable ('{dyn()->tu.str(val)}'); '{sep}' guards a null it cannot hold, write '{to}\x27");
+        b.first(SourceRange(st->range.start, st->range.start.with_offset(1)));
+        // The declaration that gave it the non-nullable type.
+        var d: *Decl = &null;
+        if i > 0 { d = n->steps.get(i - 1)->resolved_decl; }
+        else if isa::<NamedIdentExpr>(dyn()->tu.strip_parens(n->base)) { d = cast::<NamedIdentExpr>(dyn()->tu.strip_parens(n->base))->resolved_decl; }
+        if (d != &null) && d->range.is_valid() { b.note(d->range.start, f"'{dyn()->tu.decl_name(d)}' is declared '{dyn()->tu.str(val)}' here"); }
+        b.remove(SourceRange(st->range.start, st->range.start.with_offset(1)), f"write '{to}\x27");
+        b.emit();
+        dyn()->poison_only(n);
+    }
+
     fn type_chain(self, n: *ChainExpr, expected: *Type) -> *Type {
         var info = dyn()->new_chain_info(n);
 
@@ -95,7 +117,10 @@ class <T> MemberTyping {
             var bt = dyn()->type_of(n->base, &null);
             if n->base->is_poisoned() { dyn()->poison_only(n); return &null; }
             // `p->f` goes where p points: the pointer is no escape (NULLABLE.md 3.7).
-            if (n->steps.size() > 0) && (n->steps.get(0)->access_kind == ChainExpr::AccessKind::Arrow) { dyn()->flow.consumed(n->base); }
+            if (n->steps.size() > 0)
+            && ((n->steps.get(0)->access_kind == ChainExpr::AccessKind::Arrow) || (n->steps.get(0)->access_kind == ChainExpr::AccessKind::QuestionArrow)) {
+                dyn()->flow.consumed(n->base);
+            }
             var denoted = dyn()->denoted_type(n->base);
             if denoted != &null {
                 cur_kind = 1; cur_type = denoted;
@@ -170,6 +195,13 @@ class <T> MemberTyping {
                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) {
                     var inner = dyn()->tu.nullable_inner(val);
                     if inner != &null { val = inner; saw_optional = true; }
+                    else if (val != &null) && (!val->is_dependent()) && (!val->is_instantiation_dependent()) {
+                        // `?.` guards a null that cannot happen: the value is
+                        // read as it is (NULLABLE.md 2.5), so say which
+                        // separator was meant rather than make it `M?`.
+                        self._not_nullable_step(n, i, val);
+                        return &null;
+                    }
                 }
                 if (st->access_kind == ChainExpr::AccessKind::Arrow)
                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) {
@@ -316,7 +348,12 @@ class <T> MemberTyping {
                 if cur == &null { return &null; }
                 // `Opt::None` as a value is a construction (ControlTyping).
                 if last_variant != &null { return dyn()->type_variant_value(static_cast::<*Expr>(n), last_variant, cur); }
-                if saw_optional { return dyn()->sc->types->nullable(dyn()->tu.strip_nullable(cur)); }
+                // `x?.m` is `if x? => x.m else null` (NULLABLE.md 2.5): an
+                // rvalue `M?`, never `(M?)?`. CoalesceLowering expands it.
+                if saw_optional {
+                    n->value_category = Expr::ValueCategory::RValue;
+                    return dyn()->sc->types->nullable(dyn()->tu.strip_nullable(cur));
+                }
                 // A nullable field path is a use of its place, as a name is
                 // (ExprTyper::_note_place_read).
                 if null_flow_type_is_nullable(cur) {

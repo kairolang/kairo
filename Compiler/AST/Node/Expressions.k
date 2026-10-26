@@ -113,6 +113,13 @@ class CallExpr derives Expr {
     /// whenever `instance` is set.
     pub var dep_args: FrozenList::<*Type>;
 
+    /// `x?.f(args)` (NULLABLE.md 2.5): the call's OWN result `R`, while the
+    /// node is typed what the whole expression is (`R?`, or `R` when it is
+    /// already nullable; `void` for a `void` or `-> !` method). Written by
+    /// CallTyping; read by CoalesceLowering, whose then-arm is the call
+    /// typed `R`. Null on every other call.
+    pub var safe_result: *Type = &null;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -131,6 +138,7 @@ class CallExpr derives Expr {
         node->witness_self  = &null;
         node->witness_row   = &null;
         node->dep_args      = create_empty_frozen_list::<*Type>();
+        node->safe_result   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

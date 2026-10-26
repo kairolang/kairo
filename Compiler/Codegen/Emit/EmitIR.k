@@ -1215,7 +1215,7 @@ class EmitIR {
         for var j: usize = i; j < upto; ++j {
             var st = n->steps.get(j);
             if (st->access_kind == ChainExpr::AccessKind::ColonColon) { self._ice(st->range, "EmitIR: `::` after a value step"); }
-            if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; NullTestLowering owns it"); }
+            if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; CoalesceLowering owns it"); }
             if st->is_operator() {
                 self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
                 is_ptr = false;

@@ -114,6 +114,172 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         return self._wrap(static_cast::<*Expr>(n), opd, &stmts, ie);
     }
 
+    // --- `?.` / `?->` --------------------------------------------------------------
+
+    /// `x?.m`, a field path through one or more `?.` / `?->` steps. Its base
+    /// is lowered first; the steps name fields, never calls.
+    fn transform_chain_expr(self, n: *ChainExpr) -> *Expr {
+        var out = ASTWriter::<CoalesceLowering>::transform_chain_expr(n);
+        if (!n->has_optional_chaining()) || n->is_poisoned() || (n->type_ == &null) { return out; }
+        return self._safe(n, &null);
+    }
+
+    /// `x?.f(args)`: the call, arguments included, is the then-arm, so the
+    /// callee chain is NOT expanded on its own; its base and the arguments
+    /// are lowered first.
+    fn transform_call_expr(self, n: *CallExpr) -> *Expr {
+        var callee = self.tu.strip_parens(n->callee);
+        var ce = dyn_cast::<ChainExpr>(callee);
+        if (ce == &null) || (!ce->has_optional_chaining()) || n->is_poisoned() || ce->is_poisoned() || (n->safe_result == &null) {
+            return ASTWriter::<CoalesceLowering>::transform_call_expr(n);
+        }
+        if ce->base != &null { ce->base = self.dyn()->transform_expr(ce->base); }
+        self.dyn()->rebuild_expr_list(&(n->args));
+        return self._safe(ce, n);
+    }
+
+    /// NULLABLE.md 2.5 for the chain \p c (the callee of \p call, when not
+    /// null): every `?.` / `?->` step tests the value before it, left to
+    /// right, and the then-arm is the chain with each of those reads marked
+    /// narrowed and its separator made `.` / `->`:
+    ///
+    ///   a?.b?.c     ->  if a? && a.b? => a.b.c else null
+    ///   p?->f(x)    ->  if p? => p->f(x) else null
+    ///
+    /// `&&` keeps each test on the path where the one before it held, so
+    /// `a.b` is read only when `a` has a value, and the call and its
+    /// arguments run only when every test held. The prefixes are places
+    /// read again (a field path off a name is pure); a base that is no name
+    /// is bound once. A `void` call becomes `if c { call }`.
+    priv fn _safe(self, c: *ChainExpr, call: *CallExpr) -> *Expr {
+        var orig: *Expr = (static_cast::<*Expr>(call)) if (call != &null) else (static_cast::<*Expr>(c));
+        var stmts = self.list_builder::<*Stmt>();
+
+        // The base, readable once per test and once in the then-arm.
+        var bvd: *VariableDecl = &null;
+        var bx = self.tu.strip_parens(c->base);
+        if (bx != &null) && (!isa::<NamedIdentExpr>(bx)) {
+            bvd = self.synth.local(c->base->range, "safe", self.tu.as_value(c->base->type_), c->base);
+            stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, c->base->range, static_cast::<*Decl>(bvd))));
+        }
+        var base_marked = false;
+
+        var acc   = vec::<ChainExpr::Step>();
+        var tests = vec::<*Expr>();
+        for var i: usize = 0; i < c->steps.size(); ++i {
+            var st = *(c->steps.get(i));
+            var qd = st.access_kind == ChainExpr::AccessKind::QuestionDot;
+            var qa = st.access_kind == ChainExpr::AccessKind::QuestionArrow;
+            if qd || qa {
+                if i == 0 {
+                    tests.push_back(self._test(st.range, self._base_read(c, bvd, false)));
+                    base_marked = true;
+                } else {
+                    var held = acc[i - 1].resolved_type;
+                    tests.push_back(self._test(st.range, self._prefix(c, bvd, base_marked, &acc, i, held)));
+                    acc[i - 1].narrowed_from = held;
+                    acc[i - 1].resolved_type = self._inner(held);
+                }
+                st.access_kind = (ChainExpr::AccessKind::Arrow) if (qa) else (ChainExpr::AccessKind::Dot);
+            }
+            acc.push_back(st);
+        }
+
+        var then_ty: *Type = &null;
+        if call == &null {
+            then_ty = acc[acc.size() - 1].resolved_type;
+        }
+        var path = self._prefix(c, bvd, base_marked, &acc, acc.size(), then_ty);
+        var then: *Expr = path;
+        if call != &null {
+            path->type_ = c->type_;
+            path->value_category = c->value_category;
+            path->expr_flags = c->expr_flags;
+            call->callee = path;
+            then = static_cast::<*Expr>(call);
+            then_ty = call->safe_result;
+        }
+
+        var cond = tests[0];
+        for var i: usize = 1; i < tests.size(); ++i {
+            var both = BinaryOperatorExpr::create(self.ctx, orig->range, cond, tests[i], self.synth.punct(orig->range, TokenKind::OpAmpAmp));
+            both->type_          = self.sc->builtin(BuiltinKind::Bool);
+            both->value_category = Expr::ValueCategory::RValue;
+            cond = static_cast::<*Expr>(both);
+        }
+
+        var ty = orig->type_;
+        if self.tu.is_builtin(ty, BuiltinKind::Void) {
+            // A statement: `if c { call }`. The call keeps its own type.
+            then->type_ = then_ty;
+            var blk = CompoundStmt::create(self.ctx, orig->range);
+            var body = self.list_builder::<*Stmt>();
+            body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, orig->range, then)));
+            body.freeze_into(&(blk->body));
+            stmts.push(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, orig->range, cond, blk, &null)));
+            return self.synth.stmt_expr(orig, &stmts, ty);
+        }
+        then->type_ = then_ty;
+        var none = NullLiteralExpr::create(self.ctx, orig->range, false);
+        none->type_          = ty;
+        none->value_category = Expr::ValueCategory::RValue;
+        var ie = IfExpr::create(self.ctx, orig->range, cond, then, static_cast::<*Expr>(none));
+        ie->type_          = ty;
+        ie->value_category = Expr::ValueCategory::RValue;
+        var result = static_cast::<*Expr>(ie);
+        if bvd == &null {
+            result->expr_flags = orig->expr_flags;
+            return result;
+        }
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, orig->range, result)));
+        return self.synth.stmt_expr(orig, &stmts, ty);
+    }
+
+    /// A new read of \p c's base: the bound local, or the name again.
+    /// \p marked reads it as the value a `?.` on it proved.
+    priv fn _base_read(self, c: *ChainExpr, bvd: *VariableDecl, marked: bool) -> *Expr {
+        var e: *Expr = &null;
+        if bvd != &null {
+            e = self.synth.use_of(bvd, c->base->range, Expr::ValueCategory::LValue);
+        } else {
+            e = self._copy_name(cast::<NamedIdentExpr>(self.tu.strip_parens(c->base)));
+        }
+        if marked {
+            var id = cast::<NamedIdentExpr>(e);
+            var t  = self.tu.as_value(e->type_);
+            id->narrowed_from = t;
+            e->type_          = self._inner(t);
+            e->value_category = Expr::ValueCategory::LValue;
+        }
+        return e;
+    }
+
+    /// \p c's base and its first \p k steps of \p acc (separators already
+    /// made plain, earlier reads marked), as a new chain typed \p ty; the
+    /// base alone when \p k is 0.
+    priv fn _prefix(self, c: *ChainExpr, bvd: *VariableDecl, base_marked: bool,
+                    acc: *vec::<ChainExpr::Step>, k: usize, ty: *Type) -> *Expr {
+        var base = self._base_read(c, bvd, base_marked);
+        if k == 0 { return base; }
+        var end = (*acc)[k - 1].range.end;
+        var pc = ChainExpr::create(self.ctx, SourceRange(c->range.start, end), base);
+        var steps = ListBuilder::<ChainExpr::Step>(self.ctx);
+        for var i: usize = 0; i < k; ++i { steps.push((*acc)[i]); }
+        steps.freeze_into(&(pc->steps));
+        var pe = static_cast::<*Expr>(pc);
+        pe->type_          = ty;
+        pe->value_category = Expr::ValueCategory::LValue;
+        return pe;
+    }
+
+    /// `T?` -> `T`, keeping a `const` on the nullable.
+    priv fn _inner(self, t: *Type) -> *Type {
+        var inner = self.tu.nullable_inner(t);
+        if inner == &null { return t; }
+        if canon_has_const(t) { return self.sc->types->qualified(inner, QUAL_CONST()); }
+        return inner;
+    }
+
     // --- the shared pieces ------------------------------------------------------
 
     /// \p e, a nullable, made readable twice: a place is read again (a
