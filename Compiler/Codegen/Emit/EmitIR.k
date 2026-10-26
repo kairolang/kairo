@@ -1571,7 +1571,7 @@ class EmitIR {
     }
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
-        if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; NullTestLowering owns it"); }
+        if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; CoalesceLowering owns it"); }
         if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);

@@ -115,6 +115,17 @@ class TypeUtil {
         return (i) if (i != &null) else (t);
     }
 
+    /// Whether `a === b` compares POINTEES (NULLABLE.md 2.3): when a
+    /// nullable operand holds a pointer, `==` would compare addresses, and
+    /// `===` goes one level down. Asked by OperatorTyping, which types the
+    /// compare, and CoalesceLowering, which builds it: one rule for both.
+    fn identity_derefs(self, a: *Type, b: *Type) -> bool {
+        var an = self.nullable_inner(self.as_value(a));
+        var bn = self.nullable_inner(self.as_value(b));
+        if (an != &null) && (self.pointee(an) != &null) { return true; }
+        return (bn != &null) && (self.pointee(bn) != &null);
+    }
+
     /// A type read as a VALUE: a C++ reference is its referee ([expr.type]/1,
     /// the lvalue-to-rvalue read), and top-level cv is gone. What every
     /// operator classification wants; Conversion::implicit already does the

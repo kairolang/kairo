@@ -479,6 +479,15 @@ class <T> OperatorTyping {
             }
         }
 
+        // `x === null` asks for both sides present, so it is never true: a
+        // null test misspelled (NULLABLE.md 2.3). Before the operands are
+        // typed, as for `== null`: the literal has nothing to take a type from.
+        if k == TokenKind::OpEqualEqualEqual {
+            var nl = null_literal_of(n->lhs);
+            var nr = null_literal_of(n->rhs);
+            if (nl != &null) || (nr != &null) { return self._identity_null(n, nl != &null); }
+        }
+
         // `&&` / `||`: the right side runs only on one of the left side's
         // outcomes, so it is typed under that outcome's nullness facts
         // (NULLABLE.md 3.3). Both sides are typed here, in order; the
@@ -499,7 +508,7 @@ class <T> OperatorTyping {
 
         if l_lit && (!r_lit) {
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, pass_down));
-            lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else (lhs_down));
+            lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else ((self._identity_down(rt, lhs_down)) if (k == TokenKind::OpEqualEqualEqual) else (lhs_down)));
         } else if r_lit && (!l_lit) {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
             rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (self._coalesce_down(k, lt, pass_down)));
@@ -556,6 +565,21 @@ class <T> OperatorTyping {
             var di = dyn()->tu.nullable_inner(lt);
             if (di != &null) && (canon_unqual(di) == canon_unqual(rt)) { return canon_unqual(rt); }
             if (di != &null) && (canon_unqual(lt) == canon_unqual(rt)) { return canon_unqual(rt); }
+        }
+        // `a === b` in a generic body with a `T?` operand: bool whatever T
+        // is, and the expansion's `==` on the values is the template's own
+        // (C++ resolves it per instance, as for any `a == b` on a T). The
+        // pointee rule is read off the types as written: `(*T)?` compares
+        // pointees, a `T?` whose T turns out to be a pointer compares
+        // addresses (NULLABLE.md 2.3 NOTE).
+        if (k == TokenKind::OpEqualEqualEqual) && (self._is_dependent(lt) || self._is_dependent(rt))
+        && ((dyn()->tu.nullable_inner(lt) != &null) || (dyn()->tu.nullable_inner(rt) != &null)) {
+            if dyn()->tu.identity_derefs(lt, rt)
+            && ((dyn()->tu.pointee(dyn()->tu.strip_nullable(lt)) == &null) || (dyn()->tu.pointee(dyn()->tu.strip_nullable(rt)) == &null)) {
+                dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify: on a nullable pointer '===' compares what it points to, so the other side must be a pointer too");
+                return &null;
+            }
+            return dyn()->tu.builtin(BuiltinKind::Bool);
         }
         var own_op = (k != TokenKind::OpQuestionQuestion) && (k != TokenKind::OpEqualEqualEqual) && (k != TokenKind::KwIn);
         var bounded = own_op && self._bounded(lt);
@@ -743,10 +767,24 @@ class <T> OperatorTyping {
     /// is `u8`, as `if x? => x else 7` would be. \p d for every other
     /// operator.
     priv fn _coalesce_down(self, k: TokenKind, lt: *Type, d: *Type) -> *Type {
+        if k == TokenKind::OpEqualEqualEqual { return self._identity_down(lt, d); }
         if (k != TokenKind::OpQuestionQuestion) || (lt == &null) { return d; }
         var inner = dyn()->tu.nullable_inner(dyn()->tu.as_value(lt));
         if (inner == &null) || inner->is_dependent() { return d; }
         return inner;
+    }
+
+    /// What a literal on one side of `===` is typed against: the value the
+    /// other side holds (`u8? === 7` compares two `u8`), the pointee when
+    /// that is a nullable pointer (NULLABLE.md 2.3). \p d when \p other is
+    /// not nullable.
+    priv fn _identity_down(self, other: *Type, d: *Type) -> *Type {
+        if other == &null { return d; }
+        var inner = dyn()->tu.nullable_inner(dyn()->tu.as_value(other));
+        if (inner == &null) || inner->is_dependent() { return d; }
+        var p = dyn()->tu.pointee(inner);
+        if p != &null { return d; }   // a literal is no pointer: the operands do not unify either way.
+        return canon_unqual(inner);
     }
 
     /// The operators whose operands are read as values: everything but
@@ -805,8 +843,16 @@ class <T> OperatorTyping {
         n->poison();
     }
 
-    /// `a === b`: both non-null and equal. Needs a nullable operand; a
-    /// nullable pointer compares what it points to, so the pointees unify.
+    /// `a === b`: both present and equal (NULLABLE.md 2.3), the `==` being
+    /// the one the VALUES have. Needs a nullable operand. A nullable pointer
+    /// compares what it points to (TypeUtil::identity_derefs), so then both
+    /// sides must be pointers and their pointees are compared.
+    ///
+    /// The `==` is resolved HERE, on the unwrapped types, and recorded on
+    /// this node (resolved_op / op_rewrite / tag_eq): CoalesceLowering
+    /// builds the `a == b` of the expansion after typing, and OperatorLowering
+    /// can only lower a `==` whose operator typing chose. Nothing after
+    /// typing can bind a user `op ==`.
     priv fn _type_identity(self, n: *BinaryOperatorExpr, lt: *Type, rt: *Type) -> *Type {
         var ln = dyn()->tu.nullable_inner(lt);
         var rn = dyn()->tu.nullable_inner(rt);
@@ -821,19 +867,125 @@ class <T> OperatorTyping {
         }
         var li = dyn()->tu.strip_nullable(lt);
         var ri = dyn()->tu.strip_nullable(rt);
-        var lp = dyn()->tu.pointee(li);
-        var rp = dyn()->tu.pointee(ri);
-        if lp != &null { li = lp; }
-        if rp != &null { ri = rp; }
+        if dyn()->tu.identity_derefs(lt, rt) {
+            var lp = dyn()->tu.pointee(li);
+            var rp = dyn()->tu.pointee(ri);
+            if (lp == &null) || (rp == &null) {
+                dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify: on a nullable pointer '===' compares what it points to, so the other side must be a pointer too");
+                return &null;
+            }
+            if (dyn()->tu.is_unsafe_ptr(li) || dyn()->tu.is_unsafe_ptr(ri)) && (!dyn()->in_unsafe()) {
+                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    f"'===' on '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' dereferences a raw pointer, which requires an unsafe context"
+                ).first(n->range)
+                 .note(n->range.start, "write it inside 'unsafe { ... }', or compare the addresses with '==\x27")
+                 .emit();
+                n->poison();
+                return &null;
+            }
+            li = lp;
+            ri = rp;
+        }
+        if self._identity_eq(n, canon_unqual(li), canon_unqual(ri)) { return dyn()->tu.builtin(BuiltinKind::Bool); }
+        return &null;
+    }
+
+    /// `x === null` / `null === x`: an error, since `===` is true only when
+    /// both sides hold a value. The fix-it writes the null test it meant,
+    /// `!x?`, when `x` is a name or a field path (anything else would need
+    /// parentheses the fix-it cannot judge).
+    priv fn _identity_null(self, n: *BinaryOperatorExpr, null_left: bool) -> *Type {
+        var other = (n->rhs) if (null_left) else (n->lhs);
+        if null_literal_of(other) == &null { dyn()->type_of(other, &null); }
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            "'===' with 'null' is never true: '===' holds only when both sides have a value");
+        b.first(n->range);
+        var x = dyn()->tu.strip_parens(other);
+        if (x != &null) && (isa::<NamedIdentExpr>(x) || isa::<ChainExpr>(x)) {
+            var sp = dyn()->sc->ctx->get_spelling(x->range);
+            b.fix(n->range, f"!{sp}?", f"test '{sp}' for null");
+        } else {
+            b.note(n->range.start, "to test for null, write '!x?' (or 'x == null')");
+        }
+        b.emit();
+        n->poison();
+        return &null;
+    }
+
+    /// The `==` of `===`'s expansion, on the unwrapped types \p li / \p ri:
+    /// the same answers `a == b` gets on two values (a user `op ==`, one
+    /// derived from `op <=>`, an ADT's tag compare, builtin equality),
+    /// recorded on \p n. False after reporting an error.
+    priv fn _identity_eq(self, n: *BinaryOperatorExpr, li: *Type, ri: *Type) -> bool {
+        var lb = dyn()->tu.kind_of(li) != BuiltinKind::COUNT;
+        var rb = dyn()->tu.kind_of(ri) != BuiltinKind::COUNT;
+        if lb && rb {
+            if self.unify_operands(li, ri) != &null { return true; }
+            dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(n->lhs->type_)}' and '{dyn()->tu.str(n->rhs->type_)}' do not unify");
+            return false;
+        }
+        var found = false;
+        var ut = self._identity_op(n, TokenKind::OpEqualEqual, li, ri, "op ==", &found);
+        if found {
+            if ut == &null { return false; }
+            if !dyn()->tu.is_bool(ut) {
+                dyn()->fail(n, DiagID::SC066E, f"'===' needs 'op ==' on '{dyn()->tu.str(li)}' to return 'bool', not '{dyn()->tu.str(ut)}\x27");
+                return false;
+            }
+            return true;
+        }
+        // Derived from `op <=>`, Kairo's rule (see type_binary).
+        if (!self._is_imported_record(li)) && (!self._is_imported_record(ri)) {
+            ut = self._identity_op(n, TokenKind::OpLessEqualGreater, li, ri, "op <=>", &found);
+            if found {
+                if ut == &null { return false; }
+                n->op_rewrite = OpRewrite::Cmp;
+                return true;
+            }
+        }
         if self._is_plain_record(li) || self._is_plain_record(ri) {
-            dyn()->fail(n, DiagID::SC066E, f"'===' on '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' would compare records, which have no builtin equality");
-            return &null;
+            var rec = (li) if (self._is_plain_record(li)) else (ri);
+            dyn()->fail(n, DiagID::SC066E, f"'===' compares the values with their 'op ==', and '{dyn()->tu.str(rec)}' has none");
+            return false;
         }
-        if self.unify_operands(li, ri) == &null {
-            dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify");
-            return &null;
+        if (li == ri) && (self._adt_of(li) != &null) {
+            n->tag_eq = true;
+            return true;
         }
-        return dyn()->tu.builtin(BuiltinKind::Bool);
+        if self.unify_operands(li, ri) != &null { return true; }
+        dyn()->fail(n, DiagID::SC066E, f"'===' cannot compare '{dyn()->tu.str(li)}' with '{dyn()->tu.str(ri)}': there is no '==' for them");
+        return false;
+    }
+
+    /// resolve_user_op for `===`'s `==`, against the UNWRAPPED operand types
+    /// \p li / \p ri rather than the operands' own `T?`: the expansion
+    /// compares the narrowed values. No argument is converted here (the
+    /// operands are nullable; the values exist only in the expansion), so
+    /// finish_call_args, whose check_convertible would read each `T?` as a
+    /// value and report it may be null, is not run.
+    priv fn _identity_op(self, n: *BinaryOperatorExpr, k: TokenKind, li: *Type, ri: *Type,
+                         label: string, found: *bool) -> *Type {
+        (*found) = false;
+        var cands = vec::<*Decl>();
+        var frees = vec::<*Decl>();
+        self._gather(DeclName::op_name(k, TokenKind::TkUnknown), li, ri, -1, &cands, &frees);
+        if (cands.size() == 0) && (frees.size() == 0) { return &null; }
+        (*found) = true;
+        var margs = vec::<ArgInfo>();
+        var ra = self._typed_arg(n->rhs, ri);
+        ra.cat = Expr::ValueCategory::LValue;   // the narrowed read is the place's value.
+        margs.push_back(ra);
+        var fargs = vec::<ArgInfo>();
+        var la = self._typed_arg(n->lhs, li);
+        la.cat = Expr::ValueCategory::LValue;
+        fargs.push_back(la);
+        fargs.push_back(ra);
+        var r = dyn()->ovl.resolve_mixed(&cands, &margs, true, &frees, &fargs, n->range, label, li);
+        if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
+        if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
+        var rt = dyn()->call_result_type(r.decl, &r);
+        self._record(static_cast::<*Expr>(n), static_cast::<*Decl>(r.decl), r.via_free, r.instance);
+        return rt;
     }
 
     /// `x in xs`: containment. The RIGHT operand is the receiver -- xs's

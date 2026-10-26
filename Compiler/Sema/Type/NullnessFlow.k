@@ -2080,7 +2080,30 @@ class NullnessFlow {
             if cast::<BooleanLiteralExpr>(x)->value { c.f = self.dead_env(); } else { c.t = self.dead_env(); }
             return c;
         }
+        // `a === b` is `(a? && b?) && a == b` (NULLABLE.md 2.3): true, each
+        // nullable place in it holds a value; false says nothing.
+        if isa::<BinaryOperatorExpr>(x) {
+            var b = cast::<BinaryOperatorExpr>(x);
+            if (b->op_token.kind != TokenKind::OpEqualEqualEqual) || b->is_poisoned() || self.env.dead { return c; }
+            self._present_if_place(&(c.t), b->lhs, x->range);
+            self._present_if_place(&(c.t), b->rhs, x->range);
+            return c;
+        }
         return c;
+    }
+
+    /// \p e, when it is a nullable place, NonNull in \p env (tested at \p at).
+    priv fn _present_if_place(self, env: *NullEnv, e: *Expr, at: SourceRange) {
+        if !null_flow_is_nullable(e) { return; }
+        var place = null_place_of(e);
+        if place.size() == 0 { return; }
+        var f = NullFact{};
+        f.place  = place;
+        f.state  = Nullness::NonNull;
+        f.why    = NullWhy::Tested;
+        f.at     = at;
+        f.global = null_flow_is_global(place[0]);
+        null_env_put(env, f);
     }
 
     /// `unwrap!(e)` was just typed: past it, a place \p e names holds a

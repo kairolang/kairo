@@ -11,6 +11,8 @@
 ///       x?.f(args)    ->  if x? => x.f(args) else null  tests left to right)
 ///       unwrap!(x)    ->  if x? => x else <abort>      (a statement, see
 ///                                                       transform_unwrap_expr)
+///       a === b       ->  (a? && b?) && a == b         (`*a == *b` through
+///                                                       nullable pointers)
 ///
 ///     The expansion is built TYPED, in the exact shape the typer gives the
 ///     same code written by hand, so the passes after this one lower it
@@ -104,6 +106,7 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
     /// and `x?.m ?? y` holds an expansion of its own on the left).
     fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
         var out = ASTWriter::<CoalesceLowering>::transform_binary_operator_expr(n);
+        if n->op_token.kind == TokenKind::OpEqualEqualEqual { return self._identity(n, out); }
         if n->op_token.kind != TokenKind::OpQuestionQuestion { return out; }
         if n->is_poisoned() || (n->type_ == &null) || (n->resolved_op != &null) { return out; }
         var lt = n->lhs->type_;
@@ -117,6 +120,78 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         var opd = self._operand(n->lhs, &stmts);
         var ie = self._select(n->range, opd.test, opd.value, n->rhs, n->type_);
         return self._wrap(static_cast::<*Expr>(n), opd, &stmts, ie);
+    }
+
+    // --- `===` -----------------------------------------------------------------------
+
+    /// `a === b` -> `(a? && b?) && a == b` (NULLABLE.md 2.3), its operands
+    /// already lowered. Only a nullable side is tested (`a === 5` is
+    /// `a? && a == 5`); each `a` after its test is the marked read, so the
+    /// `==` compares the VALUES, with the operator typing recorded on the
+    /// `===` (OperatorTyping::_identity_eq) moved onto it for
+    /// OperatorLowering. A nullable pointer compares pointees: both values
+    /// are dereferenced, `*p == *q`. An operand that is no place is bound
+    /// first, as for `??`, so each is evaluated once, left to right.
+    priv fn _identity(self, n: *BinaryOperatorExpr, out: *Expr) -> *Expr {
+        if n->is_poisoned() || (n->type_ == &null) { return out; }
+        var lt = n->lhs->type_;
+        var rt = n->rhs->type_;
+        if (lt == &null) || (rt == &null) { return out; }
+        var deref = self.tu.identity_derefs(lt, rt);
+        var stmts = self.list_builder::<*Stmt>();
+        var tests = vec::<*Expr>();
+        var bound = false;
+        var lv = self._identity_side(n->lhs, deref, &stmts, &tests, &bound);
+        var rv = self._identity_side(n->rhs, deref, &stmts, &tests, &bound);
+
+        var eq = BinaryOperatorExpr::create(self.ctx, n->range, lv, rv, self.synth.punct(n->range, TokenKind::OpEqualEqual));
+        eq->resolved_op = n->resolved_op;
+        eq->op_via_free = n->op_via_free;
+        eq->op_instance = n->op_instance;
+        eq->op_rewrite  = n->op_rewrite;
+        eq->tag_eq      = n->tag_eq;
+        eq->type_          = n->type_;
+        eq->value_category = Expr::ValueCategory::RValue;
+
+        var cond: *Expr = &null;
+        for var i: usize = 0; i < tests.size(); ++i { cond = self._and(n, cond, tests[i]); }
+        cond = self._and(n, cond, static_cast::<*Expr>(eq));
+        if !bound {
+            cond->expr_flags = n->expr_flags;
+            return cond;
+        }
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, cond)));
+        return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, n->type_);
+    }
+
+    /// One operand of `===`: its test (when nullable) pushed on \p tests, and
+    /// the value the `==` reads returned, dereferenced when \p deref.
+    priv fn _identity_side(self, e: *Expr, deref: bool, stmts: *ListBuilder::<*Stmt>,
+                           tests: *vec::<*Expr>, bound: *bool) -> *Expr {
+        var v = e;
+        if self.tu.nullable_inner(self.tu.as_value(e->type_)) != &null {
+            var opd = self._operand(e, stmts);
+            if opd.decl != &null { (*bound) = true; }
+            tests->push_back(self._test(e->range, opd.test));
+            v = opd.value;
+        }
+        if !deref { return v; }
+        var pt = self.tu.pointee(self.tu.as_value(v->type_));
+        ICE_IF(pt == &null, "CoalesceLowering: `===` through pointers on a side that is no pointer; OperatorTyping::_type_identity gate failure");
+        var d = UnaryOperatorExpr::create(self.ctx, e->range, v, self.synth.punct(e->range, TokenKind::OpStar),
+                                          UnaryOperatorExpr::Fix::Prefix);
+        d->type_          = pt;
+        d->value_category = Expr::ValueCategory::LValue;
+        return static_cast::<*Expr>(d);
+    }
+
+    /// `l && r`, typed bool; just \p r when \p l is null.
+    priv fn _and(self, n: *BinaryOperatorExpr, l: *Expr, r: *Expr) -> *Expr {
+        if l == &null { return r; }
+        var both = BinaryOperatorExpr::create(self.ctx, n->range, l, r, self.synth.punct(n->range, TokenKind::OpAmpAmp));
+        both->type_          = self.sc->builtin(BuiltinKind::Bool);
+        both->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(both);
     }
 
     // --- `?.` / `?->` --------------------------------------------------------------

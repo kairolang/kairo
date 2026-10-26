@@ -463,8 +463,10 @@ class Sema {
         // value; before OperatorLowering, so an operator on `t.0` sees a
         // field path.
         { var _p = TimeRegion("TupleLowering"); TupleLowering(&self.sc).run(); }
-        // `x ?? y` -> `if x? => x else y`, with the then-arm's read marked
-        // narrowed (NULLABLE.md §5 step 1). Before NullTestLowering and
+        // `x ?? y` -> `if x? => x else y`, `x?.m`, `unwrap!(x)` and `a ===
+        // b` likewise, each read after its test marked narrowed (NULLABLE.md
+        // §5 step 1). Before OperatorLowering: `===`'s `==` may be a user
+        // `op ==`, recorded by typing and lowered there. Before NullTestLowering and
         // NarrowedAccessLowering, which lower the test and the marked read it
         // builds; after CopyMoveLowering, whose moves it binds as operands.
         { var _p = TimeRegion("CoalesceLowering"); CoalesceLowering(&self.sc).run(); }

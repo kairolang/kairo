@@ -137,7 +137,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         var out = ASTWriter::<OperatorLowering>::transform_binary_operator_expr(n);
         // Before the builtin test: a tag `==` binds no operator either.
         if n->tag_eq { return self._tag_eq(n); }
-        if n->resolved_op == &null { return out; }   // builtin, or `===` (the nullable trio's).
+        if n->resolved_op == &null { return out; }   // builtin (`===` is CoalesceLowering's, gone by now).
         var f = self._fn(n->resolved_op);
         var k = n->op_token.kind;
         var args = vec::<*Expr>();
