@@ -494,8 +494,8 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         var full = self.ctx->sm->get_line_col(at.start);
         var text = f"{self.ctx->get_spelling(at)} on null at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
         var bytes = vec::<u8>();
-        for var i: usize = 0; i < text.size(); ++i { bytes.push_back(static_cast::<u8>(text[i])); }   // MIGRATE(raw_string)
-        bytes.push_back(10);
+        LowerSynth::push_string(text, &bytes);
+        LowerSynth::push_string("\n", &bytes);
 
         var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
         var pu8  = self.sc->types->pointer(u8t);

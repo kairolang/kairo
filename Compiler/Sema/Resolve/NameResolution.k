@@ -499,8 +499,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::Ordering,   "Ordering");
         self._bind_lang(root, WellKnownType::Future,     "Future");
         self._bind_lang(root, WellKnownType::Yield,      "Yield");
-        self._bind_lang(root, WellKnownType::Nullable,   "Nullable");
-        self._bind_lang(root, WellKnownType::NullT,      "null_t");
+        self._bind_lang(root, WellKnownType::Nullable,   to_string(WellKnownType::Nullable));
+        self._bind_lang(root, WellKnownType::NullT,      to_string(WellKnownType::NullT));
         self._bind_lang(root, WellKnownType::Panic,      "Panic");
 
         self._bind_lang(root, WellKnownType::BigInt,     "BigInt");
