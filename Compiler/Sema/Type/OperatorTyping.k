@@ -77,6 +77,7 @@
 import Sema::SemaContext::*;
 import AST::OperatorFacts::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::NullnessFlow::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Resolve::NameLookup::*;
@@ -463,6 +464,20 @@ class <T> OperatorTyping {
         // `^^` types its operands independently, like a shift: the base takes
         // the expected type, the exponent is its own integer.
         if k == TokenKind::OpCaretCaret { return self._type_pow(n, expected); }
+
+        // `x == null` and the other three spellings are the null test
+        // (NULLABLE.md 2.2). Asked before the operands are typed: a `null`
+        // typed against a non-nullable would report "cannot infer the type
+        // of null" and hide the real mistake.
+        if self._is_equality(k) {
+            var nl = null_literal_of(n->lhs);
+            var nr = null_literal_of(n->rhs);
+            if (nl != &null) != (nr != &null) {
+                var done = false;
+                var t = self._type_null_compare(n, (nl) if (nl != &null) else (nr), (n->rhs) if (nl != &null) else (n->lhs), &done);
+                if done { return t; }
+            }
+        }
 
         // literal on one side takes the other's type.
         var l_lit = dyn()->is_untyped_literal(n->lhs);
@@ -923,6 +938,65 @@ class <T> OperatorTyping {
                 return &null;
             }
         }
+    }
+
+    /// `x == null` / `null != x` and the rest: \p lit the literal side,
+    /// \p other the operand compared. Against a nullable it is the null
+    /// test, `bool`, and the literal takes the nullable's type (so `&null`
+    /// against a `(*T)?` is that nullable's null, 1.3, and `&null` against
+    /// an `i32?` is the literal's own error). A dependent operand defers,
+    /// as every operator on one does; a `T?` over a dependent T is still a
+    /// nullable and answers now. Against a non-nullable, plain `null` is an
+    /// error: the comparison could only be false (nullables.md: a `T` is
+    /// never null), and C++ would not even accept it. `&null` against a
+    /// non-nullable is not this test at all (`raw != &null` on an `unsafe
+    /// *T` is a pointer comparison): `*done` stays false and the caller
+    /// types the node as any other `==`; \p other's type is memoized.
+    priv fn _type_null_compare(self, n: *BinaryOperatorExpr, lit: *NullLiteralExpr, other: *Expr, done: *bool) -> *Type {
+        (*done) = true;
+        var ot = dyn()->type_of(other, &null);
+        if dyn()->propagate(n, other) { return &null; }
+        if ot == &null { return &null; }
+        var ov = dyn()->tu.as_value(ot);
+        if dyn()->tu.nullable_inner(ov) != &null {
+            var lt = dyn()->type_of(static_cast::<*Expr>(lit), canon_unqual(ov));
+            if dyn()->propagate(n, static_cast::<*Expr>(lit)) || (lt == &null) { return &null; }
+            return dyn()->tu.builtin(BuiltinKind::Bool);
+        }
+        if self._is_dependent(ov) {
+            dyn()->mark_unknown(n);
+            return &null;
+        }
+        if lit->is_ref { (*done) = false; return &null; }
+
+        var x  = dyn()->tu.strip_parens(other);
+        var id = (cast::<NamedIdentExpr>(x)) if ((x != &null) && isa::<NamedIdentExpr>(x)) else (&null);
+        var what = ("the operand") if (id == &null) else (f"'{dyn()->sc->ctx->get_spelling(id->name)}\x27");
+        // A raw pointer CAN be null, but its null is the pointer `&null`
+        // (nullables.md, Pointers and nullability), and that comparison is
+        // a real one: same mistake, different wording and an exact fix.
+        if dyn()->tu.is_unsafe_ptr(ov) {
+            var r = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"{what} is a raw pointer, not a nullable; a raw pointer's null is '&null\x27"
+            );
+            r.first(other->range);
+            r.second(lit->range);
+            r.fix(lit->range, "&null", "compare the pointer with '&null\x27");
+            r.emit();
+            n->poison();
+            return &null;
+        }
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"{what} is not nullable; '{dyn()->tu.str(ov)}' is never null, so comparing it with 'null' is meaningless"
+        );
+        b.first(other->range);
+        b.second(lit->range);
+        if (id != &null) && (id->resolved_decl != &null) {
+            b.note(id->resolved_decl->range.start, f"declared '{dyn()->tu.str(ov)}' here; a type that may be null is written 'T?\x27");
+        }
+        b.emit();
+        n->poison();
+        return &null;
     }
 
     /// `x?` on a value that cannot be null. SC066E (no operator for this
