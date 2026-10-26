@@ -973,7 +973,12 @@ exactly what it runs today, in order:
     SequenceLowering -> ListLiteralLowering -> StringLowering
 
 PatternCompilation, which builds the decision tree MatchLowering renders,
-is not a lowering: it runs last in the checks (§2.8). Still to come, each a
+is not a lowering: it runs last in the checks (§2.8). Every pass walks a
+closure's body as it walks a function's (the ASTWriter descends into
+`ClosureExpr`), so a closure's body is lowered like any other.
+ExprBodyDesugar also turns a closure's expression body into a block
+(`return e`, or `e;` when its resolved return type is `void` / `!`).
+Still to come, each a
 stub file or a `TODO(sema)` in `Sema.k`: UsingDeclSynthesis,
 PanicLowering, YieldLowering, TypeQueryLowering, WhereDispatchLowering,
 CopyMoveLowering (copies), DestructorInsertion. Sugar first, control flow
@@ -1048,7 +1053,10 @@ enclosing `self` is the `__kairo_owner` pointer field. Each use in the body
 is rewritten to `(*self.<field>)`. Statics and globals are not captured.
 EmitIR emits the record in place (`_local_record`), CXXSpell names a
 function-scope record by leaf, EmitPlan never admits one. A `finally` in a
-closure ICEs until lambdas are emitted.
+closure is the same record, declared in the lambda's body and homed in
+the enclosing function; a closure's parameters are captured like the
+function's, and a binding the closure holds by pointer is reached through
+that pointer (the guard's field points at it).
 
 FieldInitLowering [DONE]. A class or struct field's initializer becomes
 its C++ default member initializer. A constant (an integer ConstEval

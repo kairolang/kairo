@@ -690,14 +690,16 @@ class CXXSpell {
                 if (nm.size() > 0) && ((nm[0] == '*') || (nm[0] == '&')) { nm = "(" + nm + ")"; }
                 return self.decl(a->element, f"{nm}[{ext}]", subst, scope);
             }
+            // A Kairo `fn(A) -> R` holds a capturing closure as well as a
+            // function (closures.md: "no separate closure type"), so it is
+            // the `::__kairo_fn<R(A...)>` value type, never a raw pointer:
+            // a lambda with captures has no `R(*)(A...)`. It converts from a
+            // function and back to one (for a C callee) on its own. Only a C
+            // no-prototype pointer stays raw: no Kairo value has that type.
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
-                var ps = "";
-                for var i: usize = 0; i < f->params.size(); ++i {
-                    if i > 0 { ps += ", "; }
-                    ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope);
-                }
-                return self.decl(f->return_type, f"(*{name})({ps})", subst, scope);
+                if f->is_unprototyped { return self.decl(f->return_type, f"(*{name})()", subst, scope); }
+                return self._join("::" + LowerTargets::fn_value() + "<" + self.fn_signature(f, subst, scope) + ">", name);
             }
             case TypeKind::GenericParamType {
                 return self._join(self._gparam(cast::<GenericParamType>(t), subst), name);
@@ -720,6 +722,17 @@ class CXXSpell {
             }
         }
         return "";
+    }
+
+    /// `R(A...)`, the function type a `fn(A) -> R` value wraps: each
+    /// parameter in its mode's abstract spelling, `!` as `void`.
+    fn fn_signature(self, f: *FunctionPointerType, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        var ps = "";
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if i > 0 { ps += ", "; }
+            ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope);
+        }
+        return self.decl(f->return_type, f"({ps})", subst, scope);
     }
 
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as

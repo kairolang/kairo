@@ -512,6 +512,17 @@ class LowerTargets {
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
 
+    // --- fn values and closures (writers: InterfaceEmitter, CXXSpell, EmitIR) ---
+    /// `template <class S> class __kairo_fn`: a Kairo `fn(A) -> R` value,
+    /// specialized on `R(A...)`. It holds either a plain function pointer
+    /// or a heap-allocated lambda (a capturing closure), copies and frees
+    /// the lambda, and converts back to `R(*)(A...)` for a C callee
+    /// (CODEGEN.md §6, Closures). `own` adopts a `new`ed lambda. The guard
+    /// is the header's.
+    static fn fn_value() -> string        { return "__kairo_fn"; }
+    static fn fn_value_own() -> string    { return "own"; }
+    static fn fn_value_guard() -> string  { return "__KAIRO_FN_HELPERS"; }
+
     // --- const fields in a constructor (writers: InterfaceEmitter, EmitIR) ------
     /// The preamble helpers: `__kairo_slot<T>`, a value S_pre fills that does
     /// not exist until its first assignment, and `__kairo_lref<T>`, `T&` for

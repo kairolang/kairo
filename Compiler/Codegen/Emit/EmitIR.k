@@ -112,6 +112,10 @@ class EmitIR {
     /// this is its S_pre, where there is no object and `self.x` is a slot.
     priv var _ci_fn:  *FunctionDecl = &null;
     priv var _ci_pre: bool = false;
+    /// The closure whose body is being emitted, innermost: a `return` in it
+    /// returns from the lambda, with the closure's type. `_cur_fn` stays
+    /// the enclosing function, which still decides what `self` is.
+    priv var _closure: *ClosureExpr = &null;
 
     fn EmitIR(self, cg: *CodegenContext) {
         self._cg    = cg;
@@ -820,6 +824,13 @@ class EmitIR {
     /// The `return` keyword borrows the statement's first six bytes; correct
     /// only because Kairo spells it `return` too. TODO(ast): retain the token.
     priv fn _return(self, n: *ReturnStmt) {
+        // In a closure: the lambda's own return, to the closure's type.
+        if self._closure != &null {
+            self._cg->sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
+            if n->value != &null { self._value(n->value, self._closure->return_type); }
+            self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+            return;
+        }
         // A generator's `return` is bare (X rejects a value) and ends the
         // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
         if (self._cur_fn != &null) && self._cur_fn->is_generator {
@@ -985,7 +996,7 @@ class EmitIR {
             case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place"); }
             case ExprKind::TryCatchExpr         { self._ice(e->range, "EmitIR: try expression; PanicLowering owns it"); }
             case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
-            case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }
+            case ExprKind::ClosureExpr          { self._closure_expr(cast::<ClosureExpr>(e)); }
             case ExprKind::AwaitExpr            { self._ice(e->range, "EmitIR: await; the async lowering owns it"); }
             case ExprKind::UnwrapExpr           { self._ice(e->range, "EmitIR: unwrap!; CoalesceLowering owns it"); }
             case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
@@ -1263,6 +1274,17 @@ class EmitIR {
 
     priv fn _call(self, n: *CallExpr) {
         var callee = self._callee_decl(n->callee);
+        // A call through a `fn` value: a local, a parameter, a field, or any
+        // expression of `fn` type (`make()(4)`). Its parameters are the
+        // type's; an operand that names a function is a plain call below.
+        var fv = self._fn_value_type(n->callee, callee);
+        if fv != &null {
+            self.emit(n->callee);
+            self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+            self._fn_value_args(n, fv);
+            self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            return;
+        }
         if (callee == &null) { self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure"); }
 
         var ch = dyn_cast::<ChainExpr>(n->callee);
@@ -1411,6 +1433,138 @@ class EmitIR {
         }
         if p->mode == ParamMode::Inout { self.emit(a); return; }   // an lvalue binds to T& as is.
         self._value(a, pt, inst);
+    }
+
+    /// The `fn` type of a callee that is a VALUE, not a function: one whose
+    /// decl (if any) is not a function or a type and whose canonical is a
+    /// `fn(...)`. Null otherwise.
+    priv fn _fn_value_type(self, c: *Expr, d: *Decl) -> *FunctionPointerType {
+        if (d != &null) && (isa::<FunctionDecl>(d) || self._is_type_decl(d)) { return &null; }
+        if (c == &null) || (c->type_ == &null) { return &null; }
+        var t = canon_unqual(c->type_);
+        if (t == &null) || (!isa::<FunctionPointerType>(t)) { return &null; }
+        return cast::<FunctionPointerType>(t);
+    }
+
+    /// Arguments of a call through a `fn` value, each as its parameter in
+    /// the type: `@inout` bare, `@move` cast to `T&&` from an lvalue, the
+    /// rest through the exactness cast, as for a function's (_arg).
+    priv fn _fn_value_args(self, n: *CallExpr, f: *FunctionPointerType) {
+        for var i: usize = 0; i < n->args.size(); ++i {
+            var a = n->args[i];
+            if i > 0 { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
+            if i >= f->params.size() { self.emit(a); continue; }
+            var pt = *(f->params.get(i));
+            var m  = *(f->modes.get(i));
+            var u = dyn_cast::<UnaryOperatorExpr>(a);
+            if (u != &null) && u->is_mode_marker { self.emit(u->operand); continue; }
+            if m == ParamMode::Inout { self.emit(a); continue; }
+            if (m == ParamMode::Move) && a->is_lvalue() {
+                self._cg->sink->spell(a->range, "static_cast<" + self._spell._type(pt) + "&&>(");
+                self.emit(a);
+                self._cg->sink->spell(a->range, ")");
+                continue;
+            }
+            self._value(a, pt);
+        }
+    }
+
+    // --- Closures ------------------------------------------------------------------
+
+    /// A closure is a C++ lambda (CODEGEN.md §6, Closures), wrapped in the
+    /// `fn` value its type is:
+    ///   captures nothing  `::__kairo_fn<R(A)>(+[](A a) -> R { ... })`
+    ///   captures          `::__kairo_fn<R(A)>::own(new auto([c...](A a) mutable -> R { ... }))`
+    /// The capture list is ClosureCaptures' decision (_capture_list). A
+    /// capturing lambda is `mutable`: a by-copy capture is the closure's
+    /// own variable, which its body may assign and which keeps its value
+    /// from one call to the next. `new auto(prvalue)` builds the lambda in
+    /// its heap slot directly, so no temporary lambda copies a capture.
+    priv fn _closure_expr(self, n: *ClosureExpr) {
+        if (!n->caps_resolved) { self._ice(n->range, "EmitIR: a closure with no capture decision; ClosureCaptures must run"); }
+        if (n->body_block == &null) { self._ice(n->range, "EmitIR: an expression-bodied closure; ExprBodyDesugar wraps it in a block"); }
+        if (n->generic_params.size() > 0) { self._ice(n->range, "EmitIR: a generic closure; FeatureGateCheck rejects it"); }
+        var fp: *FunctionPointerType = &null;
+        if n->type_ != &null {
+            var t = canon_unqual(n->type_);
+            if (t != &null) && isa::<FunctionPointerType>(t) { fp = cast::<FunctionPointerType>(t); }
+        }
+        if (fp == &null) { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: a closure with no fn type; ExprTyper gate failure"); }
+
+        var caps = self._capture_list(n);
+        var head = "[" + caps + "](";
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var p = n->params[i];
+            if i > 0 { head += ", "; }
+            head += self._spell.param_decl(p, self._spell.imm_name(p->name.imm, self._owning_fid()));
+        }
+        head += ")";
+        if caps.size() > 0 { head += " mutable"; }
+        var ret = "void";
+        if (!n->is_noreturn) && (n->return_type != &null) { ret = self._spell._type(n->return_type); }
+        head += " -> " + ret;
+
+        var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(fp) + ">";
+        if caps.size() == 0 {
+            self._cg->sink->spell(n->range, wrap + "(+" + head);
+        } else {
+            self._cg->sink->spell(n->range, wrap + "::" + LowerTargets::fn_value_own() + "(new auto(" + head);
+        }
+
+        var saved = self._closure;
+        self._closure = n;
+        self.emit_block(n->body_block);
+        self._closure = saved;
+
+        if caps.size() == 0 { self._cg->sink->spell(n->range, ")"); }
+        else                { self._cg->sink->spell(n->range, "))"); }
+    }
+
+    /// The lambda's capture list, from ClosureCaptures' modes:
+    ///   Copy      `x`                                (the closure's own copy)
+    ///   Move      `x = static_cast<T&&>(x)`          (a MOVE value, moved in)
+    ///   Ptr       `x = &x`                           (`x` IS the `*T` the body reads)
+    ///   ConstPtr  `x = static_cast<const T*>(&x)`    (`x` when it is a pointer already)
+    ///   Self      `this`, or `self` in an extension member (a pointer already)
+    /// Init-captures keep the Kairo name, so the body is emitted unchanged:
+    /// a `|*x|` closure's `*x = 1` is C++'s `*x = 1` on the captured pointer.
+    priv fn _capture_list(self, n: *ClosureExpr) -> string {
+        var s = "";
+        for var i: usize = 0; i < n->cap_decls.size(); ++i {
+            var d   = n->cap_decls[i];
+            var m   = n->cap_modes[i];
+            var via = n->cap_via_ptr[i];
+            if s.size() > 0 { s += ", "; }
+            if m == CaptureMode::Self {
+                s += ("self") if (self._cur_ext != &null) else ("this");
+                continue;
+            }
+            var nm = self._spell.imm_name(decl_name_tok(d).imm, self._owning_fid());
+            switch m {
+                case CaptureMode::Copy { s += nm; }
+                case CaptureMode::Move {
+                    s += nm + " = static_cast<" + self._spell._type(self._capture_type(d)) + "&&>(" + nm + ")";
+                }
+                case CaptureMode::Ptr { s += nm + " = &" + nm; }
+                case CaptureMode::ConstPtr {
+                    var src = (nm) if (via) else ("&" + nm);
+                    s += nm + " = static_cast<const " + self._spell._type(self._capture_type(d)) + "*>(" + src + ")";
+                }
+                default { self._ice(n->range, "EmitIR: a capture mode with no spelling"); }
+            }
+        }
+        return s;
+    }
+
+    /// The captured binding's own type, top-level cv dropped (a capture's
+    /// spelling adds what it needs).
+    priv fn _capture_type(self, d: *Decl) -> *Type {
+        var t: *Type = &null;
+        var p = dyn_cast::<ParamDecl>(d);
+        if p != &null { t = (p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_); }
+        else          { t = cast::<VariableDecl>(d)->type_; }
+        if ((t == &null) || (t->canonical == &null)) { self._ice(d->range, "EmitIR: a captured binding with no type; X gate failure"); }
+        return canon_unqual(t->canonical);
     }
 
     /// The parameters an argument list maps onto: `self` excluded only when

@@ -5,12 +5,9 @@
 // directly and passed where a `fn(i32) -> i32` is expected, beside a named
 // function. Compiler/ declares ~220 of them (Lexer, FlagRegistry, ...).
 //
-// XFAIL: *
-// Waiting on lambda emission: Sema accepts all of this, and EmitIR ICEs on
-// the first closure ("EmitIR: closure; lambda emission is not written
-// yet"). Not on the status page.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Lambda emission landed (CODEGEN.md §6, Closures): the closure is a C++
+// lambda in a `::__kairo_fn` value, and `fn(i32) -> i32` takes the named
+// function as well.
 
 fn apply(f: fn(i32) -> i32, x: i32) -> i32 { return f(x) }
 fn twice(x: i32) -> i32 { return x * 2 }

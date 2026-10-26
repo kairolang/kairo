@@ -3,19 +3,20 @@
 // rendered BEFORE the abort: diagnostics are buffered until the end of the
 // run, and an abort skips that flush.
 //
-// The trigger is any construct codegen does not emit yet; a closure is the
-// current one (EmitIR: "lambda emission is not written yet"). When lambdas
-// land this stops ICEing. Swap in the next unemitted construct then and keep
+// The trigger is any construct codegen does not emit yet; a `panic`
+// statement is the current one (EmitIR: "panic; PanicLowering owns it").
+// It was a closure until lambda emission landed. When PanicLowering lands
+// this stops ICEing. Swap in the next unemitted construct then and keep
 // the checks, rather than deleting the test.
 
 fn apply(x: i32) -> i32 {
-    var f = fn (y: i32) -> i32 { return y + 1 }
-    return f(x)
+    if x > 3 { panic "boom" }
+    return x
 }
 
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -c --cache-dir %t.d 2>&1 || true; } | %FileCheck %s
-// CHECK: ice_location.k:12:13: error [I003E]: internal compiler error: EmitIR: closure; lambda emission is not written yet
-// CHECK: Kairo Internal Compiler Error: EmitIR: closure; lambda emission is not written yet, at {{.*}}ice_location.k:12:13
+// CHECK: ice_location.k:13:16: error [I003E]: internal compiler error: EmitIR: panic; PanicLowering owns it
+// CHECK: Kairo Internal Compiler Error: EmitIR: panic; PanicLowering owns it, at {{.*}}ice_location.k:13:16

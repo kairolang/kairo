@@ -4,8 +4,11 @@
 // which stores it in a global, lets a LATER call (`clobber()`) null `x`;
 // a pointer that never escapes leaves `x` proven across a call, so the
 // read after it is `__value()`. Each re-check prints what it found.
-// (Closures do not compile yet, so their half of 3.7 is Sema-only:
-// Sema/Nullable/alias.k.)
+// The closure half: 3.7's own example in its non-error form (the call of a
+// `|*x|` closure does null `x`, and the re-check after it sees null), the
+// same through a copy of the closure, and a by-copy capture of a checked
+// nullable, read narrowed inside the closure (`__value()` on its copy).
+// The error forms are Sema/Nullable/alias.k.
 
 import std::io::println
 
@@ -41,6 +44,26 @@ fn main() -> i32 {
     var *pw = &w
     noop()
     println(f"kept: {w + 0}")
+
+    var n: i32? = 5
+    var clear = fn ()|*n| { *n = null }
+    if n? {
+        println(f"before clear: {n}")
+        clear()
+        show("cleared", n)
+    }
+
+    var m: i32? = 6
+    var clear_m = fn ()|*m| { *m = null }
+    var again = clear_m
+    again()
+    show("closure copy", m)
+
+    var a: i32? = 7
+    if a? {
+        var f = fn () -> i32 { return a + 1 }
+        println(f"by copy: {f()}")
+    }
     return 0
 }
 
@@ -61,3 +84,7 @@ fn main() -> i32 {
 // OUT-NEXT: before: 3
 // OUT-NEXT: escaped: null
 // OUT-NEXT: kept: 4
+// OUT-NEXT: before clear: 5
+// OUT-NEXT: cleared: null
+// OUT-NEXT: closure copy: null
+// OUT-NEXT: by copy: 8

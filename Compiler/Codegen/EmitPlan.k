@@ -187,6 +187,12 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
 
     pub var entries: vec::<PlanEntry>;
 
+    /// Some type the plan admits is a Kairo `fn(A) -> R` value (a
+    /// signature, a field, a local, a closure in a body): the preamble
+    /// must define `::__kairo_fn` (InterfaceEmitter::_fn_value_helper).
+    /// Only then, so a TU that names none keeps its text.
+    pub var needs_fn_value: bool = false;
+
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
 
@@ -1353,6 +1359,7 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::FixedArrayType { self._admit_type(cast::<FixedArrayType>(c)->element, need); }
         case TypeKind::FunctionPointerType {
             var f = cast::<FunctionPointerType>(c);
+            if !f->is_unprototyped { self.needs_fn_value = true; }
             for var i: usize = 0; i < f->params.size(); ++i { self._admit_type(*(f->params.get(i)), PlanNeed::Fwd); }
             self._admit_type(f->return_type, PlanNeed::Fwd);
         }

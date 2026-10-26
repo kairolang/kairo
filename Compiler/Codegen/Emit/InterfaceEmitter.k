@@ -117,6 +117,7 @@ class InterfaceEmitter {
     /// each once it writes them, for the next include to read.
     pub var have_helpers:    bool = false;
     pub var have_ctor_slots: bool = false;
+    pub var have_fn_value:   bool = false;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -192,6 +193,14 @@ class InterfaceEmitter {
             self._ctor_slot_helpers(header);
             self._cg->sink->unanchored(false);
             self.have_ctor_slots = true;
+        }
+        // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own
+        // for the same reason.
+        if (!self.have_fn_value) && self._plan->needs_fn_value {
+            self._cg->sink->unanchored(true);
+            self._fn_value_helper(header);
+            self._cg->sink->unanchored(false);
+            self.have_fn_value = true;
         }
 
         var i: usize = 0;
@@ -1282,6 +1291,60 @@ class InterfaceEmitter {
         t += " void put(T u) { if (set) { b.v = static_cast<T&&>(u); } else { init(static_cast<T&&>(u)); } }";
         t += " T& get() noexcept { return b.v; }";
         t += " T&& take() noexcept { return static_cast<T&&>(b.v); }";
+        t += " };";
+        self._cg->sink->spell(at, t);
+        self._cg->sink->brk();
+        if header { self._cg->sink->directive(at, "#endif"); }
+    }
+
+    /// `::__kairo_fn<R(A...)>`, the C++ type of a Kairo `fn(A) -> R` value
+    /// (CXXSpell, CODEGEN.md §6 Closures). One of:
+    ///   - empty (a default-constructed `fn` local);
+    ///   - a plain function pointer `__f`: a named function, or a closure
+    ///     that captures nothing (`+[](...){...}`);
+    ///   - a heap lambda `__o` with its three operations `__t`: a closure
+    ///     that captures, adopted by `own(new auto([...](...){...}))`. The
+    ///     lambda is built in its heap slot from the prvalue (no temporary,
+    ///     so each captured copy is made once and destroyed once).
+    /// Copying copies the lambda (each copy keeps its own captured copies,
+    /// as copying a C++ lambda does); a lambda with a move-only capture
+    /// cannot be copied, and copying one traps. Calling forwards each
+    /// argument as its parameter type. Converting to `R(*)(A...)` -- a C
+    /// callee's parameter, a C struct's field -- yields the function, and
+    /// traps on a capturing closure, which has none. No library header:
+    /// `new`/`delete` of a lambda need none, and `__builtin_trap` is
+    /// clang's.
+    priv fn _fn_value_helper(self, header: bool) {
+        var at = self._tu_at();
+        var fv = LowerTargets::fn_value();
+        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::fn_value_guard()); }
+        if header { self._cg->sink->directive(at, "#define " + LowerTargets::fn_value_guard()); }
+        self._cg->sink->spell(at, "template <class S> class " + fv + ";");
+        self._cg->sink->brk();
+        var t = "template <class R, class... A> class " + fv + "<R(A...)> {";
+        t += " using __ptr = R (*)(A...);";
+        t += " struct __ops { R (*call)(void*, A&&...); void* (*copy)(const void*); void (*drop)(void*) noexcept; };";
+        t += " template <class F> static R __call(void* o, A&&... a) { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
+        t += " template <class F> static void* __copy(const void* o) {";
+        t +=   " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }";
+        t +=   " else { __builtin_trap(); } }";
+        t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }";
+        t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};";
+        t += " __ptr __f = nullptr;";
+        t += " void* __o = nullptr;";
+        t += " const __ops* __t = nullptr;";
+        t += " public:";
+        t += " " + fv + "() noexcept {}";
+        t += " " + fv + "(__ptr f) noexcept : __f(f) {}";
+        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }";
+        t += " " + fv + "(const " + fv + "& o) : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}";
+        t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }";
+        t += " " + fv + "& operator=(" + fv + " o) noexcept {";
+        t +=   " __ptr f = __f; void* p = __o; const __ops* q = __t;";
+        t +=   " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }";
+        t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }";
+        t += " R operator()(A... a) const { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
+        t += " operator __ptr() const noexcept { if (__o) { __builtin_trap(); } return __f; }";
         t += " };";
         self._cg->sink->spell(at, t);
         self._cg->sink->brk();

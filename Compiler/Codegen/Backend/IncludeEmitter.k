@@ -55,6 +55,7 @@ import Preprocessor::PreprocessorSymbolTable::*;
 class IncludedDecls {
     pub var helpers:    bool = false;   ///< InterfaceEmitter::have_helpers
     pub var ctor_slots: bool = false;   ///< InterfaceEmitter::have_ctor_slots
+    pub var fn_value:   bool = false;   ///< InterfaceEmitter::have_fn_value
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
     /// a later include from defining X.
@@ -219,9 +220,11 @@ class IncludeEmitter {
         var ie = InterfaceEmitter(&cg, &plan);
         ie.have_helpers    = seen->helpers;
         ie.have_ctor_slots = seen->ctor_slots;
+        ie.have_fn_value   = seen->fn_value;
         ie.run();
         seen->helpers    = ie.have_helpers;
         seen->ctor_slots = ie.have_ctor_slots;
+        seen->fn_value   = ie.have_fn_value;
 
         var bodies = vec::<*FunctionDecl>();
         var all = plan.include_bodies();

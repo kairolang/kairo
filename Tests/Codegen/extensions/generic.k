@@ -29,7 +29,8 @@ fn main() -> i32 {
 // extension's T merged ahead of a member's own U. The named initializers of
 // DEPENDENT records (`Cell<U> { ... }` in `map`, `Cell<T> { ... }` in
 // `make`) are typed with that record, not left unknown -- EmitIR used to ICE
-// on them. `f: fn(T) -> U` keeps its name inside the declarator, and the
+// on them. `f: fn(T) -> U` is the `::__kairo_fn<U(T)>` value type (it may
+// hold a closure; CODEGEN.md §6, Closures) with the name after it, and the
 // explicit instantiations parenthesize theirs (a class-template return
 // would otherwise swallow the leading `::generic::`).
 
@@ -41,7 +42,7 @@ fn main() -> i32 {
 // CXX:      struct __kairo_ext_Cell {
 // CXX-NEXT:   template<class T> static void put( ::generic::Cell<T> * self, T v);
 // CXX-NEXT:   template<class T> static T get(const::generic::Cell<T> * self);
-// CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, U(* f)(T));
+// CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, ::__kairo_fn<U(T)> f);
 // CXX-NEXT:   template<class T> static::generic::Cell<T> make(T v);
 // CXX:      template<class T, class U>::generic::Cell<U> __kairo_ext_Cell::map(
 // CXX:      return::generic::Cell<U> {
@@ -52,7 +53,7 @@ fn main() -> i32 {
 // CXX:      ::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>((& a), ::generic::halve);
 // CXX:      template void({{ *}}::generic::__kairo_ext_Cell::put<signed long{{( long)?}}>)(
 // CXX:      template signed long{{( long)?}}({{ *}}::generic::__kairo_ext_Cell::get<signed long{{( long)?}}>)(
-// CXX:      template::generic::Cell<double>({{ *}}::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>)(const::generic::Cell<signed long{{( long)?}}> *, double(*)(signed long{{( long)?}}));
+// CXX:      template::generic::Cell<double>({{ *}}::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>)(const::generic::Cell<signed long{{( long)?}}> *, ::__kairo_fn<double(signed long{{( long)?}})>);
 // CXX:      template::generic::Cell<signed long{{( long)?}}>({{ *}}::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>)(signed long{{( long)?}});
 
 // REQUIRES: clang

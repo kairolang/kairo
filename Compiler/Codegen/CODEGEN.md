@@ -177,7 +177,12 @@ emitters use the same instance; a declaration and a body cannot disagree.
   use is an explicit call that passes the object, not its address.
 - `_type(t)`: canonical → C++; builtins by table (`i32` is
   `::std::int32_t`), records qualified with instance args from the
-  registry, pointers, references, arrays through `decl()`. Structural
+  registry, pointers, references, arrays through `decl()`. A Kairo
+  `fn(A) -> R` is the value type `::__kairo_fn<R(A...)>` (§5, §6
+  Closures; `fn_signature(f)` spells `R(A...)`), never `R(*)(A...)`:
+  closures.md gives a closure the `fn` type, and a lambda that captures
+  has no function pointer. Only a C no-prototype pointer
+  (`is_unprototyped`) stays raw. Structural
   containers are gone (builtin records); a tuple canonical ICEs naming
   TypeResolve. `T?` stays a NullableType canonical (Sema's later passes
   ask it), and is spelled -- and planned, EmitPlan `_nullable_record` --
@@ -197,9 +202,10 @@ emitters use the same instance; a declaration and a body cannot disagree.
   parameter lists.
 - `param_decl(p, name)`: the parameter spelling with the name folded into
   the declarator, for every type: the mode's `&`/`&&` and the const marker
-  go through `decl()`, so a function pointer is `U (*f)(T)` and `@inout`
-  on one is `U (*& f)(T)`. Appending the name (`U(*)(T) f`) is a cast-like
-  expression to clang. Arrays keep their own branch: a `const [T; N]`
+  go through `decl()`, so a raw function pointer (a C no-prototype one) is
+  `U (*f)(T)` and `@inout` on one is `U (*& f)(T)`; appending the name
+  (`U(*)(T) f`) is a cast-like expression to clang. A Kairo `fn` parameter
+  is the value type, `::__kairo_fn<U(T)> f` (`& f` for `@inout`). Arrays keep their own branch: a `const [T; N]`
   parameter is `const T (&name)[N]`, an `@inout` one is `T (&name)[N]`, and
   by value is an ICE (StmtTyping rejects it). Both emitters spell
   parameters through here.
@@ -251,7 +257,11 @@ Every Preamble and every Header opens with
 
 (`LowerTargets::array_alias`, `LowerTargets::tmp_addr`,
 `LowerTargets::adt_variant_tag`, `LowerTargets::construct_at`,
-`LowerTargets::destroy_at`). `__kairo_vt<I>` is the tag argument that selects
+`LowerTargets::destroy_at`). A plan that admits a Kairo `fn` type
+anywhere (`EmitPlan::needs_fn_value`, set by `_admit_type`) also writes
+`::__kairo_fn` (`LowerTargets::fn_value`, guarded
+`__KAIRO_FN_HELPERS` in a header, `have_fn_value` for an include
+stream), so a TU that names none keeps its text (§6, Closures). `__kairo_vt<I>` is the tag argument that selects
 an ADT's variant-I constructor. The alias is never
 instantiated. `__kairo_tmp` is the address of a prvalue's materialized
 temporary, valid to the end of the full-expression: ExtensionLowering's
@@ -428,7 +438,7 @@ Declarations are the plan's; EmitIR writes bodies. What it knows:
     `return`/`break`/`continue` (unlabeled), locals, blocks, named and
     anonymous initializers (designated, declaration order, aggregates
     only), `sizeof`/`alignof`/`delete`, `unsafe` (transparent),
-    `InitListExpr`, `StmtExpr`.
+    `InitListExpr`, `StmtExpr`, closures (Closures, below).
 
 `InitListExpr` is the C++ braced-init-list, and array-typed only. Its two
 spellings are chosen by POSITION: the bare `{...}` as a `VariableDecl`'s
@@ -439,6 +449,60 @@ the end of the full-expression. Both are valid C++17, but GCC rejects the
 decay of a prvalue array ("taking address of temporary array") and clang
 does not — bodies only ever go through clang, and that is a HARD dependency
 of this layer, not a preference.
+
+### Closures
+
+A closure is a C++ lambda inside the `fn` value its type is. closures.md
+gives every closure the type `fn(A) -> R` ("no separate closure type")
+and lets one that captures be stored, passed and returned as that type,
+so `fn(A) -> R` is spelled `::__kairo_fn<R(A...)>` everywhere (CXXSpell,
+§4), a preamble helper (§5): empty, a plain function pointer, or a
+heap-allocated lambda with its call / copy / destroy operations.
+
+    captures nothing   ::__kairo_fn<R(A)>(+[](A a) -> R { body })
+    captures           ::__kairo_fn<R(A)>::own(new auto([caps](A a) mutable -> R { body }))
+
+- A named function converts to the value by its function-pointer
+  constructor; a `fn` value converts back to `R(*)(A...)` for a C callee
+  or field, and that conversion traps on a capturing closure (it has no
+  function to give). C++ does both implicitly, so a foreign call needs
+  no arm here.
+- `new auto(lambda)` builds the lambda in its heap slot from the prvalue:
+  no temporary lambda, so each by-copy capture is copied once (from the
+  variable) and destroyed once (with the last `fn` value holding it).
+- Copying a `fn` value copies the lambda: each copy keeps its own
+  by-copy captures, as copying a C++ lambda does. A lambda with a
+  move-only capture cannot be copied; copying the `fn` value that holds
+  one traps. Moving never copies.
+- A capturing lambda is `mutable`: a by-copy capture is the closure's
+  own variable (closures.md), assignable in the body, and its value
+  persists from one call to the next.
+- The capture list is ClosureCaptures' decision (`ClosureExpr::
+  cap_decls` / `cap_modes` / `cap_via_ptr`, RESOLUTION.md §2.8), spelled
+  by `_capture_list`. Init-captures keep the Kairo name, so the body
+  emits unchanged: inside a `|*x|` closure Sema types `x` as `*T`
+  (ExprTyper::_capture_view), and the capture makes C++'s `x` that
+  pointer.
+
+        Copy       x
+        Move       x = static_cast<T&&>(x)          a MOVE value, moved in
+        Ptr        x = &x                           `|*x|`, `|*|`
+        ConstPtr   x = static_cast<const T*>(&x)    `|const *x|`
+        Self       this   (an extension member: self)
+
+  A binding an enclosing closure holds by pointer is already that pointer
+  in the inner lambda: Copy (and Ptr, Move) copy it, ConstPtr converts it
+  (`static_cast<const T*>(x)`).
+- `return` in the body returns from the lambda (`_return` reads the
+  innermost `_closure`'s return type); `_cur_fn` stays the enclosing
+  function, which decides `self`. An expression body arrives as a block
+  (ExprBodyDesugar). A `finally` in the body is FinallyLowering's local
+  record, declared in the lambda.
+- A call through a `fn` value (a local, a parameter, a field, `make()(4)`)
+  casts each argument to the type's parameter as `_arg` does
+  (`_fn_value_args`).
+- Not emitted: a generic closure (`fn <T>(x: T)`; FeatureGateCheck,
+  SC116E), whose parameters and calls X does not type.
 
 `StmtExpr` is the GNU statement expression `({ s0; s1; e; })`, whose value is
 its last statement. The parser produces it for source `({ ... })` (the last
@@ -535,7 +599,7 @@ is rewritten there too, then reaches MatchLowering as an ordinary match);
 a `T?` with no `lowered` record → NullableTypeLowering (CXXSpell). A null
 test left for NullTestLowering or a read left for NarrowedAccessLowering
 has no ICE of its own: those two passes are the only guard; f-strings → FStringLowering; yield →
-YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
+YieldLowering; a generic closure → FeatureGateCheck; await/spawn/thread
 → async lowering; `ListLiteralExpr` / set / map literals →
 ListLiteralLowering (set and map have no lowering yet); labeled
 break/continue → LabelLowering; typeof/impl/derives tests →
