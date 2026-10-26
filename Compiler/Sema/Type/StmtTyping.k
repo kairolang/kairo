@@ -255,8 +255,99 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// "add a level". A deliberate `(T?)?` is still writable as a type.
     priv fn _shorthand_type(self, v: *VariableDecl, t: *Type) -> *Type {
         var c = canon_unqual(t);
+        if v->pointer_depth > 0 { self._check_pointer_shorthand(v, c); }
         if !v->nullable_shorthand { return c; }
         return self._nullable_once(c);
+    }
+
+    /// `var *y = e` (NULLABLE.md 1.7): the stars state the pointer depth of
+    /// `e`'s type, and `unsafe` its outermost pointer's safety. A marker,
+    /// never a conversion: `y` is `typeof(e)` whatever is written, and a
+    /// wrong marker is an error with a fix-it but does NOT poison `y`, so
+    /// its uses type as they would without the stars and nothing cascades.
+    ///
+    /// Dependent types are decided on the type as written, like `var x? =
+    /// t` (1.6): `p: **T` has depth 2 and `var *q = p` is wrong even though
+    /// no `T` makes it right. What is NOT decidable is a pointer prefix that
+    /// ends in an opaque parameter: `var **q = p` with `p: *T` is right for
+    /// `T = *U` and wrong for `T = i32`. Such a decl is accepted when it has
+    /// at least the visible stars, and nothing re-checks it per instance
+    /// (bodies are typed once, on the dependent type): deferred means
+    /// unchecked.
+    priv fn _check_pointer_shorthand(self, v: *VariableDecl, c: *Type) {
+        if c == &null { return; }
+        var nm    = dyn()->tu.decl_name(static_cast::<*Decl>(v));
+        var wrote = pointer_shorthand_spelling(v->pointer_depth, v->pointer_unsafe);
+
+        // `var *y = e` with `e: (*T)?`: the value may be null and nothing
+        // on the name says so. The `?` is what is missing, not a star.
+        var base  = c;
+        var inner = dyn()->tu.nullable_inner(c);
+        if inner != &null {
+            base = canon_unqual(inner);
+            if !v->nullable_shorthand {
+                var b = dyn()->sc->diag->report(DiagID::SC001E, v->name.range.start,
+                    f"'{wrote}{nm}' is initialized with a nullable '{dyn()->tu.str(c)}'; write '{wrote}{nm}?' so the declaration says it may be null"
+                );
+                b.first(v->name.range);
+                b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
+                b.insert(v->name.range.end, "?", "mark the binding nullable");
+                b.emit();
+            }
+        }
+
+        var depth = u32(0);
+        var outer_unsafe = false;
+        var leaf = base;
+        while (leaf != &null) && isa::<PointerType>(leaf) {
+            if depth == 0 { outer_unsafe = cast::<PointerType>(leaf)->is_unsafe; }
+            depth += 1;
+            leaf = canon_unqual(cast::<PointerType>(leaf)->pointee);
+        }
+        var opaque = (leaf != &null) && self._is_opaque_dependent(leaf);
+
+        var depth_ok = (v->pointer_depth == depth) || (opaque && (v->pointer_depth > depth));
+        if (depth == 0) && opaque { return; }   // `var *y = t`, `t: T`: undecidable here.
+        if depth == 0 {
+            var b = dyn()->sc->diag->report(DiagID::SC001E, v->pointer_range.start,
+                f"'{wrote}{nm}' declares a pointer, but its initializer has type '{dyn()->tu.str(c)}', which is not one"
+            );
+            b.first(v->pointer_range);
+            b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
+            b.remove(v->pointer_range, "remove the shorthand");
+            b.emit();
+            return;
+        }
+        if depth_ok && (v->pointer_unsafe == outer_unsafe) { return; }
+
+        // One fix-it rewrites both the count and the safety: what the
+        // initializer's type spells (the visible stars when it is opaque).
+        var want_depth = (v->pointer_depth) if (depth_ok) else (depth);
+        var want = pointer_shorthand_spelling(want_depth, outer_unsafe);
+        var msg: string = "";
+        if !depth_ok {
+            msg = f"'{wrote}{nm}' states a pointer of depth {v->pointer_depth}, but its initializer is '{dyn()->tu.str(c)}', a pointer of depth {depth}; write '{want}{nm}\x27";
+        } else if outer_unsafe {
+            msg = f"'{wrote}{nm}' declares a safe pointer, but its initializer is the unsafe pointer '{dyn()->tu.str(c)}'; write '{want}{nm}\x27";
+        } else {
+            msg = f"'{wrote}{nm}' declares an unsafe pointer, but its initializer is the safe pointer '{dyn()->tu.str(c)}'; write '{want}{nm}\x27";
+        }
+        var b = dyn()->sc->diag->report(DiagID::SC001E, v->pointer_range.start, msg);
+        b.first(v->pointer_range);
+        b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
+        b.fix(v->pointer_range, want, f"write '{want}\x27");
+        b.emit();
+    }
+
+    /// A dependent type with no visible shape: a generic parameter (or a
+    /// type computed from one) that some argument could make a pointer.
+    /// A dependent record, tuple, array or function pointer is never one.
+    priv fn _is_opaque_dependent(self, t: *Type) -> bool {
+        if (t == &null) || (!t->is_dependent()) { return false; }
+        if isa::<RecordType>(t) || isa::<TupleType>(t) || isa::<FixedArrayType>(t) { return false; }
+        if isa::<VectorType>(t) || isa::<MapType>(t) || isa::<SetType>(t) { return false; }
+        if isa::<FunctionPointerType>(t) || isa::<NullableType>(t) { return false; }
+        return true;
     }
 
     /// `T` -> `T?`, `T?` -> `T?`: what every `?` shorthand (declaration or

@@ -681,6 +681,18 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     /// there and recovered as `var x: T?`, so a set flag always means
     /// "infer, then wrap" and StmtTyping has one case to handle.
     pub var nullable_shorthand: bool = false;
+    /// `var *y = e` / `var **y = e` / `var unsafe *y = e`, the pointer
+    /// shorthand (NULLABLE.md 1.7): the number of stars written before the
+    /// name, 0 when there are none. A readability marker, never a
+    /// conversion: StmtTyping infers `typeof(e)` as for a plain `var y = e`
+    /// and checks the stars against it (depth, and the outermost pointer's
+    /// safety against `pointer_unsafe`). Like `nullable_shorthand`, set only
+    /// when `type_` is null; the parser refuses `var *y: T`.
+    pub var pointer_depth: u32 = 0;
+    pub var pointer_unsafe: bool = false;   ///< `unsafe` before the first star.
+    /// `unsafe`/first `*` through the last `*`: what a depth or safety
+    /// fix-it rewrites. Kept on the node because that fix-it is Sema's.
+    pub var pointer_range: SourceRange = SourceRange::invalid();
 
     static fn create(
         ctx:     *ASTContext,
@@ -717,6 +729,16 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
     fn is_eval(self)   -> bool { return self.storage == StorageClass::Eval; }
     fn is_inferred(self) -> bool { return self.type_ == &null; }
+}
+
+/// The pointer shorthand as written before a binding's name: `*`, `**`,
+/// `unsafe *`. What every message and fix-it about it spells (the parser's
+/// refusals, StmtTyping's depth check, the shorthand lint, the printers).
+fn pointer_shorthand_spelling(depth: u32, is_unsafe: bool) -> string {
+    var s: string = "";
+    if is_unsafe { s = "unsafe "; }
+    for var i: u32 = 0; i < depth; ++i { s += "*"; }
+    return s;
 }
 
 /// What FieldInitLowering made of a field's initializer, for the emitter's

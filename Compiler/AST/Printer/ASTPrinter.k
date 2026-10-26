@@ -1400,6 +1400,8 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _d_variable(self, vd: *VariableDecl) {
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
+        if vd->pointer_unsafe { self.p.paint(Color::Keyword, "unsafe "); }
+        for var i: u32 = 0; i < vd->pointer_depth; ++i { self.p.paint(Color::Punct, "*"); }
         self.p.paint(Color::Ident, self.tok(vd->name));
         if vd->nullable_shorthand { self.p.paint(Color::Punct, "?"); }
         if vd->type_ != &null {
@@ -3154,6 +3156,8 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.put(" ");
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
+        if vd->pointer_unsafe { self.p.paint(Color::Keyword, "unsafe "); }
+        for var i: u32 = 0; i < vd->pointer_depth; ++i { self.p.paint(Color::Punct, "*"); }
         self.p.paint(Color::Ident, self.tok(vd->name));
         if vd->nullable_shorthand { self.p.paint(Color::Punct, "?"); }
         // a generic-bearing type becomes its own child subtree; a leaf type

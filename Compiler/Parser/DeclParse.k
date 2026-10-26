@@ -2190,6 +2190,25 @@ class <T> DeclParse {
             is_thread = true;
         }
 
+        // `var *y = e`, `var **y = e`, `var unsafe *y = e`: the pointer
+        // shorthand (NULLABLE.md 1.7). Before the name, so the name check
+        // below sees the identifier; left unread, the `*` was S046E.
+        // `unsafe` counts only before a star: alone it is no shorthand.
+        var p_depth  = u32(0);
+        var p_unsafe = false;
+        var p_range  = SourceRange::invalid();
+        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) {
+            p_range  = dyn()->current_ptr()->range;
+            p_unsafe = true;
+            dyn()->advance();   // consume `unsafe`
+        }
+        while dyn()->check(TokenKind::OpStar) {
+            if p_depth == 0 && (!p_unsafe) { p_range = dyn()->current_ptr()->range; }
+            else                           { p_range = p_range | dyn()->current_ptr()->range; }
+            p_depth += 1;
+            dyn()->advance();   // consume `*`
+        }
+
         if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected a name after the binding keyword"
@@ -2201,7 +2220,10 @@ class <T> DeclParse {
         dyn()->advance();
 
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
-        vd->is_thread = is_thread;
+        vd->is_thread      = is_thread;
+        vd->pointer_depth  = p_depth;
+        vd->pointer_unsafe = p_unsafe;
+        vd->pointer_range  = p_range;
 
         // `var x? = e`: the nullable shorthand. Read before the index-mode
         // skip so both parses see the same name; left for the statement
@@ -2226,6 +2248,21 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpColon) {
             dyn()->advance(T::SkipNL::After); // consume `:`
             var ty = dyn()->parse_type();
+            if (ty != &null) && (!is_recovery(ty)) && (vd->pointer_depth > 0) {
+                // `var *y: T`. Same reasoning as `var x?: T` below: the
+                // stars restate what the annotation already says, and if
+                // they disagree one of them is a mistake. The annotation
+                // wins (it is the explicit one); the fix-it drops the stars.
+                var stars = pointer_shorthand_spelling(vd->pointer_depth, vd->pointer_unsafe);
+                var b = dyn()->diag->report(DiagID::S058E, vd->pointer_range.start,
+                    f"'{stars}{dyn()->ctx->get_spelling(name)}' states that the binding is a pointer, but the declaration also annotates its type; drop the '{stars}\x27"
+                );
+                b.first(vd->pointer_range);
+                b.remove(vd->pointer_range, "remove the shorthand");
+                b.emit();
+                vd->pointer_depth  = 0;
+                vd->pointer_unsafe = false;
+            }
             if (ty != &null) && (!is_recovery(ty)) && vd->nullable_shorthand {
                 // `var x?: T`. The shorthand exists to infer the type, and
                 // the annotation says it outright, so one of them is a
@@ -2337,6 +2374,24 @@ class <T> DeclParse {
             is_thread = true;
         }
 
+        // `var *f = e` in a type body: refused for the reason `var f? = e`
+        // is below (a field never infers). Read here so the name is still
+        // found and the member parses; left unread, the `*` was S048E.
+        var p_depth  = u32(0);
+        var p_unsafe = false;
+        var p_range  = SourceRange::invalid();
+        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) {
+            p_range  = dyn()->current_ptr()->range;
+            p_unsafe = true;
+            dyn()->advance();   // consume `unsafe`
+        }
+        while dyn()->check(TokenKind::OpStar) {
+            if p_depth == 0 && (!p_unsafe) { p_range = dyn()->current_ptr()->range; }
+            else                           { p_range = p_range | dyn()->current_ptr()->range; }
+            p_depth += 1;
+            dyn()->advance();   // consume `*`
+        }
+
         if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S048E, start.start,
                 "expected field name"
@@ -2376,6 +2431,15 @@ class <T> DeclParse {
             if (fty != &null) && (!isa::<NullableType>(fty)) {
                 b.insert(fty->range.end, "?", "make the field's type nullable");
             }
+            b.emit();
+        }
+        if p_depth > 0 {
+            var stars = pointer_shorthand_spelling(p_depth, p_unsafe);
+            var b = dyn()->diag->report(DiagID::S058E, p_range.start,
+                f"a field declares its type and cannot use the '{stars}' shorthand; write '{dyn()->ctx->get_spelling(name)}: {stars}T\x27"
+            );
+            b.first(p_range);
+            b.remove(p_range, "remove the shorthand");
             b.emit();
         }
 
