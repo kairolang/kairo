@@ -9,7 +9,7 @@
 //   - a non-const pointer passed (`mptr(&x)`): the pointer may be kept, so
 //     the call weakens `x`, and so does every LATER call, while a check
 //     with no call after it still narrows (3.7's escape rule);
-//   - a write through a pointer the analysis cannot place (`*p = null`);
+//   - a write through a pointer to it (`*p = null`);
 //   - NOT weakening: a `*const` pointer passed, a by-value pass, a check
 //     after the weakening call;
 //   - a weakening call in a loop body weakens the place at the loop's
@@ -157,13 +157,13 @@ fn main() -> i32 { return 0 }
 // DIAG-NEXT: weaken_calls.k:61:8: note [{{.*}}]: this '@inout' argument lets the call change 'x'
 // DIAG-NOT: {{error|warning}}
 // DIAG: weaken_calls.k:68:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
-// DIAG-NEXT: weaken_calls.k:67:10: note [{{.*}}]: a pointer to 'x' is taken here; any call after it, or a write through it, may change 'x'
+// DIAG-NEXT: weaken_calls.k:67:10: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
 // DIAG: weaken_calls.k:77:16: error [SC001E]: 'x' may be null here; check it with 'if x?' first
-// DIAG-NEXT: weaken_calls.k:73:10: note [{{.*}}]: a pointer to 'x' is taken here; any call after it, or a write through it, may change 'x'
+// DIAG-NEXT: weaken_calls.k:73:10: note [{{.*}}]: a pointer to 'x' escapes here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
 // DIAG: weaken_calls.k:86:12: error [SC001E]: 'x' may be null here; check it with 'if x?' first
-// DIAG-NEXT: weaken_calls.k:84:13: note [{{.*}}]: a pointer to 'x' is taken here; any call after it, or a write through it, may change 'x'
+// DIAG-NEXT: weaken_calls.k:85:5: note [{{.*}}]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
 // DIAG: weaken_calls.k:122:16: error [SC052E]: 'm' is used after being moved
 // DIAG-NEXT: weaken_calls.k:121:17: note [{{.*}}]: 'm' was moved here, into a '@move' parameter

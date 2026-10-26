@@ -291,7 +291,6 @@ class ExprTyper
 
         self.ml.index_extensions();
         self.cb.prepare();
-        self.flow.scan(tu);
 
         var items = &(tu->program->items);
         for var i: usize = 0; i < items->size(); ++i {
@@ -549,7 +548,10 @@ class ExprTyper
                 n->value_category = Expr::ValueCategory::LValue;
                 var t = self.param_value_type(p);
                 if t == &null { self.mark_unknown(n); return &null; }
+                var pv = self._capture_view(d, t);
+                if pv != &null { return pv; }
                 self._note_place_read(n, d, t);
+                self.flow.note_use(static_cast::<*Expr>(n), d);
                 return t;
             }
             case DeclKind::VariableDecl {
@@ -558,7 +560,12 @@ class ExprTyper
                 var t = self.var_type(v);
                 if t == &null { if d->is_poisoned() { self.poison_only(n); } else { self.mark_unknown(n); } }
                 else if v->is_const() { t = self.sc->types->qualified(t, QUAL_CONST()); }
-                if t != &null { self._note_place_read(n, d, t); }
+                if t != &null {
+                    var pv = self._capture_view(d, t);
+                    if pv != &null { return pv; }
+                    self._note_place_read(n, d, t);
+                    self.flow.note_use(static_cast::<*Expr>(n), d);
+                }
                 return t;
             }
             case DeclKind::FieldDecl {
@@ -633,6 +640,38 @@ class ExprTyper
                 return &null;
             }
         }
+    }
+
+    /// Inside a closure that captures \p d by pointer (`|*x|`, `|*|`, or
+    /// `|const *x|`), the name is that pointer, `*T` (closures.md: the body
+    /// reads and writes the original through `*x`): its type there, or null
+    /// when \p d is not captured by pointer here. An inner closure that
+    /// copies an outer one's pointer capture sees the pointer too. Only
+    /// closures between the use and \p d's own body count.
+    priv fn _capture_view(self, d: *Decl, t: *Type) -> *Type {
+        if (d == &null) || (t == &null) { return &null; }
+        var at = d->range.start.id;
+        var i = self.frames.size();
+        while i > 0 {
+            i = i - 1;
+            var c = self.frames[i].closure;
+            if c == &null { return &null; }   // a function body: d is its own or a global.
+            if (at >= c->range.start.id) && (at < c->range.end.id) { return &null; }
+            for var k: usize = 0; k < c->captures.size(); ++k {
+                var cap = c->captures.get(k);
+                if !cap->by_ptr { continue; }
+                var named = (cap->name != &null) && (cap->name->resolved_decl == d);
+                var all = cap->name == &null;
+                if (!named) && (!all) { continue; }
+                // A global is named, not captured; `self` keeps its own
+                // receiver type (what a closure does with it is not settled).
+                if all && (null_flow_is_global(d) || (isa::<ParamDecl>(d) && cast::<ParamDecl>(d)->is_self)) { continue; }
+                var pointee = t;
+                if cap->is_const { pointee = self.sc->types->qualified(t, QUAL_CONST()); }
+                return self.sc->types->pointer(pointee, false);
+            }
+        }
+        return &null;
     }
 
     /// A use of the nullable place \p d: the analysis remembers its state

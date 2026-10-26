@@ -94,6 +94,8 @@ class <T> MemberTyping {
         } else {
             var bt = dyn()->type_of(n->base, &null);
             if n->base->is_poisoned() { dyn()->poison_only(n); return &null; }
+            // `p->f` goes where p points: the pointer is no escape (NULLABLE.md 3.7).
+            if (n->steps.size() > 0) && (n->steps.get(0)->access_kind == ChainExpr::AccessKind::Arrow) { dyn()->flow.consumed(n->base); }
             var denoted = dyn()->denoted_type(n->base);
             if denoted != &null {
                 cur_kind = 1; cur_type = denoted;
@@ -129,6 +131,7 @@ class <T> MemberTyping {
             && (dyn()->tu.nullable_inner(dyn()->ml.peel_ref(cur)) != &null) {
                 var o = dyn()->flow.read_prefix(n, i);
                 if o == 2 { dyn()->poison_only(n); return &null; }
+                if (o == 0) && dyn()->flow.refuse_unplaced(n, i) { return &null; }
                 if o == 1 { cur = (n->base->type_) if (i == 0) else (n->steps.get(i - 1)->resolved_type); }
             }
 

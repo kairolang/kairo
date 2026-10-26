@@ -28,7 +28,8 @@
 ///     and ASK at each use:
 ///
 ///       enter() / leave()      a function or closure body (TyperFrame);
-///                              each body starts from nothing known
+///                              a function starts from nothing known, a
+///                              closure from its by-copy captures
 ///       define / assign        a definition or `=` and its right side SET
 ///                              the state from the value (§3.2)
 ///       cond_of / store_cond   a condition's true and false sets (§3.3);
@@ -84,12 +85,23 @@
 ///     top of the body whatever the body does; after a loop, its false set
 ///     joined with each `break` (a labeled one joins into its own loop).
 ///
-///     Deliberately conservative (batch-B scope; NULLABLE.md G17 refines
-///     it):
-///       - a place whose root a closure captures by pointer (`|*x|`) is
-///         never narrowed;
-///       - a closure body starts with nothing known: what it captures is
-///         Maybe inside it.
+///     ALIASES (3.7): a CARRIER is a local holding a pointer or a closure
+///     that captures by non-const pointer; it carries the places a write
+///     through it, or a call of it, may change (`var p = &x`, `var clear =
+///     fn ()|*x| {..}`, a copy `var q = p`; closure_made records a closure's
+///     set). A carrier's value, like a fresh `&x` or closure, has ESCAPED
+///     until a consumer accounts for it (consumed): `*p`, `p->f`, `p()`
+///     (call_value, which weakens what it carries), a copy into a local, a
+///     `*const` parameter, the `@inout` marker. Any other use (an argument,
+///     a field, a global, `return`, even `p?`) leaves it escaped, and then
+///     every call weakens what it carries (after_call). A write that is no
+///     place goes through _through: through a carrier it weakens what that
+///     carries, through anything else every escaped place. A closure body
+///     starts (_closure_entry) with its by-copy captures in the state they
+///     had where it was made, less what the body assigns them (the copy
+///     persists between calls); a by-pointer capture is the pointer there
+///     (ExprTyper::_capture_view types `x` as `*T`) and nothing is known of
+///     `*x`, which is no place.
 ///
 ///   Phase: TYPE (the analysis, driven by ExprTyper); the classifier is
 ///   also called by LOWER (NullTestLowering).
@@ -122,6 +134,7 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import AST::Context::SymbolTable::*;
 import AST::ParamMode::*;
 import AST::Kind::StmtKind::*;
+import Sema::Check::CaptureAnalysis::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
@@ -226,10 +239,12 @@ enum NullWhy derives u8 {
     Tested,       ///< the null test at `at` decided it on this path.
     Called,       ///< a global, after the call at `at`.
     Looped,       ///< assigned at `at` inside the loop whose head this is.
-    AddressTaken, ///< its root's address is taken somewhere: never narrowed.
     Inout,        ///< passed `@inout` at `at`: the callee may have written it.
     MutSelf,      ///< a path under the receiver of the mutable-self call at `at`.
     Escaped,      ///< a pointer to it, taken at `at`, is out of the analysis's sight.
+    Through,      ///< written through a pointer to it at `at`.
+    Aliased,      ///< the call at `at` runs a closure that holds a pointer to it.
+    Caught,       ///< changed at `at` in a `try` that may have thrown after it.
 }
 
 /// A pointer to \p place, taken by the `&` at \p node (at \p at), that no
@@ -290,12 +305,30 @@ struct NullNote {
     var msg: string = "";
 }
 
+/// A local holding a pointer or a pointer-capturing closure (3.7): the
+/// places a write through it, or a call of it, may change. `var p = &x`
+/// carries `{x}`; `var clear = fn ()|*x| { ... }` carries `{x}`; a copy
+/// carries what its source does. A `*const` one carries nothing.
+struct NullCarrier {
+    var decl:   *Decl = &null;
+    var places: vec::<vec::<*Decl>>;
+}
+
+/// Where a write through a pointer lands: \p known, the places a
+/// carrier carries (none: storage no place is under); else anywhere a
+/// pointer escaped to.
+struct NullThrough {
+    var known:  bool = false;
+    var places: vec::<vec::<*Decl>>;
+}
+
 struct NullFrame {
     var env:        NullEnv;
     var closure:    *ClosureExpr = &null;   ///< the body is this closure's.
     var loops_base: usize = 0;
     var traps_base: usize = 0;
     var escapes:    vec::<NullEscape>;      ///< the enclosing body's, kept for leave().
+    var carriers:   vec::<NullCarrier>;     ///< likewise.
 }
 
 struct NullLoop {
@@ -492,78 +525,86 @@ fn null_flow_type_is_nullable(t: *Type) -> bool {
     return (c != &null) && isa::<NullableType>(c);
 }
 
-/// Every root decl a closure captures by pointer: such a place is never
-/// narrowed (batch B's conservative stand-in for 3.7). A `&x` is not here:
-/// it is followed where it is typed (NullnessFlow::address_taken).
-class NullAddrScan derives RecursiveASTVisitor::<NullAddrScan> {
-    pub var out: *llvm::DenseSet::<u64> = &null;
-
-    fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
-        if n == &null { return true; }
-        for var i: usize = 0; i < n->captures.size(); ++i {
-            var c = n->captures.get(i);
-            if (!c->by_ptr) || (c->name == &null) || (c->name->resolved_decl == &null) { continue; }
-            self.out->insert(reinterpret_cast::<u64>(c->name->resolved_decl));
+/// \p into with every place of \p from it does not hold yet.
+fn null_places_union(into: *vec::<vec::<*Decl>>, from: *vec::<vec::<*Decl>>) {
+    for var i: usize = 0; i < from->size(); ++i {
+        var dup = false;
+        for var j: usize = 0; j < into->size(); ++j {
+            if null_place_eq(&((*into)[j]), &((*from)[i])) { dup = true; break; }
         }
-        return true;
+        if !dup { into->push_back((*from)[i]); }
     }
 }
 
-/// Every place a `try` body assigns, with where: a `catch` arm may start
-/// after any of them, so at its start each is Maybe. A target whose place cannot
-/// be named yet (a step after an inferred value is still unbound) is
-/// widened to its root, which drops every path under it.
-class NullAssignScan derives RecursiveASTVisitor::<NullAssignScan> {
-    pub var out: vec::<NullFact>;
-    /// Receivers of a method call: every path strictly under each may be
-    /// written by a mutable `self` (3.4).
-    pub var inside: vec::<NullFact>;
-
-    /// `&e`: the pointer may write `e` (an `@inout` argument, or one kept).
-    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
-        if (n == &null) || (!n->is_prefix()) || (n->op_token.kind != TokenKind::OpAmp) { return true; }
-        var p = null_place_of(n->operand);
-        if p.size() == 0 { return true; }
-        var f = NullFact{};
-        f.place = p;
-        f.why   = NullWhy::Looped;
-        f.at    = n->range;
-        self.out.push_back(f);
-        return true;
+/// The carrier of \p d in \p list, or -1.
+fn null_carrier_find(list: *vec::<NullCarrier>, d: *Decl) -> i64 {
+    if d == &null { return -1; }
+    for var i: usize = 0; i < list->size(); ++i {
+        if (*list)[i].decl == d { return i64(i); }
     }
+    return -1;
+}
 
-    fn visit_call_expr(self, n: *CallExpr) -> bool {
-        if n == &null { return true; }
-        var c = dyn_cast::<ChainExpr>(null_flow_strip_parens(n->callee));
-        if (c == &null) || (c->steps.size() == 0) { return true; }
-        var k = c->steps.size();
-        if c->steps.get(k - 1)->access_kind != ChainExpr::AccessKind::Dot { return true; }
-        var p = (null_place_of(c->base)) if (k == 1) else (null_chain_place(c, k - 2));
-        if p.size() == 0 { return true; }
-        var f = NullFact{};
-        f.place = p;
-        f.why   = NullWhy::Looped;
-        f.at    = n->range;
-        self.inside.push_back(f);
-        return true;
-    }
+/// \p d is a local or a parameter (not a global or static): a carrier can
+/// only be one, since anything else is reachable from any call.
+fn null_flow_is_local(d: *Decl) -> bool {
+    if (d == &null) || ((!isa::<VariableDecl>(d)) && (!isa::<ParamDecl>(d))) { return false; }
+    return !null_flow_is_global(d);
+}
 
-    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
-        if n == &null { return true; }
-        var p = null_place_of(n->lhs);
-        if p.size() == 0 {
-            var d = null_root_decl(n->lhs);
-            if (d == &null) || ((!isa::<VariableDecl>(d)) && (!isa::<ParamDecl>(d))) { return true; }
-            p.push_back(d);
+/// The places a closure \p c can write when it is called: what it captures
+/// by non-const pointer (named, or every outer local it names under `|*|`)
+/// and what each carrier it captures by copy carries (\p carriers).
+fn null_closure_places(c: *ClosureExpr, carriers: *vec::<NullCarrier>) -> vec::<vec::<*Decl>> {
+    var out = vec::<vec::<*Decl>>();
+    if c == &null { return out; }
+    var all_ptr = false;
+    var all_const = false;
+    var named = false;
+    for var i: usize = 0; i < c->captures.size(); ++i {
+        var cap = c->captures.get(i);
+        if cap->name == &null {
+            if cap->by_ptr { all_ptr = true; all_const = cap->is_const; }
+            continue;
         }
-        var f = NullFact{};
-        f.place = p;
-        f.state = Nullness::Maybe;
-        f.why   = NullWhy::Looped;
-        f.at    = n->range;
-        self.out.push_back(f);
-        return true;
+        named = true;
+        var d = cap->name->resolved_decl;
+        if !null_flow_is_local(d) { continue; }
+        if cap->by_ptr {
+            if cap->is_const { continue; }
+            var p = vec::<*Decl>();
+            p.push_back(d);
+            var one = vec::<vec::<*Decl>>();
+            one.push_back(p);
+            null_places_union(&out, &one);
+            continue;
+        }
+        var k = null_carrier_find(carriers, d);
+        if k >= 0 { null_places_union(&out, &((*carriers)[usize(k)].places)); }
     }
+    // `|*|`, or no list at all (every name used is captured by copy): the
+    // closure's free locals.
+    if all_ptr || ((!named) && (!c->explicit_no_capture)) {
+        var fv = FreeVarScan();
+        if c->body_block != &null { fv.run(static_cast::<*Stmt>(c->body_block)); }
+        if c->body_expr  != &null { fv.dispatch_expr(c->body_expr); }
+        for var i: usize = 0; i < fv.free.size(); ++i {
+            var d = fv.free[i];
+            if !null_flow_is_local(d) { continue; }
+            if all_ptr {
+                if all_const { continue; }
+                var p = vec::<*Decl>();
+                p.push_back(d);
+                var one = vec::<vec::<*Decl>>();
+                one.push_back(p);
+                null_places_union(&out, &one);
+                continue;
+            }
+            var k = null_carrier_find(carriers, d);
+            if k >= 0 { null_places_union(&out, &((*carriers)[usize(k)].places)); }
+        }
+    }
+    return out;
 }
 
 // =============================================================================
@@ -778,6 +819,26 @@ fn null_scan_rhs_value(rhs: *Expr) -> bool {
     return false;
 }
 
+/// \p e is a bare `&x`, the shape of the `@inout` marker: its operand.
+fn mode_marker_like(e: *Expr) -> *Expr {
+    if (e == &null) || (!isa::<UnaryOperatorExpr>(e)) { return &null; }
+    var u = cast::<UnaryOperatorExpr>(e);
+    if (!u->is_prefix()) || (u->op_token.kind != TokenKind::OpAmp) { return &null; }
+    return u->operand;
+}
+
+/// The function \p d takes its argument \p i `@inout` (\p recv: called
+/// through a receiver, so a method's `self` is no argument).
+fn null_scan_inout_at(d: *Decl, i: usize, recv: bool) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) { return false; }
+    var f = cast::<FunctionDecl>(d);
+    var k = i;
+    if recv && f->is_method() { k = k + 1; }
+    if k >= f->params.size() { return false; }
+    var p = f->params[k];
+    return (p != &null) && (p->mode == ParamMode::Inout) && (!p->is_pack);
+}
+
 /// The loop pre-scan (3.5): what one pass through a loop body may have
 /// done to each place proven at its head (`cands`) by the time it gets
 /// back there, path by path. The typer walks the body once, from the
@@ -805,6 +866,18 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
     /// > 0: inside a part whose order is not followed; an effect adds to
     /// what a place may have instead of replacing it.
     pub var taint: u32 = 0;
+    /// The carriers live at the loop's head (3.7), and those the body makes.
+    pub var carriers: vec::<NullCarrier>;
+    /// Per candidate: a pointer to it may outlive this pass (an `&` not
+    /// known to be the `@inout` marker, a by-pointer capture, a carrier
+    /// passed on): on a later pass any call before that point may write
+    /// it, so it is lost at the head whatever the paths say.
+    pub var sticky: vec::<bool>;
+    pub var sticky_at: vec::<SourceRange>;
+    /// collect: every effect also lands here, whatever path or order (a
+    /// `catch` arm may start after any of them).
+    pub var collect: bool = false;
+    pub var all: NullScanState;
     /// A label waiting for the loop statement it labels.
     pub var pending: string = "";
 
@@ -813,12 +886,37 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
     /// The back edge of the loop over \p body (with \p update run after
     /// it), labeled \p label: the join of the end of the body and every
     /// `continue` to it, then the update.
-    fn run(self, body: *Stmt, update: *Expr, label: string) -> NullScanState {
+    priv fn _init(self) {
         self.st = NullScanState{};
         for var i: usize = 0; i < self.cands.size(); ++i {
             self.st.flags.push_back(NULL_SCAN_KEPT());
             self.st.at.push_back(SourceRange());
+            self.sticky.push_back(false);
+            self.sticky_at.push_back(SourceRange());
         }
+        self.all = self.st;
+    }
+
+    /// What a `catch` arm may start with after \p body (or \p value) ran
+    /// any part of the way: every effect anywhere in it, unordered.
+    fn run_unordered(self, body: *Stmt, value: *Expr) -> NullScanState {
+        self._init();
+        self.collect = true;
+        var l = NullScanLoop{};
+        self.loops.push_back(l);
+        if body != &null { self.scan_stmt(body); }
+        self.scan_expr(value);
+        self.loops.pop_back();
+        for var i: usize = 0; i < self.cands.size(); ++i {
+            if !self.sticky[i] { continue; }
+            if (self.all.flags[i] & NULL_SCAN_LOST()) == 0 { self.all.at[i] = self.sticky_at[i]; }
+            self.all.flags[i] = self.all.flags[i] | NULL_SCAN_LOST();
+        }
+        return self.all;
+    }
+
+    fn run(self, body: *Stmt, update: *Expr, label: string) -> NullScanState {
+        self._init();
         var l = NullScanLoop{};
         l.label = label;
         self.loops.push_back(l);
@@ -832,12 +930,23 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
             self.scan_expr(update);
             back = self.st;
         }
+        if !back.dead {
+            for var i: usize = 0; i < self.cands.size(); ++i {
+                if !self.sticky[i] { continue; }
+                if (back.flags[i] & NULL_SCAN_LOST()) == 0 { back.at[i] = self.sticky_at[i]; }
+                back.flags[i] = back.flags[i] | NULL_SCAN_LOST();
+            }
+        }
         return back;
     }
 
     // --- effects ----------------------------------------------------------------
 
     priv fn _set(self, i: usize, v: u8, at: SourceRange) {
+        if self.collect {
+            self.all.flags[i] = self.all.flags[i] | v;
+            if v == NULL_SCAN_LOST() { self.all.at[i] = at; }
+        }
         if self.st.dead { return; }
         if self.taint > 0 { self.st.flags[i] = self.st.flags[i] | v; }
         else { self.st.flags[i] = v; }
@@ -866,6 +975,75 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
         }
     }
 
+    /// Every place of \p set may hold anything, and stays so at the head.
+    priv fn _lose_sticky(self, set: *vec::<vec::<*Decl>>, at: SourceRange) {
+        for var j: usize = 0; j < set->size(); ++j {
+            var q = &((*set)[j]);
+            for var i: usize = 0; i < self.cands.size(); ++i {
+                if null_place_under(&(self.cands[i]), q) && (!self.sticky[i]) {
+                    self.sticky[i]    = true;
+                    self.sticky_at[i] = at;
+                }
+            }
+            self._lose(q, false, at);
+        }
+    }
+
+    priv fn _lose_set(self, set: *vec::<vec::<*Decl>>, at: SourceRange) {
+        for var j: usize = 0; j < set->size(); ++j { self._lose(&((*set)[j]), false, at); }
+    }
+
+    /// The places \p d carries, if it is a carrier.
+    priv fn _carried(self, d: *Decl) -> vec::<vec::<*Decl>> {
+        var k = null_carrier_find(&(self.carriers), d);
+        if k < 0 { return vec::<vec::<*Decl>>(); }
+        return self.carriers[usize(k)].places;
+    }
+
+    /// Every place any carrier carries: what a call through a function
+    /// value the scan cannot follow may write.
+    priv fn _all_carried(self) -> vec::<vec::<*Decl>> {
+        var out = vec::<vec::<*Decl>>();
+        for var i: usize = 0; i < self.carriers.size(); ++i { null_places_union(&out, &(self.carriers[i].places)); }
+        return out;
+    }
+
+    /// The places the value \p e carries, read before typing: `&place`, a
+    /// carrier's name, a closure.
+    priv fn _carry_of(self, e: *Expr) -> vec::<vec::<*Decl>> {
+        var out = vec::<vec::<*Decl>>();
+        var x = null_flow_strip_parens(e);
+        if x == &null { return out; }
+        if isa::<UnaryOperatorExpr>(x) {
+            var u = cast::<UnaryOperatorExpr>(x);
+            if u->is_prefix() && (u->op_token.kind == TokenKind::OpAmp) {
+                var q = null_place_of(u->operand);
+                if q.size() > 0 { out.push_back(q); return out; }
+                return self._carried(null_root_decl(u->operand));
+            }
+            return out;
+        }
+        if isa::<NamedIdentExpr>(x) { return self._carried(cast::<NamedIdentExpr>(x)->resolved_decl); }
+        if isa::<ClosureExpr>(x) { return null_closure_places(cast::<ClosureExpr>(x), &(self.carriers)); }
+        if isa::<TypeCastExpr>(x) { return self._carry_of(cast::<TypeCastExpr>(x)->operand); }
+        return out;
+    }
+
+    /// \p d now (also) holds what \p value carries.
+    priv fn _carry_into(self, d: *Decl, value: *Expr) {
+        if !null_flow_is_local(d) { return; }
+        var set = self._carry_of(value);
+        if set.size() == 0 { return; }
+        var k = null_carrier_find(&(self.carriers), d);
+        if k < 0 {
+            var c = NullCarrier{};
+            c.decl = d;
+            self.carriers.push_back(c);
+            k = i64(self.carriers.size() - 1);
+        }
+        null_places_union(&(self.carriers[usize(k)].places), &set);
+    }
+
     /// \p e is a receiver a call may take as mutable `self`.
     priv fn _lose_inside(self, e: *Expr, at: SourceRange) {
         var q = null_place_of(e);
@@ -884,7 +1062,17 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
         self.taint = self.taint - 1;
     }
 
-    fn visit_closure_expr(self, n: *ClosureExpr) -> bool { return false; }
+    /// Not entered: the body runs where the closure is called. What it can
+    /// write through a by-pointer capture is followed at those calls (the
+    /// closure's carrier); since the value may be kept past this pass, its
+    /// pointer captures are lost at the head.
+    fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
+        if n == &null { return false; }
+        var empty = vec::<NullCarrier>();
+        var ptrs = null_closure_places(n, &empty);
+        self._lose_sticky(&ptrs, n->range);
+        return false;
+    }
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         if n == &null { return false; }
@@ -895,21 +1083,26 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
         var q = null_place_of(n->lhs);
         if k != TokenKind::OpEqual {
             // In place: a narrowed place stays what it is; a record's `op +=`
-            // may be a mutable `self`.
+            // may be a mutable `self`; `*p += 1` writes what `p` carries.
             if q.size() > 0 { self._lose(&q, true, n->range); }
+            else { var cs = self._carried(null_root_decl(n->lhs)); self._lose_set(&cs, n->range); }
             return false;
         }
         if q.size() == 0 {
-            // A step not bound yet: the whole root may be the target.
+            // A step not bound yet: the whole root may be the target; and a
+            // write through a carrier (`*p = v`) lands in what it carries.
             var d = null_root_decl(n->lhs);
             if (d != &null) && (isa::<VariableDecl>(d) || isa::<ParamDecl>(d)) {
                 var r = vec::<*Decl>();
                 r.push_back(d);
                 self._lose(&r, false, n->range);
+                var cs = self._carried(d);
+                self._lose_set(&cs, n->range);
             }
             return false;
         }
         self._write(&q, null_scan_rhs_value(n->rhs), n->range);
+        if q.size() == 1 { self._carry_into(q[0], n->rhs); }
         return false;
     }
 
@@ -917,11 +1110,18 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
         if n == &null { return false; }
         var k = n->op_token.kind;
         if n->is_prefix() && (k == TokenKind::OpAmp) {
+            // A pointer that may be kept: lost for good, unless it is an
+            // `@inout` marker (visit_call_expr skips those).
             var q = null_place_of(n->operand);
-            self._lose(&q, false, n->range);
+            if q.size() > 0 {
+                var one = vec::<vec::<*Decl>>();
+                one.push_back(q);
+                self._lose_sticky(&one, n->range);
+            }
         } else if (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus) {
             var q = null_place_of(n->operand);
             self._lose(&q, true, n->range);
+            if q.size() == 0 { var cs = self._carried(null_root_decl(n->operand)); self._lose_set(&cs, n->range); }
         }
         return true;
     }
@@ -983,8 +1183,43 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
     fn visit_call_expr(self, n: *CallExpr) -> bool {
         if n == &null { return false; }
         self.scan_expr(n->callee);
-        for var i: usize = 0; i < n->args.size(); ++i { self.scan_expr(n->args[i]); }
         var callee = null_flow_strip_parens(n->callee);
+        for var i: usize = 0; i < n->args.size(); ++i {
+            var a = n->args[i];
+            var v = named_call_arg_value(a);
+            if v != &null { a = v; }
+            var mk = mode_marker_like(a);
+            if (mk != &null) && self._all_inout_at(callee, i) {
+                // The `@inout` marker: a write at the call, no pointer kept.
+                self.scan_expr(mk);
+                var q = null_place_of(mk);
+                self._lose(&q, false, a->range);
+                continue;
+            }
+            self.scan_expr(n->args[i]);
+            // A carrier passed on may be kept: what it carries is lost.
+            var cs = self._carry_of(a);
+            self._lose_sticky(&cs, n->range);
+        }
+        // Calling a carrier writes what it carries; calling a function value
+        // the scan cannot follow may write what any carrier does.
+        if (callee != &null) && isa::<NamedIdentExpr>(callee) {
+            var cd = cast::<NamedIdentExpr>(callee)->resolved_decl;
+            if null_carrier_find(&(self.carriers), cd) >= 0 {
+                var cs = self._carried(cd);
+                self._lose_set(&cs, n->range);
+            } else if null_flow_is_local(cd) {
+                var cs = self._all_carried();
+                self._lose_set(&cs, n->range);
+            }
+        }
+        if (callee != &null) && isa::<ChainExpr>(callee) {
+            var c0 = cast::<ChainExpr>(callee);
+            if (c0->steps.size() > 0) && (c0->steps.get(0)->access_kind == ChainExpr::AccessKind::Arrow) {
+                var cs = self._carried(null_root_decl(c0->base));
+                self._lose_set(&cs, n->range);
+            }
+        }
         // An unmarked argument to `@inout` binds (warned): unless no
         // candidate has an `@inout` parameter, a place passed may be written.
         if self._may_inout(callee) {
@@ -1010,6 +1245,34 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
             }
         }
         return false;
+    }
+
+    /// Every candidate of the call through \p callee takes its argument
+    /// \p i `@inout` (so a `&e` there is the marker, not a pointer).
+    priv fn _all_inout_at(self, callee: *Expr, i: usize) -> bool {
+        if callee == &null { return false; }
+        var cell: *OverloadCell = &null;
+        var one: *Decl = &null;
+        var recv = false;
+        if isa::<NamedIdentExpr>(callee) {
+            one  = cast::<NamedIdentExpr>(callee)->resolved_decl;
+            cell = cast::<NamedIdentExpr>(callee)->candidate_cell;
+        } else if isa::<ChainExpr>(callee) {
+            var c = cast::<ChainExpr>(callee);
+            if c->steps.size() == 0 { return false; }
+            var st = c->steps.get(c->steps.size() - 1);
+            one  = st->resolved_decl;
+            cell = st->candidate_cell;
+            recv = true;
+        } else {
+            return false;
+        }
+        if one != &null { return null_scan_inout_at(one, i, recv); }
+        if (cell == &null) || (cell->size() == 0) { return false; }
+        for var k: usize = 0; k < cell->size(); ++k {
+            if !null_scan_inout_at(cell->get(k), i, recv) { return false; }
+        }
+        return true;
     }
 
     /// The call through \p callee may take an argument `@inout`.
@@ -1106,7 +1369,11 @@ class NullLoopScan derives RecursiveASTVisitor::<NullLoopScan> {
             case StmtKind::ExpressionStmt { self.scan_expr(cast::<ExpressionStmt>(s)->expr); }
             case StmtKind::DeclStmt {
                 var d = cast::<DeclStmt>(s)->decl;
-                if (d != &null) && isa::<VariableDecl>(d) { self.scan_expr(cast::<VariableDecl>(d)->init); }
+                if (d != &null) && isa::<VariableDecl>(d) {
+                    var v = cast::<VariableDecl>(d);
+                    self.scan_expr(v->init);
+                    if v->init != &null { self._carry_into(d, v->init); }
+                }
             }
             case StmtKind::ReturnStmt {
                 self.scan_expr(cast::<ReturnStmt>(s)->value);
@@ -1226,11 +1493,15 @@ class NullnessFlow {
     priv var _frames: vec::<NullFrame>;
     priv var _loops:  vec::<NullLoop>;
     priv var _traps:  vec::<NullTrap>;
-    priv var _addr:   llvm::DenseSet::<u64>;
     /// The pointers taken in this body that may still be written through.
     priv var _escapes: vec::<NullEscape>;
     /// A label waiting for the loop statement it labels (label_next).
     priv var _label: string = "";
+    /// The pointers and pointer-capturing closures held by locals here (3.7).
+    priv var _carriers: vec::<NullCarrier>;
+    /// closure node -> index in _closure_list: what calling it may write.
+    priv var _closure_sets: llvm::DenseMap::<u64, usize>;
+    priv var _closure_list: vec::<vec::<vec::<*Decl>>>;
     /// expr -> index in _read_list: the fact its place had where it was written.
     priv var _reads:     llvm::DenseMap::<u64, usize>;
     priv var _read_list: vec::<NullFact>;
@@ -1245,22 +1516,6 @@ class NullnessFlow {
         self.tu = tu;
     }
 
-    /// The address-taken pre-scan, once over the TU before anything is typed.
-    fn scan(self, tu: *TranslationUnit) {
-        if (tu == &null) || (tu->program == &null) { return; }
-        var s = NullAddrScan();
-        s.out = &(self._addr);
-        var items = &(tu->program->items);
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *(items->get(i));
-            switch item.get_kind() {
-                case TopLevelKind::Decl { s.dispatch_decl(item.as_decl()); }
-                case TopLevelKind::Stmt { s.dispatch_stmt(item.as_stmt()); }
-                case TopLevelKind::Expr { s.dispatch_expr(item.as_expr()); }
-            }
-        }
-    }
-
     // --- frames ---------------------------------------------------------------
 
     /// A function or closure (\p closure) body begins: nothing is known in
@@ -1272,9 +1527,59 @@ class NullnessFlow {
         fr.loops_base = self._loops.size();
         fr.traps_base = self._traps.size();
         fr.escapes    = self._escapes;
+        fr.carriers   = self._carriers;
         self._frames.push_back(fr);
         self.env = NullEnv{};
-        self._escapes = vec::<NullEscape>();
+        if closure != &null { self.env = self._closure_entry(closure, &(fr.env)); }
+        self._escapes  = vec::<NullEscape>();
+        self._carriers = vec::<NullCarrier>();
+    }
+
+    /// Where the body of \p c starts (3.7): a by-copy capture is the
+    /// closure's own copy, made when the closure was, so it has the state
+    /// it had there (\p outer), less anything the body assigns it (the copy
+    /// persists from one call to the next). A by-pointer capture is the
+    /// original, which anything may write while the closure waits: nothing
+    /// is known about it. Globals start Maybe, as in any body.
+    priv fn _closure_entry(self, c: *ClosureExpr, outer: *NullEnv) -> NullEnv {
+        var out = NullEnv{};
+        if outer->dead { return out; }
+        var named = false;
+        var all_ptr = false;
+        for var i: usize = 0; i < c->captures.size(); ++i {
+            var cap = c->captures.get(i);
+            if cap->name == &null { if cap->by_ptr { all_ptr = true; } continue; }
+            named = true;
+        }
+        var scan = NullLoopScan();
+        scan.sc = self.sc;
+        var keep = vec::<NullFact>();
+        for var i: usize = 0; i < outer->facts.size(); ++i {
+            var f = outer->facts[i];
+            if f.global || (f.place.size() == 0) || (f.state == Nullness::Maybe) { continue; }
+            var d = f.place[0];
+            var by_copy = (!named) && (!all_ptr) && (!c->explicit_no_capture);
+            for var k: usize = 0; k < c->captures.size(); ++k {
+                var cap = c->captures.get(k);
+                if (cap->name == &null) || (cap->name->resolved_decl != d) { continue; }
+                by_copy = !cap->by_ptr;
+            }
+            if !by_copy { continue; }
+            keep.push_back(f);
+            scan.cands.push_back(f.place);
+        }
+        if keep.size() == 0 { return out; }
+        var body: *Stmt = &null;
+        if c->body_block != &null { body = static_cast::<*Stmt>(c->body_block); }
+        var touched = scan.run_unordered(body, c->body_expr);
+        for var i: usize = 0; i < keep.size(); ++i {
+            // As at a loop's head: the next call starts from what this one left.
+            var fl = touched.flags[i];
+            var ok = (fl & NULL_SCAN_LOST()) == 0;
+            if keep[i].state == Nullness::Null { ok = fl == NULL_SCAN_KEPT(); }
+            if ok { out.facts.push_back(keep[i]); }
+        }
+        return out;
     }
 
     fn leave(self) {
@@ -1282,7 +1587,8 @@ class NullnessFlow {
         var fr = self._frames.back();
         self._frames.pop_back();
         self.env = fr.env;
-        self._escapes = fr.escapes;
+        self._escapes  = fr.escapes;
+        self._carriers = fr.carriers;
         while self._loops.size() > fr.loops_base { self._loops.pop_back(); }
         while self._traps.size() > fr.traps_base { self._traps.pop_back(); }
     }
@@ -1306,7 +1612,6 @@ class NullnessFlow {
         f.place = *place;
         if place->size() == 0 { return f; }
         f.global = null_flow_is_global((*place)[0]);
-        if self._addr.contains(reinterpret_cast::<u64>((*place)[0])) { f.why = NullWhy::AddressTaken; return f; }
         if self.env.dead { f.state = Nullness::NonNull; return f; }
         var i = null_env_find(&(self.env), place);
         if i >= 0 { return self.env.facts[usize(i)]; }
@@ -1387,20 +1692,18 @@ class NullnessFlow {
         if arg == &null { return; }
         var place = null_place_of(arg);
         // `bump(&p->n)`: the write lands wherever `p` points.
-        if place.size() == 0 { self.write_through(); return; }
+        if place.size() == 0 { self._write_via(arg, false, arg->range); return; }
         self.weaken(&place, NullWhy::Inout, arg->range);
     }
 
     /// \p arg is passed to a parameter of type \p pt. A `&e` to a `*const`
     /// parameter cannot write \p e: its pointer is no escape.
     fn pass_pointer(self, arg: *Expr, pt: *Type) {
-        var x = null_flow_strip_parens(arg);
-        if (x == &null) || (!isa::<UnaryOperatorExpr>(x)) || (pt == &null) { return; }
-        var u = cast::<UnaryOperatorExpr>(x);
-        if (!u->is_prefix()) || (u->op_token.kind != TokenKind::OpAmp) || u->is_mode_marker { return; }
+        if (arg == &null) || (pt == &null) { return; }
         var c = canon_unqual(pt);
+        if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
         if (c == &null) || (!isa::<PointerType>(c)) { return; }
-        if canon_has_const(cast::<PointerType>(c)->pointee) { self.unescape(x); }
+        if canon_has_const(cast::<PointerType>(c)->pointee) { self.consumed(arg); }
     }
 
     /// The call \p callee (a chain whose last step is a method taking a
@@ -1415,8 +1718,198 @@ class NullnessFlow {
         if last->access_kind == ChainExpr::AccessKind::Dot {
             place = (null_place_of(callee->base)) if (k == 1) else (null_chain_place(callee, k - 2));
         }
-        if place.size() == 0 { self.write_through(); return; }
-        self.weaken_inside(&place, at);
+        if place.size() > 0 { self.weaken_inside(&place, at); return; }
+        // `p->m()`: the receiver is what `p` points at; `(*p).m()` likewise.
+        if (k == 1) && (last->access_kind == ChainExpr::AccessKind::Arrow) {
+            var th = self._via(callee->base);
+            if !th.known { self.write_through(); return; }
+            for var i: usize = 0; i < th.places.size(); ++i { self.weaken_inside(&(th.places[i]), at); }
+            return;
+        }
+        if k == 1 { self._write_via(callee->base, true, at); return; }
+        self.write_through();
+    }
+
+    // --- aliases (3.7) -----------------------------------------------------------
+
+    /// The places the typed value \p e carries: `&place` (unless it is a
+    /// `*const`), a carrier's name, a closure that captures by pointer, the
+    /// arms of an if-expression, a cast's operand.
+    fn carry_of(self, e: *Expr) -> vec::<vec::<*Decl>> {
+        var out = vec::<vec::<*Decl>>();
+        var x = null_flow_strip_parens(e);
+        if x == &null { return out; }
+        if isa::<UnaryOperatorExpr>(x) {
+            var u = cast::<UnaryOperatorExpr>(x);
+            if (!u->is_prefix()) || (u->op_token.kind != TokenKind::OpAmp) || u->is_mode_marker { return out; }
+            var t = canon_unqual(x->type_);
+            if (t != &null) && isa::<PointerType>(t) && canon_has_const(cast::<PointerType>(t)->pointee) { return out; }
+            var q = null_place_of(u->operand);
+            if q.size() > 0 { out.push_back(q); return out; }
+            var o = null_flow_strip_parens(u->operand);
+            if (o != &null) && isa::<UnaryOperatorExpr>(o) && (cast::<UnaryOperatorExpr>(o)->op_token.kind == TokenKind::OpStar) {
+                return self.carry_of(cast::<UnaryOperatorExpr>(o)->operand);
+            }
+            return self._carried(null_root_decl(u->operand));
+        }
+        if isa::<NamedIdentExpr>(x) { return self._carried(cast::<NamedIdentExpr>(x)->resolved_decl); }
+        if isa::<ClosureExpr>(x) {
+            var it = self._closure_sets.find(reinterpret_cast::<u64>(x));
+            if it != self._closure_sets.end() { return self._closure_list[it->second]; }
+            return out;
+        }
+        if isa::<TypeCastExpr>(x) { return self.carry_of(cast::<TypeCastExpr>(x)->operand); }
+        if isa::<IfExpr>(x) {
+            var ie = cast::<IfExpr>(x);
+            var a = self.carry_of(ie->then_expr);
+            null_places_union(&out, &a);
+            for var i: usize = 0; i < ie->else_ifs.size(); ++i {
+                var b = self.carry_of(ie->else_ifs.get(i)->body);
+                null_places_union(&out, &b);
+            }
+            var c = self.carry_of(ie->else_expr);
+            null_places_union(&out, &c);
+        }
+        return out;
+    }
+
+    priv fn _carried(self, d: *Decl) -> vec::<vec::<*Decl>> {
+        var k = null_carrier_find(&(self._carriers), d);
+        if k < 0 { return vec::<vec::<*Decl>>(); }
+        return self._carriers[usize(k)].places;
+    }
+
+    priv fn _escape_set(self, node: *Expr, set: *vec::<vec::<*Decl>>, at: SourceRange) {
+        for var i: usize = 0; i < set->size(); ++i {
+            var esc = NullEscape{};
+            esc.node  = node;
+            esc.place = (*set)[i];
+            esc.at    = at;
+            self._escapes.push_back(esc);
+        }
+    }
+
+    /// \p n names \p d. A carrier's value may go anywhere from here, as a
+    /// fresh `&` may (address_taken): until a consumer accounts for it (a
+    /// dereference, `->`, a call of it, a copy into a local, a `*const`
+    /// parameter), what it carries has escaped.
+    fn note_use(self, n: *Expr, d: *Decl) {
+        var k = null_carrier_find(&(self._carriers), d);
+        if k < 0 { return; }
+        var set = self._carriers[usize(k)].places;
+        self._escape_set(n, &set, n->range);
+    }
+
+    /// The value \p e (a `&`, a carrier's name, a closure, or an
+    /// if-expression of them) went somewhere the analysis follows.
+    fn consumed(self, e: *Expr) {
+        var x = null_flow_strip_parens(e);
+        if x == &null { return; }
+        self.unescape(x);
+        if isa::<TypeCastExpr>(x) { self.consumed(cast::<TypeCastExpr>(x)->operand); return; }
+        if isa::<IfExpr>(x) {
+            var ie = cast::<IfExpr>(x);
+            self.consumed(ie->then_expr);
+            for var i: usize = 0; i < ie->else_ifs.size(); ++i { self.consumed(ie->else_ifs.get(i)->body); }
+            self.consumed(ie->else_expr);
+        }
+    }
+
+    /// The closure \p c is made here: calling it may write what it captures
+    /// by pointer and what the carriers it copies carry. Like a `&`, the
+    /// value has escaped until a consumer accounts for it.
+    fn closure_made(self, c: *ClosureExpr) {
+        if c == &null { return; }
+        var set = null_closure_places(c, &(self._carriers));
+        self._closure_sets[reinterpret_cast::<u64>(c)] = self._closure_list.size();
+        self._closure_list.push_back(set);
+        self._escape_set(static_cast::<*Expr>(c), &set, c->range);
+    }
+
+    /// The local \p d is given \p value (of type \p t): it now also holds
+    /// what \p value carries, and the value went no further. A `*const`
+    /// local carries nothing.
+    priv fn _carry_into(self, d: *Decl, value: *Expr, t: *Type) {
+        if (!null_flow_is_local(d)) || (value == &null) { return; }
+        var set = self.carry_of(value);
+        if set.size() == 0 { return; }
+        self.consumed(value);
+        var c = canon_unqual(t);
+        if (c != &null) && isa::<NullableType>(c) { c = canon_unqual(cast::<NullableType>(c)->inner); }
+        if (c != &null) && isa::<PointerType>(c) && canon_has_const(cast::<PointerType>(c)->pointee) { return; }
+        var k = null_carrier_find(&(self._carriers), d);
+        if k < 0 {
+            var nc = NullCarrier{};
+            nc.decl = d;
+            self._carriers.push_back(nc);
+            k = i64(self._carriers.size() - 1);
+        }
+        null_places_union(&(self._carriers[usize(k)].places), &set);
+    }
+
+    /// Where a write to \p target lands, when \p target is no place.
+    priv fn _through(self, target: *Expr) -> NullThrough {
+        var out = NullThrough{};
+        var x = null_flow_strip_parens(target);
+        while x != &null {
+            if isa::<NamedIdentExpr>(x) { out.known = true; return out; }   // the local's own storage.
+            if isa::<UnaryOperatorExpr>(x) {
+                var u = cast::<UnaryOperatorExpr>(x);
+                if u->op_token.kind != TokenKind::OpStar { return out; }
+                return self._via(u->operand);
+            }
+            if isa::<ChainExpr>(x) {
+                var c = cast::<ChainExpr>(x);
+                for var i: usize = 0; i < c->steps.size(); ++i {
+                    if c->steps.get(i)->access_kind == ChainExpr::AccessKind::Arrow {
+                        if i == 0 { return self._via(c->base); }
+                        return out;
+                    }
+                }
+                x = null_flow_strip_parens(c->base);
+                continue;
+            }
+            if isa::<SubscriptExpr>(x) {
+                var b = cast::<SubscriptExpr>(x)->base;
+                var bt = (canon_unqual(b->type_)) if (b != &null) else (&null);
+                if (bt != &null) && isa::<PointerType>(bt) { return self._via(b); }
+                x = null_flow_strip_parens(b);
+                continue;
+            }
+            return out;
+        }
+        return out;
+    }
+
+    /// A write through the pointer value \p p.
+    priv fn _via(self, p: *Expr) -> NullThrough {
+        var out = NullThrough{};
+        out.places = self.carry_of(p);
+        out.known  = out.places.size() > 0;
+        if out.known { self.consumed(p); }
+        return out;
+    }
+
+    /// \p target, no place, is written (\p strict: only its fields, by a
+    /// mutable `self`): what it is reached through may be changed.
+    priv fn _write_via(self, target: *Expr, strict: bool, at: SourceRange) {
+        var th = self._through(target);
+        if !th.known { self.write_through(); return; }
+        for var i: usize = 0; i < th.places.size(); ++i {
+            var q = th.places[i];
+            if strict { self.weaken_inside(&q, at); } else { self.weaken(&q, NullWhy::Through, at); }
+        }
+    }
+
+    /// The call through \p callee, a function value, ran: a closure that
+    /// carries places may have written them. The call is no escape.
+    fn call_value(self, callee: *Expr, at: SourceRange) {
+        var x = null_flow_strip_parens(callee);
+        if (x == &null) || (!isa::<NamedIdentExpr>(x)) { return; }
+        var set = self._carried(cast::<NamedIdentExpr>(x)->resolved_decl);
+        if set.size() == 0 { return; }
+        self.unescape(x);
+        for var i: usize = 0; i < set.size(); ++i { self.weaken(&(set[i]), NullWhy::Aliased, at); }
     }
 
     /// \p lhs is written in place (`a += b`, `++a`): a place keeps what it
@@ -1425,7 +1918,7 @@ class NullnessFlow {
     fn modified(self, lhs: *Expr) {
         if lhs == &null { return; }
         var place = null_place_of(lhs);
-        if place.size() == 0 { self.write_through(); }
+        if place.size() == 0 { self._write_via(lhs, false, lhs->range); }
     }
 
     /// The user operator \p fd ran with \p operand as its receiver (its
@@ -1436,7 +1929,7 @@ class NullnessFlow {
         var f = cast::<FunctionDecl>(fd);
         if (!f->is_method()) || f->is_const() || f->params[0]->is_const { return; }
         var place = null_place_of(operand);
-        if place.size() == 0 { self.write_through(); return; }
+        if place.size() == 0 { self._write_via(operand, true, at); return; }
         self.weaken_inside(&place, at);
     }
 
@@ -1489,6 +1982,8 @@ class NullnessFlow {
     /// each function sees them Maybe (3.8).
     fn define(self, v: *VariableDecl) {
         if (v == &null) || v->is_poisoned() || (v->type_ == &null) { return; }
+        // `var p = &x`, `var clear = fn ()|*x| { ... }`: a carrier (3.7).
+        self._carry_into(static_cast::<*Decl>(v), v->init, v->type_->canonical);
         if !null_flow_type_is_nullable(v->type_->canonical) { return; }
         if null_flow_is_global(static_cast::<*Decl>(v)) { return; }
         var f = NullFact{};
@@ -1507,7 +2002,9 @@ class NullnessFlow {
     /// loses the facts under it (`o = make()` forgets `o.cache`).
     fn assign(self, lhs: *Expr, rhs: *Expr, at: SourceRange) {
         var place = null_place_of(lhs);
-        if place.size() == 0 { self.write_through(); return; }
+        if place.size() == 0 { self._write_via(lhs, false, at); return; }
+        // `q = p`: a local now also carries what the value does (3.7).
+        if place.size() == 1 { self._carry_into(place[0], rhs, null_scan_decl_type(place[0])); }
         var x = null_flow_strip_parens(lhs);
         if (x != &null) && null_flow_type_is_nullable(x->type_) {
             var f = self.value_state(rhs, at);
@@ -1546,7 +2043,6 @@ class NullnessFlow {
         if nt.operand != &null {
             var place = null_place_of(nt.operand);
             if (place.size() == 0) || self.env.dead { return c; }
-            if self._addr.contains(reinterpret_cast::<u64>(place[0])) { return c; }
             var yes = NullFact{};
             yes.place  = place;
             yes.state  = Nullness::NonNull;
@@ -1609,6 +2105,7 @@ class NullnessFlow {
         if !self.env.dead {
             var scan = NullLoopScan();
             scan.sc = self.sc;
+            scan.carriers = self._carriers;
             var idx = vec::<usize>();
             for var i: usize = 0; i < self.env.facts.size(); ++i {
                 var f = &(self.env.facts[i]);
@@ -1679,42 +2176,42 @@ class NullnessFlow {
         self.diverge();
     }
 
-    /// Where a `catch` arm starts: anything the `try` body (or value)
-    /// assigns may have happened before it threw, and so may any call
-    /// (globals).
+    /// Where a `catch` arm starts: after any part of the `try` body (or
+    /// value) ran, so a place the body may change anywhere in it (in any
+    /// order, NullLoopScan::run_unordered) is Maybe, and so is every global
+    /// and escaped place, since any call in it may write one.
     fn try_entry(self, entry: *NullEnv, body: *Stmt, value: *Expr) -> NullEnv {
-        var saved = self.env;
-        self.env = *entry;
-        self._weaken_assigned(body, value, &null);
-        var out = self.env;
-        self.env = saved;
-        return out;
-    }
-
-    priv fn _weaken_assigned(self, body: *Stmt, e1: *Expr, e2: *Expr) {
-        if self.env.dead { return; }
-        var s = NullAssignScan();
-        if body != &null { s.dispatch_stmt(body); }
-        if e1 != &null { s.dispatch_expr(e1); }
-        if e2 != &null { s.dispatch_expr(e2); }
-        for var i: usize = 0; i < s.out.size(); ++i {
-            var f = s.out[i];
-            null_env_kill_under(&(self.env), &(f.place));
-            if null_flow_type_is_nullable(self._place_type(&(f.place))) { self.env.facts.push_back(f); }
+        var out = *entry;
+        if out.dead { return out; }
+        var scan = NullLoopScan();
+        scan.sc = self.sc;
+        scan.carriers = self._carriers;
+        var idx = vec::<usize>();
+        for var i: usize = 0; i < out.facts.size(); ++i {
+            if out.facts[i].global || (out.facts[i].state == Nullness::Maybe) { continue; }
+            idx.push_back(i);
+            scan.cands.push_back(out.facts[i].place);
         }
-        for var i: usize = 0; i < s.inside.size(); ++i {
-            null_env_weaken_under(&(self.env), &(s.inside[i].place), true, NullWhy::Looped, s.inside[i].at);
-        }
-        // Any call or unplaced write in the loop may write through a pointer
-        // taken before it.
-        for var i: usize = 0; i < self._escapes.size(); ++i {
-            null_env_weaken_under(&(self.env), &(self._escapes[i].place), false, NullWhy::Escaped, self._escapes[i].at);
+        var all = scan.run_unordered(body, value);
+        for var j: usize = 0; j < idx.size(); ++j {
+            var f = &(out.facts[idx[j]]);
+            var fl = all.flags[j];
+            var ok = (fl & NULL_SCAN_LOST()) == 0;
+            if f->state == Nullness::Null { ok = fl == NULL_SCAN_KEPT(); }
+            if ok { continue; }
+            f->state = Nullness::Maybe;
+            f->why   = NullWhy::Caught;
+            f->at    = (all.at[j]) if ((fl & NULL_SCAN_LOST()) != 0) else (f->at);
         }
         var keep = vec::<NullFact>();
-        for var i: usize = 0; i < self.env.facts.size(); ++i {
-            if !self.env.facts[i].global { keep.push_back(self.env.facts[i]); }
+        for var i: usize = 0; i < out.facts.size(); ++i {
+            if !out.facts[i].global { keep.push_back(out.facts[i]); }
         }
-        self.env.facts = keep;
+        out.facts = keep;
+        for var i: usize = 0; i < self._escapes.size(); ++i {
+            null_env_weaken_under(&out, &(self._escapes[i].place), false, NullWhy::Escaped, self._escapes[i].at);
+        }
+        return out;
     }
 
     /// The declared type of \p place's last decl, or null.
@@ -1824,6 +2321,43 @@ class NullnessFlow {
         return 2;
     }
 
+    /// A `.` / `->` step \p i of \p c reads a nullable that is no place,
+    /// and read_prefix left it alone. When the prefix looks like one but
+    /// goes through a subscript or a `->` (`xs[i].cache.v`, `p->cache.v`),
+    /// say why no check narrows it and what to write instead (true:
+    /// reported, \p c poisoned). A call's result (`mk().v`) keeps the plain
+    /// "no member" answer: nothing about it suggests a check would hold.
+    fn refuse_unplaced(self, c: *ChainExpr, i: usize) -> bool {
+        if (c == &null) || (c->base == &null) { return false; }
+        var what = "";
+        for var k: usize = 0; k < i; ++k {
+            if c->steps.get(k)->access_kind == ChainExpr::AccessKind::Arrow { what = "'->\x27"; }
+        }
+        var x = null_flow_strip_parens(c->base);
+        while (x != &null) && (what.size() == 0) {
+            if isa::<SubscriptExpr>(x) { what = "a subscript"; break; }
+            if isa::<ChainExpr>(x) {
+                var cc = cast::<ChainExpr>(x);
+                for var k: usize = 0; k < cc->steps.size(); ++k {
+                    if cc->steps.get(k)->access_kind == ChainExpr::AccessKind::Arrow { what = "'->\x27"; }
+                }
+                x = null_flow_strip_parens(cc->base);
+                continue;
+            }
+            break;
+        }
+        if what.size() == 0 { return false; }
+        var end = (c->base->range.end) if (i == 0) else (c->steps.get(i - 1)->range.end);
+        var r = SourceRange(c->range.start, end);
+        var text = self.sc->ctx->get_spelling(r);
+        var b = self.sc->diag->report(DiagID::SC001E, r.start,
+            f"'{text}' is nullable and no check narrows it: it goes through {what}, which a null check does not follow; copy it to a local ('var c = {text}') and check that");
+        b.first(r);
+        b.emit();
+        c->poison();
+        return true;
+    }
+
     // --- the access errors (4.2) ------------------------------------------------
 
     /// `a`, `o.cache`: how a place is written.
@@ -1908,13 +2442,20 @@ class NullnessFlow {
                 n.msg = f"this call takes what holds '{nm}' as a mutable 'self', so it may change '{nm}\x27";
                 return n;
             }
-            case NullWhy::Escaped {
-                n.msg = f"a pointer to '{nm}' is taken here; any call after it, or a write through it, may change '{nm}\x27";
+            case NullWhy::Caught {
+                n.msg = f"'{nm}' may be changed in the 'try' here, before what it catches was thrown";
                 return n;
             }
-            case NullWhy::AddressTaken {
-                n.at  = SourceLocation();
-                n.msg = f"'{nm}' has its address taken in this file, so no check narrows it";
+            case NullWhy::Through {
+                n.msg = f"'{nm}' may be changed here, through a pointer to it";
+                return n;
+            }
+            case NullWhy::Aliased {
+                n.msg = f"this call runs a closure that holds a pointer to '{nm}', so it may change '{nm}\x27";
+                return n;
+            }
+            case NullWhy::Escaped {
+                n.msg = f"a pointer to '{nm}' escapes here; any call after it, or a write through it, may change '{nm}\x27";
                 return n;
             }
             default { 0; }
@@ -1929,7 +2470,7 @@ class NullnessFlow {
         }
         n.at = root->range.start;
         if self._captured(root) {
-            n.msg = f"'{nm}' is captured by the closure; inside it, no check from outside holds, since the closure may run anywhere";
+            n.msg = f"'{nm}' is captured by the closure: inside it, '{nm}' is as it was where the closure was made, less what the closure assigns it";
             return n;
         }
         if isa::<ParamDecl>(root) { n.msg = f"'{nm}' is a nullable parameter; it may be null on entry"; return n; }

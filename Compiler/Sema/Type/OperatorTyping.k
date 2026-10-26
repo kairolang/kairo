@@ -991,6 +991,7 @@ class <T> OperatorTyping {
                 return dyn()->sc->types->pointer(place, false);
             }
             case TokenKind::OpStar {
+                dyn()->flow.consumed(n->operand);   // `*p` reads or writes where p points; no escape.
                 var p = dyn()->tu.pointee(ot);
                 if p == &null {
                     if dyn()->tu.nullable_inner(ot) != &null {

@@ -976,6 +976,8 @@ class <T> CallTyping {
             dyn()->flow.pass_pointer(a, pt);
         }
         if bad { dyn()->poison_only(n); return &null; }
+        // A closure holding pointers may write what they point at (3.7).
+        dyn()->flow.call_value(n->callee, n->range);
         if fp->return_type == &null { dyn()->mark_unknown(n); return &null; }
         return fp->return_type;
     }

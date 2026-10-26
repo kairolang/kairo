@@ -12,8 +12,8 @@
 // ways, a call taking `T`, an initializer, `return`, a subscript, a
 // `bool?` condition); Null after `= null`, after `var x: T?`, and on the
 // failing side of a test; Maybe after a join; a global after a call; a
-// place the loop assigns, at the loop's head; a closure capturing a
-// nullable (Maybe inside, whatever was checked outside); a local written
+// place the loop assigns, at the loop's head; a closure assigning its copy
+// of a capture (the check outside does not hold in it); a local written
 // through a pointer to it (G12); a field path. The 4.1 precedence trap gets the
 // parenthesizing fix-it, and none when another place in it is unproven.
 // A nullable that is no place (`mk().v`) keeps R025E.
@@ -81,7 +81,7 @@ fn loops() -> i32 {
 
 fn closures(a: i32?) -> i32 {
     if a? {
-        var f = fn () -> i32 { return a };
+        var f = fn () -> i32 { var r: i32 = a; a = null; return r };
         return f()
     }
     return 0
@@ -168,11 +168,11 @@ fn main() -> i32 { return 0 }
 // DIAG: access_errors.k:76:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: access_errors.k:77:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:84:39: error [SC001E]: 'a' may be null here; check it with 'if a?' first
-// DIAG-NEXT: access_errors.k:82:13: note [{{.*}}]: 'a' is captured by the closure; inside it, no check from outside holds, since the closure may run anywhere
+// DIAG: access_errors.k:84:45: error [SC001E]: 'a' may be null here; check it with 'if a?' first
+// DIAG-NEXT: access_errors.k:82:13: note [{{.*}}]: 'a' is captured by the closure: inside it, 'a' is as it was where the closure was made, less what the closure assigns it
 // DIAG-NOT: {{error|warning}}
 // DIAG: access_errors.k:93:31: error [SC001E]: 'x' may be null here; check it with 'if x?' first
-// DIAG-NEXT: access_errors.k:92:13: note [{{.*}}]: a pointer to 'x' is taken here; any call after it, or a write through it, may change 'x'
+// DIAG-NEXT: access_errors.k:93:13: note [{{.*}}]: 'x' may be changed here, through a pointer to it
 // DIAG-NOT: {{error|warning}}
 // DIAG: access_errors.k:98:12: error [SC001E]: 'o.cache' may be null here; check it with 'if o.cache?' first
 // DIAG-NEXT: access_errors.k:22:16: note [{{.*}}]: 'cache' is declared nullable here

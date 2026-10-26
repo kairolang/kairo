@@ -328,8 +328,13 @@ class <T> ControlTyping {
         }
         for var i: usize = 0; i < n->captures.size(); ++i {
             var c = n->captures.get(i);
-            if c->name != &null { dyn()->type_of(static_cast::<*Expr>(c->name), &null); }
+            if c->name != &null {
+                dyn()->type_of(static_cast::<*Expr>(c->name), &null);
+                dyn()->flow.consumed(static_cast::<*Expr>(c->name));   // the closure holds it: closure_made.
+            }
         }
+        // What calling it may write (NULLABLE.md 3.7).
+        dyn()->flow.closure_made(n);
 
         var declared: *Type = &null;
         if n->return_type != &null { declared = n->return_type->canonical; }
