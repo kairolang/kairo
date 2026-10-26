@@ -4,8 +4,8 @@
 ///          file's table, integer literals with a fresh Immediate::IntData
 ///          slot, byte literals over decoded text with a fresh StringData
 ///          slot, fresh `__kairo_` locals and the names that read them,
-///          member and free-function calls, statement expressions, and the purity test
-///          SequenceLowering orders arguments by.
+///          member and free-function calls, statement expressions, and
+///          the purity test SequenceLowering orders arguments by.
 ///
 ///   One copy. Three passes each carried their own `_ident_token`, and the
 ///   `Token` invariant (16 bytes, an imm index into the owning file's table,
