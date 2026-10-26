@@ -39,6 +39,9 @@
 ///       - `var {a, b} = s`, destructuring a struct by field name.
 ///         TupleLowering renders the positional form only; a struct's
 ///         reaching EmitIR is its ICE.
+///       - an attribute applied to an expression (`@create T(args)`,
+///         AttributedExpr): it parses, but no attribute has an expression
+///         meaning yet. X leaves the node and its operand untyped.
 ///       - a generic closure, `fn <T>(x: T) -> T { ... }`. X types neither
 ///         its parameters (no canonical for `T`) nor a call of it, so there
 ///         is no signature for EmitIR to spell; a C++ generic lambda is the
@@ -134,6 +137,13 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
 
     fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
         if n->generic_params.size() > 0 { self._gate(SourceRange::from_bounds(n->range.start, u32(2)), "a generic closure"); }
+        return true;
+    }
+
+    fn visit_attributed_expr(self, n: *AttributedExpr) -> bool {
+        var nm = self.sc->ctx->get_spelling(n->name);
+        self._gate(SourceRange::from_bounds(n->range.start, u32(1)) | n->name.range,
+            f"the expression attribute '@{nm}\x27");
         return true;
     }
 

@@ -475,6 +475,18 @@ class ExprTyper
             case ExprKind::ClosureExpr          { return self.type_closure(cast::<ClosureExpr>(e), expected); }
             case ExprKind::AwaitExpr            { return self.type_await(cast::<AwaitExpr>(e), expected); }
             case ExprKind::UnwrapExpr           { return self.type_unwrap(cast::<UnwrapExpr>(e), expected); }
+            case ExprKind::AttributedExpr {
+                // No expression attribute has a meaning yet: FeatureGateCheck
+                // reports each one (SC116E), and that error stops the
+                // schedule before any lowering. The operand is NOT typed as
+                // an ordinary expression: an attribute may give it another
+                // meaning (`@create i32(10)` constructs an i32, where a plain
+                // `i32(10)` is SC037E), so typing it here would report
+                // errors in code the attribute defines. Its names were
+                // resolved (N), so a misspelling is still caught.
+                self.mark_unknown(e);
+                return &null;
+            }
             case ExprKind::SpawnExpr            { return self.type_spawn(e, cast::<SpawnExpr>(e)->operand, expected); }
             case ExprKind::ThreadExpr           { return self.type_spawn(e, cast::<ThreadExpr>(e)->operand, expected); }
             case ExprKind::SizeOfExpr           { return self.type_sizeof(cast::<SizeOfExpr>(e), expected); }

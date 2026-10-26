@@ -1006,6 +1006,7 @@ class EmitIR {
             case ExprKind::ClosureExpr          { self._closure_expr(cast::<ClosureExpr>(e)); }
             case ExprKind::AwaitExpr            { self._ice(e->range, "EmitIR: await; the async lowering owns it"); }
             case ExprKind::UnwrapExpr           { self._ice(e->range, "EmitIR: unwrap!; CoalesceLowering owns it"); }
+            case ExprKind::AttributedExpr       { self._ice(e->range, "EmitIR: expression attribute; FeatureGateCheck gates every one"); }
             case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
             case ExprKind::ThreadExpr           { self._ice(e->range, "EmitIR: thread; the async lowering owns it"); }
             case ExprKind::EvalExpr             { self._ice(e->range, "EmitIR: eval; EvalLowering owns it"); }

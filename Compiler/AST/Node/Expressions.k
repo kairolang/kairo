@@ -1323,6 +1323,48 @@ class UnwrapExpr derives Expr {
 }
 
 ///
+///  AttributedExpr
+///  `@name operand` / `@name(args) operand`: an attribute applied to an
+///  expression (`var *cfg = @create Config(8080)`). `name` is the identifier
+///  after `@`; `args` the attribute's argument list, empty when none was
+///  written (`has_args` tells `@a()` from `@a`); `operand` the unary
+///  expression it applies to. `range` covers all three.
+///
+class AttributedExpr derives Expr {
+    pub var name:     Token;
+    pub var args:     FrozenList::<*Expr>;
+    pub var has_args: bool = false;
+    pub var operand:  *Expr;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, name: Token, operand: *Expr) -> *AttributedExpr {
+        var node      = ctx->alloc::<AttributedExpr>();
+        node->kind    = ExprKind::AttributedExpr;
+        node->range   = range;
+        node->name    = name;
+        node->args    = create_empty_frozen_list::<*Expr>();
+        node->has_args = false;
+        node->operand = operand;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AttributedExpr {
+        var node            = ctx->alloc::<AttributedExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::AttributedExpr;
+        node->range         = range;
+        node->args          = create_empty_frozen_list::<*Expr>();
+        node->has_args      = false;
+        node->operand       = &null;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::AttributedExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::AttributedExpr; }
+}
+
+///
 ///  AwaitExpr
 ///  await expr
 ///

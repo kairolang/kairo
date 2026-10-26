@@ -370,6 +370,13 @@ enum ExprKind derives u8 {
     /// expression; CoalesceLowering expands it (NULLABLE.md 2.6).
     UnwrapExpr,
 
+    /// An attribute applied to an expression: `@create Config(8080)`,
+    /// `@name(args) operand` (attributes.mdx). Node: AttributedExpr: the
+    /// attribute's name and arguments (the declaration attribute's grammar)
+    /// and the operand. No attribute has expression semantics yet:
+    /// FeatureGateCheck reports every one (SC116E).
+    AttributedExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -425,6 +432,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::StmtExpr { return "StmtExpr"; }
         case ExprKind::VariantInitExpr { return "VariantInitExpr"; }
         case ExprKind::UnwrapExpr { return "UnwrapExpr"; }
+        case ExprKind::AttributedExpr { return "AttributedExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

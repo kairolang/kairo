@@ -487,6 +487,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::ClosureExpr              { return self.dyn()->traverse_closure_expr(               cast::<ClosureExpr>(e)              ); }
             case ExprKind::AwaitExpr                { return self.dyn()->traverse_await_expr(                 cast::<AwaitExpr>(e)                ); }
             case ExprKind::UnwrapExpr               { return self.dyn()->traverse_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
+            case ExprKind::AttributedExpr           { return self.dyn()->traverse_attributed_expr(            cast::<AttributedExpr>(e)           ); }
             case ExprKind::SpawnExpr                { return self.dyn()->traverse_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->traverse_thread_expr(                cast::<ThreadExpr>(e)               ); }
             case ExprKind::ConstraintExpr           { return self.dyn()->traverse_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
@@ -829,6 +830,23 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    /// The attribute's arguments, then its operand. The name is the
+    /// attribute's, not a name use: walking it would make every visitor see
+    /// an unbound identifier (as a named call argument's label would).
+    fn traverse_attributed_expr(self, n: *AttributedExpr) -> *AttributedExpr {
+        if self.dyn()->walkup_attributed_expr(n) == false { return n; }
+        for var i: usize = 0; i < n->args.size(); i++ {
+            if self.stop { break; }
+            var a = *(n->args.get(i));
+            var value = named_call_arg_value(a);
+            if value != &null { self.dyn()->dispatch_expr(value); continue; }
+            self.dyn()->dispatch_expr(a);  // discard
+        }
+        if self.stop { return n; }
+        if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
+        return n;
+    }
+
     fn traverse_spawn_expr(self, n: *SpawnExpr) -> *SpawnExpr {
         if self.dyn()->walkup_spawn_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
@@ -1078,6 +1096,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_await_expr(n);
     }
 
+    fn walkup_attributed_expr(self, n: *AttributedExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_attributed_expr(n);
+    }
+
     fn walkup_unwrap_expr(self, n: *UnwrapExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_unwrap_expr(n);
@@ -1194,6 +1217,7 @@ class <D> RecursiveASTVisitor {
     fn visit_closure_expr(                self, n: *ClosureExpr              ) -> bool { return true; }
     fn visit_await_expr(                  self, n: *AwaitExpr                ) -> bool { return true; }
     fn visit_unwrap_expr(                 self, n: *UnwrapExpr               ) -> bool { return true; }
+    fn visit_attributed_expr(             self, n: *AttributedExpr           ) -> bool { return true; }
     fn visit_spawn_expr(                  self, n: *SpawnExpr                ) -> bool { return true; }
     fn visit_thread_expr(                 self, n: *ThreadExpr               ) -> bool { return true; }
     fn visit_constraint_expr(             self, n: *ConstraintExpr           ) -> bool { return true; }

@@ -100,6 +100,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::ClosureExpr              { return "ClosureExpr";              }
         case ExprKind::AwaitExpr                { return "AwaitExpr";                }
         case ExprKind::UnwrapExpr               { return "UnwrapExpr";               }
+        case ExprKind::AttributedExpr           { return "AttributedExpr";           }
         case ExprKind::SpawnExpr                { return "SpawnExpr";                }
         case ExprKind::ThreadExpr               { return "ThreadExpr";               }
         case ExprKind::ConstraintExpr           { return "ConstraintExpr";           }
@@ -378,6 +379,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<RangeExpr>(e)            { self._e_range(cast::<RangeExpr>(e));   return; }
         if isa::<ClosureExpr>(e)          { self._e_closure(cast::<ClosureExpr>(e)); return; }
         if isa::<AwaitExpr>(e)            { self._kw_operand("await ",  cast::<AwaitExpr>(e)->operand);  return; }
+        if isa::<AttributedExpr>(e) {
+            var ae = cast::<AttributedExpr>(e);
+            self.p.paint(Color::Keyword, "@" + self.tok(ae->name));
+            if ae->has_args { self._expr_list("(", ")", ae->args); }
+            self.p.put(" ");
+            self.src_expr(ae->operand);
+            return;
+        }
         if isa::<UnwrapExpr>(e) {
             self.p.paint(Color::Keyword, "unwrap!");
             self.p.paint(Color::Punct, "(");
@@ -2248,6 +2257,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ClosureExpr>(e)          { self._dx_closure(cast::<ClosureExpr>(e), is_last);         return; }
         if isa::<AwaitExpr>(e)            { self._dx_kw("AwaitExpr",  cast::<AwaitExpr>(e)->operand,  is_last); return; }
         if isa::<UnwrapExpr>(e)           { self._dx_kw("UnwrapExpr", cast::<UnwrapExpr>(e)->operand, is_last); return; }
+        if isa::<AttributedExpr>(e)       { self._dx_attributed(cast::<AttributedExpr>(e), is_last); return; }
         if isa::<SpawnExpr>(e)            { self._dx_kw("SpawnExpr",  cast::<SpawnExpr>(e)->operand,  is_last); return; }
         if isa::<ThreadExpr>(e)           { self._dx_kw("ThreadExpr", cast::<ThreadExpr>(e)->operand, is_last); return; }
         if isa::<EvalExpr>(e)             { self._dx_kw("EvalExpr",   cast::<EvalExpr>(e)->operand,   is_last); return; }
@@ -2726,6 +2736,19 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.newline();
         self.p.enter(is_last);
         self._child_expr(operand, true);
+        self.p.leave();
+    }
+
+    /// `AttributedExpr @name (N args)`: the arguments, then the operand.
+    fn _dx_attributed(self, e: *AttributedExpr, is_last: bool) {
+        self._head("AttributedExpr", is_last);
+        self.p.put(" ");
+        self.p.paint(Color::Keyword, "@" + self.tok(e->name));
+        if e->has_args { self._dim(f"({e->args.size()} args)"); }
+        self.p.newline();
+        self.p.enter(is_last);
+        for var i: usize = 0; i < e->args.size(); ++i { self._child_expr(e->args[i], false); }
+        self._child_expr(e->operand, true);
         self.p.leave();
     }
 

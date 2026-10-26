@@ -732,16 +732,99 @@ class <T> ExprParse {
 
     //  Unary expressions
 
+    /// \brief parses an attribute applied to an expression.
+    ///  Grammar:  '@' identifier ( '(' call-args? ')' )? unary-expr
+    ///
+    /// \details an expression attribute is an attribute like any other
+    ///          (attributes.mdx, `@create T(args)`), so its head is the
+    ///          declaration attribute's grammar (ASTParse::
+    ///          consume_leading_annotations): a name, and an argument list
+    ///          exactly when `(` follows the name.
+    ///
+    ///          The operand binds as a keyword prefix's does (`await`,
+    ///          `thread`): one unary expression, postfix chain included. So
+    ///          `@create Config(8080)` attributes the constructor call, which
+    ///          is what every docs example means (`@create i32(10)`,
+    ///          `@create AST::Block()`, `@create Point{ x: 1.0 }`), and
+    ///          `@create Foo(1).bar` is `@create (Foo(1).bar)`: to reach the
+    ///          result write `(@create Foo(1)).bar`. Binary operators bind
+    ///          looser: `@a x + y` is `(@a x) + y`.
+    ///
+    ///          At the start of a statement an `@name` is still the
+    ///          statement's attribute (the annotation pass runs first); this
+    ///          production is reached in expression position only.
+    priv fn _parse_attributed_expr(self, stop: ExprStopKind) -> *Expr {
+        var at_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `@`
+
+        if !dyn()->check(TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S046E, at_range.start,
+                "expected attribute name after '@\x27"
+            ).first(at_range).emit();
+            return AttributedExpr::create_error(dyn()->ctx, at_range);
+        }
+        var name_tok = dyn()->current();
+        dyn()->advance(); // consume the name
+        var head = at_range | name_tok.range;
+
+        var args: std::StackBuf::<*Expr, 8>;
+        var has_args = false;
+        if dyn()->check(TokenKind::OpLParen) {
+            has_args = true;
+            var lparen = dyn()->current_ptr()->range;
+            dyn()->advance(T::SkipNL::After); // consume `(`
+            dyn()->nl_push();
+            if !dyn()->check(TokenKind::OpRParen) {
+                self._parse_call_args(&args, lparen);
+            }
+            dyn()->nl_pop();
+            if dyn()->check(TokenKind::OpRParen) {
+                head = head | dyn()->current_ptr()->range;
+                dyn()->advance_raw();
+            } else {
+                dyn()->diag->report(DiagID::S051E, lparen.start,
+                    "expected ')' to close attribute argument list"
+                ).first(lparen).emit();
+            }
+        }
+
+        // Nothing to apply to (`var b = @create`, `f(@create)`): said here,
+        // naming the attribute. The operand parser's own "expected
+        // expression, found ')'" points past it, and its recovery cascades.
+        var operand: *Expr = &null;
+        var ends = dyn()->is_eof() || dyn()->_is_terminator_tok(dyn()->current_ptr())
+                || dyn()->check(TokenKind::OpRParen) || dyn()->check(TokenKind::OpRSquare)
+                || dyn()->check(TokenKind::OpRBrace) || dyn()->check(TokenKind::OpComma);
+        if !ends { operand = self._parse_unary_expr(stop); }
+        if operand == &null {
+            var nm = dyn()->ctx->get_spelling(name_tok);
+            dyn()->diag->report(DiagID::S052E, head.start,
+                f"expected an expression after '@{nm}'; an attribute in an expression applies to the expression that follows it"
+            ).first(head).emit();
+            return AttributedExpr::create_error(dyn()->ctx, head);
+        }
+
+        var ae = AttributedExpr::create(dyn()->ctx, head | operand->range, name_tok, operand);
+        ae->has_args = has_args;
+        ae->args.from_buf(args.data(), args.size(), dyn()->ctx);
+        return static_cast::<*Expr>(ae);
+    }
+
     /// \brief parses prefix unary operators then delegates to postfix.
     ///
     /// prefix ops: ! + - ~ & * ++ --
     /// keyword prefixes: await spawn thread eval unsafe delete sizeof alignof typeof
+    /// attribute prefix: `@name operand` (_parse_attributed_expr)
     inline fn _parse_unary_expr(self, stop: ExprStopKind) -> *Expr {
         if dyn()->is_eof() { return &null; }
 
         var cur_ptr = dyn()->current_ptr();
         if cur_ptr == &null { return &null; }
         var cur_range = cur_ptr->range;
+
+        if dyn()->check(TokenKind::OpAt) {
+            return self._parse_attributed_expr(stop);
+        }
 
         if dyn()->check(TokenKind::OpAmp) && dyn()->check_peek(TokenKind::LitNull) {
             var amp_range = cur_range;
