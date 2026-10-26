@@ -1,9 +1,8 @@
 /// --- The Kairo Project ------------------ Sema/Check/CaptureAnalysis.k --- ///
 ///
 ///   \brief Free-variable analysis: the bindings a subtree USES but does not
-///          DECLARE. What a `finally` body captures (FinallyLowering) and,
-///          once lambdas are emitted, what a closure with no capture list
-///          captures.
+///          DECLARE. What a `finally` body captures (FinallyLowering) and
+///          what a closure captures (ClosureCaptures).
 ///
 ///   \detail
 ///     A binding is a VariableDecl or a ParamDecl. One walk: every
@@ -46,6 +45,9 @@ class FreeVarScan derives RecursiveASTVisitor::<FreeVarScan> {
     /// first. Statics and globals included: the caller decides what a free
     /// binding means.
     pub var free: vec::<*Decl>;
+    /// The first use of each `free[i]`, parallel: where a diagnostic about
+    /// the capture points.
+    pub var free_at: vec::<*NamedIdentExpr>;
     priv var _declared: vec::<*Decl>;
 
     fn FreeVarScan(self) { }
@@ -53,6 +55,14 @@ class FreeVarScan derives RecursiveASTVisitor::<FreeVarScan> {
     fn run(self, s: *Stmt) {
         if s == &null { return; }
         self.dispatch_stmt(s);
+    }
+
+    /// A whole closure: its parameters are declared before its body is
+    /// walked, and a named capture (`|x|`, `|*x|`) is a use of the outer
+    /// binding, so it is free and comes first, in list order.
+    fn run_closure(self, c: *ClosureExpr) {
+        if c == &null { return; }
+        self.dispatch_expr(static_cast::<*Expr>(c));
     }
 
     priv fn _has(self, v: *vec::<*Decl>, d: *Decl) -> bool {
@@ -108,7 +118,7 @@ class FreeVarScan derives RecursiveASTVisitor::<FreeVarScan> {
         if d == &null { return true; }
         if (!isa::<VariableDecl>(d)) && (!isa::<ParamDecl>(d)) { return true; }
         if self._has(&self._declared, d) { return true; }
-        if !self._has(&self.free, d) { self.free.push_back(d); }
+        if !self._has(&self.free, d) { self.free.push_back(d); self.free_at.push_back(n); }
         return true;
     }
 }

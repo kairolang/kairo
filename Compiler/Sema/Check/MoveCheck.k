@@ -265,13 +265,37 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     }
 
     /// Captures are reads in the ENCLOSING body (a moved-from binding cannot
-    /// be captured); the closure body is its own body.
+    /// be captured); the closure body is its own body. The captures are
+    /// ClosureCaptures' list, the implicit ones included, each read at its
+    /// first use (a named one at its name in the list); a Move capture
+    /// (ownership.md: a MOVE value captured by copy is moved in) then
+    /// leaves the binding moved-from here.
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
         if n == &null { return n; }
         if self.dyn()->walkup_closure_expr(n) == false { return n; }
-        for var i: usize = 0; i < n->captures.size(); ++i {
-            var cap = n->captures.get(i);
-            if cap->name != &null { self.dispatch_expr(cap->name); }
+        if n->caps_resolved {
+            for var i: usize = 0; i < n->cap_decls.size(); ++i {
+                var m = n->cap_modes[i];
+                var at = n->cap_uses[i];
+                if (m == CaptureMode::Self) || (at == &null) { continue; }
+                self._read(at);
+            }
+            for var i: usize = 0; i < n->cap_decls.size(); ++i {
+                if n->cap_modes[i] != CaptureMode::Move { continue; }
+                var d = n->cap_decls[i];
+                if !self._tracked(d) { continue; }
+                var mp  = MovedPart{};
+                mp.d    = d;
+                mp.path = "";
+                mp.at   = (n->cap_uses[i])->range;
+                mp.how  = "into the closure that captures it";
+                self._st.mark(mp);
+            }
+        } else {
+            for var i: usize = 0; i < n->captures.size(); ++i {
+                var cap = n->captures.get(i);
+                if cap->name != &null { self.dispatch_expr(cap->name); }
+            }
         }
         var saved_st    = self._st;
         var saved_loops = self._loops;

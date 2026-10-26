@@ -39,6 +39,10 @@
 ///       - `var {a, b} = s`, destructuring a struct by field name.
 ///         TupleLowering renders the positional form only; a struct's
 ///         reaching EmitIR is its ICE.
+///       - a generic closure, `fn <T>(x: T) -> T { ... }`. X types neither
+///         its parameters (no canonical for `T`) nor a call of it, so there
+///         is no signature for EmitIR to spell; a C++ generic lambda is the
+///         target once both are typed.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -125,6 +129,11 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
 
     fn visit_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> bool {
         if n->kind_ == DestructureKind::Struct { self._gate(n->range, "destructuring a struct by field name"); }
+        return true;
+    }
+
+    fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
+        if n->generic_params.size() > 0 { self._gate(SourceRange::from_bounds(n->range.start, u32(2)), "a generic closure"); }
         return true;
     }
 

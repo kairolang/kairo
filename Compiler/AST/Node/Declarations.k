@@ -609,6 +609,30 @@ class FunctionDecl
     fn param_count(self)    -> usize { return self.params.size(); }
 }
 
+/// How a closure holds one captured binding, as ClosureCaptures decided it
+/// (Sema/Check/CaptureAnalysis.k) and EmitIR spells it in the lambda's
+/// capture list (CODEGEN.md §6, Closures).
+///
+///   Copy        its own copy (`x`): no list, or `|x|`.
+///   Move        its own value, moved in (`x = static_cast<T&&>(x)`): a by-copy
+///               capture of a MOVE type (ownership.md, Default capture).
+///   Ptr         a pointer to the original (`x = &x`): `|*x|`, `|*|`.
+///   ConstPtr    a `*const T` to it (`x = static_cast<const T*>(&x)`).
+///   Self        the enclosing `self`, a pointer already (`this`, or an
+///               extension member's receiver parameter).
+///
+/// A binding an enclosing closure already holds by pointer is that pointer
+/// inside it (ExprTyper::_capture_view), so an inner closure copies the
+/// pointer (Copy) or converts it (ConstPtr with `via_ptr`), never takes its
+/// address again.
+enum CaptureMode derives u8 {
+    Copy,
+    Move,
+    Ptr,
+    ConstPtr,
+    Self,
+}
+
 ///
 ///  ClosureExpr
 ///  fn <T> (x: T, y: i32)|captured| -> i32 { x + y + captured }
@@ -636,6 +660,23 @@ class ClosureExpr derives Expr {
     pub var is_variadic:         bool = false; ///< trailing `...name: T` pack param.
     pub var is_noreturn:         bool = false;
     pub var explicit_no_capture: bool = false;
+    /// `|...|` / `||` as written, for a fix-it; invalid when there is none.
+    pub var capture_range: SourceRange;
+
+    /// What the closure holds, decided once by ClosureCaptures (CHECK) and
+    /// read by MoveCheck, FinallyLowering and EmitIR: the captured bindings
+    /// in first-use order (a named list's order for a named list), each
+    /// with its mode, parallel. `cap_via_ptr[i]`: an enclosing closure holds
+    /// `cap_decls[i]` by pointer, so the name is that pointer here.
+    /// `caps_resolved` is false until the check has run; EmitIR ICEs on it.
+    pub var cap_decls:     FrozenList::<*Decl>;
+    pub var cap_modes:     FrozenList::<CaptureMode>;
+    pub var cap_via_ptr:   FrozenList::<bool>;
+    /// The first use of each capture in the closure (a named capture's own
+    /// name in the list), parallel: what MoveCheck reads as the capture's
+    /// read. The tree's, before any lowering rebuilds it.
+    pub var cap_uses:      FrozenList::<*NamedIdentExpr>;
+    pub var caps_resolved: bool = false;
 
     static fn create(
         ctx:   *ASTContext,
@@ -648,6 +689,8 @@ class ClosureExpr derives Expr {
         node->body_block = &null;
         node->body_expr  = &null;
         node->return_type = &null;
+        node->capture_range = SourceRange::invalid();
+        node->caps_resolved = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

@@ -4359,9 +4359,15 @@ class <T> DeclParse {
         }
 
         // capture list: `|a, *b|` / `|*|` / `||`
+        dyn()->closure_cap_range = SourceRange::invalid();
         if dyn()->check(TokenKind::OpPipe) {
+            var cap_start = dyn()->current_ptr()->range;
             self._parse_capture_list(&captures);
+            dyn()->closure_cap_range = cap_start | dyn()->prev_ptr()->range;
+            // `| |` is the empty list spelled apart: no captures, as `||` is.
+            if captures.size() == 0 { explicit_no_capture = true; }
         } else if dyn()->check(TokenKind::OpPipePipe) {
+            dyn()->closure_cap_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `||`
             explicit_no_capture = true;
         }

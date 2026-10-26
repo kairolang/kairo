@@ -125,6 +125,11 @@ class ASTParse
     }
 
     pub var mode: ParseMode = ParseMode::Full; ///< see ParseMode.
+    /// The last closure signature's `|...|` / `||`, as written (invalid when
+    /// it had none): DeclParse::_parse_closure_sig sets it and
+    /// ExprParse::_parse_closure_expr moves it onto the node, before the body
+    /// (where a nested closure would overwrite it) is parsed.
+    pub var closure_cap_range: SourceRange = SourceRange::invalid();
 
     /// True in normal AST-building mode. Used by mixin parsers (which cannot
     /// name the nested ParseMode enum directly) to gate Full-only behavior such

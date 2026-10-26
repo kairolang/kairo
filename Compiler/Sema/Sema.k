@@ -50,6 +50,7 @@ import Sema::Check::ShadowCheck::*;
 import Sema::Check::ShorthandLint::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
+import Sema::Check::ClosureCaptures::*;
 import Sema::Check::MoveCheck::*;
 import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
@@ -365,6 +366,13 @@ class Sema {
         // `@move` arguments: movability, and use-after-move over each body.
         // REQUIRES ExprTyper complete (promoted callees, typed arguments) and
         // ClassLifecycle (movability).
+        // What each closure captures and how (closures.md, Capture Modes):
+        // recorded on the ClosureExpr for MoveCheck, FinallyLowering and
+        // EmitIR; a binding a named list or `||` leaves out is an error.
+        // REQUIRES ExprTyper (bindings, types) and ClassLifecycle (a MOVE
+        // capture is moved in).
+        { var _p = TimeRegion("ClosureCaptures"); ClosureCaptures(&self.sc).run(); }
+
         { var _p = TimeRegion("MoveCheck"); MoveCheck(&self.sc).run(); }
 
         // Default member initializers read only fields built before them.

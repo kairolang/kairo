@@ -4078,6 +4078,7 @@ class <T> ExprParse {
         ce->modifiers      = modifiers;
         ce->return_type    = ret_type;
         ce->explicit_no_capture = explicit_no_capture;
+        ce->capture_range       = dyn()->closure_cap_range;
 
         // bind captured names into the closure scope so the body can see them
         // for var i: usize = 0; i < ce->captures.size(); ++i {

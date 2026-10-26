@@ -665,7 +665,8 @@ class ExprTyper
                 var all = cap->name == &null;
                 if (!named) && (!all) { continue; }
                 // A global is named, not captured; `self` keeps its own
-                // receiver type (what a closure does with it is not settled).
+                // receiver type: every closure holds it as the pointer it
+                // already is (ClosureCaptures, CaptureMode::Self).
                 if all && (null_flow_is_global(d) || (isa::<ParamDecl>(d) && cast::<ParamDecl>(d)->is_self)) { continue; }
                 var pointee = t;
                 if cap->is_const { pointee = self.sc->types->qualified(t, QUAL_CONST()); }

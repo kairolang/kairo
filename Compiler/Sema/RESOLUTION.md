@@ -416,7 +416,7 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
-`ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`, `InitCheck`,
+`ReturnPathCheck`, `ClassLifecycle`, `ClosureCaptures`, `MoveCheck`, `InitCheck`,
 `CtorInitCheck`, `ConformanceChecking`, `FeatureGateCheck`, `FlagGates`,
 `PatternCompilation`. (`ConstraintExtraction` runs in T, before
 ChainBinding, §2.6.)
@@ -431,12 +431,27 @@ a type; flags enums and imported C++ enums are open and need `default`.
 `ConstChecking`, `AccessCheck`, `ExtensionOrphanCheck` are stubs /
 missing.
 
+`ClosureCaptures` [DONE] decides what every closure captures and how
+(closures.md, Capture Modes), and records it on the ClosureExpr
+(`cap_decls` / `cap_modes` / `cap_via_ptr` / `cap_uses`): the closure's
+free automatic bindings (FreeVarScan; statics and globals are named, not
+captured), by copy with no list (a MOVE type: moved in, ownership.md), by
+pointer under `|*|` / `|const *|`, as written in a named list, and `self`
+implicitly as the pointer it is. A binding an enclosing closure holds by
+pointer is that pointer inside (X's `_capture_view`), so an inner capture
+copies or converts it. A free binding that a named list or `||` leaves out
+is SC001E at its first use, a note at its declaration, and a fix-it that
+names it. MoveCheck reads each capture as a read where the closure is made
+and a Move capture as a move; FinallyLowering and EmitIR read the rest.
+
 `MoveCheck` [PARTIAL] decides every move and checks use-after-move
 (SC052E). A `@move` argument moves; so does a MOVE value transferred: by
 value, into a C++ `T&&`, into a variable, by assignment, out of a return
 that is not a bare local. It records each transfer site for
 CopyMoveLowering. Bindings and field paths under them (`p.a`) are
-tracked; pointers, `self` and captures are not. Path-insensitive: a move
+tracked; pointers and `self` are not. A closure's captures are reads of
+the bindings where it is made, and a MOVE value captured by copy is moved
+into it (ClosureCaptures). Path-insensitive: a move
 in the right operand of `&&` leaves the binding maybe-moved after it.
 
 `InitCheck` [PARTIAL] checks one rule so far: a field's default reads
@@ -478,8 +493,9 @@ and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
 `iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
 whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
 its special members from those facts), and an initializer on an eval or
-array-typed field (FieldInitLowering lowers every other one). A
-gate is removed in the commit that lands its lowering.
+array-typed field (FieldInitLowering lowers every other one), and a
+generic closure (`fn <T>(x: T)`: X types neither its parameters nor a
+call of it). A gate is removed in the commit that lands its lowering.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
 value-returning body can reach its closing brace, SC105 for `-> !`. After X
