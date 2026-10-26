@@ -47,7 +47,6 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
-import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
@@ -76,20 +75,12 @@ class NarrowedAccessLowering derives ASTWriter::<NarrowedAccessLowering> {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
         // No builtin root: no `T?` was typed, so nothing was narrowed.
-        var nd = self.sc->well_known->get(WellKnownType::Nullable);
-        if nd == &null { return; }
-        var en = dyn_cast::<EnumDecl>(NameLookup::representative(nd));
-        ICE_IF(en == &null, "NarrowedAccessLowering: the Nullable lang item is not an enum");
-        var lay = dyn_cast::<StructDecl>(en->adt_layout);
-        ICE_IF(lay == &null, "NarrowedAccessLowering: the Nullable lang item has no layout; EnumLayoutLowering runs first");
-        for var i: usize = 0; i < lay->methods.size(); ++i {
-            var m = lay->methods[i];
-            if m == &null { continue; }
-            if m->adt_role == AdtRole::ValueRef  { self._ref  = m; }
-            if m->adt_role == AdtRole::ValueCref { self._cref = m; }
-        }
+        if !self.sc->well_known->has(WellKnownType::Nullable) { return; }
+        self._ref  = self.sc->nullable_member(AdtRole::ValueRef,  "NarrowedAccessLowering");
+        self._cref = self.sc->nullable_member(AdtRole::ValueCref, "NarrowedAccessLowering");
         ICE_IF((self._ref == &null) || (self._cref == &null),
-               "NarrowedAccessLowering: the Nullable layout has no __value(); EnumLayoutLowering::_nullable_surface mints it");
+               "NarrowedAccessLowering: the Nullable layout has no " + LowerTargets::nullable_value()
+               + "(); EnumLayoutLowering::_nullable_surface mints it");
         ASTWriter::<NarrowedAccessLowering>::run(self.sc->tu);
     }
 

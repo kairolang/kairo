@@ -41,7 +41,6 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
-import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Type::NullnessFlow::*;
 import AST::Visitor::ASTWriter::*;
@@ -71,17 +70,10 @@ class NullTestLowering derives ASTWriter::<NullTestLowering> {
         self.sc->require_phase(SemaPhase::Checked);
         if self.sc->tu == &null { return; }
         // No builtin root: no `T?` was typed, so there is no test to lower.
-        var nd = self.sc->well_known->get(WellKnownType::Nullable);
-        if nd == &null { return; }
-        var en = dyn_cast::<EnumDecl>(NameLookup::representative(nd));
-        ICE_IF(en == &null, "NullTestLowering: the Nullable lang item is not an enum");
-        var lay = dyn_cast::<StructDecl>(en->adt_layout);
-        ICE_IF(lay == &null, "NullTestLowering: the Nullable lang item has no layout; EnumLayoutLowering runs first");
-        for var i: usize = 0; i < lay->methods.size(); ++i {
-            var m = lay->methods[i];
-            if (m != &null) && (m->adt_role == AdtRole::IsNull) { self._is_null = m; }
-        }
-        ICE_IF(self._is_null == &null, "NullTestLowering: the Nullable layout has no is_null(); EnumLayoutLowering::_nullable_surface mints it");
+        if !self.sc->well_known->has(WellKnownType::Nullable) { return; }
+        self._is_null = self.sc->nullable_member(AdtRole::IsNull, "NullTestLowering");
+        ICE_IF(self._is_null == &null, "NullTestLowering: the Nullable layout has no " + LowerTargets::nullable_is_null()
+                                       + "(); EnumLayoutLowering::_nullable_surface mints it");
         ASTWriter::<NullTestLowering>::run(self.sc->tu);
     }
 

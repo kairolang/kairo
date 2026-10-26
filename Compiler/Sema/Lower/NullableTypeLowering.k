@@ -57,7 +57,6 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
-import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
@@ -89,9 +88,8 @@ class NullableTypeLowering derives ASTWriter::<NullableTypeLowering> {
         // A build with no builtin root has no `T?` to lower to; a `T?` that
         // reaches codegen then ICEs naming this pass (CXXSpell), which is the
         // truth: nothing could lower it.
-        var nd = self.sc->well_known->get(WellKnownType::Nullable);
-        if nd == &null { return; }
-        self._en = dyn_cast::<EnumDecl>(NameLookup::representative(nd));
+        if !self.sc->well_known->has(WellKnownType::Nullable) { return; }
+        self._en = self.sc->nullable_enum();
         ICE_IF(self._en == &null, "NullableTypeLowering: the Nullable lang item is not an enum");
         var found = false;
         for var i: usize = 0; i < self._en->variants.size(); ++i {

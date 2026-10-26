@@ -367,6 +367,37 @@ class SemaContext {
         return self.types->record(inst, &trimmed);
     }
 
+    /// The Nullable lang item's pattern, the enum every `T?` lowers to, or
+    /// null: no builtin root bound it, or what it bound is no enum (a pass
+    /// that needs it ICEs on that, with its own name). By identity, never
+    /// by name: a user may declare an enum called Nullable.
+    fn nullable_enum(self) -> *EnumDecl {
+        if self.well_known == &null { return &null; }
+        var nd = self.well_known->get(WellKnownType::Nullable);
+        if nd == &null { return &null; }
+        return dyn_cast::<EnumDecl>(NameLookup::representative(nd));
+    }
+
+    /// The member of the Nullable lang item's layout that plays \p role
+    /// (EnumLayoutLowering::_nullable_surface mints them; InterfaceEmitter
+    /// writes them in C++), or null when the layout has none. Found by role
+    /// on the PATTERN's layout, as MatchLowering finds the tag field: an
+    /// instance shares it. The caller has checked the lang item is bound;
+    /// \p pass names it in the ICEs for a lang item that is not the enum
+    /// Lib/builtin declares, or that EnumLayoutLowering has not laid out.
+    fn nullable_member(self, role: AdtRole, pass: string) -> *FunctionDecl {
+        var en = self.nullable_enum();
+        ICE_IF(en == &null, pass + ": the Nullable lang item is not an enum");
+        var lay = dyn_cast::<StructDecl>(en->adt_layout);
+        ICE_IF(lay == &null, pass + ": the Nullable lang item has no layout; EnumLayoutLowering runs first");
+        var found: *FunctionDecl = &null;
+        for var i: usize = 0; i < lay->methods.size(); ++i {
+            var m = lay->methods[i];
+            if (m != &null) && (m->adt_role == role) { found = m; }
+        }
+        return found;
+    }
+
     /// The tuple pattern of \p arity (TupleRecords, minted on first use),
     /// or null: no builtin root to home it in, or an arity outside
     /// [2, TUPLE_MAX_ARITY]. The root TU is the DeclContext the record

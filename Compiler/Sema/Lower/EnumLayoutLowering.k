@@ -317,9 +317,8 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// By identity with the lang item, never by name: a user may declare an
     /// enum called Nullable.
     priv fn _is_nullable(self, en: *EnumDecl) -> bool {
-        var nd = self.sc->well_known->get(WellKnownType::Nullable);
-        if nd == &null { return false; }
-        return NameLookup::representative(nd) == static_cast::<*Decl>(en);
+        var nd = self.sc->nullable_enum();
+        return (nd != &null) && (nd == en);
     }
 
     /// `T?`'s C++ surface on top of the ADT (NULLABLE.md 1.2): the ADT
