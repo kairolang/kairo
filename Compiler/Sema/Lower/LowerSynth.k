@@ -4,7 +4,7 @@
 ///          file's table, integer literals with a fresh Immediate::IntData
 ///          slot, byte literals over decoded text with a fresh StringData
 ///          slot, fresh `__kairo_` locals and the names that read them,
-///          member calls, statement expressions, and the purity test
+///          member and free-function calls, statement expressions, and the purity test
 ///          SequenceLowering orders arguments by.
 ///
 ///   One copy. Three passes each carried their own `_ident_token`, and the
@@ -137,6 +137,14 @@ class LowerSynth {
         return vd;
     }
 
+    /// local(), placed: its DeclStmt pushed on \p stmts. The bind-once step
+    /// of an expansion that reads an operand more than once.
+    fn bind(self, range: SourceRange, hint: string, ty: *Type, init: *Expr, stmts: *ListBuilder::<*Stmt>) -> *VariableDecl {
+        var vd = self.local(range, hint, ty, init);
+        stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.sc->ctx, range, static_cast::<*Decl>(vd))));
+        return vd;
+    }
+
     /// A read of a local this pass minted. One node per use: a node has one
     /// parent, and two parents sharing one is a rewrite waiting to happen.
     fn use_of(self, vd: *VariableDecl, range: SourceRange, cat: Expr::ValueCategory) -> *Expr {
@@ -239,6 +247,14 @@ class LowerSynth {
         call->type_          = ty;
         call->value_category = Expr::ValueCategory::RValue;
         return static_cast::<*Expr>(call);
+    }
+
+    /// `f(args)`, a call of the free function \p f (a lang item a lowering
+    /// calls) typed \p ty: the node shape of ctor_call, the callee naming
+    /// \p f by its own name.
+    fn free_call(self, range: SourceRange, f: *Decl, args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        return self.ctor_call(range, f, tu.decl_name(f), args, ty);
     }
 
     /// `({ stmts })` in place of \p orig, a prvalue of \p ty.

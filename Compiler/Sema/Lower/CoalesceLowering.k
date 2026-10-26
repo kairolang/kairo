@@ -119,7 +119,7 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
             return out;
         }
         var stmts = self.list_builder::<*Stmt>();
-        var opd = self._operand(n->lhs, &stmts);
+        var opd = self._operand(n->lhs, &stmts, "coal");
         var ie = self._select(n->range, opd.test, opd.value, n->rhs, n->type_);
         return self._wrap(static_cast::<*Expr>(n), opd, &stmts, ie);
     }
@@ -156,8 +156,8 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         eq->value_category = Expr::ValueCategory::RValue;
 
         var cond: *Expr = &null;
-        for var i: usize = 0; i < tests.size(); ++i { cond = self._and(n, cond, tests[i]); }
-        cond = self._and(n, cond, static_cast::<*Expr>(eq));
+        for var i: usize = 0; i < tests.size(); ++i { cond = self._and(n->range, cond, tests[i]); }
+        cond = self._and(n->range, cond, static_cast::<*Expr>(eq));
         if !bound {
             cond->expr_flags = n->expr_flags;
             return cond;
@@ -172,7 +172,7 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
                            tests: *vec::<*Expr>, bound: *bool) -> *Expr {
         var v = e;
         if self.tu.nullable_inner(self.tu.as_value(e->type_)) != &null {
-            var opd = self._operand(e, stmts);
+            var opd = self._operand(e, stmts, "coal");
             if opd.decl != &null { (*bound) = true; }
             tests->push_back(self._test(e->range, opd.test));
             v = opd.value;
@@ -188,9 +188,9 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
     }
 
     /// `l && r`, typed bool; just \p r when \p l is null.
-    priv fn _and(self, n: *BinaryOperatorExpr, l: *Expr, r: *Expr) -> *Expr {
+    priv fn _and(self, at: SourceRange, l: *Expr, r: *Expr) -> *Expr {
         if l == &null { return r; }
-        var both = BinaryOperatorExpr::create(self.ctx, n->range, l, r, self.synth.punct(n->range, TokenKind::OpAmpAmp));
+        var both = BinaryOperatorExpr::create(self.ctx, at, l, r, self.synth.punct(at, TokenKind::OpAmpAmp));
         both->type_          = self.sc->builtin(BuiltinKind::Bool);
         both->value_category = Expr::ValueCategory::RValue;
         return static_cast::<*Expr>(both);
@@ -209,7 +209,7 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         var out = ASTWriter::<CoalesceLowering>::transform_match_stmt(n);
         if (!n->null_arm) || (n->scrutinee == &null) || n->scrutinee->is_poisoned() || (n->cases.size() == 0) { return out; }
         var stmts = self.list_builder::<*Stmt>();
-        var opd = self._operand(n->scrutinee, &stmts);
+        var opd = self._operand(n->scrutinee, &stmts, "coal");
         var arm0 = n->cases.get(0);
         var none = self._take_null_arm(arm0, n->range);
         n->scrutinee = opd.value;
@@ -233,14 +233,12 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         var arm0 = n->cases.get(0);
         if arm0->expression == &null { return out; }
         var stmts = self.list_builder::<*Stmt>();
-        var opd = self._operand(n->scrutinee, &stmts);
+        var opd = self._operand(n->scrutinee, &stmts, "coal");
         var a0 = arm0->expression;
         arm0->expression = &null;
         n->scrutinee = opd.value;
-        var ie = IfExpr::create(self.ctx, n->range, self._test(n->range, opd.test), static_cast::<*Expr>(n), a0);
-        ie->type_          = n->type_;
-        ie->value_category = Expr::ValueCategory::RValue;
-        return self._wrap(static_cast::<*Expr>(n), opd, &stmts, static_cast::<*Expr>(ie));
+        var ie = self._select(n->range, opd.test, static_cast::<*Expr>(n), a0, n->type_);
+        return self._wrap(static_cast::<*Expr>(n), opd, &stmts, ie);
     }
 
     /// Arm 0's code as a block of its own, the arm left empty: one node is
@@ -315,8 +313,7 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         var bvd: *VariableDecl = &null;
         var bx = self.tu.strip_parens(c->base);
         if (bx != &null) && (!isa::<NamedIdentExpr>(bx)) {
-            bvd = self.synth.local(c->base->range, "safe", self.tu.as_value(c->base->type_), c->base);
-            stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, c->base->range, static_cast::<*Decl>(bvd))));
+            bvd = self.synth.bind(c->base->range, "safe", self.tu.as_value(c->base->type_), c->base, &stmts);
         }
         var base_marked = false;
 
@@ -356,13 +353,8 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
             then_ty = call->safe_result;
         }
 
-        var cond = tests[0];
-        for var i: usize = 1; i < tests.size(); ++i {
-            var both = BinaryOperatorExpr::create(self.ctx, orig->range, cond, tests[i], self.synth.punct(orig->range, TokenKind::OpAmpAmp));
-            both->type_          = self.sc->builtin(BuiltinKind::Bool);
-            both->value_category = Expr::ValueCategory::RValue;
-            cond = static_cast::<*Expr>(both);
-        }
+        var cond: *Expr = &null;
+        for var i: usize = 0; i < tests.size(); ++i { cond = self._and(orig->range, cond, tests[i]); }
 
         var ty = orig->type_;
         if self.tu.is_builtin(ty, BuiltinKind::Void) {
@@ -452,15 +444,13 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
     fn transform_unwrap_expr(self, n: *UnwrapExpr) -> *Expr {
         var out = ASTWriter::<CoalesceLowering>::transform_unwrap_expr(n);
         if n->is_poisoned() || (n->type_ == &null) || (n->operand == &null) || (n->operand->type_ == &null) { return out; }
-        var val   = n->operand;
-        var nt    = self.tu.as_value(val->type_);
-        var inner = self._inner(nt);
+        var inner = self._inner(self.tu.as_value(n->operand->type_));
         var stmts = self.list_builder::<*Stmt>();
-        var x = self.tu.strip_parens(val);
+        var opd   = self._operand(n->operand, &stmts, "unwrap");
+        stmts.push(self._abort_unless(n, opd.test));
 
-        if LowerSynth::pure(x) && (isa::<NamedIdentExpr>(x) || isa::<ChainExpr>(x)) {
-            stmts.push(self._abort_unless(n, x));
-            var addr = self.synth.addr_of(self._marked_copy(x, nt, inner));
+        if opd.decl == &null {
+            var addr = self.synth.addr_of(opd.value);
             stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, addr)));
             var se = self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, addr->type_);
             var d = UnaryOperatorExpr::create(self.ctx, n->range, se, self.synth.punct(n->range, TokenKind::OpStar),
@@ -470,24 +460,16 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
             d->value_category = Expr::ValueCategory::LValue;
             return static_cast::<*Expr>(d);
         }
-
-        var vd = self.synth.local(val->range, "unwrap", nt, val);
-        stmts.push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, val->range, static_cast::<*Decl>(vd))));
-        stmts.push(self._abort_unless(n, self.synth.use_of(vd, val->range, Expr::ValueCategory::LValue)));
-        var use = self._marked_copy(self.synth.use_of(vd, val->range, Expr::ValueCategory::LValue), nt, inner);
-        var mv  = TypeCastExpr::create(self.ctx, val->range, use, self.sc->types->cxx_rref(canon_unqual(inner)));
-        mv->type_          = canon_unqual(inner);
-        mv->value_category = Expr::ValueCategory::RValue;
-        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, static_cast::<*Expr>(mv))));
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, n->range, opd.value)));
         return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, canon_unqual(inner));
     }
 
     /// `if !test? { unwrap_failed("<message>", <len>) }` for \p n.
     priv fn _abort_unless(self, n: *UnwrapExpr, test: *Expr) -> *Stmt {
         var d = self.sc->well_known->get(WellKnownType::UnwrapFailed);
-        ICE_IF(d == &null, "CoalesceLowering: the 'unwrap_failed' lang item is unbound; Lib/builtin/module.k declares it");
+        ICE_IF(d == &null, "CoalesceLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is unbound; Lib/builtin/module.k declares it");
         var f = dyn_cast::<FunctionDecl>(NameLookup::representative(d));
-        ICE_IF(f == &null, "CoalesceLowering: the 'unwrap_failed' lang item is not a function");
+        ICE_IF(f == &null, "CoalesceLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is not a function");
 
         // The message, whole: the expression as written and where it is.
         var at   = n->range;
@@ -504,30 +486,21 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         args.push(self.synth.cast_to(at, lit, pu8, CastMode::Unsafe));   // `"..."` is const char*; the parameter is const unsigned char*.
         args.push(self.synth.int_literal(at, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
 
-        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, self.tu.decl_name(static_cast::<*Decl>(f))));
-        callee->resolved_decl = static_cast::<*Decl>(f);
-        var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
-        args.freeze_into(&(call->args));
-        call->type_          = self.sc->builtin(BuiltinKind::Never);
-        call->value_category = Expr::ValueCategory::RValue;
-
-        var no = UnaryOperatorExpr::create(self.ctx, at, self._test(at, test), self.synth.punct(at, TokenKind::OpExclaim),
-                                           UnaryOperatorExpr::Fix::Prefix);
-        no->type_          = self.sc->builtin(BuiltinKind::Bool);
-        no->value_category = Expr::ValueCategory::RValue;
+        var call = self.synth.free_call(at, static_cast::<*Decl>(f), &args, self.sc->builtin(BuiltinKind::Never));
 
         var blk  = CompoundStmt::create(self.ctx, at);
         var body = self.list_builder::<*Stmt>();
         body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, call)));
         body.freeze_into(&(blk->body));
-        return static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, static_cast::<*Expr>(no), blk, &null));
+        return static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, self._absent(at, test), blk, &null));
     }
 
     // --- the shared pieces ------------------------------------------------------
 
     /// \p e, a nullable, made readable twice: a place is read again (a
-    /// fresh node per use), anything else is bound to a local first.
-    priv fn _operand(self, e: *Expr, stmts: *ListBuilder::<*Stmt>) -> CoalesceOperand {
+    /// fresh node per use), anything else is bound to a `__kairo_<hint>K`
+    /// local first and its value moved out.
+    priv fn _operand(self, e: *Expr, stmts: *ListBuilder::<*Stmt>, hint: string) -> CoalesceOperand {
         var out = CoalesceOperand{};
         var nt  = self.tu.as_value(e->type_);
         var inner = self.tu.nullable_inner(nt);
@@ -537,8 +510,7 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
             out.value = self._marked_copy(x, nt, inner);
             return out;
         }
-        var vd = self.synth.local(e->range, "coal", nt, e);
-        stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, e->range, static_cast::<*Decl>(vd))));
+        var vd = self.synth.bind(e->range, hint, nt, e, stmts);
         out.decl = vd;
         out.test = self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue);
         var use  = self._marked_copy(self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue), nt, inner);
