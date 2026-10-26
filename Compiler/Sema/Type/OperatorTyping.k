@@ -502,10 +502,10 @@ class <T> OperatorTyping {
             lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else (lhs_down));
         } else if r_lit && (!l_lit) {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
-            rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (pass_down));
+            rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (self._coalesce_down(k, lt, pass_down)));
         } else {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
-            rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (pass_down)));
+            rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (self._coalesce_down(k, lt, pass_down))));
         }
         if dyn()->propagate(n, n->lhs) || dyn()->propagate(n, n->rhs) { return &null; }
         if (lt == &null) || (rt == &null) { return &null; }
@@ -736,6 +736,17 @@ class <T> OperatorTyping {
         }
         dyn()->fail(n, DiagID::SC066E, f"operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on primitives");
         return &null;
+    }
+
+    /// What the right side of `x ?? y` is typed against: `x`'s `T`, the arm
+    /// it joins (NULLABLE.md 2.4), so `f32? ?? 0.5` is `f32` and `u8? ?? 7`
+    /// is `u8`, as `if x? => x else 7` would be. \p d for every other
+    /// operator.
+    priv fn _coalesce_down(self, k: TokenKind, lt: *Type, d: *Type) -> *Type {
+        if (k != TokenKind::OpQuestionQuestion) || (lt == &null) { return d; }
+        var inner = dyn()->tu.nullable_inner(dyn()->tu.as_value(lt));
+        if (inner == &null) || inner->is_dependent() { return d; }
+        return inner;
     }
 
     /// The operators whose operands are read as values: everything but

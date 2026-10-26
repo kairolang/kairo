@@ -53,6 +53,14 @@ fn bad_loop(k: i32) -> i32 {
 
 fn main() -> i32 { return 0 }
 
+// The fallback is typed against the left side's `T`, the arm it joins:
+// a literal takes that type instead of its own default.
+fn u() -> u8? { return null }
+fn g32() -> f32? { return null }
+fn t_lit_int()   { var r: bool = u() ?? 7 }
+fn t_lit_float() { var r: bool = g32() ?? 0.25 }
+fn t_lit_chain() { var r: bool = u() ?? u() ?? 7 }
+
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
@@ -77,4 +85,10 @@ fn main() -> i32 { return 0 }
 // DIAG-NOT: {{error|warning}}
 // DIAG: coalesce_types.k:48:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
 // DIAG-NEXT: coalesce_types.k:49:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
+// DIAG-NOT: {{error|warning}}
+// DIAG: coalesce_types.k:60:34: error [SC028E]: cannot convert 'u8' to 'bool'
+// DIAG-NOT: {{error|warning}}
+// DIAG: coalesce_types.k:61:34: error [SC028E]: cannot convert 'f32' to 'bool'
+// DIAG-NOT: {{error|warning}}
+// DIAG: coalesce_types.k:62:34: error [SC028E]: cannot convert 'u8' to 'bool'
 // DIAG-NOT: {{error|warning}}
