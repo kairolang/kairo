@@ -517,7 +517,7 @@ ChainBinding's dependent path and ConformanceChecking read.
     value?") is not the size question: it is answered from the PATTERN's
     fields, which exist before M2, so `class U { var b: Box<U> }` and
     `struct A { var t: (i32, A) }` (a tuple is the TupleN record) are
-    reported today (type_cycle_generic.k, type_cycle.k).
+    reported today (type_cycle_generic.k, type_cycle_array_tuple.k).
     [DECIDED] `ShadowCheck` runs after X; it is silent for a binding whose
     type is still null.
 

@@ -917,13 +917,14 @@ for diffing what a change did beyond the asserted lines. Named roots (9)
 are covered separately: two roots each holding `a.k`, imported as `a` and
 `foo::a`, binding to two different decls.
 
-Test for 10: `Tests/Sema/Types/type_cycle.k`. Five cycles (self, mutual, fixed
-array + tuple, bases, a generic argument the template stores by value) and
-five non-cycles (pointer, nullable, vector, map, set, plus a generic
-argument the template only points at), in one file, with `DIAG-NOT` closing
-the count. Both halves matter: the edge set is the whole content of the
-pass, and the second half is what a naive "does it mention itself" check
-gets wrong.
+Test for 10: `Tests/Sema/Types/type_cycle_*.k`, one file per edge kind.
+Six cycles (`_direct` self, `_mutual`, `_array_tuple` fixed array + tuple,
+`_nullable` a `T?` of the record, `_base` bases, `_generic` a generic
+argument the template stores by value), each closed by a `DIAG-NOT`, and
+the non-cycles (`_indirection`: pointer, nullable pointer, vector, map,
+set; `_generic`: a generic argument the template only points at). Both
+halves matter: the edge set is the whole content of the pass, and the
+second half is what a naive "does it mention itself" check gets wrong.
 
 Test for 11: `Tests/Sema/Imports/emit_plan`. `main.k` imports `foo`, never `bar`;
 `foo::F` holds a `bar::B` by value and a `bar::Deep` behind a pointer.
