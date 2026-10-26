@@ -10,7 +10,7 @@ fn main() -> i32 {
     var a: [i32;] = [1, 2]
     var p = &a[0..1]                                                    // expect: error address-of-rvalue
     a[0..1] = a                                                         // expect: error assign-to-rvalue
-    var q = &a[0]                                                       // the place form, fine
+    var *q = &a[0]                                                       // the place form, fine
     return 0
 }
 // expect: no other diagnostics

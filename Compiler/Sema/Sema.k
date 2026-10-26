@@ -47,6 +47,7 @@ import Sema::Verify::ModulePinCheck::*;
 import Sema::Check::ConstraintExtraction::*;
 import Sema::Check::TypeCycleCheck::*;
 import Sema::Check::ShadowCheck::*;
+import Sema::Check::ShorthandLint::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
@@ -335,6 +336,12 @@ class Sema {
         // Runs late: it REQUIRES ExprTyper to be complete.
 
         { var _p = TimeRegion("ShadowCheck"); ShadowCheck(&self.sc).run(); }
+
+        // `var x = e` whose inferred type is nullable or a pointer, with no
+        // shorthand to say so (NULLABLE.md 1.8). REQUIRES ExprTyper: it
+        // reads only inferred slots. Before every lowering, so each decl it
+        // sees was written by the user.
+        { var _p = TimeRegion("ShorthandLint"); ShorthandLint(&self.sc).run(); }
 
         // Exhaustiveness and dead arms; writes MatchStmt / MatchExpr facts.
         // REQUIRES ExprTyper (pattern types, resolved heads, field slots).

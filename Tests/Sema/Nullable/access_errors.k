@@ -89,7 +89,7 @@ fn closures(a: i32?) -> i32 {
 
 fn addressed() -> i32 {
     var x: i32? = 3
-    var p = &x
+    var *p = &x
     if x? { *p = null; return x }
     return 0
 }

@@ -81,7 +81,7 @@ fn bad_escaped_later_call() -> i32 {
 
 fn bad_write_through() -> i32 {
     var x: i32? = 1
-    var p = &x
+    var *p = &x
     *p = null
     return x + 0
 }

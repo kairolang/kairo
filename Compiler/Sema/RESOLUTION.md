@@ -415,8 +415,9 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 
 In order: `ConstraintExtraction`, `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
-`PatternChecking`, `ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`,
-`InitCheck`, `CtorInitCheck`, `FeatureGateCheck`.
+`ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`, `ReturnPathCheck`,
+`ClassLifecycle`, `MoveCheck`, `InitCheck`, `CtorInitCheck`,
+`FeatureGateCheck`.
 
 `PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
 non-exhaustive match (statement form too), with a witness; SC121E for an

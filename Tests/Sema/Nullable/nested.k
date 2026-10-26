@@ -13,8 +13,8 @@ fn main() -> i32 {
     var outer: (i32?)? = null       // warned; the outer null
     var inner: i32? = 1
     var whole: (i32?)? = inner      // warned; i32? -> (i32?)? wraps it
-    var w = wrap(inner)             // (i32?)? by substitution, no warning
-    var c = wrap(5)                 // i32?, one level
+    var w? = wrap(inner)             // (i32?)? by substitution, no warning
+    var c? = wrap(5)                 // i32?, one level
     var bad: (i32?)? = 5            // warned; i32 -> (i32?)? is two wraps
     return 0
 }

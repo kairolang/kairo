@@ -25,7 +25,7 @@ fn mk() -> (Mv, i32) { return (Mv(7), 1) }
 fn index() -> i32 {
     var t = (1, 2, 3)
     t.0 = 10
-    var p = &t
+    var *p = &t
     return t.0 + t.1 + p->2                    // 15
 }
 

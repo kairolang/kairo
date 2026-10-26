@@ -52,30 +52,30 @@ fn ok_spec_no_call_of_it() -> i32 {
 
 fn bad_write_through() -> i32 {
     var x: i32? = 1
-    var p = &x
+    var *p = &x
     *p = null
     return x + 0
 }
 
 fn bad_write_through_copy() -> i32 {
     var x: i32? = 1
-    var p = &x
-    var q = p
+    var *p = &x
+    var *q = p
     *q = null
     return x + 0
 }
 
 fn ok_not_escaped() -> i32 {
     var x: i32? = 1
-    var p = &x
+    var *p = &x
     noop()
-    var a = *p
+    var a? = *p
     return x + 0
 }
 
 fn bad_escape_to_parameter() -> i32 {
     var x: i32? = 1
-    var p = &x
+    var *p = &x
     keep(p)
     if x? {
         var a = x + 0
@@ -87,7 +87,7 @@ fn bad_escape_to_parameter() -> i32 {
 
 fn bad_store_into_field() -> i32 {
     var x: i32? = 1
-    var p = &x
+    var *p = &x
     var h = Holder()
     h.p = p
     if x? {
@@ -173,7 +173,7 @@ fn bad_through_arrow(p: *S) -> i32 {
 }
 
 fn ok_local_copy(p: *S) -> i32 {
-    var c = p->cache
+    var c? = p->cache
     if c? { return c.value }
     return 0
 }

@@ -41,7 +41,7 @@ fn main() -> i32 {
     show("self", f.cache)
 
     var y: i32? = 4
-    var p = &y
+    var *p = &y
     *p = null
     show("pointer", y)
 

@@ -5,7 +5,7 @@ fn main() -> i32 {
     var f = __builtin_trap;                       // SC109E: builtin used as a value.
     var g = &__builtin_trap;                      // SC109E: no address either.
 
-    var p = __builtin_alloca(64);
+    var unsafe *p = __builtin_alloca(64);
     var align: i32 = 8; var wide: i64 = 8;
     __builtin_coro_promise(p, align, false);      // SC108E: argument 2 must be an integer constant.
     __builtin_coro_promise(p, -8, !true);         // constants under unary operators: accepted.

@@ -79,7 +79,7 @@ fn bad_maybe(n: i32) -> i32 {
 }
 
 fn ok_while_test(h: (*Node)?) -> i32 {
-    var node = h
+    var *node? = h
     var r = 0
     while node? {
         r += node->v
@@ -89,7 +89,7 @@ fn ok_while_test(h: (*Node)?) -> i32 {
 }
 
 fn bad_after_while(h: i32?) -> i32 {
-    var x = h
+    var x? = h
     while x? { x = find(x - 1) }
     return x + 0
 }

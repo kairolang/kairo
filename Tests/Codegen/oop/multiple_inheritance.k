@@ -32,9 +32,9 @@ fn main() -> i32 {
     if wr->write() == 100 { r += 2 }
     if wr->flush() == 3 { r += 4 }              // second base's own virtual
     unsafe {
-        var pr = rd as unsafe *void
-        var pw = wr as unsafe *void
-        var pf = (&f) as unsafe *void
+        var unsafe *pr = rd as unsafe *void
+        var unsafe *pw = wr as unsafe *void
+        var unsafe *pf = (&f) as unsafe *void
         if pr == pf { r += 8 }                  // first base at offset 0
         if pw != pf { r += 16 }                 // second base is not
     }

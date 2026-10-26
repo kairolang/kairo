@@ -64,7 +64,7 @@ fn glob() -> i32 {
 }
 
 fn main() -> i32 {
-    var a = find(5)
+    var a? = find(5)
     if a? {
         var r = 0
         r += a
@@ -103,12 +103,12 @@ fn main() -> i32 {
     println(f"global: {glob()}")
 
     var sum = 0
-    var it = find(3)
+    var it? = find(3)
     while it? {
         sum += it
         it = find(it - 1)
     }
-    var z = find(0)
+    var z? = find(0)
     var v1 = if a? => a else => 0
     var v2 = if z? => z else => 100
     println(f"flow: {sum} {v1} {v2} {first(a, 0)} {first(z, 50)}")

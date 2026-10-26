@@ -21,13 +21,13 @@ fn show(tag: string, x: i32?) {
 
 fn main() -> i32 {
     var x: i32? = 1
-    var p = &x
+    var *p = &x
     *p = null
     show("through", x)
 
     var y: i32? = 2
-    var p2 = &y
-    var q = p2
+    var *p2 = &y
+    var *q = p2
     *q = null
     show("copy", y)
 
@@ -38,7 +38,7 @@ fn main() -> i32 {
     show("escaped", z)
 
     var w: i32? = 4
-    var pw = &w
+    var *pw = &w
     noop()
     println(f"kept: {w + 0}")
     return 0

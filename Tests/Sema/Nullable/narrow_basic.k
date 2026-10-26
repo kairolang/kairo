@@ -54,9 +54,9 @@ fn table(n0: i32) -> i32 {
     var u3 = y + 0
     var z: i32? = x
     var u4 = z + 0
-    var c = find(n)
+    var c? = find(n)
     if c? { var u5 = c + 0 }
-    var keep = x
+    var keep? = x
     return pick(x)
 }
 
@@ -73,14 +73,14 @@ fn spellings(a: i32?) -> i32 {
 fn exits(b: i32?, c0: i32?, d: i32?) -> i32 {
     if !b? { return 0 }
     var u11 = b + 0
-    var c = c0
+    var c? = c0
     loop {
         if c? { break }
         c = find(1)
     }
     var u12 = c + 0
     for k in 0..3 {
-        var e = find(k)
+        var e? = find(k)
         if !e? { continue }
         var u13 = e + 0
     }
@@ -97,7 +97,7 @@ fn logic(a: i32?, b: i32?) -> i32 {
     var u17 = a + b
     var t = a? && a > 4
     var v1 = if a? => a else => 0
-    var w = find(3)
+    var w? = find(3)
     while w? {
         var u18 = w + 0
         w = find(u18 - 1)
