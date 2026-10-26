@@ -750,6 +750,10 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     /// `unsafe`/first `*` through the last `*`: what a depth or safety
     /// fix-it rewrites. Kept on the node because that fix-it is Sema's.
     pub var pointer_range: SourceRange = SourceRange::invalid();
+    /// The storage keyword as written (`const` of `const N = 3`), for a
+    /// fix-it that rewrites it (`const` -> `eval` where a value must be
+    /// eval-able, EVAL.md 3). Invalid when the parser did not record it.
+    pub var storage_kw: SourceRange = SourceRange::invalid();
 
     static fn create(
         ctx:     *ASTContext,

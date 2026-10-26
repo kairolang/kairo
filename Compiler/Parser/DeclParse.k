@@ -2374,6 +2374,7 @@ class <T> DeclParse {
         dyn()->advance();
 
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
+        vd->storage_kw = start;   // the first binding keyword: a Sema fix-it rewrites it.
         vd->is_thread      = head.is_thread;
         vd->const_binding  = head.const_binding;
         vd->pointer_depth  = p_depth;

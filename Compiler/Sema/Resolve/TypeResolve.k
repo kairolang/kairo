@@ -60,6 +60,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::ResolutionState::*;
 import Sema::Resolve::GenericArgs::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -401,12 +402,16 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         n->canonical = t;
     }
 
-    /// `[T; N]` has an identity only once N is a known constant. The parser
-    /// accepts any expression there, but the evaluator does not exist yet, so
-    /// the one case T can settle is a literal. Anything else is marked
-    /// instantiation-dependent and left -- NOT an error: `[u8; SIZE]` with a
-    /// `const SIZE` is legal, just not decidable here. `[T;]` (incomplete, C
-    /// interop) never has an extent and canonicalizes as extent 0 with the
+    /// `[T; N]` has an identity only once N is a known constant. A literal,
+    /// or anything ConstEval folds: an `eval` name, arithmetic over those
+    /// (EVAL.md 0.1: an extent is type identity, so Sema computes it). A
+    /// length that names a generic value parameter is instantiation-
+    /// dependent and left. Anything else is an error here: a `const` name
+    /// (not eval-able, EVAL.md 3; fix-it to `eval`), a call (an `eval fn`
+    /// result is C++'s to compute, and an extent Sema cannot fold has no
+    /// canonical yet: SC116E, EVAL.md 0.2), or a run-time value. A foreign
+    /// header's array is left as it was. `[T;]` (incomplete, C interop)
+    /// never has an extent and canonicalizes as extent 0 with the
     /// is_incomplete flag preserved on the SYNTAX node.
     priv fn _resolve_array(self, n: *FixedArrayType) {
         if !self._component_ok(n, n->element) { return; }
@@ -437,11 +442,88 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             }
         }
 
+        if (!known) && (n->size_expr != &null) && (self.sc->tu != &null) && (!self.sc->tu->is_foreign) {
+            var ce = ConstEval(self.sc);
+            var c  = ce.eval_int(n->size_expr);
+            if c.ok && (!c.overflow) && (!c.neg) && (ce.const_decl == &null) {
+                n->canonical = self.sc->types->array(elem, c.mag);
+                return;
+            }
+            if !self._extent_dependent(&ce) {
+                self._bad_extent(n, &ce, c);
+                n->poison();
+                return;
+            }
+        }
+
         if !known {
             self._mark_inst_dependent(n);
             return;
         }
         n->canonical = self.sc->types->array(elem, extent);
+    }
+
+    /// The evaluation stopped at a generic VALUE parameter (`[i32; N]` in
+    /// `class <eval N: usize>`): known per instance, not here.
+    priv fn _extent_dependent(self, ce: *ConstEval) -> bool {
+        if ce->bad == &null { return false; }
+        var e = ce->bad;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if (e == &null) || (!isa::<NamedIdentExpr>(e)) { return false; }
+        var d = cast::<NamedIdentExpr>(e)->resolved_decl;
+        return (d != &null) && isa::<GenericParamDecl>(d);
+    }
+
+    /// Why `[T; e]` has no extent, at the part of `e` that is at fault.
+    priv fn _bad_extent(self, n: *FixedArrayType, ce: *ConstEval, c: IntConst) {
+        if ce->quiet { return; }
+        if c.ok && (ce->const_decl != &null) {
+            var vd  = ce->const_decl;
+            var nm  = self.sc->ctx->get_spelling(vd->name);
+            var at  = (ce->const_at->range) if (ce->const_at != &null) else (n->size_expr->range);
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"an array length must be an 'eval' constant; '{nm}' is 'const', which is not evaluated at compile time");
+            b.first(at);
+            b.note(DiagID::SC001N, vd->name.range.start, f"'{nm}' is declared 'const' here").first(vd->name.range);
+            var kw = vd->storage_kw;
+            if kw.is_valid() && (vd->storage == StorageClass::Const) && (!vd->const_binding) && (!self._foreign(static_cast::<*Decl>(vd))) {
+                b.fix(kw, "eval", f"declare '{nm}' as 'eval\x27");
+            }
+            b.emit();
+            return;
+        }
+        if c.ok {
+            var why = ("a value wider than 64 bits") if (c.overflow) else (f"{ce->str(c)}, which is negative");
+            self.sc->diag->report(DiagID::SC001E, n->size_expr->range.start,
+                f"an array length must be a non-negative constant that fits 64 bits; this one is {why}"
+            ).first(n->size_expr->range).emit();
+            return;
+        }
+        var bad = (ce->bad) if (ce->bad != &null) else (n->size_expr);
+        var bvd = (dyn_cast::<VariableDecl>(ce->bad_decl)) if (ce->bad_decl != &null) else (&null);
+        if (bvd != &null) && (!bvd->is_const()) && (!bvd->is_eval()) {
+            var vn = self.sc->ctx->get_spelling(bvd->name);
+            var vb = self.sc->diag->report(DiagID::SC001E, bad->range.start,
+                f"an array length must be an 'eval' constant; '{vn}' is a variable");
+            vb.first(bad->range);
+            vb.note(DiagID::SC001N, bvd->name.range.start, f"'{vn}' is declared here").first(bvd->name.range);
+            vb.emit();
+            return;
+        }
+        if isa::<CallExpr>(bad) {
+            self.sc->diag->report(DiagID::SC116E, bad->range.start,
+                "an array length computed by a call is not yet supported"
+            ).first(bad->range).emit();
+            return;
+        }
+        var b = self.sc->diag->report(DiagID::SC001E, bad->range.start,
+            f"an array length must be a compile-time constant: {ce->bad_why}");
+        b.first(bad->range);
+        if ce->bad_decl != &null {
+            var dn = ce->tu.decl_name(ce->bad_decl);
+            b.note(DiagID::SC001N, ce->bad_decl->range.start, f"'{dn}' is declared here").first(ce->bad_decl->range);
+        }
+        b.emit();
     }
 
     /// An unprototyped `fn()` from a C header canonicalizes as a zero-param

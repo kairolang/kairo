@@ -75,6 +75,12 @@ class ConstEval {
     /// poisoned, or an earlier variant whose own value failed. The caller
     /// reports nothing, so one mistake is one error.
     pub var quiet:    bool  = false;
+    /// The first `const` (not `eval`) variable the last evaluation read, and
+    /// the name that read it. A pattern bound or a discriminant may read
+    /// one; an array length or a generic value argument must be eval-able
+    /// (EVAL.md 3), and reports it with a fix-it to `eval`.
+    pub var const_decl: *VariableDecl = &null;
+    pub var const_at:   *Expr         = &null;
 
     /// The enum whose discriminant is being evaluated, and the defining
     /// variant's position in it; null outside a discriminant.
@@ -113,6 +119,8 @@ class ConstEval {
         self.bad_why  = "";
         self.bad_decl = &null;
         self.quiet    = false;
+        self.const_decl = &null;
+        self.const_at   = &null;
     }
 
     // === values =============================================================
@@ -350,13 +358,48 @@ class ConstEval {
         if isa::<ChainExpr>(e) {
             var ch = cast::<ChainExpr>(e);
             if ch->steps.size() == 0 { return self._fail(e, "this does not evaluate at compile time"); }
-            return self._ref(e, ch->steps.get(ch->steps.size() - 1)->resolved_decl, depth);
+            var last = ch->steps.get(ch->steps.size() - 1)->resolved_decl;
+            if last == &null { last = self._scope_path(ch); }
+            return self._ref(e, last, depth);
         }
 
         if isa::<CallExpr>(e) {
             return self._fail(e, "a call is not evaluated at compile time");
         }
         return self._fail(e, "this does not evaluate at compile time");
+    }
+
+    /// `m::K` / `C::K` before ChainBinding has bound it: TypeResolve
+    /// evaluates an array length (`[i32; m::K]`) in phase T, where only the
+    /// head of a chain is resolved. A path of `::` steps through modules and
+    /// types is looked up here as ChainBinding would, through the frozen
+    /// tables; a single unambiguous hit or nothing.
+    priv fn _scope_path(self, ch: *ChainExpr) -> *Decl {
+        if (ch->base == &null) || (!isa::<NamedIdentExpr>(ch->base)) { return &null; }
+        var d = cast::<NamedIdentExpr>(ch->base)->resolved_decl;
+        for var i: usize = 0; i < ch->steps.size(); ++i {
+            var st = ch->steps.get(i);
+            if (d == &null) || (st->access_kind != ChainExpr::AccessKind::ColonColon) || (st->name == &null) { return &null; }
+            var imm = self.sc->ctx->get_ident_imm(st->name->name);
+            if imm == u32(-1) { return &null; }
+            var name    = DeclName::ident(imm);
+            var spelled = self.sc->ctx->get_spelling(st->name->name);
+            var scopes  = vec::<*DeclContext>();
+            if isa::<ModuleDecl>(d) { NameLookup::module_scopes(d, scopes); }
+            else {
+                var dc = NameLookup::context_of(d);
+                if dc != &null { scopes.push_back(dc); }
+            }
+            var hit: *Decl = &null;
+            for var k: usize = 0; k < scopes.size(); ++k {
+                var r = self.sc->lookup.in_context(scopes[k], name, spelled);
+                if !r.found() { continue; }
+                if (hit != &null) || (r.cell->size() != 1) { return &null; }
+                hit = r.cell->get(0);
+            }
+            d = hit;
+        }
+        return d;
     }
 
     priv fn _binary(self, b: *BinaryOperatorExpr, depth: u32) -> IntConst {
@@ -431,6 +474,10 @@ class ConstEval {
             var nm = self.tu.decl_name(d);
             if (!vd->is_const()) && (!vd->is_eval()) {
                 return self._fail(at, f"'{nm}' is a variable; only a 'const' or 'eval' name is a constant", d);
+            }
+            if (!vd->is_eval()) && (self.const_decl == &null) {
+                self.const_decl = vd;
+                self.const_at   = at;
             }
             if (vd->init == &null) || (depth > 8) {
                 return self._fail(at, f"'{nm}' has no initializer that evaluates", d);
