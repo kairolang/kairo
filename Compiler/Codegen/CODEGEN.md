@@ -168,9 +168,9 @@ emitters use the same instance; a declaration and a body cannot disagree.
   fixity (`op_is_postfix`), not name. Operators C++ cannot spell come from
   `LowerTargets` (`__kairo_contains`/`__kairo_iter` for the two `op in`,
   `__kairo_pow`, `__kairo_dotstar`, `__kairo_await`). `===` is not an
-  operator a type declares: it is the nullable test, owned by the nullable
-  trio, and has no spelling here. An EXTENSION operator is a non-member
-  C++ operator taking `X&` / `const X&` (a class-typed parameter is what
+  operator a type declares: CoalesceLowering expands it (NULLABLE.md 2.3)
+  before codegen, and it has no spelling here. An EXTENSION operator is a
+  non-member C++ operator taking `X&` / `const X&` (a class-typed parameter is what
   [over.oper]/7 asks for), spelled exactly as a member's is; its body
   binds `self` to the address of that reference
   (`X* self = &__kairo_self;`), so the body emits unchanged. Every Kairo
@@ -514,9 +514,14 @@ The no-headroom rules, each with one home:
   plain enum is a RecordType too, but `==`, `<` and `as` on an `enum class`
   are C++'s own; an ADT's `==` arrives that way, as a compare of the two
   `__kairo_tag` fields (OperatorLowering, from X's `tag_eq`), never as a
-  call to an `operator==`. `===` in `_binary` is an ICE naming the nullable
-  lowering; `x as T&&` (a lowering's move, never user-written) is a
-  `static_cast`.
+  call to an `operator==`. `===` in `_binary` is an ICE naming
+  CoalesceLowering; `x as T&&` (a lowering's move, never user-written) is a
+  `static_cast`. The checked downcast `p as (*D)?` (CastTyping's
+  `checked_downcast`) is `dynamic_cast<D*>(p)` inside a lambda called on the
+  spot, `[](D* __kairo_dc) -> N { return __kairo_dc ? N(__kairo_dc) : N();
+  }(...)` with N the `Nullable<D*>`: with tagged storage a null pointer must
+  become the null nullable, not a present one (`_checked_downcast`). The
+  asserting downcast `p as *D` is still a plain `static_cast` (PanicLowering).
 - `_var_decl`: an inferred type is the shared canonical (no range) and is
   spelled at the binding's name; a null type is `I011W` + `auto` — the
   only diagnostic codegen emits.
@@ -525,11 +530,15 @@ ICE map (node → owner): match/MatchExpr → MatchLowering; try/finally/
 panic/assert → PanicLowering; ranged for → IterLowering, only for the
 kinds RESOLUTION.md §2.10 lists as not yet lowered and for a dependent
 iterable; ranges → RangeLowering;
-`?.`/`??`/`T?` → the nullable trio; f-strings → FStringLowering; yield →
+`??`/`?.`/`?->`/`unwrap!`/`===` → CoalesceLowering (a `match` on a `T?`
+is rewritten there too, then reaches MatchLowering as an ordinary match);
+a `T?` with no `lowered` record → NullableTypeLowering (CXXSpell). A null
+test left for NullTestLowering or a read left for NarrowedAccessLowering
+has no ICE of its own: those two passes are the only guard; f-strings → FStringLowering; yield →
 YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
 → async lowering; `ListLiteralExpr` / set / map literals →
 ListLiteralLowering (set and map have no lowering yet); labeled
-break/continue → label lowering; typeof/impl/derives tests →
+break/continue → LabelLowering; typeof/impl/derives tests →
 TypeQueryLowering; NamedArgExpr → CallLowering; a call short of
 arguments → CallLowering; a ChainExpr callee ending in an extension
 member → ExtensionLowering; a `TypeCastExpr` with a

@@ -413,20 +413,23 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 
 ### 2.8 C checks [PARTIAL]
 
-In order: `ConstraintExtraction`, `TypeCycleCheck`,
-`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
-`ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`, `ReturnPathCheck`,
-`ClassLifecycle`, `MoveCheck`, `InitCheck`, `CtorInitCheck`,
-`FeatureGateCheck`.
+In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
+`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
+`ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
+`ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`, `InitCheck`,
+`CtorInitCheck`, `ConformanceChecking`, `FeatureGateCheck`, `FlagGates`,
+`PatternCompilation`. (`ConstraintExtraction` runs in T, before
+ChainBinding, §2.6.)
 
 `PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
 non-exhaustive match (statement form too), with a witness; SC121E for an
 arm that can never match, SC122E for such an alternative. It writes
 `is_exhaustive` / `covering_arm` / `open_tail` on every `MatchStmt` /
-`MatchExpr`. Integer columns are cut into segments, so ranges can complete
+`MatchExpr`. A match on a `T?` that answers null first (X's `null_arm`,
+NULLABLE.md 3.6) is checked over its other arms with the column `T`. Integer columns are cut into segments, so ranges can complete
 a type; flags enums and imported C++ enums are open and need `default`.
-`ConformanceChecking`, `ConstChecking`, `AccessCheck`,
-`ExtensionOrphanCheck` are stubs / missing.
+`ConstChecking`, `AccessCheck`, `ExtensionOrphanCheck` are stubs /
+missing.
 
 `MoveCheck` [PARTIAL] decides every move and checks use-after-move
 (SC052E). A `@move` argument moves; so does a MOVE value transferred: by
@@ -466,7 +469,8 @@ CtorInitLowering and the emitters (CODEGEN.md §6). ClassLifecycle makes
 a record with a const field unassignable member by member (SC071E), as
 C++ does; a transfer constructor with a body still rebuilds it.
 
-`FeatureGateCheck` [DONE] runs last and reports well-typed constructs that
+`FeatureGateCheck` [DONE] runs after the other checks (only FlagGates and
+PatternCompilation follow it) and reports well-typed constructs that
 have no lowering yet, one SC116E each ("<construct> is not yet supported").
 Lowerings carry no diagnostics, and they run under `--type-check-only`, so
 an unfinished feature is said HERE; the error stops the schedule before L
@@ -816,7 +820,9 @@ set as a value is an error at the use.
 is an error; shifts unify the right operand alone; compound assignment
 converts the right operand only). Comparison -> bool; `<=>` -> `Ordering`;
 `??` on `T?` joins the inner with the right; `===` needs a nullable
-operand (it is the null test, not an overloadable operator). `^^` on
+operand and is not overloadable, but the `==` its expansion runs on the
+unwrapped values (NULLABLE.md 2.3) is resolved here like any `==` and
+recorded on the `===` node for CoalesceLowering to carry over. `^^` on
 primitives calls the `pow` lang item and needs an integer exponent.
 Non-primitives search the LEFT operand's members and extensions
 under `op_name`, plus free operator functions found by ADL in the modules of
@@ -938,19 +944,56 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> NullTestLowering -> NarrowedAccessLowering -> NullableTypeLowering -> OperatorLowering -> FStringLowering
--> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
-SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
-`Sema.k` runs today), then
-CoalesceLowering (before NullTestLowering, NULLABLE.md §5) ->
-MatchLowering/PatternCompilation -> PanicLowering -> YieldLowering ->
-TypeQueryLowering -> label lowering ->
-CopyMoveLowering (copies) -> DestructorInsertion. Sugar first, control flow second,
-lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
+§6). The order is fixed, and owned by `Sema.k::_stage_lowerings`; this is
+exactly what it runs today, in order:
+
+    VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar ->
+    FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) ->
+    FinallyLowering -> TupleLowering ->
+    CoalesceLowering -> NullTestLowering -> NarrowedAccessLowering ->
+    NullableTypeLowering ->
+    OperatorLowering -> FStringLowering -> CallLowering -> IterLowering ->
+    RangeLowering -> MatchLowering -> LabelLowering -> ExtensionLowering ->
+    SequenceLowering -> ListLiteralLowering -> StringLowering
+
+PatternCompilation, which builds the decision tree MatchLowering renders,
+is not a lowering: it runs last in the checks (§2.8). Still to come, each a
+stub file or a `TODO(sema)` in `Sema.k`: UsingDeclSynthesis,
+PanicLowering, YieldLowering, TypeQueryLowering, WhereDispatchLowering,
+CopyMoveLowering (copies), DestructorInsertion. Sugar first, control flow
+second, lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
 codegen is an ICE naming the pass. NullableTypeLowering is the exception
 on types: it rewrites no type in the tree, it fills each canonical `T?`'s
 `lowered` slot with its `::builtin::Nullable<T>` record (NULLABLE.md 1.1),
 and only a `T?` with no record is the ICE.
+
+The nullable block (NULLABLE.md §5), four passes in this order, after
+TupleLowering and before OperatorLowering. Every one but the last still
+sees `NullableType` on every expression it reads:
+
+- CoalesceLowering [DONE]: `x ?? y`, `x?.m` / `x?.f(args)` / `?->`,
+  `unwrap!(x)`, `a === b`, and a `match` on a `T?` (whose `case null` is
+  answered before the match) become the if-expressions / statements of
+  NULLABLE.md 2.3-2.6 and 3.6: typed `x?` tests and reads marked narrowed,
+  for the two passes after it. A non-place operand is bound once
+  (`__kairo_coalK` / `__kairo_safeK` / `__kairo_unwrapK`). `===`'s `==`
+  carries the operator typing recorded on the `===`, for OperatorLowering.
+- NullTestLowering [DONE]: every null test (`x?`, `!x?`, `x == null` and
+  the other spellings, via `null_test_of`) becomes `x.is_null()` /
+  `!x.is_null()`; a compared `null` literal is dropped with it.
+- NarrowedAccessLowering [DONE]: every read the nullness analysis (or a
+  CoalesceLowering expansion) marked narrowed becomes `x.__value()`, the
+  unchecked accessor, an lvalue.
+- NullableTypeLowering [DONE]: fills each canonical `T?`'s `lowered` slot
+  with its `::builtin::Nullable<T>` record (below); `null` becomes that
+  record's null.
+
+MatchLowering [PARTIAL]: every match becomes labels, gotos and switches
+over a once-evaluated scrutinee, rendering PatternCompilation's tree (a
+match left on the value of a `T?` by CoalesceLowering is an ordinary one
+by then). A match that tests a dependent column in a generic body gets no
+tree and reaches EmitIR (ticketed).
+LabelLowering [DONE]: `break L` / `continue L` become gotos.
 
 EnumLayoutLowering [DONE]. Every ADT pattern gets one StructDecl,
 `EnumDecl::adt_layout`: a tag enum (`__kairo_Tag`, the variants by name and
