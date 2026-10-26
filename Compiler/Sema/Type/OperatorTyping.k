@@ -985,6 +985,9 @@ class <T> OperatorTyping {
                     dyn()->fail(n, DiagID::SC069E, "cannot take the address of a temporary");
                     return &null;
                 }
+                // The pointer may write the place behind the analysis's back
+                // until a consumer accounts for it (NULLABLE.md 3.4, 3.7).
+                dyn()->flow.address_taken(n, place);
                 return dyn()->sc->types->pointer(place, false);
             }
             case TokenKind::OpStar {

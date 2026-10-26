@@ -13,8 +13,8 @@
 // `bool?` condition); Null after `= null`, after `var x: T?`, and on the
 // failing side of a test; Maybe after a join; a global after a call; a
 // place the loop assigns, at the loop's head; a closure capturing a
-// nullable (Maybe inside, whatever was checked outside); an address-taken
-// local (never narrowed); a field path. The 4.1 precedence trap gets the
+// nullable (Maybe inside, whatever was checked outside); a local written
+// through a pointer to it (G12); a field path. The 4.1 precedence trap gets the
 // parenthesizing fix-it, and none when another place in it is unproven.
 // A nullable that is no place (`mk().v`) keeps R025E.
 
@@ -90,7 +90,7 @@ fn closures(a: i32?) -> i32 {
 fn addressed() -> i32 {
     var x: i32? = 3
     var p = &x
-    if x? { return x }
+    if x? { *p = null; return x }
     return 0
 }
 
@@ -166,13 +166,13 @@ fn main() -> i32 { return 0 }
 // DIAG-NEXT: access_errors.k:68:13: note [{{.*}}]: 'g' is global: this call may change it, which ends the check before it
 // DIAG-NOT: {{error|warning}}
 // DIAG: access_errors.k:76:14: error [SC001E]: 'x' may be null here; check it with 'if x?' first
-// DIAG-NEXT: access_errors.k:77:9: note [{{.*}}]: 'x' is assigned in the loop here, so it may be null at the top of the loop
+// DIAG-NEXT: access_errors.k:77:9: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}
 // DIAG: access_errors.k:84:39: error [SC001E]: 'a' may be null here; check it with 'if a?' first
 // DIAG-NEXT: access_errors.k:82:13: note [{{.*}}]: 'a' is captured by the closure; inside it, no check from outside holds, since the closure may run anywhere
 // DIAG-NOT: {{error|warning}}
-// DIAG: access_errors.k:93:20: error [SC001E]: 'x' may be null here; check it with 'if x?' first
-// DIAG-NEXT: note [{{.*}}]: 'x' has its address taken in this file, so no check narrows it
+// DIAG: access_errors.k:93:31: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG-NEXT: access_errors.k:92:13: note [{{.*}}]: a pointer to 'x' is taken here; any call after it, or a write through it, may change 'x'
 // DIAG-NOT: {{error|warning}}
 // DIAG: access_errors.k:98:12: error [SC001E]: 'o.cache' may be null here; check it with 'if o.cache?' first
 // DIAG-NEXT: access_errors.k:22:16: note [{{.*}}]: 'cache' is declared nullable here

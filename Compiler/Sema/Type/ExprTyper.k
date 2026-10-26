@@ -435,18 +435,35 @@ class ExprTyper
             case ExprKind::SubscriptExpr        { return self.type_subscript(cast::<SubscriptExpr>(e), expected); }
             case ExprKind::NamedIdentExpr       { return self._type_ident(cast::<NamedIdentExpr>(e), expected); }
             case ExprKind::UnaryOperatorExpr {
-                var ut = self.type_unary(cast::<UnaryOperatorExpr>(e), expected);
-                if cast::<UnaryOperatorExpr>(e)->resolved_op != &null { self.flow.after_call(e->range); }   // a user operator is a call.
+                var un = cast::<UnaryOperatorExpr>(e);
+                var ut = self.type_unary(un, expected);
+                var uk = un->op_token.kind;
+                if (uk == TokenKind::OpPlusPlus) || (uk == TokenKind::OpMinusMinus) { self.flow.modified(un->operand); }
+                if un->resolved_op != &null {   // a user operator is a call.
+                    self.flow.operator_call(un->resolved_op, un->operand, e->range);
+                    self.flow.after_call(e->range);
+                }
                 return ut;
             }
             case ExprKind::BinaryOperatorExpr {
-                var bt = self.type_binary(cast::<BinaryOperatorExpr>(e), expected);
-                if cast::<BinaryOperatorExpr>(e)->resolved_op != &null { self.flow.after_call(e->range); }
+                var bn = cast::<BinaryOperatorExpr>(e);
+                var bt = self.type_binary(bn, expected);
+                if bn->resolved_op != &null {
+                    self.flow.operator_call(bn->resolved_op, bn->lhs, e->range);
+                    self.flow.after_call(e->range);
+                }
                 return bt;
             }
             case ExprKind::AssignOperatorExpr {
-                var at = self.type_assign(cast::<AssignOperatorExpr>(e), expected);
-                if cast::<AssignOperatorExpr>(e)->resolved_op != &null { self.flow.after_call(e->range); }
+                var an = cast::<AssignOperatorExpr>(e);
+                var at = self.type_assign(an, expected);
+                // `=` reports itself (NullnessFlow::assign); a compound one
+                // writes its left side in place.
+                if an->op_token.kind != TokenKind::OpEqual { self.flow.modified(an->lhs); }
+                if an->resolved_op != &null {
+                    self.flow.operator_call(an->resolved_op, an->lhs, e->range);
+                    self.flow.after_call(e->range);
+                }
                 return at;
             }
             case ExprKind::ImplConformanceExpr  { return self.type_constraint(e, expected); }

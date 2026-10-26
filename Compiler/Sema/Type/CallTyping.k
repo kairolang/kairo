@@ -197,6 +197,9 @@ class <T> CallTyping {
         u->is_mode_marker = true;
         u->type_          = _op->type_;
         u->value_category = Expr::ValueCategory::LValue;
+        // The callee may write the operand; the marker was no pointer
+        // (NULLABLE.md 3.4).
+        dyn()->flow.inout_arg(_op, a->expr);
         if _op->is_poisoned() { u->poison(); return; }
         if (pt == &null) || pt->is_dependent() { return; }
         if _op->type_ == &null { return; }
@@ -271,6 +274,9 @@ class <T> CallTyping {
                 self._commit_marker(a, (canon_unqual(pt)) if (pt != &null) else (&null));
                 continue;
             }
+            // Unmarked (tolerated, warned): written all the same.
+            if (p->mode == ParamMode::Inout) && (!a->marked) { dyn()->flow.inout_arg(a->expr, &null); }
+            else { dyn()->flow.pass_pointer(a->expr, pt); }
             if a->lit != LitKind::None {
                 dyn()->type_of(a->expr, pt);
                 continue;
@@ -586,6 +592,12 @@ class <T> CallTyping {
         }
 
         self.finish_call_args(r.decl, &args, &r);
+        // A method taking a mutable `self` may write any field of its
+        // receiver (NULLABLE.md 3.4); a `const self` one cannot.
+        if (step != &null) && r.receiver_bound && r.decl->is_method() && (!r.decl->is_const()) && (!r.decl->params[0]->is_const) {
+            var ce = dyn_cast::<ChainExpr>(dyn()->tu.strip_parens(n->callee));
+            if ce != &null { dyn()->flow.mutable_self_call(ce, n->range); }
+        }
         if !self._check_constant_args(r.decl, &args, &r) { dyn()->poison_only(n); return &null; }
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
@@ -951,6 +963,7 @@ class <T> CallTyping {
                     u->value_category = Expr::ValueCategory::LValue;
                     dyn()->finish(a, _op->type_);
                 }
+                dyn()->flow.inout_arg(target, (a) if (_op != &null) else (&null));   // NULLABLE.md 3.4.
                 continue;
             }
 
@@ -960,6 +973,7 @@ class <T> CallTyping {
             dyn()->type_of(a, pt);
             if a->is_poisoned() { bad = true; continue; }
             if !dyn()->check_convertible(a, pt) { bad = true; }
+            dyn()->flow.pass_pointer(a, pt);
         }
         if bad { dyn()->poison_only(n); return &null; }
         if fp->return_type == &null { dyn()->mark_unknown(n); return &null; }

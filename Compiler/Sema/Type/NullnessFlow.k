@@ -39,7 +39,10 @@
 ///                              join ignores: that is the early exit)
 ///       loop_enter/leave,      loops (see below), and `break`'s state
 ///         on_break
-///       after_call             any call: globals and statics are Maybe again
+///       after_call             any call: globals, statics and escaped
+///                              places are Maybe again
+///       weaken, inout_arg,     a write the analysis cannot see the value
+///         mutable_self_call    of (3.4)
 ///       note_read / read_value a use names a nullable place / the consumer
 ///                              needs its VALUE (§4)
 ///
@@ -61,15 +64,25 @@
 ///     assignment (`f(x, x = null)`) still reads the state x had where it
 ///     was written, and the memo (one type per node) is never contradicted.
 ///
-///     Deliberately conservative (batch-B scope; NULLABLE.md G12 / G13 /
-///     G17 refine it, through weaken() / weaken_all_addressable()):
-///       - a place whose root has its address taken anywhere in the TU
-///         (`&x`, the `@inout` marker, a `|*x|` capture) is never narrowed;
+///     WEAKENING (3.4): a write the analysis cannot see the value of makes
+///     a place Maybe, noted with what did it: an `@inout` argument
+///     (inout_arg), a call taking the place's owner as a mutable `self`
+///     (mutable_self_call / operator_call: every path under the receiver,
+///     not the receiver itself), and a pointer. A `&x` is followed from
+///     where it is typed (address_taken): until a consumer accounts for it
+///     (the `@inout` marker; a `*const` parameter) it may be anywhere, so
+///     every later call (after_call) and every write the analysis cannot
+///     place (`*p = v`, `p->f = v`: write_through) weakens `x`. A `const`
+///     pointer, a `const self` call and a by-value pass weaken nothing; a
+///     move is MoveCheck's (its moved-from rule reports the later use).
+///
+///     Deliberately conservative (batch-B scope; NULLABLE.md G13 / G17
+///     refine it):
+///       - a place whose root a closure captures by pointer (`|*x|`) is
+///         never narrowed;
 ///       - a loop's head makes every place the loop assigns (and every
 ///         global) Maybe; `while x?` still narrows `x` at the top of its
 ///         body, since the condition is typed at the head;
-///       - a call does not weaken locals (3.4 is G12); it does weaken
-///         globals (3.8);
 ///       - a closure body starts with nothing known: what it captures is
 ///         Maybe inside it.
 ///
@@ -206,6 +219,19 @@ enum NullWhy derives u8 {
     Called,       ///< a global, after the call at `at`.
     Looped,       ///< assigned at `at` inside the loop whose head this is.
     AddressTaken, ///< its root's address is taken somewhere: never narrowed.
+    Inout,        ///< passed `@inout` at `at`: the callee may have written it.
+    MutSelf,      ///< a path under the receiver of the mutable-self call at `at`.
+    Escaped,      ///< a pointer to it, taken at `at`, is out of the analysis's sight.
+}
+
+/// A pointer to \p place, taken by the `&` at \p node (at \p at), that no
+/// consumer has accounted for yet: until one does (an `@inout` marker, a
+/// `*const` parameter), any call may write through it, and so may any
+/// write the analysis cannot place (`*p = ...`).
+struct NullEscape {
+    var node:  *Expr = &null;
+    var place: vec::<*Decl>;
+    var at:    SourceRange;
 }
 
 /// One fact: \p place holds \p state here.
@@ -261,6 +287,7 @@ struct NullFrame {
     var closure:    *ClosureExpr = &null;   ///< the body is this closure's.
     var loops_base: usize = 0;
     var traps_base: usize = 0;
+    var escapes:    vec::<NullEscape>;      ///< the enclosing body's, kept for leave().
 }
 
 struct NullLoop {
@@ -315,6 +342,21 @@ fn null_env_kill_under(env: *NullEnv, place: *vec::<*Decl>) {
         if !null_place_under(&(env->facts[i].place), place) { keep.push_back(env->facts[i]); }
     }
     env->facts = keep;
+}
+
+/// The facts of \p place and every path under it (only the paths strictly
+/// under it when \p strict) become Maybe, noted \p why at \p at: what a
+/// write the analysis cannot see the value of does (3.4). The facts are
+/// kept, Maybe, so the access error can say what ended the check.
+fn null_env_weaken_under(env: *NullEnv, place: *vec::<*Decl>, strict: bool, why: NullWhy, at: SourceRange) {
+    for var i: usize = 0; i < env->facts.size(); ++i {
+        var f = &(env->facts[i]);
+        if !null_place_under(&(f->place), place) { continue; }
+        if strict && (f->place.size() == place->size()) { continue; }
+        f->state = Nullness::Maybe;
+        f->why   = why;
+        f->at    = at;
+    }
 }
 
 /// The env at a merge of \p a and \p b. A dead side contributes nothing. A
@@ -441,18 +483,11 @@ fn null_flow_type_is_nullable(t: *Type) -> bool {
     return (c != &null) && isa::<NullableType>(c);
 }
 
-/// Every root decl whose address is taken: `&x` (the `@inout` marker
-/// included) and a by-pointer closure capture. Such a place is never
-/// narrowed (batch B's conservative stand-in for 3.7).
+/// Every root decl a closure captures by pointer: such a place is never
+/// narrowed (batch B's conservative stand-in for 3.7). A `&x` is not here:
+/// it is followed where it is typed (NullnessFlow::address_taken).
 class NullAddrScan derives RecursiveASTVisitor::<NullAddrScan> {
     pub var out: *llvm::DenseSet::<u64> = &null;
-
-    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
-        if (n == &null) || (!n->is_prefix()) || (n->op_token.kind != TokenKind::OpAmp) { return true; }
-        var d = null_root_decl(n->operand);
-        if d != &null { self.out->insert(reinterpret_cast::<u64>(d)); }
-        return true;
-    }
 
     fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
         if n == &null { return true; }
@@ -472,6 +507,38 @@ class NullAddrScan derives RecursiveASTVisitor::<NullAddrScan> {
 /// widened to its root, which drops every path under it.
 class NullAssignScan derives RecursiveASTVisitor::<NullAssignScan> {
     pub var out: vec::<NullFact>;
+    /// Receivers of a method call: every path strictly under each may be
+    /// written by a mutable `self` (3.4).
+    pub var inside: vec::<NullFact>;
+
+    /// `&e`: the pointer may write `e` (an `@inout` argument, or one kept).
+    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
+        if (n == &null) || (!n->is_prefix()) || (n->op_token.kind != TokenKind::OpAmp) { return true; }
+        var p = null_place_of(n->operand);
+        if p.size() == 0 { return true; }
+        var f = NullFact{};
+        f.place = p;
+        f.why   = NullWhy::Looped;
+        f.at    = n->range;
+        self.out.push_back(f);
+        return true;
+    }
+
+    fn visit_call_expr(self, n: *CallExpr) -> bool {
+        if n == &null { return true; }
+        var c = dyn_cast::<ChainExpr>(null_flow_strip_parens(n->callee));
+        if (c == &null) || (c->steps.size() == 0) { return true; }
+        var k = c->steps.size();
+        if c->steps.get(k - 1)->access_kind != ChainExpr::AccessKind::Dot { return true; }
+        var p = (null_place_of(c->base)) if (k == 1) else (null_chain_place(c, k - 2));
+        if p.size() == 0 { return true; }
+        var f = NullFact{};
+        f.place = p;
+        f.why   = NullWhy::Looped;
+        f.at    = n->range;
+        self.inside.push_back(f);
+        return true;
+    }
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         if n == &null { return true; }
@@ -501,6 +568,8 @@ class NullnessFlow {
     priv var _loops:  vec::<NullLoop>;
     priv var _traps:  vec::<NullTrap>;
     priv var _addr:   llvm::DenseSet::<u64>;
+    /// The pointers taken in this body that may still be written through.
+    priv var _escapes: vec::<NullEscape>;
     /// expr -> index in _read_list: the fact its place had where it was written.
     priv var _reads:     llvm::DenseMap::<u64, usize>;
     priv var _read_list: vec::<NullFact>;
@@ -541,8 +610,10 @@ class NullnessFlow {
         fr.env        = self.env;
         fr.loops_base = self._loops.size();
         fr.traps_base = self._traps.size();
+        fr.escapes    = self._escapes;
         self._frames.push_back(fr);
         self.env = NullEnv{};
+        self._escapes = vec::<NullEscape>();
     }
 
     fn leave(self) {
@@ -550,6 +621,7 @@ class NullnessFlow {
         var fr = self._frames.back();
         self._frames.pop_back();
         self.env = fr.env;
+        self._escapes = fr.escapes;
         while self._loops.size() > fr.loops_base { self._loops.pop_back(); }
         while self._traps.size() > fr.traps_base { self._traps.pop_back(); }
     }
@@ -594,27 +666,132 @@ class NullnessFlow {
     /// it runs on this path (3.3, early exit).
     fn diverge(self) { self.env = self.dead_env(); }
 
-    /// \p place may now hold anything: the hook 3.4's weakening uses.
-    fn weaken(self, place: *vec::<*Decl>) {
-        if self.env.dead { return; }
-        null_env_kill_under(&(self.env), place);
-    }
-
-    /// Every address-taken place may now hold anything. They are never
-    /// narrowed in batch B, so there is nothing to drop yet; G12 / G17
-    /// narrow them between writes and call this at each write-through.
-    fn weaken_all_addressable(self) {
-        var keep = vec::<NullFact>();
-        for var i: usize = 0; i < self.env.facts.size(); ++i {
-            var f = self.env.facts[i];
-            if (f.place.size() > 0) && self._addr.contains(reinterpret_cast::<u64>(f.place[0])) { continue; }
-            keep.push_back(f);
+    /// \p place, and every path under it, may now hold anything (3.4): it
+    /// was passed `@inout`, or a pointer to it was written through. Noted
+    /// \p why at \p at. A nullable place with no fact gets a Maybe one, so
+    /// the access error names this write rather than the declaration.
+    fn weaken(self, place: *vec::<*Decl>, why: NullWhy, at: SourceRange) {
+        if self.env.dead || (place->size() == 0) { return; }
+        null_env_weaken_under(&(self.env), place, false, why, at);
+        if (null_env_find(&(self.env), place) < 0) && null_flow_type_is_nullable(self._place_type(place)) {
+            var f = NullFact{};
+            f.place  = *place;
+            f.why    = why;
+            f.at     = at;
+            f.global = null_flow_is_global((*place)[0]);
+            self.env.facts.push_back(f);
         }
-        self.env.facts = keep;
     }
 
-    /// A call ran: it may have written any global (3.8). Their facts become
-    /// Maybe, noted at \p at.
+    /// Every path strictly under \p place may now hold anything, \p place
+    /// itself not: a call took it as mutable `self` (3.4), which can write
+    /// its fields but not make the value itself null.
+    fn weaken_inside(self, place: *vec::<*Decl>, at: SourceRange) {
+        if self.env.dead || (place->size() == 0) { return; }
+        null_env_weaken_under(&(self.env), place, true, NullWhy::MutSelf, at);
+    }
+
+    /// `&e`, typed: \p n, a `*T` to \p pointee. Until a consumer accounts
+    /// for the pointer (unescape), it may be kept anywhere, so any call or
+    /// unplaced write may write \p e's place through it (3.4, 3.7). A
+    /// `*const T` cannot write and is not followed.
+    fn address_taken(self, n: *UnaryOperatorExpr, pointee: *Type) {
+        if (n == &null) || ((pointee != &null) && canon_has_const(pointee)) { return; }
+        // `&xs[i]`, `&p->f`: no place, so no fact it could change (what `p`
+        // points at is already followed, by the `&` that made `p`).
+        var place = null_place_of(n->operand);
+        if place.size() == 0 { return; }
+        var esc = NullEscape{};
+        esc.node  = static_cast::<*Expr>(n);
+        esc.place = place;
+        esc.at    = n->range;
+        self._escapes.push_back(esc);
+    }
+
+    /// The pointer \p node made is accounted for: it was the `@inout`
+    /// marker (whose write the call weakens itself) or went to a `*const`.
+    fn unescape(self, node: *Expr) {
+        var keep = vec::<NullEscape>();
+        for var i: usize = 0; i < self._escapes.size(); ++i {
+            if self._escapes[i].node != node { keep.push_back(self._escapes[i]); }
+        }
+        self._escapes = keep;
+    }
+
+    /// \p arg is an argument to an `@inout` parameter, written with the
+    /// marker \p marker (null: unmarked): the callee may write it (3.4).
+    /// The marker's pointer goes nowhere else, so it is no escape.
+    fn inout_arg(self, arg: *Expr, marker: *Expr) {
+        if marker != &null { self.unescape(marker); }
+        if arg == &null { return; }
+        var place = null_place_of(arg);
+        // `bump(&p->n)`: the write lands wherever `p` points.
+        if place.size() == 0 { self.write_through(); return; }
+        self.weaken(&place, NullWhy::Inout, arg->range);
+    }
+
+    /// \p arg is passed to a parameter of type \p pt. A `&e` to a `*const`
+    /// parameter cannot write \p e: its pointer is no escape.
+    fn pass_pointer(self, arg: *Expr, pt: *Type) {
+        var x = null_flow_strip_parens(arg);
+        if (x == &null) || (!isa::<UnaryOperatorExpr>(x)) || (pt == &null) { return; }
+        var u = cast::<UnaryOperatorExpr>(x);
+        if (!u->is_prefix()) || (u->op_token.kind != TokenKind::OpAmp) || u->is_mode_marker { return; }
+        var c = canon_unqual(pt);
+        if (c == &null) || (!isa::<PointerType>(c)) { return; }
+        if canon_has_const(cast::<PointerType>(c)->pointee) { self.unescape(x); }
+    }
+
+    /// The call \p callee (a chain whose last step is a method taking a
+    /// mutable `self`) may write any field of its receiver (3.4): every
+    /// path under the receiver's place is Maybe after it. A receiver that is
+    /// no place (`(*p).m()`, `p->m()`) is wherever a pointer points.
+    fn mutable_self_call(self, callee: *ChainExpr, at: SourceRange) {
+        if (callee == &null) || (callee->steps.size() == 0) { return; }
+        var k = callee->steps.size();
+        var last = callee->steps.get(k - 1);
+        var place = vec::<*Decl>();
+        if last->access_kind == ChainExpr::AccessKind::Dot {
+            place = (null_place_of(callee->base)) if (k == 1) else (null_chain_place(callee, k - 2));
+        }
+        if place.size() == 0 { self.write_through(); return; }
+        self.weaken_inside(&place, at);
+    }
+
+    /// \p lhs is written in place (`a += b`, `++a`): a place keeps what it
+    /// holds (a narrowed one is written through its value); anything else
+    /// is a write the analysis cannot place.
+    fn modified(self, lhs: *Expr) {
+        if lhs == &null { return; }
+        var place = null_place_of(lhs);
+        if place.size() == 0 { self.write_through(); }
+    }
+
+    /// The user operator \p fd ran with \p operand as its receiver (its
+    /// left side): a method taking a mutable `self` may write any field of
+    /// it, as mutable_self_call.
+    fn operator_call(self, fd: *Decl, operand: *Expr, at: SourceRange) {
+        if (fd == &null) || (!isa::<FunctionDecl>(fd)) { return; }
+        var f = cast::<FunctionDecl>(fd);
+        if (!f->is_method()) || f->is_const() || f->params[0]->is_const { return; }
+        var place = null_place_of(operand);
+        if place.size() == 0 { self.write_through(); return; }
+        self.weaken_inside(&place, at);
+    }
+
+    /// A write the analysis cannot place (`*p = v`, `p->f = v`, `xs[i] += 1`):
+    /// it may land in any place a pointer was taken to.
+    fn write_through(self) {
+        if self.env.dead { return; }
+        for var i: usize = 0; i < self._escapes.size(); ++i {
+            var e = &(self._escapes[i]);
+            null_env_weaken_under(&(self.env), &(e->place), false, NullWhy::Escaped, e->at);
+        }
+    }
+
+    /// A call ran: it may have written any global (3.8), and any place a
+    /// pointer was taken to (3.7). Their facts become Maybe, a global's
+    /// noted at \p at, an escaped place's at its `&`.
     fn after_call(self, at: SourceRange) {
         if self.env.dead { return; }
         for var i: usize = 0; i < self.env.facts.size(); ++i {
@@ -623,6 +800,7 @@ class NullnessFlow {
             self.env.facts[i].why   = NullWhy::Called;
             self.env.facts[i].at    = at;
         }
+        self.write_through();
     }
 
     // --- definitions and assignments (3.2) ------------------------------------
@@ -668,7 +846,7 @@ class NullnessFlow {
     /// loses the facts under it (`o = make()` forgets `o.cache`).
     fn assign(self, lhs: *Expr, rhs: *Expr, at: SourceRange) {
         var place = null_place_of(lhs);
-        if place.size() == 0 { return; }
+        if place.size() == 0 { self.write_through(); return; }
         var x = null_flow_strip_parens(lhs);
         if (x != &null) && null_flow_type_is_nullable(x->type_) {
             var f = self.value_state(rhs, at);
@@ -807,6 +985,14 @@ class NullnessFlow {
             var f = s.out[i];
             null_env_kill_under(&(self.env), &(f.place));
             if null_flow_type_is_nullable(self._place_type(&(f.place))) { self.env.facts.push_back(f); }
+        }
+        for var i: usize = 0; i < s.inside.size(); ++i {
+            null_env_weaken_under(&(self.env), &(s.inside[i].place), true, NullWhy::Looped, s.inside[i].at);
+        }
+        // Any call or unplaced write in the loop may write through a pointer
+        // taken before it.
+        for var i: usize = 0; i < self._escapes.size(); ++i {
+            null_env_weaken_under(&(self.env), &(self._escapes[i].place), false, NullWhy::Escaped, self._escapes[i].at);
         }
         var keep = vec::<NullFact>();
         for var i: usize = 0; i < self.env.facts.size(); ++i {
@@ -995,7 +1181,19 @@ class NullnessFlow {
                 return n;
             }
             case NullWhy::Looped {
-                n.msg = f"'{nm}' is assigned in the loop here, so it may be null at the top of the loop";
+                n.msg = f"'{nm}' may be changed in the loop here, so it may be null at the top of the loop";
+                return n;
+            }
+            case NullWhy::Inout {
+                n.msg = f"this '@inout' argument lets the call change '{nm}\x27";
+                return n;
+            }
+            case NullWhy::MutSelf {
+                n.msg = f"this call takes what holds '{nm}' as a mutable 'self', so it may change '{nm}\x27";
+                return n;
+            }
+            case NullWhy::Escaped {
+                n.msg = f"a pointer to '{nm}' is taken here; any call after it, or a write through it, may change '{nm}\x27";
                 return n;
             }
             case NullWhy::AddressTaken {
