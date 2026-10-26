@@ -768,7 +768,8 @@ fn null_scan_rhs_value(rhs: *Expr) -> bool {
     if isa::<BinaryOperatorExpr>(x) {
         var b = cast::<BinaryOperatorExpr>(x);
         var k = b->op_token.kind;
-        if (k == TokenKind::OpQuestionQuestion) { return false; }
+        // `x ?? y` is non-null exactly when its fallback is (NULLABLE.md 2.4).
+        if (k == TokenKind::OpQuestionQuestion) { return null_scan_rhs_value(b->rhs); }
         if (null_literal_of(b->lhs) != &null) || (null_literal_of(b->rhs) != &null) { return true; }   // `x == null`: a bool.
         return null_scan_scalar_operand(b->lhs) && null_scan_scalar_operand(b->rhs);
     }

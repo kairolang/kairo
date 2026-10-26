@@ -4,13 +4,9 @@
 //
 // Spelled `(*T)?`, which `*T?` also means since NULLABLE.md G1.
 //
-// XFAIL: *
-// Waiting on `??` lowering (NULLABLE.md G8). The `T?`s themselves lower
-// since G3 (Codegen/nullable/value.k); every `??` here reaches codegen
-// unlowered and ICEs in TokenSink::create ("no clang punctuator for this
-// Kairo token kind").
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Runs since G8 (NULLABLE.md 2.4, CoalesceLowering): `p ?? q` on a
+// `(*A)?` is `if p? => p else q`, then the virtual call dispatches on what
+// it chose.
 
 class A { virtual fn k(self) -> i32 { return 1 } }
 class D derives A { override fn k(self) -> i32 { return 5 } }

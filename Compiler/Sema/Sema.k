@@ -69,6 +69,7 @@ import Sema::Lower::CtorInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
 import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
+import Sema::Lower::CoalesceLowering::*;
 import Sema::Lower::NullTestLowering::*;
 import Sema::Lower::NarrowedAccessLowering::*;
 import Sema::Lower::NullableTypeLowering::*;
@@ -462,6 +463,11 @@ class Sema {
         // value; before OperatorLowering, so an operator on `t.0` sees a
         // field path.
         { var _p = TimeRegion("TupleLowering"); TupleLowering(&self.sc).run(); }
+        // `x ?? y` -> `if x? => x else y`, with the then-arm's read marked
+        // narrowed (NULLABLE.md §5 step 1). Before NullTestLowering and
+        // NarrowedAccessLowering, which lower the test and the marked read it
+        // builds; after CopyMoveLowering, whose moves it binds as operands.
+        { var _p = TimeRegion("CoalesceLowering"); CoalesceLowering(&self.sc).run(); }
         // Every null test (`x?`, `x == null` and its spellings) -> a call of
         // the Nullable's `is_null()` (NULLABLE.md §5 step 2). After
         // EnumLayoutLowering, which mints `is_null()`; before
@@ -481,10 +487,9 @@ class Sema {
         // `T?` -> `::builtin::Nullable<T>`, and `null` -> its null (NULLABLE.md
         // §5). After CopyMoveLowering: a transfer is decided from the value's
         // lifecycle, which ClassLifecycle answers for `T?` from T; the minted
-        // record instance has no facts yet. Before OperatorLowering, the last
-        // nullable pass: CoalesceLowering goes here, with NullTestLowering
-        // and NarrowedAccessLowering just above it, and still sees
-        // NullableType.
+        // record instance has no facts yet. Before OperatorLowering. The last
+        // nullable pass: CoalesceLowering, NullTestLowering and
+        // NarrowedAccessLowering above it still see NullableType.
         { var _p = TimeRegion("NullableTypeLowering"); NullableTypeLowering(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After

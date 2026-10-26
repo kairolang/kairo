@@ -548,6 +548,15 @@ class <T> OperatorTyping {
         // `??`, `===` and `in` are never the left operand's user operator
         // (`in` is the RIGHT operand's), so they defer on any dependent
         // operand, bounded or not.
+        // `t ?? d` in a generic body, `t: T?`: the arms of its expansion
+        // are `T` and `d`'s type, so when those are one type (or `d` is that
+        // `T?`) the answer needs no instantiation, and CoalesceLowering can
+        // expand the template like any other body. Anything else defers.
+        if (k == TokenKind::OpQuestionQuestion) && (self._is_dependent(lt) || self._is_dependent(rt)) {
+            var di = dyn()->tu.nullable_inner(lt);
+            if (di != &null) && (canon_unqual(di) == canon_unqual(rt)) { return canon_unqual(rt); }
+            if (di != &null) && (canon_unqual(lt) == canon_unqual(rt)) { return canon_unqual(rt); }
+        }
         var own_op = (k != TokenKind::OpQuestionQuestion) && (k != TokenKind::OpEqualEqualEqual) && (k != TokenKind::KwIn);
         var bounded = own_op && self._bounded(lt);
         if (self._is_dependent(lt) || self._is_dependent(rt)) && (!bounded) {
@@ -562,6 +571,13 @@ class <T> OperatorTyping {
                 dyn()->warn(n, DiagID::SC065W, f"left operand of '??' has non-nullable type '{dyn()->tu.str(lt)}'; the right operand is never used");
                 return lt;
             }
+            // The result is the join of the arms of `if x? => x else y`
+            // (NULLABLE.md 2.4): `T` when `y` is one, `T?` when `y` is (a
+            // `T` arm joins a `T?` one as `T?`). Asked as written first, so
+            // `(i32?)? ?? i32?` is `i32?`, the then-arm's own type; only
+            // then with `y`'s nullable peeled and put back (`i32? ?? i64?`).
+            var direct = dyn()->conv.join(inner, rt);
+            if direct != &null { return direct; }
             var j = dyn()->conv.join(inner, dyn()->tu.strip_nullable(rt));
             if j == &null {
                 dyn()->fail(n, DiagID::SC033E, f"'??' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' have no common type");
