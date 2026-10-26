@@ -27,6 +27,7 @@ import AST::Node::Expressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Types::*;
 import AST::Node::Casting::*;
+import AST::ParamMode::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
@@ -755,6 +756,25 @@ class <T> ExprParse {
     ///          production is reached in expression position only.
     priv fn _parse_attributed_expr(self, stop: ExprStopKind) -> *Expr {
         var at_range = dyn()->current_ptr()->range;
+
+        // `f(@inout x)` / `f(@move x)`: a parameter mode written at a call.
+        // A mistake, not an attribute waiting for a meaning
+        // (functions-parameter-modes.mdx: the call site writes `&x` / `x`),
+        // so it is the binding sites' S069E with the call-site spelling as
+        // the fix-it, and the operand parses as if the mode were not there.
+        var mode = dyn()->_peek_mode();
+        if mode != ParamMode::Value {
+            var r = dyn()->_consume_mode();
+            var b = dyn()->diag->report(DiagID::S069E, r.start,
+                "'@inout' and '@move' are parameter passing modes; a mode can only be written on a function or closure parameter, and a call passes '&x' to an '@inout' parameter and 'x' to a '@move' one"
+            );
+            b.first(r);
+            if mode == ParamMode::Inout { b.fix(r, "&", "pass the address"); }
+            else                        { b.remove(r, "pass the value"); }
+            b.emit();
+            return self._parse_unary_expr(stop);
+        }
+
         dyn()->advance(); // consume `@`
 
         if !dyn()->check(TokenKind::LitIdentifier) {
