@@ -1610,10 +1610,12 @@ class EmitIR {
 
     /// The written target is the result type (invariant 15). Which C++ cast:
     /// `as const` -> const_cast, `as unsafe` -> reinterpret_cast (a C-style
-    /// cast when it drops a pointee qualifier), otherwise static_cast. A
-    /// checked/asserting downcast is PanicLowering's; a user
-    /// `op as` or a converting ctor is OperatorLowering's.
+    /// cast when it drops a pointee qualifier), otherwise static_cast. The
+    /// checked downcast is _checked_downcast's; the asserting one is
+    /// PanicLowering's (a static_cast until then); a user `op as` or a
+    /// converting ctor is OperatorLowering's.
     priv fn _cast(self, n: *TypeCastExpr) {
+        if n->checked_downcast { self._checked_downcast(n); return; }
         // A lowering's move: `x as T&&`. Never written by the user (Kairo has
         // no reference types), always a record, always static_cast.
         if (n->target != &null) && (n->target->canonical != &null) && isa::<CXXRValueRefType>(n->target->canonical) {
@@ -1644,6 +1646,28 @@ class EmitIR {
             return;
         }
         self._cast_to(n->target, n->operand, kind);
+    }
+
+    /// `p as (*D)?` (casting.md, the checked downcast): `dynamic_cast<D*>`,
+    /// and its null pointer is the NULL nullable, not a present one holding
+    /// nullptr (Stage 1 storage is tagged, NULLABLE.md 1.2). A lambda called
+    /// on the spot binds the result once and is an expression everywhere a
+    /// cast is, a namespace-scope initializer included:
+    ///
+    ///   [](D* __kairo_dc) -> N { return __kairo_dc ? N(__kairo_dc) : N(); }(dynamic_cast<D*>(p))
+    ///
+    /// `N()` is Nullable's null (AdtRole::NullDefault). With the pointer
+    /// niche (G2b) this becomes the dynamic_cast alone.
+    priv fn _checked_downcast(self, n: *TypeCastExpr) {
+        var tc = n->target->canonical;
+        var nt = (cast::<NullableType>(canon_unqual(tc))) if ((tc != &null) && (canon_unqual(tc) != &null) && isa::<NullableType>(canon_unqual(tc))) else (&null);
+        if (nt == &null) { self._ice(n->range, "EmitIR: a checked downcast whose target is no nullable; CastTyping gate failure"); return; }
+        var big = self._spell._type(n->target, &null);
+        var ptr = self._spell._type(nt->inner, &null);
+        var v   = LowerTargets::checked_downcast_value();
+        self._cg->sink->spell(n->range, "[](" + ptr + " " + v + ") -> " + big + " { return " + v + " ? " + big + "(" + v + ") : " + big + "(); }(dynamic_cast<" + ptr + ">(");
+        self.emit(n->operand);
+        self._cg->sink->spell(n->range, "))");
     }
 
     /// True when some pointee level of \p src carries a qualifier the same

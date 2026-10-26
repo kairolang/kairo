@@ -1716,6 +1716,13 @@ class TypeCastExpr derives Expr {
     /// redundant-cast lint there.
     pub var widening: bool = false;
 
+    /// `p as (*D)?` from a `*B` with D below B: the CHECKED downcast
+    /// (casting.md), null when the dynamic type is not a D. Written by
+    /// CastTyping; EmitIR spells it as a dynamic_cast whose null pointer
+    /// becomes the null nullable (a static_cast to `Nullable<D*>` would
+    /// neither check nor map null).
+    pub var checked_downcast: bool = false;
+
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,

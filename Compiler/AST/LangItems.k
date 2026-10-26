@@ -425,6 +425,11 @@ class LowerTargets {
     /// full-expression. ExtensionLowering's `materialize` `&` spells it.
     static fn tmp_addr() -> string { return "__kairo_tmp"; }
 
+    /// The checked downcast's pointer, the parameter of the lambda EmitIR
+    /// wraps `dynamic_cast` in to map its null onto the null nullable
+    /// (EmitIR::_checked_downcast). Local to that lambda.
+    static fn checked_downcast_value() -> string { return "__kairo_dc"; }
+
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
     static fn reserved_prefix() -> string { return "__kairo_"; }

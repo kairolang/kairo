@@ -175,6 +175,15 @@ class <T> CastTyping {
             var td = dyn()->tu.record_decl(tp);
             var to_nullable = dyn()->tu.nullable_inner(target) != &null;
             if (sd == &null) || (td == &null) {
+                // A pointee that is a generic parameter: which classes meet is
+                // the instance's question. The checked form is a dynamic_cast
+                // either way, which C++ checks per instance (an upcast or the
+                // same class passes, an unrelated or non-polymorphic downcast
+                // is its error there).
+                if to_nullable && (sp->is_dependent() || tp->is_dependent()) {
+                    n->checked_downcast = true;
+                    return target;
+                }
                 if dyn()->tu.is_void(tp) {
                     dyn()->fail(n, DiagID::SC091E, f"cannot cast '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}'; erasing the pointee type needs 'as unsafe *void' inside an 'unsafe' block");
                     return &null;
@@ -208,6 +217,8 @@ class <T> CastTyping {
                 }
                 if !to_nullable {
                     dyn()->note_panic_site(static_cast::<*Expr>(n));   // PanicEffectChecking reads it.
+                } else {
+                    n->checked_downcast = true;
                 }
                 return target;
             }
