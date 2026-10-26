@@ -1774,6 +1774,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _d_eval_block(self, eb: *EvalBlockDecl) {
+        // member-position `eval if` / `eval for`. A for loop prints its own
+        // `eval`; ConditionalStmt does not carry it yet (StmtParse FIXME).
+        if eb->stmt != &null {
+            if isa::<ConditionalStmt>(eb->stmt) { self.p.paint(Color::Keyword, "eval "); }
+            self.src_stmt(eb->stmt);
+            return;
+        }
         self.p.paint(Color::Keyword, "eval");
         if eb->body.is_empty() { self.p.paint(Color::Punct, " {}"); return; }
         self.p.paint(Color::Punct, " { ");
@@ -3556,12 +3563,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.newline();
         var has_attrs = self._has_annotations(static_cast::<*Decl>(eb));
         var n = eb->body.size();
-        if (!has_attrs) && (n == 0) { return; }
+        var has_stmt = (eb->stmt != &null);
+        if (!has_attrs) && (n == 0) && (!has_stmt) { return; }
         self.p.enter(is_last);
-        if has_attrs { self._dump_annotations(static_cast::<*Decl>(eb), n == 0); }
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(eb), (n == 0) && (!has_stmt)); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(eb->body[i], (i == (n - 1)));
+            self._child_decl(eb->body[i], (i == (n - 1)) && (!has_stmt));
         }
+        if has_stmt { self._child_stmt(eb->stmt, true); }
         self.p.leave();
     }
 

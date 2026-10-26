@@ -42,6 +42,9 @@
 ///       - an attribute applied to an expression (`@create T(args)`,
 ///         AttributedExpr): it parses, but no attribute has an expression
 ///         meaning yet. X leaves the node and its operand untyped.
+///       - an `eval if` / `eval for` directly in a module or class body
+///         (EvalBlockDecl::stmt): it parses, but no branch is chosen and
+///         nothing hoists or emits its declarations yet.
 ///       - a generic closure, `fn <T>(x: T) -> T { ... }`. X types neither
 ///         its parameters (no canonical for `T`) nor a call of it, so there
 ///         is no signature for EmitIR to spell; a C++ generic lambda is the
@@ -144,6 +147,20 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         var nm = self.sc->ctx->get_spelling(n->name);
         self._gate(SourceRange::from_bounds(n->range.start, u32(1)) | n->name.range,
             f"the expression attribute '@{nm}\x27");
+        return true;
+    }
+
+    /// An `eval if` / `eval for` directly in a module or class body parses
+    /// (EvalBlockDecl::stmt), but choosing its branch and hoisting that
+    /// branch's declarations into the body is not built: nothing would emit
+    /// it, and its declarations are visible nowhere. Reported at `eval if` /
+    /// `eval for`; the statement's contents are still resolved and typed.
+    fn visit_eval_block_decl(self, n: *EvalBlockDecl) -> bool {
+        if n->stmt == &null { return true; }
+        var what = "an 'eval for\x27";
+        if isa::<ConditionalStmt>(n->stmt) { what = "an 'eval if\x27"; }
+        self._gate(SourceRange::from_bounds(n->range.start, u32(4)),
+            f"{what} in a module or class body");
         return true;
     }
 

@@ -1976,6 +1976,8 @@ class <D> RecursiveASTVisitor {
             if self.stop { break; }
             self.dyn()->dispatch_decl(*(n->body.get(i)));  // discard
         }
+        // a member-position `eval if` / `eval for` (EvalBlockDecl::stmt)
+        if (n->stmt != &null) && (!self.stop) { n->stmt = self.dyn()->dispatch_stmt(n->stmt); }
         return n;
     }
 

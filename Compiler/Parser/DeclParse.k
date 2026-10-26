@@ -311,6 +311,10 @@ class <T> DeclParse {
             case TokenKind::KwThread  { return self._parse_var_decl(); }   // callers saw _storage_binding_ahead
             case TokenKind::KwMutable { return self._parse_var_decl(); }
             case TokenKind::KwEval {
+                // `eval if` / `eval for` in a module or class body
+                if dyn()->check_peek(TokenKind::KwIf) || dyn()->check_peek(TokenKind::KwFor) {
+                    return self._parse_eval_stmt_decl();
+                }
                 // `eval {` decl block vs `eval var/const/fn ...`
                 if dyn()->check_peek(TokenKind::OpLBrace) {
                     return self._parse_eval_block_decl();
@@ -3000,6 +3004,19 @@ class <T> DeclParse {
                 continue;
             }
 
+            // `eval if` / `eval for`: before the field lead, which `eval`
+            // also opens. Its branches are statements, not members of this
+            // type (DeclParse::_parse_eval_stmt_decl).
+            if (k == TokenKind::KwEval)
+            && (dyn()->check_peek(TokenKind::KwIf) || dyn()->check_peek(TokenKind::KwFor)) {
+                var ev = self._parse_eval_stmt_decl();
+                if (ev != &null) && (!self.is_fatal_decl(ev)) {
+                    dyn()->apply_annotations_to_decl(ev, &m_annot);
+                    owner->add_decl(ev);
+                }
+                continue;
+            }
+
             // method lead: `fn`, possibly behind static/virtual/override/final/
             // inline/eval. The lookahead is what separates `static fn f()` from
             // the `static x: T` field that shares its keyword.
@@ -4332,6 +4349,76 @@ class <T> DeclParse {
     }
 
     //  eval { decl* }  decl block
+
+    /// \brief index mode: crosses an `eval if` / `eval for` without parsing
+    ///        it. _index_skip_stmt stops at a `;` or a newline, which a C-style
+    ///        `for` header and an `else` on its own line both contain: here
+    ///        the header runs to the body's `{`, the body to its `}`, and an
+    ///        `else` (same line or the next) continues the chain.
+    priv fn _index_skip_eval_stmt(self) {
+        while !dyn()->is_eof() {
+            var depth: u32 = 0;
+            while !dyn()->is_eof() {
+                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+                if (depth == 0) && (k == TokenKind::OpLBrace) { break; }
+                // no body before the enclosing closer: malformed, leave it
+                if (depth == 0) && (k == TokenKind::OpRBrace) { return; }
+                if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
+                    depth += 1;
+                } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
+                    if depth > 0 { depth -= 1; }
+                }
+                dyn()->advance_raw();
+            }
+            if dyn()->is_eof() { return; }
+            dyn()->advance_raw();          // `{`
+            dyn()->_index_skip_block();    // through the matching `}`
+
+            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine)
+            && ((dyn()->peek_past_nl_kind()) == TokenKind::KwElse) {
+                dyn()->advance(T::SkipNL::Only);
+            }
+            if !dyn()->check(TokenKind::KwElse) { return; }
+            dyn()->advance_raw();          // `else`
+        }
+    }
+
+    /// \brief an `eval if` / `eval for` written directly in a module or class
+    ///        body, carried by an EvalBlockDecl whose `stmt` is the statement.
+    ///  Grammar:  'eval' ( if_stmt | for_stmt )
+    ///
+    /// \details the statement is the statement parser's own, so the node is
+    ///          the one file scope and a function body build (a
+    ///          ConditionalStmt / RangedForStmt / IndexedForStmt with
+    ///          declarations as DeclStmts in its blocks). Those bodies hold
+    ///          declarations only, hence the carrier. Which branch is taken,
+    ///          and putting its declarations into the enclosing scope, is eval
+    ///          semantics, not the parser's: here the branches' declarations
+    ///          stay branch-local (eval_branch_dc keeps a module body from
+    ///          absorbing them), and FeatureGateCheck reports the form as not
+    ///          yet supported. Index mode skips it: a branch hoists nothing.
+    priv fn _parse_eval_stmt_decl(self) -> *Decl {
+        var start = dyn()->current_ptr()->range;
+        var eb = EvalBlockDecl::create(dyn()->ctx, start);
+
+        if dyn()->mode == T::ParseMode::Index {
+            self._index_skip_eval_stmt();
+            eb->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(eb);
+        }
+
+        var saved_dc = dyn()->eval_branch_dc;
+        dyn()->eval_branch_dc = dyn()->scope.current_dc();
+        var s = dyn()->parse_stmt();
+        dyn()->eval_branch_dc = saved_dc;
+
+        if (s == &null) || dyn()->is_fatal::<Stmt>(s) {
+            return static_cast::<*Decl>(EvalBlockDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+        eb->stmt  = s;
+        eb->range = start | dyn()->prev().range;
+        return static_cast::<*Decl>(eb);
+    }
 
     /// \brief parses a decl-only eval block at namespace/type scope.
     ///  Grammar:  'eval' '{' decl* '}'

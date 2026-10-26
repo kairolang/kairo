@@ -258,6 +258,7 @@ class <T> StmtParse {
         if dc == &null { return; }
         if dc->dc_kind == DeclContextKind::TranslationUnit { return; }
         if dc->is_type_scope() { return; }
+        if dc == dyn()->eval_branch_dc { return; }
         if isa::<ClassDecl>(d)     || isa::<StructDecl>(d) || isa::<UnionDecl>(d)
         || isa::<InterfaceDecl>(d) || isa::<EnumDecl>(d)   || isa::<FunctionDecl>(d)
         || isa::<ExtensionDecl>(d) {

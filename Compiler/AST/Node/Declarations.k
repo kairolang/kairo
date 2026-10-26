@@ -1704,13 +1704,23 @@ class VisibilityGroupDecl derives Decl {
 ///  eval { decl* } at namespace/type scope (decl-only compile-time block).
 ///  The stmt-position eval block is StmtKind::EvalBlockStmt.
 ///
+///  Also the carrier for an `eval if` / `eval for` written directly in a
+///  module or class body: `stmt` holds the ConditionalStmt / RangedForStmt /
+///  IndexedForStmt exactly as file scope and a function body build it, and
+///  `body` stays empty. A module or class body holds declarations only, so
+///  the statement needs a declaration to ride in; the branches' declarations
+///  are DeclStmts in its blocks and are NOT members of the enclosing body
+///  (choosing a branch and hoisting its declarations is eval semantics).
+///
 class EvalBlockDecl derives Decl {
     pub var body: FrozenList::<*Decl>;
+    pub var stmt: *Stmt = &null;
 
     static fn create(ctx: *ASTContext, range: SourceRange) -> *EvalBlockDecl {
         var node   = ctx->alloc::<EvalBlockDecl>();
         node->kind  = DeclKind::EvalBlockDecl;
         node->range = range;
+        node->stmt  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1720,6 +1730,7 @@ class EvalBlockDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::EvalBlockDecl;
         node->range         = range;
+        node->stmt          = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

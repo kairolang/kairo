@@ -1326,6 +1326,7 @@ class <D> ASTWriter {
 
     fn transform_eval_block_decl(self, n: *EvalBlockDecl) -> vec::<*Decl> {
         self.dyn()->rebuild_decl_list(&(n->body));
+        if n->stmt != &null { n->stmt = self.dyn()->transform_stmt_scalar(n->stmt); }
         return self._one_decl(n);
     }
 

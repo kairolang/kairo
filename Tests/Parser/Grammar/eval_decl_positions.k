@@ -9,8 +9,7 @@
 // whose `x` was undeclared. Semantics (consteval emission, the coloring
 // check) are not this test's: only the parse.
 //
-// `eval if` / `eval for` in a module or class body are not parsed yet: a
-// body there holds declarations only (TICKETS.TXT).
+// `eval if` / `eval for` in a module or class body: eval_stmt_in_body.k.
 
 fn work(x: i32) -> i32 { return x }
 
