@@ -459,6 +459,8 @@ fn null_flow_is_global(d: *Decl) -> bool {
     if d == &null { return false; }
     if isa::<ParamDecl>(d) { return false; }
     if !isa::<VariableDecl>(d) { return true; }
+    // A `thread` binding is Static storage with is_thread, so it lands here
+    // too: code on the same thread can write it during any call (§3.8).
     if cast::<VariableDecl>(d)->is_static() { return true; }
     // A local is never tabled, so it has no semantic context (ASTParse
     // indexes only scopes with symbol tables); a global sits in its file's

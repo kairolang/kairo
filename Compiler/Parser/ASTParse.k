@@ -497,6 +497,8 @@ class ASTParse
             return self.check_peek(TokenKind::KwStatic) || self.check_peek(TokenKind::KwThread)
                 || self.check_peek(TokenKind::KwEval);
         }
+        // `thread n: T` is a declaration, `thread work()` a spawn expression.
+        if k == TokenKind::KwThread { return self._storage_binding_ahead(); }
         if !self._starts_decl_kw(k) { return false; }
         if k == TokenKind::KwVar { return false; }
         if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) { return false; }
@@ -1123,7 +1125,7 @@ class ASTParse
             if self.is_eof() { break; }
 
             var k = self.resolve_kind_deep(self._current);
-            if self._starts_decl_kw(k) {
+            if self._starts_decl_here(k) {
                 var d = self.parse_decl(true);
                 if d == &null {
                     // closure IIFE fallback (cursor rolled back to `fn`) or a

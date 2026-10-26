@@ -155,6 +155,58 @@ class <T> DeclParse {
             || k == TokenKind::KwInline;
     }
 
+    /// \brief true if the storage keyword under the cursor opens a binding
+    ///        rather than an expression.
+    ///  Lookahead:  KW ( 'const' | 'static' | 'thread' | 'eval' | 'var'
+    ///                 | 'unsafe'? '*'* name '?'? ( ':' | '=' | end ) )
+    ///  where `end` is a newline, `;`, `}` or the end of the file.
+    ///
+    /// \details `thread` and `eval` each front two things: a declaration
+    ///          (`thread n: i32 = 0`, `eval N = 4`) and a prefix expression
+    ///          (`thread work(&x)`, tether-threading.mdx; `eval f(3)`). Only
+    ///          what follows the name separates them: an expression operand
+    ///          is never followed by `:`, nor by `=` (that would assign to
+    ///          the operand of a spawn), and a spawn of a bare name means
+    ///          nothing, so `thread n` alone is the binding -- Sema then
+    ///          reports it has neither a type nor an initializer (SC046E), as
+    ///          for `static n`, where the expression would pass silently. A
+    ///          second binding keyword is always a binding, so
+    ///          _parse_storage_head gets to name a bad combination. The guard
+    ///          rolls the cursor back unconditionally.
+    pub fn _storage_binding_ahead(self) -> bool {
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
+        var t = ASTTentativeGuard(dyn());
+
+        dyn()->advance();   // the keyword under test
+        if dyn()->check(TokenKind::KwConst)  || dyn()->check(TokenKind::KwStatic)
+        || dyn()->check(TokenKind::KwThread) || dyn()->check(TokenKind::KwEval)
+        || dyn()->check(TokenKind::KwVar) {
+            return true;
+        }
+        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) { dyn()->advance(); }
+        while dyn()->check(TokenKind::OpStar) { dyn()->advance(); }
+        if !dyn()->check_is_ident() { return false; }
+        dyn()->advance();   // the name
+        if dyn()->check(TokenKind::OpQuestion) { dyn()->advance(); }
+        if dyn()->check(TokenKind::OpColon) || dyn()->check(TokenKind::OpEqual) { return true; }
+        // `thread n` alone: a binding with neither a type nor an initializer,
+        // which Sema reports (SC046E) as it does for `static n`. As a spawn
+        // of a bare name it would be accepted silently.
+        return dyn()->is_eof() || dyn()->check(TokenKind::OpRBrace)
+            || dyn()->_is_terminator_tok(dyn()->current_ptr());
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
+    /// \brief _starts_decl_kw, plus `thread` when it opens a binding: the
+    ///        gate for every place that walks declarations (the index pass,
+    ///        a type body's index walk, top-level recovery). `thread` is not
+    ///        in _starts_decl_kw itself because `thread work()` is an
+    ///        expression and the callers of that predicate do not look ahead.
+    pub fn _starts_decl_here(self, k: TokenKind) -> bool {
+        if self._starts_decl_kw(k) { return true; }
+        return (k == TokenKind::KwThread) && self._storage_binding_ahead();
+    }
+
     //  Entry point
 
     /// \brief parses a single declaration.
@@ -256,6 +308,7 @@ class <T> DeclParse {
             case TokenKind::KwVar     { return self._parse_var_decl(); }
             case TokenKind::KwConst   { return self._parse_var_decl(); }
             case TokenKind::KwStatic  { return self._parse_var_decl(); }
+            case TokenKind::KwThread  { return self._parse_var_decl(); }   // callers saw _storage_binding_ahead
             case TokenKind::KwMutable { return self._parse_var_decl(); }
             case TokenKind::KwEval {
                 // `eval {` decl block vs `eval var/const/fn ...`
@@ -555,7 +608,7 @@ class <T> DeclParse {
 
             var is_field_lead = (k == TokenKind::KwVar) || (k == TokenKind::KwConst)
                              || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || (k == TokenKind::KwMutable);
+                             || (k == TokenKind::KwThread) || (k == TokenKind::KwMutable);
 
             if is_field_lead {
                 var f = self._parse_field(*field_idx);
@@ -2843,7 +2896,7 @@ class <T> DeclParse {
             }
 
             var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
-            if self._starts_decl_kw(k) {
+            if self._starts_decl_here(k) {
                 var d = self.parse_decl();
                 if d == &null {
                     dyn()->_index_skip_stmt();
@@ -3017,7 +3070,7 @@ class <T> DeclParse {
             // field: mutable? var/const/static/eval ...
             var is_field_lead = (k == TokenKind::KwVar)    || (k == TokenKind::KwConst)
                              || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || (k == TokenKind::KwMutable);
+                             || (k == TokenKind::KwThread) || (k == TokenKind::KwMutable);
 
             if is_field_lead {
                 var f = self._parse_field(field_idx);
@@ -4364,13 +4417,14 @@ class <T> DeclParse {
                 }
                 if ctx == DeclSyncCtx::TopLevel {
                     if k == TokenKind::TkNewLine || k == TokenKind::OpSemicolon { return; }
-                    if self._starts_decl_kw(k) { return; }
+                    if self._starts_decl_here(k) { return; }
                 }
                 if ctx == DeclSyncCtx::TypeBody {
                     // member lead-ins inside a type body.
                     if k == TokenKind::KwFn      || k == TokenKind::KwVar
                     || k == TokenKind::KwConst   || k == TokenKind::KwStatic
-                    || k == TokenKind::KwEval    || k == TokenKind::KwClass
+                    || k == TokenKind::KwEval    || k == TokenKind::KwThread
+                    || k == TokenKind::KwClass
                     || k == TokenKind::KwStruct  || k == TokenKind::KwEnum
                     || k == TokenKind::KwUnion   || k == TokenKind::KwInterface
                     || k == TokenKind::KwType    || k == TokenKind::KwOverride

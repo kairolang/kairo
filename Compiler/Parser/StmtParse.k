@@ -400,6 +400,11 @@ class <T> StmtParse {
             return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
         }
 
+        // -- thread-local binding: `thread n: T` (not `thread work()`) --
+        if (k == TokenKind::KwThread) && dyn()->_storage_binding_ahead() {
+            return self._parse_decl_stmt();
+        }
+
         // -- other declarations ---------------------------------------
         if self._starts_decl(k) {
             return self._parse_decl_stmt();

@@ -726,6 +726,10 @@ class EmitIR {
             case StorageClass::Eval   { self._cg->sink->kw_constexpr(n->name); }
             default { }
         }
+        // A function-local `thread` is `static thread_local`: one instance
+        // per thread that keeps its value across calls (variables.mdx).
+        // Left as plain `static`, every thread would share it.
+        if n->is_thread { self._cg->sink->kw_thread_local(n->name); }
         // `static const x` (either order): the const is the binding's, so
         // C++ gets `static const T x`, which is what a const local would add.
         if n->const_binding { self._cg->sink->kw_const(n->name); }
