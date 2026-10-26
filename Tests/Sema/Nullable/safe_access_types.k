@@ -44,6 +44,22 @@ fn ok_no_check(f: Foo?) -> i32 { return f?.v ?? 0 }
 
 fn main() -> i32 { return 0 }
 
+// The loop pre-scan: a `?.` result may be null even when the member is a
+// `T` (a field, or a method declared `-> T`), so assigning it in a loop
+// brings a proven place back unproven at the head.
+fn bad_loop_field(a: Foo?, k: i32) -> i32 {
+    var x: i32? = 1
+    var r = 0
+    while r < k { r += x; x = a?.v }
+    return r
+}
+fn bad_loop_call(a: Foo?, k: i32) -> i32 {
+    var x: i32? = 1
+    var r = 0
+    while r < k { r += x; x = a?.get() }
+    return r
+}
+
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only --cmax-errors=0 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-NOT: {{error|warning}}
@@ -80,4 +96,10 @@ fn main() -> i32 { return 0 }
 // DIAG: safe_access_types.k:40:26: error [SC071E]: left side of assignment is not assignable
 // DIAG-NOT: {{error|warning}}
 // DIAG: safe_access_types.k:41:42: error [R025E]: no member named 'v' in 'Foo?'
+// DIAG-NOT: {{error|warning}}
+// DIAG: safe_access_types.k:53:24: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG-NEXT: safe_access_types.k:53:27: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
+// DIAG-NOT: {{error|warning}}
+// DIAG: safe_access_types.k:59:24: error [SC001E]: 'x' may be null here; check it with 'if x?' first
+// DIAG-NEXT: safe_access_types.k:59:27: note [{{.*}}]: 'x' may be changed in the loop here, so it may be null at the top of the loop
 // DIAG-NOT: {{error|warning}}

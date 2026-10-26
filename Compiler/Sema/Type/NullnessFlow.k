@@ -803,6 +803,8 @@ fn null_scan_rhs_value(rhs: *Expr) -> bool {
         if isa::<ChainExpr>(callee) {
             var c = cast::<ChainExpr>(callee);
             if c->steps.size() == 0 { return false; }
+            // `a?.get()` is null when `a` is, whatever `get` returns (2.5).
+            if c->has_optional_chaining() { return false; }
             var st = c->steps.get(c->steps.size() - 1);
             if st->resolved_decl != &null {
                 var d = st->resolved_decl;
