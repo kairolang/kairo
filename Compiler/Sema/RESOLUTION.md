@@ -552,7 +552,12 @@ The divergence rule is ReturnPathCheck's, shared as `FallThrough`
 they fall through, so code that may run is never called dead. Same
 REQUIRES as ReturnPathCheck; before every lowering, so it sees only user
 code. Dead match arms stay PatternChecking's SC121E. It replaced the
-lexical V pass TerminatorCheck, which could not see `-> !` calls.
+lexical V pass TerminatorCheck, which could not see `-> !` calls. A
+script's top level (ScriptRules::is_script) is walked as one block, since
+it is main's body: a region there is a contiguous run of code items, so a
+declaration between them (a function, a type, a binding with a constant
+initializer) is never in it and never in its fix-it, and a deferred
+binding is code. Nothing ScriptLowering mints can warn: it runs after.
 
 JumpLabelCheck's script rule (`run_script_jumps`) [DONE]: in a script
 (ScriptRules::is_script), a top-level `jump!` whose path crosses the line
@@ -1122,7 +1127,7 @@ statements and no `fn main` -- gets a synthesized `fn main() -> i32` whose
 body is those statements, in order, ending in `return 0`. Every top-level
 binding stays a global. One whose initializer is not constant
 (ScriptRules::defers, the one answer to which lines are deferred, which
-JumpLabelCheck's script rule shares) is DEFERRED: its storage becomes `T?` starting null, main assigns
+JumpLabelCheck's script rule and ControlFlowAnalysis share) is DEFERRED: its storage becomes `T?` starting null, main assigns
 it at its line, and main's first statement is a `finally` that nulls the
 deferred globals in reverse order. A read in main after the line is marked
 narrowed; one at or before it, or a direct call from main that reads it on

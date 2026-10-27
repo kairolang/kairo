@@ -69,6 +69,8 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Location::SourceRange::*;
 import Token::Token::*;
 import Diagnostic::Registry::*;
+import Sema::Check::ScriptRules::*;
+import Memory::ArenaList::*;
 
 class FallThrough {
     priv var sc: *SemaContext;
@@ -331,6 +333,8 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
         if tu->program == &null { return; }
 
         var items = &(tu->program->items);
+        var rules = ScriptRules(self.sc);
+        if rules.is_script() { self._script_top_level(items, &rules); return; }
         for var i: usize = 0; i < items->size(); ++i {
             if self.stop { break; }
             var item = *(items->get(i));
@@ -340,6 +344,71 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
                 case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
             }
         }
+    }
+
+    /// A script's top level is its main's body (SCRIPT.md), so it gets the
+    /// block rule: after an item that does not fall through, the code up to
+    /// the next `label!` is dead. Unlike a block's, the top level holds
+    /// declarations between the statements -- a function, a type, a binding
+    /// whose initializer is constant and so is no line of main -- and those
+    /// are never dead: a region is a CONTIGUOUS run of code items, ended by
+    /// a declaration as much as by a label, so the fix-it that deletes it
+    /// cannot delete one. A declaration does not revive the path: the code
+    /// after it is a new region of the same dead path. A deferred binding is
+    /// a line of main, and dead like any statement.
+    priv fn _script_top_level(self, items: *ArenaList::<TopLevelItem>, rules: *ScriptRules) {
+        var cut       = SourceRange::invalid();   ///< the item that ended the path.
+        var cut_why   = "";
+        var fold      = SourceRange::invalid();   ///< the folded `eval if` that ended it, if one did.
+        var first     = SourceRange::invalid();   ///< the open dead region.
+        var last      = SourceRange::invalid();
+        for var i: usize = 0; i < items->size(); ++i {
+            if self.stop { break; }
+            var item = *(items->get(i));
+            var v = rules->binding_of(item);
+            var code = (item.get_kind() != TopLevelKind::Decl) && (v == &null);
+            if (v != &null) && rules->defers(v) { code = true; }
+            if !code {
+                if first.is_valid() { self._report_at(cut, cut_why, first, last); first = SourceRange::invalid(); }
+                if item.get_kind() == TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
+                else                                     { self.dyn()->dispatch_stmt(item.as_stmt()); }
+                continue;
+            }
+
+            var st: *Stmt = &null;
+            if item.get_kind() == TopLevelKind::Stmt { st = item.as_stmt(); }
+            var r = item.get_range();
+            if cut.is_valid() {
+                // A label revives the path: control can arrive by `jump!`.
+                var revives = (st != &null) && ((st->kind == StmtKind::LabelIntrinsicStmt) || self._contains_label(st));
+                if fold.is_valid() && r.start.is_valid() && (!fold.contains(r.start)) { revives = true; }
+                if !revives {
+                    if !first.is_valid() { first = r; }
+                    last = r;
+                    continue;   // dead: not walked, as in a block.
+                }
+                if first.is_valid() { self._report_at(cut, cut_why, first, last); first = SourceRange::invalid(); }
+                cut = SourceRange::invalid();
+                fold = SourceRange::invalid();
+            }
+
+            if st != &null {
+                self.dyn()->dispatch_stmt(st);  // discard
+                if !self._ft.falls_through(st) {
+                    cut = st->range; cut_why = self._why(st);
+                    fold = self._fold_of(st);
+                }
+            } else {
+                var e = item.as_expr();
+                self.dyn()->dispatch_expr(e);  // discard
+                if self._ft.diverges(e) {
+                    cut = e->range;
+                    cut_why = "this expression never completes (its type is '!'), so any code after it is never run";
+                    if isa::<CallExpr>(e) { cut_why = "this call never returns (its type is '!'), so any code after it is never run"; }
+                }
+            }
+        }
+        if first.is_valid() { self._report_at(cut, cut_why, first, last); }
     }
 
     fn traverse_compound_stmt(self, n: *CompoundStmt) -> *CompoundStmt {
@@ -398,17 +467,22 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
     }
 
     priv fn _report(self, cut: *Stmt, first: *Stmt, last: *Stmt) {
-        if !first->range.start.is_valid() { return; }
-        var region = SourceRange(first->range.start, last->range.end);
-        if (!last->range.end.is_valid()) || (last->range.end <= first->range.start) {
-            region = first->range;
+        self._report_at(cut->range, self._why(cut), first->range, last->range);
+    }
+
+    /// The warning over the region \p first .. \p last, its note at \p cut.
+    priv fn _report_at(self, cut: SourceRange, why: string, first: SourceRange, last: SourceRange) {
+        if !first.start.is_valid() { return; }
+        var region = SourceRange(first.start, last.end);
+        if (!last.end.is_valid()) || (last.end <= first.start) {
+            region = first;
         }
 
-        var b = self.sc->diag->report(DiagID::SC003W, first->range.start,
+        var b = self.sc->diag->report(DiagID::SC003W, first.start,
             "unreachable code; the statement above always transfers control out of this block");
         b.first(region);
-        if cut->range.start.is_valid() {
-            b.note(cut->range.start, self._why(cut));
+        if cut.start.is_valid() {
+            b.note(cut.start, why);
         }
         // Only a range that is the region itself, in one file: the fallback
         // above is one statement of a region whose end could not be placed,
@@ -416,7 +490,7 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
         // range stops before its `;`, which the deletion takes too, or the
         // edit leaves a stray empty statement behind.
         var sm = self.sc->ctx->sm;
-        if (region.end == last->range.end) && (sm != &null) && sm->same_file(region.start, region.end) {
+        if (region.end == last.end) && (sm != &null) && sm->same_file(region.start, region.end) {
             var stop = region.end;
             if sm->get_char_at(stop) == ';' { stop = stop.with_offset(1); }
             b.remove(SourceRange(region.start, stop), "remove the unreachable code");
