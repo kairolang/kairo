@@ -667,19 +667,23 @@ class EnumLayoutQuery {
     /// set's formation (InstanceEntry::formed_at), in that TU only.
     priv fn _sweep_type_ids(self, e: *InstanceEntry, en: *EnumDecl, t: *Type, size: u64) {
         var p = adt_pack_param(en);
-        if (p == usize(-1)) || (e->type_ids.size() > 0) { return; }
-        var ps = PanicSets(self.sc);
-        var ids  = vec::<u32>();
-        var keys = vec::<u64>();
-        for var i: usize = p; i < e->args.size(); ++i {
-            var id = ps.type_id(e->args[i]);
-            if id == u32(0) { return; }
-            ids.push_back(id);
-            keys.push_back(ps.type_key(e->args[i]));
-        }
-        for var i: usize = 0; i < ids.size(); ++i {
-            e->type_ids.push_back(ids[i]);
-            e->type_keys.push_back(keys[i]);
+        if p == usize(-1) { return; }
+        // Every TU's sweep visits every instance: the first fills the ids;
+        // the remark is the forming TU's, whichever sweeps first.
+        if e->type_ids.size() == 0 {
+            var ps = PanicSets(self.sc);
+            var ids  = vec::<u32>();
+            var keys = vec::<u64>();
+            for var i: usize = p; i < e->args.size(); ++i {
+                var id = ps.type_id(e->args[i]);
+                if id == u32(0) { return; }
+                ids.push_back(id);
+                keys.push_back(ps.type_key(e->args[i]));
+            }
+            for var i: usize = 0; i < ids.size(); ++i {
+                e->type_ids.push_back(ids[i]);
+                e->type_keys.push_back(keys[i]);
+            }
         }
         if (size <= 16) || (e->formed_fid != self.sc->ctx->fid) || (!e->formed_at.is_valid()) { return; }
         // The payload that pushed it over: the widest.
