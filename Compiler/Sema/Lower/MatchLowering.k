@@ -54,9 +54,12 @@
 ///     `__kairo_mN_k`, and the failure dispatches on it.
 ///
 ///   \par Tests
-///       enum           switch; a complete closed enum's default is
-///                      UnmatchedPolicy, so an undeclared discriminant traps
-///                      at -O0..-O2 and is unreachable at -O3.
+///       enum           switch; a complete `@open` (or imported) enum's
+///                      default is UnmatchedPolicy, so an undeclared
+///                      discriminant traps at -O0..-O2 and is unreachable at
+///                      -O3. A closed plain enum holds no undeclared value
+///                      (`as` into it is checked), so its default is the
+///                      ADT tag's policy below.
 ///       ADT tag        switch on EnumLayoutQuery::tag_word; a complete
 ///                      one's default is unreachable (no value holds another
 ///                      tag), a trap under --hardening=enum-tags.
@@ -164,7 +167,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     /// A jump to the fail block from a test that is not an ADT tag's: the
     /// block then takes the general policy, not the ADT one (_policy).
     priv var _fail_general: bool = false;
-    priv var _adt_ctx:   bool = false;   ///< the test now rendering is an ADT tag's.
+    priv var _adt_ctx:   bool = false;   ///< the test now rendering is over a variant-only enum (_holds_only_variants).
     priv var _end:     Token;
     priv var _buckets: usize = 0;
     priv var _qi:      usize = 0;       ///< next queued node to emit.
@@ -435,9 +438,13 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         return self.layout.has_layout(en);
     }
 
-    priv fn _is_adt_occ(self, o: u32) -> bool {
-        var en = self._enum_at(o);
-        return (en != &null) && en->is_adt;
+    /// No value of \p en is outside its variants: an ADT (no cast writes a
+    /// tag) or a closed plain enum (`as` into it is checked, CastTyping). An
+    /// `@open` enum, and every imported one, may hold any value of its
+    /// underlying type, so its complete match keeps UnmatchedPolicy.
+    priv fn _holds_only_variants(self, en: *EnumDecl) -> bool {
+        if en == &null { return false; }
+        return en->is_adt || (!en->is_open);
     }
 
     priv fn _enum_at(self, o: u32) -> *EnumDecl {
@@ -756,7 +763,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             case DKind::Test {
                 var e = self._t->edges[usize(n.edge0)];
                 self._if_goto(self._cond(n.occ, e), i32(e.child), out);
-                self._adt_ctx = (e.kind == CtorKind::Variant) && self._is_adt_occ(n.occ);
+                self._adt_ctx = (e.kind == CtorKind::Variant) && self._holds_only_variants(self._enum_at(n.occ));
                 out->push_back(self._jump(self._target(n.other)));
                 self._adt_ctx = false;
             }
@@ -902,7 +909,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             cases.push_back(c);
         }
-        out->push_back(self._dispatch(value, &cases, other, (d.kind == DomainKind::ClosedEnum) && d.en->is_adt));
+        out->push_back(self._dispatch(value, &cases, other, (d.kind == DomainKind::ClosedEnum) && self._holds_only_variants(d.en)));
     }
 
     /// An ADT with no tag to switch on (niche-filled; EnumLayoutQuery): an
@@ -1184,10 +1191,11 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     }
 
     /// `__builtin_trap();` or `__builtin_unreachable();`, by UnmatchedPolicy:
-    /// for an ADT's tag (\p adt) the policy that defaults to unreachable, for
-    /// anything else the one that follows -O. Sema proved the match covers
-    /// every variant, and no value of the enum holds another tag, so the
-    /// trap only kept a range check in front of every table load
+    /// for an ADT's tag or a closed plain enum (\p adt, _holds_only_variants)
+    /// the policy that defaults to unreachable, for anything else the one
+    /// that follows -O. Sema proved the match covers every variant, and no
+    /// value of the enum holds another, so the trap only kept a range check
+    /// in front of every table load
     /// (CodeGenOptions::adt_tag_policy; --hardening=enum-tags restores it).
     priv fn _policy(self, adt: bool) -> *Stmt {
         var pol  = (self.sc->opts.adt_unmatched) if (adt) else (self.sc->opts.unmatched);

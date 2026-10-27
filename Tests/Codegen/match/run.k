@@ -1,4 +1,4 @@
-enum Level { Debug, Info, Warn, Error, Fatal }
+@open enum Level { Debug, Info, Warn, Error, Fatal }
 
 struct Point { var x: i32; var y: i32; }
 

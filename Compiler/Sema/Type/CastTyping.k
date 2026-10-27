@@ -21,10 +21,18 @@
 ///
 ///     Integer -> Kairo enum needs EXACTLY the enum's underlying type (the
 ///     `derives` type, `u32` when defaulted); anything else is SC127E with a
-///     fix-it casting to the underlying type first. The cast never fails: an
-///     enum holds any value of its underlying type, as in C++, and a match
-///     handles undeclared values through UnmatchedPolicy. An imported C++
-///     enum keeps SC092E for the same mismatch.
+///     fix-it casting to the underlying type first. An imported C++ enum
+///     keeps SC092E for the same mismatch.
+///
+///     Into a CLOSED plain enum (the default; EnumDecl::is_open is false)
+///     the value must be one of its variants', so a closed enum never holds
+///     another and its spare values are a niche (EnumNiche). A constant
+///     operand is checked here: a miss is SC001E (placeholder) with a fix-it
+///     adding `@open` to an enum this file declares. Any other operand is
+///     given TypeCastExpr::enum_check and checked at run time
+///     (OperatorLowering), crashing on a miss. An `@open` enum (and every
+///     imported one) holds any value of its underlying type, as in C++:
+///     the cast never fails and never checks.
 ///
 ///     `as static T` runs the ladder with 3-4 disabled and errors when the
 ///     answer would have been dynamic; a static downcast is forbidden
@@ -55,6 +63,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -89,8 +98,13 @@ class <T> CastTyping {
         var target_unsafe_ptr = (mode == CastMode::Unsafe) || dyn()->tu.is_unsafe_ptr(target);
 
         // The literal-takes-the-type rule applies through a cast too: `10 as u8`
-        // is a u8 literal, not an i32 narrowed.
-        var src = dyn()->type_of(n->operand, target);
+        // is a u8 literal, not an i32 narrowed. Into a plain enum the literal
+        // takes the enum's underlying type, the one rung 5b accepts: `3 as
+        // Color` is the u8 3, so a closed enum can check it as a constant.
+        var op_expected = target;
+        var ped = dyn_cast::<EnumDecl>(dyn()->tu.record_decl(dyn()->tu.strip_nullable(target)));
+        if (ped != &null) && (!ped->is_adt) && (!ped->is_imported()) { op_expected = self._enum_underlying(ped); }
+        var src = dyn()->type_of(n->operand, op_expected);
         if dyn()->propagate(n, n->operand) { return &null; }
         if src == &null { return &null; }
         if src == target {
@@ -297,7 +311,9 @@ class <T> CastTyping {
         if (ted != &null) && (sk != BuiltinKind::COUNT) {
             if ted->is_adt { dyn()->fail(n, DiagID::SC092E, "an integer cannot be cast to an ADT enum"); return &null; }
             var under = self._enum_underlying(ted);
-            if under != src {
+            // A `const u8` operand is a u8: the qualifier is the variable's,
+            // not the value's.
+            if under != canon_unqual(src) {
                 var en = dyn()->tu.decl_name(static_cast::<*Decl>(ted));
                 if ted->is_imported() {
                     dyn()->fail(n, DiagID::SC092E, f"'{en}' is backed by '{dyn()->tu.str(under)}'; the source must have exactly that type");
@@ -317,6 +333,12 @@ class <T> CastTyping {
                 b.emit();
                 n->poison();
                 return &null;
+            }
+            if !ted->is_open {
+                // The values are written as StmtTyping walks the enum: one
+                // declared below this cast has none yet (run() checks it).
+                if self._enum_values_known(ted) { self.check_closed_enum_cast(n, ted); }
+                else { dyn()->defer_enum_cast(n); }
             }
             return target;
         }
@@ -390,6 +412,59 @@ class <T> CastTyping {
         // 5e. nothing
         dyn()->fail(n, DiagID::SC027E, f"no conversion from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}\x27");
         return &null;
+    }
+
+    /// Every variant of \p en has its value written (StmtTyping), or the
+    /// enum has no variants at all.
+    priv fn _enum_values_known(self, en: *EnumDecl) -> bool {
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if (v == &null) || (!v->value.ok) { return false; }
+        }
+        return true;
+    }
+
+    /// The closed plain enum the cast \p n targets (through a `?`), or null.
+    fn closed_enum_of(self, n: *TypeCastExpr) -> *EnumDecl {
+        if (n == &null) || (n->type_ == &null) { return &null; }
+        var ted = dyn_cast::<EnumDecl>(dyn()->tu.record_decl(dyn()->tu.strip_nullable(n->type_)));
+        if (ted == &null) || ted->is_adt || ted->is_open { return &null; }
+        return ted;
+    }
+
+    /// `v as E` into closed plain enum \p en: a constant \p n's operand
+    /// must be one of E's values (SC001E otherwise); anything else is
+    /// checked at run time (TypeCastExpr::enum_check). A variant whose own
+    /// value failed already said so, and the cast says nothing more.
+    fn check_closed_enum_cast(self, n: *TypeCastExpr, en: *EnumDecl) {
+        if (n == &null) || (en == &null) || n->is_poisoned() || (n->operand == &null) { return; }
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if (v == &null) || (!v->value.ok) { return; }
+        }
+        var ce = ConstEval(dyn()->sc);
+        var c  = ce.eval_int(n->operand);
+        if (!c.ok) || c.overflow {
+            n->enum_check = static_cast::<*Decl>(en);
+            return;
+        }
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if (v->value.neg == c.neg) && (v->value.mag == c.mag) { return; }
+        }
+        var d   = static_cast::<*Decl>(en);
+        var nm  = dyn()->tu.decl_name(d);
+        var u   = dyn()->tu.str(self._enum_underlying(en));
+        var val = ce.str(c);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"{val} is not a value of '{nm}': a closed enum holds only its variants\x27 values");
+        b.first(n->operand->range, f"this is {val}");
+        b.note(en->range.start, f"'{nm}' is declared here; it is closed, so a value no variant has is an error");
+        if !dyn()->tu.is_foreign(d) {
+            b.insert(en->range.start, "@open ", f"declare '{nm}' '@open' to let it hold any '{u}\x27");
+        }
+        b.emit();
+        n->poison();
     }
 
     priv fn _enum_underlying(self, e: *EnumDecl) -> *Type {

@@ -59,6 +59,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Type::TypeUtil::*;
+import AST::LangItems::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
@@ -214,12 +215,122 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_type_cast_expr(self, n: *TypeCastExpr) -> *Expr {
         var out = ASTWriter::<OperatorLowering>::transform_type_cast_expr(n);
+        if (n->enum_check != &null) && (out != &null) && isa::<TypeCastExpr>(out) {
+            // The enum was recorded at typing: the cast's own type may be a
+            // `Nullable<E>` record by now (NullableTypeLowering).
+            var oc = cast::<TypeCastExpr>(out);
+            var en = dyn_cast::<EnumDecl>(n->enum_check);
+            oc->enum_check = &null;   // checked once: a later walk must not wrap it again.
+            if en != &null { oc->operand = self._closed_enum_operand(n, en, oc->operand); }
+        }
         if n->resolved_ctor != &null { return self._ctor_cast(n); }
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
         ICE_IF(!f->is_operator, "OperatorLowering: a converting constructor arrives through resolved_ctor, not resolved_op");
         var args = vec::<*Expr>();
         return self._call_tokens(static_cast::<*Expr>(n), n->operand, f->op_token, n->resolved_op, false, &args, &null);
+    }
+
+    // --- `as` into a closed enum -------------------------------------------------
+
+    /// The operand \p v of `v as E`, E a closed plain enum (CastTyping
+    /// marked the cast: \p v is not a constant), checked against E's values
+    /// before the plain cast reads it:
+    ///
+    ///   `({ var t = v; if <t is no value of E> { unwrap_failed(m, n) }  t }) as E`
+    ///
+    /// The test is on the integer, so a value clang can see folds it away:
+    /// `t >= N` (and `t < 0` when signed) when the values are `0..N-1`, else
+    /// one `t != value` per variant. A miss crashes -- the crash family, as
+    /// a failed bounds check (PANIC.md §2.8): no set, no `try` -- through
+    /// the same write-and-abort entry `unwrap!` uses (the UnwrapFailed lang
+    /// item), whose message is whatever the caller built.
+    priv fn _closed_enum_operand(self, n: *TypeCastExpr, en: *EnumDecl, v: *Expr) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        if en->is_adt || en->is_open || (v == &null) || (v->type_ == &null) { return v; }
+        var ut = canon_unqual(tu.as_value(v->type_));
+        var uk = tu.kind_of(ut);
+        if uk == BuiltinKind::COUNT { return v; }
+        var at = n->range;
+
+        var count = u64(en->variants.size());
+        var dense = true;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var ev = en->variants[i];
+            if (ev == &null) || (!ev->value.ok) { return v; }   // a value that failed said so.
+            if ev->value.neg || (ev->value.mag >= count) { dense = false; }
+        }
+
+        var stmts = self.list_builder::<*Stmt>();
+        var t = self.synth.bind(at, "ecast", ut, v, &stmts);
+        var miss: *Expr = &null;
+        if dense {
+            miss = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue),
+                             self.synth.int_literal(at, count, uk), TokenKind::OpGreaterEqual);
+            if builtin_info(uk)->is_signed() {
+                var neg = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue),
+                                    self.synth.int_literal(at, u64(0), uk), TokenKind::OpLess);
+                miss = self._cmp(at, neg, miss, TokenKind::OpPipePipe);
+            }
+        } else {
+            for var i: usize = 0; i < en->variants.size(); ++i {
+                var ev  = en->variants[i];
+                var lit = self.synth.int_literal(at, ev->value.mag, uk);
+                if ev->value.neg {
+                    var m = UnaryOperatorExpr::create(self.ctx, at, lit, self.synth.punct(at, TokenKind::OpMinus),
+                                                      UnaryOperatorExpr::Fix::Prefix);
+                    m->type_          = self.sc->builtin(uk);
+                    m->value_category = Expr::ValueCategory::RValue;
+                    lit = static_cast::<*Expr>(m);
+                }
+                var ne = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue), lit, TokenKind::OpExclaimEqual);
+                miss = (ne) if (miss == &null) else (self._cmp(at, miss, ne, TokenKind::OpAmpAmp));
+            }
+        }
+
+        stmts.push(self._crash_if(n, en, miss));
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self.synth.use_of(t, at, Expr::ValueCategory::LValue))));
+        return self.synth.stmt_expr(v, &stmts, ut);
+    }
+
+    /// `l <op> r`, a builtin compare or logical operator, typed bool.
+    priv fn _cmp(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
+        var b = BinaryOperatorExpr::create(self.ctx, at, l, r, self.synth.punct(at, k));
+        b->type_          = self.sc->builtin(BuiltinKind::Bool);
+        b->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(b);
+    }
+
+    /// `if miss { unwrap_failed("<message>", <len>) }`: the message names
+    /// the cast as written, the enum and where.
+    priv fn _crash_if(self, n: *TypeCastExpr, en: *EnumDecl, miss: *Expr) -> *Stmt {
+        var d = self.sc->well_known->get(WellKnownType::UnwrapFailed);
+        ICE_IF(d == &null, "OperatorLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is unbound; Lib/builtin/module.k declares it");
+        var f = dyn_cast::<FunctionDecl>(NameLookup::representative(d));
+        ICE_IF(f == &null, "OperatorLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is not a function");
+
+        var at   = n->range;
+        var tu   = TypeUtil(self.sc);
+        var full = self.ctx->sm->get_line_col(at.start);
+        var nm   = tu.decl_name(static_cast::<*Decl>(en));
+        var text = f"{self.ctx->get_spelling(at)}: the value is no variant of the closed enum '{nm}' at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
+        var bytes = vec::<u8>();
+        LowerSynth::push_string(text, &bytes);
+        LowerSynth::push_string("\n", &bytes);
+
+        var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
+        var pu8  = self.sc->types->pointer(u8t);
+        var lit  = self.synth.bytes_literal(at, &bytes, pu8);
+        var args = self.list_builder::<*Expr>();
+        args.push(self.synth.cast_to(at, lit, pu8, CastMode::Unsafe));   // `"..."` is const char*; the parameter is const unsigned char*.
+        args.push(self.synth.int_literal(at, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
+        var call = self.synth.free_call(at, static_cast::<*Decl>(f), &args, self.sc->builtin(BuiltinKind::Never));
+
+        var blk  = CompoundStmt::create(self.ctx, at);
+        var body = self.list_builder::<*Stmt>();
+        body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, call)));
+        body.freeze_into(&(blk->body));
+        return static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, miss, blk, &null));
     }
 
     /// `x as T` through a converting constructor -> `T(x)`. The callee names

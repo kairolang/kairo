@@ -1802,6 +1802,13 @@ class TypeCastExpr derives Expr {
     /// neither check nor map null).
     pub var checked_downcast: bool = false;
 
+    /// E, for `v as E` (or `v as E?`) into a CLOSED plain enum (not
+    /// `@open`) from an operand that is not a constant, else null: the value
+    /// is checked against E's variants at run time and a miss crashes (the crash family, PANIC.md §2.8). Written
+    /// by CastTyping once the operand is known not to fold (a constant is
+    /// checked there, at compile time); OperatorLowering builds the check.
+    pub var enum_check: *Decl = &null;
+
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,

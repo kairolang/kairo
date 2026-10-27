@@ -3,9 +3,10 @@
 // of the enum holds another tag, so the switch's default is
 // `__builtin_unreachable()`, and `inst_cost` compiles at -O2 to a bare table
 // load -- no compare, no branch to a trap. `--hardening=enum-tags` puts the
-// trap back. A plain enum keeps UnmatchedPolicy (trap below -O3): a cast
-// makes an undeclared value of one legitimately. A match with a default arm
-// dispatches the rest there, as before.
+// trap back. A closed plain enum is the same: `as` into it is checked, so
+// it holds no undeclared value either. An `@open` one keeps UnmatchedPolicy
+// (trap below -O3): a cast makes an undeclared value of it legitimately. A
+// match with a default arm dispatches the rest there, as before.
 
 enum Inst {
     Const { value: i32 },
@@ -15,6 +16,7 @@ enum Inst {
 }
 
 enum Dir { North, East, South, West }
+@open enum ODir { North, East, South, West }
 
 fn inst_cost(i: Inst) -> i32 = match i {
     case .Const  => 1
@@ -30,6 +32,13 @@ fn turn(d: Dir) -> i32 = match d {
     case .West  => 4
 }
 
+fn oturn(d: ODir) -> i32 = match d {
+    case .North => 1
+    case .East  => 2
+    case .South => 3
+    case .West  => 4
+}
+
 fn some(i: Inst) -> i32 = match i {
     case .Neg(var x) => x
     default          => 9
@@ -38,7 +47,7 @@ fn some(i: Inst) -> i32 = match i {
 fn main() -> i32 {
     var r = 0
     if (inst_cost(Inst::Binary { op_code: 1, lhs: 2, rhs: 3 }) == 3) && (inst_cost(.Nop) == 0) { r += 1 }
-    if (turn(.South) == 3) && (turn(.West) == 4) { r += 2 }
+    if (turn(.South) == 3) && (turn(.West) == 4) && (oturn(.East) == 2) { r += 2 }
     if (some(Inst::Neg { x: 5 }) == 5) && (some(Inst::Const { value: 1 }) == 9) { r += 4 }
     return r                                    // 7
 }
@@ -52,6 +61,8 @@ fn main() -> i32 {
 // IR:       signed int inst_cost(
 // IR:       default: __builtin_unreachable();
 // IR:       signed int turn(
+// IR:       default: __builtin_unreachable();
+// IR:       signed int oturn(
 // IR:       default: __builtin_trap();
 // IR:       signed int some(
 // IR-NOT:   __builtin_
@@ -60,6 +71,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir --hardening=enum-tags 2>/dev/null || true; } | %FileCheck %s --check-prefix=HARD
 // HARD-LABEL: CODEGEN C++: {{.*}}adt_dispatch.k
 // HARD:       signed int inst_cost(
+// HARD:       default: __builtin_trap();
+// HARD:       signed int turn(
 // HARD:       default: __builtin_trap();
 
 // An item --hardening does not know is an error, inside a list too.

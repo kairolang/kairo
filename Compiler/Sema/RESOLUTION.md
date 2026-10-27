@@ -958,6 +958,19 @@ needs unsafe; `int as *T` is an error; `*T as unsafe *T` needs unsafe.
 Asserting downcasts are recorded in `panic_sites()` for
 PanicEffectChecking.
 
+Into a CLOSED plain enum (every plain enum not `@open`; the parser stamps
+`EnumDecl::is_open`, TypeResolve ORs it over a forward declaration's chain,
+DeclImport sets it on every imported enum) the value must be a variant's.
+A ConstEval-constant operand is checked at once (SC001E placeholder, fix-it
+`@open` on an enum this file declares); when the enum is declared below the
+cast its values are not written yet, and run() checks the deferred cast
+after the walk. Any other operand sets `TypeCastExpr::enum_check` (the
+enum), and OperatorLowering wraps the operand: `({ var t = v; if <miss> {
+unwrap_failed(m, n) } t })`, `<miss>` being `t >= N` (`|| t < 0` signed)
+for values `0..N-1`, else a `!=` per variant -- a crash (PANIC.md §2.8),
+through the UnwrapFailed lang item `unwrap!` aborts with. A closed enum's
+values past a dense set are its niche (EnumNiche); `@open` gives up both.
+
 **Control** (`ControlTyping.k`). if/match/try as expressions join their
 arms (`Conversion::join`: identical, one-way W, or Never on one side);
 every arm must then convert to the join. Closures type as their fn-pointer
@@ -1099,8 +1112,9 @@ match left on the value of a `T?` by CoalesceLowering is an ordinary one
 by then). A match that tests a dependent column in a generic body gets no
 tree and reaches EmitIR (ticketed). An exhaustive switch over an ADT's tag
 defaults to `__builtin_unreachable()` (CodeGenOptions::adt_tag_policy; a
-trap under `--hardening=enum-tags`), a plain enum's and an integer's to
-UnmatchedPolicy; an ADT with no tag (niche-filled) is an `if` chain of
+trap under `--hardening=enum-tags`), and so does a closed plain enum's
+(USER 2026-10-27: its `as` is checked, so it holds no undeclared value);
+an `@open` or imported enum's and an integer's default to UnmatchedPolicy; an ADT with no tag (niche-filled) is an `if` chain of
 EnumLayoutQuery::variant_test, the last variant untested.
 LabelLowering [DONE]: `break L` / `continue L` become gotos.
 

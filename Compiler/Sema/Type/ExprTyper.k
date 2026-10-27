@@ -246,6 +246,10 @@ class ExprTyper
     priv var _typeexp: llvm::DenseMap::<u64, *Type>;   ///< expr -> the type it denotes.
     priv var _modexp:  llvm::DenseSet::<u64>;          ///< expr denotes a module.
     priv var _panics:  vec::<*Expr>;                          ///< asserting downcasts.
+    /// `as` into a closed enum typed before the enum's variant values were
+    /// written (the enum is declared below the cast): checked after the
+    /// walk, when every value is (CastTyping::check_closed_enum_cast).
+    priv var _enum_casts: vec::<*TypeCastExpr>;
     priv var _lang_reported: vec::<string>;
     priv var _scratch_ded: Deduction;
 
@@ -303,6 +307,11 @@ class ExprTyper
             }
         }
         if self.stop { return; }
+        for var i: usize = 0; i < self._enum_casts.size(); ++i {
+            var c = self._enum_casts[i];
+            self.check_closed_enum_cast(c, self.closed_enum_of(c));
+        }
+        self._enum_casts.clear();
 
         var v = ExprBodyVerifier(self.sc, &(self.tu));
         v.run();
@@ -994,6 +1003,7 @@ class ExprTyper
     /// An asserting downcast is a panic site. PanicEffectChecking reads
     /// panic_sites() when it lands; until then the list is inert.
     fn note_panic_site(self, e: *Expr) { self._panics.push_back(e); }
+    fn defer_enum_cast(self, n: *TypeCastExpr) { self._enum_casts.push_back(n); }
 
     // === RAV routing ========================================================
 
