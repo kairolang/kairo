@@ -657,7 +657,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if all_fn { return; }               // overload set; nothing to judge yet.
 
         if !kind_ok {
-            self._redefinition(e, &group, "declared with conflicting kinds");
+            self._redefinition(dc, e, &group, "declared with conflicting kinds");
             return;
         }
 
@@ -672,7 +672,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             case DeclKind::EnumDecl      { self._link_group::<EnumDecl>(e, &group);      }
             case DeclKind::ModuleDecl    { self._link_group::<ModuleDecl>(e, &group);    }
             default {
-                self._redefinition(e, &group, "redefined");
+                self._redefinition(dc, e, &group, "redefined");
             }
         }
     }
@@ -790,7 +790,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// The sole home of the redefinition diagnostic. One error at the
     /// second decl, one note at the first, every loser poisoned so uses
     /// degrade instead of cascading.
-    priv fn _redefinition(self, e: SymbolTable::Entry, group: *vec::<*Decl>, what: string) {
+    priv fn _redefinition(self, dc: *DeclContext, e: SymbolTable::Entry, group: *vec::<*Decl>, what: string) {
         var name = e.name.describe(self.sc->ctx);
         var prev = (*group)[0];
         for var i: usize = 1; i < group->size(); ++i {
@@ -806,9 +806,34 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             b.note(DiagID::R029N, prev->range.start,
                 f"previous declaration of '{name}' is here"
             ).first(prev->range);
+            // Two file-scope bindings: in a script every one is a global,
+            // whatever keyword declares it, so `var x` after `static x` is
+            // the same name twice, and the edit is almost always a rename
+            // (SCRIPT.md 1.2). Only there: a member or local has a scope
+            // the user meant, and a rename may be the wrong fix.
+            var dv = dyn_cast::<VariableDecl>(d);
+            if (dc != &null) && dc->is_translation_unit() && (dv != &null) && isa::<VariableDecl>(prev) {
+                var fresh = self._free_name(dc, name);
+                if !fresh.empty() {
+                    b.fix(dv->name.range, fresh, f"rename this one to '{fresh}\x27");
+                }
+            }
             b.emit();
             d->poison();
         }
+    }
+
+    /// The first `<name>N` (N = 2, 3, ...) that names nothing in \p dc: a
+    /// spelling never interned is free outright. Empty after a bound no
+    /// file reaches, rather than a loop with none.
+    priv fn _free_name(self, dc: *DeclContext, name: string) -> string {
+        for var n: u32 = 2; n < 1000; ++n {
+            var cand = f"{name}{n}";
+            var imm = self.sc->imm_table()->find_ident(cand);
+            if imm == static_cast::<u32>(-1) { return cand; }
+            if dc->lookup_symbol_ident(imm) == &null { return cand; }
+        }
+        return "";
     }
 
     // --- out-of-line attachment -------------------------------------------
