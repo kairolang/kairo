@@ -126,6 +126,7 @@ class SemaOptions {
     pub var max_type_alias_depth: i32 = 64;
 
     pub var unmatched: UnmatchedPolicy = UnmatchedPolicy::Trap; ///< what a match does with an undeclared value; MatchLowering reads it.
+    pub var adt_unmatched: UnmatchedPolicy = UnmatchedPolicy::Unreachable; ///< the same for an ADT tag no variant has (CodeGenOptions::adt_tag_policy).
 
     // -- language gates and declaration limits (FlagGates reads these) ------
     // Defaults are "off" / unlimited so a hand-built SemaOptions (tests that
@@ -158,6 +159,7 @@ class SemaOptions {
         self.rtti              = ci->lang.rtti;
         self.max_type_alias_depth = ci->lang.max_type_alias_depth;
         self.unmatched         = ci->codegen.unmatched_policy();
+        self.adt_unmatched     = ci->codegen.adt_tag_policy();
 
         // Language gates and declaration limits. -fno-unsafe is the same
         // switch as --no-unsafe spelled as a feature, so both fold in here

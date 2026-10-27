@@ -655,7 +655,34 @@ class Command {
                 cell->set_string(raw);
             }
             case FlagKind::StringList {
-                cell->push(raw);
+                if def->choices.size() == 0 { cell->push(raw); return; }
+                // A restricted list: each comma-separated item must be a
+                // choice. MIGRATE(raw_string): a char loop, no substr.
+                var item: string = "";
+                var items = vec::<string>();
+                for var i: usize = 0; i < raw.length(); ++i {
+                    var ch = raw.subslice(i, 1);
+                    if ch == "," { items.push_back(item); item = ""; continue; }
+                    item += ch;
+                }
+                items.push_back(item);
+                for var k: usize = 0; k < items.size(); ++k {
+                    var found = false;
+                    var set: string = "";
+                    for var c: usize = 0; c < def->choices.size(); ++c {
+                        if def->choices[c] == items[k] { found = true; }
+                        if c > 0 { set += ", "; }
+                        set += def->choices[c];
+                    }
+                    if !found {
+                        self._diag->report(DiagCode(DiagID::U003E),
+                            f"invalid value '{items[k]}\x27 for flag '--{def->key}\x27; accepted: {set}")
+                            .emit();
+                        result->ok = false;
+                        return;
+                    }
+                    cell->push(items[k]);
+                }
             }
             case FlagKind::I32 {
                 var v: i32 = 0;

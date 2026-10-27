@@ -54,9 +54,12 @@
 ///     `__kairo_mN_k`, and the failure dispatches on it.
 ///
 ///   \par Tests
-///       enum, tag      switch; a complete closed enum's default is
+///       enum           switch; a complete closed enum's default is
 ///                      UnmatchedPolicy, so an undeclared discriminant traps
 ///                      at -O0..-O2 and is unreachable at -O3.
+///       ADT tag        switch on EnumLayoutQuery::tag_word; a complete
+///                      one's default is unreachable (no value holds another
+///                      tag), a trap under --hardening=enum-tags.
 ///       integer        switch with GNU `case lo ... hi:`, keys un-biased to
 ///                      typed literals; i64's minimum is `(-9223372036854775807 - 1)`.
 ///       bool           `if`.
@@ -157,6 +160,10 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     priv var _cont:    *VariableDecl = &null;
     priv var _fail:    Token;
     priv var _fail_used: bool = false;
+    /// A jump to the fail block from a test that is not an ADT tag's: the
+    /// block then takes the general policy, not the ADT one (_policy).
+    priv var _fail_general: bool = false;
+    priv var _adt_ctx:   bool = false;   ///< the test now rendering is an ADT tag's.
     priv var _end:     Token;
     priv var _buckets: usize = 0;
     priv var _qi:      usize = 0;       ///< next queued node to emit.
@@ -251,7 +258,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         self._shared_guards(&code);
         if self._fail_used {
             code.push_back(self._label_stmt(self._fail));
-            code.push_back(self._policy());
+            code.push_back(self._policy(!self._fail_general));
         }
 
         if self._value {
@@ -305,6 +312,8 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         self._cont      = &null;
         self._fail      = self._name(LowerTargets::match_fail(self._n));
         self._fail_used = false;
+        self._fail_general = false;
+        self._adt_ctx = false;
         self._end       = self._name(LowerTargets::match_end(self._n));
         self._buckets   = 0;
         self._qi        = 0;
@@ -423,6 +432,11 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         if en == &null { return false; }
         if !en->is_adt { return true; }
         return self.layout.has_layout(en);
+    }
+
+    priv fn _is_adt_occ(self, o: u32) -> bool {
+        var en = self._enum_at(o);
+        return (en != &null) && en->is_adt;
     }
 
     priv fn _enum_at(self, o: u32) -> *EnumDecl {
@@ -736,13 +750,15 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     priv fn _node(self, i: u32, out: *vec::<*Stmt>) {
         var n = self._t->nodes[usize(i)];
         switch n.kind {
-            case DKind::Fail   { out->push_back(self._policy()); }
+            case DKind::Fail   { out->push_back(self._policy(false)); }
             case DKind::Leaf   { self._accept(n.arm, i, out); }
             case DKind::Guard  { self._guard(i, out); }
             case DKind::Test {
                 var e = self._t->edges[usize(n.edge0)];
                 self._if_goto(self._cond(n.occ, e), i32(e.child), out);
+                self._adt_ctx = (e.kind == CtorKind::Variant) && self._is_adt_occ(n.occ);
                 out->push_back(self._jump(self._target(n.other)));
+                self._adt_ctx = false;
             }
             case DKind::Switch { self._switch(i, out); }
         }
@@ -818,7 +834,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             var last = self._t->nodes[usize(a->guards[a->guards.size() - 1])].other;
             out->push_back(self._dispatch(self.synth.use_of(self._cont, self._at, Expr::ValueCategory::LValue),
-                                          &cases, last));
+                                          &cases, last, false));
         }
         self._drain(out);   // their failures may reach nodes nothing else did.
     }
@@ -885,7 +901,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             cases.push_back(c);
         }
-        out->push_back(self._dispatch(value, &cases, other));
+        out->push_back(self._dispatch(value, &cases, other, (d.kind == DomainKind::ClosedEnum) && d.en->is_adt));
     }
 
     /// The switch operand for an enum: the value itself, or for an ADT the
@@ -937,7 +953,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             cases.push_back(c);
         }
-        out->push_back(self._dispatch(self._string_field(n.occ, LangMembers::string_len(), self._usize()), &cases, n.other));
+        out->push_back(self._dispatch(self._string_field(n.occ, LangMembers::string_len(), self._usize()), &cases, n.other, false));
 
         for var j: usize = 0; j < lens.size(); ++j {
             if lens[j] == 0 { continue; }
@@ -1105,6 +1121,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var n = self._t->nodes[usize(i)];
         if n.kind == DKind::Fail {
             self._fail_used = true;
+            if !self._adt_ctx { self._fail_general = true; }
             return self._fail;
         }
         if (n.kind == DKind::Leaf) && (!self._value) && (!self._arms[usize(n.arm)].slots) {
@@ -1127,23 +1144,30 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
 
     /// `switch (v) { case ...: goto ...; default: goto <other>; }`; a
     /// negative \p other, or one that is a Fail node, puts UnmatchedPolicy
-    /// in the default itself.
-    priv fn _dispatch(self, value: *Expr, cases: *vec::<DispatchCase>, other: i32) -> *Stmt {
+    /// in the default itself -- the ADT one when \p adt, the switch being
+    /// over a tag (_policy).
+    priv fn _dispatch(self, value: *Expr, cases: *vec::<DispatchCase>, other: i32, adt: bool) -> *Stmt {
         var s = SwitchDispatchStmt::create(self.ctx, self._at, value);
         var lb = self.list_builder::<DispatchCase>();
         for var i: usize = 0; i < cases->size(); ++i { lb.push((*cases)[i]); }
         lb.freeze_into(&(s->cases));
         if (other < 0) || (self._t->nodes[usize(other)].kind == DKind::Fail) {
-            s->default_stmt = self._policy();
+            s->default_stmt = self._policy(adt);
         } else {
             s->default_target = self._target(other);
         }
         return static_cast::<*Stmt>(s);
     }
 
-    /// `__builtin_trap();` or `__builtin_unreachable();`, by UnmatchedPolicy.
-    priv fn _policy(self) -> *Stmt {
-        var name = ("__builtin_unreachable") if (self.sc->opts.unmatched == UnmatchedPolicy::Unreachable) else ("__builtin_trap");
+    /// `__builtin_trap();` or `__builtin_unreachable();`, by UnmatchedPolicy:
+    /// for an ADT's tag (\p adt) the policy that defaults to unreachable, for
+    /// anything else the one that follows -O. Sema proved the match covers
+    /// every variant, and no value of the enum holds another tag, so the
+    /// trap only kept a range check in front of every table load
+    /// (CodeGenOptions::adt_tag_policy; --hardening=enum-tags restores it).
+    priv fn _policy(self, adt: bool) -> *Stmt {
+        var pol  = (self.sc->opts.adt_unmatched) if (adt) else (self.sc->opts.unmatched);
+        var name = ("__builtin_unreachable") if (pol == UnmatchedPolicy::Unreachable) else ("__builtin_trap");
         var none = self.list_builder::<*Expr>();
         return self._expr_stmt(self._call(self._builtin(name), &none));
     }

@@ -76,6 +76,12 @@ fn _unwind_tables_choices() -> vec::<string> {
     return c;
 }
 
+fn _hardening_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("enum-tags");
+    return c;
+}
+
 fn _unmatched_choices() -> vec::<string> {
     var c: vec::<string>;
     c.push_back("trap"); c.push_back("unreachable");
@@ -543,8 +549,11 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define(FlagDef::str_c("thread-model", "", "thread-model", "threading model: posix|single (default: posix)",
                                "posix", _thread_model_choices(), "posix"));
     // Empty default: the policy follows -O (CodeGenOptions::unmatched_policy).
-    cmd->define(FlagDef::str_c("unmatched", "", "unmatched", "an undeclared value reaching an exhaustive match: trap|unreachable (default: trap, unreachable at -O3)",
+    cmd->define(FlagDef::str_c("unmatched", "", "unmatched", "an undeclared value reaching an exhaustive match: trap|unreachable (default: trap, unreachable at -O3; an ADT's tag: unreachable, see --hardening)",
                                "", _unmatched_choices(), ""));
+    // Repeatable and comma-separated; each item is checked against the list.
+    cmd->define(FlagDef::list_c("hardening", "", "hardening", "runtime checks the optimizer may not assume away: enum-tags (an ADT match traps on a tag no variant has)",
+                                _hardening_choices()));
     cmd->define(FlagDef::str_c("unwind-tables", "", "unwind-tables", "unwind table emission: none|sync|async (default: per target; async on x86_64)",
                                "", _unwind_tables_choices(), ""));
     cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
