@@ -173,6 +173,14 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         return true;
     }
 
+    /// `eval { ... }` in a function body: no meaning is built for it (a
+    /// module or class body's eval block holds declarations, which are
+    /// emitted as any others).
+    fn visit_eval_block_stmt(self, n: *EvalBlockStmt) -> bool {
+        self._gate(SourceRange::from_bounds(n->range.start, u32(4)), "an 'eval' block in a function body");
+        return true;
+    }
+
     fn visit_label_intrinsic_stmt(self, n: *LabelIntrinsicStmt) -> bool {
         self._gate(n->range, "'label!\x27");
         return true;

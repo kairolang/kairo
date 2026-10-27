@@ -195,6 +195,14 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         return RecursiveASTVisitor::<EvalUsageChecking>::traverse_field_decl(n);
     }
 
+    /// `eval e` is an eval context: C++ computes `e` in place.
+    fn traverse_eval_expr(self, n: *EvalExpr) -> *EvalExpr {
+        self._ctx += 1;
+        var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_eval_expr(n);
+        self._ctx -= 1;
+        return r;
+    }
+
     // === requires ============================================================
 
     fn visit_class_decl(self, n: *ClassDecl) -> bool { self._check_requires(n->requires_clause); return true; }
@@ -331,7 +339,17 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     priv fn _check_ctx_name(self, e: *Expr, d: *Decl) {
         if d == &null { return; }
         if self._eval_decl(d) { return; }
-        if isa::<ParamDecl>(d) { return; }        // a parameter of the eval fn (else not in an eval context).
+        // An eval fn's parameter is a compile-time value; any other is not.
+        if isa::<ParamDecl>(d) && (self._ctx_fn > 0) { return; }
+        if isa::<ParamDecl>(d) {
+            var pn = self.tu.decl_name(d);
+            var pb = self.sc->diag->report(DiagID::SC001E, e->range.start,
+                f"an eval context reads only compile-time values; '{pn}' is a run-time parameter");
+            pb.first(e->range);
+            pb.note(DiagID::SC001N, d->range.start, f"'{pn}' is declared here").first(d->range);
+            pb.emit();
+            return;
+        }
         var vd = dyn_cast::<VariableDecl>(d);
         var fd = dyn_cast::<FieldDecl>(d);
         if (vd == &null) && (fd == &null) { return; }

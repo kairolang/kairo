@@ -789,7 +789,7 @@ class EmitIR {
             }
             case StmtKind::SwitchDispatchStmt { self._switch_dispatch(cast::<SwitchDispatchStmt>(s)); }
             case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }
-            case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: eval block; EvalLowering owns it"); }
+            case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: an eval block in a function body; FeatureGateCheck rejects it"); }
             default { self._ice(s->range, f"EmitIR: statement kind {to_string(s->kind)} is not in the core"); }
         }
     }
@@ -1180,7 +1180,7 @@ class EmitIR {
     }
 
     priv fn _for(self, n: *IndexedForStmt) {
-        if (n->is_eval) { self._ice(n->range, "EmitIR: eval for; EvalLowering owns it"); }
+        if (n->is_eval) { self._ice(n->range, "EmitIR: a C-style eval for; EvalUsageChecking rejects it"); }
         self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(3)), "for (");
         if n->init != &null {
             var ds = dyn_cast::<DeclStmt>(n->init);
@@ -1253,7 +1253,13 @@ class EmitIR {
             case ExprKind::AttributedExpr       { self._ice(e->range, "EmitIR: expression attribute; FeatureGateCheck gates every one"); }
             case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
             case ExprKind::ThreadExpr           { self._ice(e->range, "EmitIR: thread; the async lowering owns it"); }
-            case ExprKind::EvalExpr             { self._ice(e->range, "EmitIR: eval; EvalLowering owns it"); }
+            // `eval e`: computed by C++ at compile time, in place (EVAL.md
+            // §0); EvalUsageChecking made sure `e` can be.
+            case ExprKind::EvalExpr {
+                self._cg->sink->spell(e->range, "[&]() consteval { return (");
+                self.emit(cast::<EvalExpr>(e)->operand);
+                self._cg->sink->spell(e->range, "); }()");
+            }
             case ExprKind::PackExpansionExpr    { self._ice(e->range, "EmitIR: pack expansion; not emitted yet"); }
             case ExprKind::ListLiteralExpr      { self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }

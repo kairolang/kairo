@@ -181,7 +181,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
     priv fn _lower(self, n: *RangedForStmt, pre: *ListBuilder::<*Stmt>) -> *Stmt {
         if n->iterable == &null { return &null; }
         if n->iterable->is_poisoned() || (n->iterable->type_ == &null) { return &null; }
-        ICE_IF(n->is_eval, "IterLowering: eval for; EvalLowering owns it");
+        ICE_IF(n->is_eval, "IterLowering: an eval for reached the loop lowering; transform_ranged_for_stmt keeps it for EmitIR");
 
         switch n->iter_kind {
             case IterKind::RangeLit   { return self._range(n, pre); }

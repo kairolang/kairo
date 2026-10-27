@@ -226,7 +226,6 @@ class Sema {
         // First: no later pass may see an untaken `eval if` branch (EVAL.md §4).
         { var _p = TimeRegion("EvalIfFolding"); EvalIfFolding(&self.sc).run(); }
         // TODO(sema): MacroExpansion(&self.sc).run();
-        // TODO(sema): EvalLowering(&self.sc).run();  // extract eval fns -> dylib
         var desugar = RequiresDesugar(self.sc.ctx);
         desugar.run(self.sc.tu);
         self.sc.advance_phase(SemaPhase::Expanded);

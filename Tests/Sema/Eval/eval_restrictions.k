@@ -25,6 +25,10 @@ fn main() -> i32 {
     eval L = n + 1
     return C
 }
+fn param_use(x: i32) -> i32 {
+    eval k = x + 1
+    return k
+}
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
@@ -44,3 +48,5 @@ fn main() -> i32 {
 // CHECK: eval_restrictions.k:20:10: error [SC001E]: an eval context can call only 'eval' functions; 'Pt' is a constructor that is not 'eval'
 // CHECK-NEXT: fix-it:{{.*}}"eval "
 // CHECK: eval_restrictions.k:25:14: error [SC001E]: an eval context reads only compile-time values; 'n' is a run-time local
+// CHECK: eval_restrictions.k:29:14: error [SC001E]: an eval context reads only compile-time values; 'x' is a run-time parameter
+// CHECK-NEXT: eval_restrictions.k:28:14: note [SC001N]: 'x' is declared here
