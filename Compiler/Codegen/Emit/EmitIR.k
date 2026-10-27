@@ -1726,7 +1726,16 @@ class EmitIR {
         var k = self._last_scope_step(n, upto);
         var i: usize = 0;
         var is_ptr = false;
-        if k != usize(-1) {
+        if (k != usize(-1)) && (n->base != &null) && (n->steps.get(k)->resolved_decl == &null) && self._dependent_step(n, n->steps.get(k)) {
+            // `T::classof(n)` under `<T: type>`: a static member of a type
+            // only the instance knows, written through the parameter. As
+            // written, `T::f`, and clang looks it up per instance.
+            self.emit(n->base);
+            for var j: usize = 0; j <= k; ++j {
+                self._dependent_member_named(n->steps.get(j), "::");
+            }
+            i = k + 1;
+        } else if k != usize(-1) {
             var st = n->steps.get(k);
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure"); }
             self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
@@ -1765,6 +1774,11 @@ class EmitIR {
             }
             if (st->is_tuple_index()) { self._ice(st->range, "EmitIR: tuple index step; TupleLowering owns it"); }
             if (self._is_extension_member(st->resolved_decl)) { self._ice(st->range, "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form"); }
+            if (st->resolved_decl == &null) && self._dependent_step(n, st) {
+                self._dependent_member(st, is_ptr);
+                is_ptr = false;
+                continue;
+            }
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
             self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")));
             self._name(st->name->name);
@@ -1776,6 +1790,112 @@ class EmitIR {
             is_ptr = self._type_is_pointer(st->resolved_type);
         }
         return is_ptr;
+    }
+
+    /// A member step Sema left unbound ON PURPOSE: the chain is dependent
+    /// and its first unbound step goes through a `<T: type>` parameter, so
+    /// the step names a member of a type only the instance knows (MONO.md
+    /// D1). Anything else unbound still ICEs: a bounded body is Kairo's to
+    /// check (D0), and an unbound step there (a bound call's dependent
+    /// result, `c.get(1).w`) is a Sema gap, not a request for clang.
+    priv fn _dependent_step(self, n: *ChainExpr, st: *ChainExpr::Step) -> bool {
+        if !n->is_instantiation_dependent() { return false; }
+        if (st->candidate_cell != &null) || (st->name == &null) || st->name->is_poisoned() { return false; }
+        var k = st->access_kind;
+        if (k != ChainExpr::AccessKind::Dot) && (k != ChainExpr::AccessKind::Arrow) && (k != ChainExpr::AccessKind::ColonColon) { return false; }
+        return self._duck_rooted(n);
+    }
+
+    /// Whether \p n's first unbound step is reached through a `: type`
+    /// parameter: the base names the parameter itself (`T::f`), or the
+    /// receiver of that step has the parameter's type, or points to it
+    /// (`t.f`, `d->f`). Steps after it hang off a result only the instance
+    /// knows, so they go with it.
+    priv fn _duck_rooted(self, n: *ChainExpr) -> bool {
+        var recv: *Type = &null;
+        if n->base != &null {
+            var ni = dyn_cast::<NamedIdentExpr>(n->base);
+            if (ni != &null) && (ni->resolved_decl != &null) && isa::<GenericParamDecl>(ni->resolved_decl) {
+                return cast::<GenericParamDecl>(ni->resolved_decl)->kind_bound == GenericParamKindBound::Duck;
+            }
+            recv = n->base->type_;
+        }
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if st->resolved_decl == &null {
+                // `t.inner().w`: the base is itself an unknown duck call, so
+                // `.w` hangs off it like a later step of one chain.
+                if (i == 0) && (recv == &null) && (n->base != &null) { return self._duck_rooted_expr(n->base); }
+                return self._is_duck_param_type(recv);
+            }
+            recv = st->resolved_type;
+        }
+        return false;
+    }
+
+    /// An unknown expression that is a duck chain, or a call through one.
+    priv fn _duck_rooted_expr(self, e: *Expr) -> bool {
+        var c = dyn_cast::<CallExpr>(e);
+        if c != &null { e = c->callee; }
+        var ch = dyn_cast::<ChainExpr>(e);
+        if ch == &null { return false; }
+        return ch->is_instantiation_dependent() && self._duck_rooted(ch);
+    }
+
+    /// \p t is a `: type` parameter, or a pointer to one.
+    priv fn _is_duck_param_type(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        c = canon_unqual(c);
+        if (c != &null) && (c->kind == TypeKind::PointerType) {
+            var pt = cast::<PointerType>(c)->pointee;
+            if pt == &null { return false; }
+            c = pt->canonical;
+            if c == &null { c = pt; }
+            c = canon_unqual(c);
+        }
+        if c == &null { return false; }
+        var g = dyn_cast::<GenericParamType>(c);
+        if (g == &null) || (g->owner == &null) { return false; }
+        var gps = decl_generic_params(g->owner);
+        if static_cast::<usize>(g->param_index) >= gps.size() { return false; }
+        var gp = gps[static_cast::<usize>(g->param_index)];
+        return (gp != &null) && (gp->kind_bound == GenericParamKindBound::Duck);
+    }
+
+    /// A dependent member step spelled as written, for clang to look up in
+    /// each instance (MONO.md D1): `.f` / `->f`, and `.template f<A...>` when
+    /// it carries generic arguments, since the object's type is dependent.
+    /// The separator is the receiver's when its type is known to be a
+    /// pointer, else the one the user wrote; past the first unbound step the
+    /// type is the instance's, so a later step can only go by the spelling.
+    priv fn _dependent_member(self, st: *ChainExpr::Step, is_ptr: bool) {
+        var arrow = is_ptr || (st->access_kind == ChainExpr::AccessKind::Arrow);
+        self._dependent_member_named(st, (("->") if (arrow) else (".")));
+    }
+
+    /// \p sep, then the step's name as written, `template name<A...>` when it
+    /// carries generic arguments (the scope is dependent, so C++ needs the
+    /// keyword to read `<` as an argument list).
+    priv fn _dependent_member_named(self, st: *ChainExpr::Step, sep: string) {
+        self._cg->sink->spell(st->range, sep);
+        if (st->name == &null) { self._ice(st->range, "EmitIR: a dependent member step with no name"); }
+        if st->generic_args.size() == 0 {
+            self._name(st->name->name);
+            return;
+        }
+        self._cg->sink->spell(st->range, "template ");
+        self._name(st->name->name);
+        var s = "<";
+        for var i: usize = 0; i < st->generic_args.size(); ++i {
+            if i > 0 { s += ", "; }
+            var ga = st->generic_args.get(i);
+            if (ga->ty == &null) { self._ice(st->range, "EmitIR: a dependent member's generic argument with no type"); }
+            s += self._spell._type(ga->ty);
+        }
+        s += ">";
+        self._cg->sink->spell(st->range, s);
     }
 
     /// Index of the last `::` step before \p upto, or usize(-1).
@@ -1820,7 +1940,21 @@ class EmitIR {
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
             return;
         }
-        if (callee == &null) { self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure"); }
+        if callee == &null {
+            // A member call on a dependent receiver (`t.value()` under
+            // `<T: type>`): Sema typed it as written and bound nothing, by
+            // decision (MONO.md D1). It goes out as written, receiver chain
+            // and arguments untouched, and clang resolves and checks it in
+            // each instance. No parameter to convert to, no arity to check.
+            if self._dependent_member_call(n) {
+                self.emit(n->callee);
+                self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+                self._args(n, &null, true, &null);
+                self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+                return;
+            }
+            self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");
+        }
 
         var ch = dyn_cast::<ChainExpr>(n->callee);
         var last: *ChainExpr::Step = &null;
@@ -1893,6 +2027,17 @@ class EmitIR {
         self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
         self._args(n, f, bound, inst);
         self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+    }
+
+    /// \p n calls a member Sema left unbound because its receiver is
+    /// dependent (_dependent_step): the callee is a value chain whose LAST
+    /// step is that member.
+    priv fn _dependent_member_call(self, n: *CallExpr) -> bool {
+        var ch = dyn_cast::<ChainExpr>(n->callee);
+        if (ch == &null) || (ch->steps.size() == 0) { return false; }
+        var last = ch->steps.get(ch->steps.size() - 1);
+        if last->resolved_decl != &null { return false; }
+        return self._dependent_step(ch, last);
     }
 
     /// CallLowering's postcondition, checked where it matters: every

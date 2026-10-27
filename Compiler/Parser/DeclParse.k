@@ -1048,8 +1048,10 @@ class <T> DeclParse {
 
         // optional kind bound: `: class|struct|enum|union`
         if dyn()->check(TokenKind::OpColon) {
+            var colon = dyn()->current().range;
             dyn()->advance(T::SkipNL::After); // consume `:`
             gp->kind_bound = self._parse_kind_bound(start);
+            gp->kind_bound_range = colon | dyn()->prev().range;
         }
 
         // optional impl/derives bounds. Both may appear (in either order) and

@@ -317,7 +317,7 @@ enum GenericParamKindBound derives u8 {
     Struct,
     Enum,
     Union,
-    Duck,      ///< `: type`: full C++ duck typing, every member access deferred to M2.
+    Duck,      ///< `: type`: C++ duck typing, every member access left to clang per instance (-fduck-generics; MONO.md D1).
 }
 
 class GenericParamDecl derives Decl {
@@ -331,6 +331,9 @@ class GenericParamDecl derives Decl {
     /// Null for a closure's params (a closure is not a decl) and before T.
     pub var owner:          *Decl = &null;
     pub var kind_bound:     GenericParamKindBound = GenericParamKindBound::Any;
+    /// `: class` ... `: type` as written, colon through keyword; invalid when
+    /// there is no kind bound. FlagGates labels and deletes `: type` by it.
+    pub var kind_bound_range: SourceRange = SourceRange::invalid();
     pub var impl_bounds:    FrozenList::<InheritEdge>;  ///< `impl` interface bounds (structural).
     pub var derives_bounds: FrozenList::<InheritEdge>;  ///< `derives` base bounds (nominal, vtable).
     pub var is_pack:        bool = false;           ///< `...T` variadic pack.
@@ -351,6 +354,7 @@ class GenericParamDecl derives Decl {
         node->init_annotations(&(ctx->ast_alloc));;
         node->name  = name;
         node->index = index;
+        node->kind_bound_range = SourceRange::invalid();
         return node;
     }
 

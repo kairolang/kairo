@@ -142,6 +142,10 @@ class SemaOptions {
     /// a `catch e: cxx::...` arm needs them (PANIC.md §3.5).
     pub var cxx_exceptions: bool = true;
     pub var unwind_all: bool = false;  ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
+    /// -fduck-generics: `<T: type>` is the C++-checked regime rather than an
+    /// error (FlagGates; MONO.md D1). Off by default, on purpose: a hand-built
+    /// SemaOptions rejects `: type` the way the driver does.
+    pub var duck_generics: bool = false;
     pub var no_fp:      bool = false;  ///< --no-fp.
     pub var no_ffi:     bool = false;  ///< --no-ffi.
     pub var no_cxx:     bool = false;  ///< --no-cxx.
@@ -182,6 +186,7 @@ class SemaOptions {
         // rather than making the pass know two spellings.
         self.no_unsafe  = ci->lang.no_unsafe || (ci->lang.unsafe_feature == 0);
         self.unwind_all = (ci->lang.unwind == 1);
+        self.duck_generics = (ci->lang.duck_generics == 1);
         // FlagTranslator's test of a hosted target, on the resolved triple.
         var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode);
         if ci->target.resolved && (!ci->target.has_os) { hosted = false; }
@@ -293,6 +298,14 @@ class SemaContext {
     /// target and configuration, so ControlFlowAnalysis does not call the
     /// code after it dead.
     pub var folded_eval_ifs: vec::<SourceRange>;
+
+    /// Each `<T: type>` parameter a member step went through, with the first
+    /// such step's range, in the order ChainBinding met them. One writer,
+    /// ChainBinding (the `: type` branch of a dependent step); one reader,
+    /// FlagGates, whose error for `: type` without -fduck-generics offers to
+    /// delete the bound only when nothing here says the body needs it.
+    pub var duck_member_params: vec::<*GenericParamDecl>;
+    pub var duck_member_at:     vec::<SourceRange>;
 
     /// This TU is the file a program starts from: a command-line input,
     /// not one reached through an import or a C++ `#include`. Nothing in the

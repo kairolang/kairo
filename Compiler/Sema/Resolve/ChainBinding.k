@@ -999,6 +999,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         // `: type` -- the C++ regime. Not a hole we failed to fill: a hole the
         // author asked for.
         if b.duck {
+            self._note_duck_use(gp, at);
             self._record(loc, MemberOutcome::Dependent, &null, 0, a.decl);
             self.n_dependent += 1;
             return a;
@@ -1117,6 +1118,17 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             }
         }
         return owner;
+    }
+
+    /// The first member step through `: type` parameter \p gp. Its presence
+    /// is what tells FlagGates that deleting the bound would turn this body
+    /// into an R051E (an opaque `T` has no members), so the fix-it is off.
+    priv fn _note_duck_use(self, gp: *GenericParamDecl, at: SourceRange) {
+        for var i: usize = 0; i < self.sc->duck_member_params.size(); ++i {
+            if self.sc->duck_member_params[i] == gp { return; }
+        }
+        self.sc->duck_member_params.push_back(gp);
+        self.sc->duck_member_at.push_back(at);
     }
 
     priv fn _record(self, loc: u32, o: MemberOutcome, d: *Decl, ncand: usize, owner: *Decl) {

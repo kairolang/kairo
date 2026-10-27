@@ -48,6 +48,12 @@ class LangOptions {
     /// pass through every Kairo frame. Unset or -fno-unwind: each is
     /// `noexcept` unless marked `@unwind`.
     pub var unwind:              i32 = -1;
+    /// -fduck-generics: `<T: type>` is accepted, its body typed as written
+    /// and emitted as an unconstrained template that clang checks per
+    /// instance (MONO.md D1). Unset or -fno-duck-generics: `: type` is an
+    /// error. Transitional: it goes when the self-host corpus no longer
+    /// needs it.
+    pub var duck_generics:       i32 = -1;
 
     // -- hard kill-switches ------------------------------------------------
     pub var no_assert:       bool = false;
@@ -138,6 +144,7 @@ class LangOptions {
         (o.union_inference)     = (args.get_feature("union-inference"));
         (o.exceptions)          = (args.get_feature("exceptions"));
         (o.unwind)              = (args.get_feature("unwind"));
+        (o.duck_generics)       = (args.get_feature("duck-generics"));
         (o.unsafe_feature)      = (args.get_feature("unsafe"));
 
         // -- sema / type system limits -------------------------------------

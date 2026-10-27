@@ -80,7 +80,9 @@ bare `panic`. `fn op panic (const self) -> string` is an operator like
     [MISSING] `TypeCastExpr::cast_mode` (Default / Static / Const /
     Unsafe). Only `is_unsafe` is recorded today; `as static` / `as const`
     parse but are not distinguishable by sema.                        (spec 3)
-    [MISSING] `<T: type>` -> `GenericParamKindBound::Duck`.
+    [DONE] `<T: type>` -> `GenericParamKindBound::Duck`, with the
+    written `: type` range in `kind_bound_range`. Accepted only under
+    -fduck-generics (MONO.md D1; FlagGates, §2.10 "The `: type` regime").
     [MISSING] `PointerType::is_unsafe` stamped from the `unsafe` qual. (spec 2)
 
 ### 2.2 I ImportResolution [DONE, IMPORTS.md §4]
@@ -517,7 +519,9 @@ conjuncts, read from `sc->bounds`):
                    nothing else. Definition-side
                    checking: the error lands on the template, not on the
                    40th instantiation.
-    <T: type>      duck. Every step Dependent; M2 checks per instance.
+    <T: type>      duck, behind -fduck-generics. Every step Dependent and
+                   left unbound; codegen spells it as written and clang
+                   checks each instance. Kairo never re-checks the body.
 
 A dependent COMPOSITE (`*T`, `[T]`, an unfilled `Foo<T>::Inner`) is still
 Dependent under every regime; it has no scope to look into.
@@ -1206,7 +1210,8 @@ maps payload subpatterns to fields (names first, then positions) into
 const-correctness, including assignment to const and const-cast validity
 beyond "adds const" (ConstChecking); panic effects (PanicEffectChecking,
 past the Typed barrier); access control (AccessCheck); `yield` vs `yield T`;
-the context-binding protocol; the `: type` regime (M2 re-check).
+the context-binding protocol; the `: type` gate (FlagGates: an error
+without -fduck-generics).
 
 **Depends on** (blocking, spec items 1-7): `BuiltinKind::Never`;
 `PointerType::is_unsafe` in the store key; `TypeCastExpr::cast_mode`;
@@ -1556,12 +1561,25 @@ emitted and two headers in one C++ TU agree.
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
 did). M2 is the sync point: fills `Instantiated` nodes from their pattern,
-selects partials, runs dependent conformance, resolves `T::Item`, and
-**re-checks every `: type` body per instance** by re-running X over the
-body with a `Deduction` seeded from the instance's args
-(`ExprTyper::retype_instance`, a second entry point, not a pass). A duck
-body whose member resolves to an EXTENSION member is an error there (see
-§2b, the `: type` rule).
+selects partials, runs dependent conformance and resolves `T::Item`.
+
+**The `: type` regime** [DONE, MONO.md D1]. No Kairo pass re-checks a
+`: type` body per instance; there is no `retype_instance`. The body is
+typed as written (a member step through the parameter is Dependent and
+unbound, its call unknown), emitted as an unconstrained template, and
+clang checks each instance: EmitIR spells a member chain rooted at the
+parameter, and its call, as written (`x.f(args)`, `p->f(args)`, `T::f(args)`,
+`.template f<A>` with generic arguments). An unbound step NOT rooted at a
+`: type` parameter still ICEs: a bounded body is Kairo's to check (D0). The regime is transitional and opt-in: without
+-fduck-generics, FlagGates rejects every `: type` in a program file
+(SC001E, labelled at the bound; the fix-it deletes `: type` only when no
+member step went through the parameter, else a note points at the first
+one). Library files are exempt like every other gate, and use none.
+Inside such a body a panicking call is SC116E like in any generic body,
+and `match` / `==` / `===` / f-strings on the opaque `T` behave as they do
+on any dependent operand. Removal: flip the default, delete the regime
+branch (ChainBinding `b.duck`), the gate and the flag, after the mixin
+migration (MONO.md G13/G14).
 
 ---
 
@@ -1788,7 +1806,9 @@ reads the witness ExtensionLowering records on the call (CODEGEN.md
 
 **The `: type` rule** [DECIDED]. Duck typing is C++ duck typing: a `: type`
 body sees own members only. Extension members are unreachable under
-`: type` (M2's re-check reports it, naming the interface to bound with).
+`: type`: the call is emitted as a member call, and clang, finding no such
+member, rejects the instance. Nothing Kairo-side reports it (no per-instance
+re-check, MONO.md D0/D1).
 One dispatch system, and a precise meaning: "T is a C++ type; clang checks
 the body".
 
@@ -1871,7 +1891,8 @@ A pass that needs one asks that file; it never spells the string itself.
     conversion ordering; `-fno-implicit-conv` can therefore remove a
     candidate but never select a different one (lattice §7).
 17. **A generic parameter's regime is its declaration's.** `<T>` opaque,
-    `<T impl I>` bounded, `<T: type>` duck. No inference of regime from use.
+    `<T impl I>` bounded, `<T: type>` duck (only under -fduck-generics).
+    No inference of regime from use.
 18. **A class definition is closed at its file.** Its friends are its
     same-file extension scopes; nothing in another file changes the
     emitted definition.
@@ -1936,11 +1957,13 @@ Mono / codegen:
 
     o. M1 enumeration over the registry (types AND functions)
     p. M2: fill + dependent conformance + (partial selection: done at
-       registry mint, §2b Instances; requires-selected partials open) +
-       `: type` re-check (`ExprTyper::retype_instance`)
+       registry mint, §2b Instances; requires-selected partials open).
+       No `: type` re-check: clang checks those bodies (MONO.md D1)
     q. EmitWitness + EmitPlan witness edge + EmitIR witness calls   PARTIAL
        (CODEGEN.md §7b; calls, statics, operators, `I::m(x)`, generic
        requirements, records' concepts and reached instances done;
        declared rows without an instance, partial specializations open)
-    r. EmitIR: `typename` / `.template` on Dependent segments/steps;
+    r. EmitIR: `typename` / `.template` on Dependent segments/steps
+       (a dependent MEMBER step is spelled as written, `.template` when it
+       has generic arguments: done, D1);
        generic emission; the fwd-decl emitter (IMPORTS.md items 12, 14)

@@ -5,7 +5,7 @@
 // deduce: `zero<i32>()`, `width<u64>()` -- the shape of Casting.k's
 // `isa<T>(n)` / `cast<T>(n)` (3,200 uses) and `ctx->alloc<T>(...)`, and of
 // pointers.md's `std::alloc<i32>`. The `isa` body itself (`T::classof` under
-// `<T: type>`) is a duck call and is crtp_duck.k's bug, so it is left out.
+// `<T: type>`) is a duck call (-fduck-generics; duck_member_call.k), so it is left out.
 //
 // Was SC063E "could not deduce every generic parameter from the
 // arguments": overload resolution now binds the explicit arguments into

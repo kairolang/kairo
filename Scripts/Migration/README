@@ -237,3 +237,15 @@ Compiler/Sema/Foreign/ForeignRegistry.k (constructor)
     and Stage 0 has no member-initializer form, so it is a move-assign in
     the body. Fold into the field declaration once a field initializer can
     call a constructor with arguments.
+
+
+Compiling the migrated tree with Stage 1: -fduck-generics
+---------------------------------------------------------
+
+Nothing compiles Stage 1 with Stage 1 yet; the migrated copy is only
+type-checked by hand. When that run becomes a script (or a kbld target), it
+passes -fduck-generics: Compiler/ leans on `<T: type>` (CRTP mixins calling
+`self.dyn()->...`, `isa<T>` calling `T::classof`), and `: type` is an error
+without the flag (MONO.md D1). Nothing else gets the flag: a user program
+and Lib/ (builtin, std, which use no `: type`) build without it. The flag
+goes away once the mixin migration bounds those parameters with interfaces.

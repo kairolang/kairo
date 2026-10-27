@@ -29,7 +29,7 @@ class C {
 // DIAG: expr_body_typed.k:[[@LINE-1]]:34: error [SC028E]: cannot convert 'u32' to 'bool'
 }
 
-fn <T: type> ident(x: T) -> T = x
+fn <T> ident(x: T) -> T = x
 fn fact(n: u32) -> u32 = n * fact(n - 1)
 fn ok() -> R = R { a: fact(3) }
 

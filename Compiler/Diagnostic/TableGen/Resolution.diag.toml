@@ -1245,9 +1245,9 @@ group = "member-lookup"
     `derives <Base>` promises a base class's members and its lineage. either one makes those members
     - and only those - usable in the body.
 
-    if you genuinely want the c++ rule for this parameter, write `: type`
-    (`fn <T: type> render(x: T)`). that is the opt-in to duck typing: every access through the
-    parameter is accepted here and checked when the template is instantiated.
+    `: type` (`fn <T: type> render(x: T)`) is the c++ rule: every access through the parameter is
+    accepted here and checked by the c++ compiler in each instantiation. it is a transitional
+    regime, off unless the build passes `-fduck-generics`, and is going away; a bound is the fix.
     """
 
     [R051.N]
