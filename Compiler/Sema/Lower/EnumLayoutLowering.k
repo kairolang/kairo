@@ -1021,6 +1021,9 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
                 if (t == &null) || (t->canonical == &null) { return false; }
                 var c = canon_unqual(t->canonical);
                 if (c == &null) || (canon_quals(t->canonical) != 0) { return false; }
+                // The variant constructor is then the field one (_ctor_form
+                // asks the same), which is the only form the prefix renders.
+                if !self._moves(t) { return false; }
                 if isa::<BuiltinType>(c) || isa::<PointerType>(c) { continue; }
                 if isa::<RecordType>(c) {
                     var pe = dyn_cast::<EnumDecl>(cast::<RecordType>(c)->decl);
