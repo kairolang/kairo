@@ -446,6 +446,26 @@ defined (`__KAIRO_PANIC_HELPERS` in a header). A TU with panic sites
 gets `__kairo_panic_site` and EmitIR writes one record per site into the
 `__kairo_panic_sites` section (`__DATA,__kairo_psite` on Mach-O).
 
+PanicLowering's C++ (PANIC.md §4) adds to that preamble: the pack
+constructor takes the site id (`Panic(vt<1>, vt<K>, u32 s, F&& f)`;
+VariantInitExpr::site, 0 for none); `__kairo_fwd<R, A>(s)`, one function
+template generic over the record (`P<T, E...>`), which returns `s` as the
+result R -- the same type moved, the bytes `__builtin_bit_cast` when size,
+payload offset and trivial copy agree, else one case per element
+(`__kairo_fwd_k`, built into R's element `__kairo_pidx<X>`, the site word
+copied; A also forwards Ok); `__kairo_raw<T>`, a union over
+`__kairo_rbox<T>` (which brings its own placement `new`) that a
+`raw_slot` local is declared as, filled by `new (&s.__kairo_b)
+__kairo_rbox<T>{v}` and read once by `s.__kairo_take()`; and
+`__kairo_pcall<R>(f, a...)`, a call's result as R. A function's signature
+is spelled from `panic_result` when it is set (CXXSpell::return_spelling,
+every `_ret`, EmitIR's `return`), a `fn` type's from its canonical node's.
+A PanicOpExpr is spelled by EmitIR (`_panic_op`). A `fn` value converted
+to a `fn` type with a wider panic effect -- the one conversion with no
+node in the tree -- is wrapped where it is converted
+(`EmitIR::_fn_effect_value`): an owned lambda holding the value and
+returning `__kairo_pcall<R'>` of the call.
+
 The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
 1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
 eight more roles (AdtRole::NullDefault on, `InterfaceEmitter::
@@ -671,8 +691,8 @@ The no-headroom rules, each with one home:
   spelled at the binding's name; a null type is `I011W` + `auto` — the
   only diagnostic codegen emits.
 
-ICE map (node → owner): match/MatchExpr → MatchLowering; try/finally/
-panic/assert → PanicLowering; ranged for → IterLowering, only for the
+ICE map (node → owner): match/MatchExpr → MatchLowering; try/panic →
+PanicLowering; finally → FinallyLowering; assert → not emitted yet; ranged for → IterLowering, only for the
 kinds RESOLUTION.md §2.10 lists as not yet lowered and for a dependent
 iterable; ranges → RangeLowering;
 `??`/`?.`/`?->`/`unwrap!`/`===` → CoalesceLowering (a `match` on a `T?`
@@ -738,7 +758,7 @@ because the text is identical in every TU (invariant 11).
 `extern template` declarations still sit in the preamble for every
 registry instance this TU does not home, and the home still emits the
 explicit instantiation. They are NOT redundant now: `extern template class
-X<A>;` stops clang from implicitly instantiating X<A>'s non-inline members
+X\<A\>;` stops clang from implicitly instantiating X\<A\>'s non-inline members
 in that TU, so a known instance is still compiled once, in its home. That
 is what keeps visible bodies cheap -- parsed everywhere, instantiated only
 in the home TU and for the instances Kairo never saw. Explicit

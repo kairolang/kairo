@@ -3,16 +3,15 @@
 // rendered BEFORE the abort: diagnostics are buffered until the end of the
 // run, and an abort skips that flush.
 //
-// The trigger is any construct codegen does not emit yet; a `panic`
-// statement is the current one (EmitIR: "panic; PanicLowering owns it").
-// It was a closure until lambda emission landed. `apply` is `panic`: a
-// `panic` in a function without it is an error (PanicEffectChecking), and
-// an error stops the run before codegen. When PanicLowering lands
-// this stops ICEing. Swap in the next unemitted construct then and keep
-// the checks, rather than deleting the test.
+// The trigger is any construct codegen does not emit yet; an inline foreign
+// block in a function body is the current one (EmitIR: "inline foreign
+// block; not emitted yet"). It was a closure until lambda emission landed,
+// then a `panic` statement until PanicLowering did. When this one is
+// emitted, swap in the next unemitted construct and keep the checks, rather
+// than deleting the test.
 
-fn apply(x: i32) panic -> i32 {
-    if x > 3 { panic "boom" }
+fn apply(x: i32) -> i32 {
+    if x > 3 { inline "c++" { int y = 0; } }
     return x
 }
 
@@ -20,5 +19,5 @@ fn apply(x: i32) panic -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -c --cache-dir %t.d 2>&1 || true; } | %FileCheck %s
-// CHECK: ice_location.k:15:16: error [I003E]: internal compiler error: EmitIR: panic; PanicLowering owns it
-// CHECK: Kairo Internal Compiler Error: EmitIR: panic; PanicLowering owns it, at {{.*}}ice_location.k:15:16
+// CHECK: ice_location.k:14:16: error [I003E]: internal compiler error: EmitIR: inline foreign block; not emitted yet
+// CHECK: Kairo Internal Compiler Error: EmitIR: inline foreign block; not emitted yet, at {{.*}}ice_location.k:14:16

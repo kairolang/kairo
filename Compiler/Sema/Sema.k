@@ -75,6 +75,7 @@ import Sema::Lower::FieldInitLowering::*;
 import Sema::Lower::CtorInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
 import Sema::Lower::ScriptLowering::*;
+import Sema::Lower::PanicLowering::*;
 import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
 import Sema::Lower::CoalesceLowering::*;
@@ -478,8 +479,8 @@ class Sema {
 
         // The head of the stage is VariantInitLowering, then
         // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering,
-        // CtorInitLowering and CopyMoveLowering, then ScriptLowering and
-        // FinallyLowering, and the rest after them.
+        // CtorInitLowering and CopyMoveLowering, then ScriptLowering,
+        // PanicLowering and FinallyLowering, and the rest after them.
         //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
@@ -535,6 +536,19 @@ class Sema {
         // mints its record; before every pass that rebuilds bodies, to which
         // main is then an ordinary function.
         { var _p = TimeRegion("ScriptLowering"); ScriptLowering(&self.sc, self.sc.script_root).run(); }
+        // A panic is a returned value (PANIC.md §4): each panicking
+        // function's signature becomes `Panic<T, E...>`, `return` / `panic`
+        // build it, a panicking call is held and tested in a statement
+        // expression where it sat, and `try` / `catch` become tag compares
+        // with label!/jump!. After ScriptLowering, so a script's main is an
+        // ordinary body; after CopyMoveLowering, whose `T&&` casts sit in
+        // the arguments it holds. Before FinallyLowering, which then meets
+        // every jump and return made here as an ordinary exit; before
+        // LabelLowering (an arm's `break L` is lowered with every other);
+        // before CallLowering and SequenceLowering, which order the held
+        // call's arguments like any call's (a panic result is the one
+        // record result SequenceLowering sequences).
+        { var _p = TimeRegion("PanicLowering"); PanicLowering(&self.sc).run(); }
         // A `finally` becomes a record in the function body whose destructor
         // is its body, and a local of it. After CopyMoveLowering, whose
         // `T&&` cast wraps a node this pass rewrites in place; before every
@@ -632,7 +646,6 @@ class Sema {
         //             using Base::name; for merged base overloads C++ would
         //             hide reads type->needs_using written by MemberLookup,
         //             never re-walks bases.
-        // TODO(sema): PanicLowering(&self.sc).run();
         // TODO(sema): ...
         self.sc.advance_phase(SemaPhase::Lowered);
         return true;

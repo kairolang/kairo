@@ -1168,7 +1168,7 @@ exactly what it runs today, in order:
     VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar ->
     WhereDispatchLowering ->
     FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) ->
-    ScriptLowering -> FinallyLowering -> TupleLowering ->
+    ScriptLowering -> PanicLowering -> FinallyLowering -> TupleLowering ->
     CoalesceLowering -> NullTestLowering -> NarrowedAccessLowering ->
     NullableTypeLowering ->
     OperatorLowering -> FStringLowering -> CallLowering -> IterLowering ->
@@ -1183,7 +1183,7 @@ ExprBodyDesugar also turns a closure's expression body into a block
 (`return e`, or `e;` when its resolved return type is `void` / `!`).
 Still to come, each a
 stub file or a `TODO(sema)` in `Sema.k`: UsingDeclSynthesis,
-PanicLowering, TypeQueryLowering,
+TypeQueryLowering,
 CopyMoveLowering (copies). Generators need no lowering (a C++ coroutine,
 spelled by EmitIR), and destruction none (C++ destroys locals at scope
 exit). Sugar first, control flow
@@ -1331,6 +1331,27 @@ narrowed reads it builds. Its record of the first statement
 (`SemaContext::script_at`) is how the driver rejects two scripts in one
 link. EmitIR's
 ICE on a top-level statement means this pass did not run.
+
+PanicLowering [DONE, P6] (PANIC.md §4). A panic is a returned value. A
+function whose final set is not empty returns `Panic<T, E...>`, formed with
+PanicSets::form and recorded as `FunctionDecl::panic_result` (an
+override's is its base method's; a closure's on the ClosureExpr, a `fn`
+type's on its canonical node); `return_type` stays T, because an
+importer's X reads it after this TU lowered. `return x` builds Ok, `panic
+X` builds the Err with its site id; a call that may panic is held in a
+statement expression where it sat (`var p = f(); if !ok(p) { <deliver> }
+p.value`), so evaluation order and short circuits are the tree's; a tail
+`return g()` forwards g's result whole. An error goes to the innermost
+target: the function's return, or a `try`'s raw-storage slot and a jump to
+its dispatch, which moves it into a local first; `catch e: E` is one tag
+compare. A `try` whose body is one statement that is, assigns, returns or
+binds its one site reads that call's result with no slot. C++ with no Kairo
+spelling is a PanicOpExpr (`fwd`, slot put / take) and a `raw_slot` local.
+After ScriptLowering (a script's main is an ordinary body) and
+CopyMoveLowering; before FinallyLowering (every jump and return made here
+is an ordinary exit to it), LabelLowering, CallLowering and SequenceLowering
+(which orders a held call's arguments: a panic result is the one record
+result it sequences).
 
 FinallyLowering [DONE]. `finally { body }` becomes a StructDecl declared in
 the function body whose `op delete` is the body, plus a local of it where
