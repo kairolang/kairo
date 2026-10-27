@@ -42,9 +42,9 @@
 ///       - an attribute applied to an expression (`@create T(args)`,
 ///         AttributedExpr): it parses, but no attribute has an expression
 ///         meaning yet. X leaves the node and its operand untyped.
-///       - an `eval if` / `eval for` directly in a module or class body
-///         (EvalBlockDecl::stmt): it parses, but no branch is chosen and
-///         nothing hoists or emits its declarations yet.
+///       - an `eval for` directly in a module or class body
+///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
+///         (An `eval if` there is folded away by EvalIfFolding.)
 ///       - a generic closure, `fn <T>(x: T) -> T { ... }`. X types neither
 ///         its parameters (no canonical for `T`) nor a call of it, so there
 ///         is no signature for EmitIR to spell; a C++ generic lambda is the
@@ -150,11 +150,11 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         return true;
     }
 
-    /// An `eval if` / `eval for` directly in a module or class body parses
-    /// (EvalBlockDecl::stmt), but choosing its branch and hoisting that
-    /// branch's declarations into the body is not built: nothing would emit
-    /// it, and its declarations are visible nowhere. Reported at `eval if` /
-    /// `eval for`; the statement's contents are still resolved and typed.
+    /// An `eval for` directly in a module or class body parses
+    /// (EvalBlockDecl::stmt), but nothing unrolls it into declarations:
+    /// nothing would emit it. Reported at `eval for`; the statement's
+    /// contents are still resolved and typed. An `eval if` there never gets
+    /// here: EvalIfFolding replaced its carrier by the taken declarations.
     fn visit_eval_block_decl(self, n: *EvalBlockDecl) -> bool {
         if n->stmt == &null { return true; }
         var what = "an 'eval for\x27";

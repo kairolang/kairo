@@ -954,7 +954,10 @@ class EmitIR {
 
     priv fn _if(self, n: *ConditionalStmt) {
         var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
-        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), ("if") if (own) else ("if ("));
+        // An `eval if` EvalIfFolding could not fold (a function body only):
+        // C++ chooses, and discards the other branch in a template.
+        var kw = ("if constexpr") if (n->is_eval) else ("if");
+        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), (kw) if (own) else (kw + " ("));
         self.emit(n->cond);
         if !own { self._cg->sink->spell(n->cond->range, ")"); }
         self.emit_block(n->then_);

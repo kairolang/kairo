@@ -711,6 +711,11 @@ class ASTParse
                     continue;
                 }
 
+                if isa::<ConditionalStmt>(s) {
+                    self._index_eval_branches(s, tu_dc, tu_dc, u32(-1));
+                    continue;
+                }
+
                 // `var (a, b) = t` at file scope. A destructuring decl declares
                 // into its ENCLOSING scope (it is a decl statement, not a scope
                 // of its own), so at top level its binders belong in the TU
@@ -735,6 +740,39 @@ class ASTParse
 
         for var i: usize = 0; i < self._sym_tables.size(); ++i {
             self._sym_tables[i]->freeze();
+        }
+    }
+
+    /// \brief indexes EVERY branch of a declaration-scope `eval if` into the
+    ///        enclosing table, as if hoisted. Which branch is taken is
+    ///        Sema's (EvalIfFolding, phase E), and a table is frozen here:
+    ///        so the parser records them all -- member tables, dc links and
+    ///        all -- and the fold builds the scope a new table without the
+    ///        untaken ones (EVAL.md §4.1). A nested `eval if` in a branch
+    ///        is indexed the same way; anything else in a branch is not a
+    ///        declaration.
+    priv fn _index_eval_branches(self, s: *Stmt, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        if (s == &null) || (!isa::<ConditionalStmt>(s)) { return; }
+        var c = cast::<ConditionalStmt>(s);
+        if !c->is_eval { return; }
+        self._index_eval_block(static_cast::<*Stmt>(c->then_), walk_dc, table_dc, owner_name_imm);
+        if c->else_ == &null { return; }
+        if isa::<ConditionalStmt>(c->else_) { self._index_eval_branches(c->else_, walk_dc, table_dc, owner_name_imm); return; }
+        self._index_eval_block(c->else_, walk_dc, table_dc, owner_name_imm);
+    }
+
+    priv fn _index_eval_block(self, s: *Stmt, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        if (s == &null) || (!isa::<CompoundStmt>(s)) { return; }
+        var b = cast::<CompoundStmt>(s);
+        for var i: usize = 0; i < b->body.size(); ++i {
+            var st = b->body[i];
+            if st == &null { continue; }
+            if isa::<DeclStmt>(st) {
+                var ds = cast::<DeclStmt>(st);
+                if ds->decl != &null { self._index_symbol_decl(ds->decl, walk_dc, table_dc, owner_name_imm); }
+                continue;
+            }
+            self._index_eval_branches(st, walk_dc, table_dc, owner_name_imm);
         }
     }
 
@@ -1049,6 +1087,7 @@ class ASTParse
                 var m = n->body[i];
                 if m != &null { self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm, tabled); }
             }
+            if n->stmt != &null { self._index_eval_branches(n->stmt, walk_dc, table_dc, owner_name_imm); }
             return;
         }
         if isa::<FFIBlockDecl>(d) {

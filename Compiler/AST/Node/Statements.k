@@ -593,6 +593,9 @@ class ConditionalStmt derives Stmt {
     pub var cond:  *Expr;
     pub var then_: *CompoundStmt;
     pub var else_: *Stmt; ///< null, a ConditionalStmt (else-if), or a CompoundStmt.
+    /// `eval if`, and every `else if` of its chain: folded by EvalIfFolding
+    /// where its condition folds, else C++ `if constexpr` (EVAL.md §4).
+    pub var is_eval: bool;
 
     static fn create(
         ctx:   *ASTContext,
@@ -608,6 +611,7 @@ class ConditionalStmt derives Stmt {
         node->cond  = cond;
         node->then_ = then_;
         node->else_ = else_;
+        node->is_eval = false;
         return node;
     }
 
@@ -615,6 +619,7 @@ class ConditionalStmt derives Stmt {
         var node            = ctx->alloc::<ConditionalStmt>();
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ConditionalStmt;
+        node->is_eval       = false;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

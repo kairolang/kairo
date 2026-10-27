@@ -207,6 +207,10 @@ class TranslationUnit derives DeclContext {
     /// long as the build (CompilerInstance::release refuses it).
     pub var is_foreign:     bool = false;
 
+    /// The parser met an `eval if` in this file (any position), so
+    /// EvalIfFolding has something to fold. One writer: the parser.
+    pub var has_eval_if:    bool = false;
+
     /// The HeaderSet this file's ffi imports requested (PPWalker::_finalize),
     /// or null. Typed *void: TranslationUnit cannot name Interop. Owned by the
     /// CompilerInstance's HeaderSetCache, never by the TU.

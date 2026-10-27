@@ -37,6 +37,7 @@ import Sema::Resolve::TypeResolve::*;
 import Sema::Resolve::ChainBinding::*;
 import Sema::Resolve::RedeclMerge::*;
 import Sema::Expand::RequiresDesugar::*;
+import Sema::Expand::EvalIfFolding::*;
 import Sema::Verify::LoopContextCheck::*;
 import Sema::Verify::ArmOrderCheck::*;
 import Sema::Verify::TerminatorCheck::*;
@@ -221,6 +222,8 @@ class Sema {
         if self._already(SemaPhase::Expanded) { return true; }
         var _t = TimeRegion("Expand");
         self.sc.require_phase(SemaPhase::ImportsResolved);
+        // First: no later pass may see an untaken `eval if` branch (EVAL.md §4).
+        { var _p = TimeRegion("EvalIfFolding"); EvalIfFolding(&self.sc).run(); }
         // TODO(sema): MacroExpansion(&self.sc).run();
         // TODO(sema): EvalLowering(&self.sc).run();  // extract eval fns -> dylib
         var desugar = RequiresDesugar(self.sc.ctx);

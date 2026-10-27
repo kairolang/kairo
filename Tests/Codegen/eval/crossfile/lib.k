@@ -8,3 +8,11 @@ pub class Tbl {
     pub eval BIG: i64 = cube(5)
     pub eval fn scaled(n: i32) -> i32 { return n * Tbl::SIZE }
 }
+
+// Hoisted out of a file-scope `eval if`: the importer sees the taken one.
+pub eval FLAVOR = 2
+eval if FLAVOR == 2 {
+    pub fn hoisted() -> i32 { return 5 }
+} else {
+    pub fn hoisted() -> i32 { return not_on_this_target() }
+}

@@ -1,15 +1,8 @@
 // A top-level `eval if` selects between DECLARATIONS (eval.mdx, Eval If):
 // the taken branch's `eval` constants and functions are declared at file
-// scope, the others are discarded.
-//
-// XFAIL: *
-// Ticket "[Sema] Declarations inside a top-level `eval if` stay
-// branch-local" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today the
-// `eval if` is an ordinary ConditionalStmt whose branches are block scopes,
-// so CACHE_LINE and line_bytes are R020E undeclared at their uses. Needs
-// the eval-if semantics: fold the condition, splice the taken branch's
-// declarations into the enclosing scope. When it XPASSes, delete the XFAIL
-// -- the run below is already the real assertion.
+// scope, the others are discarded (EvalIfFolding, EVAL.md §4). Before the
+// fold, both branches were block scopes and CACHE_LINE / line_bytes were
+// R020E undeclared at their uses.
 
 eval WIDE = true
 

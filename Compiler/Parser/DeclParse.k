@@ -4427,6 +4427,7 @@ class <T> DeclParse {
             return static_cast::<*Decl>(eb);
         }
 
+        if dyn()->check_peek(TokenKind::KwIf) && (dyn()->tu != &null) { dyn()->tu->has_eval_if = true; }
         var saved_dc = dyn()->eval_branch_dc;
         dyn()->eval_branch_dc = dyn()->scope.current_dc();
         var s = dyn()->parse_stmt();

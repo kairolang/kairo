@@ -53,7 +53,14 @@ overlay on a table miss (`_reexported_cell`). Wildcards fold re-exports.
 
 ### 2.3 E Expand [PARTIAL]
 
-`RequiresDesugar` runs. Macro expansion and eval lowering do not.
+`EvalIfFolding` runs first (EVAL.md §4): every `eval if` whose condition
+folds is replaced by its taken branch, the declarations of the others are
+discarded, and each scope it folded in gets a NEW frozen table without
+them (the parser indexed every branch; invariant #1 holds -- no table is
+mutated, one is replaced, as `_bind_cxx` does). It must run before V and
+N, which may not see an untaken branch, and after I, so a condition can
+read an imported `eval` constant and clang's macro table is joined.
+Then `RequiresDesugar`. Macro expansion and eval lowering do not run.
 
 ### 2.4 V Verify [DONE]
 
