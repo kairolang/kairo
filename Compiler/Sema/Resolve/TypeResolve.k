@@ -2232,10 +2232,34 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if n->underlying == &null { return; }
         var c = canon_unqual(n->underlying->canonical);
         if c == &null { return; }   // poisoned or dependent; already handled.
-        if isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() { return; }
+        if isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() {
+            if n->is_adt { self._check_adt_tag_fits(n, builtin_info(cast::<BuiltinType>(c)->builtin)); }
+            return;
+        }
         self.sc->diag->report(DiagID::R046E, n->underlying->range.start,
             "an enum's underlying type must be a primitive integer type"
         ).first(n->underlying->range).emit();
+        n->underlying->poison();
+    }
+
+    /// An ADT's `derives` type is its tag's (EnumLayoutLowering), and its
+    /// tags are the variant positions `0..N-1`: a type with fewer than N
+    /// non-negative values cannot hold them. A plain enum's values are
+    /// checked as literals of the type instead (LiteralTyping).
+    priv fn _check_adt_tag_fits(self, n: *EnumDecl, bi: *BuiltinInfo) {
+        var bits = bi->bits;
+        if bi->is_signed() && (bits > 0) { bits = bits - 1; }
+        if (bits == 0) || (bits >= 32) { return; }   // the target-width pair is at least 32 bits.
+        var cap = usize(1) << bits;
+        var count = n->variants.size();
+        if count <= cap { return; }
+        var want = ("u16") if (count <= 65536) else ("u32");
+        var b = self.sc->diag->report(DiagID::R001E, n->underlying->range.start,
+            f"an enum's underlying type is its tag's, and '{bi->spelling}' cannot hold its {count} variants");
+        b.first(n->underlying->range, f"holds {cap} tag values");
+        b.note(n->name.range.start, f"'{self._decl_name_str(static_cast::<*Decl>(n))}' declares {count} variants, tagged 0 to {count - 1}");
+        b.fix(n->underlying->range, want, f"declare it 'derives {want}\x27");
+        b.emit();
         n->underlying->poison();
     }
 

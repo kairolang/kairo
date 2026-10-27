@@ -10,7 +10,7 @@
 ///     in place of an `enum class`. For `enum <T> Opt { Some { v: T }, None }`:
 ///
 ///       template <class T> struct Opt {
-///           enum class __kairo_Tag : u32 { Some, None };
+///           enum class __kairo_Tag : u8 { Some, None };
 ///           struct __kairo_Some_t { <placement operator new>  T v; };
 ///           __kairo_Tag __kairo_tag;
 ///           union { __kairo_Some_t __kairo_Some; };
@@ -253,13 +253,15 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         en->adt_tag_field = tf;
     }
 
-    /// `enum class __kairo_Tag : u32 { V0, V1, ... }`: every variant, payload
+    /// `enum class __kairo_Tag : u8 { V0, V1, ... }`: every variant, payload
     /// or not, by its own name and in order. No discriminants, so each value
     /// is the variant's position and InterfaceEmitter writes the names bare.
+    /// The narrowest word that holds them (_tag_kind): the tag sits before
+    /// the union, so every byte past it is padding a small payload pays.
     priv fn _tag_enum(self, en: *EnumDecl, at: SourceRange, edc: *DeclContext) -> *EnumDecl {
         var tag = EnumDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_type()), edc);
         self._place(static_cast::<*Decl>(tag), edc, VisibilityKind::Public, at);
-        tag->underlying     = self.sc->builtin(BuiltinKind::U32);
+        tag->underlying     = self.sc->builtin(self._tag_kind(en));
         tag->generic_params = create_empty_frozen_list::<*GenericParamDecl>();
         tag->spec_args      = create_empty_frozen_list::<*Type>();
         var tdc = static_cast::<*DeclContext>(tag);
@@ -273,6 +275,23 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         }
         vs.freeze_into(&(tag->variants));
         return tag;
+    }
+
+    /// The `derives` type when the enum declares one (TypeResolve checked
+    /// it holds every tag), else `u8` up to 256 variants and `u16` past
+    /// that. Tags stay dense `0..N-1` in declaration order whatever the
+    /// width: MatchLowering's switch, and the jump table clang builds from
+    /// it, index by them.
+    priv fn _tag_kind(self, en: *EnumDecl) -> BuiltinKind {
+        var u = en->underlying;
+        if (u != &null) && (!u->is_poisoned()) && (u->canonical != &null) {
+            var c = canon_unqual(u->canonical);
+            if (c != &null) && isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() {
+                return cast::<BuiltinType>(c)->builtin;
+            }
+        }
+        if en->variants.size() <= 256 { return BuiltinKind::U8; }
+        return BuiltinKind::U16;
     }
 
     /// `struct __kairo_<V>_t` over the variant's own payload FieldDecls (file

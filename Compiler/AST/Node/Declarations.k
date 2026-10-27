@@ -1297,8 +1297,9 @@ class EnumVariantDecl derives Decl {
 ///  EnumDecl
 ///  enum Direction derives u8 { } | enum <T> Result { Ok { value: T }, Err }
 ///
-///  `underlying` is the `derives <int>` type for plain enums; null when
-///  defaulted (u32) or for ADT enums. Generic enums (TemplateParams) must be
+///  `underlying` is the `derives <int>` type; null when defaulted (u32 for a
+///  plain enum; for an ADT, the narrowest tag EnumLayoutLowering picks). On
+///  an ADT it is the tag's type. Generic enums (TemplateParams) must be
 ///  ADT (a plain enum has nothing to parameterize). Owns variants via the
 ///  `variants` list; DeclContext holds nested type decls.
 ///
@@ -1309,11 +1310,12 @@ class EnumDecl
           TemplateParams::<EnumDecl>,
           FFILinkage::<EnumDecl> {
     pub var name:       Token;
-    pub var underlying: *Type = &null;                  ///< `derives u8` etc; null if default/ADT.
+    pub var underlying: *Type = &null;                  ///< `derives u8` etc; null if defaulted.
     pub var variants:   FrozenList::<*EnumVariantDecl>;
     pub var is_adt:     bool = false;                   ///< any variant carries a payload.
     /// ADT enums: the record EnumLayoutLowering builds, and its `__kairo_tag`
-    /// field (tags are variant positions, underlying u32). One writer:
+    /// field (tags are variant positions, in the narrowest unsigned word
+    /// that holds them unless `derives` names one). One writer:
     /// EnumLayoutLowering; null until it runs, always null on a plain enum.
     pub var adt_layout:    *Decl      = &null;
     pub var adt_tag_field: *FieldDecl = &null;
