@@ -80,10 +80,13 @@ class CallExpr derives Expr {
     /// CallTyping::_ctor_call at Selected.
     pub var ctor_decl: *Decl = &null;
 
-    /// The record a static-member callee is named THROUGH: set by CallLowering
-    /// on a default-thunk call whose owner is generic, so EmitIR spells
-    /// `Box<int>::__kairo_default_m_x()` rather than an unqualified template
-    /// name. Null everywhere else.
+    /// The record a static-member callee is named THROUGH, when that record
+    /// is a generic one's instance, so EmitIR spells `Box<int>::zero()`
+    /// rather than the bare class template `Box::zero()`, which names no
+    /// class. Two writers: CallTyping on a `::` call through `Box<i32>`
+    /// (the instance's arguments are on the qualifier and nowhere else), and
+    /// CallLowering on a default-thunk call whose owner is generic
+    /// (`Box<int>::__kairo_default_m_x()`). Null everywhere else.
     pub var qualifier: *Type = &null;
 
     /// A call bound to an interface REQUIREMENT (its callee's `semantic_dc`

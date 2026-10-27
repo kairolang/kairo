@@ -4,19 +4,24 @@
 // A static method called through a generic class instance,
 // `Box<i32>::zero()` (classes.md, Static Members + Generic Classes).
 //
-// XFAIL: *
-// Waiting on codegen spelling the instance in the qualifier: Kairo accepts
-// it and clang rejects the emitted call, CL001E "use of class template
-// 'Box' requires template arguments".
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// The member's decl is the pattern's, so the call carries the instance it
+// was named through (CallExpr::qualifier, MONO.md G4) and the C++ is
+// `Box<int>::zero()`, not the bare class template `Box::zero()`. The same
+// through a dependent instance in a generic body (`Box<U>::zero()`), and
+// for a static whose defaulted parameter calls a default thunk.
 
 class <T> Box {
+    pub var v: T
+    fn Box(self, v: T) { self.v = v }
     static fn zero() -> i32 { return 7 }
+    static fn make(v: T, k: i32 = 3) -> Box<T> { return Box<T>(v) }
 }
 
+fn <U> zero_of() -> i32 { return Box<U>::zero() }
+
 fn main() -> i32 {
-    return Box<i32>::zero()
+    var b = Box<i32>::make(4)
+    return Box<i32>::zero() + zero_of<u8>() + b.v      // 7 + 7 + 4
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -26,4 +31,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 7
+// RUN: %t.exe; test $? -eq 18

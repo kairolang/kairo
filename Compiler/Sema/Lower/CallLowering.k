@@ -594,6 +594,8 @@ class CallLowering derives ASTWriter::<CallLowering> {
         var owner = NameLookup::representative(dc->dc_owner);
         if decl_generic_params(owner).size() == 0 { return &null; }
         if n->ctor_decl != &null { return canon_unqual(n->type_); }
+        // `Box<i32>::make()`: CallTyping recorded the record it named.
+        if n->qualifier != &null { return n->qualifier; }
         var ch = dyn_cast::<ChainExpr>(n->callee);
         ICE_IF((ch == &null) || (!self._receiver_bound(n)),
             "CallLowering: a defaulted parameter of a generic type's method, called through `::`; the thunk's owner arguments cannot be named");

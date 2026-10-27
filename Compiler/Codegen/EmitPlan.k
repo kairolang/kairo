@@ -1249,6 +1249,9 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
             // so it never comes through _admit's instance-shell path.
             var ie = reinterpret_cast::<*InstanceEntry>(cast::<CallExpr>(e)->instance);
             if ie != &null { self._admit_instance(ie, PlanNeed::Fwd); }
+            // `Box<int>::zero()`: the member is looked up in the class, so
+            // the instance is complete here, and homed like any named one.
+            self._admit_type(cast::<CallExpr>(e)->qualifier, PlanNeed::Complete);
             // `I::m(x)` on a concrete x: its row rides on the call.
             var wr = reinterpret_cast::<*ConformanceRow>(cast::<CallExpr>(e)->witness_row);
             if wr != &null { self._witness_row(wr); }

@@ -679,9 +679,13 @@ The no-headroom rules, each with one home:
   `<ext args..., member args...>`, the order of `template_params`, never leaving clang to deduce them: an argument
   whose C++ type is not its Kairo type (an int literal typed `i64`) would
   deduce an instance no TU homed. A generic METHOD through `.` still
-  deduces (`.template m<...>` is RESOLUTION.md item r). A default-thunk
-  call to a generic type's method is spelled through `CallExpr::qualifier`
-  (`Box<int>::__kairo_default_m_x()`). A constructor call's parameters are
+  deduces (`.template m<...>` is RESOLUTION.md item r). A static member
+  named through a generic record's instance (`Box<i32>::zero()`, or
+  `Box<U>::zero()` in a generic body) is spelled through
+  `CallExpr::qualifier`, which CallTyping writes: the member's decl is the
+  pattern's, and the decl alone spells the bare class template. EmitPlan
+  admits the qualifier Complete. A default-thunk call to a generic type's
+  method goes the same way (`Box<int>::__kairo_default_m_x()`). A constructor call's parameters are
   `CallExpr::ctor_decl`'s, not the named type's.
 - `_check_arity`: CallLowering's postcondition, checked in `_call`. Every
   parameter has an argument; more arguments than parameters only for a C

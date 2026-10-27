@@ -601,6 +601,26 @@ class <T> CallTyping {
         return true;
     }
 
+    /// `Box<i32>::zero()`: the record a static member is named THROUGH,
+    /// when that record is a generic one's instance (or a pattern used
+    /// dependently, `Box<T>::zero()`); null otherwise. The member's decl is
+    /// the pattern's -- an instance shell has no members of its own -- so
+    /// the decl alone spells `Box::zero`, a class template with no
+    /// arguments, and clang rejects it. The arguments are on the qualifier
+    /// and nowhere else after X. A requirement goes through its witness
+    /// and an extension member is rewritten to a free call, so neither is
+    /// named through a record here.
+    priv fn _instance_qualifier(self, f: *FunctionDecl, recv: *Type) -> *Type {
+        if (f == &null) || (recv == &null) || f->is_method() || (f->semantic_dc == &null) { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return &null; }
+        var owner = dc->owner_decl();
+        if (owner == &null) || isa::<InterfaceDecl>(NameLookup::representative(owner)) { return &null; }
+        var r = dyn_cast::<RecordType>(canon_unqual(recv));
+        if (r == &null) || (r->args.size() == 0) { return &null; }
+        return static_cast::<*Type>(r);
+    }
+
     /// Resolve against \p cands, promote the winner onto \p ident or \p step.
     /// \param adl  the callee was an unqualified name: widen \p cands with
     ///             argument-dependent lookup before resolving.
@@ -675,6 +695,9 @@ class <T> CallTyping {
         if (step != &null) && self._static_through_value(n, step, r.decl, recv) { dyn()->poison_only(n); return &null; }
 
         if recv != &null { r.ded.bind_from_record(canon_unqual(recv)); }
+        if (step != &null) && (step->access_kind == ChainExpr::AccessKind::ColonColon) {
+            n->qualifier = self._instance_qualifier(r.decl, recv);
+        }
 
         // promote cell -> decl (hard invariant #7).
         if (ident != &null) && (ident->resolved_decl == &null) {
