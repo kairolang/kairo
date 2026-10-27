@@ -1267,6 +1267,7 @@ class EnumVariantDecl derives Decl {
     pub var index:        u32 = 0;                ///< declaration order.
     pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
     pub var adt_ctor:     AdtCtorForm = AdtCtorForm::Lambda;  ///< how C++ builds it (AdtCtorForm); one writer, EnumLayoutLowering.
+    pub var adt_tag_value: u64 = 0;               ///< the tag this ADT variant is stored as: its position unless EnumDecl::adt_explicit_tags.
     /// The variant's value: its discriminant's, else the previous variant's
     /// plus one, else 0 for the first, so an ADT's variants are their
     /// positions. One writer: StmtTyping::traverse_enum_variant_decl, in
@@ -1290,6 +1291,7 @@ class EnumVariantDecl derives Decl {
         node->index  = index;
         node->adt_member = &null;
         node->adt_ctor   = AdtCtorForm::Lambda;
+        node->adt_tag_value = u64(index);
         node->value      = IntConst{};
         return node;
     }
@@ -1352,6 +1354,14 @@ class EnumDecl
     pub var adt_niche_shape: bool = false;
     pub var adt_niche:       bool = false;
     pub var adt_which:       *FunctionDecl = &null;
+    /// Lang-item layout overrides (EnumLayoutLowering::_knobs, spec
+    /// ENUMLAYOUT §7), all off by default: the tags are explicit values, not
+    /// positions (EnumVariantDecl::adt_tag_value), the payload union is
+    /// `alignas(adt_union_align)`, and `adt_site_field` is a u32 slot
+    /// between the tag and the union. One writer, EnumLayoutLowering.
+    pub var adt_explicit_tags: bool = false;
+    pub var adt_union_align:   u32  = 0;
+    pub var adt_site_field:    *FieldDecl = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -1371,6 +1381,9 @@ class EnumDecl
         node->adt_niche_shape = false;
         node->adt_niche       = false;
         node->adt_which       = &null;
+        node->adt_explicit_tags = false;
+        node->adt_union_align   = 0;
+        node->adt_site_field    = &null;
         return node;
     }
 
@@ -1387,6 +1400,9 @@ class EnumDecl
         node->adt_niche_shape = false;
         node->adt_niche       = false;
         node->adt_which       = &null;
+        node->adt_explicit_tags = false;
+        node->adt_union_align   = 0;
+        node->adt_site_field    = &null;
         return node;
     }
 

@@ -245,13 +245,16 @@ class EnumLayoutQuery {
         return (v != &null) && (v->adt_member != &null);
     }
 
+    /// Tags are the positions `0..N-1`: a switch over them is complete and
+    /// clang can index a table by them. Not with explicit tag values.
     fn is_exhaustive_dense(self, en: *EnumDecl) -> bool {
-        return self.has_layout(en);
+        return self.has_layout(en) && (!en->adt_explicit_tags);
     }
 
-    /// The discriminant variant \p index is stored as.
+    /// The discriminant variant \p index is stored as: its position, or the
+    /// explicit value a lang item gave it (AdtLayoutKnobs).
     fn tag_value(self, en: *EnumDecl, index: u32) -> u64 {
-        return u64(index);
+        return en->variants[usize(index)]->adt_tag_value;
     }
 
     // --- shape --------------------------------------------------------------------
@@ -474,6 +477,16 @@ class EnumLayoutQuery {
         var ts: u64 = 0;
         var ta: u64 = 0;
         if !self.size_of(self.sc->builtin(adt_tag_kind(en)), &ts, &ta) { return false; }
+        // A lang item's knobs (AdtLayoutKnobs): the u32 site slot after the
+        // tag, and the union's own alignment.
+        if en->adt_site_field != &null {
+            ts = self._round(ts, 4) + 4;
+            if ta < 4 { ta = 4; }
+        }
+        if u64(en->adt_union_align) > ual {
+            ual = u64(en->adt_union_align);
+            usz = self._round(usz, ual);
+        }
         var al = (ta) if (ta > ual) else (ual);
         (*size)  = self._round(self._round(ts, ual) + usz, al);
         (*align) = al;
@@ -637,6 +650,25 @@ class EnumLayoutQuery {
     }
 }
 
+/// Lang-item overrides of an ADT's layout (spec ENUMLAYOUT §7), keyed on
+/// the decl by EnumLayoutLowering::_knobs. Every default is the layout every
+/// other ADT gets; PANIC.md §1.1a is the first user (type-id tags, a u32
+/// tag word, an aligned union, a call-site slot).
+class AdtLayoutKnobs {
+    /// One per variant, in declaration order, or empty: positions.
+    pub var tag_values:   vec::<u64>;
+    pub var tag_kind_set: bool = false;
+    pub var tag_kind:     BuiltinKind = BuiltinKind::U32;
+    pub var union_align:  u32  = 0;        ///< `alignas(N)` on the payload union; 0 = natural.
+    pub var site_slot:    bool = false;    ///< a u32 `__kairo_site` between the tag and the union.
+
+    fn AdtLayoutKnobs(self) { }
+
+    fn any(self) -> bool {
+        return (self.tag_values.size() > 0) || self.tag_kind_set || (self.union_align > 0) || self.site_slot;
+    }
+}
+
 class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -761,7 +793,8 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         lay->adt_of         = static_cast::<*Decl>(en);
         var ldc = static_cast::<*DeclContext>(lay);
 
-        var tag = self._tag_enum(en, at, edc);
+        var knobs = self._knobs(en);
+        var tag = self._tag_enum(en, at, edc, &knobs);
         ldc->add_decl(static_cast::<*Decl>(tag));
 
         // A struct and a union member for each variant that has a payload.
@@ -787,6 +820,15 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         self._place(static_cast::<*Decl>(tf), edc, VisibilityKind::Public, at);
         ldc->add_decl(static_cast::<*Decl>(tf));
         fields.push(tf);
+        if knobs.site_slot {
+            var sf = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_site_field()),
+                                       StorageClass::Var, self.sc->builtin(BuiltinKind::U32), 1);
+            self._place(static_cast::<*Decl>(sf), edc, VisibilityKind::Public, at);
+            ldc->add_decl(static_cast::<*Decl>(sf));
+            fields.push(sf);
+            en->adt_site_field = sf;
+        }
+        en->adt_union_align = knobs.union_align;
 
         // No name, and declared only by the field that holds it: its members
         // are the record's to C++, and that field is in no field_of chain
@@ -800,7 +842,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         members.freeze_into(&(un->fields));
         ldc->add_decl(static_cast::<*Decl>(un));
 
-        var uf = FieldDecl::create(self.ctx, at, Token(), StorageClass::Var, self._type_of(static_cast::<*Decl>(un)), 1);
+        var uf = FieldDecl::create(self.ctx, at, Token(), StorageClass::Var, self._type_of(static_cast::<*Decl>(un)), u32(fields.size()));
         uf->is_anonymous_union = true;
         self._place(static_cast::<*Decl>(uf), edc, VisibilityKind::Public, at);
         ldc->add_decl(static_cast::<*Decl>(uf));
@@ -842,7 +884,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         // minted: a generic ADT may be laid out either way per instance, a
         // niche-filled one has no tag to read, and both answer which().
         en->adt_tag_field   = tf;
-        en->adt_niche_shape = self._niche_shaped(en);
+        en->adt_niche_shape = (!knobs.any()) && self._niche_shaped(en);
         if en->adt_niche_shape && (!generic) {
             var pv = en->variants[usize(adt_niche_payload_variant(en))];
             self._prebuild(pv->payload[0]->type_);
@@ -865,10 +907,10 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// is the variant's position and InterfaceEmitter writes the names bare.
     /// The narrowest word that holds them (_tag_kind): the tag sits before
     /// the union, so every byte past it is padding a small payload pays.
-    priv fn _tag_enum(self, en: *EnumDecl, at: SourceRange, edc: *DeclContext) -> *EnumDecl {
+    priv fn _tag_enum(self, en: *EnumDecl, at: SourceRange, edc: *DeclContext, knobs: *AdtLayoutKnobs) -> *EnumDecl {
         var tag = EnumDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_type()), edc);
         self._place(static_cast::<*Decl>(tag), edc, VisibilityKind::Public, at);
-        tag->underlying     = self.sc->builtin(self._tag_kind(en));
+        tag->underlying     = self.sc->builtin((knobs->tag_kind) if (knobs->tag_kind_set) else (self._tag_kind(en)));
         tag->generic_params = create_empty_frozen_list::<*GenericParamDecl>();
         tag->spec_args      = create_empty_frozen_list::<*Type>();
         var tdc = static_cast::<*DeclContext>(tag);
@@ -878,10 +920,28 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             var tv = EnumVariantDecl::create(self.ctx, v->range, v->name, u32(i));
             self._place(static_cast::<*Decl>(tv), tdc, VisibilityKind::Public, v->name.range);
             tv->payload = create_empty_frozen_list::<*FieldDecl>();
+            // An explicit tag is the enumerator's value, which _enum_def
+            // writes because it is not the position.
+            if knobs->tag_values.size() > 0 {
+                tv->value.ok  = true;
+                tv->value.mag = knobs->tag_values[i];
+                v->adt_tag_value = knobs->tag_values[i];
+            }
             vs.push(tv);
         }
         vs.freeze_into(&(tag->variants));
+        en->adt_explicit_tags = knobs->tag_values.size() > 0;
         return tag;
+    }
+
+    /// \p en's layout overrides (AdtLayoutKnobs), by identity with the lang
+    /// item that wants them -- never by name. None today: PanicLowering's
+    /// lang item will be the first, and every ADT gets the defaults.
+    priv fn _knobs(self, en: *EnumDecl) -> AdtLayoutKnobs {
+        var k = AdtLayoutKnobs();
+        ICE_IF((k.tag_values.size() != 0) && (k.tag_values.size() != en->variants.size()),
+               "EnumLayoutLowering: explicit tag values, not one per variant");
+        return k;
     }
 
     /// \p en could be laid out without a tag (spec ENUMLAYOUT §5.2): exactly

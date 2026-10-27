@@ -925,7 +925,14 @@ class InterfaceEmitter {
     priv fn _anon_union_field(self, f: *FieldDecl, owner: *Decl) {
         var u = self._plan->anon_union_of(f);
         var fat = self._at(static_cast::<*Decl>(f));
-        self._cg->sink->spell(fat, "union {");
+        // A lang item's aligned payload (EnumDecl::adt_union_align): every
+        // payload starts at that boundary, whatever the tag before it.
+        var oe = dyn_cast::<EnumDecl>(owner);
+        if (oe != &null) && (oe->adt_union_align > 0) {
+            self._cg->sink->spell(fat, "union alignas(" + f"{oe->adt_union_align}" + ") {");
+        } else {
+            self._cg->sink->spell(fat, "union {");
+        }
         for var i: usize = 0; i < u->fields.size(); ++i {
             var m = u->fields[i];
             if m == &null { continue; }
@@ -986,6 +993,10 @@ class InterfaceEmitter {
         for var i: usize = 0; i < en->variants.size(); ++i {
             var v = en->variants[i];
             if (v != &null) && (v->discriminant != &null) { numbered = true; break; }
+            // A minted tag enum has no discriminant expression; an explicit
+            // tag (EnumLayoutLowering's knobs) is a value that is not its
+            // position.
+            if (v != &null) && v->value.ok && (v->value.neg || (v->value.mag != u64(i))) { numbered = true; break; }
         }
         for var i: usize = 0; i < en->variants.size(); ++i {
             var v = en->variants[i];
@@ -1377,6 +1388,17 @@ class InterfaceEmitter {
         var cf   = LowerTargets::adt_construct_from();
         var nx   = self._adt_noexcept();
         var dreq = self._adt_requires(m, generic);   // a defaulted or deleted form: C++ deduces its noexcept.
+        // A lang item's site slot (EnumDecl::adt_site_field) travels with the
+        // tag: zeroed when a variant is built, copied wherever the tag is.
+        var site_init   = "";
+        var site_copy   = "";
+        var site_assign = "";
+        if en->adt_site_field != &null {
+            var sn = self._spell->leaf(static_cast::<*Decl>(en->adt_site_field));
+            site_init   = ", " + sn + "()";
+            site_copy   = ", " + sn + "(o." + sn + ")";
+            site_assign = sn + " = o." + sn + "; ";
+        }
         var req  = nx + dreq;
         var tail = (" = default;") if (m->adt_form == AdtForm::Trivial) else (" = delete;");
         var body = m->adt_form == AdtForm::Body;
@@ -1387,7 +1409,7 @@ class InterfaceEmitter {
                 }
                 var v    = en->variants[usize(m->adt_variant)];
                 var vt   = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
-                var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")";
+                var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")" + site_init;
                 if v->adt_member == &null { return nm + "(" + vt + ")" + nx + " : " + init + " {}"; }
                 // The payload is the callable's prvalue, so the union member
                 // is built straight from it: nothing is copied or moved.
@@ -1401,11 +1423,11 @@ class InterfaceEmitter {
                 return lam;
             }
             case AdtRole::CopyCtor {
-                if body { return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(o); }"; }
+                if body { return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(o); }"; }
                 return nm + "(const " + nm + "&)" + dreq + tail;
             }
             case AdtRole::MoveCtor {
-                if body { return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(static_cast<" + nm + "&&>(o)); }"; }
+                if body { return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(static_cast<" + nm + "&&>(o)); }"; }
                 return nm + "(" + nm + "&&)" + dreq + tail;
             }
             case AdtRole::CopyAssign {
@@ -1413,14 +1435,14 @@ class InterfaceEmitter {
                 // copy from, so it does nothing instead.
                 if body {
                     return nm + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); "
-                         + tag + " = o." + tag + "; " + cf + "(o); } return *this; }";
+                         + tag + " = o." + tag + "; " + site_assign + cf + "(o); } return *this; }";
                 }
                 return nm + "& operator=(const " + nm + "&)" + dreq + tail;
             }
             case AdtRole::MoveAssign {
                 if body {
                     return nm + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); "
-                         + tag + " = o." + tag + "; " + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }";
+                         + tag + " = o." + tag + "; " + site_assign + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }";
                 }
                 return nm + "& operator=(" + nm + "&&)" + dreq + tail;
             }

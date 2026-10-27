@@ -109,8 +109,10 @@ fn adt_tag_kind(en: *EnumDecl) -> BuiltinKind {
     return b;
 }
 
-/// A tagged ADT's niche: the tag values past its N variants.
+/// A tagged ADT's niche: the tag values past its N variants. None when the
+/// tags are explicit values: "past N" may be a live tag then.
 fn adt_tag_niche_count(en: *EnumDecl) -> u64 {
+    if en->adt_explicit_tags { return 0; }
     var n = u64(en->variants.size());
     var w = niche_word_values(adt_tag_kind(en));
     if w <= n { return 0; }

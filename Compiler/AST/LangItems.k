@@ -635,6 +635,9 @@ class LowerTargets {
     static fn niche_count() -> string                { return "__kairo_niche_count"; }
     static fn niche_test() -> string                 { return "__kairo_niche_test"; }
     static fn adt_which() -> string                  { return "__kairo_which"; }
+    /// The u32 slot a lang item's layout may ask for between the tag and the
+    /// payload union (EnumDecl::adt_site_field; PANIC.md §1.4's call site).
+    static fn adt_site_field() -> string             { return "__kairo_site"; }
     static fn niche_guard() -> string                { return "__KAIRO_NICHE_HELPERS"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
