@@ -4,13 +4,11 @@
 // `Opt<i32>(5)` the second (functions-overloading.mdx: an exact match
 // beats a conversion; an unviable candidate is dropped).
 //
-// XFAIL: *
-// Ticket "[Sema] Two constructors of a generic record, one taking `T`, are
-// ambiguous for every argument" (private/IMPORTANT/TICKETS.TXT,
-// 2026-10-25). Today both calls are SC064E "call to 'Opt' is ambiguous":
-// the `T` parameter is not substituted before ranking, so it is assumed
-// viable at the same rank. When it XPASSes, delete the XFAIL -- the run
-// below is already the real assertion.
+// The instance's arguments bind the pattern's parameters before any
+// argument is ranked (MONO.md G4), so `v: T` is `v: i32` here and never
+// deduces T := NullT from the call. A method the same way: `o.set(2)`
+// takes the i32. The rejected forms are Tests/Sema/Types/
+// instance_member_params.k.
 
 struct NullT { }
 
@@ -18,12 +16,18 @@ class <T> Opt {
     pub var k: i32 = 0
     fn Opt(self, n: NullT) { self.k = 1 }
     fn Opt(self, v: T) { self.k = 2 }
+    fn set(self, v: T) { self.k = 3 }
+    fn set(self, n: NullT) { self.k = 4 }
 }
 
 fn main() -> i32 {
     var a = Opt<i32>(NullT { })
     var b = Opt<i32>(5)
-    return a.k * 10 + b.k                       // 12
+    var c = Opt<i32>(5)
+    c.set(2)
+    var d = Opt<i32>(5)
+    d.set(NullT { })
+    return a.k * 1000 + b.k * 100 + c.k * 10 + d.k   // 1234 & 0xff = 210
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -33,4 +37,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 12
+// RUN: %t.exe; test $? -eq 210

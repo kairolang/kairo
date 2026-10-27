@@ -1032,7 +1032,13 @@ callee can only omit TRAILING defaults (clang applies them by omission); a
 named argument that fills a parameter after an unfilled defaulted one is
 SC107E. An extension member's own parameters are the receiver's
 (`Deduction::bind_from_extension`, after the receiver is judged, before
-placement); once `seeded`, a dependent parameter is ranked as its
+placement). A member of a generic record reached through a CONCRETE
+instance (its own pattern's, a partial's, or a constructor) takes the
+instance's arguments the same way (`bind_from_record`): on `Opt<i32>`,
+`fn Opt(self, v: T)` takes an i32 and never deduces T := NullT from the
+call, so it cannot tie an exact `fn Opt(self, n: NullT)`. An inherited
+member keeps deducing (its parameters are its own record's), and a
+dependent receiver is defer mode's (`member_through`). Once `seeded`, a dependent parameter is ranked as its
 SUBSTITUTED type, so a literal takes it and an argument converts to it
 rather than re-deducing it, and an extension whose parameters are still
 unbound is not viable. Diagnostics: no viable (capped candidate notes),

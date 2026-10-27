@@ -724,6 +724,20 @@ class OverloadResolution {
         return (owner != &null) && (decl_spec_kind(owner) == SpecKind::Partial);
     }
 
+    /// \p f is declared in the body of the pattern \p receiver is a
+    /// concrete instance of (`Opt<i32>` for a member of `class <T> Opt`).
+    /// An inherited member is not: its parameters are its own record's.
+    priv fn _member_of_instance(self, f: *FunctionDecl, receiver: *Type) -> bool {
+        if f->semantic_dc == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+        var owner = dc->owner_decl();
+        if owner == &null { return false; }
+        var r = dyn_cast::<RecordType>(canon_unqual(receiver));
+        if (r == &null) || (r->args.size() == 0) || r->is_dependent() || r->is_instantiation_dependent() { return false; }
+        return NameLookup::representative(owner) == NameLookup::representative(self.tu.pattern_of(r->decl));
+    }
+
     priv fn _judge_receiver(self, c: *Candidate, p: *ParamDecl, receiver: *Type) {
         if (receiver == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return; }
         var sq = canon_quals(p->type_->canonical);
@@ -766,8 +780,18 @@ class OverloadResolution {
         // `Store(self, v: *const P)` called with a `*i32` deduces nothing
         // (the pointee lacks the const), yet `Store<*const i32>` already
         // says P := i32. The receiver binds them before any argument is
-        // ranked. A primary's members keep deducing from their arguments.
+        // ranked.
+        //
+        // A primary's members the same, on a concrete instance: the record's
+        // parameters are its arguments, not a guess from the call's. Left to
+        // the arguments, `fn Opt(self, v: T)` deduced T := NullT from
+        // `Opt<i32>(NullT {})` and tied the exact `fn Opt(self, n: NullT)`;
+        // a constructor has no `self` argument to bind T first. A dependent
+        // receiver is defer mode's (member_through), or deduces as before.
         if (receiver != &null) && self._member_of_partial(f) {
+            c->ded.bind_from_record(canon_unqual(receiver));
+            c->ded.seeded = true;
+        } else if (receiver != &null) && (!c->defer) && self._member_of_instance(f, receiver) {
             c->ded.bind_from_record(canon_unqual(receiver));
             c->ded.seeded = true;
         }
@@ -975,8 +999,16 @@ class OverloadResolution {
                     c->reason = f"parameter '{pn}' is '@inout' and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}\x27";
                     return;
                 }
+                // The type it was ranked against: on `Box<i32>`, `v: T`
+                // takes an i32, and "of type 'T'" names nothing the caller
+                // can pass.
+                var shown = pt;
+                if c->ded.seeded && pt->is_dependent() {
+                    var sp = c->ded.substitute(pt);
+                    if sp != &null { shown = sp; }
+                }
                 c->viable = false;
-                c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(pt)}\x27";
+                c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(shown)}\x27";
                 return;
             }
             // An unmarked argument reaching `@inout` is TOLERATED (CallTyping
