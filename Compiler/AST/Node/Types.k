@@ -482,6 +482,10 @@ class FixedArrayType derives Type {
     pub var element:      *Type;
     pub var size_expr:    *Expr;  ///< Null if is_incomplete.
     pub var is_incomplete: bool;  ///< True for C-style int buf[].
+    /// CANONICAL only: the generic value parameter the extent is (`[i32; N]`
+    /// in `class <eval N: usize>`), a GenericParamType; null when the
+    /// extent is the value in size_bits. Substituted per instance (EVAL.md 3).
+    pub var extent_param: *Type;
 
     static fn create(
         ctx:       *ASTContext,
@@ -497,6 +501,7 @@ class FixedArrayType derives Type {
         node->element       = element;
         node->size_expr     = size_expr;
         node->is_incomplete = false;
+        node->extent_param  = &null;
         propagate_flags(node, element);
         return node;
     }
@@ -514,6 +519,7 @@ class FixedArrayType derives Type {
         node->element       = element;
         node->size_expr     = &null;
         node->is_incomplete = true;
+        node->extent_param  = &null;
         propagate_flags(node, element);
         return node;
     }
@@ -968,6 +974,12 @@ class OpaqueFFIType derives Type {
 
 class TypeExpr derives Type {
     pub var expr: *Expr;
+    /// CANONICAL only (CanonicalTypeStore::value_arg): a generic VALUE
+    /// argument, `4` of `Buf<4>`, as its exact integer (EVAL.md 3). The
+    /// syntax node has `expr` and is_value false.
+    pub var is_value: bool;
+    pub var vneg:     bool;
+    pub var vmag:     u64;
 
     static fn create(
         ctx:   *ASTContext,
@@ -980,6 +992,9 @@ class TypeExpr derives Type {
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_spans(&(ctx->ast_alloc));
         node->expr  = expr;
+        node->is_value = false;
+        node->vneg     = false;
+        node->vmag     = u64(0);
         return node;
     }
 

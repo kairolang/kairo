@@ -684,6 +684,9 @@ class CXXSpell {
                 var a = cast::<FixedArrayType>(t);
                 var ext = "";
                 if !a->is_incomplete { ext = f"{a->size_bits}"; }
+                // `[T; N]` for a generic value parameter: the parameter, or
+                // its instance's value (EVAL.md 3).
+                if a->extent_param != &null { ext = self._type(a->extent_param, subst, scope); }
                 // `[]` binds tighter than `*` and `&`: a pointer or reference
                 // TO an array parenthesizes its declarator.
                 var nm = name;
@@ -703,6 +706,13 @@ class CXXSpell {
             }
             case TypeKind::GenericParamType {
                 return self._join(self._gparam(cast::<GenericParamType>(t), subst), name);
+            }
+            // A generic VALUE argument (`4` of `Buf<4>`): the integer.
+            case TypeKind::TypeExpr {
+                var v = cast::<TypeExpr>(t);
+                if !v->is_value { self._ice(t_in->range, "CXXSpell: an unfolded generic value argument reached codegen; TypeResolve folds every one"); return ""; }
+                var s = (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}");
+                return self._join(s, name);
             }
             case TypeKind::OpaqueFFIType {
                 var o = cast::<OpaqueFFIType>(t);

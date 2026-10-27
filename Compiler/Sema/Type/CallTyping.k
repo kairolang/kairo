@@ -424,8 +424,11 @@ class <T> CallTyping {
             if id->is_deferred() {
                 var cands = vec::<*Decl>();
                 for var i: usize = 0; i < id->candidate_cell->size(); ++i { cands.push_back(id->candidate_cell->get(i)); }
-                return self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name),
+                self._set_explicit(&(id->generic_args));
+                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name),
                                              id, &null, true);
+                dyn()->ovl.explicit_args.clear();
+                return rt;
             }
             // `u32(x)`: the parser admits a primitive before `(`, but Kairo
             // converts with `as` (casting.md), and a type is not callable.
@@ -446,7 +449,10 @@ class <T> CallTyping {
             if isa::<FunctionDecl>(d) {
                 var cands = vec::<*Decl>();
                 cands.push_back(d);
-                return self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), &null, &null, true);
+                self._set_explicit(&(id->generic_args));
+                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), &null, &null, true);
+                dyn()->ovl.explicit_args.clear();
+                return rt;
             }
             if dyn()->tu.is_type_decl(d) {
                 var rec = dyn()->denoted_type(callee);
@@ -476,8 +482,10 @@ class <T> CallTyping {
                 var last = ce->steps.get(ce->steps.size() - 1);
                 var nm = "<operator>";
                 if last->name != &null { nm = dyn()->sc->ctx->get_spelling(last->name->name); }
+                self._set_explicit(&(last->generic_args));
                 var r = self._call_candidates(n, &(info->callable_cands), info->has_receiver, info->receiver,
                                               nm, &null, last);
+                dyn()->ovl.explicit_args.clear();
                 if ce->has_optional_chaining() { return self._safe_call_result(n, r); }
                 return r;
             }
@@ -525,6 +533,21 @@ class <T> CallTyping {
 
     priv fn _type_args_blind(self, n: *CallExpr) {
         for var i: usize = 0; i < n->args.size(); ++i { dyn()->type_of(n->args[i], &null); }
+    }
+
+    /// The explicit generic arguments of a call's callee name (`f<3>()`),
+    /// for OverloadResolution to bind before deduction (EVAL.md 3; the
+    /// "explicit generic arguments are ignored" ticket). One that did not
+    /// resolve leaves the list empty: the call deduces as it did before.
+    priv fn _set_explicit(self, gargs: *FrozenList::<ChainType::GenericArg>) {
+        dyn()->ovl.explicit_args.clear();
+        var tmp = vec::<*Type>();
+        for var i: usize = 0; i < gargs->size(); ++i {
+            var a = gargs->get(i);
+            if (a->name != &null) || (a->ty == &null) || (a->ty->canonical == &null) { return; }
+            tmp.push_back(a->ty->canonical);
+        }
+        for var i: usize = 0; i < tmp.size(); ++i { dyn()->ovl.explicit_args.push_back(tmp[i]); }
     }
 
     /// Resolve against \p cands, promote the winner onto \p ident or \p step.

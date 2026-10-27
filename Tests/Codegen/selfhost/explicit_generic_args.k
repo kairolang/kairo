@@ -7,13 +7,9 @@
 // pointers.md's `std::alloc<i32>`. The `isa` body itself (`T::classof` under
 // `<T: type>`) is a duck call and is crtp_duck.k's bug, so it is left out.
 //
-// XFAIL: *
-// Waiting on overload resolution using the explicit arguments: every such
-// call is SC063E, note "could not deduce every generic parameter from the
-// arguments". Only a call whose explicit arguments are ALSO deducible works
-// (`f<i32>(1)`). Only Parser tests ever wrote this shape.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Was SC063E "could not deduce every generic parameter from the
+// arguments": overload resolution now binds the explicit arguments into
+// each candidate's deduction before judging its arguments (EVAL.md 3).
 
 fn <T> zero() -> i32 { return 0 }
 fn <T> width() -> usize { return sizeof T }

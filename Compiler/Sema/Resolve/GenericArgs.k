@@ -45,6 +45,7 @@ import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::DeclFacts::*;
 import Token::Token::*;
 import Diagnostic::Registry::*;
 
@@ -117,6 +118,33 @@ class GenericArgs {
     /// two is two entries). Named args that name nothing, or name a slot
     /// twice, are errors.
     ///
+    /// Whether \p cty is the kind of argument \p gp takes: a value (a
+    /// canonical value_arg, or a value parameter standing in) for an `eval`
+    /// parameter, a type for a type parameter. Reported when not.
+    priv fn _kind_fits(self, primary: *Decl, gp: *GenericParamDecl, cty: *Type, a: *ChainType::GenericArg) -> bool {
+        if gp == &null { return true; }
+        var c = canon_unqual(cty);
+        var is_value = false;
+        if isa::<TypeExpr>(c) { is_value = cast::<TypeExpr>(c)->is_value; }
+        else if isa::<GenericParamType>(c) {
+            var g = cast::<GenericParamType>(c);
+            var ps = decl_generic_params(g->owner);
+            var ix = static_cast::<usize>(g->param_index);
+            if (g->owner != &null) && (ix < ps.size()) && (ps[ix] != &null) { is_value = ps[ix]->is_const_param; }
+        }
+        if is_value == gp->is_const_param { return true; }
+        if self.report {
+            var nm  = self.sc->ctx->get_spelling(gp->name);
+            var at  = (a->ty->range) if (a->ty != &null) else (a->name_range);
+            var msg = (f"'{nm}' is a generic value parameter; it takes a compile-time value, not a type") if (gp->is_const_param) else (f"'{nm}' is a type parameter; it takes a type, not a value");
+            var b = self.sc->diag->report(DiagID::R001E, at.start, msg);
+            b.first(at);
+            b.note(DiagID::R001N, gp->range.start, f"'{nm}' is declared here").first(gp->range);
+            b.emit();
+        }
+        return false;
+    }
+
     /// \p stand_in: a dependent argument with no canonical (a raw dependent
     /// composite) takes the parameter itself instead of failing. X and
     /// ChainBinding want that -- the result is a dependent pattern either
@@ -179,6 +207,10 @@ class GenericArgs {
                 cty = self.sc->types->generic_param(primary, gps[target]->index, false);
                 self.inst_dependent = true;
             }
+
+            // A value parameter takes a value (`Buf<4>`, `Buf<N>`), a type
+            // parameter a type (EVAL.md 3).
+            if (cty != &null) && (!self._kind_fits(primary, gps[target], cty, a)) { return false; }
 
             if a->name != &null {
                 slots[target]  = cty;

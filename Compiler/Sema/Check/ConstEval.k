@@ -103,6 +103,16 @@ class ConstEval {
         return self._eval(e, 0);
     }
 
+    /// The value of the variable \p d names, as if \p at (a name of it) were
+    /// evaluated: a generic value argument written as a bare name parses as
+    /// a type, so there is no expression to hand eval_int (EVAL.md 3).
+    fn eval_decl(self, at: *Expr, d: *Decl) -> IntConst {
+        self._reset();
+        self._en  = &null;
+        self._pos = 0;
+        return self._ref(at, d, 0);
+    }
+
     /// \p e as the discriminant of the variant at position \p pos of \p en:
     /// the variants above it are constants too.
     fn eval_discriminant(self, e: *Expr, en: *EnumDecl, pos: usize) -> IntConst {

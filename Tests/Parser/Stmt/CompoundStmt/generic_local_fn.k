@@ -18,8 +18,7 @@
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC063E]:
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [I900N]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC047E]:
 // END-GENERATED-CHECKS(AST)
 
 {

@@ -3,14 +3,9 @@
 // derives Source<i32>. With T given, the parameter is *Source<i32> and the
 // ordinary derived-to-base conversion applies.
 //
-// XFAIL: *
-// Waiting on viability using the substituted parameter type: today it is
-// SC063E, the note reading "cannot convert argument of type '*Counter' to
-// parameter 's' of type '*Source<T>'" -- T is still unsubstituted. The
-// deduced call `pull(sp)` on an already-upcast pointer works
-// (generic_virtual_base.k).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Was SC063E ("cannot convert argument of type '*Counter' to parameter 's'
+// of type '*Source<T>'"): the explicit argument is now bound before the
+// arguments are judged, so the parameter is substituted (EVAL.md 3).
 
 class <T> Source {
     virtual fn get(self) -> i32 { return 0 }

@@ -988,12 +988,22 @@ class <T> DeclParse {
         dyn()->_reject_mode_binding();   // `<@move T>`: a generic param is not passed.
         var start = dyn()->current_ptr()->range;
 
-        // const value parameter: `const N: T`
-        if dyn()->check(TokenKind::KwConst) {
-            dyn()->advance(T::SkipNL::After); // consume `const`
+        // value parameter: `eval N: T` (EVAL.md 3). `const N: T` is the old
+        // spelling: an error with a fix-it to `eval`, parsed as the same
+        // parameter so nothing after it cascades.
+        if dyn()->check(TokenKind::KwEval) || dyn()->check(TokenKind::KwConst) {
+            var kw = dyn()->current();
+            if kw.kind == TokenKind::KwConst {
+                var b = dyn()->diag->report(DiagID::S001E, kw.range.start,
+                    "a generic value parameter is written 'eval N: T', not 'const N: T\x27; its value is a compile-time constant");
+                b.first(kw.range);
+                b.fix(kw.range, "eval", "write 'eval\x27");
+                b.emit();
+            }
+            dyn()->advance(T::SkipNL::After); // consume `eval` / `const`
             if !dyn()->check_is_ident() {
                 dyn()->diag->report(DiagID::S049E, start.start,
-                    "expected parameter name after 'const' in generic parameter list"
+                    "expected parameter name after 'eval' in generic parameter list"
                 ).first(start).emit();
                 return &null;
             }
@@ -1001,7 +1011,7 @@ class <T> DeclParse {
             dyn()->advance();
             if !dyn()->check(TokenKind::OpColon) {
                 dyn()->diag->report(DiagID::S049E, start.start,
-                    "expected ':' and a type for a const generic value parameter"
+                    "expected ':' and a type for a generic value parameter"
                 ).first(start).emit();
                 return &null;
             }

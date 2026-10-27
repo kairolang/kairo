@@ -249,6 +249,12 @@ class OverloadResolution {
     /// indices into it are stable for exactly that reason: an ArgInfo names
     /// its elements by range, so nothing has to hold a container of itself.
     pub var list_shapes: vec::<ListShape>;
+    /// The call's explicit generic arguments (`f<3>()`, `f<i32>(x)`), as
+    /// canonicals, in order; empty when none were written. Bound into each
+    /// generic candidate's deduction before its arguments are judged, so a
+    /// parameter no argument mentions (`fn <eval N: usize> width()`) has a
+    /// value. CallTyping sets and clears it around one resolve.
+    pub var explicit_args: vec::<*Type>;
 
     fn OverloadResolution(self) { self.sc = &null; self.conv = &null; }
     fn OverloadResolution(self, sc: *SemaContext, conv: *Conversion) {
@@ -643,12 +649,51 @@ class OverloadResolution {
             c.defer   = defer;
             c.generic = f->generic_params.size() > 0;
             c.ded     = Deduction(self.sc, self.conv);
+            if !self._bind_explicit(&c) { cs->push_back(c); continue; }
             self._judge(&c, args, has_receiver, receiver, qualifier);
             cs->push_back(c);
         }
     }
 
     // === one candidate ======================================================
+
+    /// explicit_args into \p c's deduction, positionally. More arguments than
+    /// \p c has generic parameters, or any for a non-generic one, makes it
+    /// not viable; a value where a type parameter is (or the reverse) too.
+    priv fn _bind_explicit(self, c: *Candidate) -> bool {
+        var n = self.explicit_args.size();
+        if n == 0 { return true; }
+        var gps = c->f->generic_params;
+        if n > gps.size() {
+            c->viable = false;
+            c->reason = f"it takes {gps.size()} generic argument(s), and {n} were written";
+            return false;
+        }
+        for var i: usize = 0; i < n; ++i {
+            var gp = gps[i];
+            var a  = self.explicit_args[i];
+            if (gp == &null) || (a == &null) || (gp->owner == &null) { continue; }
+            var ca = canon_unqual(a);
+            var is_value = isa::<TypeExpr>(ca) && cast::<TypeExpr>(ca)->is_value;
+            if isa::<GenericParamType>(ca) {
+                var g  = cast::<GenericParamType>(ca);
+                var ps = decl_generic_params(g->owner);
+                var ix = static_cast::<usize>(g->param_index);
+                if (g->owner != &null) && (ix < ps.size()) && (ps[ix] != &null) { is_value = ps[ix]->is_const_param; }
+            }
+            if is_value != gp->is_const_param {
+                c->viable = false;
+                var nm = self.sc->ctx->get_spelling(gp->name);
+                c->reason = (f"'{nm}' is a generic value parameter, and argument {i + 1} is a type") if (gp->is_const_param) else (f"'{nm}' is a type parameter, and argument {i + 1} is a value");
+                return false;
+            }
+            c->ded.bind(gp->owner, gp->index, a);
+            // As a receiver's args do: a parameter they decide ranks as the
+            // type it is, so `gen<i64>(4)` takes the literal as an i64.
+            c->ded.seeded = true;
+        }
+        return true;
+    }
 
     /// The implicit object parameter ([over.match.funcs]/4): the receiver
     /// OBJECT against `self`, whose canonical carries the method's cv -- a

@@ -616,9 +616,14 @@ class ExprTyper
             case DeclKind::GenericParamDecl {
                 // A TYPE parameter denotes its type, as a record's name does:
                 // `T::make()` is a static of T's bounds called with T as its
-                // qualifier, and MemberTyping reads the receiver off this. A
-                // `const N` value parameter is a value whose type is M2's.
+                // qualifier, and MemberTyping reads the receiver off this. An
+                // `eval N: T` value parameter is a constant of its declared
+                // type (EVAL.md 3): a prvalue, the same in every instance.
                 var gp = cast::<GenericParamDecl>(d);
+                if gp->is_const_param && (gp->value_type != &null) && (gp->value_type->canonical != &null) {
+                    n->value_category = Expr::ValueCategory::RValue;
+                    return gp->value_type->canonical;
+                }
                 if gp->is_const_param || gp->is_pack || (gp->owner == &null) { self.mark_unknown(n); return &null; }
                 self.note_type_expr(static_cast::<*Expr>(n),
                     self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, false));

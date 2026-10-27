@@ -352,6 +352,7 @@ class CanonicalTypeStore {
         at->element       = element;
         at->size_expr     = &null;      // canonical form carries the VALUE, not the expr.
         at->is_incomplete = false;
+        at->extent_param  = &null;
         at->init_annotations(&(self._arena));
         at->init_spans(&(self._arena));
         // The extent is the identity, and a canonical FixedArrayType has no
@@ -362,6 +363,82 @@ class CanonicalTypeStore {
         var ty = static_cast::<*Type>(at);
         ty->canonical = ty;
         self._absorb_flags(ty, element);
+        self._insert(h, ty);
+        return ty;
+    }
+
+    /// `[T; N]` for a generic VALUE parameter N (\p param, its canonical
+    /// GenericParamType): dependent, keyed on (element, param), substituted
+    /// to array() per instance (EVAL.md 3).
+    fn array_of_param(self, element: *Type, param: *Type) -> *Type {
+        if (element == &null) || (param == &null) { return &null; }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::FixedArrayType)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(element));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(param));
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::FixedArrayType { continue; }
+                var a = cast::<FixedArrayType>(c);
+                if (a->element == element) && (a->extent_param == param) { return c; }
+            }
+        }
+
+        var at = self._alloc::<FixedArrayType>();
+        at->kind          = TypeKind::FixedArrayType;
+        at->range         = SourceRange::invalid();
+        at->element       = element;
+        at->size_expr     = &null;
+        at->is_incomplete = false;
+        at->extent_param  = param;
+        at->init_annotations(&(self._arena));
+        at->init_spans(&(self._arena));
+        at->size_bits = 0;
+
+        var ty = static_cast::<*Type>(at);
+        ty->canonical = ty;
+        self._absorb_flags(ty, element);
+        self._absorb_flags(ty, param);
+        self._insert(h, ty);
+        return ty;
+    }
+
+    /// A generic VALUE argument (`4` of `Buf<4>`): a canonical TypeExpr
+    /// holding the exact integer, keyed on it, never dependent. The slot's
+    /// declared type is the parameter's, so the value alone is the identity
+    /// (EVAL.md 3).
+    fn value_arg(self, neg: bool, mag: u64) -> *Type {
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TypeExpr)));
+        h = canon_hash_u64(h, (u64(1)) if (neg) else (u64(0)));
+        h = canon_hash_u64(h, mag);
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::TypeExpr { continue; }
+                var v = cast::<TypeExpr>(c);
+                if v->is_value && (v->vneg == neg) && (v->vmag == mag) { return c; }
+            }
+        }
+
+        var te = self._alloc::<TypeExpr>();
+        te->kind     = TypeKind::TypeExpr;
+        te->range    = SourceRange::invalid();
+        te->expr     = &null;
+        te->is_value = true;
+        te->vneg     = neg;
+        te->vmag     = mag;
+        te->type_flags = Type::TypeFlags::None;
+        te->init_annotations(&(self._arena));
+        te->init_spans(&(self._arena));
+
+        var ty = static_cast::<*Type>(te);
+        ty->canonical = ty;
         self._insert(h, ty);
         return ty;
     }
@@ -692,6 +769,7 @@ class CanonicalTypeStore {
             if c->kind != TypeKind::FixedArrayType { continue; }
             var a = cast::<FixedArrayType>(c);
             if a->element != element { continue; }
+            if a->extent_param != &null { continue; }
             if static_cast::<u64>(a->size_bits) == extent { return c; }
         }
         return &null;

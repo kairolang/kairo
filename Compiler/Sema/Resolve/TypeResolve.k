@@ -163,6 +163,34 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self.sc = sc;
     }
 
+    /// > 0 while a generic ARGUMENT is resolved: there a generic value
+    /// parameter (`Buf<N>` inside `class <eval N: usize>`) is an argument,
+    /// not a misused type (EVAL.md 3).
+    priv var _arg_depth: u32 = 0;
+
+    fn traverse_generic_arg(self, a: *ChainType::GenericArg) {
+        self._arg_depth += 1;
+        RecursiveASTVisitor::<TypeResolution>::traverse_generic_arg(a);
+        self._arg_depth -= 1;
+    }
+
+    fn traverse_chain_type(self, n: *ChainType) -> *ChainType {
+        if self.dyn()->walkup_chain_type(n) == false { return n; }
+        for var i: usize = 0; i < n->segments.size(); i++ {
+            if self.stop { break; }
+            var seg = n->segments.get(i);
+            for var j: usize = 0; j < seg->generic_args.size(); j++ {
+                if self.stop { break; }
+                var arg = seg->generic_args.get(j);
+                if arg->ty == &null { continue; }
+                self._arg_depth += 1;
+                self.dyn()->dispatch_type(arg->ty);
+                self._arg_depth -= 1;
+            }
+        }
+        return n;
+    }
+
     /// Entry point. PRE: NamesResolved (redecl chains linked, out-of-line
     /// attached -- both needed so a name resolves to the DEFINITION). POST
     /// (advanced by the driver): every non-dependent Type node canonical.
@@ -239,7 +267,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             case TypeKind::QualifiedType         { 0; }   // canonical by construction.
             case TypeKind::InferredType          { 0; }   // TypeInference owns; no canonical here.
             case TypeKind::TypeOfType            { self._mark_inst_dependent(t); }   // needs expr typing.
-            case TypeKind::TypeExpr              { self._mark_inst_dependent(t); }   // const arg; evaluator.
+            case TypeKind::TypeExpr              { self._resolve_value_arg(cast::<TypeExpr>(t)); }
             default                              { 0; }
         }
 
@@ -449,11 +477,28 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 n->canonical = self.sc->types->array(elem, c.mag);
                 return;
             }
-            if !self._extent_dependent(&ce) {
-                self._bad_extent(n, &ce, c);
+            var vp = self._extent_dependent(&ce);
+            if vp == &null {
+                self._bad_extent(n, &ce, c, "an array length");
                 n->poison();
                 return;
             }
+            // `[T; N]` for a value parameter N: dependent, substituted per
+            // instance (EVAL.md 3). Anything more than the bare name (`N + 1`)
+            // has no canonical yet.
+            var bare = n->size_expr;
+            while (bare != &null) && isa::<ParenExpr>(bare) { bare = cast::<ParenExpr>(bare)->inner; }
+            if (bare != &null) && isa::<NamedIdentExpr>(bare) && (vp->owner != &null) {
+                var pt = self.sc->types->generic_param(vp->owner, vp->index, false);
+                self._mark_dependent(n);
+                n->canonical = self.sc->types->array_of_param(elem, pt);
+                return;
+            }
+            self.sc->diag->report(DiagID::SC116E, n->size_expr->range.start,
+                "an array length computed from a generic value parameter is not yet supported; use the parameter itself"
+            ).first(n->size_expr->range).emit();
+            n->poison();
+            return;
         }
 
         if !known {
@@ -463,26 +508,69 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         n->canonical = self.sc->types->array(elem, extent);
     }
 
-    /// The evaluation stopped at a generic VALUE parameter (`[i32; N]` in
-    /// `class <eval N: usize>`): known per instance, not here.
-    priv fn _extent_dependent(self, ce: *ConstEval) -> bool {
-        if ce->bad == &null { return false; }
+    /// The generic VALUE parameter the evaluation stopped at (`[i32; N]` in
+    /// `class <eval N: usize>`): known per instance, not here. Null if none.
+    priv fn _extent_dependent(self, ce: *ConstEval) -> *GenericParamDecl {
+        if ce->bad == &null { return &null; }
         var e = ce->bad;
         while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
-        if (e == &null) || (!isa::<NamedIdentExpr>(e)) { return false; }
+        if (e == &null) || (!isa::<NamedIdentExpr>(e)) { return &null; }
         var d = cast::<NamedIdentExpr>(e)->resolved_decl;
-        return (d != &null) && isa::<GenericParamDecl>(d);
+        if (d == &null) || (!isa::<GenericParamDecl>(d)) { return &null; }
+        return cast::<GenericParamDecl>(d);
+    }
+
+    /// A generic VALUE argument (`4` of `Buf<4>`, `N` of `Buf<N>` written as
+    /// an expression): folded like an array length (EVAL.md 0.1: an
+    /// instance's identity), to a canonical value_arg. One that stops at a
+    /// value parameter is that parameter; anything else is reported as an
+    /// array length is.
+    priv fn _resolve_value_arg(self, n: *TypeExpr) {
+        if n->is_value { return; }
+        if (n->expr == &null) || (self.sc->tu == &null) || self.sc->tu->is_foreign {
+            self._mark_inst_dependent(static_cast::<*Type>(n));
+            return;
+        }
+        var ce = ConstEval(self.sc);
+        var c  = ce.eval_int(n->expr);
+        if c.ok && (!c.overflow) && (ce.const_decl == &null) {
+            n->canonical = self.sc->types->value_arg(c.neg, c.mag);
+            return;
+        }
+        var vp = self._extent_dependent(&ce);
+        if vp != &null {
+            var bare = n->expr;
+            while (bare != &null) && isa::<ParenExpr>(bare) { bare = cast::<ParenExpr>(bare)->inner; }
+            if (bare != &null) && isa::<NamedIdentExpr>(bare) && (vp->owner != &null) {
+                self._mark_dependent(static_cast::<*Type>(n));
+                n->canonical = self.sc->types->generic_param(vp->owner, vp->index, false);
+                return;
+            }
+            self.sc->diag->report(DiagID::SC116E, n->expr->range.start,
+                "a generic value argument computed from a generic value parameter is not yet supported; use the parameter itself"
+            ).first(n->expr->range).emit();
+            n->poison();
+            return;
+        }
+        self._bad_value(n->expr, &ce, c, "a generic value argument");
+        n->poison();
     }
 
     /// Why `[T; e]` has no extent, at the part of `e` that is at fault.
-    priv fn _bad_extent(self, n: *FixedArrayType, ce: *ConstEval, c: IntConst) {
+    priv fn _bad_extent(self, n: *FixedArrayType, ce: *ConstEval, c: IntConst, what: string) {
+        self._bad_value(n->size_expr, ce, c, what);
+    }
+
+    /// Why \p e is no compile-time value where \p what must be one (an
+    /// array length, a generic value argument), at the part at fault.
+    priv fn _bad_value(self, e: *Expr, ce: *ConstEval, c: IntConst, what: string) {
         if ce->quiet { return; }
         if c.ok && (ce->const_decl != &null) {
             var vd  = ce->const_decl;
             var nm  = self.sc->ctx->get_spelling(vd->name);
-            var at  = (ce->const_at->range) if (ce->const_at != &null) else (n->size_expr->range);
+            var at  = (ce->const_at->range) if (ce->const_at != &null) else (e->range);
             var b = self.sc->diag->report(DiagID::SC001E, at.start,
-                f"an array length must be an 'eval' constant; '{nm}' is 'const', which is not evaluated at compile time");
+                f"{what} must be an 'eval' constant; '{nm}' is 'const', which is not evaluated at compile time");
             b.first(at);
             b.note(DiagID::SC001N, vd->name.range.start, f"'{nm}' is declared 'const' here").first(vd->name.range);
             var kw = vd->storage_kw;
@@ -494,17 +582,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         }
         if c.ok {
             var why = ("a value wider than 64 bits") if (c.overflow) else (f"{ce->str(c)}, which is negative");
-            self.sc->diag->report(DiagID::SC001E, n->size_expr->range.start,
-                f"an array length must be a non-negative constant that fits 64 bits; this one is {why}"
-            ).first(n->size_expr->range).emit();
+            self.sc->diag->report(DiagID::SC001E, e->range.start,
+                f"{what} must be a non-negative constant that fits 64 bits; this one is {why}"
+            ).first(e->range).emit();
             return;
         }
-        var bad = (ce->bad) if (ce->bad != &null) else (n->size_expr);
+        var bad = (ce->bad) if (ce->bad != &null) else (e);
         var bvd = (dyn_cast::<VariableDecl>(ce->bad_decl)) if (ce->bad_decl != &null) else (&null);
         if (bvd != &null) && (!bvd->is_const()) && (!bvd->is_eval()) {
             var vn = self.sc->ctx->get_spelling(bvd->name);
             var vb = self.sc->diag->report(DiagID::SC001E, bad->range.start,
-                f"an array length must be an 'eval' constant; '{vn}' is a variable");
+                f"{what} must be an 'eval' constant; '{vn}' is a variable");
             vb.first(bad->range);
             vb.note(DiagID::SC001N, bvd->name.range.start, f"'{vn}' is declared here").first(bvd->name.range);
             vb.emit();
@@ -512,12 +600,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         }
         if isa::<CallExpr>(bad) {
             self.sc->diag->report(DiagID::SC116E, bad->range.start,
-                "an array length computed by a call is not yet supported"
+                f"{what} computed by a call is not yet supported"
             ).first(bad->range).emit();
             return;
         }
         var b = self.sc->diag->report(DiagID::SC001E, bad->range.start,
-            f"an array length must be a compile-time constant: {ce->bad_why}");
+            f"{what} must be a compile-time constant: {ce->bad_why}");
         b.first(bad->range);
         if ce->bad_decl != &null {
             var dn = ce->tu.decl_name(ce->bad_decl);
@@ -987,6 +1075,24 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                         ct->poison();
                         return;
                     }
+                    // A generic VALUE argument written as a name (`Ring<CAP>`)
+                    // parses as a type: an `eval` variable here is its value
+                    // (EVAL.md 3), anything else that is a value is reported
+                    // as one that is not eval-able.
+                    if (self._arg_depth > 0) && (n == 1) && seg0->generic_args.is_empty() && (r.cell->size() == 1)
+                    && (isa::<VariableDecl>(r.cell->get(0)) || isa::<FieldDecl>(r.cell->get(0))) {
+                        var at = static_cast::<*Expr>(seg0->name);
+                        var ce = ConstEval(self.sc);
+                        var c  = ce.eval_decl(at, r.cell->get(0));
+                        if c.ok && (!c.overflow) && (ce.const_decl == &null) {
+                            seg0->resolved_decl = r.cell->get(0);
+                            ct->canonical = self.sc->types->value_arg(c.neg, c.mag);
+                            return;
+                        }
+                        self._bad_value(at, &ce, c, "a generic value argument");
+                        ct->poison();
+                        return;
+                    }
                     head = self._pick_type_candidate(r, seg0->name);
                     if head == &null { ct->poison(); return; }   // diagnosed inside.
                     self._append_module_scopes(r, &mods);
@@ -1229,12 +1335,18 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 ct->poison();
                 return &null;
             }
+            // A value parameter as a generic argument (`Buf<N>`): the
+            // parameter itself stands in, as a type parameter does.
+            if gp->is_const_param && (self._arg_depth > 0) {
+                self._mark_dependent(ct);
+                return self.sc->types->generic_param(gowner, gp->index, false);
+            }
             if gp->is_const_param {
                 var nm = self.sc->ctx->get_spelling(gp->name);
                 self.sc->diag->report(DiagID::R023E, seg->range.start,
                     f"'{nm}' is a value parameter and cannot be used as a type"
                 ).first(seg->range)
-                 .note(DiagID::R023N, gp->range.start, "declared as a const generic parameter here")
+                 .note(DiagID::R023N, gp->range.start, "declared as a generic value parameter here")
                  .first(gp->range).emit();
                 ct->poison();
                 return &null;

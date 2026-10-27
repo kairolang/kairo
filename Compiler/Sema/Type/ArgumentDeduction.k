@@ -212,7 +212,16 @@ class Deduction {
                 return self._inner(self.unify(cast::<SetType>(param)->element, cast::<SetType>(arg)->element, false));
             } case TypeKind::FixedArrayType {
                 var pa = cast::<FixedArrayType>(param); var aa = cast::<FixedArrayType>(arg);
-                if pa->size_bits != aa->size_bits { return ImplicitRank::None; }
+                // `[T; N]` against `[i32; 3]` deduces the value parameter
+                // N := 3 (EVAL.md 3).
+                if (pa->extent_param != &null) && (aa->extent_param == &null) {
+                    var g = dyn_cast::<GenericParamType>(pa->extent_param);
+                    if (g == &null) || (g->owner == &null) { return ImplicitRank::None; }
+                    var v = self.sc->types->value_arg(false, static_cast::<u64>(aa->size_bits));
+                    if !self.bind(g->owner, g->param_index, v) { return ImplicitRank::None; }
+                    return self._inner(self.unify(pa->element, aa->element, false));
+                }
+                if (pa->extent_param != aa->extent_param) || (pa->size_bits != aa->size_bits) { return ImplicitRank::None; }
                 return self._inner(self.unify(pa->element, aa->element, false));
             } case TypeKind::MapType {
                 var pm = cast::<MapType>(param); var am = cast::<MapType>(arg);
@@ -305,6 +314,16 @@ class Deduction {
                 var a = cast::<FixedArrayType>(t);
                 var e = self.substitute(a->element);
                 if e == &null { return &null; }
+                // `[T; N]` for a value parameter N: its value is the extent
+                // (EVAL.md 3); still a parameter, still dependent.
+                if a->extent_param != &null {
+                    var x = self.substitute(a->extent_param);
+                    if x == &null { return &null; }
+                    var v = dyn_cast::<TypeExpr>(x);
+                    if (v != &null) && v->is_value && (!v->vneg) { return self.sc->types->array(e, v->vmag); }
+                    if isa::<GenericParamType>(x) { return self.sc->types->array_of_param(e, x); }
+                    return &null;
+                }
                 return self.sc->types->array(e, static_cast::<u64>(a->size_bits));
             } case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);

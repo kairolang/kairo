@@ -2,17 +2,15 @@
 // of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
 //
 // A class generic over a constant, the TokenBuffer shape
-// (`class <const CHUNK_SIZE: usize> TokenBuffer`, ~100 uses of
-// TokenBuffer::<512>): the constant sizes an array field and is read as a
-// value.
+// (`class <const CHUNK_SIZE: usize> TokenBuffer` in Stage 0 syntax, ~100
+// uses of TokenBuffer::<512>; Stage 1 spells it `<eval N: usize>`, EVAL.md
+// 3): the constant sizes an array field and is read as a value.
 //
-// XFAIL: *
-// Waiting on codegen spelling a constant generic parameter: it type-checks
-// and ICEs ("CXXSpell: type with no canonical reached codegen").
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Was an ICE ("CXXSpell: type with no canonical reached codegen"): `Buf<4>`
+// now has a canonical value argument, `[i32; N]` a dependent extent, and
+// `N` the type usize as a value (EVAL.md 3).
 
-class <const N: usize> Buf {
+class <eval N: usize> Buf {
     var data: [i32; N]
     fn cap(const self) -> usize { return N }
     fn put(self, i: usize, v: i32) { self.data[i] = v }

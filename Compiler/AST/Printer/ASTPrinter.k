@@ -1503,7 +1503,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     fn _d_generic_param(self, gp: *GenericParamDecl) {
         if gp->is_const_param {
-            self.p.paint(Color::Keyword, "const ");
+            self.p.paint(Color::Keyword, "eval ");
             self.p.paint(Color::Ident, self.tok(gp->name));
             self.p.paint(Color::Punct, ": ");
             self.src_type(gp->value_type);
