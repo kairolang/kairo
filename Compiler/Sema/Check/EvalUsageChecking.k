@@ -162,19 +162,112 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         return r;
     }
 
-    /// A generic value parameter's type: an integer for now (a value
-    /// argument folds to an integer, CanonicalTypeStore::value_arg); a
-    /// class type -- an eval class as a C++ structural NTTP -- is not built
-    /// (EVAL.md 7e).
+    /// A generic value parameter's type: an integer (a value argument folds
+    /// to one, or is an expression C++ computes, EVAL.md 0.2), or an eval
+    /// class, a C++20 class-type parameter, when it is structural (7e).
+    /// Anything else (`bool`, a float) is not built.
     fn visit_generic_param_decl(self, n: *GenericParamDecl) -> bool {
         if (!n->is_const_param) || (n->value_type == &null) || (n->value_type->canonical == &null) { return true; }
         var c = canon_unqual(n->value_type->canonical);
         if self.tu.is_integer(c) { return true; }
+        // An eval class (EVAL.md 7e): a C++20 class-type template
+        // parameter, which C++ allows only for a structural type.
+        var rd = self.tu.record_decl(c);
+        if (rd != &null) && (isa::<ClassDecl>(rd) || isa::<StructDecl>(rd)) {
+            self._check_structural(n, rd);
+            return true;
+        }
         var b = self.sc->diag->report(DiagID::SC116E, n->value_type->range.start,
-            f"a generic value parameter of type '{self.tu.str(c)}' is not yet supported; only an integer type is");
+            f"a generic value parameter of type '{self.tu.str(c)}' is not yet supported; only an integer type or an eval class is");
         b.first(n->value_type->range);
         b.emit();
         return true;
+    }
+
+    /// \p rd as the type of value parameter \p n (EVAL.md 7e, USER): every
+    /// field `pub`, none a pointer to mutable memory, every field's type
+    /// structural in turn, every constructor `eval`, no destructor written.
+    /// C++ compares template arguments of class type member by member, and
+    /// only a structural class may be one. The first field (or
+    /// constructor) that is not is the error, with a note at it.
+    priv fn _check_structural(self, n: *GenericParamDecl, rd: *Decl) {
+        var why = "";
+        var at: *Decl = &null;
+        self._structural(rd, &why, &at, u32(0));
+        if why.size() == 0 { return; }
+        var tn = self.tu.decl_name(rd);
+        var b = self.sc->diag->report(DiagID::SC001E, n->value_type->range.start,
+            f"'{tn}' cannot be the type of a generic value parameter: {why}");
+        b.first(n->value_type->range);
+        if at != &null { b.note(DiagID::SC001N, at->range.start, "declared here").first(at->range); }
+        b.emit();
+    }
+
+    /// The first reason \p rd is not structural, into \p why / \p at.
+    priv fn _structural(self, rd: *Decl, why: *string, at: *(*Decl), depth: u32) {
+        if depth > u32(8) { return; }
+        var tn = self.tu.decl_name(rd);
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        var methods: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(rd)       { fields = &(cast::<ClassDecl>(rd)->fields);  methods = &(cast::<ClassDecl>(rd)->methods); }
+        else if isa::<StructDecl>(rd) { fields = &(cast::<StructDecl>(rd)->fields); methods = &(cast::<StructDecl>(rd)->methods); }
+        else { return; }
+        var dt = self._user_dtor(rd);
+        if dt != &null {
+            (*why) = f"'{tn}' has a destructor";
+            (*at) = static_cast::<*Decl>(dt);
+            return;
+        }
+        // The parameter's own class is built at compile time, so its
+        // constructors are `eval`; a field's class needs only to be
+        // structural (the builtin string's are constexpr).
+        var on = tn;
+        for var i: usize = 0; (depth == u32(0)) && (i < methods->size()); ++i {
+            var m = (*methods)[i];
+            if (m == &null) || m->is_operator || m->is_implicit { continue; }
+            if self.tu.decl_name(static_cast::<*Decl>(m)) != on { continue; }
+            if !m->is_eval() {
+                (*why) = f"a constructor of '{tn}' is not 'eval\x27";
+                (*at) = static_cast::<*Decl>(m);
+                return;
+            }
+        }
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = (*fields)[i];
+            if (f == &null) || f->is_static() || f->is_eval() { continue; }
+            var fnm = self.sc->ctx->get_spelling(f->name);
+            // Unmarked: a struct's field is public, a class's private (as
+            // InterfaceEmitter::_access spells them).
+            var vis = f->visibility;
+            if vis == VisibilityKind::None { vis = (VisibilityKind::Private) if (isa::<ClassDecl>(rd)) else (VisibilityKind::Public); }
+            if vis != VisibilityKind::Public {
+                (*why) = f"its field '{fnm}' is not 'pub\x27";
+                (*at) = static_cast::<*Decl>(f);
+                return;
+            }
+            if f->is_mutable {
+                (*why) = f"its field '{fnm}' is 'mutable\x27";
+                (*at) = static_cast::<*Decl>(f);
+                return;
+            }
+            if (f->type_ == &null) || (f->type_->canonical == &null) { continue; }
+            var ft = canon_unqual(f->type_->canonical);
+            var pt = dyn_cast::<PointerType>(ft);
+            if (pt != &null) && ((canon_quals(pt->pointee) & QUAL_CONST()) == 0) {
+                (*why) = f"its field '{fnm}' points to mutable memory";
+                (*at) = static_cast::<*Decl>(f);
+                return;
+            }
+            var frd = self.tu.record_decl(ft);
+            if (frd != &null) && (pt == &null) {
+                self._structural(frd, why, at, depth + u32(1));
+                if why->size() > 0 {
+                    var inner = (*why);
+                    (*why) = f"its field '{fnm}' is a '{self.tu.decl_name(frd)}\x27, and " + inner;
+                    return;
+                }
+            }
+        }
     }
 
     /// An `eval` binding's initializer is an eval context, and its value is

@@ -360,6 +360,13 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 // the canonical is what the bound lookup keys on, so a
                 // Dependent anchor carries it exactly as a Value anchor does.
                 var gp = cast::<GenericParamDecl>(d);
+                // A value parameter of an eval class (`<eval C: Config>`,
+                // EVAL.md 7e) is a value of that class: `C.size` is Config's
+                // field, as for any Config value.
+                if gp->is_const_param && (gp->value_type != &null) && (gp->value_type->canonical != &null)
+                && isa::<RecordType>(canon_unqual(gp->value_type->canonical)) && (!gp->value_type->canonical->is_dependent()) {
+                    return self._value_anchor(d, gp->value_type);
+                }
                 a.kind = AnchorKind::Dependent;
                 a.decl = d;
                 if gp->owner != &null {

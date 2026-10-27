@@ -354,7 +354,10 @@ are all values (ConstEval::value_node), so `Buf<3>`'s `[T; N + 1]` IS
 with an eval call or an eval constant in it is SC116E outside a function
 body (`_value_placeable`): a field, a signature or a namespace-scope
 binding is spelled before any consteval body or eval binding is defined.
-A call of a non-eval function is SC001E with a fix-it.
+A call of a non-eval function is SC001E with a fix-it. An eval class value
+(7e) enters the same way: an eval binding of one (`Widget<CFG>`) is a
+`Decl` node, an eval constructor call (`Grid<Pt(2, 3)>`) a `Call` node
+naming the class.
 
 **`unsafe *T` is a distinct canonical from `*T`** [DECIDED, MISSING, spec 2].
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
@@ -465,7 +468,9 @@ every `ChainExpr` left to right from an ANCHOR and binds each step:
 
 Anchors: param/field/typed var -> Value; class/struct/enum/interface/
 alias -> Type; `Self` bound to an ExtensionDecl -> Type (its target);
-module -> Module; generic param -> Dependent (carrying its canonical);
+module -> Module; generic param -> Dependent (carrying its canonical),
+except a value parameter of an eval class (`<eval C: Config>`, EVAL.md
+7e), which is a Value of that class (`C.size` is Config's field);
 call / inferred var / overload set / operator or tuple-index step ->
 NeedsInference. So is a `.` / `->` step on a value whose declared type is
 NULLABLE: whether it reads the value depends on the nullness analysis at

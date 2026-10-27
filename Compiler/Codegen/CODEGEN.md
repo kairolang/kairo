@@ -763,12 +763,16 @@ A computed value (EVAL.md 0.2: an array extent or generic value argument
 Sema kept as an expression, `TypeExpr` with a `ValueOp`) is spelled by
 `CXXSpell::value`: each operator application parenthesized, value
 parameters as written or by their instance's value, eval constants and
-calls by qualified name. EmitPlan admits what it names (the eval fn, the
-eval binding, its definition with it). An instance over such a value gets
-no `template class` / `extern template` line: it may be the
+calls by qualified name, an eval class's constructor call by its class
+(`::m::Pt(2, 3)`, braced when empty). EmitPlan admits what it names (the
+eval fn, the eval binding, its definition with it). An instance over such
+a value gets no `template class` / `extern template` line: it may be the
 specialization another spelling names (`Buf<twice(1)>` is `Buf<2>`), and
 C++ rejects two explicit instantiations of one; it is instantiated
-implicitly where used.
+implicitly where used. A template with a value parameter of class type
+(7e) is not forward-declared (C++ needs the class complete at every
+declaration of the template); its definition follows the class
+(`EmitPlan::value_param_record`).
 
 A string literal C++ reads at compile time (`StringLiteralExpr::
 const_eval`, set by EvalUsageChecking, EVAL.md 2a) passes its bytes as

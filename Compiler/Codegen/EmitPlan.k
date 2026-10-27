@@ -307,6 +307,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _toposort(self, v: *vec::<PlanEntry>);
     fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
+    fn value_param_record(self, who: *Decl, dep: *Decl) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
     fn _is_requirement(self, d: *Decl) -> bool;
     fn _member_of_template(self, d: *Decl) -> bool;
@@ -1529,6 +1530,12 @@ fn EmitPlan::_expand_fn(n: *FunctionDecl) {
 /// its layout record (adt_record): its fields, role functions, nested tag
 /// enum and payload structs, and the friends written on it.
 fn EmitPlan::_expand_type(d: *Decl) {
+    // A value parameter's class (EVAL.md 7e) is part of the template's head.
+    var gps = decl_generic_params(d);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var gp = gps[i];
+        if (gp != &null) && gp->is_const_param && (gp->value_type != &null) { self._admit_type(gp->value_type, PlanNeed::Complete); }
+    }
     var rec = self.adt_record(d);
     switch rec->kind {
         case DeclKind::ClassDecl {
@@ -2114,6 +2121,9 @@ fn EmitPlan::_specs_after_primary(v: *vec::<PlanEntry>) {
 /// through its anonymous union and payload structs.
 fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     if (who == &null) || (dep == &null) { return false; }
+    // A value parameter of class type (`<eval C: Config>`, EVAL.md 7e): C++
+    // needs the class complete wherever the template is declared.
+    if self.value_param_record(who, dep) { return true; }
     var probe = LayoutSpine(&self, dep);
     var rec   = self.adt_record(who);
     switch rec->kind {
@@ -2136,6 +2146,23 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
 }
 
 // --- Predicates ----------------------------------------------------------------------
+
+/// \p who has a generic value parameter whose type is a record (EVAL.md
+/// 7e): \p dep that record, or with \p dep null, any. C++ needs that class
+/// complete at every declaration of the template, its forward one included.
+fn EmitPlan::value_param_record(who: *Decl, dep: *Decl) -> bool {
+    if who == &null { return false; }
+    var gps = decl_generic_params(who);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var gp = gps[i];
+        if (gp == &null) || (!gp->is_const_param) || (gp->value_type == &null) || (gp->value_type->canonical == &null) { continue; }
+        var c = canon_unqual(gp->value_type->canonical);
+        if !isa::<RecordType>(c) { continue; }
+        if dep == &null { return true; }
+        if CXXSpell::rep(cast::<RecordType>(c)->decl) == dep { return true; }
+    }
+    return false;
+}
 
 /// \p d is a member of a generic record (its own generic params aside).
 fn EmitPlan::_member_of_template(d: *Decl) -> bool {

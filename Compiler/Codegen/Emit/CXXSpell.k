@@ -775,6 +775,10 @@ class CXXSpell {
                 return self.qual_name(v->vdecl);
             }
             case ValueOp::Call {
+                // An eval class's constructor (EVAL.md 7e) is named by its
+                // class; with no arguments, braced, or `X()` reads as a type.
+                var isrec = isa::<ClassDecl>(v->vdecl) || isa::<StructDecl>(v->vdecl);
+                if isrec && (v->vops.size() == 0) { return self.qual_name(v->vdecl) + "{}"; }
                 var s = self.qual_name(v->vdecl) + "(";
                 for var i: usize = 0; i < v->vops.size(); ++i {
                     if i > 0 { s += ", "; }

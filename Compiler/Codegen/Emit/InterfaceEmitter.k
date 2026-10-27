@@ -335,7 +335,10 @@ class InterfaceEmitter {
                     if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
                 } else if f->witness != &null {
                     EmitWitness(self._cg, self._spell).fwd(f->witness);
-                } else {
+                } else if !self._plan->value_param_record(f->decl, &null) {
+                    // A template over a class-typed value parameter (EVAL.md
+                    // 7e) cannot be declared before that class is complete:
+                    // its definition, ordered after the class, declares it.
                     self._fwd_decl(f->decl);
                 }
                 i += 1;

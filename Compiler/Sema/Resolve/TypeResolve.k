@@ -721,6 +721,18 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         }
         if isa::<CallExpr>(e) {
             var call = cast::<CallExpr>(e);
+            // An eval class's constructor (`Widget<Config(4)>`, EVAL.md 7e):
+            // the node names the class, as C++ spells the call.
+            var rec = self._vx_record_callee(call);
+            if rec != &null {
+                var cargs = vec::<*Type>();
+                for var i: usize = 0; i < call->args.size(); ++i {
+                    var a = self._vx(call->args[i]);
+                    if a == &null { return &null; }
+                    cargs.push_back(a);
+                }
+                return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, rec, &cargs, &null);
+            }
             var f = self._vx_callee(call);
             if f == &null { return self._vx_fail(e, "the function this calls is not known here"); }
             if !f->is_eval() {
@@ -778,6 +790,29 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if d == &null { d = ConstEval(self.sc).scope_path(ch); }
         }
         return dyn_cast::<FunctionDecl>(d);
+    }
+
+    /// The class \p c constructs, when it names a record with an `eval`
+    /// constructor taking that many arguments (EVAL.md 7e); null otherwise.
+    priv fn _vx_record_callee(self, c: *CallExpr) -> *Decl {
+        var e = c->callee;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if (e == &null) || (!isa::<NamedIdentExpr>(e)) { return &null; }
+        var d = cast::<NamedIdentExpr>(e)->resolved_decl;
+        if (d == &null) || ((!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))) { return &null; }
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d) { ms = &(cast::<ClassDecl>(d)->methods); } else { ms = &(cast::<StructDecl>(d)->methods); }
+        var ce = ConstEval(self.sc);
+        var on = ce.tu.decl_name(d);
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m == &null) || m->is_operator || (!m->is_eval()) { continue; }
+            if ce.tu.decl_name(static_cast::<*Decl>(m)) != on { continue; }
+            var n: usize = 0;
+            for var p: usize = 0; p < m->params.size(); ++p { if (m->params[p] != &null) && (!m->params[p]->is_self) { n += 1; } }
+            if n == c->args.size() { return d; }
+        }
+        return &null;
     }
 
     /// Whether \p v contains what only C++ computes (an eval call, an eval
