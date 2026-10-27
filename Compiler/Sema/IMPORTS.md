@@ -310,9 +310,11 @@ TU's imms (spell once, re-intern once hard invariant #2). Targets are thin
 references into the source arena; nothing is copied.
 
 After I the TU is self-contained: unqualified lookup is
-`DC chain -> overlay -> miss`, and no later phase touches another TU until
-the M2 sync point. Cross-TU *reads* of frozen tables and canonical type
-slots are fine; that is what DAG order guarantees.
+`DC chain -> overlay -> miss`. Later phases only READ other TUs: frozen
+tables, canonical type slots, and (ConformanceChecking's reach) an imported
+generic's typed body; that is what DAG order guarantees. The only
+cross-TU writes go to the two locked build-wide structures, the canonical
+store and the instantiation registry (RESOLUTION.md invariant 4).
 
 **Ordering.** `CompilerInstance::_sema` runs the pipeline per fid in
 reverse tree order = import-DAG order. Load-bearing for I (source overlay
@@ -435,12 +437,17 @@ every body. One object per non-foreign TU.
     adt_role/adt_form, and derived assignment operators) carry their
     bodies inside the class; they have no Kairo source counterpart, and no
     user-written function body is ever emitted in-class.
-13. **Clang never instantiates.** Every generic instantiation is
-    enumerated by Kairo sema, checked by Kairo sema, and emitted explicitly.
-    Emitted templates carry no `requires` except the interface concepts
-    EmitWitness derives (CODEGEN.md §7b), one conjunct per interface bound,
-    true for every instance Kairo enumerated -- today on namespace-scope
-    generic functions only. ADT special members carry C++
+13. **Kairo enumerates every instance it can see.** Every generic
+    instantiation Kairo can see is enumerated by Kairo sema (M1, the
+    registry's worklist), checked once against its bounds, and emitted
+    explicitly in its home TU. Clang instantiates only what Kairo never
+    names -- a coroutine's promise, std::sort calling a Kairo comparator,
+    a C++ host -- from the visible bodies (CODEGEN.md §7). Emitted
+    templates carry no `requires` except the interface concepts
+    EmitWitness derives (CODEGEN.md §7b.7), one conjunct per interface
+    bound, true for every instance Kairo enumerated, and a record's
+    self-contained value predicates (CXXSpell); for the instances only C++
+    sees, those are the real check. ADT special members carry C++
     constraints rendered by InterfaceEmitter from adt_role/adt_form, and a
     generic record's derived assignment operators from its assign_form;
     they are not Kairo constraints and have no requires_clause.
@@ -898,27 +905,36 @@ namespaced names and nothing else.
 
 ## 7. Generics
 
-[DECIDED] Kairo has no monomorphizer. Sema enumerates and checks every
-`(template, canonical args)`; codegen emits explicit instantiations.
+[DECIDED] Kairo has no monomorphizer: no body is cloned or re-typed per
+instance (MONO.md D0). Sema enumerates every `(template, canonical args)`
+it can see and checks each against the template's bounds; the body was
+checked once, at its definition. Codegen emits explicit instantiations.
 
     home TU   : template <typename T> T add(T, T) { ... }   // body
                 template i32 add<i32>(i32, i32);            // explicit instantiation DEFINITION
     other TUs : template <typename T> T add(T, T);          // interface: signature only
                 extern template i32 add<i32>(i32, i32);     // explicit instantiation DECLARATION
 
-Registry (the real content of M1/M2): `(template decl, canonical args) ->
-home fid`, closed transitively over instantiations the body depends on.
-Home = the template's own TU if it instantiates it, else the first user in
-DAG order. Exactly one definition per instantiation build-wide; zero is a
-link error, so the registry is authoritative.
+Registry (the content of M1): `(template decl, canonical args) -> home
+fid`, closed transitively over the instances a body reaches
+(ConformanceChecking's reach substitutes a body's dependent uses per
+instance). Home = the first TU to name the instance, in DAG order
+(`InstanceEntry::home_fid`, MONO.md D3): for direct naming that is the
+template's own TU when it uses the instance itself, else its first user;
+an instance reached or substituted in a TU is homed there. Exactly one
+definition per instantiation build-wide; zero is a link error, so the
+registry is authoritative.
 
 Value-predicate `requires`, kind bounds, conformance: checked in Kairo at
-the instantiation site BEFORE emission. The emitted template is
-unconstrained and is only ever instantiated at arguments Kairo accepted.
+the instantiation site BEFORE emission. The emitted template carries only
+the constraints CODEGEN.md §7b.7 derives (`requires I_c<...>` per
+interface bound) and a record's self-contained value predicates; they hold
+for every instance Kairo accepted, and they are the check for the
+instances only C++ sees.
 `where` guards are not constraints and take no part in this: they are
 runtime dispatch, and WhereDispatchLowering folds a group into one
 ordinary function before emission (RESOLUTION.md §2.10). A guarded
-generic function is SC116E until M2 (its calls to the candidates need
+generic function is SC116E (MONO.md G12: its calls to the candidates need
 per-instance entries); a method of a generic record dispatches inside the
 class template and needs nothing here.
 
@@ -963,7 +979,7 @@ Each item is independently testable. Do them in this order.
    11. EmitPlan collector + closure + tiers               Codegen    DONE
    12. InterfaceEmitter                                   Codegen    DONE (declarations and bodies)
    12b. Cross-fid TokenSink (locmap-translated locations) Codegen    DONE
-   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE for classes; M1/M2 fill OPEN
+   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE; M1 worklist + reached homing OPEN (MONO.md G2); M2 = instance facts, no fill (D0)
    13a. Cross-reopening redefinition check (same signature, two definitions) at M2 sync
         OPEN, and not a codegen item: a module reopened in two files can define
         one signature twice, and nothing diagnoses it. Codegen cannot: each TU

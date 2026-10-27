@@ -685,7 +685,9 @@ The no-headroom rules, each with one home:
   `CallExpr::ctor_decl`'s, not the named type's.
 - `_check_arity`: CallLowering's postcondition, checked in `_call`. Every
   parameter has an argument; more arguments than parameters only for a C
-  `...` tail. A dependent call is as written until M2 and is not checked.
+  `...` tail. A dependent call is as written and not checked here: the
+  body was checked once against its bounds (MONO.md D0), and clang checks
+  each instance of an unbounded or `: type` call.
 - Decision 6, the one headroom: an imported C++ function's TRAILING
   defaults are omitted from the call and clang supplies them
   (`has_default` with no `default_thunk`). A non-trailing omission has no
@@ -885,8 +887,8 @@ matches); a qualifier that matches only by subset (`const P` against
 `Codegen/Emit/EmitWitness.k`. This section supersedes the
 witness paragraph of RESOLUTION.md §2b where the two differ -- every
 conformance a specialization, the witness edge in the home TU only -- and
-the design memo that sits in `Sema/Mono/WitnessTable.k` (prose in a `.k`
-file, no code); the header rule applies, this text is newer. RESOLUTION.md
+the earlier design memo (`Sema/Mono/WitnessTable.k`, prose in a `.k`
+file, since deleted); the header rule applies, this text is newer. RESOLUTION.md
 §2b keeps what Sema must produce: the conformance table, its rows, and the
 passes that fill them.
 
@@ -1282,20 +1284,19 @@ than an error deep in the witness. Its job is the instantiations invariant
 reason). Generic requirements are left out of the concept (no argument to
 call them with; question 6).
 
-Invariant 13 (IMPORTS.md §3) needs one sentence revised, which this change
-does not make: "Emitted templates carry no `requires`" becomes "emitted
-templates carry no `requires` except the interface concepts EmitWitness
-derives (CODEGEN.md §7b), one conjunct per interface bound, true for every
-instance Kairo enumerated". Its title, "clang never instantiates", is
-already qualified by §7 (clang instantiates what Kairo never names) and
-should say "Kairo enumerates every instance it can see".
+Invariant 13 (IMPORTS.md §3) says so: emitted templates carry no
+`requires` except the interface concepts EmitWitness derives, one
+conjunct per interface bound, true for every instance Kairo enumerated
+(and a record's self-contained value predicates), and its title is
+"Kairo enumerates every instance it can see".
 
 ### 7b.8 Monomorphization and explicit instantiation
 
 Witnesses add no registry entry and no tier-3 line: the members are inline,
 the primary is instantiated implicitly per Self wherever a body uses it,
 and a specialization is complete on its own. The registry feeds them
-instead: the instance -> rows map M2 writes (RESOLUTION.md §2b) is the
+instead: the instance -> rows map ConformanceChecking writes at the
+instantiation site (`set_rows`, RESOLUTION.md §2b) is the
 whole input of the specialization edge. A generic REQUIREMENT called with
 arguments registers a CallExpr instance whose primary is the requirement
 (CallTyping registers every generic callee); it names no C++ function, and
@@ -1341,10 +1342,12 @@ does not conform (ConformanceChecking at the instantiation site; no code
 exists for it yet, so it is the `SC001` placeholder until one is minted),
 a conformance whose implementing decls are outside the instantiating TU's
 import set (the extension-visibility rule), an unparameterized bound on a
-generic interface, and an extension member reached from a `: type` body
-(M2's re-check). Codegen keeps ICEs, each naming its owner: a requirement
+generic interface. An extension member reached from a `: type` body is
+nobody's Kairo error: the call is emitted as a member call and clang
+rejects the instance (MONO.md D1; there is no per-instance re-check).
+Codegen keeps ICEs, each naming its owner: a requirement
 callee with no recorded witness (ExtensionLowering); an instance whose
-bound binds no table row (ConformanceChecking / M2); a row with no decl for
+bound binds no table row (ConformanceChecking); a row with no decl for
 some requirement (ConformanceChecking); `T::Node` (associated types); a
 virtual-interface call.
 
@@ -1401,7 +1404,7 @@ exit code is computed, as §9's lowering tests are:
    and `twice<i64>` / `twice<isize>` are one C++ instantiation. Reject the
    pair in Sema, or require them to forward to one decl?
 4. **Overlapping conformances.** `extend <T> Vec<T> impl I` beside `extend
-   Vec<i32> impl I`: allowed? If so, M2's partial selection must agree
+   Vec<i32> impl I`: allowed? If so, the registry's partial selection must agree
    with C++ partial ordering of the two specializations.
 5. **Free functions as witnesses.** May a free (C++ or ADL-found Kairo)
    operator or function satisfy a requirement? If so, its row is a
@@ -1485,7 +1488,7 @@ mem-initializers with statement expressions, no slot record) is not
 written; the slot path is always correct. Per-instance `constinit` for a
 generic record's static whose initializer is a thunk: deciding constness
 per instantiation (and Kairo's own diagnostic when one cannot be
-constant) needs the monomorphizer (M1/M2), so today such a static is
+constant) is an instance fact M2 would compute (MONO.md D0), so today such a static is
 always dynamically initialized. `eval` fields as constants. AccessCheck. Vector/HashSet/
 HashMap constructor bodies in `Lib/builtin` — vector literals type-check
 and emit today, but do not LINK. Set and map literal lowering, which needs

@@ -17,7 +17,6 @@ Compiler/
 │   ├── Verify/     post-resolution checks (e.g. ModulePinCheck)
 │   ├── Expand/     macro expansion, eval, requires desugaring
 │   ├── Foreign/    C++ (ffi) decl import/export, header index
-│   ├── Mono/       monomorphization, witness tables
 │   └── Lower/      Kairo -> core-Kairo rewrites that feed Codegen
 ├── Codegen/        CODEGEN.md; checked tree -> tokens -> object
 │   ├── Emit/       EmitIR (bodies), InterfaceEmitter, CXXSpell (names)
@@ -68,8 +67,8 @@ not carry assumptions from one to the other.
 
   Stage 1 - a real compiler. Own lexer, preprocessor, parser, full Sema
   (name resolution, overload resolution, ADL, SFINAE, concept and conformance
-  checking, monomorphization, all done Kairo-side), and a CodeGen that does
-  NOT emit C++ source.
+  checking, instance enumeration, all done Kairo-side), and a CodeGen that
+  does NOT emit C++ source.
 
 BUILD STATE: lexer, preprocessor, parser, import resolution and Sema's name
 and type resolution are complete (`--type-check-only` is the dependable
@@ -89,16 +88,21 @@ C++: overload selection, specialization choice, constraint satisfaction,
 all resolved Kairo-side by Sema before a token is built. Clang is not the
 semantic engine. It's a lowering target: Kairo passes through Clang to
 reach LLVM IR the same way Clang passes through LLVM IR to reach machine code.
-Kairo owns the large backend surface above that line, monomorphization, ABI
-shaping, the safety pass; Clang is the narrow, ABI-correct interchange stage
+Kairo owns the large backend surface above that line, instance enumeration,
+ABI shaping, the safety pass; Clang is the narrow, ABI-correct interchange stage
 it feeds already-resolved constructs into.
 
-Monomorphization: Kairo lowers generics to clang template specializations
-rather than custom-mangled symbols because specializations are ABI-preserving.
-The TU owning a generic's definition emits the specialization; every other TU
-using it emits `extern template`, so Clang does not re-instantiate what Sema
-already monomorphized. Lowering stays ABI-stable with C++ throughout; Kairo
-stays the richer language above that line, but the boundary is clean and stable.
+Generics: Kairo has no monomorphizer. A generic body is checked once, at its
+definition, against its bounds, and emitted once, as a C++ template; Kairo
+lowers generics to clang template specializations rather than custom-mangled
+symbols because specializations are ABI-preserving. Sema enumerates every
+instance it can see, and each has one home TU (its first namer) that emits
+the explicit instantiation; every other TU using it emits `extern template`,
+so Clang compiles a known instance once. What differs per instance is
+selected by C++ itself (a specialization, `requires`, a `static_assert` pin),
+because C++ also instantiates Kairo templates at types Kairo never sees.
+Lowering stays ABI-stable with C++ throughout; Kairo stays the richer
+language above that line, but the boundary is clean and stable.
 
 The tokens live only in memory; their locations resolve to Kairo source the
 whole way down, which keeps diagnostics, debug info, and the LLVM IR safety
@@ -265,16 +269,16 @@ Per-Action pipeline (parallelism shown explicitly):
         |  init, script, panic, finally, nullable,        |   listed in RESOLUTION.md §2.10)
         |  operators, f-strings, iteration, match, ...).  |
         |                                                 |
-        |  Monomorphization: both stages are stubs        |   Sema/Mono/Monomorphization.k
-        |  (Sema.k's M1/M2 slots are TODOs). Instances    |   AST/Context/
-        |  are minted by T and X into the registry, and   |   InstantiationRegistry.k
-        |  EmitPlan homes each directly instantiated one  |
-        |  as a clang specialization. M2,                 |
-        |  the sync point that re-checks each instance of |
-        |  a generic body (dependent conformance,         |
-        |  `T::Item`, requires-dispatch, per-instance     |
-        |  panic sets), is not built; until it is, a      |
-        |  panicking call in a generic body is SC116E.    |
+        |  Mono (MONO.md): a generic body is checked once |   AST/Context/
+        |  against its bounds, never per instance. T, X   |   InstantiationRegistry.k
+        |  and the reach mint instances into the build-   |   Sema/Check/
+        |  wide registry; EmitPlan homes each directly    |   ConformanceChecking.k
+        |  instantiated one as a clang specialization.    |
+        |  M1 (the registry worklist) and M2 (instance    |
+        |  facts by substitution into the bounds: layout  |
+        |  built; lifecycle, rows, panic sets open) are   |
+        |  Sema.k slots; until P10, a panicking call in a |
+        |  generic body is SC116E.                        |
         *=================================================*
                                 v
         *=================================================*

@@ -651,24 +651,31 @@ class Sema {
         return true;
     }
 
-    /// M1: monomorphization usage collection (parallel-safe).
+    /// M1: instance enumeration (MONO.md D0/D4). Creates nothing: T, X, the
+    /// reach, the lang records and the lowerings minted every instance into
+    /// the build-wide registry already. After this TU's lowerings, so the
+    /// instances a lowering mints are in.
     priv fn _stage_mono_collect(self) -> bool {
         if self._already(SemaPhase::MonoCollected) { return true; }
         var _t = TimeRegion("Collect");
         self.sc.require_phase(SemaPhase::Lowered);
-        // TODO(sema): Monomorphization::collect(&self.sc);
+        // TODO(sema): drain the registry's ordered worklist (MONO.md G2).
         self.sc.advance_phase(SemaPhase::MonoCollected);
         return !self._hard_stop();
     }
 
-    /// M2: instantiate + dependent conformance. THE sync point the only
-    /// stage allowed to touch cross-TU mutable state.
+    /// M2: instance facts (MONO.md D0). Nothing re-types a generic body per
+    /// instance: each enumerated instance's facts come from substituting its
+    /// arguments into what its bounds declare, predicted here and pinned or
+    /// selected in C++. The one built today, the ADT layout, is
+    /// EnumLayoutQuery::sweep at the end of the lowerings; lifecycle (G6),
+    /// rows (G8) and panic sets (P10) belong here. Not a build-wide sync
+    /// point: it runs per TU, in DAG order, and writes only the locked
+    /// registry, like every other stage that mints.
     priv fn _stage_mono_instantiate(self) -> bool {
         if self._already(SemaPhase::Complete) { return true; }
         var _t = TimeRegion("Instantiate");
         self.sc.require_phase(SemaPhase::MonoCollected);
-        // TODO(sema): Monomorphization::instantiate(&self.sc);
-        // TODO(sema): DependentResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::Complete);
         return !self._hard_stop();
     }

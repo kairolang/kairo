@@ -34,8 +34,9 @@
 ///
 ///     The default expression is MOVED into the thunk (`default_val` is null
 ///     afterwards) -- one node, one parent. Every later reader goes through
-///     `default_thunk` or TypeUtil::param_default. M2's re-typing meets the
-///     thunk body as it meets any lowered body.
+///     `default_thunk` or TypeUtil::param_default. Nothing re-types it per
+///     instance (MONO.md D0): a generic thunk is one C++ template like the
+///     body it came from.
 ///
 ///     An imported C++ default (`has_default`, no expression) has no thunk:
 ///     the argument is omitted and clang applies it. The one headroom this

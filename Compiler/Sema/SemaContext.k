@@ -87,10 +87,10 @@ enum SemaPhase derives u8 {
     /// Desugar/lowering passes done (extends folded+lowered, match/panic/
     /// eval lowerings applied). Tree is codegen-shaped except generics.
     Lowered,
-    /// M1 done: monomorphization usage collection complete.
+    /// M1 done: every instance minted so far is enumerated (MONO.md D4).
     MonoCollected,
-    /// M2 done: instantiation + dependent conformance. THE sync point;
-    /// nothing cross-TU mutates after this.
+    /// M2 done: this TU's instance facts computed (MONO.md D0). Not a
+    /// build-wide sync point: later TUs still mint into the registry.
     Complete,
 }
 

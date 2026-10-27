@@ -25,7 +25,6 @@ Layout:
 - Expand/   macro expansion, eval, requires desugaring
 - Foreign/  C++ (ffi) decls in and out: header index, decl/type import,
             foreign instantiation
-- Mono/     monomorphization, witness tables
 - Lower/    one pass per construct lowered away (match, nullable, panic,
             finally, operators, iteration, yield, ...)
 
@@ -52,8 +51,10 @@ Layout:
 - Mono: every use of a generic at concrete arguments registers an instance
   (AST/Context/InstantiationRegistry.k); the instance has one home TU that
   emits the specialization, and every other TU using it emits
-  `extern template` (CODEGEN.md). Mono/Monomorphization.k checks lifecycle
-  constraints (copy / move / non-transfer) at instantiation.
+  `extern template` (CODEGEN.md). A generic body is checked once, against
+  its bounds, never per instance; per-instance facts (layout, lifecycle,
+  rows, panic sets) are computed by substitution into the bounds and
+  pinned or selected in C++ (MONO.md D0).
 
 ## Open
 

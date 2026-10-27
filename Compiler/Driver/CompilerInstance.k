@@ -3943,8 +3943,9 @@ fn FrontendAction::_sema() -> bool {
     // signature/layout checks) across every fid of this TU's graph. Run in
     // REVERSE tree order so leaf modules build their overlays before
     // importers fold re-exports (DAG order guarantees source-overlay
-    // completeness, RESOLUTION.md #2). run_to stops at Checked; the
-    // lowering / M1 / M2 stubs are not reached.
+    // completeness, RESOLUTION.md #2). Each TU runs to Typed, then (past
+    // the panic-set barrier) through the late checks, the lowerings and
+    // M1 / M2 (_sema_group).
     var n     = self._fids.size();
     var order = self._import_order();
 

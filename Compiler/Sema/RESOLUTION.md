@@ -293,7 +293,8 @@ What T decides:
   rule to a spec whose semantic scope is an imported primary's.
 - **`::` segments** step through `context_of(decl)`, alias expanded first,
   spelled for cross-TU probes. `T::Item` and `Foo<T>::Inner` are marked
-  dependent and stopped (#5); M2 owns member-of-instantiation. The one
+  dependent and stopped (#5); `T::Item` resolves through the bound,
+  definition-side, never per instance (MONO.md G5). The one
   exception is an IMPORTED `Foo` with concrete args: `Foo<Args>::Inner`
   steps into the registry instance, which `_scope_of` has clang fill first
   (`MemberLookup::ensure_filled`, IMPORTS.md §5); only a failed fill defers.
@@ -1558,10 +1559,28 @@ EmitPlan marks a tuple record OWN in every plan and InterfaceEmitter
 defines it under `__KAIRO_TUPLE_<N>`, so only the arities a TU names are
 emitted and two headers in one C++ TU agree.
 
-Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
-M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
-did). M2 is the sync point: fills `Instantiated` nodes from their pattern,
-selects partials, runs dependent conformance and resolves `T::Item`.
+Mono model [DECIDED, MONO.md D0]: "a generic body is checked ONCE,
+against its bounds; M1 enumerates, M2 computes instance facts; C++
+instantiates explicitly". Nothing re-types a body per instance: every
+per-instance difference that reaches codegen is selected by C++ itself
+(`static_assert`, `requires`, `if constexpr`, a trait specialization),
+because kcc hosts, C++ templates and coroutine promises instantiate
+Kairo generics at types Kairo never enumerates (MONO.md §2).
+
+- **M1 enumerates.** Every mint (T, X, `Deduction::substitute`,
+  ConformanceChecking's reach, the lang records, CallLowering's thunks,
+  foreign) appends to the registry's ordered worklist; M1 drains it.
+  It creates nothing. The home of an instance is its first namer
+  (`InstanceEntry::home_fid`, D3); EmitPlan writes its explicit
+  instantiation there and `extern template` everywhere else.
+- **M2 computes instance facts** by substituting the instance's
+  arguments into what the bounds declare, never by typing the body:
+  ADT layout (EnumLayoutQuery::sweep, built), lifecycle, witness rows,
+  panic sets. Each is predicted by Sema and pinned or selected in C++.
+- Partial selection is not M2's: the registry selects at mint (§2b
+  Instances). Dependent conformance (`f<T>` calling `g<Wrap<T>>`) is
+  ConformanceChecking's reach, before the Typed barrier (§2b, "The
+  conformance table").
 
 **The `: type` regime** [DONE, MONO.md D1]. No Kairo pass re-checks a
 `: type` body per instance; there is no `retype_instance`. The body is
@@ -1741,8 +1760,8 @@ that is the key; binding does not change.
 built by ConformanceChecking and kept in the InstantiationRegistry
 (`ConformanceRow`, `row_find` / `row_add`, `InstanceEntry::rows`); declared
 rows, the impl-only rule, visibility, `Box<Metric>` named by T, and M2's
-dependent conformance are not built. `Sema/Mono/WitnessTable.k` is the
-earlier design memo]. One per build, beside the InstantiationRegistry and for the
+reached instances (ConformanceChecking's `_reach`, depth-capped) are
+built; CODEGEN.md §7b supersedes the earlier witness-table memo]. One per build, beside the InstantiationRegistry and for the
 same reason: a row found while checking TU A is needed by every TU that
 holds the same instance, so it is shared, mutex-guarded, own arena. A ROW
 is
@@ -1790,13 +1809,14 @@ Who fills it:
   STRUCTURAL row built by the same match and memoized in the table.
 - **At the instantiation site.** Wherever a generic's bound meets a
   concrete argument -- CallTyping registering a call's instance, a
-  `Box<Metric>` named by T, and M2 substituting into a body's dependent
-  instances -- the bound is checked with `conforms` and the row recorded
-  on the instance: `InstanceEntry::rows`, one per `P impl I` bound, in
-  bound order. A missing row is the user's error there (SC001E
-  placeholder until a code is minted). The direct cases are reachable
-  before M2 exists; the transitive ones (`f<T>` calling `g<T>`) are M2's
-  "dependent conformance".
+  `Box<Metric>` named by T, and ConformanceChecking's `_reach`
+  substituting into a body's dependent instances -- the bound is checked
+  with `conforms` and the row recorded on the instance:
+  `InstanceEntry::rows`, one per `P impl I` bound, in bound order. A
+  missing row is the user's error there (SC001E placeholder until a code
+  is minted). The transitive ones (`f<T>` calling `g<T>`, "dependent
+  conformance") are the reach, with a silent depth cap of 8 that MONO.md
+  G3 replaces with a worklist fixpoint and a depth diagnostic.
 - **Visibility.** A row is usable in a TU iff its implementing decls are in
   that TU's transitive import set (the extension-visibility rule).
 
@@ -1851,10 +1871,17 @@ A pass that needs one asks that file; it never spells the string itself.
    join, return-vs-signature, uninferrable decl: X. Unusable clang
    builtin: N(b) (R057E). Non-constant builtin argument, builtin used as
    a value: X (SC108E, SC109E). Dependent conformance:
-   M2. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
-4. **Parallelism boundary.** P parallel. I, T, X DAG-ordered. N, M1 per-TU
-   parallel. M2 sync. Store and registry are the shared mutable
-   structures and both are locked.
+   ConformanceChecking, at the outer use. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
+4. **Parallelism boundary.** P parallel. Sema is sequential today: one
+   import group at a time in DAG order, each TU's stages in order
+   (`CompilerInstance::_sema_group`). The canonical store and the
+   instantiation registry are the shared mutable structures; both are
+   locked, and T, X, ConformanceChecking, the lowerings and
+   EnumLayoutQuery::sweep all write them from every TU (there is no
+   "only M2 touches cross-TU state"). Determinism rests on the order:
+   `home_fid` (first namer) and every first-writer fact are a function
+   of DAG order, and the registry's worklist keeps mint order, so
+   nothing that reaches output depends on a hash.
 5. **Dependent = deferred, not failed.** X's "unknown" state is this
    invariant on expressions; `nomono.k` is its test.
 6. **Tracing never changes behavior.**
@@ -1864,7 +1891,7 @@ A pass that needs one asks that file; it never spells the string itself.
    segment slots, `self` receiver type, `spec_kind` refinement, spec
    chain links, `instantiated_from` on specs: T. Function chains: R.
    `Expr::type_`, `value_category`, `expr_flags`, inferred decl slots: X.
-   `instantiated_from` on implicit nodes: registry (then M2).
+   `instantiated_from` on implicit nodes: the registry.
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
    `default_thunk` / `pack_type` on ParamDecl: CallLowering.
    `init_fold` / `init_neg` / `init_mag` / `init_thunk` on FieldDecl:
@@ -1956,9 +1983,12 @@ Type domain (each unblocks the next):
 Mono / codegen:
 
     o. M1 enumeration over the registry (types AND functions)
-    p. M2: fill + dependent conformance + (partial selection: done at
-       registry mint, §2b Instances; requires-selected partials open).
-       No `: type` re-check: clang checks those bodies (MONO.md D1)
+    p. M2: instance facts by substitution into the bounds (MONO.md D0:
+       layout built, lifecycle G6, rows G8, panic sets P10). Partial
+       selection is done at registry mint (§2b Instances; requires-
+       selected partials open, G12); dependent conformance is
+       ConformanceChecking's reach. No `: type` re-check: clang checks
+       those bodies (MONO.md D1)
     q. EmitWitness + EmitPlan witness edge + EmitIR witness calls   PARTIAL
        (CODEGEN.md §7b; calls, statics, operators, `I::m(x)`, generic
        requirements, records' concepts and reached instances done;

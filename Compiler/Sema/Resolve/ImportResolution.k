@@ -2,8 +2,9 @@
 ///
 ///   \brief Phase I. Build this TU's import_overlay from its ImportDecls, so
 ///          every name visible in the TU is findable in a local table or the
-///          overlay. After I the TU is SELF-CONTAINED: no later phase touches
-///          another TU until M2 (RESOLUTION.md §2 "I ImportResolution").
+///          overlay. After I the TU is SELF-CONTAINED: later phases only
+///          READ other TUs; the only cross-TU writes go to the locked canonical
+///          store and instantiation registry (IMPORTS.md §2.3).
 ///
 ///   One error, one home (hard invariant #3):
 ///     - import EXISTENCE (selective miss)  -> here (R015).
