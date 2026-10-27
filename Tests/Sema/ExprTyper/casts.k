@@ -19,7 +19,7 @@ fn accepted(b: *Base, d: *Derived, i: i32, f: f64, p: *i32) {
     var narrow   = i as u8;
     var to_int   = f as i32;
     var upcast   = d as *Base;       // same
-    var down     = b as *Derived;    // checked: panics on a miss
+    var down     = b as *Derived;    // checked: crashes on a miss
     var down_opt = b as (*Derived)?; // checked: null on a miss
     var addr     = p as usize;
 }
@@ -51,6 +51,7 @@ fn rejected(b: *Base, i: i32, p: *i32) {
 
 // DIAG-NOT: redundant cast: 'i32'
 // DIAG-NOT: redundant cast: 'u8'
+// DIAG: warning{{.*}}'b as *Derived' crashes the program when the object is not a 'Derived'; use 'b as *Derived?' and test the result
 // DIAG: warning{{.*}}redundant cast: 'i16' converts to 'i64' implicitly
 // DIAG: warning{{.*}}redundant cast: '*Derived' converts to '*Base' implicitly
 // DIAG-NOT: redundant cast
@@ -60,7 +61,7 @@ fn rejected(b: *Base, i: i32, p: *i32) {
 // DIAG: error{{.*}}cast to 'unsafe *u8' requires an unsafe context
 // DIAG: note{{.*}}wrap the expression in 'unsafe { ... }'
 // DIAG: error{{.*}}static downcast from '*Base' to '*Derived' is not allowed
-// DIAG: note{{.*}}write 'as *X' for a checked cast that panics
+// DIAG: note{{.*}}write 'as *X' for a checked cast that crashes on a miss
 
 // SEMA: -- inferred decls --
 // SEMA:      widen : i64

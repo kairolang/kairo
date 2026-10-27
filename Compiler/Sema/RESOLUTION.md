@@ -990,6 +990,15 @@ for values `0..N-1`, else a `!=` per variant -- a crash (PANIC.md §2.8),
 through the UnwrapFailed lang item `unwrap!` aborts with. A closed enum's
 values past a dense set are its niche (EnumNiche); `@open` gives up both.
 
+The asserting downcast `p as *D` (D below p's polymorphic pointee) sets
+`TypeCastExpr::asserting_downcast` and always warns (SC001W placeholder,
+fix-it appending `?`). OperatorLowering expands it: `({ var s = p; var d =
+s as *D [dynamic_only]; if s && !d { unwrap_failed(m, n) } d })`, the same
+crash entry, the message naming the cast, both types and the site
+(PANIC.md §5). A dependent pointee stays SC091E for the asserting form.
+Every crash message is built whole by `LowerSynth::crash_call`; the
+runtime (Lib/rt/crash.c) appends the newline.
+
 **Control** (`ControlTyping.k`). if/match/try as expressions join their
 arms (`Conversion::join`: identical, one-way W, or Never on one side);
 every arm must then convert to the join. Closures type as their fn-pointer

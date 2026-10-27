@@ -2162,11 +2162,14 @@ class EmitIR {
     /// The written target is the result type (invariant 15). Which C++ cast:
     /// `as const` -> const_cast, `as unsafe` -> reinterpret_cast (a C-style
     /// cast when it drops a pointee qualifier), otherwise static_cast. The
-    /// checked downcast is _checked_downcast's; the asserting one is
-    /// PanicLowering's (a static_cast until then); a user `op as` or a
-    /// converting ctor is OperatorLowering's.
+    /// checked downcast is _checked_downcast's; the asserting one arrives
+    /// expanded by OperatorLowering (PANIC.md §5) around a `dynamic_only`
+    /// cast, spelled `dynamic_cast` as is; a user `op as` or a converting
+    /// ctor is OperatorLowering's.
     priv fn _cast(self, n: *TypeCastExpr) {
         if n->checked_downcast { self._checked_downcast(n); return; }
+        if n->asserting_downcast { self._ice(n->range, "EmitIR: an asserting downcast reached codegen unexpanded; OperatorLowering owns its check"); return; }
+        if n->dynamic_only { self._cast_to(n->target, n->operand, "dynamic_cast"); return; }
         // A lowering's move: `x as T&&`. Never written by the user (Kairo has
         // no reference types), always a record, always static_cast.
         if (n->target != &null) && (n->target->canonical != &null) && isa::<CXXRValueRefType>(n->target->canonical) {

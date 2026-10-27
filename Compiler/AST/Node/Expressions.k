@@ -1802,6 +1802,18 @@ class TypeCastExpr derives Expr {
     /// neither check nor map null).
     pub var checked_downcast: bool = false;
 
+    /// `p as *D` from a `*B` with D below B: the ASSERTING downcast
+    /// (PANIC.md §5), which crashes when the dynamic type is not a D.
+    /// Written by CastTyping; OperatorLowering expands it into a
+    /// statement expression over a `dynamic_only` cast and a crash call,
+    /// and clears it.
+    pub var asserting_downcast: bool = false;
+
+    /// The bare `dynamic_cast<D*>(p)`, a null pointer on a miss: only
+    /// OperatorLowering's expansion of an asserting downcast makes one.
+    /// EmitIR spells it as is.
+    pub var dynamic_only: bool = false;
+
     /// E, for `v as E` (or `v as E?`) into a CLOSED plain enum (not
     /// `@open`) from an operand that is not a constant, else null: the value
     /// is checked against E's variants at run time and a miss crashes (the crash family, PANIC.md §2.8). Written

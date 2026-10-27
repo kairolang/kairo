@@ -12,8 +12,8 @@
 ///       2. target is `unsafe *X`             reinterpret; U: needs unsafe ctx
 ///       3. target is `*X`, source `*S`,
 ///          S/X derives-related               upcast: static, lint redundant
-///                                            downcast: ASSERTING, panic site,
-///                                            S must be polymorphic
+///                                            downcast: ASSERTING, crashes on a
+///                                            miss (SC001W), S polymorphic
 ///       4. target is `*X?`, same relation    checked downcast, null on miss
 ///       5. static ladder: lattice I/W (lint) / E / U / X -> plain enum <->
 ///          exact underlying -> `op as` on the source -> one-param ctor on
@@ -215,7 +215,7 @@ class <T> CastTyping {
                     dyn()->sc->diag->report(DiagID::SC024E, n->range.start,
                         f"static downcast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' is not allowed"
                     ).first(n->range)
-                     .note(n->range.start, "write 'as *X' for a checked cast that panics, 'as *X?' for one that yields null, or 'as unsafe *X' to reinterpret")
+                     .note(n->range.start, "write 'as *X' for a checked cast that crashes on a miss, 'as *X?' for one that yields null, or 'as unsafe *X' to reinterpret")
                      .emit();
                     n->poison();
                     return &null;
@@ -231,6 +231,11 @@ class <T> CastTyping {
                 }
                 if !to_nullable {
                     dyn()->note_panic_site(static_cast::<*Expr>(n));   // PanicEffectChecking reads it.
+                    // PANIC.md §5: a miss CRASHES (OperatorLowering builds the
+                    // check), joins no panic set, and always warns: the
+                    // checked form says what to do on a miss instead.
+                    n->asserting_downcast = true;
+                    self._warn_asserting_downcast(n, td);
                 } else {
                     n->checked_downcast = true;
                 }
@@ -549,6 +554,20 @@ class <T> CastTyping {
         if src == &null { return; }
         if dyn()->conv.implicit(src, slot) == ImplicitRank::None { return; }
         self._lint_redundant(n, src, n->type_);
+    }
+
+    /// SC001W (placeholder) on `p as *D`: it crashes on a miss, and the
+    /// checked `p as *D?` lets the caller decide. The edit appends the `?`
+    /// (`*D?` is `(*D)?`, NULLABLE.md G1).
+    priv fn _warn_asserting_downcast(self, n: *TypeCastExpr, td: *Decl) {
+        var cast_text = dyn()->sc->ctx->get_spelling(n->range);
+        var dn = dyn()->tu.decl_name(td);
+        var b = dyn()->sc->diag->report(DiagID::SC001W, n->range.start,
+            f"'{cast_text}' crashes the program when the object is not a '{dn}'; use '{cast_text}?' and test the result for cleaner handling");
+        b.first(n->range, "asserting downcast");
+        b.note(td->range.start, f"'{dn}' is declared here");
+        b.insert(n->range.end, "?", "make it the checked downcast, null on a miss");
+        b.emit();
     }
 
     priv fn _lint_redundant(self, n: *TypeCastExpr, src: *Type, target: *Type) {

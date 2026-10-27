@@ -223,6 +223,11 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
             oc->enum_check = &null;   // checked once: a later walk must not wrap it again.
             if en != &null { oc->operand = self._closed_enum_operand(n, en, oc->operand); }
         }
+        if n->asserting_downcast && (out != &null) && isa::<TypeCastExpr>(out) {
+            var oc = cast::<TypeCastExpr>(out);
+            oc->asserting_downcast = false;   // checked once, as enum_check.
+            return self._asserting_downcast(oc);
+        }
         if n->resolved_ctor != &null { return self._ctor_cast(n); }
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
@@ -291,6 +296,45 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         stmts.push(self._crash_if(n, en, miss));
         stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self.synth.use_of(t, at, Expr::ValueCategory::LValue))));
         return self.synth.stmt_expr(v, &stmts, ut);
+    }
+
+    /// `p as *D`, the asserting downcast (PANIC.md §5):
+    ///
+    ///   `({ var s = p; var d = s as *D [dynamic_only]; if s && !d { unwrap_failed(m, n) }  d })`
+    ///
+    /// The inner cast is C++'s `dynamic_cast<D*>`, a null pointer on a miss
+    /// (EmitIR); a null `p` stays null, as C++'s own downcast keeps it. A
+    /// miss crashes -- the crash family (§2.8): no set, no `try` -- through
+    /// the same entry as `unwrap!`, with a message built here, whole: the
+    /// cast as written, the static and target types, and the site.
+    priv fn _asserting_downcast(self, n: *TypeCastExpr) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        var at = n->range;
+        var st = n->operand->type_;
+        var dt = n->type_;
+        if (st == &null) || (dt == &null) { return static_cast::<*Expr>(n); }
+
+        var stmts = self.list_builder::<*Stmt>();
+        var s  = self.synth.bind(at, "dcs", st, n->operand, &stmts);
+        var dc = TypeCastExpr::create(self.ctx, at, self.synth.use_of(s, at, Expr::ValueCategory::LValue), n->target, false, n->mode);
+        dc->type_          = dt;
+        dc->value_category = Expr::ValueCategory::RValue;
+        dc->dynamic_only   = true;
+        var d  = self.synth.bind(at, "dcd", dt, static_cast::<*Expr>(dc), &stmts);
+
+        var nd = UnaryOperatorExpr::create(self.ctx, at, self.synth.use_of(d, at, Expr::ValueCategory::LValue),
+                                           self.synth.punct(at, TokenKind::OpExclaim), UnaryOperatorExpr::Fix::Prefix);
+        nd->type_          = self.sc->builtin(BuiltinKind::Bool);
+        nd->value_category = Expr::ValueCategory::RValue;
+        var miss = self._cmp(at, self.synth.use_of(s, at, Expr::ValueCategory::LValue), static_cast::<*Expr>(nd), TokenKind::OpAmpAmp);
+
+        var full = self.ctx->sm->get_line_col(at.start);
+        var tp   = tu.pointee(dt);
+        var tn   = (tu.str(tp)) if (tp != &null) else (tu.str(dt));
+        var text = f"{self.ctx->get_spelling(at)}: the object is not a '{tn}' (static type '{tu.str(st)}') at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
+        stmts.push(self.synth.crash_if(at, miss, self.synth.crash_call(at, text, "OperatorLowering")));
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self.synth.use_of(d, at, Expr::ValueCategory::LValue))));
+        return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, dt);
     }
 
     /// `l <op> r`, a builtin compare or logical operator, typed bool.

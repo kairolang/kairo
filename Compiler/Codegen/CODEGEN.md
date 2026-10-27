@@ -646,7 +646,11 @@ The no-headroom rules, each with one home:
   spot, `[](D* __kairo_dc) -> N { return __kairo_dc ? N(__kairo_dc) : N();
   }(...)` with N the `Nullable<D*>`: with tagged storage a null pointer must
   become the null nullable, not a present one (`_checked_downcast`). The
-  asserting downcast `p as *D` is still a plain `static_cast` (PanicLowering).
+  asserting downcast `p as *D` (CastTyping's `asserting_downcast`) arrives
+  expanded by OperatorLowering, `({ B* s = p; D* d = dynamic_cast<D*>(s);
+  if (s && !d) { unwrap_failed("<msg>", n); } d; })`: the inner cast is a
+  `dynamic_only` TypeCastExpr, spelled `dynamic_cast` as is; an unexpanded
+  asserting downcast reaching EmitIR is an ICE (PANIC.md §5).
 - `_var_decl`: an inferred type is the shared canonical (no range) and is
   spelled at the binding's name; a null type is `I011W` + `auto` — the
   only diagnostic codegen emits.
