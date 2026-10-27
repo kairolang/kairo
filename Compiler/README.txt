@@ -272,13 +272,13 @@ Per-Action pipeline (parallelism shown explicitly):
         |  Mono (MONO.md): a generic body is checked once |   AST/Context/
         |  against its bounds, never per instance. T, X   |   InstantiationRegistry.k
         |  and the reach mint instances into the build-   |   Sema/Check/
-        |  wide registry; EmitPlan homes each directly    |   ConformanceChecking.k
-        |  instantiated one as a clang specialization.    |
-        |  M1 (the registry worklist) and M2 (instance    |
-        |  facts by substitution into the bounds: layout  |
-        |  built; lifecycle, rows, panic sets open) are   |
-        |  Sema.k slots; until P10, a panicking call in a |
-        |  generic body is SC116E.                        |
+        |  wide registry's worklist; M1 drains it, and    |   ConformanceChecking.k
+        |  EmitPlan homes each instance, named or reached |
+        |  through a body, as a clang specialization.     |
+        |  M2 (instance facts by substitution into the    |
+        |  bounds: layout built; lifecycle, rows, panic   |
+        |  sets open) is a Sema.k slot; until P10, a      |
+        |  panicking call in a generic body is SC116E.    |
         *=================================================*
                                 v
         *=================================================*

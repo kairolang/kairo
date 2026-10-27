@@ -411,6 +411,9 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if !whole { continue; }   // a parameter of an inner generic: that one's instances reach it.
             var rep = NameLookup::representative(callee);
             var ne = self.sc->instances->instance_for(rep, &args, self.sc->ctx->fid, NameLookup::ctx_of(rep));
+            // Named in no tree: the edge is how every plan holding \p e
+            // finds it (InstanceEntry::reached).
+            self.sc->instances->add_reach(e, ne);
             if !self._take(ne, at, rows) {
                 // The error points at the outer use; this says which call in
                 // the generic's body asked for the instance that failed.
@@ -424,7 +427,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         for var i: usize = 0; i < uses.types.size(); ++i {
             var s = d.substitute(self._canon(uses.types[i]));
             if (s == &null) || s->is_dependent() { continue; }
-            if !self._take_type(s, at, rows, 0) { ok = false; }
+            if !self._take_type(e, s, at, rows, 0) { ok = false; }
         }
         return ok;
     }
@@ -443,22 +446,25 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         return true;
     }
 
-    /// Every record instance in substituted type \p t, as _check_type finds them.
-    priv fn _take_type(self, t: *Type, at: SourceRange, rows: *vec::<*ConformanceRow>, depth: u32) -> bool {
+    /// Every record instance in substituted type \p t, as _check_type finds
+    /// them, each recorded as reached by \p outer.
+    priv fn _take_type(self, outer: *InstanceEntry, t: *Type, at: SourceRange, rows: *vec::<*ConformanceRow>, depth: u32) -> bool {
         var c = self._canon(t);
         if (c == &null) || (depth > 16) { return true; }
         var ok = true;
         switch c->kind {
-            case TypeKind::PointerType      { ok = self._take_type(cast::<PointerType>(c)->pointee, at, rows, depth + 1); }
-            case TypeKind::CXXLValueRefType { ok = self._take_type(cast::<CXXLValueRefType>(c)->referee, at, rows, depth + 1); }
-            case TypeKind::CXXRValueRefType { ok = self._take_type(cast::<CXXRValueRefType>(c)->referee, at, rows, depth + 1); }
-            case TypeKind::NullableType     { ok = self._take_type(cast::<NullableType>(c)->inner, at, rows, depth + 1); }
-            case TypeKind::FixedArrayType   { ok = self._take_type(cast::<FixedArrayType>(c)->element, at, rows, depth + 1); }
+            case TypeKind::PointerType      { ok = self._take_type(outer, cast::<PointerType>(c)->pointee, at, rows, depth + 1); }
+            case TypeKind::CXXLValueRefType { ok = self._take_type(outer, cast::<CXXLValueRefType>(c)->referee, at, rows, depth + 1); }
+            case TypeKind::CXXRValueRefType { ok = self._take_type(outer, cast::<CXXRValueRefType>(c)->referee, at, rows, depth + 1); }
+            case TypeKind::NullableType     { ok = self._take_type(outer, cast::<NullableType>(c)->inner, at, rows, depth + 1); }
+            case TypeKind::FixedArrayType   { ok = self._take_type(outer, cast::<FixedArrayType>(c)->element, at, rows, depth + 1); }
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
-                for var i: usize = 0; i < r->args.size(); ++i { if !self._take_type(r->args[i], at, rows, depth + 1) { ok = false; } }
+                for var i: usize = 0; i < r->args.size(); ++i { if !self._take_type(outer, r->args[i], at, rows, depth + 1) { ok = false; } }
                 if (r->decl != &null) && decl_is_instance(r->decl) {
-                    if !self._take(self.sc->instances->entry_of(r->decl), at, rows) { ok = false; }
+                    var ne = self.sc->instances->entry_of(r->decl);
+                    self.sc->instances->add_reach(outer, ne);
+                    if !self._take(ne, at, rows) { ok = false; }
                 }
             }
             default { ok = true; }

@@ -31,6 +31,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
+import AST::Context::InstantiationRegistry::*;
 import Sema::Resolve::ImportResolution::*;
 import Sema::Resolve::NameResolution::*;
 import Sema::Resolve::TypeResolve::*;
@@ -653,13 +654,32 @@ class Sema {
 
     /// M1: instance enumeration (MONO.md D0/D4). Creates nothing: T, X, the
     /// reach, the lang records and the lowerings minted every instance into
-    /// the build-wide registry already. After this TU's lowerings, so the
-    /// instances a lowering mints are in.
+    /// the build-wide registry already, each appended to its worklist. M1
+    /// drains what is new since the last drain, in mint order, whichever TU
+    /// minted it: a TU that hard-stopped before here leaves its entries to
+    /// the next TU's drain, and the order is the same either way. Here,
+    /// after this TU's lowerings, so the instances a lowering mints are in.
+    ///
+    /// Homing needs nothing more from M1: an entry's home is its first
+    /// namer (D3, `home_fid`, fixed at mint), and EmitPlan reaches an
+    /// instance no tree names through the `reached` edge ConformanceChecking
+    /// recorded. G3 puts the discovery fixpoint here: walk each drained,
+    /// unchecked entry's reach (what `_reach` does today under a depth cap),
+    /// and the drain loop below runs until nothing new was minted.
     priv fn _stage_mono_collect(self) -> bool {
         if self._already(SemaPhase::MonoCollected) { return true; }
         var _t = TimeRegion("Collect");
         self.sc.require_phase(SemaPhase::Lowered);
-        // TODO(sema): drain the registry's ordered worklist (MONO.md G2).
+        var reg = self.sc.instances;
+        if reg != &null {
+            var batch = vec::<*InstanceEntry>();
+            reg->drain(&batch);
+            while batch.size() > 0 {
+                for var i: usize = 0; i < batch.size(); ++i { reg->set_checked(batch[i]); }
+                batch.clear();
+                reg->drain(&batch);
+            }
+        }
         self.sc.advance_phase(SemaPhase::MonoCollected);
         return !self._hard_stop();
     }

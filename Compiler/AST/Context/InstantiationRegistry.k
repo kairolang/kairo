@@ -31,6 +31,14 @@
 ///     it exists, and retargeting RecordType::decl later would break the
 ///     pointer identity everything after T keys on.
 ///
+///   \par Order (M1, MONO.md D4)
+///     Every entry is appended to one worklist as it is minted, whoever
+///     mints it; M1 drains it (Sema.k::_stage_mono_collect). That order, not
+///     the hash table's, is the registry's iteration order. An instance a
+///     generic body reaches is linked to the instance that reached it
+///     (InstanceEntry::reached), which is how a plan holding the outer one
+///     homes or `extern`s the inner one, named in no tree.
+///
 ///   \par Arena / threading
 ///     Own arena: an implicit node first named by fid A is referenced by every
 ///     importer of A and must outlive A's ast_alloc reset. Mutex-guarded: T is
@@ -182,6 +190,28 @@ class InstanceEntry {
     /// One writer, the first former (PanicSets::note_formed).
     pub var formed_at:         SourceRange = SourceRange::invalid();
     pub var formed_fid:        u32 = u32(-1);
+    /// Its place in the registry's worklist: mint order, build-wide. Sema
+    /// runs one TU at a time in DAG order, so this is (TU order, mint order)
+    /// and the same on every run (MONO.md D4).
+    pub var seq:               u32 = 0;
+    /// M1 has drained it from the worklist (Sema.k::_stage_mono_collect).
+    /// What M1 does per entry is "enumerate": its home is fixed and its
+    /// reach edges are whatever ConformanceChecking recorded. G3 makes the
+    /// drain walk an unchecked entry's reach itself, so "checked" becomes
+    /// "every instance its body reaches is in the registry".
+    pub var checked:           bool = false;
+    /// The instances its body reaches once its arguments are known
+    /// (ConformanceChecking's reach: `outer<M>` calling `inner(Wrap<T>
+    /// {...})` reaches `inner<Wrap<M>>` and `Wrap<M>`), in reach order,
+    /// deduplicated. None of them is named in any TU's tree, so this edge is
+    /// how EmitPlan finds them: every plan holding this instance holds these
+    /// too, their explicit instantiation in their home and `extern template`
+    /// elsewhere. Writer: add_reach, under the lock.
+    pub var reached:           vec::<*InstanceEntry>;
+    /// The first instance whose body reached this one, or null (named
+    /// directly, never reached). Where D4's range inheritance and D6's
+    /// instantiation-note chain start.
+    pub var reached_by:        *InstanceEntry = &null;
     fn InstanceEntry(self) { }
 }
 
@@ -193,8 +223,8 @@ class InstantiationRegistry {
     priv var _mu:    std::SharedMutex;
     /// bucket hash -> entries. Every hit is confirmed by a structural compare.
     /// Keys are _hash's, which keeps clear of DenseMap's reserved values.
-    /// Its order means nothing -- hashes of pointers, filled from parallel T
-    /// -- and collect() says so: ordering is the output boundary's job.
+    /// Its order means nothing -- hashes of pointers -- so nothing iterates
+    /// it for output: collect() reads _order instead.
     priv var _table: llvm::DenseMap::<u64, vec::<*InstanceEntry>>;
     /// primary -> its partial specializations, in registration order. The
     /// lists live in _partials_arena: partials_of() hands one out, and a
@@ -216,6 +246,15 @@ class InstantiationRegistry {
     /// `ConformanceRow::declared` is first-writer and a use may build the
     /// row before the declaration is checked.
     priv var _declared: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
+    /// THE worklist (MONO.md D4): every entry, in mint order. Every mint --
+    /// T and X naming one, Deduction::substitute, ConformanceChecking's
+    /// reach, the lang records, CallLowering's thunks, foreign -- goes
+    /// through _new_entry, which appends here, so nothing can mint around
+    /// it. collect() reads this, never the hash table: anything that
+    /// iterates the registry gets the same order on every run.
+    priv var _order:   vec::<*InstanceEntry>;
+    /// How far M1 has drained _order.
+    priv var _drained: usize = 0;
 
     fn InstantiationRegistry(self) {
         self._table.reserve(128);
@@ -569,6 +608,25 @@ class InstantiationRegistry {
         for var i: usize = 0; i < it->second.size(); ++i { out->push_back(it->second[i]); }
     }
 
+    /// \p inner is reached by \p outer's body (ConformanceChecking's reach).
+    /// Once per pair; \p inner keeps its first reacher. An instance that
+    /// reaches itself (`f<T>` calling `f<T>`) records nothing.
+    fn add_reach(self, outer: *InstanceEntry, inner: *InstanceEntry) {
+        if (outer == &null) || (inner == &null) || (outer == inner) { return; }
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = 0; i < outer->reached.size(); ++i { if outer->reached[i] == inner { return; } }
+        outer->reached.push_back(inner);
+        if inner->reached_by == &null { inner->reached_by = outer; }
+    }
+
+    /// \p e's reached instances, in reach order, appended to \p out. A copy:
+    /// a later TU's reach may still append to the entry's own list.
+    fn reached_of(self, e: *InstanceEntry, out: *vec::<*InstanceEntry>) {
+        if (e == &null) || (out == &null) { return; }
+        var rlock = std::SharedLock(self._mu);
+        for var i: usize = 0; i < e->reached.size(); ++i { out->push_back(e->reached[i]); }
+    }
+
     /// Write \p e's rows, once: the first TU to check the instance wins, and
     /// every later one computed the same list from the same table.
     fn set_rows(self, e: *InstanceEntry, rows: *vec::<*ConformanceRow>) {
@@ -581,20 +639,34 @@ class InstantiationRegistry {
 
     // === Enumeration (M1 / EmitPlan) ===========================================
 
-    /// Every entry, in NO defined order (hash order of pointer hashes,
-    /// filled from parallel T). A caller that emits from this sorts by its
-    /// own stable key -- EmitPlan by mangled name -- before writing anything.
+    /// Every entry, in worklist (mint) order: deterministic, though not
+    /// sorted -- an output that must not move when an unrelated TU mints
+    /// first (EmitPlan's tier 3, a golden dump) still sorts by its own key.
     fn collect(self, out: ref!(vec::<*InstanceEntry>)) {
         var rlock = std::SharedLock(self._mu);
-        for var it = self._table.begin(); it != self._table.end(); ++it {
-            for var i: usize = 0; i < it->second.size(); ++i { out.push_back(it->second[i]); }
-        }
+        for var i: usize = 0; i < self._order.size(); ++i { out.push_back(self._order[i]); }
     }
 
     fn size(self) -> usize {
-        var n: usize = 0;
-        for var it = self._table.begin(); it != self._table.end(); ++it { n += it->second.size(); }
-        return n;
+        var rlock = std::SharedLock(self._mu);
+        return self._order.size();
+    }
+
+    /// M1's drain: every entry minted since the last drain, in mint order,
+    /// appended to \p out. Entries minted while the caller works through
+    /// them come back on its next call, so draining until this yields
+    /// nothing is the fixpoint (G3's discovery loop runs on exactly this).
+    fn drain(self, out: *vec::<*InstanceEntry>) {
+        if out == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = self._drained; i < self._order.size(); ++i { out->push_back(self._order[i]); }
+        self._drained = self._order.size();
+    }
+
+    fn set_checked(self, e: *InstanceEntry) {
+        if e == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        e->checked = true;
     }
 
     // === Internals ==============================================================
@@ -669,6 +741,9 @@ class InstantiationRegistry {
         e->is_explicit = is_explicit;
         e->home_fid    = fid;
         for var i: usize = 0; i < args->size(); ++i { e->args.push_back((*args)[i]); }
+        // Every caller holds the lock: the worklist append is the mint.
+        e->seq = static_cast::<u32>(self._order.size());
+        self._order.push_back(e);
         return e;
     }
 

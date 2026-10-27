@@ -1228,7 +1228,7 @@ section; TypeQual enum path in `TypeUtil::syntax_is_const`.
 `<unknown>`, zero diagnostics -- if this one fails, something treats
 dependent as failed, and that is the first bug to fix).
 
-### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
+### 2.10 L Lower [IN PROGRESS], M1 [PARTIAL], M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
 §6). The order is fixed, and owned by `Sema.k::_stage_lowerings`; this is
@@ -1567,12 +1567,21 @@ per-instance difference that reaches codegen is selected by C++ itself
 because kcc hosts, C++ templates and coroutine promises instantiate
 Kairo generics at types Kairo never enumerates (MONO.md §2).
 
-- **M1 enumerates.** Every mint (T, X, `Deduction::substitute`,
+- **M1 enumerates** [PARTIAL]. Every mint (T, X, `Deduction::substitute`,
   ConformanceChecking's reach, the lang records, CallLowering's thunks,
-  foreign) appends to the registry's ordered worklist; M1 drains it.
-  It creates nothing. The home of an instance is its first namer
-  (`InstanceEntry::home_fid`, D3); EmitPlan writes its explicit
-  instantiation there and `extern template` everywhere else.
+  foreign) goes through `InstantiationRegistry::_new_entry`, which
+  appends it to the registry's worklist: mint order, which under
+  sequential DAG-order Sema is (TU order, mint order), and which
+  `collect()` returns. M1 (`Sema.k::_stage_mono_collect`, after each
+  TU's lowerings) drains what is new, whichever TU minted it, and sets
+  each entry's `checked`. It creates nothing. The home of an instance is
+  its first namer (`InstanceEntry::home_fid`, D3); EmitPlan writes its
+  explicit instantiation there and `extern template` everywhere else. An
+  instance a generic body reaches is named in no tree, so the reach
+  records an edge (`InstanceEntry::reached`) and every plan holding the
+  outer instance holds the reached ones. Open (G3): the drain walking an
+  unchecked entry's reach itself, to a fixpoint, in place of `_reach`'s
+  depth cap; an instance minted with no range inheriting its reacher's.
 - **M2 computes instance facts** by substituting the instance's
   arguments into what the bounds declare, never by typing the body:
   ADT layout (EnumLayoutQuery::sweep, built), lifecycle, witness rows,
@@ -1982,7 +1991,9 @@ Type domain (each unblocks the next):
 
 Mono / codegen:
 
-    o. M1 enumeration over the registry (types AND functions)
+    o. M1 enumeration over the registry (types AND functions):    PARTIAL
+       worklist, drain, reached-instance homing done; G3's
+       fixpoint open
     p. M2: instance facts by substitution into the bounds (MONO.md D0:
        layout built, lifecycle G6, rows G8, panic sets P10). Partial
        selection is done at registry mint (§2b Instances; requires-

@@ -979,7 +979,7 @@ Each item is independently testable. Do them in this order.
    11. EmitPlan collector + closure + tiers               Codegen    DONE
    12. InterfaceEmitter                                   Codegen    DONE (declarations and bodies)
    12b. Cross-fid TokenSink (locmap-translated locations) Codegen    DONE
-   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE; M1 worklist + reached homing OPEN (MONO.md G2); M2 = instance facts, no fill (D0)
+   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE, reached instances included (M1 worklist, MONO.md G2); discovery fixpoint G3; M2 = instance facts, no fill (D0)
    13a. Cross-reopening redefinition check (same signature, two definitions) at M2 sync
         OPEN, and not a codegen item: a module reopened in two files can define
         one signature twice, and nothing diagnoses it. Codegen cannot: each TU

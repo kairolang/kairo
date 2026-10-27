@@ -972,12 +972,14 @@ specialization of its own; and the
 instances a generic's body reaches (`outer<T>` calling
 `inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
 arguments (`CallExpr::dep_args`) and ConformanceChecking substitutes them
-per instance, adding the reached rows to the outer instance's. That last
-is the slice of M1 witnesses need. A reached instance is registered (so
-it has a `home_fid`, the reaching TU's) but no plan admits it, so no
-explicit instantiation is written for it anywhere: it links because the
-outer instance's explicit instantiation instantiates it implicitly, a
-weak symbol in that object. Homing what M1 reaches is M1's.
+per instance, adding the reached rows to the outer instance's. A reached
+instance is registered (its `home_fid` is the reaching TU's unless a TU
+named it first) and recorded as reached by the outer one
+(`InstanceEntry::reached`, `add_reach`). Every plan that admits an
+instance admits what it reaches, transitively, so the home writes the
+reached instance's explicit instantiation and every other TU holding the
+outer one its `extern template`, exactly as for a named instance
+(`Tests/Codegen/mono_reached/`).
 
 Not built, each the ICE or diagnostic that names it:
 
@@ -986,9 +988,9 @@ Not built, each the ICE or diagnostic that names it:
   (`Container::get(c, 0)`): SC001E asking for the arguments, by choice --
   deducing the one instance c conforms to is a second lookup to keep sound.
 - Associated types, value-parameter interfaces: EmitWitness ICEs.
-- A member template of a class template gets no explicit instantiation:
-  its registry entry carries only its own arguments, so it is
-  instantiated implicitly from its visible body.
+- A member template of a class template gets no explicit instantiation,
+  named or reached: its registry entry carries only its own arguments,
+  so it is instantiated implicitly from its visible body.
 
 ### 7b.2 The problem, and why a witness
 

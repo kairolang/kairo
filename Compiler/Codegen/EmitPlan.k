@@ -1412,7 +1412,26 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     }
     var seen = false;
     for var i: usize = 0; i < self._insts.size(); ++i { if self._insts[i] == e { seen = true; break; } }
-    if !seen { self._insts.push_back(e); }
+    if !seen {
+        self._insts.push_back(e);
+        // What its body reaches once its arguments are known (`outer<M>`
+        // calling `inner(Wrap<T>{...})`: `inner<Wrap<M>>`, `Wrap<M>`) is
+        // named in no tree, yet this TU compiles that body or links against
+        // it: hold each reached instance too, so tier 3 writes its explicit
+        // instantiation in its home and `extern template` everywhere else.
+        // Once per instance (`seen`), so a body that reaches itself stops.
+        // A function instance comes in as a call's does, its arguments Fwd.
+        // A record instance as a type naming it does (_admit: an interface's
+        // is its witness, an imported one clang's), Complete: its explicit
+        // instantiation lays it out.
+        var rs = vec::<*InstanceEntry>();
+        self._cg->instances->reached_of(e, &rs);
+        for var i: usize = 0; i < rs.size(); ++i {
+            var r = rs[i];
+            if isa::<FunctionDecl>(r->primary) { self._admit_instance(r, PlanNeed::Fwd); }
+            else if r->decl != &null { self._admit(r->decl, PlanNeed::Complete); }
+        }
+    }
     self._admit(prim, PlanNeed::Complete);
     // Every TU holding the instance may compile its body (it is a visible
     // C++ inline body), so every one needs the specializations its bounds
