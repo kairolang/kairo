@@ -62,14 +62,14 @@ fn use_module_alias(m: M::Local) -> i32 { return m.v }
 
 // ---------------------------------------------------------------------------
 // CASE 4: a GENERIC alias, applied with a CONCRETE argument. T arity-checks
-// the application and marks it instantiation-dependent rather than an
-// error (RESOLUTION.md §2.6: "Generic alias APPLICATION needs substitution
-// of the aliased body -- M2's machinery... hand off as instantiation-
-// dependent. Not an error."). Substitution itself is M2, [MISSING] per
-// §2.9, so `.val` through `WrapAlias<i32>` is NOT yet bound to the field --
-// it is correctly deferred (NeedsInference), never diagnosed as a missing
-// member. That is the observable, spec-compliant shape of the gap: no
-// false error, just no answer yet.
+// the application, then substitutes the argument into the aliased body
+// (RESOLUTION.md §2.6): `WrapAlias<i32>` IS `Wrapper<i32>`, the same
+// canonical and the same instance as if written out. So `.val` through it
+// binds to the field like any member of `Wrapper<i32>`. (Before MONO.md
+// G4 the application stayed instantiation-dependent with no canonical,
+// and `.val` was deferred with no answer.) Applications that stay
+// dependent are Tests/Sema/Types/generic_alias_application.k's.
+//
 
 class <T> Wrapper {
     var val: T;
@@ -121,11 +121,11 @@ fn unknown_type_name(x: NoSuchType) -> i32 { return 0 }
 // SEMA:      <tu>::use_module_alias
 // SEMA:        .v  {{.*}} -> field v {{.*}}
 
-// CASE 4: member through a generic alias application is deferred, not
-// bound and not an error (M2's substitution is [MISSING]; see the CASE 4
+// CASE 4: member through a generic alias application binds to the
+// field of the instance the application substitutes to (see the CASE 4
 // comment above).
 // SEMA:      <tu>::use_generic_alias
-// SEMA:        .val  {{.*}} <open: inference or M2>{{.*}}
+// SEMA:        .val  {{.*}} -> field val {{.*}}
 
 // CASE 5/6 are poisoned, not unresolved-and-undiagnosed; their param names
 // are declared but never used, so they contribute no rows to name bindings.

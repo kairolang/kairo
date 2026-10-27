@@ -1766,11 +1766,29 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var td  = cast::<TypeAliasDecl>(d);
             var gps = td->generic_params;
             if gps.size() > 0 {
-                // Generic alias APPLICATION needs substitution of the aliased
-                // body -- M2's machinery. Check arity now (that is T's), then
-                // hand off as instantiation-dependent. Not an error.
+                // Generic alias APPLICATION: the aliased body with the
+                // arguments substituted in, so `Mat<i32>` of `type <T> Mat =
+                // [[T]]` IS `[[i32]]` -- the same canonical, the same
+                // instance, as if written out. `Mat<U>` in a generic body is
+                // `[[U]]`, dependent like any other use of U.
                 if !self._check_arity(d, gps, seg, ct) { return &null; }
-                if !self._resolve_args(seg, ct) { return &null; }
+                var args = vec::<*Type>();
+                if !self._collect_args(seg, ct, d, gps, &args) { return &null; }
+                var body = self._expand_alias(td, seg->range);
+                if (body == &null) && (td->is_poisoned() || (self.sc->rstate.decl_state(td) == ResolveState::Errored)) {
+                    ct->poison();
+                    return &null;
+                }
+                var applied = self._apply_alias(td, gps, &args, body);
+                if applied != &null {
+                    ct->type_flags = static_cast::<Type::TypeFlags>(
+                        static_cast::<u8>(ct->type_flags) | static_cast::<u8>(applied->type_flags));
+                    return applied;
+                }
+                // A body substitution cannot rewrite (a raw dependent
+                // composite with no canonical): the use stays
+                // instantiation-dependent, as every application was before.
+                // Not an error.
                 self._mark_inst_dependent(ct);
                 return &null;
             }
@@ -1850,6 +1868,38 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var rt = self.sc->types->record(inst, &args);
         if psets.is_panic(canon) && (!dep) { psets.note_formed(seg->range, rt); }
         return rt;
+    }
+
+    /// \p body (an alias's canonical, over its own parameters) with \p args
+    /// bound to them; null when substitution cannot say. A pack parameter
+    /// takes every argument from its position on, as an instance's do
+    /// (Substitution::bind_from_record). Both the alias and its
+    /// representative own the parameters a redeclared alias's body names.
+    priv fn _apply_alias(self, td: *TypeAliasDecl, gps: FrozenList::<*GenericParamDecl>,
+                         args: *vec::<*Type>, body: *Type) -> *Type {
+        if body == &null { return &null; }
+        var ded = Deduction(self.sc, &null);
+        var owners = vec::<*Decl>();
+        owners.push_back(static_cast::<*Decl>(td));
+        var rep = NameLookup::representative(static_cast::<*Decl>(td));
+        if rep != static_cast::<*Decl>(td) { owners.push_back(rep); }
+        for var o: usize = 0; o < owners.size(); ++o {
+            var at: usize = 0;
+            for var i: usize = 0; i < gps.size(); ++i {
+                var gp = gps[i];
+                if gp == &null { continue; }
+                if gp->is_pack {
+                    ded.open_pack(owners[o], gp->index);
+                    for var k: usize = at; k < args->size(); ++k { ded.push_pack(owners[o], gp->index, (*args)[k]); }
+                    at = args->size();
+                    continue;
+                }
+                if at >= args->size() { return &null; }
+                ded.bind(owners[o], gp->index, (*args)[at]);
+                at += 1;
+            }
+        }
+        return ded.substitute(body);
     }
 
     // === Generic arguments ====================================================

@@ -299,8 +299,15 @@ What T decides:
   steps into the registry instance, which `_scope_of` has clang fill first
   (`MemberLookup::ensure_filled`, IMPORTS.md §5); only a failed fill defers.
 - **Final decl -> canonical**: GenericParamDecl -> `generic_param(owner,
-  index)` on the REPRESENTATIVE; alias -> expand; nominal -> arity -> args
-  by position and name -> defaults in the PRIMARY's scope -> #12. A written
+  index)` on the REPRESENTATIVE; alias -> expand; a GENERIC alias
+  application -> arity -> args as a nominal's -> the aliased body with
+  the args substituted (`_apply_alias`), so `Mat<i32>` of `type <T> Mat =
+  [[T]]` IS `[[i32]]` and `B<U>` is the body over U; only a body
+  substitution cannot rewrite stays instantiation-dependent with no
+  canonical; nominal -> arity -> args
+  by position and name -> defaults in the PRIMARY's scope, a default that
+  names earlier params with their arguments substituted (`<K, V = K>`:
+  `Pair<i32>` is `Pair<i32, i32>`) -> #12. A written
   const/volatile wraps the canonical (`qualified()`); identity keeps it.
   Reference kinds put it on the referee.
 - **Specialization registration** (#12) via `_register_specs_in`.

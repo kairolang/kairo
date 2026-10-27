@@ -974,8 +974,9 @@ class OverloadResolution {
             }
 
             if pt == &null {
-                // dependent-but-uncanonical parameter (`[T; N]`, alias app):
-                // cannot decide here; accept at Converted and let M2 judge.
+                // dependent-but-uncanonical parameter (`[T; N]`, an alias
+                // application substitution could not rewrite): cannot
+                // decide here; accept at Converted and let M2 judge.
                 if (p->type_ != &null) && (p->type_->is_dependent() || p->type_->is_instantiation_dependent()) {
                     if c->rank < 1 { c->rank = 1; }
                     continue;
