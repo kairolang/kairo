@@ -598,8 +598,8 @@ iterable; ranges → RangeLowering;
 is rewritten there too, then reaches MatchLowering as an ordinary match);
 a `T?` with no `lowered` record → NullableTypeLowering (CXXSpell). A null
 test left for NullTestLowering or a read left for NarrowedAccessLowering
-has no ICE of its own: those two passes are the only guard; f-strings → FStringLowering; yield →
-YieldLowering; a generic closure → FeatureGateCheck; await/spawn/thread
+has no ICE of its own: those two passes are the only guard; f-strings → FStringLowering; `yield`
+is EmitIR's own (`co_yield`, a C++ coroutine); a generic closure → FeatureGateCheck; await/spawn/thread
 → async lowering; `ListLiteralExpr` / set / map literals →
 ListLiteralLowering (set and map have no lowering yet); labeled
 break/continue → LabelLowering; typeof/impl/derives tests →

@@ -919,8 +919,8 @@ initializers are errors. Conditions and guards must be `bool`. `for x in
 xs`: element from the container / map (K,V) tuple / string char / Range
 arg / `op in` (through `Yield<T>`); binders get it through their
 shorthands. Destructuring by position or field name. Context bindings take
-the value's type until ContextLowering. `yield`'s check against `yield T`
-is YieldLowering's. A parameter default is typed against its parameter, and
+the value's type until ContextLowering. `yield e` is typed against the
+function's `yield T` (StmtTyping). A parameter default is typed against its parameter, and
 may not refer to another parameter or `self` (SC106E: a default is evaluated
 by a nullary thunk, so it has nothing to read them from) nor be a slice
 literal (SC082E: the thunk would return a view of a dead array).
@@ -987,8 +987,10 @@ ExprBodyDesugar also turns a closure's expression body into a block
 (`return e`, or `e;` when its resolved return type is `void` / `!`).
 Still to come, each a
 stub file or a `TODO(sema)` in `Sema.k`: UsingDeclSynthesis,
-PanicLowering, YieldLowering, TypeQueryLowering, WhereDispatchLowering,
-CopyMoveLowering (copies), DestructorInsertion. Sugar first, control flow
+PanicLowering, TypeQueryLowering, WhereDispatchLowering,
+CopyMoveLowering (copies). Generators need no lowering (a C++ coroutine,
+spelled by EmitIR), and destruction none (C++ destroys locals at scope
+exit). Sugar first, control flow
 second, lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
 codegen is an ICE naming the pass. NullableTypeLowering is the exception
 on types: it rewrites no type in the tree, it fills each canonical `T?`'s
