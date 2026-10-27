@@ -334,7 +334,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         var nt   = self.sc->well_known->get(WellKnownType::NullT);
         ICE_IF(nt == &null, "EnumLayoutLowering: the Nullable lang item without null_t; Lib/builtin declares both");
         var ps = self.list_builder::<*ParamDecl>();
-        ps.push(ParamDecl::create(self.ctx, at, self.synth.ident(at, "n"), self._type_of(NameLookup::representative(nt)), 0));
+        ps.push(ParamDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::nullable_null_param()), self._type_of(NameLookup::representative(nt)), 0));
         ps.freeze_into(&(from->params));
         self._member(ldc, methods, from);
         self._member(ldc, methods, self._role(en, en->name, AdtRole::ValueCopy, AdtForm::Body, 0, VisibilityKind::Public));

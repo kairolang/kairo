@@ -649,7 +649,7 @@ class EmitIR {
                 // An extension operator takes its receiver by reference (see
                 // InterfaceEmitter::_params); _body rebinds `self` from it.
                 s += self._spell.ext_receiver(f, ext);
-                s += (" " + LowerTargets::ext_self()) if (f->is_operator) else (" self");
+                s += (" " + LowerTargets::ext_self()) if (f->is_operator) else (" " + LowerTargets::ext_receiver_name());
                 continue;
             }
             if !first { s += ", "; }
@@ -678,7 +678,7 @@ class EmitIR {
         self._cg->sink->synth_at_start(b->range, clang::tok::l_brace);
         if (ext != &null) && f->is_operator {
             var pro = ("const ") if (f->is_const()) else ("");
-            pro += self._spell._type(ext->target) + "* self = &" + LowerTargets::ext_self() + ";";
+            pro += self._spell._type(ext->target) + "* " + LowerTargets::ext_receiver_name() + " = &" + LowerTargets::ext_self() + ";";
             self._cg->sink->spell(b->range, pro);
         }
         // The value predicates of the function's `requires` (EVAL.md §8,
@@ -1087,7 +1087,7 @@ class EmitIR {
         var I = LowerTargets::eval_for_index(self._ef_depth);
         self._cg->sink->spell(at, "[&]<" + sz + "... " + K + ">(::" + LowerTargets::eval_iseq() + "<" + sz + ", " + K + "...>) { (... && [&]<" + sz + " " + I + ">() -> bool {");
         // The binding: a constant in each copy.
-        var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else ("__kairo_ef_unused");
+        var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
         self._cg->sink->spell(at, "[[maybe_unused]] constexpr " + et + " " + nm + " = ");
         if is_range {
             self._cg->sink->spell(at, "static_cast<" + et + ">((");
@@ -1419,7 +1419,7 @@ class EmitIR {
     /// `self` as C++ has it: `this` in a method, the receiver parameter in an
     /// extension member. Always the pointer.
     priv fn _self_ptr(self, n: *NamedIdentExpr) {
-        self._cg->sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
+        self._cg->sink->spell(n->range, ((LowerTargets::ext_receiver_name()) if (self._cur_ext != &null) else ("this")));
     }
 
     priv fn _is_self_decl(self, d: *Decl) -> bool {
@@ -1806,7 +1806,7 @@ class EmitIR {
             var via = n->cap_via_ptr[i];
             if s.size() > 0 { s += ", "; }
             if m == CaptureMode::Self {
-                s += ("self") if (self._cur_ext != &null) else ("this");
+                s += (LowerTargets::ext_receiver_name()) if (self._cur_ext != &null) else ("this");
                 continue;
             }
             var nm = self._spell.imm_name(decl_name_tok(d).imm, self._owning_fid());

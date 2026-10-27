@@ -359,6 +359,13 @@ class LowerTargets {
     /// statement binds `self` to its address, so the body is emitted exactly
     /// as any other extension member's.
     static fn ext_self() -> string { return "__kairo_self"; }
+    /// An extension member's receiver as its C++ body sees it: the
+    /// parameter of a non-operator member (InterfaceEmitter declares it,
+    /// EmitIR defines it), the local an operator's body binds from
+    /// ext_self, and every `self` and `[self]` capture EmitIR writes in
+    /// that body. Not `__kairo_`-prefixed: it is Kairo's own keyword, which
+    /// C++ does not reserve, so a body's `self` is spelled as written.
+    static fn ext_receiver_name() -> string { return "self"; }
     /// The \p k-th parameter of an extension operator's namespace-scope C++
     /// `operator<sym>` forwarder (InterfaceEmitter::_forwarder), receiver
     /// included, a postfix `++`/`--` dummy last.
@@ -378,6 +385,10 @@ class LowerTargets {
     static fn witness_arg(k: usize) -> string  { return f"__kairo_a{k}"; }
     /// A postfix `++`/`--` member's `int` dummy, forwarded as is.
     static fn witness_postfix() -> string { return "__kairo_pf"; }
+    /// A witness member's receiver parameter, and the receiver its body and
+    /// its requires-gate call through (`self->m(...)`). Kairo's keyword, as
+    /// ext_receiver_name.
+    static fn witness_receiver_name() -> string { return "self"; }
     /// The include guard around a witness definition in a header: every
     /// header that reaches one writes it, as a tuple record's. \p key is the
     /// witness and its Self, already an identifier (CXXSpell::_path_ident).
@@ -412,6 +423,8 @@ class LowerTargets {
     /// may not shadow an outer one's.
     static fn eval_for_pack(d: u32) -> string { return f"__kairo_K{d}"; }
     static fn eval_for_index(d: u32) -> string { return f"__kairo_I{d}"; }
+    /// The per-copy constant of an `eval for` that binds no name.
+    static fn eval_for_unused() -> string { return "__kairo_ef_unused"; }
     /// A `return` out of an `eval for` copy: the flag and the value slot the
     /// code after the expansion checks.
     static fn eval_for_ret_flag() -> string { return "__kairo_efr"; }
@@ -580,6 +593,10 @@ class LowerTargets {
     static fn nullable_is_null() -> string           { return "is_null"; }
     static fn nullable_value() -> string             { return "__value"; }
     static fn null_constant() -> string              { return "null"; }
+    /// The parameter of Nullable's `null_t` constructor (EnumLayoutLowering
+    /// mints the ParamDecl). Unprefixed like the members above: a C++ host
+    /// sees it in the declaration.
+    static fn nullable_null_param() -> string        { return "n"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
 

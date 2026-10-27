@@ -1707,7 +1707,7 @@ class InterfaceEmitter {
                 // [over.oper]/7 wants a class-typed parameter: the receiver is
                 // `X&`. Unnamed here; EmitIR's definition names it.
                 s += self._spell->ext_receiver(f, ext);
-                if !f->is_operator { s += " self"; }   // just the type for an operator; EmitIR names it.
+                if !f->is_operator { s += " " + LowerTargets::ext_receiver_name(); }   // just the type for an operator; EmitIR names it.
                 continue;
             }
             if !first { s += ", "; }

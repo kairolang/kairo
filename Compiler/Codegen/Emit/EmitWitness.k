@@ -284,14 +284,14 @@ class EmitWitness {
                 // A GENERIC requirement has no member pointer to cast without
                 // its arguments: the gate is the callable form, the one corner
                 // that keeps 7b.3's hazard (§7b.12, question 6).
-                gate = "requires requires { " + self._member_call(m, me, "self", "template " + leaf + targs) + "; }";
+                gate = "requires requires { " + self._member_call(m, me, LowerTargets::witness_receiver_name(), "template " + leaf + targs) + "; }";
             } else {
                 // A static requirement is gated on a plain function pointer: a
                 // static member's address is not a pointer to member.
                 var owner = (me) if (m->is_method()) else ("");
                 gate = "requires requires { static_cast<" + self._pointer_to_member(sig, owner) + ">(&" + me + "::" + leaf + "); }";
             }
-            var call = self._member_call(m, me, "self", (("template " + leaf + targs) if (targs.size() > 0) else (leaf)));
+            var call = self._member_call(m, me, LowerTargets::witness_receiver_name(), (("template " + leaf + targs) if (targs.size() > 0) else (leaf)));
             self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " " + gate + " { return " + call + "; }");
         }
         self._cg->sink->spell(at, "};");
@@ -417,11 +417,11 @@ class EmitWitness {
                 }
                 targs = t + ">";
             }
-            var all = ("self") if (m->is_method()) else ("");
+            var all = (LowerTargets::witness_receiver_name()) if (m->is_method()) else ("");
             if args.size() > 0 { all += ((", ") if (all.size() > 0) else ("")) + args; }
             return self._spell->qual_name(static_cast::<*Decl>(w)) + targs + "(" + all + ")";
         }
-        return self._member_call(m, x, "self", self._spell->leaf(static_cast::<*Decl>(w)) + targs);
+        return self._member_call(m, x, LowerTargets::witness_receiver_name(), self._spell->leaf(static_cast::<*Decl>(w)) + targs);
     }
 
     /// The call of member \p name (already carrying any `template` keyword
@@ -456,7 +456,7 @@ class EmitWitness {
         var saved_s = self._spell->self_spelling;
         self._self_as(m, self_s);
         var ps = "";
-        if m->is_method() { ps = self._receiver(m, self_s) + " self"; }
+        if m->is_method() { ps = self._receiver(m, self_s) + " " + LowerTargets::witness_receiver_name(); }
         for var i: usize = 0; i < m->params.size(); ++i {
             var p = m->params[i];
             if (p == &null) || p->is_self { continue; }
