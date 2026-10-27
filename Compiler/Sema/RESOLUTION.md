@@ -103,7 +103,10 @@ them (the parser indexed every branch; invariant #1 holds -- no table is
 mutated, one is replaced, as `_bind_cxx` does). It must run before V and
 N, which may not see an untaken branch, and after I, so a condition can
 read an imported `eval` constant and clang's macro table is joined.
-Then `RequiresDesugar`. Macro expansion and eval lowering do not run.
+Being before T, it cannot fold `sizeof` / `alignof`: a declaration-scope
+condition using one is an error whose note names what works instead
+(`defined!(__LP64__)`, or an `eval if` in a function body, which is
+`if constexpr`; EVAL.md 4.2b). Then `RequiresDesugar`. Macro expansion and eval lowering do not run.
 
 ### 2.4 V Verify [DONE]
 

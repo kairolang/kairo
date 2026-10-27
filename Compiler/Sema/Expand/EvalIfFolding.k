@@ -290,6 +290,13 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
                 b.fix(vd->storage_kw, "eval", f"declare '{nm}' as 'eval\x27");
             }
         }
+        // The two things that do work (EVAL.md 4.2b): the target's macros
+        // answer the pointer-width question, and in a function body the
+        // condition is C++'s `if constexpr`, which sees layouts.
+        if isa::<SizeOfExpr>(at) || isa::<AlignOfExpr>(at) {
+            b.note(DiagID::SC001N, at->range.start,
+                "for the pointer width, test the target instead: 'defined!(__LP64__)\x27; or move the 'eval if' into a function body, where it is 'if constexpr' and sees layouts").first(at->range);
+        }
         b.emit();
     }
 
@@ -378,6 +385,13 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             return self._ref(e, d, depth);
         }
         if isa::<CallExpr>(e) { return self._no(e, "a call is computed by C++ after names are resolved; use an 'eval' constant, a literal or 'defined!' here"); }
+        // EVAL.md 4.2b: a type's layout is not known before types are
+        // resolved, and this fold decides which declarations exist before
+        // then. _report says what works instead.
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) {
+            var kw = ("sizeof") if (isa::<SizeOfExpr>(e)) else ("alignof");
+            return self._no(e, f"'{kw}' needs a type\x27s layout, which is not known before types are resolved");
+        }
         return self._no(e, "this does not fold before names are resolved");
     }
 

@@ -24,6 +24,7 @@ import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::Casting::*;
 import AST::Node::PrimaryExpressions::*;
+import AST::Node::CanonicalNodes::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
 import AST::Mixin::TypeQual::*;
@@ -1634,13 +1635,18 @@ class <T> TypeParse {
 
         var id_ptr   = dyn()->current_ptr();
         var id_range = id_ptr->range;
+        // A builtin primitive takes no generic arguments, so a `<` after one
+        // is never their opener: in `sizeof usize < 8` the operand is
+        // `usize` and `<` compares (EVAL.md 4.2b).
+        var prim = (sep == ChainType::SegmentSeparator::None)
+                && (builtin_for_token(dyn()->resolve_kind_deep(id_ptr)) != BuiltinKind::COUNT);
         dyn()->advance(); // consume identifier
 
         var nte = NamedIdentExpr::create(dyn()->ctx, id_range, *id_ptr);
         result.name  = nte;
         result.range = id_range;
 
-        if dyn()->check(TokenKind::OpLess) {
+        if (!prim) && dyn()->check(TokenKind::OpLess) {
             var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
             self._parse_generic_args(&generic_args);
 
