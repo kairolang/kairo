@@ -494,6 +494,16 @@ class EmitIR {
         var ps   = self._lref_params(m);
         var args = self._param_names(m);
 
+        // Before anything below: _slot_name and _slot_type read the slots
+        // through _ci_fn, and the slot record is the first thing they spell.
+        var saved_fn  = self._cur_fn;
+        var saved_ext = self._cur_ext;
+        var saved_ci  = self._ci_fn;
+        var saved_pre = self._ci_pre;
+        self._cur_fn  = m;
+        self._cur_ext = &null;
+        self._ci_fn   = m;
+
         // The slot record. Its members' types are complete here, which they
         // need not be where only the class is (InterfaceEmitter declares it).
         var r = oh + "struct " + q + "::" + ci + " {";
@@ -504,21 +514,16 @@ class EmitIR {
         self._cg->sink->spell(at, r);
         self._cg->sink->brk();
 
-        var saved_fn  = self._cur_fn;
-        var saved_ext = self._cur_ext;
-        var saved_ci  = self._ci_fn;
-        var saved_pre = self._ci_pre;
-        self._cur_fn  = m;
-        self._cur_ext = &null;
-        self._ci_fn   = m;
-
         // S_pre, against the slots.
         self._cg->sink->spell(at, oh + inl + "auto " + q + "::" + LowerTargets::ctor_pre(m->ci_index)
             + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&");
         self._ci_pre = true;
         self._cg->sink->synth_at_start(pre->range, clang::tok::l_brace);
         for var i: usize = 0; i < pre->body.size(); ++i { self.emit(pre->body[i]); }
-        self._cg->sink->spell(pre->range, "return " + sa + ";");
+        // Cast, not `return __kairo_s;`: since C++23 a returned rvalue
+        // reference parameter is an xvalue (P2266), which the `&` return
+        // type cannot bind.
+        self._cg->sink->spell(pre->range, "return static_cast<" + ci + "&>(" + sa + ");");
         self._cg->sink->synth_at_end(pre->range, clang::tok::r_brace);
         self._ci_pre = false;
         self._cg->sink->brk();
