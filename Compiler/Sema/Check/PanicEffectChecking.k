@@ -302,6 +302,40 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         return true;
     }
 
+    // === `finally` after a `try` ==============================================
+
+    /// A `finally` written right after a `try` / `catch` is the standalone
+    /// `finally` (PANIC.md §3.3, USER 2026-10-27): it is registered when
+    /// control reaches it and runs when its block is left, not when the
+    /// `try` finishes, and a `return`, `break` or uncaught panic out of the
+    /// `try` skips it. Readers from Java, C# or Python expect the opposite
+    /// on every count, so it is a warning. `} finally {` on the try's line
+    /// and `finally` on the next are one shape: the parser never makes a
+    /// `finally` part of a `try` (TryCatchStmt).
+    fn visit_compound_stmt(self, n: *CompoundStmt) -> bool {
+        for var i: usize = 1; i < n->body.size(); ++i {
+            var end = n->range.end.with_offset(-1);
+            self._finally_after_try(n->body[i - 1], n->body[i], end);
+        }
+        return true;
+    }
+
+    /// \p end: the closing brace of the block \p cur sits in. (A script's
+    /// top level cannot hold a `finally`: LoopContextCheck rejects it.)
+    priv fn _finally_after_try(self, prev: *Stmt, cur: *Stmt, end: SourceLocation) {
+        if (prev == &null) || (cur == &null) { return; }
+        if (!isa::<TryCatchStmt>(prev)) || (!isa::<FinallyStmt>(cur)) { return; }
+        var fin = cur->range.start;
+        var kw  = SourceRange::from_bounds(fin, u32(7));
+        var w = self.sc->diag->report(DiagID::SC001W, fin,
+            "'finally' runs when the enclosing block exits, like any 'finally', not when the 'try' before it finishes");
+        w.first(kw, "registered here, after the 'try\x27");
+        w.note(DiagID::SC001N, end, "it runs here, when this block is left").first(SourceRange::from_bounds(end, u32(1)));
+        w.note(DiagID::SC001N, prev->range.start, "a 'return', 'break' or uncaught panic leaving this 'try' never reaches the 'finally', so it does not run on that path").first(SourceRange::from_bounds(prev->range.start, u32(3)));
+        w.note(DiagID::SC001N, "to run it as soon as the 'try' is done, and on every way out of it, put it first in a block of its own: '{ finally { ... } try { ... } catch { ... } }\x27");
+        w.emit();
+    }
+
     fn visit_try_catch_expr(self, n: *TryCatchExpr) -> bool {
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var arm = n->catch_arms.get(i);

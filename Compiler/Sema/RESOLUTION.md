@@ -675,6 +675,9 @@ each panicked, declared or caught type must be a movable, complete value
 type (§1.5); and SC116E for a generic, generator or `async` `panic`
 function or closure and for every panicking site in such a body. It
 stamps `PanicStmt::repanic` on a `panic e` of a catch binding (§3.4).
+A `finally` whose previous sibling in its block is a `try` / `catch` is
+SC001W: it is the standalone `finally`, run when the block exits, not
+when the `try` finishes (PANIC.md §3.3).
 The declared-set rules (P4): a bare `panic` on a `fn` type, an interface
 requirement, a virtual base method or a closure is SC001E (edit: write the
 inferred set where there is a body); an override's set within the base
