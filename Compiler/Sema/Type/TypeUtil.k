@@ -632,6 +632,23 @@ class TypeUtil {
         return t->is_unsafe();
     }
 
+    /// The list literal an instance array field is initialized with, when
+    /// FieldInitLowering lowers it one element at a time (a thunk each);
+    /// null for every other initializer, which keeps the SC116E gate: a
+    /// static (defined out of the class, where no element list helps), an
+    /// array of arrays (an element cannot be initialized from an array),
+    /// anything but a list literal.
+    fn array_field_list(self, f: *FieldDecl) -> *ListLiteralExpr {
+        if (f == &null) || (f->init == &null) || f->is_static() || (f->type_ == &null) { return &null; }
+        var c = canon_unqual(f->type_->canonical);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return &null; }
+        var el = canon_unqual(cast::<FixedArrayType>(c)->element);
+        if (el == &null) || (el->kind == TypeKind::FixedArrayType) { return &null; }
+        var e = self.strip_parens(f->init);
+        if (e == &null) || (!isa::<ListLiteralExpr>(e)) { return &null; }
+        return cast::<ListLiteralExpr>(e);
+    }
+
     // === expr helpers =======================================================
 
     fn strip_parens(self, e: *Expr) -> *Expr {

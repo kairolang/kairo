@@ -242,16 +242,19 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         var odc   = reinterpret_cast::<*DeclContext>(n->semantic_dc);
         var owner = (odc->owner_decl()) if (odc != &null) else (&null);
         if (owner != &null) && decl_is_instance(owner) { return true; }
-        var what = "";
         // Array first: a static array keeps its initializer too (no thunk
-        // can return one), so `static` alone does not clear the gate.
+        // can return one), so `static` alone does not clear the gate. An
+        // instance field's list literal is lowered element by element
+        // (FieldInitLowering, Arrays); every other array initializer stays.
         var c = canon_unqual(n->type_->canonical);
-        if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
-            what = "an array-typed field";
-        } else {
-            return true;
-        }
-        self._gate(n->init->range, f"an initializer on {what}");
+        if (c == &null) || (c->kind != TypeKind::FixedArrayType) { return true; }
+        var tu = TypeUtil(self.sc);
+        if tu.array_field_list(n) != &null { return true; }
+        var what = "an initializer on an array-typed field that is not a list literal";
+        var el = canon_unqual(cast::<FixedArrayType>(c)->element);
+        if n->is_static() { what = "an initializer on a static array-typed field"; }
+        else if (el != &null) && (el->kind == TypeKind::FixedArrayType) { what = "an initializer on a field that is an array of arrays"; }
+        self._gate(n->init->range, what);
         return true;
     }
 

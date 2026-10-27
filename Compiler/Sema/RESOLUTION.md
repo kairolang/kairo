@@ -589,8 +589,10 @@ an unfinished feature is said HERE; the error stops the schedule before L
 and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
 `iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
 whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
-its special members from those facts), and an initializer on an eval or
-array-typed field (FieldInitLowering lowers every other one), and a
+its special members from those facts), and an initializer on an eval
+field or on an array-typed field that FieldInitLowering cannot take
+element by element (a static one, an array of arrays, anything but a
+list literal), and a
 generic closure (`fn <T>(x: T)`: X types neither its parameters nor a
 call of it). A gate is removed in the commit that lands its lowering.
 
@@ -1349,8 +1351,12 @@ scope) is read through `this`; InitCheck has made sure that member is
 built by then. A STATIC field folds or thunks the same way, but its thunk
 takes no `self` (a static member: there is no object), and the value is
 its out-of-line definition's, not a default member initializer
-(CODEGEN.md §5). Eval and array-typed fields keep `init`;
-FeatureGateCheck has rejected them.
+(CODEGEN.md §5). An array field's list literal is lowered one ELEMENT at
+a time, since no C++ function returns an array: a thunk per element,
+`__kairo_init<i>_<f>` (`LowerTargets::field_init_elem_thunk`), stamped in
+order as `FieldDecl::init_elems` (`init_fold` Elems), and the default is
+`= {__kairo_init0_f(), ...}`. Eval fields and every other array
+initializer keep `init`; FeatureGateCheck has rejected them.
 
 CtorInitLowering [DONE]. A constructor CtorInitCheck split has its body
 cut into exactly two blocks, `{ {S_pre} {S_post} }`, at `ci_split`, and

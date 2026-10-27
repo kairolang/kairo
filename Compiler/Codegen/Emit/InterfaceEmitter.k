@@ -1909,6 +1909,15 @@ class InterfaceEmitter {
             case FieldFold::False { return " = false"; }
             case FieldFold::Null  { return " = nullptr"; }
             case FieldFold::Thunk { return " = " + self._spell->leaf(f->init_thunk) + "()"; }
+            // An array, element by element (FieldInitLowering, Arrays).
+            case FieldFold::Elems {
+                var s = " = {";
+                for var i: usize = 0; i < f->init_elems.size(); ++i {
+                    if i > 0 { s += ", "; }
+                    s += self._spell->leaf(f->init_elems[i]) + "()";
+                }
+                return s + "}";
+            }
             default { 0; }
         }
         // An initializer still on the field is one FeatureGateCheck rejects

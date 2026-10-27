@@ -293,7 +293,10 @@ Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields (a default as a C++ default member initializer: a
 constant FieldInitLowering folded as it is, `signed int n = 5;`, anything
 else as a call of the member function it made of the initializer,
-`T d = __kairo_init_d();`, so the expression is a body like any other),
+`T d = __kairo_init_d();`, so the expression is a body like any other;
+an array field's list literal as one such call per element,
+`E a[2] = {__kairo_init0_a(), __kairo_init1_a()};`, since no function
+returns an array),
 method DECLARATIONS (never bodies in the class — invariant 12), the
 derived `op =` (below),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested

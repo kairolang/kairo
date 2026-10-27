@@ -884,7 +884,9 @@ fn pointer_shorthand_spelling(depth: u32, is_unsafe: bool) -> string {
 /// default member initializer. None: no initializer was lowered (none was
 /// written, or a gate kept it). Int / True / False / Null: a constant the
 /// emitter spells itself, the value in FieldDecl::init_neg / init_mag for
-/// Int. Thunk: anything else, a call of FieldDecl::init_thunk.
+/// Int. Thunk: anything else, a call of FieldDecl::init_thunk. Elems: an
+/// array field's list literal, one thunk per element (FieldDecl::init_elems),
+/// since no C++ function returns an array.
 enum FieldFold derives u8 {
     None = 0,
     Int,
@@ -892,6 +894,7 @@ enum FieldFold derives u8 {
     False,
     Null,
     Thunk,
+    Elems,
 }
 
 ///
@@ -933,6 +936,8 @@ class FieldDecl derives Decl {
     pub var init_neg:   bool = false;
     pub var init_mag:   u64 = 0;
     pub var init_thunk: *Decl = &null;
+    /// `init_fold` Elems: the thunk of each element, in order.
+    pub var init_elems: FrozenList::<*Decl>;
 
     static fn create(
         ctx:     *ASTContext,
@@ -953,6 +958,7 @@ class FieldDecl derives Decl {
         node->is_anonymous_union = false;
         node->init_fold  = FieldFold::None;
         node->init_thunk = &null;
+        node->init_elems = create_empty_frozen_list::<*Decl>();
         return node;
     }
 
@@ -965,6 +971,7 @@ class FieldDecl derives Decl {
         node->is_anonymous_union = false;
         node->init_fold     = FieldFold::None;
         node->init_thunk    = &null;
+        node->init_elems    = create_empty_frozen_list::<*Decl>();
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

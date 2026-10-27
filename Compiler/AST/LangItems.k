@@ -614,6 +614,13 @@ class LowerTargets {
         return "__kairo_init_" + field;
     }
 
+    /// `__kairo_init<i>_<field>`: element \p i of an array field's list
+    /// literal (FieldFold::Elems). A digit follows `init`, where the one
+    /// above has `_`, so no field's name makes the two collide.
+    static fn field_init_elem_thunk(field: string, i: usize) -> string {
+        return f"__kairo_init{i}_" + field;
+    }
+
     // --- finally (writer: FinallyLowering) -----------------------------------------
 
     /// `__kairo_FinK` is the record a `finally` becomes, `__kairo_finK` the

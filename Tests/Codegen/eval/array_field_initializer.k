@@ -1,14 +1,7 @@
 // An initializer on an array-typed field (classes.mdx): a default like any
-// other field's.
-//
-// XFAIL: *
-// Ticket "[Sema/Codegen] An initializer on an `eval` or array-typed field is
-// SC116E" (private/IMPORTANT/TICKETS.TXT, 2026-10-26), the array half (the
-// eval half is Tests/Codegen/eval/field_initializer.k). Today it is SC116E
-// "an initializer on an array-typed field is not yet supported": the
-// field's default becomes a thunk, and a C++ function cannot return an
-// array. When it XPASSes, delete the XFAIL -- the run below is already the
-// real assertion.
+// other field's. No C++ function returns an array, so FieldInitLowering
+// makes a thunk of each ELEMENT of the list literal and the C++ default
+// member initializer lists their calls (FieldFold::Elems).
 
 class C {
     pub var a: [i32; 3] = [1, 2, 3]
