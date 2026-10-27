@@ -36,7 +36,8 @@
 ///     (the dispatcher would have to carry the right one), a guarded
 ///     operator or constructor (neither can be renamed), an out-of-line
 ///     guarded definition, a forward declaration in a group, a guarded
-///     generator, an `async` or `eval` member, and a variadic one (the
+///     generator, an `async` member (an `eval` one is EvalUsageChecking's
+///     error: eval.mdx forbids `where` there), and a variadic one (the
 ///     dispatcher would forward a pack).
 ///
 ///   \par The decision procedure (warnings and coverage)
@@ -258,6 +259,10 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
             return false;
         }
 
+        // eval.mdx forbids `where` on an eval fn outright, and
+        // EvalUsageChecking says so; a gate here would report it twice.
+        if f->is_eval() { return false; }
+
         var gate = "";
         if (f->abi == AbiKind::Virtual) || (f->abi == AbiKind::Override) { gate = "a 'virtual' or 'override' method"; }
         else if f->is_panic()      { gate = "a 'panic' function"; }
@@ -269,7 +274,6 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         else if !f->has_body()     { gate = "a forward declaration"; }
         else if f->is_generator    { gate = "a generator"; }
         else if f->is_async()      { gate = "an 'async' function"; }
-        else if f->is_eval()       { gate = "an 'eval' function"; }
         else if self._has_default(f) { gate = "a default argument"; }
         else if f->is_variadic     { gate = "a variadic function"; }
         if gate.size() == 0 { return true; }

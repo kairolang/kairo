@@ -451,7 +451,8 @@ interface method, an `unsafe` overload or a bodiless declaration, a group
 with no fallback, and members disagreeing on return type, `const self`,
 `inline`, `-> !` or linkage are SC001E; virtual, `panic`, generic,
 extension, operator, constructor, out-of-line, forward-declared,
-generator, `async`, `eval`, defaulted and variadic members are SC116E.
+generator, `async`, defaulted and variadic members are SC116E (`where` on
+an `eval` fn is EvalUsageChecking's SC001E).
 Guards that are conjunctions of integer-parameter-vs-constant comparisons
 (and bool parameters) are boxes; a box inside an earlier one (or inside
 the union of earlier one-parameter boxes) is unreachable, a box meeting

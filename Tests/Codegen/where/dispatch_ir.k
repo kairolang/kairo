@@ -33,11 +33,11 @@ fn main() -> i32 {
 // The class declares the dispatcher public and its candidates private.
 // IR:      class Acc {
 // IR-NEXT:   public: signed int n;
-// IR-NEXT:   signed int get(signed int k);
-// IR-NEXT:   private: signed int __kairo_where_get_0(signed int k);
-// IR-NEXT:   signed int __kairo_where_get_1(signed int k);
+// IR-NEXT:   signed int get(signed int k) noexcept;
+// IR-NEXT:   private: signed int __kairo_where_get_0(signed int k) noexcept;
+// IR-NEXT:   signed int __kairo_where_get_1(signed int k) noexcept;
 //
-// IR:      signed int categorize(signed int x) {
+// IR:      signed int categorize(signed int x) noexcept {
 // IR-NEXT:     if(x> 100) {
 // IR-NEXT:         return::dispatch_ir::__kairo_where_categorize_0(x);
 // IR-NEXT:     }
@@ -46,35 +46,35 @@ fn main() -> i32 {
 // IR-NEXT:     }
 // IR-NEXT:     return::dispatch_ir::__kairo_where_categorize_2(x);
 // IR-NEXT: }
-// IR:      signed int __kairo_where_categorize_0(signed int x) {
+// IR:      signed int __kairo_where_categorize_0(signed int x) noexcept {
 // IR-NEXT:     return 2;
-// IR:      signed int __kairo_where_categorize_1(signed int x) {
+// IR:      signed int __kairo_where_categorize_1(signed int x) noexcept {
 // IR-NEXT:     return 1;
-// IR:      signed int __kairo_where_categorize_2(signed int x) {
+// IR:      signed int __kairo_where_categorize_2(signed int x) noexcept {
 // IR-NEXT:     return 0;
 //
 // The fallback is candidate 0 (declared first) and is called last.
-// IR:      signed int first_fallback(signed int x) {
+// IR:      signed int first_fallback(signed int x) noexcept {
 // IR-NEXT:     if(x == 7) {
 // IR-NEXT:         return::dispatch_ir::__kairo_where_first_fallback_1(x);
 // IR-NEXT:     }
 // IR-NEXT:     return::dispatch_ir::__kairo_where_first_fallback_0(x);
 // IR-NEXT: }
 //
-// IR:      signed int sign(signed int x) {
+// IR:      signed int sign(signed int x) noexcept {
 // IR-NEXT:     if(x >= 0) {
 // IR-NEXT:         return::dispatch_ir::__kairo_where_sign_0(x);
 // IR-NEXT:     }
 // IR-NEXT:     return::dispatch_ir::__kairo_where_sign_1(x);
 // IR-NEXT: }
 //
-// IR:      signed int Acc::get(signed int k) {
+// IR:      signed int Acc::get(signed int k) noexcept {
 // IR-NEXT:     if(k> this->n) {
 // IR-NEXT:         return this->__kairo_where_get_0(k);
 // IR-NEXT:     }
 // IR-NEXT:     return this->__kairo_where_get_1(k);
 // IR-NEXT: }
-// IR:      signed int Acc::__kairo_where_get_0(signed int k) {
+// IR:      signed int Acc::__kairo_where_get_0(signed int k) noexcept {
 // IR-NEXT:     return k;
-// IR:      signed int Acc::__kairo_where_get_1(signed int k) {
+// IR:      signed int Acc::__kairo_where_get_1(signed int k) noexcept {
 // IR-NEXT:     return this->n;
