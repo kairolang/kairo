@@ -940,7 +940,12 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
                 out->push_back(self.transform_stmt_scalar(static_cast::<*Stmt>(se->body)));
             } else {
                 var v = self.transform_expr(a->ebody);
-                if res != &null { v = self._slot_put(a->range, res, v); }
+                // An arm of type `!` (`crash!()`, a call of a `-> !` fn) fits
+                // any arm type (§3.2) but has no value to put: as a statement
+                // it never returns, so the slot is never read on its path. Put
+                // into the slot it is a cast from `void` C++ refuses.
+                var never = (v->type_ != &null) && self.tu.is_never(canon_unqual(v->type_));
+                if (res != &null) && (!never) { v = self._slot_put(a->range, res, v); }
                 out->push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, a->range, v)));
             }
         }
