@@ -394,6 +394,14 @@ class InitListExpr derives Expr {
 ///
 class StmtExpr derives Expr {
     pub var body: *CompoundStmt;
+    /// A `try` expression's arm that LEAVES instead of producing a value:
+    /// `catch => return v`, `=> break`, `=> continue` (PANIC.md §3.2). The
+    /// body is exactly that one jump statement, with no trailing value; the
+    /// expression has type `!`, so it fits beside arms of any type. The
+    /// parser writes it (ExprParse::_parse_jump_arm); PanicLowering renders
+    /// it (a `return` inside a GNU statement expression returns from the
+    /// enclosing function, §4.5a E).
+    pub var is_jump: bool = false;
 
     static fn create(
         ctx:   *ASTContext,
@@ -1167,10 +1175,14 @@ class TryCatchExpr derives Expr {
         /// Declaration introduced by `binding`; see Statements.k Binding::decl.
         /// Null when !has_binding.
         var decl:        *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
+        /// The arm never runs (Statements.k CatchArm::is_dead).
+        var is_dead:     bool = false;
     }
 
     pub var try_expr:   *Expr;
     pub var catch_arms: FrozenList::<CatchArm>;
+    /// The operand's panic set (Statements.k TryCatchStmt::reach).
+    pub var reach:      FrozenList::<*Type>;
 
     static fn create(ctx: *ASTContext, range: SourceRange, try_expr: *Expr) -> *TryCatchExpr {
         var node       = ctx->alloc::<TryCatchExpr>();

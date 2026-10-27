@@ -35,6 +35,7 @@ import AST::Node::Casting::*;
 import AST::Kind::PatternKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Diagnostic::Registry::*;
+import Location::SourceRange::*;
 
 class ArmOrderCheck derives RecursiveASTVisitor::<ArmOrderCheck> {
     pub var sc: *SemaContext;
@@ -63,6 +64,7 @@ class ArmOrderCheck derives RecursiveASTVisitor::<ArmOrderCheck> {
 
     fn visit_try_catch_stmt(self, n: *TryCatchStmt) -> bool {
         var catch_all_seen: bool = false;
+        var bare_at = SourceRange::invalid();
         for var i: usize = 0; i < n->arms.size(); i++ {
             var arm = n->arms.get(i);
             if catch_all_seen {
@@ -72,10 +74,16 @@ class ArmOrderCheck derives RecursiveASTVisitor::<ArmOrderCheck> {
                         "already handles everything"
                     ).first(arm->range).emit();
                 } else {
-                    self.sc->diag->report(DiagID::SC009W, arm->range.start,
-                        "unreachable catch arm; a previous bare `catch` "
-                        "handles everything first"
-                    ).first(arm->range).emit();
+                    // An error, not SC009W's warning (PANIC.md §3.1): the
+                    // bare `catch` already handled everything, so the typed
+                    // arm can only be a mistake. Placeholder code until the
+                    // sweep (SC009 has only a warning).
+                    var b = self.sc->diag->report(DiagID::SC001E, arm->range.start,
+                        "no 'catch' arm may follow a bare 'catch': it already handles everything");
+                    b.first(arm->range);
+                    b.note(DiagID::SC001N, bare_at.start, "the bare 'catch' is here").first(bare_at);
+                    b.remove(arm->range, "remove the arm");
+                    b.emit();
                 }
 
                 continue;
@@ -83,6 +91,7 @@ class ArmOrderCheck derives RecursiveASTVisitor::<ArmOrderCheck> {
 
             if arm->filter == &null {
                 catch_all_seen = true;
+                bare_at = arm->range;
             }
         }
 

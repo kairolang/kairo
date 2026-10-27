@@ -104,6 +104,11 @@ struct CatchArm {
     /// Declaration introduced by `binding`; see Binding::decl. Null when the
     /// arm binds no name.
     var decl:    *Decl = &null;
+    /// Its type is not in the `try` body's set: the arm never runs, and
+    /// PanicLowering emits no tag compare for it (PANIC.md §3.1). A C++
+    /// exception arm (its type is not in the set and is a C++ type) is
+    /// never dead. One writer: PanicEffectChecking.
+    var is_dead: bool = false;
 }
 
 ///
@@ -984,6 +989,10 @@ class LabeledStmt derives Stmt {
 class TryCatchStmt derives Stmt {
     pub var try_body: *CompoundStmt;
     pub var arms:     FrozenList::<CatchArm>;
+    /// The body's panic set (PANIC.md §3.1): everything that reaches this
+    /// `try` from its body, canonical. The arms discharge it; PanicLowering
+    /// sizes the slot from it. One writer: PanicEffectChecking.
+    pub var reach:    FrozenList::<*Type>;
 
     static fn create(ctx: *ASTContext, range: SourceRange, try_body: *CompoundStmt) -> *TryCatchStmt {
         var node      = ctx->alloc::<TryCatchStmt>();

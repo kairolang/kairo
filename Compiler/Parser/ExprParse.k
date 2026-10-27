@@ -3338,6 +3338,52 @@ class <T> ExprParse {
         return value;
     }
 
+    /// \brief a `try` expression arm that leaves (PANIC.md §3.2):
+    ///        `=> return [v]`, `=> break [label]`, `=> continue [label]`.
+    /// \details precondition: current token is `=>`. The jump is wrapped in
+    ///          a StmtExpr marked `is_jump`, its body that one statement; X
+    ///          types it `!`. A bare `return` ends where a statement would,
+    ///          or at the next `catch`, `)` or `,` of the enclosing form.
+    priv fn _parse_jump_arm(self, stop: ExprStopKind) -> *Expr {
+        dyn()->advance(T::SkipNL::After); // consume `=>`
+        var start = dyn()->current_ptr()->range;
+        var jump: *Stmt = &null;
+        if dyn()->check(TokenKind::KwReturn) {
+            dyn()->advance(); // no NL skip: a bare return ends at the line
+            if dyn()->is_eof() || dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon)
+            || dyn()->check(TokenKind::OpRBrace) || dyn()->check(TokenKind::OpRParen) || dyn()->check(TokenKind::OpComma)
+            || dyn()->check(TokenKind::KwCatch) {
+                jump = static_cast::<*Stmt>(ReturnStmt::create(dyn()->ctx, start, &null));
+            } else {
+                var value = self.parse_expr(stop);
+                if (value == &null) || is_recovery(value) {
+                    return &null;
+                }
+                jump = static_cast::<*Stmt>(ReturnStmt::create(dyn()->ctx, start | value->range, value));
+            }
+        } else {
+            var is_break = dyn()->check(TokenKind::KwBreak);
+            dyn()->advance(); // consume `break` / `continue`; a label is on its line
+            var has_label = dyn()->check(TokenKind::LitIdentifier);
+            var label = Token();
+            var r = start;
+            if has_label {
+                label = dyn()->current();
+                r = start | label.range;
+                dyn()->advance();
+            }
+            if is_break { jump = static_cast::<*Stmt>(BreakStmt::create(dyn()->ctx, r, has_label, label)); }
+            else        { jump = static_cast::<*Stmt>(ContinueStmt::create(dyn()->ctx, r, has_label, label)); }
+        }
+        var body = CompoundStmt::create(dyn()->ctx, jump->range);
+        var one: std::StackBuf::<*Stmt, 1>;
+        one.push_back(jump);
+        body->body.from_buf(one.data(), one.size(), dyn()->ctx);
+        var se = StmtExpr::create(dyn()->ctx, jump->range, body);
+        se->is_jump = true;
+        return static_cast::<*Expr>(se);
+    }
+
     /// \brief S074E: the arm's `=>` is missing. Fix-it inserts it at the
     ///        cursor; then the value is parsed as if it were there, so a lone
     ///        forgotten `=>` costs one diagnostic and no cascade.
@@ -3979,7 +4025,12 @@ class <T> ExprParse {
         // value
         var body: *Expr = &null;
         if self._skip_nl_if_next(TokenKind::OpFatArrow) {
-            body = self._parse_arm_value(stop, true);
+            var after = self._peek_kind_past_nl(1);   // past the `=>`
+            if (after == TokenKind::KwReturn) || (after == TokenKind::KwBreak) || (after == TokenKind::KwContinue) {
+                body = self._parse_jump_arm(stop);
+            } else {
+                body = self._parse_arm_value(stop, true);
+            }
         } else if dyn()->check(TokenKind::OpLBrace) {
             body = self._recover_braced_branch(BraceArm::Value);
         } else {

@@ -387,6 +387,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ListLiteralExpr>(e)      { self._expr_list("[", "]", cast::<ListLiteralExpr>(e)->elements);  return; }
         if isa::<InitListExpr>(e)         { self._expr_list("{", "}", cast::<InitListExpr>(e)->elements);    return; }
         if isa::<StmtExpr>(e) {
+            // A `try` arm that leaves (`=> return v`) prints as written: the
+            // one jump, no block around it.
+            var se = cast::<StmtExpr>(e);
+            if se->is_jump && (se->body != &null) && (se->body->body.size() == 1) {
+                self.src_stmt(se->body->body[0]);
+                return;
+            }
             // `({ ... })`: the parens are what make the block a value, so they
             // round-trip like ParenExpr's.
             self.p.paint(Color::Punct, "(");
@@ -2799,7 +2806,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     /// One child, and it is a block: the value is its last statement.
     fn _dx_stmt_expr(self, n: *StmtExpr, is_last: bool) {
-        self._head("StmtExpr", is_last);
+        self._head(("StmtExpr (jump)") if (n->is_jump) else ("StmtExpr"), is_last);
         self.p.newline();
         self.p.enter(is_last);
         self._child_stmt(static_cast::<*Stmt>(n->body), true);

@@ -622,6 +622,15 @@ method's and a conformer's within the requirement's (declared rows,
 `ConformanceRow::reqs`); a bare-`panic` function used as a value is
 SC001E (its value type carries only a declared set); and, building a
 library (`--shared`), an inferred set on a `pub` function is SC001W.
+The `try` rules (P5): each `try`'s body set is recorded on the node
+(`TryCatchStmt::reach` / `TryCatchExpr::reach`); an arm whose type is not
+in it is SC001W with a remove edit and marked `is_dead` for PanicLowering
+(a C++ type outside the set is a C++ exception arm, never dead); a second
+arm for one type is SC001E. Arms match exact types: no subtyping. An arm
+after a bare `catch` is ArmOrderCheck's (V) SC001E in the statement form
+and the parser's S054E in the expression form. An expression arm may be
+`=> return v` / `=> break` / `=> continue` (a StmtExpr marked `is_jump`,
+typed `!`).
 `op panic`'s own signature (`const self`, `-> string`) is
 OperatorSignatureCheck's, beside the other operator rules.
 

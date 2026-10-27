@@ -960,6 +960,14 @@ class <T> ControlTyping {
     fn type_stmt_expr(self, n: *StmtExpr, expected: *Type) -> *Type {
         var body = n->body;
         var count = (body->body.size()) if (body != &null) else (0);
+        // A `try` arm that leaves (`=> return v`, PANIC.md §3.2): the jump is
+        // typed as the statement it is, and the arm is `!`, so it fits beside
+        // arms of any type and the flow after it is dead.
+        if n->is_jump {
+            for var i: usize = 0; i < count; ++i { dyn()->dispatch_stmt(body->body[i]); }
+            n->value_category = Expr::ValueCategory::RValue;
+            return dyn()->tu.builtin(BuiltinKind::Never);
+        }
         // The parser guarantees a trailing ExpressionStmt for source forms and
         // SequenceLowering builds one; anything else is a malformed tree.
         var last_stmt: *Stmt = (body->body[count - 1]) if (count > 0) else (&null);

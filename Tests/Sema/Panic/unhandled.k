@@ -128,6 +128,8 @@ fn main() -> i32 {
 // CHECK-NEXT: unhandled.k:64:16: note [SC001N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{64:16-64:16}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{64:24-64:24}:" catch => crash!()"
+// CHECK: unhandled.k:65:7: warning [SC001W]: this arm never runs: 'ParseError' is not in the panic set of its 'try' (this 'try' may panic only with 'IOError')
+// CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{65:7-67:6}:""
 // CHECK: unhandled.k:94:13: error [SC001E]: unhandled panic: 'Port' may panic with 'ParseError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
 // CHECK-NEXT: unhandled.k:85:5: note [SC001N]: 'Port' is declared 'panic' here

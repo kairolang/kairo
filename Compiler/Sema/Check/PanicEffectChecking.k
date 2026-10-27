@@ -41,6 +41,12 @@
 ///     past the barrier. Building a library, an inferred set on a `pub`
 ///     function is a warning.
 ///
+///     `try` arms (§3.1): the body's set is recorded on the `try` for
+///     PanicLowering; an arm for a type outside it never runs (a warning,
+///     the arm marked dead); two arms for one type are an error. Arms match
+///     exact types. A C++ type outside the set is a C++ exception arm
+///     (§3.5). What the arms leave goes to the enclosing `try` or the body.
+///
 ///     Gates (SC116E): a `panic` function or closure that is generic or
 ///     inside a generic (§2.6: needs M2), a generator or `async` (§2.7: the
 ///     coroutine frame does not exist yet); a panicking site in any of
@@ -740,7 +746,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
 
     /// Every site of \p w against what \p kind lets leave the body.
     priv fn _judge(self, w: *PanicWalk, kind: PanicBody, f: *FunctionDecl, c: *ClosureExpr, holder: *Decl) {
-        if w->sites.size() == 0 { return; }
+        if (w->sites.size() == 0) && (w->tries.size() == 0) { return; }
 
         // Gated bodies: every panicking site is unsupported, caught or not.
         var gate = "";
@@ -767,6 +773,12 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             for var i: usize = 0; i < w->tries.size(); ++i { self._global_try(&(w->tries[i]), holder); }
             return;
         }
+
+        // The arms of every `try` against what reached it (§3.1). What
+        // leaves a `try` was routed to the enclosing one or to the body by
+        // the walk, and is judged with the sites below.
+        for var i: usize = 0; i < w->tries.size(); ++i { self._judge_try(&(w->tries[i])); }
+        if w->sites.size() == 0 { return; }
 
         // What may leave: the declared set, the inferred one, or nothing.
         var allowed = vec::<*Type>();
@@ -800,6 +812,59 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             if declared { self._outside_declared(s, &missing, f, c); }
             else { self._unhandled(s, &missing, kind, f, c, holder); }
         }
+    }
+
+    /// One `try`'s arms (§3.1): its body's set is recorded on the node for
+    /// PanicLowering; a second arm for one type is an error; an arm whose
+    /// type is not in the set never runs -- a WARNING, with an edit removing
+    /// it, since a callee shrinking its set must not break its callers. A
+    /// C++ type outside the set is a C++ exception arm (§3.5): never dead.
+    /// No subtyping: an arm catches its exact type, so `catch e: Base` is
+    /// dead against a set holding only `Derived`.
+    priv fn _judge_try(self, t: *PanicTry) {
+        var n = (t->stmt->arms.size()) if (t->stmt != &null) else (t->expr->catch_arms.size());
+        if t->stmt != &null { t->stmt->reach.from_vec(&(t->reach), self.sc->ctx); }
+        else { t->expr->reach.from_vec(&(t->reach), self.sc->ctx); }
+        for var i: usize = 0; i < n; ++i {
+            var filt = self._arm_filter(t, i);
+            if (filt == &null) || (filt->canonical == &null) { continue; }
+            var c = canon_unqual(filt->canonical);
+            var ar = self._arm_range(t, i);
+            var dup = false;
+            for var j: usize = 0; j < i; ++j {
+                var fj = self._arm_filter(t, j);
+                if (fj == &null) || (fj->canonical == &null) || (canon_unqual(fj->canonical) != c) { continue; }
+                var b = self.sc->diag->report(DiagID::SC001E, ar.start, f"a second 'catch' arm for '{self._tu.str(c)}': the first one already catches it");
+                b.first(filt->range);
+                var rj = self._arm_range(t, j);
+                b.note(DiagID::SC001N, rj.start, "the first arm is here").first(rj);
+                b.remove(ar, "remove this arm");
+                b.emit();
+                dup = true;
+                break;
+            }
+            if dup { continue; }
+            if pset_has(&(t->reach), c) { continue; }
+            if self._is_cxx_type(c) { continue; }
+            if t->stmt != &null { t->stmt->arms.get(i)->is_dead = true; }
+            else { t->expr->catch_arms.get(i)->is_dead = true; }
+            var why = "nothing in this 'try' can panic";
+            if t->reach.size() > 0 { why = "this 'try' may panic only with " + pset_names(&(self._tu), &(t->reach)); }
+            var w = self.sc->diag->report(DiagID::SC001W, ar.start, f"this arm never runs: '{self._tu.str(c)}' is not in the panic set of its 'try' ({why})");
+            w.first(filt->range);
+            w.remove(ar, "remove the arm");
+            w.emit();
+        }
+    }
+
+    priv fn _arm_filter(self, t: *PanicTry, i: usize) -> *Type {
+        if t->stmt != &null { return t->stmt->arms.get(i)->filter; }
+        return t->expr->catch_arms.get(i)->filter;
+    }
+
+    priv fn _arm_range(self, t: *PanicTry, i: usize) -> SourceRange {
+        if t->stmt != &null { return t->stmt->arms.get(i)->range; }
+        return t->expr->catch_arms.get(i)->range;
     }
 
     /// A site whose leftover is outside the body's declared set.
