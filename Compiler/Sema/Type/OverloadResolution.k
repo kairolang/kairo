@@ -677,6 +677,15 @@ class OverloadResolution {
             var gp = gps[i];
             var a  = self.explicit_args[i];
             if (gp == &null) || (a == &null) || (gp->owner == &null) { continue; }
+            // A type pack deduces from the arguments only (PANIC.md §1.2):
+            // written elements would have to be checked against the
+            // arguments one by one, which nothing does yet.
+            if gp->is_pack {
+                c->viable = false;
+                var pn = self.sc->ctx->get_spelling(gp->name);
+                c->reason = f"'{pn}' is a type pack, deduced from the arguments; it cannot be written as a generic argument yet";
+                return false;
+            }
             var ca = canon_unqual(a);
             var is_value = isa::<TypeExpr>(ca) && cast::<TypeExpr>(ca)->is_value;
             if isa::<GenericParamType>(ca) {
@@ -901,7 +910,12 @@ class OverloadResolution {
             }
         }
 
-        // 4. rank every placed argument.
+        // 4. rank every placed argument. A type pack is bound even when no
+        //    argument reaches it: `f()` of `fn <...T> f(...xs: T)` is T = {}.
+        if (pack_at != usize(-1)) && param_is_type_pack(params[pack_at]) {
+            var pg = cast::<GenericParamType>(canon_unqual(params[pack_at]->type_->canonical));
+            c->ded.open_pack(pg->owner, pg->param_index);
+        }
         for var i: usize = 0; i < args->size(); ++i {
             var a  = &((*args)[i]);
             var pi = c->arg_to_param[i];
@@ -1072,6 +1086,18 @@ class OverloadResolution {
         // (VariadicPackType shares it). Bind nothing -- a pack is one slot
         // with many types, and the registry does not model that yet -- accept.
         if is_pack {
+            // A type pack's element is the argument's own type, by value (a
+            // literal its default): that is the instance's element, and what
+            // C++'s `T... xs` deduces from the same argument.
+            var pg = dyn_cast::<GenericParamType>(pt);
+            if (pg != &null) && pg->is_pack {
+                var et: *Type = &null;
+                if a->lit != LitKind::None { et = self._literal_default(a, pt); }
+                else if a->ty != &null     { et = self.tu.as_value(a->ty); }
+                if et == &null { return ImplicitRank::None; }   // `null`, `.V`: no type to deduce an element from.
+                c->ded.push_pack(pg->owner, pg->param_index, et);
+                return ImplicitRank::Exact;
+            }
             if pt->is_dependent() { return ImplicitRank::Converted; }
             if a->lit != LitKind::None { return self._rank_literal_arg(a, pt); }
             return self.conv->implicit_arg(a->ty, pt, a->cat, a->is_const);

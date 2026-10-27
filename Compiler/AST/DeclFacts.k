@@ -30,6 +30,8 @@ import AST::ASTSupport::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import Token::Token::*;
 
@@ -313,6 +315,17 @@ fn decl_pack_param(d: *Decl) -> *ParamDecl {
         if (p != &null) && p->is_pack { return p; }
     }
     return &null;
+}
+
+/// `...xs: T` with T a TYPE pack (`fn <...T> f(...xs: T)`): a C++
+/// parameter pack, `T... xs`, one argument per element. A pack over one
+/// type (`...xs: i32`, or a non-pack `U`) is a `Slice<E>` instead
+/// (ParamDecl::pack_type); the two never mix, so every reader that builds,
+/// spells or passes a pack asks this first.
+fn param_is_type_pack(p: *ParamDecl) -> bool {
+    if (p == &null) || (!p->is_pack) || (p->type_ == &null) || (p->type_->canonical == &null) { return false; }
+    var g = dyn_cast::<GenericParamType>(canon_unqual(p->type_->canonical));
+    return (g != &null) && g->is_pack;
 }
 
 /// `derives_list`: the kinds with nominal bases.

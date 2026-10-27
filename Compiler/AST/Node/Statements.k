@@ -719,6 +719,7 @@ enum IterKind derives u8 {
     String,       ///< `string`, by `char`.
     User,         ///< a record's `fn op in (self) -> yield T`, or a Yield<T> value itself (iter_op null).
     Cxx,          ///< an imported C++ class, by C++'s range protocol ([stmt.ranged]).
+    Pack,         ///< a type pack parameter (`fn <...T> f(...xs: T)`): unrolled, one copy per element; iter_elem is the pack.
 }
 
 ///

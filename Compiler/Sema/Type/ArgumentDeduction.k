@@ -60,6 +60,11 @@ class Deduction {
     /// an argument. OverloadResolution then ranks an argument against its
     /// parameter with them substituted in.
     pub var seeded: bool = false;
+    /// Type packs: one `ty == null` row OPENS a pack (owner, index) -- it is
+    /// bound, possibly to nothing -- and each later row with a type is one
+    /// element, in argument order. A pack is one parameter with many types,
+    /// which `bindings` (one type per parameter) cannot hold.
+    pub var packs: vec::<DeducedBinding>;
 
     fn Deduction(self) { self.sc = &null; self.conv = &null; }
     fn Deduction(self, sc: *SemaContext, conv: *Conversion) {
@@ -87,14 +92,62 @@ class Deduction {
         return true;
     }
 
-    /// Seed from an instance: `Foo<i32>` binds Foo's params positionally.
+    /// Open the type pack (owner, index): it is bound from here on, to the
+    /// elements push_pack adds (none is an empty pack).
+    fn open_pack(self, owner: *Decl, index: u32) {
+        if self.pack_open(owner, index) { return; }
+        var b = DeducedBinding{};
+        b.owner = owner; b.index = index; b.ty = &null;
+        self.packs.push_back(b);
+    }
+
+    fn pack_open(self, owner: *Decl, index: u32) -> bool {
+        for var i: usize = 0; i < self.packs.size(); ++i {
+            var b = &(self.packs[i]);
+            if (b->owner == owner) && (b->index == index) && (b->ty == &null) { return true; }
+        }
+        return false;
+    }
+
+    /// One more element of the open pack (owner, index).
+    fn push_pack(self, owner: *Decl, index: u32, ty: *Type) {
+        if ty == &null { return; }
+        self.open_pack(owner, index);
+        var b = DeducedBinding{};
+        b.owner = owner; b.index = index; b.ty = ty;
+        self.packs.push_back(b);
+    }
+
+    /// The elements of pack (owner, index), appended to \p out in order;
+    /// false when the pack was never opened.
+    fn pack_elems(self, owner: *Decl, index: u32, out: *vec::<*Type>) -> bool {
+        if !self.pack_open(owner, index) { return false; }
+        for var i: usize = 0; i < self.packs.size(); ++i {
+            var b = &(self.packs[i]);
+            if (b->owner == owner) && (b->index == index) && (b->ty != &null) { out->push_back(b->ty); }
+        }
+        return true;
+    }
+
+    /// Seed from an instance: `Foo<i32>` binds Foo's params positionally,
+    /// and a pack parameter takes every argument from its position on
+    /// (InstanceEntry::args keeps packs flat, at the tail).
     fn bind_from_record(self, rec: *Type) {
         var d = self.tu.record_decl(rec);
         if d == &null { return; }
         var pat  = NameLookup::representative(self.tu.pattern_of(d));
         var args = self.tu.record_args(rec);
+        var gps  = self.tu.generic_params_of(pat);
         for var i: usize = 0; i < args.size(); ++i {
+            if (i < gps.size()) && (gps[i] != &null) && gps[i]->is_pack {
+                self.open_pack(pat, gps[i]->index);
+                for var k: usize = i; k < args.size(); ++k { self.push_pack(pat, gps[i]->index, args[k]); }
+                break;
+            }
             self.bind(pat, static_cast::<u32>(i), args[i]);
+        }
+        if (args.size() < gps.size()) && (gps[args.size()] != &null) && gps[args.size()]->is_pack {
+            self.open_pack(pat, gps[args.size()]->index);   // `R<i32>` of `<T, ...E>`: E is empty.
         }
         // A member of a partial specialization is typed over the PARTIAL's
         // parameters, which the args above do not bind: `Store<*i32>` is
@@ -351,6 +404,18 @@ class Deduction {
                 var args = vec::<*Type>();
                 var dep  = false;
                 for var i: usize = 0; i < r->args.size(); ++i {
+                    // `R<i32, E...>`: a pack argument is its expansion, so a
+                    // bound pack splices its elements in, none included.
+                    var pg = dyn_cast::<GenericParamType>(r->args[i]);
+                    if (pg != &null) && pg->is_pack {
+                        var els = vec::<*Type>();
+                        if !self.pack_elems(pg->owner, pg->param_index, &els) { return &null; }
+                        for var k: usize = 0; k < els.size(); ++k {
+                            if els[k]->is_dependent() { dep = true; }
+                            args.push_back(els[k]);
+                        }
+                        continue;
+                    }
                     var a = self.substitute(r->args[i]);
                     if a == &null { return &null; }
                     if a->is_dependent() { dep = true; }

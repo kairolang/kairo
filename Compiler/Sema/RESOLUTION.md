@@ -841,8 +841,12 @@ argument rank. Ties inside a rank are ambiguous, with ONE tiebreak that is
 not a conversion ordering: among Exact winners a non-generic candidate
 beats a generic one (otherwise `fn f(i32)` beside `fn <T> f(T)` is
 ambiguous on every call). A fwd/def pair is one candidate (representative).
-Specializations are skipped (paired later). Packs are accepted at
-Converted and not deduced. A default is looked for across the WHOLE redecl
+Specializations are skipped (paired later). A one-type pack ranks each
+argument against its element. A TYPE pack deduces one element per argument,
+its type by value (a literal its default), into `Deduction::packs`, opened
+even for an empty run; the instance carries the elements flat, at the
+pack's position. Its elements cannot be written as explicit generic
+arguments yet (not viable, with that reason). A default is looked for across the WHOLE redecl
 chain (`TypeUtil::param_default`): defaults accumulate over redeclarations,
 and the link judged need not be the one that wrote it. An imported C++
 callee can only omit TRAILING defaults (clang applies them by omission); a
@@ -1220,14 +1224,18 @@ every link of the redecl chain, and spliced beside the declaring link; a
 default written on an out-of-line definition becomes a member of the owner.
 `default_val` is MOVED into the thunk, so it is null afterwards. Explicit
 arguments evaluate left to right as written, whatever parameter they name;
-defaults evaluate after them, in parameter order. A pack is a `Slice<E>` by
-value (`ParamDecl::pack_type`) over a backing array alive for the call's
-full-expression. A call with an lvalue or record result keeps C++ order
+defaults evaluate after them, in parameter order. A pack over one type is a
+`Slice<E>` by value (`ParamDecl::pack_type`) over a backing array alive for
+the call's full-expression; a TYPE pack (`fn <...T> f(...xs: T)`,
+`param_is_type_pack`) is a C++ parameter pack, its run left one argument
+per element. A call with an lvalue or record result keeps C++ order
 (the documented SequenceLowering hole). Dependent calls are left as written
 until M2.
 
 IterLowering [PARTIAL]. X records each ranged `for`'s `iter_kind`,
-`iter_elem` and, for a user `op in`, `iter_op`. The pass renders a block of
+`iter_elem` and, for a user `op in`, `iter_op`. A `for` over a type pack
+(`IterKind::Pack`, its binding typed as the pack) is left for EmitIR, which
+unrolls it as a fold, one lambda copy per element. The pass renders a block of
 hidden locals and a `while` that advances before its body (so `continue`
 needs no step). Done: `a..b`, `a..=b` (never computes past `hi`), Range
 values (`inclusive` read at run time, never computes past `last`),

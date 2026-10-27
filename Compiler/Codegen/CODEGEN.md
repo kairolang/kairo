@@ -456,9 +456,9 @@ assignment), `put` (may be a later one; the only use of T's `op =`),
 V1 refusals (each an ICE naming its owner): named unions, interfaces, the
 initializer of an eval or array-typed field (FeatureGateCheck rejects it
 first, SC116E: no eval constant is emitted yet, and a C++ function
-cannot return an array). A pack is spelled
-as its
-`Slice<E>` (`ParamDecl::pack_type`).
+cannot return an array). A one-type pack is spelled as its `Slice<E>`
+(`ParamDecl::pack_type`); a type pack as `T... xs`, under an instance its
+elements, and a canonical pack parameter in an argument list as `E...`.
 
 ## 6. EmitIR — the core
 

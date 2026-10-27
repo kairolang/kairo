@@ -1257,6 +1257,15 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n == &null { return n; }
         var it = dyn()->type_of(n->iterable, &null);
         var elem = (self.iter_elem_type(n->iterable, it, n)) if (it != &null) else (&null);
+        // `for x in xs` over a type pack: one copy of the body per element,
+        // each with its own type, so `x` is typed as the pack (dependent,
+        // like any generic body) and C++ unrolls it (EmitIR::_pack_for).
+        var pk = self._type_pack_ref(n->iterable);
+        if (pk != &null) && (!n->is_eval) {
+            n->iter_kind = IterKind::Pack;
+            n->iter_elem = canon_unqual(pk->type_->canonical);
+            elem = n->iter_elem;
+        }
         self._bind_list(&(n->bindings), elem, n->iterable);
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
@@ -1266,6 +1275,14 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var brk = dyn()->flow.loop_leave();
         dyn()->flow.env = dyn()->flow.join(&head, &brk);
         return n;
+    }
+
+    /// \p e names a type pack parameter (`xs` of `...xs: T`), or null.
+    priv fn _type_pack_ref(self, e: *Expr) -> *ParamDecl {
+        var u = dyn()->tu.strip_parens(e);
+        if (u == &null) || (!isa::<NamedIdentExpr>(u)) { return &null; }
+        var p = dyn_cast::<ParamDecl>(cast::<NamedIdentExpr>(u)->resolved_decl);
+        return (p) if (param_is_type_pack(p)) else (&null);
     }
 
     fn traverse_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> *DestructuringDeclStmt {

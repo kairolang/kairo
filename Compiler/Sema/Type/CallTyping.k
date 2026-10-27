@@ -396,13 +396,23 @@ class <T> CallTyping {
         return true;
     }
 
-    /// \p owner's deduced arguments, appended to \p out in parameter order.
-    /// Packs are skipped; false on an unbound or still-dependent binding.
+    /// \p owner's deduced arguments, appended to \p out in parameter order,
+    /// a type pack flat (its elements, as InstanceEntry::args keeps them);
+    /// false on an unbound or still-dependent binding.
     priv fn _bound_args(self, r: *OvlResult, owner: *Decl, out: *vec::<*Type>) -> bool {
         var gps = decl_generic_params(owner);
         for var i: usize = 0; i < gps.size(); ++i {
             var gp = gps[i];
-            if (gp == &null) || gp->is_pack { continue; }
+            if gp == &null { continue; }
+            if gp->is_pack {
+                var els = vec::<*Type>();
+                if !r->ded.pack_elems(owner, gp->index, &els) { return false; }
+                for var k: usize = 0; k < els.size(); ++k {
+                    if els[k]->is_dependent() { return false; }
+                    out->push_back(els[k]);
+                }
+                continue;
+            }
             var b = r->ded.lookup(owner, gp->index);
             if (b == &null) || b->is_dependent() { return false; }
             out->push_back(b);

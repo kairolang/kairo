@@ -180,6 +180,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
     /// node as it is (untyped or poisoned: already diagnosed, or dependent).
     priv fn _lower(self, n: *RangedForStmt, pre: *ListBuilder::<*Stmt>) -> *Stmt {
         if n->iterable == &null { return &null; }
+        if n->iter_kind == IterKind::Pack { return &null; }
         if n->iterable->is_poisoned() || (n->iterable->type_ == &null) { return &null; }
         ICE_IF(n->is_eval, "IterLowering: an eval for reached the loop lowering; transform_ranged_for_stmt keeps it for EmitIR");
 
@@ -195,6 +196,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
             case IterKind::Map        { ICE_FAIL("IterLowering: iterating a map; the container migration and tuple lowering own it"); }
             case IterKind::String     { ICE_FAIL("IterLowering: iterating a string (UTF-8 decode to char) is not lowered yet"); }
             case IterKind::None       { ICE_FAIL("IterLowering: a typed iterable X did not classify; StmtTyping::iter_elem_type gate failure"); }
+            case IterKind::Pack       { return &null; }   // C++ unrolls it: EmitIR's fold over the pack.
         }
         return &null;
     }

@@ -756,6 +756,22 @@ class CXXSpell {
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as
     /// EmitIR documents them). \p is_const is the `const x: T` marker.
     fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        // A type pack is `T...` (the C++ parameter pack); under an instance it
+        // is that instance's elements, one parameter each.
+        if param_is_type_pack(p) {
+            var g = cast::<GenericParamType>(canon_unqual(p->type_->canonical));
+            var cq = ("const ") if (p->is_const) else ("");
+            var els = vec::<*Type>();
+            if self.subst_pack(g, subst, &els) {
+                var ps = "";
+                for var i: usize = 0; i < els.size(); ++i {
+                    if i > 0 { ps += ", "; }
+                    ps += cq + self._type(els[i], &null, scope);
+                }
+                return ps;
+            }
+            return cq + self._gparam(g, &null);
+        }
         if p->is_pack {
             if (p->pack_type == &null) { self._ice(p->range, "CXXSpell: pack parameter with no slice type; CallLowering stamps it"); }
             return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst, scope);
@@ -877,6 +893,25 @@ class CXXSpell {
     /// the GenericParamDecl's identity in the primary's template_params, so
     /// an extension's T, a member's own U and a default thunk's borrowed
     /// list (the callee's GenericParamDecls) all resolve the same way.
+    /// A pack parameter's elements under \p subst, appended to \p out: every
+    /// instance argument from the pack's position on (InstanceEntry::args
+    /// keeps packs flat, so the pack is the tail). False when \p subst does
+    /// not bind \p g.
+    fn subst_pack(self, g: *GenericParamType, subst: *InstanceEntry, out: *vec::<*Type>) -> bool {
+        if (g == &null) || (g->owner == &null) || (subst == &null) || (!g->is_pack) { return false; }
+        var own = decl_generic_params(CXXSpell::rep(g->owner));
+        var idx = static_cast::<usize>(g->param_index);
+        if idx >= own.size() { return false; }
+        var gp = own[idx];
+        var tps = CXXSpell::template_params(CXXSpell::rep(subst->primary));
+        for var k: usize = 0; k < tps.size(); ++k {
+            if tps[k] != gp { continue; }
+            for var j: usize = k; j < subst->args.size(); ++j { out->push_back(subst->args[j]); }
+            return true;
+        }
+        return false;
+    }
+
     fn subst_for(self, g: *GenericParamType, subst: *InstanceEntry) -> *Type {
         if (g == &null) || (g->owner == &null) || (subst == &null) { return &null; }
         var own = decl_generic_params(CXXSpell::rep(g->owner));
@@ -1197,6 +1232,7 @@ class CXXSpell {
         for var j: usize = 0; j < gps.size(); ++j {
             if j > 0 { s += ", "; }
             s += self.imm_name(gps[j]->name.imm, CXXSpell::fid_of(d));
+            if gps[j]->is_pack { s += "..."; }
         }
         s += ">";
         return s;
@@ -1332,11 +1368,26 @@ class CXXSpell {
     priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry) -> string {
         ICE_IF(g->owner == &null, "CXXSpell: canonical generic param with no owner");
         var owner = CXXSpell::rep(g->owner);
-        var t = self.subst_for(g, subst);
-        if t != &null { return self._type(t, &null); }
-        if (g->is_pack) { self._ice(owner->range, "CXXSpell: pack parameter in a non-expansion position"); }
+        // A pack is only ever spelled expanded: a canonical pack parameter
+        // stands for its expansion (`R<i32, E...>`'s argument, `...xs: T`'s
+        // type), so it is `E...`, or under an instance its elements.
+        if g->is_pack {
+            var els = vec::<*Type>();
+            if self.subst_pack(g, subst, &els) {
+                var ps = "";
+                for var i: usize = 0; i < els.size(); ++i {
+                    if i > 0 { ps += ", "; }
+                    ps += self._type(els[i], &null);
+                }
+                return ps;
+            }
+        } else {
+            var t = self.subst_for(g, subst);
+            if t != &null { return self._type(t, &null); }
+        }
         var gps = decl_generic_params(owner);
         if (static_cast::<usize>(g->param_index) >= gps.size()) { self._ice(owner->range, "CXXSpell: generic param index out of range"); }
-        return self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
+        var nm = self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
+        return (nm + "...") if (g->is_pack) else (nm);
     }
 }

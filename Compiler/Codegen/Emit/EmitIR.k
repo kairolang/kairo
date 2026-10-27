@@ -765,8 +765,11 @@ class EmitIR {
             case StmtKind::UnsafeBlockStmt        { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
             case StmtKind::RangedForStmt {
                 var rf = cast::<RangedForStmt>(s);
-                if (!rf->is_eval) { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
-                self._eval_for(rf);
+                if rf->iter_kind == IterKind::Pack { self._pack_for(rf); }
+                else {
+                    if (!rf->is_eval) { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
+                    self._eval_for(rf);
+                }
             }
             case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place"); }
             case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
@@ -1136,6 +1139,54 @@ class EmitIR {
         self._cg->sink->spell(at, "}");
     }
 
+    /// `for x in xs` over a type pack (`...xs: T`): the body once per
+    /// element, each copy a lambda the `&&` fold calls with that element,
+    ///
+    ///   { (... && [&](auto& x) -> bool { body; return true; }(xs)); }
+    ///
+    /// under `_eval_for`'s protocol, which this shares: `continue` is
+    /// `return true` from a copy, `break` `return false`, a `return` sets
+    /// the function's flag (and value slot) and stops the fold, and the
+    /// code after the outermost expansion returns.
+    priv fn _pack_for(self, n: *RangedForStmt) {
+        var at = n->range;
+        if (n->bindings.size() != 1) { self._ice(at, "EmitIR: a for over a pack with other than one binding; X gate failure"); }
+        var pk = dyn_cast::<NamedIdentExpr>(n->iterable);
+        if (pk == &null) { self._ice(at, "EmitIR: a for over a pack whose iterable is not the pack's name; StmtTyping classifies only that"); }
+        var vd = dyn_cast::<VariableDecl>(n->bindings[0].decl);
+        var outer = (self._ef_depth == 0);
+        var rt: *Type = &null;
+        if (self._cur_fn != &null) && (!self._cur_fn->is_noreturn) { rt = self._cur_fn->return_type; }
+        var has_val = (rt != &null) && (rt->canonical != &null) && (!self.tu_is_void(rt->canonical));
+
+        self._cg->sink->spell(at, "{");
+        if outer {
+            self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;");
+            if has_val { self._cg->sink->spell(at, self._spell._type(rt) + " " + LowerTargets::eval_for_ret_val() + "{};"); }
+        }
+        var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
+        self._cg->sink->spell(at, "(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {");
+        var sd = self._ef_depth;
+        var sl = self._ef_loops;
+        self._ef_depth += 1;
+        self._ef_loops = 0;
+        for var i: usize = 0; i < n->body->body.size(); ++i { self.emit(n->body->body[i]); }
+        self._ef_depth = sd;
+        self._ef_loops = sl;
+        self._cg->sink->spell(at, "return true; }(");
+        self.emit(n->iterable);
+        self._cg->sink->spell(at, "));");
+
+        var flag = LowerTargets::eval_for_ret_flag();
+        if outer {
+            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "; }"); }
+            else       { self._cg->sink->spell(at, "if (" + flag + ") { return; }"); }
+        } else {
+            self._cg->sink->spell(at, "if (" + flag + ") { return false; }");
+        }
+        self._cg->sink->spell(at, "}");
+    }
+
     priv fn tu_is_void(self, t: *Type) -> bool {
         var c = canon_unqual(t);
         if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
@@ -1262,7 +1313,12 @@ class EmitIR {
                 self.emit(cast::<EvalExpr>(e)->operand);
                 self._cg->sink->spell(e->range, "); }()");
             }
-            case ExprKind::PackExpansionExpr    { self._ice(e->range, "EmitIR: pack expansion; not emitted yet"); }
+            // `xs...` (or `...xs`): C++'s own pack expansion, in an argument
+            // list.
+            case ExprKind::PackExpansionExpr {
+                self.emit(cast::<PackExpansionExpr>(e)->operand);
+                self._cg->sink->spell(e->range, "...");
+            }
             case ExprKind::ListLiteralExpr      { self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
             case ExprKind::VariantInitExpr      { self._variant_init(cast::<VariantInitExpr>(e)); }
@@ -1640,6 +1696,10 @@ class EmitIR {
         // declared by no Kairo parameter (CXXSpell::op_is_postfix).
         if CXXSpell::op_is_postfix(f) { want += 1; }
         var have = n->args.size();
+        // A type pack takes any number of arguments, none included.
+        var tpack = false;
+        for var i: usize = 0; i < f->params.size(); ++i { if param_is_type_pack(f->params[i]) { tpack = true; break; } }
+        if tpack { want -= 1; if have >= want { return; } }
         if (have + tail < want) { self._ice(n->range, "EmitIR: a call short of arguments reached codegen; CallLowering owns defaults"); }
         if ((have > want) && (!f->ffi_c_variadic)) { self._ice(n->range, "EmitIR: a call with more arguments than parameters reached codegen"); }
     }
@@ -1658,11 +1718,24 @@ class EmitIR {
     /// \p bound: the callee carries its receiver, so `self` takes no argument.
     priv fn _args(self, n: *CallExpr, f: *FunctionDecl, bound: bool, inst: *InstanceEntry) {
         var params = self._call_params(f, bound);
+        // A type pack's run (CallLowering leaves it one argument per
+        // element): every argument from the pack's slot to the surplus is the
+        // pack's, and goes as written -- the instance's elements ARE those
+        // arguments' types (CallTyping), so there is nothing to convert to.
+        var pk  = usize(-1);
+        var run: usize = 0;
+        for var i: usize = 0; i < params.size(); ++i {
+            if param_is_type_pack(params[i]) { pk = i; break; }
+        }
+        if (pk != usize(-1)) && (n->args.size() + 1 >= params.size()) { run = n->args.size() + 1 - params.size(); }
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
             if i > 0 { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
+            if (pk != usize(-1)) && (i >= pk) && (i < pk + run) { self.emit(a); continue; }
             var p: *ParamDecl = &null;
-            if i < params.size() { p = params[i]; }
+            var pi = i;
+            if (pk != usize(-1)) && (i >= pk + run) { pi = (i + 1) - run; }
+            if pi < params.size() { p = params[pi]; }
             self._arg(a, p, inst);
         }
     }

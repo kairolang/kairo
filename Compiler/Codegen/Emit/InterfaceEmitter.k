@@ -1110,6 +1110,7 @@ class InterfaceEmitter {
             for var i: usize = 0; i < gps.size(); ++i {
                 if i > 0 { args += ", "; }
                 args += self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d));
+                if gps[i]->is_pack { args += "..."; }
             }
             var ft   = self._niche_field_spelling(en);
             var cond = "::" + LowerTargets::niche_trait() + "<" + ft + ">::" + LowerTargets::niche_trait_count() + " >= " + f"{adt_niche_dataless(en)}"
