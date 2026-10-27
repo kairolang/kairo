@@ -1552,6 +1552,7 @@ class InterfaceEmitter {
         // implicitly inline, so EmitPlan makes its body visible as it does
         // an `inline` one's.
         if m->is_eval() { s += "consteval "; }
+        else if m->is_constexpr() { s += "constexpr "; }
 
         if is_ctor {
             s += self._spell->leaf(owner);

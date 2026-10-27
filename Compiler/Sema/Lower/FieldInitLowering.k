@@ -216,6 +216,12 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         // is `consteval`, and EmitIR writes the field's `constexpr`
         // definition right after the thunk's body (EVAL.md 1.2).
         if f->is_eval() { th->modifiers = th->modifiers | FnModifier::IsEval; }
+        // An eval class's default runs inside its eval (consteval)
+        // constructor, at compile time, and in any other constructor at run
+        // time: `constexpr`, which is both, and so inline (EVAL.md 7b).
+        else if (!f->is_static()) && self._eval_class(f) {
+            th->modifiers = th->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline;
+        }
 
         var ps = self.list_builder::<*ParamDecl>();
         if !f->is_static() { ps.push(ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self"))); }
@@ -232,6 +238,24 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         f->init_fold  = FieldFold::Thunk;
         f->init_thunk = static_cast::<*Decl>(th);
         return th;
+    }
+
+    /// The record \p f belongs to has an eval constructor (an eval class,
+    /// EVAL.md §7).
+    priv fn _eval_class(self, f: *FieldDecl) -> bool {
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        if owner == &null { return false; }
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(owner) { ms = &(cast::<ClassDecl>(owner)->methods); }
+        else if isa::<StructDecl>(owner) { ms = &(cast::<StructDecl>(owner)->methods); }
+        if ms == &null { return false; }
+        var on = self.tu.decl_name(owner);
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m != &null) && m->is_eval() && (!m->is_operator) && (self.tu.decl_name(static_cast::<*Decl>(m)) == on) { return true; }
+        }
+        return false;
     }
 
     /// A FunctionDecl with every field set, as CallLowering's thunks are.

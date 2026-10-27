@@ -144,8 +144,35 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         return r;
     }
 
-    /// An `eval` binding's initializer is an eval context.
+    /// A generic value parameter's type: an integer for now (a value
+    /// argument folds to an integer, CanonicalTypeStore::value_arg); a
+    /// class type -- an eval class as a C++ structural NTTP -- is not built
+    /// (EVAL.md 7e).
+    fn visit_generic_param_decl(self, n: *GenericParamDecl) -> bool {
+        if (!n->is_const_param) || (n->value_type == &null) || (n->value_type->canonical == &null) { return true; }
+        var c = canon_unqual(n->value_type->canonical);
+        if self.tu.is_integer(c) { return true; }
+        var b = self.sc->diag->report(DiagID::SC116E, n->value_type->range.start,
+            f"a generic value parameter of type '{self.tu.str(c)}' is not yet supported; only an integer type is");
+        b.first(n->value_type->range);
+        b.emit();
+        return true;
+    }
+
+    /// An `eval` binding's initializer is an eval context, and its value is
+    /// a constant object: its type has no user-written destructor.
     fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
+        if n->is_eval() && (n->type_ != &null) && (n->type_->canonical != &null) {
+            var dt = self._user_dtor(self.tu.record_decl(canon_unqual(n->type_->canonical)));
+            if dt != &null {
+                var nm = self.sc->ctx->get_spelling(n->name);
+                var b = self.sc->diag->report(DiagID::SC001E, n->name.range.start,
+                    f"'{nm}' is an 'eval' constant of type '{self.tu.str(n->type_->canonical)}', whose destructor is not trivial; a compile-time object is never destroyed");
+                b.first(n->name.range);
+                b.note(DiagID::SC001N, dt->range.start, "the destructor is declared here").first(dt->range);
+                b.emit();
+            }
+        }
         if n->is_eval() && (n->init != &null) {
             self._ctx += 1;
             var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_variable_decl(n);

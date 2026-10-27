@@ -168,6 +168,10 @@ enum FnModifier derives u16 {
     IsFinal    = 1 << 5,
     IsPanic    = 1 << 6,
     IsInline   = 1 << 7,
+    /// Compiler-minted only: C++ `constexpr` (usable at compile time AND at
+    /// run time), for a field default's thunk in an eval class, which an
+    /// eval (consteval) constructor runs (EVAL.md 7b). Always with IsInline.
+    IsConstexpr = 1 << 8,
 }
 
 // INLINE(cxx-feature: operators on an enum type)
@@ -603,6 +607,7 @@ class FunctionDecl
     fn is_panic(self)  -> bool { return (self.modifiers & FnModifier::IsPanic)  != FnModifier::None; }
     fn is_final(self)  -> bool { return (self.modifiers & FnModifier::IsFinal)  != FnModifier::None; }
     fn is_inline(self) -> bool { return (self.modifiers & FnModifier::IsInline) != FnModifier::None; }
+    fn is_constexpr(self) -> bool { return (self.modifiers & FnModifier::IsConstexpr) != FnModifier::None; }
 
     fn is_method(self)      -> bool {
         return (self.params.size() > 0) && (self.params[0]->is_self);
@@ -786,7 +791,9 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
         return DeclKind::VariableDecl;
     }
 
-    fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || self.const_binding; }
+    /// An `eval` binding is implicitly const (eval.mdx): it is never
+    /// assigned and only `const self` methods are called on it.
+    fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || (self.storage == StorageClass::Eval) || self.const_binding; }
     fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
     fn is_eval(self)   -> bool { return self.storage == StorageClass::Eval; }
     fn is_inferred(self) -> bool { return self.type_ == &null; }

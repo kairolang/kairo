@@ -374,6 +374,7 @@ class EmitIR {
         // TU (invariant 11); see _free_fn.
         if m->is_inline() { head += "inline "; }
         if m->is_eval()   { head += "consteval "; }   // EVAL.md 1.1
+        else if m->is_constexpr() { head += "constexpr "; }   // an eval class's field default (7b).
         var is_ctor = (self._spell.leaf(m) == self._spell.leaf(owner));
         var nm = self._spell.leaf(m);
         // `op as` spells `operator T`; C++ gives a conversion no return type.
