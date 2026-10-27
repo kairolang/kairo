@@ -66,6 +66,15 @@ struct PendingArenaTok {
     var entry_len: u32;             ///< bytes of the expansion this opens; 0 joins the previous one
 }
 
+/// A token holding a file byte it was not anchored on exactly (TokenSink::
+/// _claim): which token, and the anchor it would claim from again if a
+/// declaration's name needs that byte back.
+struct HeldByte {
+    var tok:    usize;
+    var anchor: SourceLocation;
+    var len:    u32;
+}
+
 class TokenSink derives EmitSink {
     priv var _pp:     obs::<clang::Preprocessor>;
     priv var _csm:    obs::<clang::SourceManager>;
@@ -92,6 +101,11 @@ class TokenSink derives EmitSink {
     /// space unfiltered, and a u32 key could land on DenseSet's reserved
     /// 0xFFFFFFFF / 0xFFFFFFFE. Zero-extended, it never can.
     priv var _used:       llvm::DenseSet::<u64>;
+    /// The bytes in _used held by a token that is not the exact spelling of
+    /// its anchor (an index into _held_list), so an exact one can take them
+    /// back (_steal). Keyed as _used is.
+    priv var _held:       llvm::DenseMap::<u64, u64>;
+    priv var _held_list:  vec::<HeldByte>;
     priv var _sealed:     bool = false;
     /// The last punctuator, while it is still the last token: one past its
     /// index (0 for none), its anchor, and the byte it claimed (invalid when
@@ -322,15 +336,34 @@ class TokenSink derives EmitSink {
     ///          the file. Only one exact token can have it; it goes to
     ///          whichever comes first, so a forward declaration anchors on
     ///          the decl's start instead (InterfaceEmitter::_fwd_decl).
+    ///
+    ///          The walk is not confined to the anchor, so a token anchored
+    ///          EARLIER in the file can reach a later declaration's name byte
+    ///          before that name is spelled: an ADT's definition is hundreds
+    ///          of tokens, every one a byte further on. The exact token then
+    ///          takes the byte back (_steal), and the token that held it
+    ///          claims again from its own anchor. Without that, "member is
+    ///          declared here" landed wherever the name's walk ended, lines
+    ///          away from the field, and moved whenever the file did.
     priv fn _claim(self, loc: SourceLocation, len: u32, exact: bool = false) -> SourceLocation {
+        return self._claim_for(loc, len, exact, self._tokens.size());
+    }
+
+    /// _claim for token \p tok: the next one, or one _steal is moving.
+    priv fn _claim_for(self, loc: SourceLocation, len: u32, exact: bool, tok: usize) -> SourceLocation {
         if self._unanchored { return SourceLocation::invalid(); }
         var dec   = self._csm->getDecomposedLoc(self._loc(loc));
         var avail = self._csm->getBufferData(dec.first).size() - static_cast::<usize>(dec.second);
         var from: usize = 0;
         if (!exact) && self._is_name_span(loc, len) { from = 1; }
+        if exact && (avail > 0) {
+            if self._used.insert(static_cast::<u64>(loc.raw())).second { return loc; }
+            if self._steal(loc) { return loc; }
+        }
         for var i: usize = from; i < avail; ++i {
             var at  = loc.advance(i);
             if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
+            if !exact { self._hold(at, tok, loc, len); }
             return at;
         }
         // Then backward: a closer anchored near the end of a small file
@@ -339,11 +372,89 @@ class TokenSink derives EmitSink {
         for var i: usize = 1; i <= before; ++i {
             var at  = loc.with_offset(0 - static_cast::<i64>(i));
             if !self._used.insert(static_cast::<u64>(at.raw())).second { continue; }
+            if !exact { self._hold(at, tok, loc, len); }
             return at;
         }
         // Last, the kept byte itself: a unique location beats the arena.
-        if (from == 1) && self._used.insert(static_cast::<u64>(loc.raw())).second { return loc; }
+        if (from == 1) && self._used.insert(static_cast::<u64>(loc.raw())).second {
+            self._hold(loc, tok, loc, len);
+            return loc;
+        }
         return SourceLocation::invalid();
+    }
+
+    priv fn _hold(self, at: SourceLocation, tok: usize, anchor: SourceLocation, len: u32) {
+        var h = HeldByte{};
+        h.tok    = tok;
+        h.anchor = anchor;
+        h.len    = len;
+        self._held[static_cast::<u64>(at.raw())] = static_cast::<u64>(self._held_list.size());
+        self._held_list.push_back(h);
+    }
+
+    /// The exact token's byte \p at, taken back from the inexact token that
+    /// holds it, which claims again from its own anchor, or, in a file whose
+    /// every byte is taken (a small file with a lot of C++ behind it: the
+    /// common case, not the corner), goes to the arena as it would have had
+    /// it found none in the first place. Never from an exact token (a
+    /// forward declaration and its definition: the first keeps it), nor
+    /// from the punctuator _pair may still move to the arena.
+    priv fn _steal(self, at: SourceLocation) -> bool {
+        var key = static_cast::<u64>(at.raw());
+        var it  = self._held.find(key);
+        if it == self._held.end() { return false; }
+        var hi = it->second;
+        var h  = self._held_list[static_cast::<usize>(hi)];
+        if (self._open_end != 0) && ((h.tok + 1) == self._open_end) { return false; }
+        self._held.erase(key);
+        var moved = self._claim_for(h.anchor, h.len, false, h.tok);
+        if !moved.is_valid() {
+            if self._to_arena(h) { return true; }
+            self._held[key] = hi;
+            return false;
+        }
+        var t = self._tokens.get(h.tok);
+        t->setLocation(self._loc(moved));
+        t->setLength(self._rest(h.anchor, moved, h.len));
+        return true;
+    }
+
+    /// Token \p h.tok, already emitted at a file byte, given an arena entry
+    /// instead (_arena_tok after the fact; patch_pending places it). An
+    /// identifier or keyword is spelled by its IdentifierInfo, a punctuator
+    /// by its kind. Not a half of a pair _completes_pair checks: moved to a
+    /// macro location alone, it would split its pair across contexts.
+    priv fn _to_arena(self, h: HeldByte) -> bool {
+        var t = self._tokens.get(h.tok);
+        var k = t->getKind();
+        if (h.tok > 0) && self._checked_pair(self._tokens.get(h.tok - 1)->getKind(), k) { return false; }
+        if (h.tok + 1) < self._tokens.size() {
+            if self._checked_pair(k, self._tokens.get(h.tok + 1)->getKind()) { return false; }
+        } else if (k == clang::tok::l_paren) || (k == clang::tok::r_brace) || (k == clang::tok::l_square)
+               || (k == clang::tok::r_square) || (k == clang::tok::coloncolon) {
+            // The last token: what follows it, and so its pair, is not known yet.
+            return false;
+        }
+        var ns = string();
+        var ii = t->getIdentifierInfo();
+        if ii != &null {
+            var nm = ii->getName();
+            ns = string(nm.data(), nm.size());
+        } else {
+            var ps = clang::tok::getPunctuatorSpelling(k);
+            if ps == &null { return false; }
+            ns = string(ps, libcxx::strlen(ps));
+        }
+        var alen = static_cast::<u32>(ns.size());
+        var p = self._pending.slot();
+        p->tok_index = h.tok;
+        p->arena_off = self._intern(ns);
+        p->arena_len = alen;
+        p->kro_start = h.anchor;
+        p->kro_len   = h.len;
+        p->entry_len = alen;
+        t->setLength(alen);
+        return true;
     }
 
     /// [\p loc, +\p len) is one identifier (see _claim).
@@ -407,7 +518,11 @@ class TokenSink derives EmitSink {
     ///          only decides where a token's location lives.
     priv fn _completes_pair(self, k: clang::tok::TokenKind) -> bool {
         if (self._open_end == 0) || (self._open_end != self._tokens.size()) { return false; }
-        var first = self._tokens.get(self._open_end - 1)->getKind();
+        return self._checked_pair(self._tokens.get(self._open_end - 1)->getKind(), k);
+    }
+
+    /// \p first then \p k is one of the pairs clang checks (_completes_pair).
+    priv fn _checked_pair(self, first: clang::tok::TokenKind, k: clang::tok::TokenKind) -> bool {
         if (first == clang::tok::l_paren)    && (k == clang::tok::l_brace)  { return true; }
         if (first == clang::tok::r_brace)    && (k == clang::tok::r_paren)  { return true; }
         if (first == clang::tok::l_square)   && (k == clang::tok::l_square) { return true; }
@@ -446,6 +561,7 @@ class TokenSink derives EmitSink {
                 return true;
             }
             self._used.erase(static_cast::<u64>(self._open_byte.raw()));
+            self._held.erase(static_cast::<u64>(self._open_byte.raw()));
             var h = self._pending.slot();
             h->tok_index = first;
             h->kro_start = self._open_loc;
