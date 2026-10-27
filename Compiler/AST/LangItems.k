@@ -50,7 +50,7 @@ enum WellKnownType derives u8 {
     Ordering,   ///< <=> builtin value type: Ordering::Less | Equal | Greater.
     Nullable,   ///< T? lowering target: Nullable<T> (NullableTypeLowering).
     NullT,      ///< `null`'s type: null_t, whose constant C++ spells `null`.
-    Panic,      ///< fn () panic -> T desugar type: Panic<T>.
+    Panic,      ///< fn () panic -> T result type: `enum <T, ...E> Panic` (PANIC.md §1.1).
 
     String,   ///< ""     library type: string.
     Vector,   ///< [T]    library type: vector.
@@ -76,6 +76,8 @@ enum WellKnownType derives u8 {
 
     UnwrapFailed, ///< `unwrap!(x)` on null: `fn unwrap_failed(msg, len) -> !` (CoalesceLowering).
     NicheOf,    ///< `__builtin_niche_of<T>()`: EnumLayoutLowering answers each call with niche_of(T).
+    TypeIdOf,   ///< `__builtin_type_id<T>()`: T's panic type id (PANIC.md §1.3), answered like NicheOf.
+    PanicSiteOf, ///< `__builtin_panic_site()`: the call's panic site id (PANIC.md §1.4), registered in the TU's site table.
 
     COUNT,      ///< keep last.
 }
@@ -111,6 +113,8 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::RangeTo    { return "RangeTo";    }
         case WellKnownType::UnwrapFailed { return "unwrap_failed"; }
         case WellKnownType::NicheOf    { return "__builtin_niche_of"; }
+        case WellKnownType::TypeIdOf   { return "__builtin_type_id"; }
+        case WellKnownType::PanicSiteOf { return "__builtin_panic_site"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -348,6 +352,27 @@ fn fmt_put_name(k: FormatKind) -> string {
         lower += c;
     }
     return "put_" + lower;
+}
+
+/// \p v as 16 lowercase hex digits: the stable suffix of a minted name
+/// keyed by a hash (LowerTargets::type_id_guard, panic_site_record).
+fn hex64(v: u64) -> string {
+    var digits = "0123456789abcdef";
+    var out = "";
+    for var i: i32 = 15; i >= 0; --i {
+        out += digits[usize((v >> u64(i * 4)) & u64(15))];
+    }
+    return out;
+}
+
+/// \p v as 8 lowercase hex digits (a panic type id in a message).
+fn hex32(v: u32) -> string {
+    var digits = "0123456789abcdef";
+    var out = "";
+    for var i: i32 = 7; i >= 0; --i {
+        out += digits[usize((v >> u32(i * 4)) & u32(15))];
+    }
+    return out;
 }
 
 /// \class LowerTargets
@@ -649,6 +674,36 @@ class LowerTargets {
     /// The u32 slot a lang item's layout may ask for between the tag and the
     /// payload union (EnumDecl::adt_site_field; PANIC.md §1.4's call site).
     static fn adt_site_field() -> string             { return "__kairo_site"; }
+    /// The Panic lang item's layout (PANIC.md §1.1a; writer
+    /// EnumLayoutLowering's knobs, InterfaceEmitter spells them). The union
+    /// is `alignas(__kairo_payload_offset)`, the max of 8 and every payload's
+    /// alignment, which is also where every payload starts: the "trait"
+    /// §4.6 reads instead of a hardcoded 8. An element's tag is its type id,
+    /// `__kairo_type_id<E>`, read off the per-type specialization of the
+    /// incomplete trait `__kairo_tid<E>` (an element with none is a compile
+    /// error, never a silent 0), each guarded by `__KAIRO_TID_<key>` so a
+    /// kcc include chain writes it once. `__kairo_nv<T>` is T, or an empty
+    /// struct for `void`: `Panic<void, E...>`'s Ok payload.
+    static fn adt_payload_offset() -> string         { return "__kairo_payload_offset"; }
+    static fn type_id_trait() -> string              { return "__kairo_tid"; }
+    static fn type_id() -> string                    { return "__kairo_type_id"; }
+    static fn type_id_guard(key: u64) -> string      { return "__KAIRO_TID_" + hex64(key); }
+    static fn void_unit() -> string                  { return "__kairo_nv"; }
+    static fn unit_type() -> string                  { return "__kairo_unit"; }
+    static fn void_unit_trait() -> string            { return "__kairo_nv_s"; }
+    /// `max(floor, alignof(P)...)`, the initializer of __kairo_payload_offset.
+    static fn max_align() -> string                  { return "__kairo_max_align"; }
+    static fn panic_helpers_guard() -> string        { return "__KAIRO_PANIC_HELPERS"; }
+    /// The per-TU panic site table (PANIC.md §1.4): one record per site, a
+    /// `__kairo_panic_site` named `__kairo_ps_<key>` (key: the 64-bit hash
+    /// of the site's path and offset), in the linker-collected section.
+    /// Mach-O names a section `segment,section` in at most 16 bytes, hence
+    /// its own spelling.
+    static fn panic_site_type() -> string            { return "__kairo_panic_site"; }
+    static fn panic_site_guard() -> string           { return "__KAIRO_PANIC_SITE_T"; }
+    static fn panic_site_record(key: u64) -> string  { return "__kairo_ps_" + hex64(key); }
+    static fn panic_sites_section() -> string        { return "__kairo_panic_sites"; }
+    static fn panic_sites_section_macho() -> string  { return "__DATA,__kairo_psite"; }
     /// A prefix-tagged ADT's union member holding only the tag, and its type
     /// (EnumDecl::adt_tag_member): the tag is read through it.
     static fn adt_tag_member() -> string             { return "__kairo_t"; }

@@ -122,6 +122,16 @@ class InterfaceEmitter {
     pub var have_eval_helpers: bool = false;
     pub var have_niche_helpers: bool = false;
     pub var have_pack_union: bool = false;
+    pub var have_panic_helpers: bool = false;
+    pub var have_site_type: bool = false;
+    /// The `__kairo_tid` specializations already written into this C++ TU
+    /// (their keys): a token stream carries no guard, so a kcc include
+    /// chain carries this from one include to the next (IncludedDecls).
+    pub var tid_seen: vec::<u64>;
+    /// The instances a kcc include's plan named but does not instantiate
+    /// (IncludeEmitter prunes tier 3): their type-id specializations are
+    /// still the host's to see.
+    pub var pruned_insts: vec::<*InstanceEntry>;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -265,6 +275,31 @@ class InterfaceEmitter {
             self.have_pack_union = true;
         }
 
+        // The Panic lang item's layout helpers (_panic_helpers), wherever an
+        // ADT with its knobs is defined.
+        if (!self.have_panic_helpers) && self._needs_panic_helpers() {
+            self._cg->sink->unanchored(true);
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_helpers_guard()); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_helpers_guard()); }
+            self._panic_helpers();
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._cg->sink->unanchored(false);
+            self.have_panic_helpers = true;
+        }
+
+        // The record type of the TU's panic site table (EmitIR::_panic_sites,
+        // PANIC.md §1.4), when it has sites.
+        if (!self.have_site_type) && (self._cg->tu->panic_sites.size() > 0) {
+            var u = builtin_info(BuiltinKind::U32)->cxx;
+            self._cg->sink->unanchored(true);
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_site_guard()); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_site_guard()); }
+            self._cg->sink->spell(self._tu_at(), "struct " + LowerTargets::panic_site_type() + " { " + u + " id; " + u + " line; " + u + " col; const char* file; };");
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._cg->sink->unanchored(false);
+            self.have_site_type = true;
+        }
+
         var i: usize = 0;
         var n = self._plan->entries.size();
 
@@ -300,6 +335,20 @@ class InterfaceEmitter {
                 i += 1;
             }
             self._ns_close(opened);
+        }
+
+        // Each type-id-tagged instance's element ids (_type_id_specs), at
+        // global scope after the forward declarations they name and before
+        // any definition or body could use one.
+        for var j: usize = 0; j < n; ++j {
+            var te = &(self._plan->entries[j]);
+            if te->tier == PlanTier::Instantiations { self._type_id_specs(te->decl, te->inst); }
+        }
+        // A kcc include writes no instantiation, but its host instantiates
+        // every Panic it uses: IncludeEmitter hands over the ones it pruned.
+        for var j: usize = 0; j < self.pruned_insts.size(); ++j {
+            var pe = self.pruned_insts[j];
+            self._type_id_specs(pe->primary, pe);
         }
 
         // tier 1
@@ -937,8 +986,10 @@ class InterfaceEmitter {
         // A lang item's aligned payload (EnumDecl::adt_union_align): every
         // payload starts at that boundary, whatever the tag before it.
         var oe = dyn_cast::<EnumDecl>(owner);
-        if (oe != &null) && (oe->adt_union_align > 0) {
-            self._cg->sink->spell(fat, "union alignas(" + f"{oe->adt_union_align}" + ") {");
+        if (oe != &null) && (oe->adt_payload_offset != &null) {
+            // max(floor, alignof(payloads)): never weaker than the members'
+            // own, which an `alignas` may not be.
+            self._cg->sink->spell(fat, "union alignas(" + self._spell->leaf(static_cast::<*Decl>(oe->adt_payload_offset)) + ") {");
         } else {
             self._cg->sink->spell(fat, "union {");
         }
@@ -1003,6 +1054,75 @@ class InterfaceEmitter {
               + "else { " + rs + "." + cf + "(k - 1, static_cast<O&&>(o)." + rs + "); } } };";
         self._cg->sink->spell(at, s);
         self._cg->sink->brk();
+    }
+
+    /// The Panic lang item's preamble (PANIC.md §1.1a, §1.3):
+    ///   `__kairo_tid<E>`        incomplete: an element type with no
+    ///                           specialization (no id from Sema) is a
+    ///                           compile error, never a silent tag 0;
+    ///   `__kairo_type_id<E>`    the id, read off the specialization;
+    ///   `__kairo_unit`, `__kairo_nv<T>`   T, or an empty struct for void;
+    ///   `__kairo_max_align<P...>(f)`      max(f, alignof(P)...).
+    priv fn _panic_helpers(self) {
+        var u  = builtin_info(BuiltinKind::U32)->cxx;
+        var at = self._tu_at();
+        var ti = LowerTargets::type_id_trait();
+        self._cg->sink->spell(at, "template <class E> struct " + ti + ";");
+        self._cg->sink->spell(at, "template <class E> inline constexpr " + u + " " + LowerTargets::type_id() + " = " + ti + "<E>::value;");
+        self._cg->sink->spell(at, "struct " + LowerTargets::unit_type() + " {};");
+        var vs = LowerTargets::void_unit_trait();
+        self._cg->sink->spell(at, "template <class T> struct " + vs + " { using type = T; };");
+        self._cg->sink->spell(at, "template <> struct " + vs + "<void> { using type = " + LowerTargets::unit_type() + "; };");
+        self._cg->sink->spell(at, "template <class T> using " + LowerTargets::void_unit() + " = typename " + vs + "<T>::type;");
+        self._cg->sink->spell(at, "template <class... P> constexpr " + u + " " + LowerTargets::max_align() + "(" + u + " f) noexcept { "
+                                  + u + " a = f; ((a = (alignof(P) > a) ? static_cast<" + u + ">(alignof(P)) : a), ...); return a; }");
+        self._cg->sink->brk();
+    }
+
+    /// An ADT with a lang item's layout knobs is defined here (as
+    /// _needs_pack_union asks).
+    priv fn _needs_panic_helpers(self) -> bool {
+        var header = (self._plan->mode() == PlanMode::Header);
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var e = &(self._plan->entries[i]);
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if header && (!e->own) { continue; }
+            var en = dyn_cast::<EnumDecl>(e->decl);
+            if (en != &null) && en->is_adt && (en->adt_explicit_tags || en->adt_void_unit || (en->adt_payload_offset != &null)) { return true; }
+        }
+        return false;
+    }
+
+    /// `max(floor, alignof(P)...)` over \p lay's payload structs, the pack
+    /// variant's expanded: the initializer of `__kairo_payload_offset`.
+    priv fn _payload_offset_init(self, en: *EnumDecl, lay: *StructDecl) -> string {
+        var ps = "";
+        var dc = static_cast::<*DeclContext>(lay);
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var sd = dyn_cast::<StructDecl>(*(dc->dc_decls.get(i)));
+            if (sd == &null) || (!sd->is_adt_payload) { continue; }
+            if ps.size() > 0 { ps += ", "; }
+            if sd->adt_pack_param != &null { ps += self._pack_payload(sd, lay->adt_of) + "..."; }
+            else { ps += self._spell->leaf(static_cast::<*Decl>(sd)); }
+        }
+        return "::" + LowerTargets::max_align() + "<" + ps + ">(" + f"{en->adt_union_align}" + ")";
+    }
+
+    /// The tag element \p k (a C++ expression: a template parameter) of
+    /// \p en's pack-expanded variant \p v is stored as, typed as the tag
+    /// enum \p tt: the variant's position plus k, or under type-id tags
+    /// the element's id. EnumLayoutQuery::tag_value is the same rule.
+    priv fn _pack_tag(self, en: *EnumDecl, v: *EnumVariantDecl, k: string, tt: string) -> string {
+        if en->adt_explicit_tags {
+            return "static_cast<" + tt + ">(::" + LowerTargets::type_id() + "<__type_pack_element<" + k + ", " + self._pack_name(en) + "...>>)";
+        }
+        return "static_cast<" + tt + ">(" + f"{v->adt_tag_value}" + " + " + k + ")";
+    }
+
+    /// The enum's type pack parameter, as its own body names it.
+    priv fn _pack_name(self, en: *EnumDecl) -> string {
+        var gp = en->generic_params[adt_pack_param(en)];
+        return self._spell->imm_name(gp->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(en)));
     }
 
     /// The payload struct template of pack-expanded variant \p v, applied
@@ -1133,7 +1253,11 @@ class InterfaceEmitter {
                 self._cg->sink->spell(self._at(nd), "template <class " + LowerTargets::adt_pack_elem() + ">");
                 self._spell->pack_alias = pk;
             }
+            // `Panic<void, ...>`'s Ok: T is spelled `__kairo_nv<T>` there.
+            var vu = (pps != &null) && pps->is_adt_payload && en->adt_void_unit;
+            if vu { self._spell->void_unit_owner = d; }
             self._type_def(CXXSpell::rep(nd));
+            if vu { self._spell->void_unit_owner = &null; }
             if pk != &null { self._spell->pack_alias = &null; }
         }
 
@@ -1149,6 +1273,11 @@ class InterfaceEmitter {
             // A flag: a compile-time constant with no Kairo expression behind
             // it (_adt_flag).
             if f->storage == StorageClass::Eval {
+                if f == en->adt_payload_offset {
+                    var u = builtin_info(BuiltinKind::U32)->cxx;
+                    self._cg->sink->spell(f->name.range, "static constexpr " + u + " " + fnm + " = " + self._payload_offset_init(en, lay) + ";");
+                    continue;
+                }
                 self._cg->sink->spell(f->name.range, "static constexpr bool " + fnm + " = " + self._adt_flag(lay, f, fnm) + ";");
                 continue;
             }
@@ -1170,7 +1299,7 @@ class InterfaceEmitter {
         // this one stores its dataless variants as those tags.
         cur_access = self._access(cur_access, VIS_PUB(), false, at);
         var tt = LowerTargets::adt_tag_type();
-        var nv = f"{en->variants.size()}";
+        var nv = f"{adt_first_spare_tag(en)}";
         var w  = builtin_info(BuiltinKind::U64)->cxx;
         // The tag as written and as read: a member of its own, or the
         // union's tag-only member in the common prefix.
@@ -1534,8 +1663,7 @@ class InterfaceEmitter {
                     // tag_value), built into the union's K-th member.
                     var u  = builtin_info(BuiltinKind::U32)->cxx;
                     var kv = "::" + LowerTargets::adt_variant_tag();
-                    var tv = f"{v->adt_tag_value}";
-                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, F&& f)" + nx + " : " + tag + "(static_cast<" + tt + ">(" + tv + " + K))"
+                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, F&& f)" + nx + " : " + tag + "(" + self._pack_tag(en, v, "K", tt) + ")"
                          + site_init + ", " + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(" + kv + "<K>{}, static_cast<F&&>(f)) {}";
                 }
                 // The payload is the callable's prvalue, so the union member
@@ -1617,9 +1745,18 @@ class InterfaceEmitter {
         if (v == &null) || (v->adt_member == &null) { return ""; }
         var u   = builtin_info(BuiltinKind::U32)->cxx;
         var tag = "static_cast<" + u + ">(" + LowerTargets::adt_tag_field() + ")";
-        var tv  = f"{v->adt_tag_value}";
         var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
         var arg = (", " + from + mem) if (from.size() > 0) else ("");
+        if en->adt_explicit_tags {
+            // Type-id tags (_pack_tag): the element is the one whose id the
+            // tag is, found by a fold over the pack; no match, no payload.
+            var e = self._pack_name(en);
+            var tid = "::" + LowerTargets::type_id();
+            var none = "static_cast<" + u + ">(-1)";
+            return "{ " + u + " k = 0, i = " + none + "; ((" + tid + "<" + e + "> == " + tag + " ? (void)(i = k) : (void)0, ++k), ...); "
+                 + "if (i != " + none + ") { " + mem + "." + fn_ + "(i" + arg + "); } } ";
+        }
+        var tv  = f"{v->adt_tag_value}";
         return "if (" + tag + " >= " + tv + ") { " + mem + "." + fn_ + "(" + tag + " - " + tv + arg + "); } ";
     }
 
@@ -2285,6 +2422,38 @@ class InterfaceEmitter {
         self._cg->sink->spell(self._at(d), s);
         self._cg->sink->brk();
         self._instance_layout_asserts(d, ie);
+    }
+
+    /// A type-id-tagged instance's elements (the Panic lang item, PANIC.md
+    /// §1.3): `__kairo_tid<E>` specialized with the id Sema computed
+    /// (InstanceEntry::type_ids). Written after tier 0, before anything can
+    /// use one: a specialization after a use would be ill-formed. Each is
+    /// written once per C++ TU (tid_seen; a header's guarded by its
+    /// spelling's key): several instances, and a kcc include chain, share
+    /// an element.
+    priv fn _type_id_specs(self, d: *Decl, ie: *InstanceEntry) {
+        var en = dyn_cast::<EnumDecl>(d);
+        if (en == &null) || (!en->adt_explicit_tags) { return; }
+        var p = adt_pack_param(en);
+        if ie == &null { return; }
+        if (p == usize(-1)) || (ie->type_ids.size() + p != ie->args.size()) {
+            self._ice(self._at(d), "InterfaceEmitter: a type-id-tagged instance without an id per element; EnumLayoutQuery::sweep records them");
+        }
+        var u = builtin_info(BuiltinKind::U32)->cxx;
+        var header = (self._plan->mode() == PlanMode::Header);
+        for var i: usize = 0; i < ie->type_ids.size(); ++i {
+            var key = ie->type_keys[i];
+            var seen = false;
+            for var j: usize = 0; j < self.tid_seen.size(); ++j { if self.tid_seen[j] == key { seen = true; break; } }
+            if seen { continue; }
+            self.tid_seen.push_back(key);
+            var g = LowerTargets::type_id_guard(key);
+            if header { self._cg->sink->directive(self._at(d), "#ifndef " + g); }
+            if header { self._cg->sink->directive(self._at(d), "#define " + g); }
+            self._cg->sink->spell(self._at(d), "template <> struct " + LowerTargets::type_id_trait() + "<" + self._spell->_type(ie->args[p + i])
+                                  + "> { static constexpr " + u + " value = 0x" + hex32(ie->type_ids[i]) + "u; };");
+            if header { self._cg->sink->directive(self._at(d), "#endif"); }
+        }
     }
 
     /// The layout Sema predicted for a generic ADT's instance

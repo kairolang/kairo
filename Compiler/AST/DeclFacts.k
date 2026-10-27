@@ -396,13 +396,24 @@ fn decl_pack_set_at(d: *Decl) -> usize {
     return adt_pack_param(en);
 }
 
+/// How a lang item orders its expanded pack, a set (decl_dedup_pack_args):
+/// the Panic item sorts by type id (Sema's PanicTypeIds), which the AST
+/// layer cannot compute, so the build's CanonicalTypeStore and
+/// InstantiationRegistry hold one, installed by the driver. The default
+/// keeps first-occurrence order. Must be stateless and lock-free: it runs
+/// inside type formation.
+class PackSetOrder {
+    fn PackSetOrder(self) { }
+    virtual fn order(self, d: *Decl, args: *vec::<*Type>) { }
+}
+
 /// `R<i32, string, string>` IS `R<i32, string>` when R's pack is expanded
 /// into variants (PANIC.md §1.2: equal types are one variant). The pack is a
 /// set, kept in first-occurrence order, so the dedup happens where a type is
 /// formed (CanonicalTypes::record, InstantiationRegistry) and every reader
 /// after it -- the instance's args, the expansions' tags, C++'s template
 /// arguments -- sees one list. \p d is the primary or an instance of it.
-fn decl_dedup_pack_args(d: *Decl, args: *vec::<*Type>) {
+fn decl_dedup_pack_args(d: *Decl, args: *vec::<*Type>, ord: *PackSetOrder = &null) {
     if (d == &null) || (args == &null) { return; }
     var at = decl_pack_set_at(d);
     if (at == usize(-1)) || (args->size() <= at + 1) { return; }
@@ -415,9 +426,13 @@ fn decl_dedup_pack_args(d: *Decl, args: *vec::<*Type>) {
         }
         if !dup { out.push_back(a); }
     }
-    if out.size() == args->size() { return; }
-    args->clear();
-    for var i: usize = 0; i < out.size(); ++i { args->push_back(out[i]); }
+    if out.size() != args->size() {
+        args->clear();
+        for var i: usize = 0; i < out.size(); ++i { args->push_back(out[i]); }
+    }
+    // A lang item may also fix the set's ORDER (PackSetOrder: the Panic
+    // item sorts by type id, PANIC.md §1.3), once the duplicates are gone.
+    if ord != &null { ord->order(d, args); }
 }
 
 /// `derives_list`: the kinds with nominal bases.

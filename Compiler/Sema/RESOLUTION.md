@@ -1130,7 +1130,12 @@ the pack variant at position p being p + k, which is also its tag; a payload
 read carries K on its chain step (`Step::pack_index`). An enum whose pack is
 expanded has its pack args deduplicated where the type is formed
 (`decl_dedup_pack_args`, in CanonicalTypes::record and the registry), so
-equal elements are one variant. Construction and patterns pick the element
+equal elements are one variant; a `PackSetOrder` the driver installs in
+both also fixes the ORDER for a lang item that wants one (the Panic item
+sorts its set by type id, Sema/Type/PanicSets.k, PANIC.md §1.3). Under
+type-id tags (AdtLayoutKnobs, the Panic item) element k's tag is its
+type's id, not p + k (`EnumLayoutQuery::tag_value(t, en, index)` takes
+the value's type for it). Construction and patterns pick the element
 by payload type (`VariadicEnum`; ControlTyping / PatternTyping record
 `variant_pack` / `Pattern::pack_index`); at a dependent type either is
 SC116E until M2. No niche: the tag niche is per instance, so none is

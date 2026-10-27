@@ -134,6 +134,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Type::PanicSets::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -182,7 +183,7 @@ fn niche_unknown() -> u64 { return ~u64(0); }
 ///
 ///   tag_read(x)              the discriminant as stored, typed as the tag
 ///                            enum; null when the layout has no tag
-///   tag_value(V)             the discriminant V is stored as
+///   tag_value(t, V)          the discriminant V is stored as at type t
 ///   variant_test(x, V)       bool: "x holds V"
 ///   payload_ref(x, V)        lvalue of V's payload struct
 ///   field_ref(x, V, f)       lvalue of one payload field
@@ -270,17 +271,42 @@ class EnumLayoutQuery {
         return self.has_layout(en) && (!en->adt_explicit_tags);
     }
 
-    /// The discriminant variant \p index is stored as: its position, or the
-    /// explicit value a lang item gave it (AdtLayoutKnobs).
-    fn tag_value(self, en: *EnumDecl, index: u32) -> u64 {
+    /// The discriminant variant \p index is stored as in a value of type
+    /// \p t: an ordinary variant's position; element k of a pack-expanded
+    /// variant, the variant's position plus k, or under type-id tags
+    /// (AdtLayoutKnobs, the Panic lang item) the panic type id of the
+    /// element's type at \p t (PanicSets). InterfaceEmitter's constructor
+    /// and destroy / copy helpers store and read the same values: this is
+    /// the one rule, and \p t must be concrete for an element's.
+    fn tag_value(self, t: *Type, en: *EnumDecl, index: u32) -> u64 {
         var v = adt_variant_at(en, usize(index));
         ICE_IF(v == &null, "EnumLayoutQuery: tag_value past the last variant");
         var k = adt_expansion_at(en, usize(index));
-        // Element k of a pack-expanded variant: the variant's tag plus k
-        // (InterfaceEmitter's constructor stores the same). PanicLowering's
-        // type-id tags replace exactly this line.
-        if k > 0 { return v->adt_tag_value + u64(k); }
-        return v->adt_tag_value;
+        if k < 0 { return v->adt_tag_value; }
+        if !en->adt_explicit_tags { return v->adt_tag_value + u64(k); }
+        var args = self.tu.record_args(self.tu.as_value(t));
+        var p = adt_pack_param(en);
+        ICE_IF((p == usize(-1)) || ((p + usize(k)) >= args.size()),
+               "EnumLayoutQuery: a type-id tag at a type without that element; the test reads a dependent instance");
+        var id = PanicSets(self.sc).type_id(args[p + usize(k)]);
+        ICE_IF(id == u32(0), "EnumLayoutQuery: a type-id-tagged element whose type has no id; a dependent instance reached a test");
+        return u64(id);
+    }
+
+    /// Where every payload of a value of type \p t starts, for an ADT
+    /// whose union a lang item aligns (AdtLayoutKnobs::union_floor):
+    /// `max(floor, alignof(payloads))`, which is also the union's own
+    /// alignment, so the tag word before it never moves it further. The
+    /// C++ record states the same as `__kairo_payload_offset`. False when
+    /// a payload's alignment is not known here.
+    fn payload_offset(self, t: *Type, off: *u64) -> bool {
+        var sz: u64 = 0;
+        var al: u64 = 0;
+        var en = self.adt_of(t);
+        if (en == &null) || (en->adt_union_align == 0) { return false; }
+        if !self.size_of(t, &sz, &al) { return false; }
+        (*off) = al;
+        return true;
     }
 
     // --- shape --------------------------------------------------------------------
@@ -464,9 +490,20 @@ class EnumLayoutQuery {
             (*align) = u64(c->align_bits / 8);
             return true;
         }
+        if isa::<FixedArrayType>(c) {
+            // N elements back to back: a C++ array has no padding of its own.
+            var fa = cast::<FixedArrayType>(c);
+            if fa->is_incomplete || (fa->extent_param != &null) { return false; }
+            var es: u64 = 0;
+            var ea: u64 = 0;
+            if !self.size_of(fa->element, &es, &ea) { return false; }
+            (*size)  = es * u64(fa->size_bits);
+            (*align) = ea;
+            return true;
+        }
         if (!isa::<RecordType>(c)) || c->is_dependent() || c->is_instantiation_dependent() { return false; }
         var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
-        if en == &null { return false; }
+        if en == &null { return self._plain_record_size(cast::<RecordType>(c)->decl, size, align); }
         if !en->is_adt {
             if decl_is_imported(static_cast::<*Decl>(en)) { return false; }
             return self.size_of(self.sc->builtin(enum_niche_kind(en)), size, align);
@@ -480,26 +517,44 @@ class EnumLayoutQuery {
         if !self.size_of(self.sc->builtin(adt_tag_kind(en)), &ts, &ta) { return false; }
         var prefix = en->adt_tag_member != &null;
         // The payload union: each variant's struct laid out field by field,
-        // after its own tag in the common prefix.
+        // after its own tag in the common prefix. A pack-expanded variant is
+        // one struct per element of this instance.
         var usz: u64 = (ts) if (prefix) else (0);
         var ual: u64 = (ta) if (prefix) else (1);
+        var pp = adt_pack_param(en);
         for var i: usize = 0; i < en->variants.size(); ++i {
             var v = en->variants[i];
             if v->payload.size() == 0 { continue; }
-            var off: u64 = (ts) if (prefix) else (0);
-            var sal: u64 = (ta) if (prefix) else (1);
-            for var j: usize = 0; j < v->payload.size(); ++j {
-                var ft = v->payload[j]->type_;
-                if en->generic_params.size() > 0 { ft = self.field_type_at(en, &args, ft); }
-                var fs: u64 = 0;
-                var fa: u64 = 0;
-                if (ft == &null) || (!self.size_of(ft, &fs, &fa)) { return false; }
-                off = self._round(off, fa) + fs;
-                if fa > sal { sal = fa; }
+            var nel: usize = 1;
+            if v->is_pack_expansion {
+                if (pp == usize(-1)) || (args.size() < pp) { return false; }
+                nel = args.size() - pp;
             }
-            var ssz = self._round(off, sal);
-            if ssz > usz { usz = ssz; }
-            if sal > ual { ual = sal; }
+            for var e: usize = 0; e < nel; ++e {
+                var off: u64 = (ts) if (prefix) else (0);
+                var sal: u64 = (ta) if (prefix) else (1);
+                for var j: usize = 0; j < v->payload.size(); ++j {
+                    var ft = v->payload[j]->type_;
+                    var pg = dyn_cast::<GenericParamType>(canon_unqual(ft->canonical));
+                    if v->is_pack_expansion && (pg != &null) && pg->is_pack {
+                        ft = args[pp + e];
+                    } else if en->generic_params.size() > 0 {
+                        ft = self.field_type_at(en, &args, ft);
+                    }
+                    var fs: u64 = 0;
+                    var fa: u64 = 0;
+                    // `Panic<void, E...>`'s Ok holds an empty struct
+                    // (AdtLayoutKnobs::void_payload): one byte.
+                    var vu = en->adt_void_unit && (ft != &null) && self.tu.is_void(ft);
+                    if vu { fs = 1; fa = 1; }
+                    if (!vu) && ((ft == &null) || (!self.size_of(ft, &fs, &fa))) { return false; }
+                    off = self._round(off, fa) + fs;
+                    if fa > sal { sal = fa; }
+                }
+                var ssz = self._round(off, sal);
+                if ssz > usz { usz = ssz; }
+                if sal > ual { ual = sal; }
+            }
         }
         if (shape == AdtShape::Niche) || prefix {
             (*size)  = usz;
@@ -518,6 +573,53 @@ class EnumLayoutQuery {
         }
         var al = (ta) if (ta > ual) else (ual);
         (*size)  = self._round(self._round(ts, ual) + usz, al);
+        (*align) = al;
+        return true;
+    }
+
+    /// A plain Kairo struct or class laid out as C++ lays out its fields:
+    /// in declaration order, each at its alignment, the whole rounded to
+    /// the widest; empty is one byte. Only the shape that rule covers -- no
+    /// generic parameters, no base, no virtual method, not from C++ --
+    /// anything else is not answered. What reads this pins it: an ADT
+    /// instance's predicted size is a static_assert beside it.
+    priv fn _plain_record_size(self, d_in: *Decl, size: *u64, align: *u64) -> bool {
+        var d = NameLookup::representative(d_in);
+        if (d == &null) || decl_is_imported(d) || decl_is_instance(d) { return false; }
+        if decl_generic_params(d).size() > 0 { return false; }
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        var methods: *FrozenList::<*FunctionDecl> = &null;
+        var sd = dyn_cast::<StructDecl>(d);
+        var cd = dyn_cast::<ClassDecl>(d);
+        if sd != &null {
+            if (sd->adt_of != &null) || (sd->tuple_arity > 0) { return false; }
+            fields  = &(sd->fields);
+            methods = &(sd->methods);
+        } else if cd != &null {
+            if cd->derives_list.size() > 0 { return false; }
+            fields  = &(cd->fields);
+            methods = &(cd->methods);
+        } else {
+            return false;
+        }
+        for var i: usize = 0; i < methods->size(); ++i {
+            var m = (*methods)[i];
+            if (m != &null) && ((m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual)) { return false; }
+        }
+        var off: u64 = 0;
+        var al:  u64 = 1;
+        var any = false;
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = (*fields)[i];
+            if (f == &null) || f->is_static() { continue; }
+            var fs: u64 = 0;
+            var fa: u64 = 0;
+            if !self.size_of(f->type_, &fs, &fa) { return false; }
+            off = self._round(off, fa) + fs;
+            if fa > al { al = fa; }
+            any = true;
+        }
+        (*size)  = (self._round(off, al)) if (any) else (1);
         (*align) = al;
         return true;
     }
@@ -548,7 +650,57 @@ class EnumLayoutQuery {
             var sz: u64 = 0;
             var al: u64 = 0;
             if self.size_of(t, &sz, &al) { e->adt_size = sz; }
+            if en->adt_explicit_tags { self._sweep_type_ids(e, en, t, sz); }
+            if en->adt_union_align > 0 {
+                var po: u64 = 0;
+                if self.payload_offset(t, &po) { e->payload_offset = po; }
+            }
         }
+    }
+
+    /// A type-id-tagged instance (the Panic lang item): its elements' ids
+    /// and spelling keys, which InterfaceEmitter writes as `__kairo_tid`
+    /// specializations -- C++ reads the ids Sema computed, never hashes. And
+    /// the register cliff (PANIC.md §1.1a): past 16 bytes the result is
+    /// returned through memory, which only a remark tells the user, at the
+    /// set's formation (InstanceEntry::formed_at), in that TU only.
+    priv fn _sweep_type_ids(self, e: *InstanceEntry, en: *EnumDecl, t: *Type, size: u64) {
+        var p = adt_pack_param(en);
+        if (p == usize(-1)) || (e->type_ids.size() > 0) { return; }
+        var ps = PanicSets(self.sc);
+        var ids  = vec::<u32>();
+        var keys = vec::<u64>();
+        for var i: usize = p; i < e->args.size(); ++i {
+            var id = ps.type_id(e->args[i]);
+            if id == u32(0) { return; }
+            ids.push_back(id);
+            keys.push_back(ps.type_key(e->args[i]));
+        }
+        for var i: usize = 0; i < ids.size(); ++i {
+            e->type_ids.push_back(ids[i]);
+            e->type_keys.push_back(keys[i]);
+        }
+        if (size <= 16) || (e->formed_fid != self.sc->ctx->fid) || (!e->formed_at.is_valid()) { return; }
+        // The payload that pushed it over: the widest.
+        var widest: *Type = &null;
+        var wsz: u64 = 0;
+        for var i: usize = 0; i < e->args.size(); ++i {
+            var fs: u64 = 0;
+            var fa: u64 = 0;
+            var a = e->args[i];
+            if (i == 0) && self.tu.is_void(a) { continue; }
+            if self.size_of(a, &fs, &fa) && (fs > wsz) { wsz = fs; widest = a; }
+        }
+        var ts = self.tu.str(t);
+        var why = "";
+        if widest != &null {
+            var wn = self.tu.str(widest);
+            why = f"; its widest payload, '{wn}', is {wsz} bytes";
+        }
+        var b = self.sc->diag->report(DiagID::OPT001R, e->formed_at.start,
+            f"'{ts}' is {size} bytes, so a function returning it returns through memory, not in two registers" + why);
+        b.first(e->formed_at, "every payload at most 8 bytes keeps it at 16");
+        b.emit();
     }
 
     // --- reads and tests ---------------------------------------------------------------
@@ -588,9 +740,10 @@ class EnumLayoutQuery {
         return self.synth.cast_to(at, t, self.sc->builtin(BuiltinKind::U32), CastMode::Default);
     }
 
-    /// Variant \p index's discriminant as a case label of tag_word.
-    fn tag_case(self, at: SourceRange, en: *EnumDecl, index: u32) -> *Expr {
-        return self.synth.int_literal(at, self.tag_value(en, index), BuiltinKind::U32);
+    /// Variant \p index's discriminant in a value of type \p t, as a case
+    /// label of tag_word.
+    fn tag_case(self, at: SourceRange, t: *Type, en: *EnumDecl, index: u32) -> *Expr {
+        return self.synth.int_literal(at, self.tag_value(t, en, index), BuiltinKind::U32);
     }
 
     /// `x` holds variant \p index. Niche-filled: a dataless variant is its
@@ -598,7 +751,7 @@ class EnumLayoutQuery {
     /// variant every pattern's absence.
     fn variant_test(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
         var w = self.tag_word(at, x, en);
-        if w != &null { return self._bin(at, w, self.tag_case(at, en, index), TokenKind::OpEqualEqual); }
+        if w != &null { return self._bin(at, w, self.tag_case(at, x->type_, en, index), TokenKind::OpEqualEqual); }
         var p  = adt_niche_payload_variant(en);
         var pv = en->variants[usize(p)];
         var f  = pv->payload[0];
@@ -671,7 +824,7 @@ class EnumLayoutQuery {
         var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
         ICE_IF(en == &null, "EnumLayoutQuery: a niche pattern in a type niche_of gives none");
         ICE_IF(!en->is_adt, "EnumLayoutQuery: a niche pattern in a plain enum, which has none");
-        var n = u64(en->variants.size());
+        var n = adt_first_spare_tag(en);
         if self.shape_at(c) == AdtShape::Tagged {
             var tw  = self.synth.cast_to(at, self._tag_lvalue(at, e, en), self.sc->builtin(BuiltinKind::U32), CastMode::Default);
             return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op);
@@ -692,20 +845,33 @@ class EnumLayoutQuery {
 
 /// Lang-item overrides of an ADT's layout (spec ENUMLAYOUT §7), keyed on
 /// the decl by EnumLayoutLowering::_knobs. Every default is the layout every
-/// other ADT gets; PANIC.md §1.1a is the first user (type-id tags, a u32
-/// tag word, an aligned union, a call-site slot).
+/// other ADT gets; the Panic lang item (PANIC.md §1.1a) sets all of them.
+/// Any knob also rules out the niche and the common-prefix layouts: word 0
+/// is the tag and the site, which neither keeps.
 class AdtLayoutKnobs {
-    /// One per variant, in declaration order, or empty: positions.
-    pub var tag_values:   vec::<u64>;
+    /// A pack-expanded variant's elements are tagged by their panic type id
+    /// (PANIC.md §1.3) rather than by position; ordinary variants keep
+    /// their positions (Panic's Ok is 0, which no id is). Per instance, so
+    /// it is a rule (EnumLayoutQuery::tag_value), not a list of values.
+    pub var type_id_tags: bool = false;
     pub var tag_kind_set: bool = false;
     pub var tag_kind:     BuiltinKind = BuiltinKind::U32;
-    pub var union_align:  u32  = 0;        ///< `alignas(N)` on the payload union; 0 = natural.
+    /// The payload union is aligned to at least this, and to every
+    /// payload's alignment: `max(floor, alignof(P)...)`, per instance, so
+    /// C++ computes it (`__kairo_payload_offset`) and Sema predicts it
+    /// (EnumLayoutQuery::size_of). 0 = natural.
+    pub var union_floor:  u32  = 0;
     pub var site_slot:    bool = false;    ///< a u32 `__kairo_site` between the tag and the union.
+    /// A payload field whose type is a bare type parameter holds an empty
+    /// struct when the argument is `void` (`Panic<void, E...>`'s Ok), and
+    /// every variant is built through its lambda constructor, which never
+    /// takes the field by value.
+    pub var void_payload: bool = false;
 
     fn AdtLayoutKnobs(self) { }
 
     fn any(self) -> bool {
-        return (self.tag_values.size() > 0) || self.tag_kind_set || (self.union_align > 0) || self.site_slot;
+        return self.type_id_tags || self.tag_kind_set || (self.union_floor > 0) || self.site_slot || self.void_payload;
     }
 }
 
@@ -765,11 +931,13 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// built first, so the answer is the one a layout reading it would get.
     fn transform_call_expr(self, n: *CallExpr) -> *Expr {
         var out = ASTWriter::<EnumLayoutLowering>::transform_call_expr(n);
-        var nd  = self.sc->well_known->get(WellKnownType::NicheOf);
-        if (nd == &null) || (out != static_cast::<*Expr>(n)) { return out; }
+        if out != static_cast::<*Expr>(n) { return out; }
         var callee = dyn_cast::<NamedIdentExpr>(n->callee);
         if (callee == &null) || (callee->resolved_decl == &null) { return out; }
-        if NameLookup::representative(callee->resolved_decl) != NameLookup::representative(nd) { return out; }
+        var cd = NameLookup::representative(callee->resolved_decl);
+        if self._is_lang(cd, WellKnownType::TypeIdOf)    { return self._type_id_of(n); }
+        if self._is_lang(cd, WellKnownType::PanicSiteOf) { return self._panic_site_of(n); }
+        if !self._is_lang(cd, WellKnownType::NicheOf) { return out; }
         // A dependent call (a generic body's) has no instance entry: its T is
         // the instance's, which is the case reported below.
         var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
@@ -789,6 +957,40 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             cnt = 0;
         }
         var lit = self.synth.int_literal(n->range, cnt, BuiltinKind::U64);
+        lit->adopt_sema(static_cast::<*Expr>(n));
+        return lit;
+    }
+
+    priv fn _is_lang(self, d: *Decl, k: WellKnownType) -> bool {
+        var ld = self.sc->well_known->get(k);
+        return (ld != &null) && (d == NameLookup::representative(ld));
+    }
+
+    /// `__builtin_type_id<T>()` -> T's panic type id, a `u32` literal
+    /// (PANIC.md §1.3; PanicSets is the one place an id is computed). A
+    /// compiler test hook: what a `catch e: T` will compare the tag with.
+    priv fn _type_id_of(self, n: *CallExpr) -> *Expr {
+        var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
+        ICE_IF((ie != &null) && (ie->args.size() != 1), "EnumLayoutLowering: __builtin_type_id instance without its one argument");
+        var id: u32 = 0;
+        if ie != &null { id = PanicSets(self.sc).type_id(ie->args[0]); }
+        if id == u32(0) {
+            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
+                "'__builtin_type_id' needs a type every TU spells the same way; this one depends on a generic parameter or has no C++ type");
+            b.first(n->range, "answered at compile time, before any instantiation");
+            b.emit();
+        }
+        var lit = self.synth.int_literal(n->range, u64(id), BuiltinKind::U32);
+        lit->adopt_sema(static_cast::<*Expr>(n));
+        return lit;
+    }
+
+    /// `__builtin_panic_site()` -> the id of the site this call is at, a
+    /// `u32` literal, registered in the TU's site table as a `panic` is
+    /// (PANIC.md §1.4). A compiler test hook until PanicLowering exists.
+    priv fn _panic_site_of(self, n: *CallExpr) -> *Expr {
+        var id = PanicSets(self.sc).site_id(n->range.start);
+        var lit = self.synth.int_literal(n->range, u64(id), BuiltinKind::U32);
         lit->adopt_sema(static_cast::<*Expr>(n));
         return lit;
     }
@@ -869,7 +1071,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             members.push(m);
             mvec.push_back(m);
             v->adt_member = m;
-            v->adt_ctor   = (AdtCtorForm::Lambda) if (v->is_pack_expansion) else (self._ctor_form(v, generic));
+            v->adt_ctor   = (AdtCtorForm::Lambda) if (v->is_pack_expansion || knobs.void_payload) else (self._ctor_form(v, generic));
         }
 
         var fields = self.list_builder::<*FieldDecl>();
@@ -886,7 +1088,19 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             fields.push(sf);
             en->adt_site_field = sf;
         }
-        en->adt_union_align = knobs.union_align;
+        en->adt_union_align = knobs.union_floor;
+        en->adt_void_unit   = knobs.void_payload;
+        if knobs.union_floor > 0 {
+            // The union's alignment, which is where every payload starts
+            // (PANIC.md §1.1a, §4.6: read from here, never assumed to be 8).
+            // Before the union: its `alignas` names it.
+            var po = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_payload_offset()),
+                                       StorageClass::Eval, self.sc->builtin(BuiltinKind::U32), u32(fields.size()));
+            self._place(static_cast::<*Decl>(po), edc, VisibilityKind::Public, at);
+            ldc->add_decl(static_cast::<*Decl>(po));
+            fields.push(po);
+            en->adt_payload_offset = po;
+        }
 
         // No name, and declared only by the field that holds it: its members
         // are the record's to C++, and that field is in no field_of chain
@@ -997,27 +1211,32 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             var tv = EnumVariantDecl::create(self.ctx, v->range, v->name, u32(i));
             self._place(static_cast::<*Decl>(tv), tdc, VisibilityKind::Public, v->name.range);
             tv->payload = create_empty_frozen_list::<*FieldDecl>();
-            // An explicit tag is the enumerator's value, which _enum_def
-            // writes because it is not the position.
-            if knobs->tag_values.size() > 0 {
-                tv->value.ok  = true;
-                tv->value.mag = knobs->tag_values[i];
-                v->adt_tag_value = knobs->tag_values[i];
-            }
             vs.push(tv);
         }
         vs.freeze_into(&(tag->variants));
-        en->adt_explicit_tags = knobs->tag_values.size() > 0;
+        // Type-id tags: a pack element's tag is no enumerator (it is its
+        // type's id, per instance); the pack variant's enumerator only
+        // names the variant, and nothing stores or compares it.
+        en->adt_explicit_tags = knobs->type_id_tags;
         return tag;
     }
 
     /// \p en's layout overrides (AdtLayoutKnobs), by identity with the lang
-    /// item that wants them -- never by name. None today: PanicLowering's
-    /// lang item will be the first, and every ADT gets the defaults.
+    /// item that wants them -- never by name: a user may declare an enum
+    /// called Panic. The Panic lang item (PANIC.md §1.1a): type-id tags in
+    /// a u32, the u32 site beside it (word 0, one 64-bit store), the union
+    /// at `max(8, alignof(...))`, and a `void` Ok.
     priv fn _knobs(self, en: *EnumDecl) -> AdtLayoutKnobs {
         var k = AdtLayoutKnobs();
-        ICE_IF((k.tag_values.size() != 0) && (k.tag_values.size() != en->variants.size()),
-               "EnumLayoutLowering: explicit tag values, not one per variant");
+        if PanicSets(self.sc).panic_enum() == en {
+            ICE_IF(adt_pack_variant(en) == &null, "EnumLayoutLowering: the Panic lang item without its pack-expanded Err; Lib/builtin declares it");
+            k.type_id_tags = true;
+            k.tag_kind_set = true;
+            k.tag_kind     = BuiltinKind::U32;
+            k.union_floor  = 8;
+            k.site_slot    = true;
+            k.void_payload = true;
+        }
         return k;
     }
 

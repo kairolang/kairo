@@ -63,6 +63,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::DeclFacts::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
+import Location::SourceRange::*;
 
 /// \class ConformanceRow
 /// \brief `(conformer, interface)` and, for each of the interface's OWN
@@ -159,10 +160,27 @@ class InstanceEntry {
     /// both with static_asserts beside the instantiation.
     pub var adt_shape:         u8  = 0;
     pub var adt_size:          u64 = 0;
+    /// An ADT instance whose pack elements are tagged by type id (the Panic
+    /// lang item, PANIC.md §1.3): each element's id, and the 64-bit hash of
+    /// its C++ spelling that keys its `__kairo_tid` specialization's guard,
+    /// in element order. Empty for every other instance. One writer,
+    /// EnumLayoutQuery::sweep; InterfaceEmitter writes the specializations.
+    pub var type_ids:          vec::<u32>;
+    pub var type_keys:         vec::<u64>;
+    /// Where its payloads start (the union's alignment), 0 unknown.
+    pub var payload_offset:    u64 = 0;
+    /// Where such an instance's set was first formed, and in which TU: the
+    /// one place its register-cliff remark (PANIC.md §1.1a) is reported.
+    /// One writer, the first former (PanicSets::note_formed).
+    pub var formed_at:         SourceRange = SourceRange::invalid();
+    pub var formed_fid:        u32 = u32(-1);
     fn InstanceEntry(self) { }
 }
 
 class InstantiationRegistry {
+    /// The same PackSetOrder the CanonicalTypeStore holds (one set order for
+    /// a type's identity and its entry). Set once by the driver.
+    pub var pack_order: *PackSetOrder = &null;
     priv var _arena: ArenaAllocator = ArenaAllocator(256 * 1024);
     priv var _mu:    std::SharedMutex;
     /// bucket hash -> entries. Every hit is confirmed by a structural compare.
@@ -609,8 +627,9 @@ class InstantiationRegistry {
     priv fn _set_args(self, primary: *Decl, args: *vec::<*Type>, scratch: *vec::<*Type>) -> *vec::<*Type> {
         if (args == &null) || (decl_pack_set_at(primary) == usize(-1)) { return args; }
         for var i: usize = 0; i < args->size(); ++i { scratch->push_back((*args)[i]); }
-        decl_dedup_pack_args(primary, scratch);
-        return (scratch) if (scratch->size() != args->size()) else (args);
+        decl_dedup_pack_args(primary, scratch, self.pack_order);
+        return scratch;   // fewer, or reordered (PackSetOrder).
+
     }
 
     /// Under the lock (either mode).

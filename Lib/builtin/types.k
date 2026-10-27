@@ -20,7 +20,16 @@ pub struct <T> RangeTo {
     var inclusive: bool
 }
 
-pub struct <T> Panic   { var value: T }
+/// What a `panic` function returns (PANIC.md §1.1): `Ok` with the declared
+/// return type, else one `Err` per type in the function's panic set. The
+/// compiler forms every instance (the set is deduplicated and sorted by type
+/// id) and lays it out itself: each tag is a type id, word 0 holds the tag
+/// and the panic site, and the payloads start at `max(8, alignof(...))`.
+/// User code does not name it (SC116E).
+pub enum <T, ...E> Panic {
+    Ok  { value: T },
+    Err { error: E }...,
+}
 pub struct PanicRaise { var payload: *void }
 pub struct PanicCatch { var payload: *void }
 pub enum Ordering derives i8 {

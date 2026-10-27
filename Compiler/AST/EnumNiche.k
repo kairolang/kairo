@@ -99,6 +99,16 @@ fn adt_tag_niche_count(en: *EnumDecl) -> u64 {
     return w - n;
 }
 
+/// The tag of a tagged ADT's niche pattern 0: the first value past its
+/// variants, pattern i being this plus i. The one place that arithmetic
+/// lives (EnumLayoutQuery's tests, InterfaceEmitter's niche constructor
+/// and test). Only meaningful while adt_tag_niche_count is nonzero, which
+/// rules out explicit (type-id) tags and pack-expanded variants, whose
+/// tags are not `0..N-1`.
+fn adt_first_spare_tag(en: *EnumDecl) -> u64 {
+    return u64(en->variants.size());
+}
+
 /// The variant that carries the payload of a niche-shaped ADT, and the
 /// position among the dataless ones of each other variant (its pattern).
 fn adt_niche_payload_variant(en: *EnumDecl) -> u32 {

@@ -1273,11 +1273,11 @@ class EnumVariantDecl derives Decl {
     pub var index:        u32 = 0;                ///< declaration order.
     pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
     pub var adt_ctor:     AdtCtorForm = AdtCtorForm::Lambda;  ///< how C++ builds it (AdtCtorForm); one writer, EnumLayoutLowering.
-    pub var adt_tag_value: u64 = 0;               ///< the tag this ADT variant is stored as: its position unless EnumDecl::adt_explicit_tags.
+    pub var adt_tag_value: u64 = 0;               ///< the tag this ADT variant is stored as: its position (a pack-expanded variant's, element 0's unless EnumDecl::adt_explicit_tags).
     /// `V { e: E }...`: one variant per element of the type pack its payload
-    /// names (PANIC.md §1.2). Element k's tag is adt_tag_value + k
-    /// (EnumLayoutQuery::tag_value_at); the payload's fields are the
-    /// pattern's, read at element k's type.
+    /// names (PANIC.md §1.2). Element k's tag is adt_tag_value + k, or with
+    /// EnumDecl::adt_explicit_tags its type id (EnumLayoutQuery::tag_value);
+    /// the payload's fields are the pattern's, read at element k's type.
     pub var is_pack_expansion: bool = false;
     pub var pack_range: SourceRange;              ///< the `...`, when is_pack_expansion.
     /// The variant's value: its discriminant's, else the previous variant's
@@ -1371,13 +1371,19 @@ class EnumDecl
     pub var adt_niche:       bool = false;
     pub var adt_which:       *FunctionDecl = &null;
     /// Lang-item layout overrides (EnumLayoutLowering::_knobs, spec
-    /// ENUMLAYOUT §7), all off by default: the tags are explicit values, not
-    /// positions (EnumVariantDecl::adt_tag_value), the payload union is
-    /// `alignas(adt_union_align)`, and `adt_site_field` is a u32 slot
-    /// between the tag and the union. One writer, EnumLayoutLowering.
+    /// ENUMLAYOUT §7), all off by default: a pack-expanded variant's
+    /// elements are tagged by type id (PANIC.md §1.3) instead of position,
+    /// so tags are not dense; the payload union is aligned to at least
+    /// `adt_union_align` (and its payloads'), which `adt_payload_offset`,
+    /// a compile-time member, states in C++; `adt_site_field` is a u32
+    /// slot between the tag and the union; a payload field whose type is a
+    /// bare parameter holds an empty struct for `void` (`adt_void_unit`).
+    /// One writer, EnumLayoutLowering.
     pub var adt_explicit_tags: bool = false;
     pub var adt_union_align:   u32  = 0;
     pub var adt_site_field:    *FieldDecl = &null;
+    pub var adt_payload_offset: *FieldDecl = &null;
+    pub var adt_void_unit:     bool = false;
     /// The tag in the payloads' common prefix (spec ENUMLAYOUT §6;
     /// EnumLayoutLowering's header): `adt_tag_member` is the union's
     /// tag-only member `__kairo_t`, `adt_prefix_tag` its one field, which
@@ -1406,6 +1412,8 @@ class EnumDecl
         node->adt_explicit_tags = false;
         node->adt_union_align   = 0;
         node->adt_site_field    = &null;
+        node->adt_payload_offset = &null;
+        node->adt_void_unit     = false;
         node->adt_tag_member    = &null;
         node->adt_prefix_tag    = &null;
         return node;
@@ -1427,6 +1435,8 @@ class EnumDecl
         node->adt_explicit_tags = false;
         node->adt_union_align   = 0;
         node->adt_site_field    = &null;
+        node->adt_payload_offset = &null;
+        node->adt_void_unit     = false;
         node->adt_tag_member    = &null;
         node->adt_prefix_tag    = &null;
         return node;

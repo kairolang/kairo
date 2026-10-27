@@ -467,6 +467,9 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-symbols",    "",  "print-symbols",    "dump the frozen per-DeclContext symbol tables (uses --print-ast style)",       false);
     cmd->define::<FlagKind::Bool>  ("preserve-comments","",  "preserve-comments","keep comments in the token stream; they reach the AST as annotations",         false);
     cmd->define::<FlagKind::Bool>  ("print-generics",   "",  "print-generics",   "dump every generic instantiation and its origin site",                        false);
+    cmd->define::<FlagKind::Bool>  ("print-panic-sets", "",  "print-panic-sets", "dump every Panic<T, E...> instance: its canonical set, each type id, and its layout",  false);
+    cmd->define::<FlagKind::Bool>  ("test-panic-type",  "",  "test-panic-type",  "compiler tests only: let source name the Panic<T, E...> lang item (SC116E otherwise)", false);
+    cmd->define::<FlagKind::I32>   ("test-panic-id-bits","", "test-panic-id-bits","compiler tests only: keep this many low bits of each panic type id, to force collisions", 32, 1, 32);
     cmd->define::<FlagKind::Bool>  ("verify-ir",        "",  "verify-ir",        "run LLVM IR verifier after codegen",                                           false);
     cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "print each macro expansion to stderr (no -v needed)",                         false);
     cmd->define::<FlagKind::String>("macro-debug-filter","",  "macro-debug-filter","requires --macro-debug; limit the trace to this macro name (without '!')",                        "");

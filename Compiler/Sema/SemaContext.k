@@ -145,6 +145,10 @@ class SemaOptions {
     pub var max_union_width:     i32 = 0;  ///< 0 = unlimited.
     pub var max_interface_impls: i32 = 0;  ///< 0 = unlimited.
     pub var max_extend_chain:    i32 = 0;  ///< 0 = unlimited.
+    /// Compiler test hooks for the Panic lang item (PANIC.md §7, P1): source
+    /// may name `Panic<...>`, and type ids keep only this many low bits.
+    pub var test_panic_type:    bool = false;
+    pub var test_panic_id_bits: i32  = 32;
 
     fn SemaOptions(self) { }
 
@@ -178,6 +182,8 @@ class SemaOptions {
         self.max_union_width     = ci->lang.max_union_width;
         self.max_interface_impls = ci->lang.max_interface_impls;
         self.max_extend_chain    = ci->lang.max_extend_chain;
+        self.test_panic_type     = ci->lang.test_panic_type;
+        self.test_panic_id_bits  = ci->lang.test_panic_id_bits;
     }
 
     /// Resolve a tri-state against its profile default.

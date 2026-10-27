@@ -424,6 +424,22 @@ the union's own, by runtime index. `__kairo_pu` (head/rest union, `get<K>`,
 trivial special members exactly when its members' are) is emitted once per
 TU that defines such an ADT (`__KAIRO_PACK_UNION` in a header).
 
+The `Panic` lang item (PANIC.md §1.1a, §1.6) is such an ADT with its
+layout knobs set: a u32 tag, a u32 `__kairo_site` beside it, the union
+`alignas(__kairo_payload_offset)` (a static constexpr member,
+`__kairo_max_align<P...>(8)`), and type-id tags. Its pack constructor
+stores `__kairo_type_id<__type_pack_element<K, E...>>`, and destroy /
+construct-from find the element by a fold over `__kairo_type_id<E>`. The
+ids are Sema's: each instance's elements get `template <> struct
+__kairo_tid<E> { value = 0x..u; }` after tier 0 (also for a kcc
+include's pruned instances), once per C++ TU (`InterfaceEmitter::
+tid_seen`, carried along an include chain; `__KAIRO_TID_<key>` in a
+header). `__kairo_tid`, `__kairo_type_id`, `__kairo_nv<T>` (a `void` Ok's
+payload) and `__kairo_max_align` are emitted once where such an ADT is
+defined (`__KAIRO_PANIC_HELPERS` in a header). A TU with panic sites
+gets `__kairo_panic_site` and EmitIR writes one record per site into the
+`__kairo_panic_sites` section (`__DATA,__kairo_psite` on Mach-O).
+
 The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
 1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
 eight more roles (AdtRole::NullDefault on, `InterfaceEmitter::

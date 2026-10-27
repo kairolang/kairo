@@ -142,6 +142,7 @@ import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
+import Sema::Type::PanicSets::*;
 import Sema::Sema::*;
 import Sema::SemaDump::*;
 import Sema::SemaContext::*;
@@ -253,6 +254,9 @@ class FrontendAction {
         Path::make_parent_dirs(path);
     }
 
+    /// --print-panic-sets (FrontendAction::_dump_panic_sets).
+    priv fn _dump_panic_sets(self);
+
     priv fn _fatal(self, id: DiagID, msg: string) -> bool;
     priv fn _load(self)        -> bool;
     priv fn _preprocess(self)  -> bool;
@@ -329,6 +333,7 @@ class CompilerInstance {
     priv var _hindex:  *HeaderIndex     = &null; ///< header set -> Kairo TUs; owned
     priv var _freg:    *ForeignRegistry = &null; ///< USR -> imported decl, build-wide; owned
     priv var _finst:   *ForeignInstantiate = &null; ///< fills instances of imported templates from clang; owned
+    priv var _ptids:   *PanicTypeIds = &null;       ///< the Panic set order every type formation applies (PANIC.md §1.3); owned.
     priv var _builtins: *BuiltinImport     = &null; ///< clang builtins as foreign decls, build-wide; owned
     priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
@@ -511,6 +516,14 @@ class CompilerInstance {
         // Borrows _hindex's target, _freg and the backend's oracle: first out.
         if self._builtins != &null { std::destroy(self._builtins); self._builtins = &null; }
         if self._finst  != &null { std::destroy(self._finst);  self._finst  = &null; }   // borrows _hindex.
+        if self._ptids  != &null {
+            if self._g_scope != &null {
+                self._g_scope->types()->pack_order     = &null;
+                self._g_scope->instances()->pack_order = &null;
+            }
+            std::destroy(self._ptids);
+            self._ptids = &null;
+        }
         if self._hindex != &null { std::destroy(self._hindex); self._hindex = &null; }
         if self._freg   != &null { std::destroy(self._freg);   self._freg   = &null; }
 
@@ -561,6 +574,7 @@ class CompilerInstance {
     fn headers(self)      -> *HeaderSetCache          { return self._headers; }
     fn header_index(self) -> *HeaderIndex             { return self._hindex;  }
     fn foreign_instantiate(self) -> *ForeignInstantiate { return self._finst; }
+    fn panic_type_ids(self) -> *PanicTypeIds { return self._ptids; }
     fn foreign_registry(self) -> *ForeignRegistry     { return self._freg;    }
     fn builtins(self)     -> *BuiltinImport           { return self._builtins; }
 
@@ -1482,6 +1496,12 @@ class CompilerInstance {
             self._sm, self._tcm, self._imp, self._pool,
             self._diag, self._g_scope, &self.invocation(), self.invocation().pp, self._headers);
         self._finst->psym = self._pp->get_symbol_table();
+        // Panic<i32, B, A> IS Panic<i32, A, B> wherever a type is formed
+        // (PANIC.md §1.3): one stateless orderer for the build's type store
+        // and registry, before any Sema pass forms one.
+        self._ptids = std::create::<PanicTypeIds>(self._finst->psym, self._g_scope->well_known(), self.invocation().lang.test_panic_id_bits);
+        self._g_scope->types()->pack_order     = static_cast::<*PackSetOrder>(self._ptids);
+        self._g_scope->instances()->pack_order = static_cast::<*PackSetOrder>(self._ptids);
     }
 
     /// Compiles all input files described by the invocation.
@@ -3792,6 +3812,7 @@ fn FrontendAction::_sema() -> bool {
     }
 
     if fe.print_imports { self._dump_overlays(); }
+    if fe.print_panic_sets { self._dump_panic_sets(); }
 
     // The EmitPlan is codegen's, but it reads only sema's resolved links, so
     // it can be built and dumped here without a backend. That is what makes
@@ -4272,6 +4293,37 @@ fn _overlay_vis_str(v: OverlayVisibility) -> string {
     if v == OverlayVisibility::Protected { return "prot"; }
     if v == OverlayVisibility::Private   { return "priv"; }
     return "?";
+}
+
+/// --print-panic-sets: every Panic<T, E...> instance the build formed
+/// (PANIC.md §1.3, §1.1a), by its C++ spelling: the canonical set in
+/// order with each type id, then the layout Sema predicted (size 0:
+/// not known before C++ lays it out). Sorted, for golden tests: the
+/// registry's own order is a hash order.
+fn FrontendAction::_dump_panic_sets() {
+    var ids = self._ci->panic_type_ids();
+    if ids == &null { return; }
+    var all = vec::<*InstanceEntry>();
+    self._global_scope->instances()->collect(all);
+    var rows = vec::<string>();
+    for var i: usize = 0; i < all.size(); ++i {
+        var e = all[i];
+        if (!ids->is_panic(e->primary)) || (e->type_ids.size() == 0) { continue; }
+        var p = e->args.size() - e->type_ids.size();
+        var t = ids->spelling(e->args[0]);
+        var r = f"Panic<{t}";
+        for var k: usize = p; k < e->args.size(); ++k { r += ", " + ids->spelling(e->args[k]); }
+        r += f">: size {e->adt_size}, payload offset {e->payload_offset}";
+        for var k: usize = 0; k < e->type_ids.size(); ++k {
+            r += "\n  " + ids->spelling(e->args[p + k]) + " = 0x" + hex32(e->type_ids[k]);
+        }
+        var at = rows.size();
+        rows.push_back(r);
+        while (at > 0) && (r < rows[at - 1]) { rows[at] = rows[at - 1]; at -= 1; }
+        rows[at] = r;
+    }
+    std::print("-- panic sets --");
+    for var i: usize = 0; i < rows.size(); ++i { std::print(rows[i]); }
 }
 
 /// Dump the built import overlays (phase I output): per fid, each folded name

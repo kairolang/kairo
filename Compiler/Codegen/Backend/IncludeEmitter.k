@@ -59,6 +59,9 @@ class IncludedDecls {
     pub var eval_helpers: bool = false; ///< InterfaceEmitter::have_eval_helpers
     pub var niche_helpers: bool = false; ///< InterfaceEmitter::have_niche_helpers
     pub var pack_union: bool = false;    ///< InterfaceEmitter::have_pack_union
+    pub var panic_helpers: bool = false; ///< InterfaceEmitter::have_panic_helpers
+    pub var site_type:  bool = false;    ///< InterfaceEmitter::have_site_type
+    pub var tid_seen:   vec::<u64>;      ///< InterfaceEmitter::tid_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
     /// a later include from defining X.
@@ -214,8 +217,12 @@ class IncludeEmitter {
         // the homes' explicit definitions are weak_odr, and the linker keeps
         // one.
         var fresh = vec::<PlanEntry>();
+        var pruned = vec::<*InstanceEntry>();
         for var i: usize = 0; i < plan.entries.size(); ++i {
-            if plan.entries[i].tier == PlanTier::Instantiations { continue; }
+            if plan.entries[i].tier == PlanTier::Instantiations {
+                if plan.entries[i].inst != &null { pruned.push_back(plan.entries[i].inst); }
+                continue;
+            }
             if seen->admit(&plan, &(plan.entries[i])) { fresh.push_back(plan.entries[i]); }
         }
         plan.entries = fresh;
@@ -227,6 +234,10 @@ class IncludeEmitter {
         ie.have_eval_helpers = seen->eval_helpers;
         ie.have_niche_helpers = seen->niche_helpers;
         ie.have_pack_union = seen->pack_union;
+        ie.have_panic_helpers = seen->panic_helpers;
+        ie.have_site_type = seen->site_type;
+        for var k: usize = 0; k < seen->tid_seen.size(); ++k { ie.tid_seen.push_back(seen->tid_seen[k]); }
+        for var k: usize = 0; k < pruned.size(); ++k { ie.pruned_insts.push_back(pruned[k]); }
         ie.run();
         seen->helpers    = ie.have_helpers;
         seen->ctor_slots = ie.have_ctor_slots;
@@ -234,6 +245,10 @@ class IncludeEmitter {
         seen->eval_helpers = ie.have_eval_helpers;
         seen->niche_helpers = ie.have_niche_helpers;
         seen->pack_union = ie.have_pack_union;
+        seen->panic_helpers = ie.have_panic_helpers;
+        seen->site_type = ie.have_site_type;
+        seen->tid_seen.clear();
+        for var k: usize = 0; k < ie.tid_seen.size(); ++k { seen->tid_seen.push_back(ie.tid_seen[k]); }
 
         var bodies = vec::<*FunctionDecl>();
         var all = plan.include_bodies();

@@ -86,6 +86,7 @@ import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 import AST::Context::InstantiationRegistry::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::PanicSets::*;
 import AST::ParamMode::*;
 
 ///
@@ -1444,6 +1445,27 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { dep = true; }
         }
 
+        // The Panic lang item (PANIC.md §1.1): the compiler forms every
+        // instance; source names one only under the test hook, and then its
+        // set is formed as the compiler forms one -- canonical, and checked
+        // for colliding type ids (PanicSets).
+        var psets = PanicSets(self.sc);
+        if psets.is_panic(canon) {
+            if (!self.sc->opts.test_panic_type) && (!self.sc->g->is_builtin_fid(self.sc->ctx->fid)) {
+                var b = self.sc->diag->report(DiagID::SC116E, seg->range.start,
+                    "a panic result type cannot be named yet; a panicking call is handled with 'try' or propagated");
+                b.first(seg->range, "'Panic' is the result type of a 'panic' function, written by the compiler");
+                b.note(DiagID::SC116N, canon->range.start, "the builtin result type, declared here").first(canon->range);
+                b.emit();
+                ct->poison();
+                return &null;
+            }
+            if (!dep) && psets.canonicalize(&args) && (!psets.check_collisions(seg->range, &args)) {
+                ct->poison();
+                return &null;
+            }
+        }
+
         // #12. A CONCRETE instance points at the decl that IS the instance:
         // the explicit spec if one was registered for these args, else the
         // implicit node minted on this first mention. A dependent use keeps
@@ -1457,7 +1479,9 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 self._ambiguous_partials(e, seg->range);
             }
         }
-        return self.sc->types->record(inst, &args);
+        var rt = self.sc->types->record(inst, &args);
+        if psets.is_panic(canon) && (!dep) { psets.note_formed(seg->range, rt); }
+        return rt;
     }
 
     // === Generic arguments ====================================================

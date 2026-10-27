@@ -95,6 +95,10 @@ fn canon_hash_u64(h: u64, v: u64) -> u64 {
 /// \brief Uniquing tables + the arena the canonical nodes live in.
 ///
 class CanonicalTypeStore {
+    /// How a lang item orders an expanded enum pack (DeclFacts::PackSetOrder;
+    /// the Panic item's type-id order). Set once by the driver, before Sema.
+    pub var pack_order: *PackSetOrder = &null;
+
     /// Canonical nodes outlive every fid, so they get their own arena rather
     /// than any ASTContext's. 256 KiB start: a large build interns a few
     /// thousand distinct type shapes, not hundreds of thousands.
@@ -222,8 +226,8 @@ class CanonicalTypeStore {
         var deduped = vec::<*Type>();
         if (args_in != &null) && (args_in->size() > 1) && (decl_pack_set_at(decl) != usize(-1)) {
             for var i: usize = 0; i < args_in->size(); ++i { deduped.push_back((*args_in)[i]); }
-            decl_dedup_pack_args(decl, &deduped);
-            if deduped.size() != args_in->size() { args = &deduped; }
+            decl_dedup_pack_args(decl, &deduped, self.pack_order);
+            args = &deduped;   // fewer, or reordered (PackSetOrder).
         }
 
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::RecordType)));

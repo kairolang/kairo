@@ -71,6 +71,16 @@ priv fn <B, E> pow(base: B, exp: E) -> B {
 /// replaces every call with the count, so this body never runs.
 pub eval fn <T> __builtin_niche_of() -> u64 = 0
 
+/// T's panic type id (PANIC.md §1.3): the tag an `Err` holding a T is
+/// stored as, the same in every TU. A compiler test hook, answered at
+/// compile time like __builtin_niche_of.
+pub eval fn <T> __builtin_type_id() -> u32 = 0
+
+/// The panic site id of this call (PANIC.md §1.4), registered in the TU's
+/// `__kairo_panic_sites` table as a `panic` would be. A compiler test hook:
+/// EnumLayoutLowering replaces every call with the id.
+pub fn __builtin_panic_site() -> u32 = 0
+
 /// `unwrap!(x)` on null (NULLABLE.md 2.6): `msg` (the expression and where
 /// it is, built at compile time) to stderr, then abort. A lang item the
 /// lowering calls; `-> !` makes the null arm of the expansion `Never`. Not

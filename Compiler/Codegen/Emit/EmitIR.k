@@ -179,6 +179,45 @@ class EmitIR {
         }
 
         for var i: usize = 0; i < vis.size(); ++i { if !vis[i]->is_eval() { self._visible_body(vis[i]); } }
+        self._panic_sites(tu);
+    }
+
+    /// The TU's panic site table (PANIC.md §1.4; TranslationUnit::
+    /// panic_sites): one `__kairo_panic_site {id, line, col, file}` per site
+    /// in the linker-collected `__kairo_panic_sites` section, which the
+    /// lookup searches by id. Internal and `used`: every TU keeps its own
+    /// records, so a `.k` that kcc includes into several TUs has its sites
+    /// written once per TU, as identical records -- the lookup treats equal
+    /// records as one site, and only differing records with one id as the
+    /// ambiguity it prints in full.
+    priv fn _panic_sites(self, tu: *TranslationUnit) {
+        if tu->panic_sites.size() == 0 { return; }
+        var at  = self._cg->ctx->sm->get_range(tu->fid, 0, 1);   // a TU with a site has a byte 0.
+        var st  = LowerTargets::panic_site_type();   // InterfaceEmitter defines it.
+        var sec = LowerTargets::panic_sites_section();
+        var ci  = self._cg->ctx->ci;
+        if (ci != &null) && (ci->target.object_format == "Mach-O") { sec = LowerTargets::panic_sites_section_macho(); }
+        var sm = self._cg->ctx->sm;
+        for var i: usize = 0; i < tu->panic_sites.size(); ++i {
+            var r = tu->panic_sites[i];
+            var lc = sm->get_line_col(r.at);
+            var path = sm->get_filename(r.at);
+            var lit = "\"";
+            for var j: usize = 0; j < path.size(); ++j {
+                var b = u8(path[j]);
+                if b == 0x22 { lit += "\\\""; continue; }
+                if b == 0x5c { lit += "\\\\"; continue; }
+                if (b >= 0x20) && (b < 0x7f) { lit += static_cast::<char>(b); continue; }
+                lit += "\\";
+                lit += static_cast::<char>('0' + ((b >> 6) & 7));
+                lit += static_cast::<char>('0' + ((b >> 3) & 7));
+                lit += static_cast::<char>('0' + (b & 7));
+            }
+            lit += "\"";
+            self._cg->sink->spell(at, "[[gnu::used, gnu::section(\"" + sec + "\")]] static const ::" + st + " " + LowerTargets::panic_site_record(r.key)
+                + " = { " + f"{r.id}" + "u, " + f"{lc.line}" + "u, " + f"{lc.column}" + "u, " + lit + " };");
+        }
+        self._cg->sink->brk();
     }
 
     /// Every template and inline definition visible here (EmitPlan::

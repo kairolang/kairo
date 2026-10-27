@@ -73,6 +73,11 @@ class CXXSpell {
     /// spells there as that element, LowerTargets::adt_pack_elem(). Null
     /// everywhere else.
     pub var pack_alias:    *GenericParamDecl = &null;
+    /// While InterfaceEmitter writes the payload structs of an ADT whose
+    /// layout holds a `void` argument as an empty struct (EnumDecl::
+    /// adt_void_unit, the Panic lang item): that enum, whose own non-pack
+    /// parameters spell as `::__kairo_nv<T>` there. Null everywhere else.
+    pub var void_unit_owner: *Decl = &null;
 
     fn CXXSpell(self) { self._cg = &null; }
     fn CXXSpell(self, cg: *CodegenContext) { self._cg = cg; }
@@ -1397,6 +1402,9 @@ class CXXSpell {
         var gps = decl_generic_params(owner);
         if (static_cast::<usize>(g->param_index) >= gps.size()) { self._ice(owner->range, "CXXSpell: generic param index out of range"); }
         var nm = self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
+        if (!g->is_pack) && (self.void_unit_owner != &null) && (CXXSpell::rep(self.void_unit_owner) == owner) {
+            return "::" + LowerTargets::void_unit() + "<" + nm + ">";
+        }
         return (nm + "...") if (g->is_pack) else (nm);
     }
 }

@@ -65,6 +65,10 @@ class LangOptions {
     pub var no_fp:           bool = false;
     pub var freestanding:    bool = false;
 
+    // -- compiler test hooks (PANIC.md §7, P1) -------------------------------
+    pub var test_panic_type:    bool = false;  ///< --test-panic-type: source may name Panic<...>.
+    pub var test_panic_id_bits: i32  = 32;     ///< --test-panic-id-bits: type ids masked to this many bits.
+
     // -- sema / type system limits (from --c* config flags) ----------------
     pub var max_generic_depth:     i32 = 256;
     pub var max_generic_backtrace: i32 = 16;
@@ -112,6 +116,8 @@ class LangOptions {
         // no-default-libs in LinkerOptions, where their consumers read them;
         // a second copy here had no reader and could only drift.
         (o.freestanding)    = args.get_bool("freestanding");
+        (o.test_panic_type)    = args.get_bool("test-panic-type");
+        (o.test_panic_id_bits) = args.get_i32("test-panic-id-bits");
 
         // -- feature toggles -----------------------------------------------
         (o.verify_interfaces)   = (args.get_feature("verify-interfaces"));

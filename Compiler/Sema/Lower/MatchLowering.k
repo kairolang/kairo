@@ -938,7 +938,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     /// A case value: the enumerator, or for an ADT the variant's stored
     /// discriminant (EnumLayoutQuery::tag_case).
     priv fn _enum_case(self, en: *EnumDecl, index: u32, ty: *Type) -> *Expr {
-        if en->is_adt { return self.layout.tag_case(self._at, en, index); }
+        if en->is_adt { return self.layout.tag_case(self._at, ty, en, index); }
         return self._decl_ref(static_cast::<*Decl>(en->variants[usize(index)]), ty);
     }
 
