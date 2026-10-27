@@ -265,9 +265,11 @@ Per-Action pipeline (parallelism shown explicitly):
         |  init, script, panic, finally, nullable,        |   listed in RESOLUTION.md §2.10)
         |  operators, f-strings, iteration, match, ...).  |
         |                                                 |
-        |  Monomorphization: M1 (enumerate the instances  |   Sema/Mono/Monomorphization.k
-        |  T and X minted; Codegen emits each as a clang  |
-        |  specialization) works. M2,                     |
+        |  Monomorphization: both stages are stubs        |   Sema/Mono/Monomorphization.k
+        |  (Sema.k's M1/M2 slots are TODOs). Instances    |   AST/Context/
+        |  are minted by T and X into the registry, and   |   InstantiationRegistry.k
+        |  EmitPlan homes each directly instantiated one  |
+        |  as a clang specialization. M2,                 |
         |  the sync point that re-checks each instance of |
         |  a generic body (dependent conformance,         |
         |  `T::Item`, requires-dispatch, per-instance     |
