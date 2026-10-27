@@ -1,16 +1,12 @@
 // A class conforming with an inline `impl` clause calls its own method
 // directly (interfaces.md, Conformance; RESOLUTION.md §2b: conformance
 // methods are ordinary members at lookup). `extend X impl I` and
-// structural conformance already work; the inline clause is the case here.
-//
-// XFAIL: *
-// Waiting on MemberLookup / overload resolution not offering the
-// interface's bodiless requirement beside the method that implements it:
-// _walk_record step 3 walks `implements` and appends I's requirement, so
-// every direct call is SC064E "ambiguous" -- by value, through a pointer,
-// on `self`, and for a static requirement via X::id().
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// structural conformance always worked; the inline clause is the case here.
+// MemberLookup::_walk_record used to walk `implements` and offer I's
+// bodiless requirement beside X's method, so every direct call was SC064E
+// "ambiguous" -- by value, through a pointer, on `self`, and for a static
+// requirement via X::id(). Interfaces have no default bodies, so the walk
+// no longer visits them.
 
 interface I {
     fn f(self) -> i32
@@ -28,7 +24,7 @@ fn main() -> i32 {
     var r = 0
     var x = X()
     if x.f() == 1 { r += 1 }
-    var p = &x
+    var *p = &x
     if p->f() == 1 { r += 2 }
     if X::id() == 4 { r += 4 }
     if via_bound(X()) == 1 { r += 8 }           // works today; keeps the bound path honest

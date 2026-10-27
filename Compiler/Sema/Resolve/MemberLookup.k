@@ -337,24 +337,20 @@ class MemberLookup {
             }
         }
 
-        // 3. bases and implemented interfaces (default bodies join the set).
+        // 3. bases. NOT the interfaces an `impl` clause names: an interface
+        //    has no default bodies (interfaces.md), so each requirement is
+        //    met by a member this walk already finds (own, extension or
+        //    base), and the bodiless requirement beside it made every direct
+        //    call `x.f()` an SC064E tie between the two. A bounded receiver
+        //    reaches requirements through its bounds, not through here.
         if isa::<ClassDecl>(d) {
             var cd = cast::<ClassDecl>(d);
             for var i: usize = 0; i < cd->derives_list.size(); ++i {
                 self._walk_edge(cd->derives_list.get(i), name, out, seen);
             }
-            for var i: usize = 0; i < cd->implements.size(); ++i {
-                self._walk_edge(cd->implements.get(i), name, out, seen);
-            }
             return;
         }
-        if isa::<StructDecl>(d) {
-            var sd = cast::<StructDecl>(d);
-            for var i: usize = 0; i < sd->implements.size(); ++i {
-                self._walk_edge(sd->implements.get(i), name, out, seen);
-            }
-            return;
-        }
+        if isa::<StructDecl>(d) { return; }
         if isa::<InterfaceDecl>(d) {
             var id = cast::<InterfaceDecl>(d);
             for var i: usize = 0; i < id->derives_list.size(); ++i {

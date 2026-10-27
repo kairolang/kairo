@@ -12,9 +12,8 @@
 // -- UNCONDITIONALLY, with no signature comparison. So the C++ split
 // between "field found in multiple bases: error" and "static member found
 // in multiple bases: okay" isn't quite the shape here: in Kairo, ANY
-// all-FunctionDecl result (same signature, different signature, one from
-// a base and one from an interface it implements) is a deferred overload
-// set, never an ambiguity error -- only a genuine multiple-non-function
+// all-FunctionDecl result (same signature, different signature, from
+// two bases) is a deferred overload set, never an ambiguity error -- only a genuine multiple-non-function
 // clash (two fields, or a field and a nested type, etc.) is ambiguous.
 // That distinction -- not fn-vs-fn signature compatibility -- is the line
 // this file draws.
@@ -69,13 +68,12 @@ class Combined derives WithF1, WithF2 {
 fn use_combined_fn(c: Combined) -> i32 { return c.f() }
 
 // ---------------------------------------------------------------------------
-// CASE 3 (positive): an interface's ABSTRACT method declaration and the
-// implementing class's CONCRETE definition of the same name are two
-// separate FunctionDecls reachable from the same anchor (the interface's
-// signature is never "satisfied and removed" from lookup -- there is no
-// virtual-dispatch slot-filling at this layer, RESOLUTION.md §2b: "Virtual
-// dispatch is NOT a lookup problem... [MISSING]"). Also not ambiguous, for
-// the same all-fn reason as CASE 2.
+// CASE 3 (positive): an interface's bodiless requirement and the
+// implementing class's definition of the same name. Interfaces have no
+// default bodies, so member lookup does not walk an `impl` clause: the
+// requirement is never a candidate beside the method that meets it, and
+// `.shout` binds outright to D's own (it used to be a 2-candidate set that
+// overload resolution then called ambiguous, SC064E).
 
 interface Shout {
     fn shout(self) -> i32;
@@ -110,9 +108,8 @@ fn use_d(d: D) -> i32 { return d.shout() + d.x }
 // SEMA:      fn use_combined_fn  @
 // SEMA:        member  .f  {{.*}} -> 2 candidate(s), awaiting overload resolution
 
-// CASE 3: `.shout` reaches BOTH the interface signature and D's own
-// definition as a deferred 2-candidate set; `.x` (an ordinary inherited
-// field, no interface involvement) binds outright.
+// CASE 3: `.shout` binds outright to D's own definition; `.x` (an
+// ordinary inherited field, no interface involvement) binds outright too.
 // SEMA:      fn use_d  @
-// SEMA:        member  .shout  {{.*}} -> 2 candidate(s), awaiting overload resolution
+// SEMA:        member  .shout  {{.*}} -> fn shout @ {{[0-9]+}}:9  [member of D]
 // SEMA:        member  .x  {{.*}} -> field x {{.*}}

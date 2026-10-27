@@ -1542,6 +1542,11 @@ body whose member resolves to an EXTENSION member is an error there (see
 
 **MERGE, not hide** [DONE]. `MemberLookup::lookup(canonical, name, out)`
 walks own table -> extensions -> bases breadth-first, deduped, UNION.
+The interfaces an `impl` clause names are NOT walked: an interface has no
+default bodies, so each requirement is met by a member the walk already
+finds, and offering the bodiless requirement beside it made every direct
+call `x.f()` an SC064E tie. A bounded receiver reaches requirements
+through its bounds.
 
 **Extensions** [DONE]: indexed once per run over every parsed TU. Records
 keyed by `RecordType::decl` (the primary for `extend <T> Vec<T>`); an
