@@ -24,6 +24,21 @@
 ///     A function-body `eval if` EvalIfFolding could not fold is C++ `if
 ///     constexpr`: its condition must still be eval-able.
 ///
+///     The restriction table (eval.mdx, Restrictions), in an eval CONTEXT --
+///     an `eval fn`'s body, an `eval` binding's or field's initializer:
+///       - a call only of an `eval fn` / eval constructor / eval operator
+///         (fix-it: `eval` on the callee, when it is the user's); this is
+///         also what keeps IO out;
+///       - no pointer types or operations (`&x`, `*p`, `->`, a pointer
+///         parameter);
+///       - no heap allocation (a vector, set or map value);
+///       - no `await`, `spawn`, `thread`, `panic`;
+///       - no mutable global, static or thread variable, and no non-eval
+///         global at all (a `const` global is initialized at run time);
+///         in an initializer outside an eval fn, no run-time local either;
+///       - no local of a type with a user-written destructor;
+///       - an `eval fn` has no `where` clause (eval.mdx: `requires` only).
+///
 ///     Eval-able: literals; `sizeof` / `alignof` / `typeof`; builtin
 ///     operators and casts over eval-able operands; an `eval` variable or
 ///     field; a generic value parameter; an enclosing `eval for`'s binding
@@ -88,6 +103,11 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     priv var _ef_iters: vec::<*Expr>;
     /// `eval for` bodies around the walk (outside an eval fn).
     priv var _ef_depth: u32 = 0;
+    /// > 0 inside an eval CONTEXT (file header): an eval fn's body or an
+    /// eval initializer. `_ctx_fn` > 0 when one of them is an eval fn's,
+    /// where the function's own locals and parameters are compile-time too.
+    priv var _ctx:    u32 = 0;
+    priv var _ctx_fn: u32 = 0;
 
     fn EvalUsageChecking(self, sc: *SemaContext) {
         self.sc = sc;
@@ -115,10 +135,233 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         self._fns.push_back(n);
         var sd = self._ef_depth;
         self._ef_depth = 0;
+        var ev = n->is_eval() && (!n->is_implicit);
+        if ev { self._check_eval_fn(n); self._ctx += 1; self._ctx_fn += 1; }
         var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_function_decl(n);
+        if ev { self._ctx -= 1; self._ctx_fn -= 1; }
         self._ef_depth = sd;
         self._fns.pop_back();
         return r;
+    }
+
+    /// An `eval` binding's initializer is an eval context.
+    fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
+        if n->is_eval() && (n->init != &null) {
+            self._ctx += 1;
+            var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_variable_decl(n);
+            self._ctx -= 1;
+            return r;
+        }
+        if self._ctx_fn > 0 { self._check_local(n); }
+        return RecursiveASTVisitor::<EvalUsageChecking>::traverse_variable_decl(n);
+    }
+
+    fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
+        if n->is_eval() && (n->init != &null) {
+            self._ctx += 1;
+            var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_field_decl(n);
+            self._ctx -= 1;
+            return r;
+        }
+        return RecursiveASTVisitor::<EvalUsageChecking>::traverse_field_decl(n);
+    }
+
+    // === the restriction table ==============================================
+
+    /// The signature of an eval fn: no `where`, no pointer parameter.
+    priv fn _check_eval_fn(self, n: *FunctionDecl) {
+        var nm = self.tu.decl_name(static_cast::<*Decl>(n));
+        if n->where_clause != &null {
+            var b = self.sc->diag->report(DiagID::SC001E, n->where_clause->range.start,
+                f"an 'eval' function cannot have a 'where' clause; bound '{nm}' with 'requires\x27");
+            b.first(n->where_clause->range);
+            b.emit();
+        }
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var p = n->params[i];
+            if (p == &null) || p->is_self || (p->type_ == &null) || (p->type_->canonical == &null) { continue; }
+            if !isa::<PointerType>(canon_unqual(p->type_->canonical)) { continue; }
+            var pn = self.sc->ctx->get_spelling(p->name);
+            var b = self.sc->diag->report(DiagID::SC001E, p->range.start,
+                f"an 'eval' function cannot take a pointer; '{pn}' is '{self.tu.str(p->type_->canonical)}\x27: there is no addressable memory at compile time");
+            b.first(p->range);
+            b.emit();
+        }
+    }
+
+    /// A local of an eval fn: no pointer, no type with a destructor, no
+    /// static / thread storage.
+    priv fn _check_local(self, n: *VariableDecl) {
+        var nm = self.sc->ctx->get_spelling(n->name);
+        if n->is_static() || n->is_thread {
+            self._err(n->name.range, f"an 'eval' function cannot declare a static or thread variable; '{nm}' outlives the evaluation");
+            return;
+        }
+        if (n->type_ == &null) || (n->type_->canonical == &null) { return; }
+        var c = canon_unqual(n->type_->canonical);
+        if isa::<PointerType>(c) {
+            self._err(n->name.range, f"an 'eval' function cannot hold a pointer; '{nm}' is '{self.tu.str(c)}\x27: there is no addressable memory at compile time");
+            return;
+        }
+        var d = self.tu.record_decl(c);
+        var dtor = self._user_dtor(d);
+        if dtor != &null {
+            var b = self.sc->diag->report(DiagID::SC001E, n->name.range.start,
+                f"'{nm}' is a '{self.tu.str(c)}', whose destructor is not trivial; it cannot live in an 'eval' function");
+            b.first(n->name.range);
+            b.note(DiagID::SC001N, dtor->range.start, "the destructor is declared here").first(dtor->range);
+            b.emit();
+        }
+    }
+
+    /// \p d's user-written `op delete`, or null.
+    priv fn _user_dtor(self, d: *Decl) -> *FunctionDecl {
+        if d == &null { return &null; }
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d) { ms = &(cast::<ClassDecl>(d)->methods); }
+        else if isa::<StructDecl>(d) { ms = &(cast::<StructDecl>(d)->methods); }
+        if ms == &null { return &null; }
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m == &null) || (!m->is_operator) || (m->op_token.size() == 0) { continue; }
+            if m->op_token[0].kind != TokenKind::KwDelete { continue; }
+            if m->body_kind == FnBodyKind::Default { continue; }
+            return m;
+        }
+        return &null;
+    }
+
+    /// A call in an eval context: of an eval fn, an eval constructor, or a
+    /// struct's implicit one.
+    priv fn _check_ctx_call(self, n: *CallExpr) {
+        var f = self._callee_fn(n);
+        if f == &null { return; }      // a constructor no one wrote, or untyped: nothing to say.
+        if f->is_eval() { return; }
+        var nm  = self.tu.decl_name(static_cast::<*Decl>(f));
+        var what = ("constructor") if (n->ctor_decl != &null) else ("function");
+        var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
+            f"an eval context can call only 'eval' functions; '{nm}' is a {what} that is not 'eval\x27");
+        b.first(n->range);
+        b.note(DiagID::SC001N, f->range.start, f"'{nm}' is declared here").first(f->range);
+        if (!self._foreign(static_cast::<*Decl>(f))) && (!f->is_implicit) && (f->body_kind == FnBodyKind::Block) {
+            b.insert(f->range.start, "eval ", f"make '{nm}' an 'eval fn\x27");
+        }
+        b.emit();
+    }
+
+    /// A name in an eval context: a compile-time value (_eval_decl), or,
+    /// in an eval fn, one of its locals or parameters.
+    priv fn _check_ctx_name(self, e: *Expr, d: *Decl) {
+        if d == &null { return; }
+        if self._eval_decl(d) { return; }
+        if isa::<ParamDecl>(d) { return; }        // a parameter of the eval fn (else not in an eval context).
+        var vd = dyn_cast::<VariableDecl>(d);
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (vd == &null) && (fd == &null) { return; }
+        var global = (fd != &null) && fd->is_static();
+        if vd != &null { global = self._is_global(vd); }
+        if (!global) && (self._ctx_fn > 0) { return; }   // the eval fn's own local.
+        if (fd != &null) && (!global) { return; }        // a member through `self` of an eval method.
+        var nm = self.tu.decl_name(d);
+        var why = ("a run-time local") if (!global) else ("a global, static or thread variable that is not 'eval\x27");
+        var b = self.sc->diag->report(DiagID::SC001E, e->range.start,
+            f"an eval context reads only compile-time values; '{nm}' is {why}");
+        b.first(e->range);
+        b.note(DiagID::SC001N, d->range.start, f"'{nm}' is declared here").first(d->range);
+        if (vd != &null) && (vd->storage == StorageClass::Const) && (!vd->const_binding) && vd->storage_kw.is_valid() && global {
+            b.fix(vd->storage_kw, "eval", f"declare '{nm}' as 'eval\x27");
+        }
+        b.emit();
+    }
+
+    priv fn _is_global(self, vd: *VariableDecl) -> bool {
+        if vd->is_static() || vd->is_thread { return true; }
+        var dc = reinterpret_cast::<*DeclContext>(vd->semantic_dc);
+        if dc == &null { return false; }
+        if dc->is_translation_unit() { return true; }
+        var o = dc->owner_decl();
+        return (o != &null) && isa::<ModuleDecl>(o);
+    }
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if self._ctx == 0 { return true; }
+        self._check_ctx_name(static_cast::<*Expr>(n), n->resolved_decl);
+        return true;
+    }
+
+    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
+        if self._ctx == 0 { return true; }
+        var k = n->op_token.kind;
+        if (n->resolved_op == &null) && ((k == TokenKind::OpAmp) || (k == TokenKind::OpStar)) {
+            self._err(n->range, "an eval context cannot take an address or dereference a pointer; there is no addressable memory at compile time");
+            return true;
+        }
+        if (n->resolved_op != &null) && isa::<FunctionDecl>(n->resolved_op) && (!cast::<FunctionDecl>(n->resolved_op)->is_eval()) {
+            self._op_not_eval(n->range, cast::<FunctionDecl>(n->resolved_op));
+        }
+        return true;
+    }
+
+    fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
+        if self._ctx == 0 { return true; }
+        if (n->resolved_op != &null) && isa::<FunctionDecl>(n->resolved_op) && (!cast::<FunctionDecl>(n->resolved_op)->is_eval()) {
+            self._op_not_eval(n->range, cast::<FunctionDecl>(n->resolved_op));
+        }
+        return true;
+    }
+
+    priv fn _op_not_eval(self, at: SourceRange, f: *FunctionDecl) {
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            "an eval context can use only 'eval' operators; this one is not 'eval\x27");
+        b.first(at);
+        b.note(DiagID::SC001N, f->range.start, "the operator is declared here").first(f->range);
+        if !self._foreign(static_cast::<*Decl>(f)) { b.insert(f->range.start, "eval ", "make it 'eval\x27"); }
+        b.emit();
+    }
+
+    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
+        if self._ctx == 0 { return true; }
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if (st->access_kind == ChainExpr::AccessKind::Arrow) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) {
+                self._err(n->range, "an eval context cannot follow a pointer ('->'); there is no addressable memory at compile time");
+                return true;
+            }
+        }
+        var d: *Decl = &null;
+        if n->steps.size() > 0 {
+            var st = n->steps.get(n->steps.size() - 1);
+            d = st->resolved_decl;
+        }
+        if (d != &null) && (isa::<VariableDecl>(d) || (isa::<FieldDecl>(d) && cast::<FieldDecl>(d)->is_static())) {
+            self._check_ctx_name(static_cast::<*Expr>(n), d);
+        }
+        return true;
+    }
+
+    fn visit_expr(self, e: *Expr) -> bool {
+        if (self._ctx == 0) || (e->type_ == &null) { return true; }
+        var t = e->type_;
+        if self.tu.is_vector_like(t) || self.tu.is_set_like(t) || self.tu.is_map_like(t) {
+            self._err(e->range, f"an eval context cannot allocate; a '{self.tu.str(t)}' needs the heap, which compile time does not have");
+            return false;
+        }
+        return true;
+    }
+
+    fn visit_await_expr(self, n: *AwaitExpr) -> bool {
+        if self._ctx > 0 { self._err(n->range, "an eval context cannot 'await'; there is no scheduler at compile time"); }
+        return true;
+    }
+
+    fn visit_spawn_expr(self, n: *SpawnExpr) -> bool {
+        if self._ctx > 0 { self._err(n->range, "an eval context cannot 'spawn'; there is no scheduler at compile time"); }
+        return true;
+    }
+
+    fn visit_panic_stmt(self, n: *PanicStmt) -> bool {
+        if self._ctx > 0 { self._err(n->range, "an eval context cannot 'panic'; there is no error handler at compile time"); }
+        return true;
     }
 
     priv fn _in_eval_fn(self) -> bool {
@@ -258,6 +501,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     // === eval generators ====================================================
 
     fn visit_call_expr(self, n: *CallExpr) -> bool {
+        if self._ctx > 0 { self._check_ctx_call(n); }
         var f = self._callee_fn(n);
         if (f == &null) || (!f->is_eval()) || (!f->is_generator) { return true; }
         var e = static_cast::<*Expr>(n);
@@ -381,6 +625,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
 
     /// The function a call selected, or null.
     priv fn _callee_fn(self, c: *CallExpr) -> *FunctionDecl {
+        if (c->ctor_decl != &null) && isa::<FunctionDecl>(c->ctor_decl) { return cast::<FunctionDecl>(c->ctor_decl); }
         var e = self.tu.strip_parens(c->callee);
         if e == &null { return &null; }
         var d: *Decl = &null;
@@ -393,7 +638,6 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
                 if (d == &null) && (st->name != &null) { d = st->name->resolved_decl; }
             }
         }
-        if (d == &null) && (c->ctor_decl != &null) { d = c->ctor_decl; }
         return dyn_cast::<FunctionDecl>(d);
     }
 
