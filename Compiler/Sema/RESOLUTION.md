@@ -1372,7 +1372,8 @@ ICE on a top-level statement means this pass did not run.
 PanicLowering [DONE, P6] (PANIC.md §4). A panic is a returned value. A
 function whose final set is not empty returns `Panic<T, E...>`, formed with
 PanicSets::form and recorded as `FunctionDecl::panic_result` (an
-override's is its base method's; a closure's on the ClosureExpr, a `fn`
+override's is its base method's, a conforming method's its interface
+requirement's; a closure's on the ClosureExpr, a `fn`
 type's on its canonical node); `return_type` stays T, because an
 importer's X reads it after this TU lowered. `return x` builds Ok, `panic
 X` builds the Err with its site id; a call that may panic is held in a

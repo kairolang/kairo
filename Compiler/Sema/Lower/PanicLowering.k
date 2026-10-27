@@ -85,6 +85,7 @@ import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::PanicSets::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::MemberLookup::*;
 import Sema::Check::EffectPropagation::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::EnumLayoutLowering::*;
@@ -93,6 +94,7 @@ import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::LangItems::*;
 import AST::Context::DeclContext::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::Expressions::*;
@@ -126,8 +128,9 @@ struct PanicHolder {
 }
 
 /// A call that may panic: the call, its result type, and whether its set
-/// is non-empty (an override of a panicking base returns the base's result
-/// even when its own body cannot panic: nothing to test then).
+/// is non-empty (an override of a panicking base, or a conformer of a
+/// panicking requirement, returns the base's or requirement's result even
+/// when its own body cannot panic: nothing to test then).
 struct PanicCall {
     var call:  *CallExpr = &null;
     var rc:    *Type = &null;
@@ -162,6 +165,10 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     priv var _cxx_depth: i32 = 0;
     priv var _fn_r: *Type = &null;           ///< the current body's result, or null when it does not panic.
     priv var _fn_t: *Type = &null;           ///< its value type T.
+    /// The extension index, built on the first conforming-method question
+    /// (_requirement_of): most TUs never ask it.
+    priv var _ml: MemberLookup;
+    priv var _ml_ready: bool = false;
 
     fn PanicLowering(self, sc: *SemaContext) {
         self.sc    = sc;
@@ -189,7 +196,8 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     /// What C++ sees \p f return: `Panic<T, E...>` over its final set, or
     /// null when it does not panic. An override returns its base method's
     /// (C++ requires the same return type through the vtable; its own set is
-    /// a subset, §2.10). Recorded on the decl when it is this TU's.
+    /// a subset, §2.10), a conforming method its requirement's (the
+    /// witness). Recorded on the decl when it is this TU's.
     priv fn _result_of(self, f: *FunctionDecl) -> *Type {
         if f == &null { return &null; }
         if f->panic_result != &null { return f->panic_result; }
@@ -207,12 +215,59 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
                 }
             }
         }
+        // A conforming method returns its requirement's result, for the
+        // override's reason: the witness forwards `self->m(...)` as the
+        // requirement's type, and its `requires` test names that exact
+        // member pointer type, so a smaller set (even none) cannot change it.
+        var req = self._requirement_of(f);
+        if req != &null {
+            var qr = self._result_of(req);
+            if qr != &null { return self._store(f, qr); }
+        }
         var set = vec::<*Type>();
         if panic_set_of_fn(&(self.tu), f, &set) != PanicKnown::Set { return &null; }
         var at = (f->name.range) if (f->name.range.is_valid()) else (f->range);
         var r = PanicSets(self.sc).form(at, self._value_type(f->return_type), &set);
         if r == &null { return &null; }
         return self._store(f, r);
+    }
+
+    /// The interface requirement \p f implements, from the conformance rows
+    /// ConformanceChecking recorded: those declared by \p f's owner (`class
+    /// X impl I`, `extend X impl I` holding it) and, for a record's own
+    /// method, by its extensions (`extend X impl I` met by X's member).
+    /// Null for a method that implements none. The first row wins; one
+    /// method meeting two requirements with different sets is ticketed.
+    priv fn _requirement_of(self, f: *FunctionDecl) -> *FunctionDecl {
+        if self.sc->instances == &null { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (dc->owner_decl() == &null) { return &null; }
+        var owner = NameLookup::representative(dc->owner_decl());
+        var by = vec::<*Decl>();
+        if isa::<ExtensionDecl>(owner) {
+            by.push_back(owner);
+        } else if isa::<ClassDecl>(owner) || isa::<StructDecl>(owner) {
+            by.push_back(owner);
+            if !self._ml_ready { self._ml = MemberLookup(self.sc); self._ml.index_extensions(); self._ml_ready = true; }
+            var exts = self._ml.extensions_of_decl(owner);
+            if exts != &null { for var i: usize = 0; i < exts->size(); ++i { by.push_back(static_cast::<*Decl>((*exts)[i])); } }
+        } else {
+            return &null;
+        }
+        var me = NameLookup::representative(static_cast::<*Decl>(f));
+        var rows = vec::<*ConformanceRow>();
+        for var i: usize = 0; i < by.size(); ++i { self.sc->instances->declared_rows(by[i], &rows); }
+        for var r: usize = 0; r < rows.size(); ++r {
+            var row = rows[r];
+            if row == &null { continue; }
+            for var i: usize = 0; (i < row->witnesses.size()) && (i < row->reqs.size()); ++i {
+                var w = row->witnesses[i];
+                if (w == &null) || (NameLookup::representative(w) != me) { continue; }
+                var q = dyn_cast::<FunctionDecl>(row->reqs[i]);
+                if (q != &null) && (static_cast::<*Decl>(q) != me) { return q; }
+            }
+        }
+        return &null;
     }
 
     /// \p r as \p f's result, on every link of its chain in this TU (a
@@ -657,7 +712,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
                 for var i: usize = 0; i < done.size(); ++i { okv.push_back(done[i]); }
             }
             var errv = vec::<*Stmt>();
-            errv.push_back(self._dispatch(at, h, &arms, &null));
+            errv.push_back(self._dispatch(at, h, &arms, &null, &(n->reach)));
             lb.push(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, self._ok(at, h), self._block(at, &okv), self._block(at, &errv))));
             var blk = CompoundStmt::create(self.ctx, at);
             lb.freeze_into(&(blk->body));
@@ -737,7 +792,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
                 okv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self._slot_put(at, res, self._read_value(at, h, self._value_of(pc.rc))))));
             }
             var errv = vec::<*Stmt>();
-            errv.push_back(self._dispatch(at, h, &arms, res));
+            errv.push_back(self._dispatch(at, h, &arms, res, &(n->reach)));
             lb.push(static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, self._ok(at, h), self._block(at, &okv), self._block(at, &errv))));
         } else {
             var st = self._slot_type(at, &(n->reach));
@@ -843,10 +898,22 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     /// typed arm its type's compare, a bare arm the final `else`, and with
     /// none, what is left delivered to the next target. Typed arms whose
     /// type \p h cannot hold (dead) get no compare.
-    priv fn _dispatch(self, at: SourceRange, h: *VariableDecl, arms: *vec::<PanicArm>, res: *VariableDecl) -> *Stmt {
+    ///
+    /// \p reach, when given, is what can actually be held: a direct form's
+    /// callee may be an override or a conformer, whose result is its base's
+    /// or requirement's and so names types its own (smaller) set never
+    /// panics with. Those get no arm and are not "left" to deliver: the
+    /// enclosing function's set need not hold them.
+    priv fn _dispatch(self, at: SourceRange, h: *VariableDecl, arms: *vec::<PanicArm>, res: *VariableDecl,
+                      reach: *FrozenList::<*Type> = &null) -> *Stmt {
         var hset = self.tu.record_args(self.tu.as_value(h->type_));
+        var can = vec::<*Type>();
+        if reach != &null { for var i: usize = 0; i < reach->size(); ++i { can.push_back(canon_unqual((*reach)[i])); } }
         var held = vec::<*Type>();
-        for var i: usize = 1; i < hset.size(); ++i { held.push_back(canon_unqual(hset[i])); }
+        for var i: usize = 1; i < hset.size(); ++i {
+            var c = canon_unqual(hset[i]);
+            if (reach == &null) || pset_has(&can, c) { held.push_back(c); }
+        }
 
         var typed = vec::<usize>();
         var caught = vec::<*Type>();
