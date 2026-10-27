@@ -985,12 +985,119 @@ class CXXSpell {
             s += (" requires (") if (s.size() == 0) else (" && ");
             s += self.concept_name(idecl) + self.witness_args(self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner))), rhs);
         }
+        // A record's VALUE predicates (`class <T> B requires sizeof T <= 128`)
+        // as C++ constraints, so clang rejects a bad instance where it is
+        // named (EVAL.md §8, E10). Only one that names nothing but the
+        // record's own parameters, literals and sizeof / alignof is
+        // spelled: the head is written before every other declaration, and
+        // a constant or function it named would not be declared yet. The
+        // rest stay unchecked until M2 (ticketed). A function's predicates
+        // are its body's static_asserts instead (EmitIR::_body).
+        if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) {
+            var vps = vec::<*Expr>();
+            CXXSpell::value_predicates(decl_requires_clause(d), &vps);
+            for var i: usize = 0; i < vps.size(); ++i {
+                var t = self._pred_text(vps[i]);
+                if t.size() == 0 { continue; }
+                s += (" requires (") if (s.size() == 0) else (" && ");
+                s += "(" + t + ")";
+            }
+        }
         // Parenthesized: what follows the head is often a return type that
         // starts with `::` (`::builtin::Tuple2<...> f(...)`), and C++ reads a
         // `::` after `I_c<T>` as continuing the concept's qualified name --
         // no spacing separates them, only the closing paren.
         if s.size() > 0 { s += ")"; }
         return s;
+    }
+
+    /// Every VALUE predicate of requires clause \p e (conjuncts that are not
+    /// `T impl I` / `T derives B`), in clause order.
+    static fn value_predicates(e: *Expr, out: *vec::<*Expr>) {
+        if e == &null { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            CXXSpell::value_predicates(b->lhs, out);
+            CXXSpell::value_predicates(b->rhs, out);
+            return;
+        }
+        if isa::<ConstraintExpr>(e) { return; }
+        out->push_back(e);
+    }
+
+    /// C++ text of a self-contained predicate (requires_clause), or "".
+    priv fn _pred_text(self, e0: *Expr) -> string {
+        if e0 == &null { return ""; }
+        var e = e0;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return ""; }
+        if isa::<IntegerLiteralExpr>(e) {
+            var lit = cast::<IntegerLiteralExpr>(e);
+            if (lit->imm == &null) || (lit->get_value_hi() != u64(0)) { return ""; }
+            return f"{lit->get_value_lo()}";
+        }
+        if isa::<BooleanLiteralExpr>(e) { return (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false")); }
+        if isa::<SizeOfExpr>(e) {
+            var t = cast::<SizeOfExpr>(e)->type_arg;
+            if (t == &null) || (t->canonical == &null) { return ""; }
+            return "sizeof(" + self._type(t) + ")";
+        }
+        if isa::<AlignOfExpr>(e) {
+            var t = cast::<AlignOfExpr>(e)->type_arg;
+            if (t == &null) || (t->canonical == &null) { return ""; }
+            return "alignof(" + self._type(t) + ")";
+        }
+        if isa::<NamedIdentExpr>(e) {
+            var gp = dyn_cast::<GenericParamDecl>(cast::<NamedIdentExpr>(e)->resolved_decl);
+            if (gp == &null) || (!gp->is_const_param) || (gp->owner == &null) { return ""; }
+            return self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner)));
+        }
+        if isa::<UnaryOperatorExpr>(e) {
+            var u = cast::<UnaryOperatorExpr>(e);
+            if u->resolved_op != &null { return ""; }
+            var k = u->op_token.kind;
+            var o = "";
+            if (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) { o = "!"; }
+            else if k == TokenKind::OpMinus { o = "-"; }
+            else if k == TokenKind::OpTilde { o = "~"; }
+            else { return ""; }
+            var x = self._pred_text(u->operand);
+            if x.size() == 0 { return ""; }
+            return o + "(" + x + ")";
+        }
+        if isa::<BinaryOperatorExpr>(e) {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if b->resolved_op != &null { return ""; }
+            var o = CXXSpell::_pred_op(b->op_token.kind);
+            if o.size() == 0 { return ""; }
+            var l = self._pred_text(b->lhs);
+            var r = self._pred_text(b->rhs);
+            if (l.size() == 0) || (r.size() == 0) { return ""; }
+            return "(" + l + ") " + o + " (" + r + ")";
+        }
+        return "";
+    }
+
+    static fn _pred_op(k: TokenKind) -> string {
+        if k == TokenKind::OpPlus { return "+"; }
+        if k == TokenKind::OpMinus { return "-"; }
+        if k == TokenKind::OpStar { return "*"; }
+        if k == TokenKind::OpSlash { return "/"; }
+        if k == TokenKind::OpPercent { return "%"; }
+        if k == TokenKind::OpLess { return "<"; }
+        if k == TokenKind::OpLessEqual { return "<="; }
+        if k == TokenKind::OpGreater { return ">"; }
+        if k == TokenKind::OpGreaterEqual { return ">="; }
+        if k == TokenKind::OpEqualEqual { return "=="; }
+        if k == TokenKind::OpExclaimEqual { return "!="; }
+        if (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd) { return "&&"; }
+        if (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr) { return "||"; }
+        if (k == TokenKind::OpAmp) || (k == TokenKind::KwBitand) { return "&"; }
+        if (k == TokenKind::OpPipe) || (k == TokenKind::KwBitor) { return "|"; }
+        if (k == TokenKind::OpCaret) || (k == TokenKind::KwXor) { return "^"; }
+        if k == TokenKind::OpLessLess { return "<<"; }
+        if k == TokenKind::OpGreaterGreater { return ">>"; }
+        return "";
     }
 
     /// The generic parameter a conjunct constrains, or null.

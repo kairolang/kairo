@@ -679,6 +679,16 @@ class EmitIR {
             pro += self._spell._type(ext->target) + "* self = &" + LowerTargets::ext_self() + ";";
             self._cg->sink->spell(b->range, pro);
         }
+        // The value predicates of the function's `requires` (EVAL.md §8,
+        // E10): asserted where C++ can evaluate them, per instance in a
+        // template. EvalUsageChecking already refused a run-time one.
+        var vps = vec::<*Expr>();
+        CXXSpell::value_predicates(f->requires_clause, &vps);
+        for var i: usize = 0; i < vps.size(); ++i {
+            self._cg->sink->spell(vps[i]->range, "static_assert(");
+            self.emit(vps[i]);
+            self._cg->sink->spell(vps[i]->range, ", \"requires clause of \x27" + self._spell.leaf(static_cast::<*Decl>(f)) + "' not satisfied\");");
+        }
         var egen = f->is_generator && f->is_eval();
         var saved_gens = self._ef_gens;
         self._ef_gens = 0;

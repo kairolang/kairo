@@ -136,6 +136,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         self._fns.push_back(n);
         var sd = self._ef_depth;
         self._ef_depth = 0;
+        self._check_requires(n->requires_clause);
         var ev = n->is_eval() && (!n->is_implicit);
         if ev { self._check_eval_fn(n); self._ctx += 1; self._ctx_fn += 1; }
         var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_function_decl(n);
@@ -192,6 +193,35 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
             return r;
         }
         return RecursiveASTVisitor::<EvalUsageChecking>::traverse_field_decl(n);
+    }
+
+    // === requires ============================================================
+
+    fn visit_class_decl(self, n: *ClassDecl) -> bool { self._check_requires(n->requires_clause); return true; }
+    fn visit_struct_decl(self, n: *StructDecl) -> bool { self._check_requires(n->requires_clause); return true; }
+
+    /// A `requires` VALUE predicate (not a `T impl I` / `T derives B`
+    /// conjunct) is an eval context: one that reads a run-time value -- a
+    /// parameter, a variable -- is requires.mdx's hard error. The predicate
+    /// itself is evaluated by C++ (EmitIR's static_assert for a function,
+    /// the template head for a record).
+    priv fn _check_requires(self, e: *Expr) {
+        if (e == &null) || e->is_poisoned() { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            self._check_requires(b->lhs);
+            self._check_requires(b->rhs);
+            return;
+        }
+        if isa::<ConstraintExpr>(e) { return; }
+        var bad = self._first_runtime(e);
+        if bad == &null { return; }
+        var d = self.sc->diag->report(DiagID::SC001E, e->range.start, "requires expression is not compile-time evaluable");
+        var lbl = "depends on a runtime value";
+        if isa::<NamedIdentExpr>(bad) { lbl = f"depends on runtime value '{self.sc->ctx->get_spelling(cast::<NamedIdentExpr>(bad)->name)}\x27"; }
+        d.first(bad->range, lbl);
+        d.note(DiagID::SC001N, e->range.start, "for runtime-conditional dispatch, use 'where\x27").first(e->range);
+        d.emit();
     }
 
     // === the restriction table ==============================================
