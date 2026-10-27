@@ -563,6 +563,7 @@ class <D> ASTWriter {
         if n->return_type != &null {
             n->return_type = self.dyn()->transform_type(n->return_type);
         }
+        self.dyn()->rebuild_type_list(&(n->panic_set));
         return n;
     }
 
@@ -824,6 +825,7 @@ class <D> ASTWriter {
             var cap = n->captures.get(i);
             if cap->name != &null { cap->name = cast::<NamedIdentExpr>(self.dyn()->transform_expr(cap->name)); }
         }
+        self.dyn()->rebuild_type_list(&(n->panic_set));
         if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
         if n->body_block  != &null { n->body_block  = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body_block)); }
         if n->body_expr   != &null { n->body_expr   = self.dyn()->transform_expr(n->body_expr); }
@@ -1181,6 +1183,7 @@ class <D> ASTWriter {
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         if n->where_clause    != &null { n->where_clause    = self.dyn()->transform_expr(n->where_clause); }
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->params)));
+        self.dyn()->rebuild_type_list(&(n->panic_set));
         if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
         if n->qualifier   != &null { n->qualifier   = self.dyn()->transform_expr(n->qualifier); }
         if n->body_block  != &null { n->body_block  = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body_block)); }

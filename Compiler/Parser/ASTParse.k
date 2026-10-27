@@ -131,6 +131,9 @@ class ASTParse
     /// ExprParse::_parse_closure_expr moves it onto the node, before the body
     /// (where a nested closure would overwrite it) is parsed.
     pub var closure_cap_range: SourceRange = SourceRange::invalid();
+    /// The last closure signature's declared `panic(E1, E2)` set, empty when
+    /// it had none: handed over the same way as closure_cap_range.
+    pub var closure_panic_set: FrozenList::<*Type>;
     /// the module whose body holds the `eval if` / `eval for` being parsed
     /// (DeclParse::_parse_eval_stmt_decl). Declarations in its branches are
     /// branch-local, so StmtParse::_attach_local_decl must not add them to

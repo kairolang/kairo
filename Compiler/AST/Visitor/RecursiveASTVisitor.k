@@ -260,6 +260,10 @@ class <D> RecursiveASTVisitor {
         if n->return_type != &null {               // null on unprototyped path
             n->return_type = self.dyn()->dispatch_type(n->return_type);
         }
+        for var i: usize = 0; i < n->panic_set.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(*(n->panic_set.get(i))); // discard return
+        }
         return n;
     }
 
@@ -812,6 +816,11 @@ class <D> RecursiveASTVisitor {
 
         if self.stop { return n; }
 
+        for var i: usize = 0; i < n->panic_set.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(*(n->panic_set.get(i))); // discard
+        }
+        if self.stop { return n; }
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
         if n->body_block  != &null { n->body_block = self.dyn()->traverse_block(n->body_block); }
         if n->body_expr   != &null { n->body_expr  = self.dyn()->dispatch_expr(n->body_expr); }
@@ -1701,6 +1710,11 @@ class <D> RecursiveASTVisitor {
         for var i: usize = 0; i < n->params.size(); i++ {
             if self.stop { break; }
             self.dyn()->dispatch_decl(*(n->params.get(i)));          // discard
+        }
+        if self.stop { return n; }
+        for var i: usize = 0; i < n->panic_set.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(*(n->panic_set.get(i)));       // discard
         }
         if self.stop { return n; }
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }

@@ -264,6 +264,7 @@ class CXXSpell {
         if sym == "await"  { return LowerTargets::op_await(); }
         if sym == "spawn"  { return LowerTargets::op_spawn(); }
         if sym == "thread" { return LowerTargets::op_thread(); }
+        if sym == "panic"  { return LowerTargets::op_panic(); }
         return "";
     }
 

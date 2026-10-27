@@ -211,16 +211,36 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     //  TYPES  source-faithful  (UNCHANGED)
 
     fn _quals(self, ty: *Type) {
+        self._data_quals(ty);
         type TQ = TypeQual::<Type>;
-        var f = static_cast::<u8>(ty->flags);
-        if (f & static_cast::<u8>(TQ::Flags::IsConst))    != 0 { self.p.paint(Color::Keyword, "const ");    }
-        if (f & static_cast::<u8>(TQ::Flags::IsVolatile)) != 0 { self.p.paint(Color::Keyword, "volatile "); }
-        if (f & static_cast::<u8>(TQ::Flags::IsAtomic))   != 0 { self.p.paint(Color::Keyword, "atomic ");   }
-        if (f & static_cast::<u8>(TQ::Flags::IsUnsafe))   != 0 { self.p.paint(Color::Keyword, "unsafe ");   }
-        if (f & static_cast::<u8>(TQ::Flags::IsEval))     != 0 { self.p.paint(Color::Keyword, "eval ");     }
-        if (f & static_cast::<u8>(TQ::Flags::IsAsync))    != 0 { self.p.paint(Color::Keyword, "async ");    }
-        if (f & static_cast::<u8>(TQ::Flags::IsYield))    != 0 { self.p.paint(Color::Keyword, "yield ");    }
-        if (f & static_cast::<u8>(TQ::Flags::IsPanic))    != 0 { self.p.paint(Color::Keyword, "panic ");    }
+        // u16: IsPanic is bit 8, and a u8 view dropped it from every type.
+        var f = static_cast::<u16>(ty->flags);
+        if (f & static_cast::<u16>(TQ::Flags::IsAsync))    != 0 { self.p.paint(Color::Keyword, "async ");    }
+        if (f & static_cast::<u16>(TQ::Flags::IsYield))    != 0 { self.p.paint(Color::Keyword, "yield ");    }
+        if (f & static_cast::<u16>(TQ::Flags::IsPanic))    != 0 { self.p.paint(Color::Keyword, "panic ");    }
+    }
+
+    fn _data_quals(self, ty: *Type) {
+        type TQ = TypeQual::<Type>;
+        var f = static_cast::<u16>(ty->flags);
+        if (f & static_cast::<u16>(TQ::Flags::IsConst))    != 0 { self.p.paint(Color::Keyword, "const ");    }
+        if (f & static_cast::<u16>(TQ::Flags::IsVolatile)) != 0 { self.p.paint(Color::Keyword, "volatile "); }
+        if (f & static_cast::<u16>(TQ::Flags::IsAtomic))   != 0 { self.p.paint(Color::Keyword, "atomic ");   }
+        if (f & static_cast::<u16>(TQ::Flags::IsUnsafe))   != 0 { self.p.paint(Color::Keyword, "unsafe ");   }
+        if (f & static_cast::<u16>(TQ::Flags::IsEval))     != 0 { self.p.paint(Color::Keyword, "eval ");     }
+    }
+
+    /// ` panic` and, when declared, its set `(E1, E2)` -- the one spelling
+    /// for a function header, a closure and a `fn` type.
+    fn _panic_spec(self, set: FrozenList::<*Type>) {
+        self.p.paint(Color::Keyword, " panic");
+        if set.is_empty() { return; }
+        self.p.paint(Color::Punct, "(");
+        for var i: usize = 0; i < set.size(); ++i {
+            if i > 0 { self.p.paint(Color::Punct, ", "); }
+            self.src_type(set[i]);
+        }
+        self.p.paint(Color::Punct, ")");
     }
 
     fn src_type(self, ty: *Type) {
@@ -318,7 +338,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _t_fn_ptr(self, ty: *FunctionPointerType) {
-        self._quals(ty);
+        // Effects follow the parameter list, where they are written
+        // (`fn(i32) async panic(E) -> T`); printed in front, `fn() panic`
+        // read back as a panic-qualified... nothing.
+        self._data_quals(ty);
         self.p.paint(Color::Keyword, "fn");
         self.p.paint(Color::Punct, "(");
         if ty->is_unprototyped {
@@ -333,6 +356,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             }
         }
         self.p.paint(Color::Punct, ")");
+        if ty->is_async() { self.p.paint(Color::Keyword, " async"); }
+        if ty->is_yield() { self.p.paint(Color::Keyword, " yield"); }
+        if ty->is_panic() { self._panic_spec(ty->panic_set); }
         if ty->return_type != &null {
             self.p.paint(Color::Punct, " -> ");
             self.src_type(ty->return_type);
@@ -709,7 +735,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
 
         if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0 {
-            self.p.paint(Color::Keyword, " panic");
+            self._panic_spec(e->panic_set);
         }
         if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsVolatile)) != 0 {
             self.p.paint(Color::Keyword, " volatile");
@@ -1355,7 +1381,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if fd->is_eval()   { self.p.paint(Color::Keyword, " eval");   }
         if fd->is_async()  { self.p.paint(Color::Keyword, " async");  }
         if fd->is_final()  { self.p.paint(Color::Keyword, " final");  }
-        if fd->is_panic()  { self.p.paint(Color::Keyword, " panic");  }
+        if fd->is_panic()  { self._panic_spec(fd->panic_set);         }
         if fd->is_inline() { self.p.paint(Color::Keyword, " inline"); }
     }
 
@@ -2659,6 +2685,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     /// \brief Renders the structure hierarchy of ClosureExpr nodes for tree dumps.
     fn _dx_closure(self, e: *ClosureExpr, is_last: bool) {
         self._head("ClosureExpr", is_last);
+        if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0 {
+            self._panic_spec(e->panic_set);
+        }
         if e->return_type != &null {
             self.p.put(" -> ");
             self._inline_type(e->return_type);
@@ -3151,6 +3180,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dd_spec(fd->spec_kind, fd->spec_args); // specialization tag + pattern (#68)
         // signature (params + return) inline; full declarations explode as children.
         self._param_list(fd->params);
+        if fd->is_panic() { self._panic_spec(fd->panic_set); }
         if fd->is_noreturn {
             self.p.paint(Color::Punct, " -> ");
             self.p.paint(Color::Operator, "!");

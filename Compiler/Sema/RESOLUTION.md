@@ -34,6 +34,17 @@ their NAMES go in no table (N's lexical stack / T's `ltypes` own them).
 `Self` in expression and pattern position lexes as `BiSelf` and parses as
 an ordinary `NamedIdentExpr` head; `Self<...>` never takes generic args.
 
+**The declared panic set** (PANIC.md §2.2) is `panic_set`, a list of
+written types, on FunctionDecl, ClosureExpr and FunctionPointerType; empty
+for a bare `panic` and for no `panic`. `panic` followed by `(` on the same
+line, in a specifier position (after a function's, closure's or `fn`
+type's parameter list), is the set and never a tuple: no statement can
+start there. A newline ends the specifier, so `var t: fn() panic` then
+`(h)()` on the next line is a type and a call. `panic (x)` in a body is the
+statement. `panic()` is S055E (fix-it: remove the list) and parses as a
+bare `panic`. `fn op panic (const self) -> string` is an operator like
+`op await` (nullary; C++ name `LowerTargets::op_panic`).
+
     [MISSING] `TypeCastExpr::cast_mode` (Default / Static / Const /
     Unsafe). Only `is_unsafe` is recorded today; `as static` / `as const`
     parse but are not distinguishable by sema.                        (spec 3)
@@ -247,6 +258,14 @@ What T decides:
   literal N. Dependence always flows up (`_component_ok`).
 - **Receiver synthesis.** `ParamDecl::create_self` leaves `type_` null; T
   writes a `SelfType` with the enclosing record as canonical.
+- **A declared panic set's elements** are written types in the
+  declaration's scope, resolved in the same walk as its parameters (a
+  generic parameter of the function is in scope). On a `fn` type they are
+  components (`_component_ok`): a poisoned element poisons the type. They
+  are NOT in the `fn` canonical key until P4 (fn conversion by subset), so
+  two `fn` types that differ only in their sets are one type today. Nothing
+  else reads the set yet; whether an element can be panicked at all is
+  PanicEffectChecking's (P3).
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 

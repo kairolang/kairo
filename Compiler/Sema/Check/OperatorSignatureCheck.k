@@ -11,7 +11,7 @@
 ///       positional calls, and CallLowering never sees them.
 ///     - Arity follows the table in the Operators reference: `+`/`-` unary
 ///       or binary, `in` containment (one) or iteration (none), `as`,
-///       `delete`, `await`, `spawn`, `thread`, `~` unary, `->` unary,
+///       `delete`, `await`, `spawn`, `thread`, `panic`, `~` unary, `->` unary,
 ///       everything else binary.
 ///       A free operator's first parameter is the receiver.
 ///     - Results: comparisons and `in` containment return bool, `<=>` returns
@@ -163,7 +163,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
     priv fn _arity_ok(self, sym: string, n: usize) -> bool {
         if (sym == "+") || (sym == "-") || (sym == "in") { return n <= 1; }
         if (sym == "~") || (sym == "compl") || (sym == "as") || (sym == "delete") || (sym == "->")
-        || (sym == "await") || (sym == "spawn") || (sym == "thread")
+        || (sym == "await") || (sym == "spawn") || (sym == "thread") || (sym == "panic")
         || (sym == "++") || (sym == "--") { return n == 0; }
         return n == 1;
     }

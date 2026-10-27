@@ -52,7 +52,7 @@
 // AST-NEXT: |         `-IntegerLiteralExpr 8
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var bad_mixed
-// AST-NEXT: |   `-ClosureExpr ->  i32
+// AST-NEXT: |   `-ClosureExpr panic ->  i32
 // AST-NEXT: |     `-CompoundStmt (1)
 // AST-NEXT: |       `-ReturnStmt
 // AST-NEXT: |         `-IntegerLiteralExpr 9

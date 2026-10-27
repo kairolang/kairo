@@ -1280,6 +1280,9 @@ class <T> DeclParse {
             case TokenKind::KwThread: // thread
             case TokenKind::KwDelete: // delete
             case TokenKind::KwYield:  // yield
+            // `fn op panic (const self) -> string`: an error type's message
+            // (PANIC.md §1.5). Optional; P3 checks its signature.
+            case TokenKind::KwPanic:  // panic
 
             // nullability and boolean
             case TokenKind::OpQuestion { // ?
@@ -2091,7 +2094,17 @@ class <T> DeclParse {
             else if dyn()->check(TokenKind::KwEval)     { fd->modifiers |= FnModifier::IsEval;     dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { fd->modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
             else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPanic)    { fd->modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPanic)    {
+                fd->modifiers |= FnModifier::IsPanic;
+                dyn()->advance();
+                // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
+                // has the disambiguation rule).
+                if dyn()->check(TokenKind::OpLParen) {
+                    var pset: std::StackBuf::<*Type, 4>;
+                    dyn()->parse_panic_set(&pset);
+                    fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                }
+            }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
         }
@@ -2147,7 +2160,17 @@ class <T> DeclParse {
             else if dyn()->check(TokenKind::KwEval)     { fd->modifiers |= FnModifier::IsEval;     dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { fd->modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
             else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPanic)    { fd->modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPanic)    {
+                fd->modifiers |= FnModifier::IsPanic;
+                dyn()->advance();
+                // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
+                // has the disambiguation rule).
+                if dyn()->check(TokenKind::OpLParen) {
+                    var pset: std::StackBuf::<*Type, 4>;
+                    dyn()->parse_panic_set(&pset);
+                    fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                }
+            }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
         }
@@ -4636,6 +4659,7 @@ class <T> DeclParse {
 
         // trailing modifiers: const / unsafe / async / eval
         var modifiers = FnModifier::None;
+        dyn()->closure_panic_set = FrozenList::<*Type>::empty();
         while true {
             if dyn()->check(TokenKind::KwConst) {
                 var r = dyn()->current_ptr()->range;
@@ -4679,7 +4703,15 @@ class <T> DeclParse {
                 dyn()->advance();
             }
 
-            else if dyn()->check(TokenKind::KwPanic)    { modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPanic)    {
+                modifiers |= FnModifier::IsPanic;
+                dyn()->advance();
+                if dyn()->check(TokenKind::OpLParen) {
+                    var pset: std::StackBuf::<*Type, 4>;
+                    dyn()->parse_panic_set(&pset);
+                    dyn()->closure_panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                }
+            }
             else if dyn()->check(TokenKind::KwVolatile) { modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
             else { break; }

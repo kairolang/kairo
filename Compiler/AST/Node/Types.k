@@ -740,6 +740,13 @@ class FunctionPointerType derives Type {
     /// `params` -- the parser via from_buf (even when empty), the store via
     /// from_raw. A count mismatch is an ICE in TypeResolution.
     pub var modes: FrozenList::<ParamMode>;
+    /// `fn(i32) panic(E1, E2) -> T`: the declared set, as written (PANIC.md
+    /// §2.2). Empty for a bare `panic` qualifier and for no `panic` at all.
+    /// Each element resolves like a parameter type, and a poisoned one
+    /// poisons this node. NOT in the canonical key yet: `fn` value
+    /// conversion by subset is P4, and until then two `fn` types that differ
+    /// only in their sets are one type.
+    pub var panic_set: FrozenList::<*Type>;
 
     static fn create(
         ctx:         *ASTContext,

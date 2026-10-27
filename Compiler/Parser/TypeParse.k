@@ -1267,9 +1267,23 @@ class <T> TypeParse {
             self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
         }
 
-        // trailing qualifiers: fn(T) const panic async -> U
+        // trailing qualifiers: fn(T) const panic async -> U. A `(` right
+        // after `panic`, on its line, is the declared set (PANIC.md §2.2):
+        // nothing else can follow a qualifier here, so the set is never a
+        // tuple. Qualifiers may continue after it (`panic(E) async`).
         var fn_quals: typename!(T::PendingQuals);
         dyn()->consume_leading_quals(&fn_quals);
+        var pset: std::StackBuf::<*Type, 4>;
+        var more_quals: typename!(T::PendingQuals);
+        // The LAST qualifier, as consume_leading_quals resolved it (a
+        // `panic` from a macro expansion included), not the raw prev token.
+        var nq = fn_quals.spans.size();
+        var last_is_panic = (nq > 0)
+            && (fn_quals.spans[nq - 1].qual_flag == static_cast::<u16>(TypeQual::<Type>::Flags::IsPanic));
+        if last_is_panic && dyn()->check(TokenKind::OpLParen) {
+            self.parse_panic_set(&pset);
+            dyn()->consume_leading_quals(&more_quals);
+        }
 
         // optional return type
         var return_type: *Type = &null;
@@ -1291,8 +1305,93 @@ class <T> TypeParse {
         // The create_error / create_unprototyped nodes populate neither, so
         // they are parallel at zero.
         fpt->modes.from_buf(param_modes.data(), param_modes.size(), dyn()->ctx);
+        fpt->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+        for var i: usize = 0; i < pset.size(); ++i { propagate_flags(fpt, pset[i]); }
         dyn()->apply_quals(fpt, &fn_quals);
+        dyn()->apply_quals(fpt, &more_quals);
         return fpt;
+    }
+
+    /// \brief parses the declared panic set `(E1, E2)` after a `panic`
+    ///        specifier (PANIC.md §2.2) into \p out.
+    ///
+    /// \details the caller has consumed `panic` and calls this only when `(`
+    ///          is the very next token, on the same line. That position is
+    ///          where the specifier can be, never a statement, so the list is
+    ///          always the set and never a tuple or a `panic (expr)`
+    ///          statement: in a function header, a closure header (both after
+    ///          the parameter list, before `->` and the body), and a `fn`
+    ///          type. `panic` then a newline then `(` is NOT a set: a
+    ///          bodiless declaration ends at the newline, as everywhere.
+    ///
+    ///          Each element is a type. One that fails to parse is dropped
+    ///          and the list recovers at the next `,` / `)`. `panic()` names
+    ///          no type, which no set can be: S055E with a fix-it removing
+    ///          the parentheses, and it parses as a bare `panic` (inferred).
+    pub fn parse_panic_set(self, out: *std::StackBuf::<*Type, 4>) {
+        var open = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `(`
+
+        // set once something in the list was diagnosed, so a missing `)`
+        // after it is not reported a second time.
+        var failed = false;
+        while !dyn()->is_eof() {
+            if dyn()->check(TokenKind::OpRParen) { break; }
+
+            var ty = self.parse_type();
+            if (ty != &null) && (!is_recovery(ty)) {
+                out->push_back(ty);
+                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
+                if dyn()->check(TokenKind::OpRParen) { break; }
+                dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
+                    "expected ',' or ')' after a type in the panic set"
+                );
+            }
+            failed = true;
+            self._sync_panic_set();
+            if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
+            break;
+        }
+
+        if !dyn()->check(TokenKind::OpRParen) {
+            if !failed {
+                dyn()->diag->report(DiagID::S055E, open.start,
+                    "expected ')' to close the panic set"
+                ).first(open, "opened here").emit();
+            }
+            return;
+        }
+        var close = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `)`
+
+        if (out->size() == 0) && (!failed) {
+            var b = dyn()->diag->report(DiagID::S055E, open.start,
+                "an explicit panic set names at least one error type; a bare 'panic' has its set inferred"
+            );
+            b.first(open | close, "empty panic set");
+            b.remove(open | close, "remove the empty list");
+            b.emit();
+        }
+    }
+
+    /// Recovery inside a panic set: skip to the next `,` or the closing `)`
+    /// at this level, never past the rest of the header (`->`, the body's
+    /// `{` or `=`, the end of the line), which the caller still parses.
+    priv fn _sync_panic_set(self) {
+        var depth: i32 = 0;
+        while !dyn()->is_eof() {
+            var k = dyn()->ig_kind();
+            if depth == 0 {
+                if (k == TokenKind::OpRParen) || (k == TokenKind::OpComma) || (k == TokenKind::OpArrow)
+                || (k == TokenKind::OpLBrace) || (k == TokenKind::OpEqual) || (k == TokenKind::OpSemicolon)
+                || (k == TokenKind::TkNewLine) {
+                    return;
+                }
+            }
+            if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) { ++depth; }
+            else if ((k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare)) && (depth > 0) { --depth; }
+            dyn()->advance();
+        }
     }
 
     /// \brief parses the parameter type list for a function pointer type.

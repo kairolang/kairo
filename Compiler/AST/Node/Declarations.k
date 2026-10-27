@@ -514,6 +514,13 @@ class FunctionDecl
     pub var return_type:  *Type = &null;          ///< null => void (or inferred for expr body).
     pub var abi:           AbiKind    = AbiKind::None;
     pub var modifiers:     FnModifier = FnModifier::None;
+    /// The declared set of `panic(E1, E2)` (PANIC.md §2.2), as written: one
+    /// type per element, resolved by T like any written type. Empty for a
+    /// bare `panic` (the set is inferred) and for a function that does not
+    /// panic; `panic()` is a parse error and parses as bare `panic`, so a
+    /// non-empty list is exactly "the set was declared". Nothing checks it
+    /// yet (P3/P4); it is recorded for them.
+    pub var panic_set:     FrozenList::<*Type>;
     pub var body_kind:     FnBodyKind = FnBodyKind::None;
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.
@@ -635,6 +642,7 @@ class FunctionDecl
     fn is_eval(self)   -> bool { return (self.modifiers & FnModifier::IsEval)   != FnModifier::None; }
     fn is_async(self)  -> bool { return (self.modifiers & FnModifier::IsAsync)  != FnModifier::None; }
     fn is_panic(self)  -> bool { return (self.modifiers & FnModifier::IsPanic)  != FnModifier::None; }
+    fn has_panic_set(self) -> bool { return !(self.panic_set.is_empty()); }
     fn is_final(self)  -> bool { return (self.modifiers & FnModifier::IsFinal)  != FnModifier::None; }
     fn is_inline(self) -> bool { return (self.modifiers & FnModifier::IsInline) != FnModifier::None; }
     fn is_constexpr(self) -> bool { return (self.modifiers & FnModifier::IsConstexpr) != FnModifier::None; }
@@ -695,6 +703,8 @@ class ClosureExpr derives Expr {
     pub var return_type: *Type;      ///< null if inferred.
     pub var body_kind:   FnBodyKind = FnBodyKind::None;
     pub var modifiers:   FnModifier = FnModifier::None;
+    /// `fn (x: i32) panic(E) -> T`: the declared set, as on FunctionDecl.
+    pub var panic_set:   FrozenList::<*Type>;
     pub var is_variadic:         bool = false; ///< trailing `...name: T` pack param.
     pub var is_noreturn:         bool = false;
     pub var explicit_no_capture: bool = false;

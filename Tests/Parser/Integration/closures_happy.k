@@ -197,7 +197,7 @@
 // AST-NEXT: |           `-NamedIdentExpr x
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var panic_closure
-// AST-NEXT: |   `-ClosureExpr ->  i32
+// AST-NEXT: |   `-ClosureExpr panic ->  i32
 // AST-NEXT: |     `-CompoundStmt (1)
 // AST-NEXT: |       `-ReturnStmt
 // AST-NEXT: |         `-IntegerLiteralExpr 42
@@ -211,7 +211,7 @@
 // AST-NEXT: |     `-CompoundStmt (0)
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var multi_modifier
-// AST-NEXT: |   `-ClosureExpr ->  i32
+// AST-NEXT: |   `-ClosureExpr panic ->  i32
 // AST-NEXT: |     `-CompoundStmt (1)
 // AST-NEXT: |       `-ReturnStmt
 // AST-NEXT: |         `-IntegerLiteralExpr 100

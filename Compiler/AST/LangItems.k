@@ -410,6 +410,9 @@ class LowerTargets {
     static fn op_spawn()    -> string { return "__kairo_spawn"; }
     /// `fn op thread`.
     static fn op_thread()   -> string { return "__kairo_thread"; }
+    /// `fn op panic (const self) -> string` -- an error's message (PANIC.md
+    /// §1.5); the C++ view's `what()` calls it (P7).
+    static fn op_panic()    -> string { return "__kairo_op_panic"; }
     /// An extension operator's receiver in its C++ definition. The static
     /// member takes `X&` (so its forwarder, the C++ operator, has the
     /// class-typed parameter [over.oper]/7 wants), and the body's first

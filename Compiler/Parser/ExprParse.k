@@ -4247,6 +4247,7 @@ class <T> ExprParse {
         ce->return_type    = ret_type;
         ce->explicit_no_capture = explicit_no_capture;
         ce->capture_range       = dyn()->closure_cap_range;
+        ce->panic_set           = dyn()->closure_panic_set;
 
         // bind captured names into the closure scope so the body can see them
         // for var i: usize = 0; i < ce->captures.size(); ++i {

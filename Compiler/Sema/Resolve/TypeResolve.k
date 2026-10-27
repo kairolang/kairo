@@ -642,6 +642,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         } else {
             ret = self.sc->builtin(BuiltinKind::Void);
         }
+        // A declared `panic(E1, E2)`: its elements are types and resolve
+        // like the parameters, and a bad one poisons the `fn` type with
+        // them. They are not in the key (FunctionPointerType::panic_set).
+        for var i: usize = 0; i < n->panic_set.size(); ++i {
+            if !self._component_ok(n, n->panic_set[i]) { ok = false; }
+        }
         if !ok { return; }
         n->canonical = self.sc->types->func(&params, &modes, ret);
     }
