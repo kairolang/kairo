@@ -1131,7 +1131,11 @@ same_variant): MatchLowering and OperatorLowering never spell the layout.
 A generic ADT, and a niche-filled one, also get `__kairo_which()`
 (AdtRole::Which), which the query uses where it cannot predict the
 instance's layout. `__builtin_niche_of<T>()` (the NicheOf lang item) is
-answered here, as a literal.
+answered here, as a literal. A non-generic, non-niche ADT whose payload
+fields are all builtins, pointers or plain enums keeps its tag in the
+payloads' common prefix (`adt_tag_member` / `adt_prefix_tag`): each payload
+struct starts with the tag, the union's first member holds only it, and
+the query reads it there.
 
 CopyMoveLowering [PARTIAL]. The moves only, and early: every site
 MoveCheck recorded in `SemaContext::move_sites` -- a MOVE value passed by

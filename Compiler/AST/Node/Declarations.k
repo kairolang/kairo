@@ -1362,6 +1362,12 @@ class EnumDecl
     pub var adt_explicit_tags: bool = false;
     pub var adt_union_align:   u32  = 0;
     pub var adt_site_field:    *FieldDecl = &null;
+    /// The tag in the payloads' common prefix (spec ENUMLAYOUT §6;
+    /// EnumLayoutLowering's header): `adt_tag_member` is the union's
+    /// tag-only member `__kairo_t`, `adt_prefix_tag` its one field, which
+    /// every payload struct also starts with. Null for the external tag.
+    pub var adt_tag_member:    *FieldDecl = &null;
+    pub var adt_prefix_tag:    *FieldDecl = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -1384,6 +1390,8 @@ class EnumDecl
         node->adt_explicit_tags = false;
         node->adt_union_align   = 0;
         node->adt_site_field    = &null;
+        node->adt_tag_member    = &null;
+        node->adt_prefix_tag    = &null;
         return node;
     }
 
@@ -1403,6 +1411,8 @@ class EnumDecl
         node->adt_explicit_tags = false;
         node->adt_union_align   = 0;
         node->adt_site_field    = &null;
+        node->adt_tag_member    = &null;
+        node->adt_prefix_tag    = &null;
         return node;
     }
 

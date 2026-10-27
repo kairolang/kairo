@@ -2,7 +2,8 @@
 // carries exactly the one form of each special member its payloads allow,
 // with nothing left for C++ to choose: Note owns a string, so every one has
 // a body that copies, moves or destroys the live payload; Point holds only
-// integers, so every one is the defaulted, trivial one.
+// integers, so every one is the defaulted, trivial one -- and its tag sits in
+// its payloads' common prefix, so it has no helper switching on one.
 
 enum Note { Text { s: string, n: i32 }, Code { c: i32 }, Blank }
 enum Point { At { x: i32, y: i32 }, Origin }
@@ -44,14 +45,16 @@ fn main() -> i32 {
 // CXX:       struct __kairo_niche<T> {
 // CXX-NOT:   requires
 // CXX:       struct Point {
-// CXX:       Point(::__kairo_vt<1>) noexcept : __kairo_tag(__kairo_Tag::Origin) {
+// CXX:       Point(::__kairo_vt<1>) noexcept : __kairo_t {
+// CXX-NEXT:  __kairo_Tag::Origin }
+// CXX-NEXT:  {
 // CXX-NEXT:  }
 // CXX-NEXT:  Point(const Point&) = default;
 // CXX-NEXT:  Point(Point&&) = default;
 // CXX-NEXT:  Point& operator=(const Point&) = default;
 // CXX-NEXT:  Point& operator=(Point&&) = default;
 // CXX-NEXT:  ~Point() = default;
-// CXX-NEXT:  private{{ ?}}:
+// CXX-NEXT:  static constexpr unsigned long __kairo_niche_count = 254;
 // CXX-NOT:   requires
 // CXX:       struct Note {
 // CXX:       Note(::__kairo_vt<2>) noexcept : __kairo_tag(__kairo_Tag::Blank) {

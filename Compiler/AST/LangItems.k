@@ -638,6 +638,10 @@ class LowerTargets {
     /// The u32 slot a lang item's layout may ask for between the tag and the
     /// payload union (EnumDecl::adt_site_field; PANIC.md §1.4's call site).
     static fn adt_site_field() -> string             { return "__kairo_site"; }
+    /// A prefix-tagged ADT's union member holding only the tag, and its type
+    /// (EnumDecl::adt_tag_member): the tag is read through it.
+    static fn adt_tag_member() -> string             { return "__kairo_t"; }
+    static fn adt_tag_only_type() -> string          { return "__kairo_t_t"; }
     static fn niche_guard() -> string                { return "__KAIRO_NICHE_HELPERS"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }

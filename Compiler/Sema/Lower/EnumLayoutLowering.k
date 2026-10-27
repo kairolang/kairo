@@ -65,6 +65,21 @@
 ///     small payload pays. Its values are the variant positions, dense, in
 ///     declaration order: the match switch and its jump table index by them.
 ///
+///   \par The tag in the common prefix
+///     A non-generic ADT that is not niche-filled, whose payload fields are
+///     all builtins, pointers or plain enums (_prefix_ok), keeps its tag in
+///     its payloads instead of beside them: each payload struct starts with
+///     `__kairo_Tag __kairo_tag`, the union gains a first member `__kairo_t`
+///     holding only that tag, and the tag is read as `x.__kairo_t.__kairo_tag`
+///     (EnumDecl::adt_tag_member / adt_prefix_tag). Every payload struct is
+///     standard-layout, so the common-initial-sequence rule defines that
+///     read whichever payload is live, and the payload's padding absorbs
+///     the tag (`{u8, u16} | {u8}` is 4 bytes, not 6). Its fields are
+///     trivial, so the special members are the defaulted ones and no
+///     helper switches on a tag that is no longer a member of its own.
+///     A generic ADT keeps the external tag: whether its payloads are
+///     standard-layout is per instance.
+///
 ///   \par Niche layout
 ///     An ADT with exactly one payload variant, whose payload is one field,
 ///     beside at least one dataless variant, is niche-shaped
@@ -448,14 +463,19 @@ class EnumLayoutQuery {
         var shape = self.shape_at(c);
         if shape == AdtShape::Opaque { return false; }
         var args = self.tu.record_args(c);
-        // The payload union: each variant's struct laid out field by field.
-        var usz: u64 = 0;
-        var ual: u64 = 1;
+        var ts: u64 = 0;
+        var ta: u64 = 0;
+        if !self.size_of(self.sc->builtin(adt_tag_kind(en)), &ts, &ta) { return false; }
+        var prefix = en->adt_tag_member != &null;
+        // The payload union: each variant's struct laid out field by field,
+        // after its own tag in the common prefix.
+        var usz: u64 = (ts) if (prefix) else (0);
+        var ual: u64 = (ta) if (prefix) else (1);
         for var i: usize = 0; i < en->variants.size(); ++i {
             var v = en->variants[i];
             if v->payload.size() == 0 { continue; }
-            var off: u64 = 0;
-            var sal: u64 = 1;
+            var off: u64 = (ts) if (prefix) else (0);
+            var sal: u64 = (ta) if (prefix) else (1);
             for var j: usize = 0; j < v->payload.size(); ++j {
                 var ft = v->payload[j]->type_;
                 if en->generic_params.size() > 0 { ft = self.field_type_at(en, &args, ft); }
@@ -469,14 +489,11 @@ class EnumLayoutQuery {
             if ssz > usz { usz = ssz; }
             if sal > ual { ual = sal; }
         }
-        if shape == AdtShape::Niche {
+        if (shape == AdtShape::Niche) || prefix {
             (*size)  = usz;
             (*align) = ual;
             return true;
         }
-        var ts: u64 = 0;
-        var ta: u64 = 0;
-        if !self.size_of(self.sc->builtin(adt_tag_kind(en)), &ts, &ta) { return false; }
         // A lang item's knobs (AdtLayoutKnobs): the u32 site slot after the
         // tag, and the union's own alignment.
         if en->adt_site_field != &null {
@@ -534,6 +551,18 @@ class EnumLayoutQuery {
             case AdtShape::Niche  { return &null; }
             case AdtShape::Opaque { return self._which(at, x, en); }
             default { 0; }
+        }
+        return self._tag_lvalue(at, x, en);
+    }
+
+    /// The stored tag of a tagged \p en value \p x: `x.__kairo_tag`, or in
+    /// the common prefix, `x.__kairo_t.__kairo_tag`.
+    priv fn _tag_lvalue(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
+        var tag = en->adt_tag_field;
+        if en->adt_tag_member != &null {
+            var tm = en->adt_tag_member;
+            var t  = self.synth.field_of(at, x, static_cast::<*Decl>(tm), tm->type_);
+            return self.synth.field_of(at, t, static_cast::<*Decl>(en->adt_prefix_tag), tag->type_);
         }
         return self.synth.field_of(at, x, static_cast::<*Decl>(tag), tag->type_);
     }
@@ -631,9 +660,7 @@ class EnumLayoutQuery {
             return self._bin(at, e, self.synth.cast_to(at, lit, ft, CastMode::Default), cmp_op);
         }
         if self.shape_at(c) == AdtShape::Tagged {
-            var tag = en->adt_tag_field;
-            var tw  = self.synth.cast_to(at, self.synth.field_of(at, e, static_cast::<*Decl>(tag), tag->type_),
-                                         self.sc->builtin(BuiltinKind::U32), CastMode::Default);
+            var tw  = self.synth.cast_to(at, self._tag_lvalue(at, e, en), self.sc->builtin(BuiltinKind::U32), CastMode::Default);
             return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op);
         }
         var p  = adt_niche_payload_variant(en);
@@ -797,19 +824,34 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         var tag = self._tag_enum(en, at, edc, &knobs);
         ldc->add_decl(static_cast::<*Decl>(tag));
 
+        // The layout's shape, decided before anything is minted: a
+        // niche-filled ADT has no tag at all, a prefix-tagged one keeps it
+        // inside each payload (file header).
+        var shaped = (!knobs.any()) && self._niche_shaped(en);
+        var niche  = false;
+        if shaped && (!generic) {
+            var npv = en->variants[usize(adt_niche_payload_variant(en))];
+            self._prebuild(npv->payload[0]->type_);
+            niche = EnumLayoutQuery(self.sc).niche_verdict(en, npv->payload[0]->type_) == 1;
+        }
+        var prefix = (!generic) && (!niche) && (!knobs.any()) && self._prefix_ok(en);
+        var ttype  = self._type_of(static_cast::<*Decl>(tag));
+
         // A struct and a union member for each variant that has a payload.
         var members = self.list_builder::<*FieldDecl>();
+        var mvec    = vec::<*FieldDecl>();
         for var i: usize = 0; i < en->variants.size(); ++i {
             var v = en->variants[i];
             if v->payload.is_empty() { continue; }
             var vn = self.tu.decl_name(static_cast::<*Decl>(v));
-            var ps = self._payload_struct(v, vn, edc);
+            var ps = self._payload_struct(v, vn, edc, (ttype) if (prefix) else (&null));
             ldc->add_decl(static_cast::<*Decl>(ps));
             var m = FieldDecl::create(self.ctx, v->name.range,
                                       self.synth.ident(v->name.range, LowerTargets::adt_payload_field(vn)),
                                       StorageClass::Var, self._type_of(static_cast::<*Decl>(ps)), u32(members.size()));
             self._place(static_cast::<*Decl>(m), edc, VisibilityKind::Public, v->name.range);
             members.push(m);
+            mvec.push_back(m);
             v->adt_member = m;
             v->adt_ctor   = self._ctor_form(v, generic);
         }
@@ -839,7 +881,31 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         un->methods        = create_empty_frozen_list::<*FunctionDecl>();
         un->generic_params = create_empty_frozen_list::<*GenericParamDecl>();
         un->spec_args      = create_empty_frozen_list::<*Type>();
-        members.freeze_into(&(un->fields));
+        if prefix {
+            // The tag-only member, first: reading the tag through it is the
+            // common-initial-sequence read every payload struct allows.
+            var ts = StructDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_only_type()), edc);
+            self._place(static_cast::<*Decl>(ts), edc, VisibilityKind::Public, at);
+            self._no_members(ts);
+            ts->is_adt_payload = true;
+            var tsl = self.list_builder::<*FieldDecl>();
+            var pt  = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_field()), StorageClass::Var, ttype, 0);
+            self._place(static_cast::<*Decl>(pt), static_cast::<*DeclContext>(ts), VisibilityKind::Public, at);
+            tsl.push(pt);
+            tsl.freeze_into(&(ts->fields));
+            ldc->add_decl(static_cast::<*Decl>(ts));
+            var tm = FieldDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_member()),
+                                       StorageClass::Var, self._type_of(static_cast::<*Decl>(ts)), 0);
+            self._place(static_cast::<*Decl>(tm), edc, VisibilityKind::Public, at);
+            var all = self.list_builder::<*FieldDecl>();
+            all.push(tm);
+            for var i: usize = 0; i < mvec.size(); ++i { all.push(mvec[i]); }
+            all.freeze_into(&(un->fields));
+            en->adt_tag_member = tm;
+            en->adt_prefix_tag = pt;
+        } else {
+            members.freeze_into(&(un->fields));
+        }
         ldc->add_decl(static_cast::<*Decl>(un));
 
         var uf = FieldDecl::create(self.ctx, at, Token(), StorageClass::Var, self._type_of(static_cast::<*Decl>(un)), u32(fields.size()));
@@ -884,13 +950,8 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         // minted: a generic ADT may be laid out either way per instance, a
         // niche-filled one has no tag to read, and both answer which().
         en->adt_tag_field   = tf;
-        en->adt_niche_shape = (!knobs.any()) && self._niche_shaped(en);
-        if en->adt_niche_shape && (!generic) {
-            var pv = en->variants[usize(adt_niche_payload_variant(en))];
-            self._prebuild(pv->payload[0]->type_);
-            en->adt_layout = static_cast::<*Decl>(lay);   // published for the verdict's own reads.
-            en->adt_niche  = EnumLayoutQuery(self.sc).niche_verdict(en, pv->payload[0]->type_) == 1;
-        }
+        en->adt_niche_shape = shaped;
+        en->adt_niche       = niche;
         if generic || en->adt_niche {
             var w = self._role(en, self.synth.ident(at, LowerTargets::adt_which()), AdtRole::Which, AdtForm::Body, 0, VisibilityKind::Public);
             self._member(ldc, &methods, w);
@@ -942,6 +1003,33 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         ICE_IF((k.tag_values.size() != 0) && (k.tag_values.size() != en->variants.size()),
                "EnumLayoutLowering: explicit tag values, not one per variant");
         return k;
+    }
+
+    /// \p en can keep its tag in its payloads' common prefix (spec
+    /// ENUMLAYOUT §6): every payload field a builtin, a pointer or a plain
+    /// enum, so every payload struct is standard-layout -- the
+    /// common-initial-sequence read needs that -- and trivially copied, so
+    /// the special members are the defaulted ones and no body switches on
+    /// a tag that is no longer a member of its own. Anything else keeps the
+    /// external tag. v1: non-generic only; a generic ADT's payloads are
+    /// standard-layout per instance, which only a third C++ form could ask.
+    priv fn _prefix_ok(self, en: *EnumDecl) -> bool {
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            for var j: usize = 0; j < v->payload.size(); ++j {
+                var t = v->payload[j]->type_;
+                if (t == &null) || (t->canonical == &null) { return false; }
+                var c = canon_unqual(t->canonical);
+                if (c == &null) || (canon_quals(t->canonical) != 0) { return false; }
+                if isa::<BuiltinType>(c) || isa::<PointerType>(c) { continue; }
+                if isa::<RecordType>(c) {
+                    var pe = dyn_cast::<EnumDecl>(cast::<RecordType>(c)->decl);
+                    if (pe != &null) && (!pe->is_adt) { continue; }
+                }
+                return false;
+            }
+        }
+        return true;
     }
 
     /// \p en could be laid out without a tag (spec ENUMLAYOUT §5.2): exactly
@@ -1048,13 +1136,22 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
 
     /// `struct __kairo_<V>_t` over the variant's own payload FieldDecls (file
     /// header). is_adt_payload is what gives it its placement operator new.
-    priv fn _payload_struct(self, v: *EnumVariantDecl, vn: string, edc: *DeclContext) -> *StructDecl {
+    /// A prefix-tagged ADT's (\p prefix_tag, the tag enum's type) starts
+    /// with a tag of its own: the common initial sequence the union's
+    /// tag-only member reads.
+    priv fn _payload_struct(self, v: *EnumVariantDecl, vn: string, edc: *DeclContext, prefix_tag: *Type) -> *StructDecl {
         var ps = StructDecl::create(self.ctx, v->range, self.synth.ident(v->name.range, LowerTargets::adt_payload_type(vn)), edc);
         self._place(static_cast::<*Decl>(ps), edc, VisibilityKind::Public, v->name.range);
         self._no_members(ps);
         ps->is_adt_payload = true;
         var pdc = reinterpret_cast::<*void>(static_cast::<*DeclContext>(ps));
         var fs  = self.list_builder::<*FieldDecl>();
+        if prefix_tag != &null {
+            var pt = FieldDecl::create(self.ctx, v->name.range, self.synth.ident(v->name.range, LowerTargets::adt_tag_field()),
+                                       StorageClass::Var, prefix_tag, 0);
+            self._place(static_cast::<*Decl>(pt), static_cast::<*DeclContext>(ps), VisibilityKind::Public, v->name.range);
+            fs.push(pt);
+        }
         for var j: usize = 0; j < v->payload.size(); ++j {
             var f = v->payload[j];
             fs.push(f);

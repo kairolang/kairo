@@ -1055,6 +1055,9 @@ class InterfaceEmitter {
             if f == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(f)), false, at);
             if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
+            // A tag in the payloads' common prefix is read through the
+            // union's tag-only member, not stored beside it.
+            if (en->adt_tag_member != &null) && (f == en->adt_tag_field) { continue; }
             var fnm = self._spell->leaf(static_cast::<*Decl>(f));
             // A flag: a compile-time constant with no Kairo expression behind
             // it (_adt_flag).
@@ -1068,6 +1071,9 @@ class InterfaceEmitter {
         for var i: usize = 0; i < lay->methods.size(); ++i {
             var m = lay->methods[i];
             if m == &null { continue; }
+            // Prefix-tagged: every special member is the defaulted one, so
+            // the helpers that switch on the tag are never called.
+            if (en->adt_tag_member != &null) && ((m->adt_role == AdtRole::Destroy) || (m->adt_role == AdtRole::ConstructFrom)) { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
         }
@@ -1079,11 +1085,19 @@ class InterfaceEmitter {
         var tt = LowerTargets::adt_tag_type();
         var nv = f"{en->variants.size()}";
         var w  = builtin_info(BuiltinKind::U64)->cxx;
+        // The tag as written and as read: a member of its own, or the
+        // union's tag-only member in the common prefix.
+        var tset = LowerTargets::adt_tag_field() + "(static_cast<" + tt + ">(" + nv + " + i))";
+        var tget = LowerTargets::adt_tag_field();
+        if en->adt_tag_member != &null {
+            var tmn = self._spell->leaf(static_cast::<*Decl>(en->adt_tag_member));
+            tset = tmn + "{static_cast<" + tt + ">(" + nv + " + i)}";
+            tget = tmn + "." + LowerTargets::adt_tag_field();
+        }
         self._cg->sink->spell(at, "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + f"{adt_tag_niche_count(en)}" + ";");
-        self._cg->sink->spell(at, nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + LowerTargets::adt_tag_field()
-                                  + "(static_cast<" + tt + ">(" + nv + " + i)) {}");
+        self._cg->sink->spell(at, nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + tset + " {}");
         self._cg->sink->spell(at, "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return static_cast<"
-                                  + w + ">(v." + LowerTargets::adt_tag_field() + ") == " + nv + " + i; }");
+                                  + w + ">(v." + tget + ") == " + nv + " + i; }");
 
         self._friends(d);
 
@@ -1409,6 +1423,18 @@ class InterfaceEmitter {
                 }
                 var v    = en->variants[usize(m->adt_variant)];
                 var vt   = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
+                if en->adt_tag_member != &null {
+                    // The common prefix: the tag goes in with the payload, or
+                    // alone into the tag-only member.
+                    var tv = tt + "::" + self._spell->leaf(static_cast::<*Decl>(v));
+                    if v->adt_member == &null {
+                        return nm + "(" + vt + ")" + nx + " : " + self._spell->leaf(static_cast::<*Decl>(en->adt_tag_member)) + "{" + tv + "} {}";
+                    }
+                    if v->adt_ctor != AdtCtorForm::Fields {
+                        self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: a prefix-tagged variant without its field constructor; EnumLayoutLowering::_prefix_ok admits only trivial fields");
+                    }
+                    return self._field_ctor(en, v, nm, vt, "", nx, false, tv + ", ");
+                }
                 var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")" + site_init;
                 if v->adt_member == &null { return nm + "(" + vt + ")" + nx + " : " + init + " {}"; }
                 // The payload is the callable's prvalue, so the union member
@@ -1416,8 +1442,8 @@ class InterfaceEmitter {
                 var lam = "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", "
                         + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(static_cast<F&&>(f)()) {}";
                 switch v->adt_ctor {
-                    case AdtCtorForm::Fields { return self._field_ctor(en, v, nm, vt, init, nx, false); }
-                    case AdtCtorForm::Both   { return self._field_ctor(en, v, nm, vt, init, nx, true) + " " + lam; }
+                    case AdtCtorForm::Fields { return self._field_ctor(en, v, nm, vt, init, nx, false, ""); }
+                    case AdtCtorForm::Both   { return self._field_ctor(en, v, nm, vt, init, nx, true, "") + " " + lam; }
                     default { 0; }
                 }
                 return lam;
@@ -1492,7 +1518,7 @@ class InterfaceEmitter {
     /// site whose instance is concrete and qualifies calls it
     /// (VariantInitExpr::field_ctor), every other one the lambda form.
     priv fn _field_ctor(self, en: *EnumDecl, v: *EnumVariantDecl, nm: string, vt: string, init: string, nx: string,
-                        constrained: bool) -> string {
+                        constrained: bool, lead: string) -> string {
         var d     = static_cast::<*Decl>(en);
         var ps    = "";
         var vals  = "";
@@ -1507,8 +1533,9 @@ class InterfaceEmitter {
             moves += "__is_constructible(" + t + ", " + t + "&&) && __is_trivially_copyable(" + t + ") && __is_trivially_destructible(" + t + ")";
         }
         var req = (" requires (" + moves + ")") if (constrained) else ("");
-        return nm + "(" + vt + ps + ")" + nx + req + " : " + init + ", "
-             + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "{" + vals + "} {}";
+        var pre = (init + ", ") if (init.size() > 0) else ("");
+        return nm + "(" + vt + ps + ")" + nx + req + " : " + pre
+             + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "{" + lead + vals + "} {}";
     }
 
     /// A field type whose move is its copy: a builtin or a pointer, passed

@@ -58,7 +58,8 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // The tag is a public member of each record: the compares read it from
-// outside the class.
+// outside the class. Shape's payloads are all integers, so its tag lives in
+// their common prefix and is read through the union's tag-only member.
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}tag_eq.k
 // CXX:       template<class T> struct Opt {
@@ -66,18 +67,18 @@ fn main() -> i32 {
 // CXX:       __kairo_Tag __kairo_tag;
 // CXX:       struct Shape {
 // CXX-NOT:   {{private|protected}}
-// CXX:       __kairo_Tag __kairo_tag;
+// CXX:       __kairo_t_t __kairo_t;
 
 // Every tag `==` is a compare of two tag fields -- through `self` in an
 // extension, through `this` inside Pair's own operator, on a temporary and
 // on two calls -- and Cell's goes through its own operator.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}tag_eq.k
-// IR-DAG:    self->__kairo_tag == other.__kairo_tag
+// IR-DAG:    self->__kairo_t.__kairo_tag == other.__kairo_t.__kairo_tag
 // IR-DAG:    this->a.__kairo_tag == other.a.__kairo_tag
 // IR-DAG:    this->b.__kairo_tag == other.b.__kairo_tag
 // IR-DAG:    a.__kairo_tag != n.__kairo_tag
-// IR-DAG:    ).__kairo_tag == e.__kairo_tag
+// IR-DAG:    ).__kairo_t.__kairo_tag == e.__kairo_t.__kairo_tag
 // IR-DAG:    next().__kairo_tag == {{.*}}next().__kairo_tag
 // IR-DAG:    __kairo_ext_Cell::__kairo_op_eq(f, f)
 

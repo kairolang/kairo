@@ -79,7 +79,7 @@ fn main() -> i32 {
 // CXX:      ((!s.is_null()) &&(s.__value() == 7));
 // CXX:      (((!p.is_null()) &&(!q.is_null())) &&({
 // CXX:      .operator ==(
-// CXX:      (((!d1.is_null()) &&(!d2.is_null())) &&(d1.__value().__kairo_tag == d2.__value().__kairo_tag));
+// CXX:      (((!d1.is_null()) &&(!d2.is_null())) &&(d1.__value().__kairo_t.__kairo_tag == d2.__value().__kairo_t.__kairo_tag));
 // CXX:      (((!pi.is_null()) &&(!pj.is_null())) &&((* pi.__value()) ==(* pj.__value())));
 // CXX:      ((!pi.is_null()) &&((* pi.__value()) ==(* raw)));
 // CXX:      (((!__kairo_coal{{[0-9]+}}.is_null()) &&(!__kairo_coal{{[0-9]+}}.is_null())) &&(static_cast<signed int &&>(__kairo_coal{{[0-9]+}}.__value()) == static_cast<signed int &&>(__kairo_coal{{[0-9]+}}.__value())));

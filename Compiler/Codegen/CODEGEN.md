@@ -390,6 +390,13 @@ members, nested types, layout edges and by-value parameters off the record
 (`EmitPlan::adt_record`, through `layout_decl`), and sees through the
 anonymous union and the payload structs as through ordinary fields.
 
+A prefix-tagged ADT (EnumDecl::adt_tag_member; EnumLayoutLowering's
+header) writes no tag beside the union: each payload struct's first field
+is the tag, the union's first member `__kairo_t` (`__kairo_t_t`) holds only
+it, a variant constructor initializes the payload as `{Tag::V, f0, ...}` or
+`__kairo_t{Tag::V}`, and the destroy / construct-from helpers are not
+written (its special members are all defaulted).
+
 Niche layout (EnumLayoutLowering's header). The preamble trait
 `__kairo_niche<T>` (`_niche_helpers`, guarded `__KAIRO_NICHE_HELPERS` in a
 header) answers `count` / `pattern(i)` / `test(v, i)`: 0 by default, one
