@@ -666,7 +666,7 @@ class TypeUtil {
                     var ma = self.record_args(t);
                     if ma.size() >= 2 { return "{" + self.str(ma[0]) + ": " + self.str(ma[1]) + "}"; }
                 }
-                if self.is_string(t) { return "string"; }
+                if self.is_string(t) { return to_string(WellKnownType::String); }
                 // A tuple prints as it is written, `(i32, f64)`: every
                 // golden and every message that quotes one reads so.
                 if self.is_tuple(t) {

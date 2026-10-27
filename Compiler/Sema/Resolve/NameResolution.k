@@ -487,32 +487,32 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if !self.sc->g->is_builtin_fid(self.sc->ctx->fid) { return; }
 
         var root = static_cast::<*DeclContext>(self.sc->tu);
-        self._bind_lang(root, WellKnownType::Slice,      "Slice");
-        self._bind_lang(root, WellKnownType::Vector,     "Vector");
-        self._bind_lang(root, WellKnownType::HashSet,    "HashSet");
-        self._bind_lang(root, WellKnownType::HashMap,    "HashMap");
-        self._bind_lang(root, WellKnownType::String,     "string");
+        self._bind_lang(root, WellKnownType::Slice);
+        self._bind_lang(root, WellKnownType::Vector);
+        self._bind_lang(root, WellKnownType::HashSet);
+        self._bind_lang(root, WellKnownType::HashMap);
+        self._bind_lang(root, WellKnownType::String);
 
-        self._bind_lang(root, WellKnownType::Range,      "Range");
-        self._bind_lang(root, WellKnownType::RangeFrom,  "RangeFrom");
-        self._bind_lang(root, WellKnownType::RangeTo,    "RangeTo");
-        self._bind_lang(root, WellKnownType::Ordering,   "Ordering");
-        self._bind_lang(root, WellKnownType::Future,     "Future");
-        self._bind_lang(root, WellKnownType::Yield,      "Yield");
-        self._bind_lang(root, WellKnownType::Nullable,   to_string(WellKnownType::Nullable));
-        self._bind_lang(root, WellKnownType::NullT,      to_string(WellKnownType::NullT));
-        self._bind_lang(root, WellKnownType::Panic,      "Panic");
+        self._bind_lang(root, WellKnownType::Range);
+        self._bind_lang(root, WellKnownType::RangeFrom);
+        self._bind_lang(root, WellKnownType::RangeTo);
+        self._bind_lang(root, WellKnownType::Ordering);
+        self._bind_lang(root, WellKnownType::Future);
+        self._bind_lang(root, WellKnownType::Yield);
+        self._bind_lang(root, WellKnownType::Nullable);
+        self._bind_lang(root, WellKnownType::NullT);
+        self._bind_lang(root, WellKnownType::Panic);
 
-        self._bind_lang(root, WellKnownType::BigInt,     "BigInt");
-        self._bind_lang(root, WellKnownType::BigFloat,   "BigFloat");
+        self._bind_lang(root, WellKnownType::BigInt);
+        self._bind_lang(root, WellKnownType::BigFloat);
 
-        self._bind_lang(root, WellKnownType::PanicRaise, "PanicRaise");
-        self._bind_lang(root, WellKnownType::PanicCatch, "PanicCatch");
-        self._bind_lang(root, WellKnownType::AssertFail, "AssertFail");
-        self._bind_lang(root, WellKnownType::Pow,        "pow");
-        self._bind_lang(root, WellKnownType::FmtBuf,     "FmtBuf");
-        self._bind_lang(root, WellKnownType::Byte,       "Byte");
-        self._bind_lang(root, WellKnownType::UnwrapFailed, to_string(WellKnownType::UnwrapFailed));
+        self._bind_lang(root, WellKnownType::PanicRaise);
+        self._bind_lang(root, WellKnownType::PanicCatch);
+        self._bind_lang(root, WellKnownType::AssertFail);
+        self._bind_lang(root, WellKnownType::Pow);
+        self._bind_lang(root, WellKnownType::FmtBuf);
+        self._bind_lang(root, WellKnownType::Byte);
+        self._bind_lang(root, WellKnownType::UnwrapFailed);
 
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every
@@ -527,11 +527,15 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if nd != &null { nd->is_null_type = true; }
     }
 
-    /// One lang item, by the name it is DECLARED with in Lib/builtin. The old
-    /// binder asked for "Map", "Set", "Int", "Float" and "String"; the tree
-    /// declares HashMap, HashSet, BigInt, BigFloat and `string`, so five of the
-    /// seventeen could never match.
-    priv fn _bind_lang(self, root: *DeclContext, k: WellKnownType, spelling: string) {
+    /// One lang item, by the name it is DECLARED with in Lib/builtin, which is
+    /// `to_string(k)` and nothing else: the diagnostics that name a missing
+    /// item quote the same function, so the name looked up and the name
+    /// reported cannot drift apart. The old binder carried its own column of
+    /// literals and asked for "Map", "Set", "Int", "Float" and "String"; the
+    /// tree declares HashMap, HashSet, BigInt, BigFloat and `string`, so five
+    /// of the seventeen could never match.
+    priv fn _bind_lang(self, root: *DeclContext, k: WellKnownType) {
+        var spelling = to_string(k);
         var im = self.sc->imm_table()->find_ident(spelling);
         if im == u32(-1) { return; }        // never interned here: absent.
         var r = self.sc->lookup.unqualified(root, DeclName::ident(im));

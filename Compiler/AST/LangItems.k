@@ -79,10 +79,10 @@ enum WellKnownType derives u8 {
     COUNT,      ///< keep last.
 }
 
-/// The lang item's NAME as the builtin root declares it. Diagnostics quote
-/// this, so it must match the spelling `NameResolution::fill_lang_items` looks
-/// up -- a message naming an item the tree does not declare is worse than no
-/// message.
+/// The lang item's NAME as the builtin root declares it: the ONE spelling.
+/// `NameResolution::_bind_lang` looks this up, and every diagnostic that
+/// names a missing item quotes it, so the two cannot drift -- a message
+/// naming an item the tree does not declare is worse than no message.
 fn to_string(k: WellKnownType) -> string {
     switch k {
         case WellKnownType::Future     { return "Future";     }

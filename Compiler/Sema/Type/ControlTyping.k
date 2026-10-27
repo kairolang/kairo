@@ -400,7 +400,7 @@ class <T> ControlTyping {
         if dyn()->propagate(n, n->operand) { return &null; }
         if ot == &null { return &null; }
         if !dyn()->tu.is_lang(ot, WellKnownType::Future) {
-            if dyn()->sc->well_known->get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
+            if dyn()->sc->well_known->get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Future)); return &null; }
             dyn()->fail(n, DiagID::SC086E, f"'await' requires a 'Future', not '{dyn()->tu.str(ot)}\x27");
             return &null;
         }
@@ -415,7 +415,7 @@ class <T> ControlTyping {
         if ot == &null { return &null; }
         var a = vec::<*Type>(); a.push_back(ot);
         var f = dyn()->tu.lang_record(WellKnownType::Future, &a);
-        if f == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
+        if f == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Future)); return &null; }
         return f;
     }
 

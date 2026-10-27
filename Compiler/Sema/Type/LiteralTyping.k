@@ -234,10 +234,10 @@ class <T> LiteralTyping {
     /// without a lookup: the kind, the conversion, the packed spec.
     fn type_string_literal(self, n: *StringLiteralExpr, expected: *Type) -> *Type {
         var s = dyn()->tu.string_type();
-        if s == &null { dyn()->missing_lang_item(n, "string"); return &null; }
+        if s == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::String)); return &null; }
 
         n->string_ctor = self._lang_ctor(WellKnownType::String, 3, false);
-        if n->string_ctor == &null { dyn()->missing_lang_item(n, "string"); return &null; }
+        if n->string_ctor == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::String)); return &null; }
         if !n->is_format() { return s; }
 
         if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "format string literal has no immediate data"); return &null; }
@@ -316,7 +316,7 @@ class <T> LiteralTyping {
                 if !self._bind_slice_ctor(n) { return &null; }
                 n->owner_ctor = self._lang_ctor(WellKnownType::Vector, 1, true);
             }
-            if n->owner_ctor == &null { dyn()->missing_lang_item(n, "Vector"); return &null; }
+            if n->owner_ctor == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Vector)); return &null; }
             return ex;
         }
 
@@ -330,7 +330,7 @@ class <T> LiteralTyping {
 
     priv fn _bind_slice_ctor(self, n: *ListLiteralExpr) -> bool {
         n->slice_ctor = self._lang_ctor(WellKnownType::Slice, 2, false);
-        if n->slice_ctor == &null { dyn()->missing_lang_item(n, "Slice"); return false; }
+        if n->slice_ctor == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Slice)); return false; }
         return true;
     }
 
@@ -346,13 +346,13 @@ class <T> LiteralTyping {
         ICE_IF(holes->size() != n->parts.size(), "LiteralTyping: lexer hole facts not parallel to the parser's parts");
 
         var fb = dyn()->sc->well_known->get(WellKnownType::FmtBuf);
-        if fb == &null { dyn()->missing_lang_item(n, "FmtBuf"); return false; }
+        if fb == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf)); return false; }
         n->fmt_ctor   = self._lang_ctor(WellKnownType::FmtBuf, 1, false);
         n->fmt_text   = self._lang_method(WellKnownType::FmtBuf, "text");
         n->fmt_finish = self._lang_method(WellKnownType::FmtBuf, "finish");
         n->fmt_len    = self._lang_field(WellKnownType::String, "len");
         if (n->fmt_ctor == &null) || (n->fmt_text == &null) || (n->fmt_finish == &null) || (n->fmt_len == &null) {
-            dyn()->missing_lang_item(n, "FmtBuf");
+            dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf));
             return false;
         }
 
@@ -399,7 +399,7 @@ class <T> LiteralTyping {
                 if h.kind == FormatKind::F80 {
                     dyn()->fail(e, DiagID::SC081E, "an 'f80' value cannot be formatted yet; convert it with 'as f64' first");
                 } else {
-                    dyn()->missing_lang_item(n, "FmtBuf");
+                    dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf));
                 }
                 ok = false;
                 continue;

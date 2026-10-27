@@ -755,7 +755,7 @@ class <T> OperatorTyping {
             if u == &null { self._unify_error(n, lt, rt); return &null; }
             var a = vec::<*Type>();
             var ord = dyn()->tu.lang_record(WellKnownType::Ordering, &a);
-            if ord == &null { dyn()->missing_lang_item(n, "Ordering"); return &null; }
+            if ord == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Ordering)); return &null; }
             return ord;
         }
         dyn()->fail(n, DiagID::SC066E, f"operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on primitives");
@@ -1044,7 +1044,7 @@ class <T> OperatorTyping {
         }
 
         var d = dyn()->sc->well_known->get(WellKnownType::Pow);
-        if d == &null { dyn()->missing_lang_item(n, "pow"); return &null; }
+        if d == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Pow)); return &null; }
         var cands = vec::<*Decl>();
         cands.push_back(d);
         var fargs = vec::<ArgInfo>();

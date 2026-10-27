@@ -52,6 +52,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
+import AST::LangItems::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
@@ -425,7 +426,7 @@ class <T> MemberTyping {
         var array_range = is_range && (dyn()->tu.element_of(bt) != &null);
         if array_range {
             var view = dyn()->tu.array_view(n->base->type_);
-            if view == &null { dyn()->missing_lang_item(n, "Slice"); return &null; }
+            if view == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Slice)); return &null; }
             recv = view;
         }
 
