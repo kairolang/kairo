@@ -24,8 +24,8 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:     ::builtin::string::string __kairo_op_panic() const;
-// CXX:     ::builtin::string::string ConfigError::__kairo_op_panic() const {
+// CXX:     ::builtin::string::string __kairo_op_panic() const noexcept;
+// CXX:     ::builtin::string::string ConfigError::__kairo_op_panic() const noexcept {
 // CXX-NOT: operatorpanic
 //
 // RUN: rm -rf %t.d

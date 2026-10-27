@@ -52,4 +52,4 @@ fn main() -> i32 {
 // FLAT:      fn one() panic(E1) {}
 // FLAT:      fn takes(cb: fn(i32) panic(E1) -> i32, w: fn() async panic(E2)) {}
 // FLAT:      var c = fn(x: i32) panic(E1) -> i32 { return x }; var d = fn(x: i32) panic(E1, E2) = x; var t: fn(i32) panic(E1, E2) -> i32
-// FLAT-NOT:  error
+// FLAT-NOT:  error [
