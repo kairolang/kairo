@@ -835,10 +835,15 @@ Home = the template's own TU if it instantiates it, else the first user in
 DAG order. Exactly one definition per instantiation build-wide; zero is a
 link error, so the registry is authoritative.
 
-`where` clauses, value-predicate `requires`, kind bounds, conformance:
-checked in Kairo at the instantiation site, lowered (`WhereDispatchLowering`)
-BEFORE emission. The emitted template is unconstrained and is only ever
-instantiated at arguments Kairo accepted.
+Value-predicate `requires`, kind bounds, conformance: checked in Kairo at
+the instantiation site BEFORE emission. The emitted template is
+unconstrained and is only ever instantiated at arguments Kairo accepted.
+`where` guards are not constraints and take no part in this: they are
+runtime dispatch, and WhereDispatchLowering folds a group into one
+ordinary function before emission (RESOLUTION.md §2.10). A guarded
+generic function is SC116E until M2 (its calls to the candidates need
+per-instance entries); a method of a generic record dispatches inside the
+class template and needs nothing here.
 
 The lang records are no exception. `Slice<i32>`, `Vector<i32>` and their
 kin instantiate through this same registry whenever the arguments are

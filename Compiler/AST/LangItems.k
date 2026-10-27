@@ -482,6 +482,17 @@ class LowerTargets {
         return "__kairo_default_" + fn_name + "_" + param;
     }
 
+    // --- `where` dispatch (writer: WhereDispatchLowering) ----------------------
+
+    /// `__kairo_where_<fn>_<k>`: the body of the k-th member, in source
+    /// order, of a `where` dispatch group of `fn`; the group's dispatcher
+    /// keeps the public name and calls these. Two groups of one name have
+    /// different signatures, so their candidates are C++ overloads of each
+    /// other, never a collision.
+    static fn where_candidate(fn_name: string, k: usize) -> string {
+        return "__kairo_where_" + fn_name + f"_{k}";
+    }
+
     // --- Field initializers (writer: FieldInitLowering) -------------------------
 
     /// `__kairo_init_<field>`: the member function a field's initializer

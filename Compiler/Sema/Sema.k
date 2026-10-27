@@ -68,6 +68,7 @@ import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Lower::ExprBodyDesugar::*;
+import Sema::Lower::WhereDispatchLowering::*;
 import Sema::Lower::FieldInitLowering::*;
 import Sema::Lower::CtorInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
@@ -462,6 +463,13 @@ class Sema {
         // sees an ordinary block -- SequenceLowering hoists into statements,
         // and an expression body has no statement position to hoist into.
         { var _p = TimeRegion("ExprBodyDesugar"); ExprBodyDesugar(&self.sc).run(); }
+        // Each `where` group becomes one function testing the guards in
+        // order and calling its candidates. After ExprBodyDesugar, so every
+        // candidate body and the dispatcher are blocks; before every other
+        // body rewrite, so each of them meets ordinary functions and the
+        // guards as ordinary `if` conditions -- and before CopyMoveLowering,
+        // which casts the forwarded MOVE parameters this pass records.
+        { var _p = TimeRegion("WhereDispatchLowering"); WhereDispatchLowering(&self.sc).run(); }
         // Fourth: a field's initializer becomes a constant on the field or the
         // body of a member function its C++ default calls. Clang takes no
         // statement expression at class scope; from here on every pass meets

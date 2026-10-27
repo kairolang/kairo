@@ -1012,6 +1012,7 @@ dependent as failed, and that is the first bug to fix).
 exactly what it runs today, in order:
 
     VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar ->
+    WhereDispatchLowering ->
     FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) ->
     FinallyLowering -> TupleLowering ->
     CoalesceLowering -> NullTestLowering -> NarrowedAccessLowering ->
@@ -1028,7 +1029,7 @@ ExprBodyDesugar also turns a closure's expression body into a block
 (`return e`, or `e;` when its resolved return type is `void` / `!`).
 Still to come, each a
 stub file or a `TODO(sema)` in `Sema.k`: UsingDeclSynthesis,
-PanicLowering, TypeQueryLowering, WhereDispatchLowering,
+PanicLowering, TypeQueryLowering,
 CopyMoveLowering (copies). Generators need no lowering (a C++ coroutine,
 spelled by EmitIR), and destruction none (C++ destroys locals at scope
 exit). Sugar first, control flow
@@ -1058,6 +1059,17 @@ sees `NullableType` on every expression it reads:
 - NullableTypeLowering [DONE]: fills each canonical `T?`'s `lowered` slot
   with its `::builtin::Nullable<T>` record (below); `null` becomes that
   record's null.
+
+WhereDispatchLowering [DONE]: each group in `where_groups` becomes one
+function. The lead keeps its identity (every call names it) and becomes
+the dispatcher, with fresh parameters: `if g0 { return K0(args) } ...
+return Kn(args)`, guards in dispatch order, each retargeted by position to
+the fresh parameters, the last call untested. Every member hands its
+parameters and body to a minted `priv` candidate
+`__kairo_where_<name>_<k>` (k in source order, LowerTargets), so no body
+is rewritten; a non-lead member leaves the tree. A forwarded by-value
+MOVE parameter is recorded in `move_sites` for CopyMoveLowering. After
+ExprBodyDesugar (bodies are blocks), before every other body rewrite.
 
 MatchLowering [PARTIAL]: every match becomes labels, gotos and switches
 over a once-evaluated scrutinee, rendering PatternCompilation's tree (a
