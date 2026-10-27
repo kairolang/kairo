@@ -209,6 +209,35 @@ class <T> ExprParse {
         return lhs;
     }
 
+    /// \brief A `where` guard on a function head: an expression that stops
+    ///        before an assignment operator and never reads `{` as a struct
+    ///        literal.
+    ///
+    /// Both stops are the body's: `where ok { ... }` opens the body, not
+    /// `ok { ... }`, and `where x > 0 = x` is an expression body, not an
+    /// assignment to `x > 0`. A guard is a bool test, so it has no use for
+    /// either form, and refusing them here is what lets the head end without
+    /// a separator.
+    fn parse_guard_expr(self) -> *Expr {
+        var stop = ExprStopKind::NoStructLiteral;
+        if dyn()->is_eof() { return &null; }
+        if self._should_stop(stop) { return &null; }
+        if !dyn()->enter_expr_depth() { return &null; }
+
+        var lhs = self._parse_cast_expr(stop);
+        if lhs == &null {
+            dyn()->exit_expr_depth();
+            return &null;
+        }
+
+        // Precedence::Assign as the floor: the loop takes only operators that
+        // bind tighter, so `=` (and `+=`, ...) ends the guard.
+        lhs = self._parse_expr_prec(lhs, Precedence::Assign, stop);
+
+        dyn()->exit_expr_depth();
+        return lhs;
+    }
+
     /// \brief Pratt precedence climbing loop. Consumes binary operators
     ///        whose precedence is strictly greater than `min_prec` and
     ///        builds left-associative or right-associative BinaryOperatorExpr
@@ -4231,6 +4260,20 @@ class <T> ExprParse {
         //         );
         //     }
         // }
+
+        // A `where` guard selects among overloads, and a closure is one
+        // value with no overload set to select from (where.mdx, "What where
+        // Cannot Do"). Consumed after the error so the body still parses.
+        if dyn()->check(TokenKind::KwWhere) {
+            var wh = dyn()->current_ptr()->range;
+            dyn()->diag->report(DiagID::S045E, wh.start,
+                "'where' is not allowed on a closure; a guard selects among "
+                "overloads of a named function, and a closure has none. Test "
+                "the condition with an 'if' in the body instead"
+            ).first(wh).emit();
+            dyn()->advance(T::SkipNL::After); // consume `where`
+            var _discard = dyn()->parse_guard_expr();
+        }
 
         // body: block `{ ... }` or expression `= expr`
         if dyn()->check(TokenKind::OpLBrace) {

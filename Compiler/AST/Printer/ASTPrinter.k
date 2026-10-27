@@ -3159,6 +3159,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
         // a bodyless `virtual fn` (or an imported `= 0`) has no body to show
         if fd->body_kind == FnBodyKind::Virtual { self.p.paint(Color::Keyword, " pure"); }
+        // The guard is a child row like the requires clause, and nothing on
+        // that row says which of the two it is; the head does.
+        if fd->where_clause != &null { self.p.paint(Color::Keyword, " where"); }
         self.p.newline();
 
         var has_attrs    = self._has_annotations(static_cast::<*Decl>(fd));

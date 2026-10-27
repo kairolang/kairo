@@ -1509,11 +1509,19 @@ class <T> DeclParse {
 
         // optional `where <expr>` runtime-dispatch guard (functions only).
         // Comes after requires: `fn f(...) -> T requires <ct> where <rt> { }`.
-        if dyn()->check(TokenKind::KwWhere) {
+        // where.mdx writes it on its own line under the head, the way
+        // `requires` may sit; `where` cannot begin a declaration or a
+        // statement, so the newline in front of it never ends anything.
+        if self._peek_past_nl(TokenKind::KwWhere) {
+            var wh = dyn()->current_ptr()->range;
             dyn()->advance(T::SkipNL::After);
-            var wex = dyn()->parse_expr();
+            var wex = dyn()->parse_guard_expr();
             if (wex != &null) && (!is_recovery(wex)) {
                 fd->where_clause = wex;
+            } else if wex == &null {
+                dyn()->diag->report(DiagID::S052E, wh.start,
+                    "expected a condition after 'where\x27"
+                ).first(wh).emit();
             }
         }
 
@@ -2845,13 +2853,16 @@ class <T> DeclParse {
     ///        compile-time only and must use `requires`. Consumes and discards
     ///        the offending clause so parsing can recover into the body.
     priv fn _reject_where_on_type(self, kind_word: string) {
-        if !dyn()->check(TokenKind::KwWhere) { return; }
+        // On its own line too (where.mdx writes `class <T> Buffer` and then
+        // `where ...` under it): the newline must not hide the clause, or it
+        // reaches the body parser as a stray `where`.
+        if !self._peek_past_nl(TokenKind::KwWhere) { return; }
         var wh = dyn()->current_ptr()->range;
         dyn()->diag->report(DiagID::S045E, wh.start,
             f"'where' is not allowed on a {kind_word}; runtime-conditional "
             "dispatch is only valid on functions. Use 'requires' for a "
             "compile-time constraint instead"
-        ).first(wh).emit();
+        ).first(wh).fix(wh, "requires", "use 'requires\x27").emit();
         dyn()->advance(T::SkipNL::After); // consume `where`
         var _discard = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral); // eat + drop the clause
     }
