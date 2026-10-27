@@ -75,7 +75,12 @@ BUILD STATE: lexer, preprocessor, parser, import resolution and Sema's name
 and type resolution are complete (`--type-check-only` is the dependable
 loop). Lowering and CodeGen are in progress: many programs compile, link
 through KLD and run (Tests/Codegen), but not every construct lowers yet.
-The LLVM IR safety pass is designed, not built.
+Panic is built end to end outside generic bodies: inferred and declared
+sets, try/catch, tagged `Panic<T, ...E>` returns (every Kairo function
+stays noexcept), the C++ view (`::builtin::value_or_throw`, ...) and C++
+exception arms. `crash!` and every crash-family check go through one
+signal-safe runtime call (Lib/rt/crash.c). The LLVM IR safety pass is
+designed, not built.
 
 Stage 1 CodeGen constructs an in-memory clang::Token stream located into the
 original .k files, and Clang consumes it directly (via EnterTokenStream, or
@@ -239,19 +244,35 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  SEMA -- mostly parallel; some passes converge  |   Sema/*
-        |  type resolution, trait/conformance checking,   |
-        |  generic instantiation, AMT borrow checking,    |
-        |  Code expansion. Kairo's IR layer IS Kairo:     |
-        |  every high-level construct lowers into more    |   Sema/Lower/* (MatchLowering,
-        |  primitive Kairo constructs (match, nullable,   |   NullableTypeLowering,
-        |  panic, finally, operators, ...).               |   PanicLowering, ...)
-        |                                                 |   Sema/RESOLUTION.md
-        |  Most passes fan out. Some will need a          |   Sema/Mono/Monomorphization.k
-        |  convergence barrier -- monomorphization is     |
-        |  designed as 2-pass (pass 1 converges across    |
-        |  TUs before pass 2). Barrier set not yet        |
-        |  settled; passes are still landing.             |
+        |  SEMA -- per TU, in import order                |   Sema/*, Sema/RESOLUTION.md
+        |  P -> I -> E -> V -> N -> T -> ChainBinding ->  |
+        |  checks. Name + type resolution, overloads,     |
+        |  conformance, init/move/const, control flow,    |
+        |  patterns, eval.                                |
+        |                                                 |
+        |  ONE BARRIER, the Typed barrier: the import     |   Sema/Check/EffectPropagation.k
+        |  graph runs in groups (one per import cycle,    |   Driver/CompilerInstance.k
+        |  one TU when there is none). Every TU of a      |
+        |  group reaches Typed, then the build-wide       |
+        |  EffectTable solves the group's inferred panic  |
+        |  sets to one fixpoint; then each TU goes on to  |   Sema/Check/PanicEffectChecking.k
+        |  the late checks (panic effects, eval usage,    |
+        |  feature gates).                                |
+        |                                                 |
+        |  Lowering: Kairo's IR layer IS Kairo. Each      |   Sema/Lower/* (one pass per
+        |  high-level construct is rewritten into more    |   construct; the fixed order
+        |  primitive Kairo (variants, enum layout, ctor   |   is Sema.k::_stage_lowerings,
+        |  init, script, panic, finally, nullable,        |   listed in RESOLUTION.md §2.10)
+        |  operators, f-strings, iteration, match, ...).  |
+        |                                                 |
+        |  Monomorphization: M1 (enumerate the instances  |   Sema/Mono/Monomorphization.k
+        |  T and X minted; Codegen emits each as a clang  |
+        |  specialization) works. M2,                     |
+        |  the sync point that re-checks each instance of |
+        |  a generic body (dependent conformance,         |
+        |  `T::Item`, requires-dispatch, per-instance     |
+        |  panic sets), is not built; until it is, a      |
+        |  panicking call in a generic body is SC116E.    |
         *=================================================*
                                 v
         *=================================================*
@@ -262,7 +283,7 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  SEMA AGREEMENT -- parallel over TUs; NOT BUILT |   (walk of clang's AST; not built)
+        |  SEMA AGREEMENT -- parallel over TUs            |   (walk of clang's AST; not built)
         |  clang has parsed and type-checked the tokens   |
         |  CodeGen built. Walk what it produced and check |
         |  clang's Sema reached Kairo's decisions: each   |
