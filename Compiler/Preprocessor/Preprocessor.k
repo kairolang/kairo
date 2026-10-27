@@ -117,6 +117,11 @@ class PPWalker
     //   which is the exact cost sampling exists to avoid.
     priv var _t_detect: *kairo::KTimeRecord = &null;
     priv var _t_emit:   *kairo::KTimeRecord = &null;
+    /// The builtin module's scope, searched after this file's own imports
+    /// (PreProcessor::_walk_one sets it on every file outside the builtin
+    /// root). Unset for the builtin files and with the prelude off.
+    priv var _prelude:     ModulePath;
+    priv var _has_prelude: bool = false;
     priv var _c_detect: u32 = 0;
     priv var _c_emit:   u32 = 0;
 
@@ -155,6 +160,15 @@ class PPWalker
         self._imports = std::create::<FileImportIndex>(sym, sm, tcm, resolver, macros, diag, fid);
         self._tracker = std::create::<ScopeTracker>(sym, sm, self._imm, tcm, module_base);
         self._sink    = self._out;
+    }
+
+    /// \brief the prelude for macros: the file behaves as though it wrote
+    ///        `import builtin::*` (PANIC.md §2.4: `crash!` is a plain macro
+    ///        in Lib/builtin), searched after its own imports so an explicit
+    ///        import, or the file's own macro, of the same name wins.
+    fn set_prelude_scope(self, scope: ModulePath) {
+        self._prelude     = scope;
+        self._has_prelude = true;
     }
 
     fn op delete (self) {
@@ -2344,6 +2358,12 @@ class PPWalker
             if w != &null { return w; }
         }
 
+        // the prelude's own `import builtin::*`, last of the imports
+        if self._has_prelude {
+            var pm = self._macros->find(self._prelude, inv.name_sym, self._fid);
+            if pm != &null { return pm; }
+        }
+
         // global scope (empty ModulePath)
         return self._macros->find(ModulePath(), inv.name_sym, self._fid);
     }
@@ -2403,6 +2423,12 @@ class PreProcessor {
     /// each walk, read by the next scan.
     priv var _scanned:   DepGraph;
     priv var _walked_mu: std::SharedMutex;     // wave tasks are parallel
+    /// The builtin module's scope and fid, and every fid in its own import
+    /// closure (the builtin files): the macro prelude. Set by preprocess()
+    /// when the real builtin root is folded in; read by _walk_one.
+    priv var _prelude_scope: ModulePath;
+    priv var _prelude_fid:   u32 = 0;
+    priv var _prelude_files: set::<u32>;
     priv var _define_storage: vec::<libcxx::string>; ///< -D value bytes; load_virtual
                                                        ///  needs them stable for the
                                                        ///  whole compile. reserved
@@ -2663,6 +2689,9 @@ class PreProcessor {
             fid, lexer, ctx, tu, self._macros, self._resolver,
             self._sym, self._sm, self._tcm, self._diag, self._opts, mod_path, self._headers);
         finally { std::destroy(walker); }
+        if (self._prelude_fid != 0) && (!self._prelude_files.contains(fid)) {
+            walker->set_prelude_scope(self._prelude_scope);
+        }
 
         walker->run();
         return true;
@@ -2740,7 +2769,11 @@ class PreProcessor {
                 // Only the real builtin module is reported: a custom --prelude
                 // is a file, not the lang-item root, and sema must not read
                 // lang items out of it.
-                if (p_fid != 0) && (p_fid != u32(-1)) { out.builtin_fid = p_fid; }
+                if (p_fid != 0) && (p_fid != u32(-1)) {
+                    out.builtin_fid = p_fid;
+                    self._prelude_fid   = p_fid;
+                    self._prelude_scope = graph.mod_paths[p_fid];
+                }
             }
             if (p_fid != 0) && (p_fid != u32(-1)) && (p_fid != entry_fid) {
                 graph.add_edge(entry_fid, p_fid);
@@ -2758,6 +2791,30 @@ class PreProcessor {
 
             scanner.add_root_dependency(fi_fid, &graph);
             graph.add_edge(entry_fid, fi_fid);
+        }
+
+        // The macro prelude needs the builtin root WALKED before any file
+        // that may expand one of its macros, and the graph above only has
+        // the entry's edge to it. Every other file outside the builtin
+        // root's own closure gets one too; a builtin file never does, or a
+        // builtin import of it would close a cycle.
+        if (self._prelude_fid != 0) && graph.all_fids.contains(self._prelude_fid) {
+            self._prelude_files.clear();
+            var work = vec::<u32>();
+            work.push_back(self._prelude_fid);
+            while !work.empty() {
+                var f = work.back();
+                work.pop_back();
+                if self._prelude_files.contains(f) { continue; }
+                self._prelude_files.insert(f);
+                if graph.deps.contains(f) {
+                    for d in graph.deps[f] { work.push_back(d); }
+                }
+            }
+            for fid in graph.all_fids {
+                if self._prelude_files.contains(fid) { continue; }
+                graph.add_edge(fid, self._prelude_fid);
+            }
         }
 
         var executor = WaveExecutor(self._pool);

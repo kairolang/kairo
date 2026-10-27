@@ -21,6 +21,7 @@ pub import types::*
 pub import fmt::*
 
 ffi "c" import "rt/unwrap.h"
+ffi "c" import "rt/crash.h"
 
 /// `null` as a value: the type of the constant every null converts from. A
 /// C++ host spells the constant `::builtin::null` (InterfaceEmitter writes
@@ -88,3 +89,25 @@ pub fn __builtin_panic_site() -> u32 = 0
 pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
     unsafe { kairo_rt_unwrap_failed(msg as unsafe *const u8, len) }
 }
+
+/// What `crash!` calls: `msg` and a newline to stderr (nothing when it is
+/// empty), then abort. `-> !`, so a `crash!()` ends its path for the flow
+/// checks like any other call that never returns.
+pub fn crash_with(msg: string = "") -> ! {
+    unsafe { kairo_rt_crash(msg.data as unsafe *const u8, msg.len) }
+}
+
+/// `crash!()` / `crash!("why")`: end the process (PANIC.md §2.4). Not a
+/// panic -- it joins no panic set and no `try` catches it -- so a function
+/// that calls it needs no `panic` specifier, and `main` may use it. A
+/// plain macro, not a compiler intrinsic: every file sees it through the
+/// prelude, after its own imports, so a file's own `crash!` shadows it.
+/// What it reports is not final; rely only on "it does not return".
+///
+/// The body is one identifier and the caller's own tokens: a literal
+/// written here would be another file's literal at the use (TICKETS:
+/// SC073E for a macro from another file), so the empty message is
+/// crash_with's default, not the macro's. The call is unqualified (the
+/// builtin root has no spelling in user code), so a function named
+/// `crash_with` in scope at the use would capture it.
+pub macro crash!(...msg) { crash_with(msg...) }
