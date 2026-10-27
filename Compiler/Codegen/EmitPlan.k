@@ -1325,6 +1325,7 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     // land here too and are skipped the same way.
     if CXXSpell::in_function_scope(c) { return; }
     if decl_is_imported(c) { return; }             // the header declares it (IMPORTS.md §5).
+    if decl_ffi_tag_target(c) != &null { return; } // `ffi "c" struct T`: the header's tag, not a Kairo type (§5.2).
     // An interface's C++ entity is its witness: named by a call through a
     // bound (_admit_use on the requirement), or by a bound's concept.
     if isa::<InterfaceDecl>(c) { self._witness_primary(c); return; }

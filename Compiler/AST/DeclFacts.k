@@ -282,6 +282,24 @@ fn decl_set_ffi_tag_keyword(d: *Decl, kw: string) {
     if isa::<EnumDecl>(d)   { cast::<EnumDecl>(d)->ffi_tag_keyword   = kw; return; }
 }
 
+/// The header tag a bodiless `ffi` record declaration names
+/// (FFILinkage::ffi_tag_target), or null.
+fn decl_ffi_tag_target(d: *Decl) -> *Decl {
+    if d == &null { return &null; }
+    if isa::<ClassDecl>(d)  { return reinterpret_cast::<*Decl>(cast::<ClassDecl>(d)->ffi_tag_target);  }
+    if isa::<StructDecl>(d) { return reinterpret_cast::<*Decl>(cast::<StructDecl>(d)->ffi_tag_target); }
+    if isa::<UnionDecl>(d)  { return reinterpret_cast::<*Decl>(cast::<UnionDecl>(d)->ffi_tag_target);  }
+    return &null;
+}
+
+fn decl_set_ffi_tag_target(d: *Decl, t: *Decl) {
+    if d == &null { return; }
+    var v = reinterpret_cast::<*void>(t);
+    if isa::<ClassDecl>(d)  { cast::<ClassDecl>(d)->ffi_tag_target  = v; return; }
+    if isa::<StructDecl>(d) { cast::<StructDecl>(d)->ffi_tag_target = v; return; }
+    if isa::<UnionDecl>(d)  { cast::<UnionDecl>(d)->ffi_tag_target  = v; return; }
+}
+
 // === C/C++ name hiding ====================================================
 //
 // C and C++ keep tags (struct/class/union/enum names) apart from ordinary

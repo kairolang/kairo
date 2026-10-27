@@ -1062,6 +1062,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             r = self.sc->lookup.in_context(self._ext_target, DeclName::ident(imm));
         }
         if !r.found() { return NameHit::miss(); }
+        r = self._prefer_ordinary_over_ffi_forward(r, imm);
 
         var h = NameHit{};
         h.found       = true;
@@ -1090,6 +1091,31 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var sole = self._sole_entity(r.cell);
         if sole != &null { h.decl = sole; } else { h.cell = r.cell; }
         return h;
+    }
+
+    /// `ffi "c" struct timezone` names the header's TAG, and C keeps tags
+    /// apart from ordinary names: in a VALUE position (every head N binds)
+    /// the imported ordinary `timezone` the forward declaration would
+    /// otherwise shadow is still what the name means. Types go through T,
+    /// where the forward declaration wins (IMPORTS.md §5.2).
+    priv fn _prefer_ordinary_over_ffi_forward(self, r: SemaLookupResult, imm: u32) -> SemaLookupResult {
+        if r.via_overlay || (!r.single()) { return r; }
+        if decl_ffi_tag_target(r.first()) == &null { return r; }
+        var tu = self.sc->tu;
+        if (tu == &null) || (tu->import_overlay == &null) { return r; }
+        var cell = tu->import_overlay->lookup_ident(imm);
+        if (cell == &null) || (cell->size() == 0) { return r; }
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if decl_is_ffi(d) && (!decl_is_ffi_tag(d)) {
+                var o = SemaLookupResult{};
+                o.cell        = cell;
+                o.found_in    = static_cast::<*DeclContext>(tu);
+                o.via_overlay = true;
+                return o;
+            }
+        }
+        return r;
     }
 
     /// The one entity a multi-decl cell denotes, or null when it holds a

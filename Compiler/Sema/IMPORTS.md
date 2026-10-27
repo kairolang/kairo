@@ -761,8 +761,8 @@ The type stays reachable through everything that names it -- TypeImport
 goes by the clang decl, never by name -- so `gettimeofday(*timeval,
 *timezone)` types its parameter as the struct. CXXSpell writes a hidden
 tag elaborated, `struct ::timezone`, since bare `::timezone` is the
-variable in C++. Kairo has no syntax yet to NAME a hidden tag; that is an
-open question.
+variable in C++. Source names a hidden tag with a foreign forward
+declaration (§5.2).
 
 **Lazy ambiguity.** An overlay entry whose collision is between header
 entities only (`OverlayEntry::lazy`) is not reported by I: C++ reports
@@ -776,6 +776,28 @@ it. `--print-imports` marks a lazy entry `(reported at use)` and a hidden
 target `hidden`.
 `tests: Tests/Sema/FFI/tag_hiding.k, tag_hiding_ambiguous.k,
 tag_hiding_ambiguous_type.k`.
+
+### 5.2 Naming a tag: `ffi "c" struct T` [DONE]
+
+A bodiless `struct` / `class` / `union` under an `ffi` prefix or in an
+`ffi { }` block is a foreign forward declaration (outside ffi a struct
+still needs its body, S048E). Phase I (`_bind_ffi_forwards`) looks the
+name up in the TU's ffi closure -- a hidden tag's internal key first, then
+a visible tag -- and stamps the match on the declaration
+(`FFILinkage::ffi_tag_target`). `NameLookup::representative` answers with
+the header's decl, so every type built from the forward declaration is
+the header's entity and EmitPlan never emits it. No match leaves it a
+Kairo forward declaration, as before.
+
+The declaration sits in the TU's own table, so it would shadow the
+imported ordinary name. It does not in a VALUE position: N
+(`_prefer_ordinary_over_ffi_forward`) takes the overlay's imported
+ordinary decl instead, so `timezone` in an expression is still the
+variable while `*timezone` in a type is the struct -- the C split. The
+cost is that the head of an expression that means the TYPE (a struct
+literal) reaches the variable; C spells that `(struct timezone){...}` too.
+Enums are not covered: a C++ enum forward declaration needs its
+underlying type. `tests: Tests/Sema/FFI/tag_forward.k`.
 
 ---
 

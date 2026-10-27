@@ -84,6 +84,7 @@ class ImportResolution {
         if (cxx_std.size() > 0) && (ffi_orig != &null) {
             self._bind_cxx(overlay, cxx_std, ffi_orig);
         }
+        if ffi_orig != &null { self._bind_ffi_forwards(tu); }
 
         overlay->freeze();
         return true;
@@ -482,6 +483,91 @@ class ImportResolution {
             // name, not a general prefix.
             self._fold_all_cells(id, overlay, syms, fid, true);
         }
+    }
+
+    /// IMPORTS.md §5.2. A bodiless top-level `ffi "c" struct timezone` (or
+    /// `class`, `union`) in a TU with ffi imports names the header's TAG:
+    /// the one bound under the internal key a hidden tag gets (`struct
+    /// timezone`, DeclImport::_bind_named), else a visible tag of that name.
+    /// It is how source names a tag an ordinary name hides. No such tag in
+    /// the closure leaves the declaration what it always was, a Kairo
+    /// forward declaration.
+    priv fn _bind_ffi_forwards(self, tu: *TranslationUnit) {
+        var syms = tu->symbols();
+        if syms == &null { return; }
+        var rows = vec::<SymbolTable::Entry>();
+        syms->collect_entries(rows);
+        for var r: usize = 0; r < rows.size(); ++r {
+            var e = rows[r];
+            if (e.name.kind != DeclNameKind::Identifier) || (e.cell == &null) { continue; }
+            for var i: usize = 0; i < e.cell->size(); ++i {
+                var d = e.cell->get(i);
+                if !self._is_ffi_forward(d) { continue; }
+                var nm = self.sc->ctx->get_spelling(decl_name_tok(d));
+                if nm.size() == 0 { continue; }
+                var tag = self._find_header_tag(tu, nm);
+                if tag != &null { decl_set_ffi_tag_target(d, tag); }
+            }
+        }
+    }
+
+    priv fn _is_ffi_forward(self, d: *Decl) -> bool {
+        if d == &null { return false; }
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            return c->has_ffi_linkage() && (!c->is_imported()) && (!c->is_this_definition)
+                && (c->generic_params.size() == 0);
+        }
+        if isa::<StructDecl>(d) {
+            var s = cast::<StructDecl>(d);
+            return s->has_ffi_linkage() && (!s->is_imported()) && (!s->is_this_definition)
+                && (s->generic_params.size() == 0);
+        }
+        if isa::<UnionDecl>(d) {
+            var u = cast::<UnionDecl>(d);
+            return u->has_ffi_linkage() && (!u->is_imported()) && (!u->is_this_definition)
+                && (u->generic_params.size() == 0);
+        }
+        return false;
+    }
+
+    /// The imported tag named \p nm in any closure header of \p tu's ffi
+    /// imports: a hidden one first (its internal key), then a visible one.
+    priv fn _find_header_tag(self, tu: *TranslationUnit, nm: string) -> *Decl {
+        var hidden_keys = vec::<string>();
+        hidden_keys.push_back("struct " + nm);
+        hidden_keys.push_back("class " + nm);
+        hidden_keys.push_back("union " + nm);
+        for var pass: usize = 0; pass < 2; ++pass {
+            for var i: usize = 0; i < tu->imports.size(); ++i {
+                var slot = tu->imports[i];
+                if slot == &null { continue; }
+                var id = dyn_cast::<ImportDecl>(*slot);
+                if (id == &null) || (!id->has_ffi_linkage()) || (id->resolved_fid == 0) { continue; }
+                for var f: usize = 0; f < id->ffi_closure_fids.size(); ++f {
+                    var fid = id->ffi_closure_fids[f];
+                    var src = self._source_tu(fid);
+                    if src == &null { continue; }
+                    var hsyms = src->symbols();
+                    var imms  = self.sc->ctx->tcm->get_imm_table_for_fid(fid);
+                    if (hsyms == &null) || (imms == &null) { continue; }
+                    if pass == 0 {
+                        for var k: usize = 0; k < hidden_keys.size(); ++k {
+                            var c = SymbolTable::lookup_foreign(hsyms, imms, hidden_keys[k]);
+                            if (c != &null) && (c->size() > 0) && decl_is_ffi_tag(c->get(0)) { return c->get(0); }
+                        }
+                        continue;
+                    }
+                    var c = SymbolTable::lookup_foreign(hsyms, imms, nm);
+                    if c == &null { continue; }
+                    for var j: usize = 0; j < c->size(); ++j {
+                        var d = c->get(j);
+                        if decl_is_ffi_tag(d) && (!isa::<EnumDecl>(d)) { return d; }
+                    }
+                }
+            }
+        }
+        return &null;
     }
 
     /// Append every top-level `std` ModuleDecl of one closure header. Probed

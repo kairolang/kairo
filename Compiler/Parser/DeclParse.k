@@ -3377,6 +3377,15 @@ class <T> DeclParse {
         }
         self._reject_where_on_type("struct");
 
+        // `ffi "c" struct timezone`: a foreign forward declaration, naming
+        // the header's tag (ImportResolution::_bind_ffi_forwards). Outside
+        // ffi a struct still needs its body.
+        if (dyn()->ffi_decl_depth > 0) && (!dyn()->check(TokenKind::OpLBrace)) {
+            sd->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(sd);
+        }
+
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(sd));
         var fields:  std::StackBuf::<*FieldDecl, 8>;
         var methods: std::StackBuf::<*FunctionDecl, 8>; // ctors + operators only
@@ -3448,6 +3457,15 @@ class <T> DeclParse {
             if dyn()->_index_skip_to_body() {
                 self._index_walk_body(static_cast::<*DeclContext>(ud));
             }
+            ud->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(ud);
+        }
+
+        // `ffi "c" union timezone`: a foreign forward declaration, naming
+        // the header's tag (ImportResolution::_bind_ffi_forwards). Outside
+        // ffi a union still needs its body.
+        if (dyn()->ffi_decl_depth > 0) && (!dyn()->check(TokenKind::OpLBrace)) {
             ud->range = start | dyn()->prev().range;
             dyn()->exit_depth();
             return static_cast::<*Decl>(ud);
@@ -4344,7 +4362,9 @@ class <T> DeclParse {
                     dyn()->advance();
                     continue;
                 }
+                dyn()->ffi_decl_depth = dyn()->ffi_decl_depth + 1;
                 var d = self.parse_decl();
+                dyn()->ffi_decl_depth = dyn()->ffi_decl_depth - 1;
                 if d == &null { break; }
                 if self.is_fatal_decl(d) { break; }
 
@@ -4371,7 +4391,9 @@ class <T> DeclParse {
         }
 
         // ---- ffi "c++" fn foo(...) ----------------------------------------
+        dyn()->ffi_decl_depth = dyn()->ffi_decl_depth + 1;
         var d = self._dispatch_decl();
+        dyn()->ffi_decl_depth = dyn()->ffi_decl_depth - 1;
         if (d == &null) || self.is_fatal_decl(d) {
             dyn()->diag->report(DiagID::S064E, start.start,
                 "expected a declaration, 'import', or '{' after 'ffi \"...\"\x27"

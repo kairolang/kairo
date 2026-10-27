@@ -97,6 +97,11 @@ class ASTParse
     // --- Recovery state -----------------------------------------------------
     pub var _fatal_sentinels:  u32 = 0;      ///< special marker type used to signal unrecoverable errors during type parsing.
     pub var depth:             u32  = 0;     ///< current recursion depth.
+    /// >0 while parsing the declaration(s) an `ffi "..."` prefix or block
+    /// applies to: there a bodiless `struct S` / `union U` is a foreign
+    /// forward declaration (it names the header's tag, IMPORTS.md §5.2)
+    /// instead of a missing body.
+    pub var ffi_decl_depth:    u32  = 0;
     pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input (--cmax-scope-depth).
     pub var expr_depth:        u32  = 0;     ///< current expression recursion depth.
     pub var max_expr_depth:    u32  = 512;   ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
