@@ -52,14 +52,14 @@ fn main() -> i32 {
 // CXX:      struct null_t {
 // CXX:      inline constexpr null_t null {
 // CXX:      template<class T> struct Nullable {
-// CXX:      Nullable(): __kairo_tag(__kairo_Tag::Null) {
-// CXX:      Nullable( ::builtin::null_t): __kairo_tag(__kairo_Tag::Null) {
-// CXX:      Nullable(const T & v) requires __kairo_copyable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
-// CXX:      Nullable(T && v) requires __kairo_movable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
-// CXX:      bool is_null() const {
-// CXX:      T & __value() {
-// CXX:      const T & __value() const {
-// CXX:      bool operator ==(const Nullable & o) const requires requires(const T & a) {
+// CXX:      Nullable() noexcept: __kairo_tag(__kairo_Tag::Null) {
+// CXX:      Nullable( ::builtin::null_t) noexcept: __kairo_tag(__kairo_Tag::Null) {
+// CXX:      Nullable(const T & v) noexcept requires __kairo_copyable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
+// CXX:      Nullable(T && v) noexcept requires __kairo_movable: __kairo_tag(__kairo_Tag::Value), __kairo_Value {
+// CXX:      bool is_null() const noexcept {
+// CXX:      T & __value() noexcept {
+// CXX:      const T & __value() const noexcept {
+// CXX:      bool operator ==(const Nullable & o) const noexcept requires requires(const T & a) {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

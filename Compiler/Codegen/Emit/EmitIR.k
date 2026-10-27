@@ -2078,7 +2078,7 @@ class EmitIR {
     /// on the spot binds the result once and is an expression everywhere a
     /// cast is, a namespace-scope initializer included:
     ///
-    ///   [](D* __kairo_dc) -> N { return __kairo_dc ? N(__kairo_dc) : N(); }(dynamic_cast<D*>(p))
+    ///   [](D* __kairo_dc) noexcept -> N { return __kairo_dc ? N(__kairo_dc) : N(); }(dynamic_cast<D*>(p))
     ///
     /// `N()` is Nullable's null (AdtRole::NullDefault). With the pointer
     /// niche (G2b) this becomes the dynamic_cast alone.
@@ -2089,7 +2089,8 @@ class EmitIR {
         var big = self._spell._type(n->target, &null);
         var ptr = self._spell._type(nt->inner, &null);
         var v   = LowerTargets::checked_downcast_value();
-        self._cg->sink->spell(n->range, "[](" + ptr + " " + v + ") -> " + big + " { return " + v + " ? " + big + "(" + v + ") : " + big + "(); }(dynamic_cast<" + ptr + ">(");
+        var nx  = ("") if (self._cg->opts.unwind) else (" noexcept");
+        self._cg->sink->spell(n->range, "[](" + ptr + " " + v + ")" + nx + " -> " + big + " { return " + v + " ? " + big + "(" + v + ") : " + big + "(); }(dynamic_cast<" + ptr + ">(");
         self.emit(n->operand);
         self._cg->sink->spell(n->range, "))");
     }
@@ -2233,7 +2234,7 @@ class EmitIR {
     /// An ADT variant built in place: the enum's tagged constructor,
     /// `T(::__kairo_vt<I>{})` for a variant without a payload, and otherwise
     ///
-    ///   T(::__kairo_vt<I>{}, [&]() -> P { return { f0, f1 }; })
+    ///   T(::__kairo_vt<I>{}, [&]() noexcept -> P { return { f0, f1 }; })
     ///
     /// with P the variant's payload struct named through T. The union member
     /// is initialized from the lambda's prvalue, so the payload is built in
@@ -2254,7 +2255,10 @@ class EmitIR {
         }
         var leaf = LowerTargets::adt_payload_type(self._spell.leaf(static_cast::<*Decl>(v)));
         var pt   = self._spell.dependent_member_type(n->type_, leaf);
-        self._cg->sink->spell(n->range, t + "(" + tag + ", [&]() -> " + pt + " { return {");
+        // noexcept unless -funwind, as the constructor it is passed to is
+        // (InterfaceEmitter::_adt_noexcept): the lambda is a Kairo frame.
+        var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+        self._cg->sink->spell(n->range, t + "(" + tag + ", [&]()" + nx + " -> " + pt + " { return {");
         for var i: usize = 0; i < n->fields.size(); ++i {
             if i > 0 { self._cg->sink->spell(n->range, ","); }
             var fd = v->payload[i];

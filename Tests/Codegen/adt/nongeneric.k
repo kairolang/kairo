@@ -42,7 +42,7 @@ fn main() -> i32 {
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}nongeneric.k
 // CXX-NOT:   requires
 // CXX:       struct Point {
-// CXX:       Point(::__kairo_vt<1>) : __kairo_tag(__kairo_Tag::Origin) {
+// CXX:       Point(::__kairo_vt<1>) noexcept : __kairo_tag(__kairo_Tag::Origin) {
 // CXX-NEXT:  }
 // CXX-NEXT:  Point(const Point&) = default;
 // CXX-NEXT:  Point(Point&&) = default;
@@ -52,19 +52,19 @@ fn main() -> i32 {
 // CXX-NEXT:  private{{ ?}}:
 // CXX-NOT:   requires
 // CXX:       struct Note {
-// CXX:       Note(::__kairo_vt<2>) : __kairo_tag(__kairo_Tag::Blank) {
+// CXX:       Note(::__kairo_vt<2>) noexcept : __kairo_tag(__kairo_Tag::Blank) {
 // CXX-NEXT:  }
-// CXX-NEXT:  Note(const Note& o) : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
+// CXX-NEXT:  Note(const Note& o) noexcept : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
 // CXX-NEXT:  __kairo_construct_from(o);
 // CXX-NEXT:  }
-// CXX-NEXT:  Note(Note&& o) : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
+// CXX-NEXT:  Note(Note&& o) noexcept : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
 // CXX-NEXT:  __kairo_construct_from(static_cast<Note&&>(o));
 // CXX-NEXT:  }
-// CXX-NEXT:  Note& operator=(const Note& o) {
+// CXX-NEXT:  Note& operator=(const Note& o) noexcept {
 // CXX-NOT:   {{requires|= default|= delete|Note\(}}
-// CXX:       Note& operator=(Note&& o) {
+// CXX:       Note& operator=(Note&& o) noexcept {
 // CXX-NOT:   {{requires|= default|= delete|Note\(}}
-// CXX:       ~Note() {
+// CXX:       ~Note() noexcept {
 // CXX-NEXT:  __kairo_destroy();
 // CXX-NEXT:  }
 // CXX-NEXT:  private{{ ?}}:

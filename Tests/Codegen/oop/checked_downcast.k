@@ -78,7 +78,7 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      Nullable< ::checked_downcast::Dog *> d =[]( ::checked_downcast::Dog * __kairo_dc)-> ::builtin::Nullable< ::checked_downcast::Dog *> {
+// CXX:      Nullable< ::checked_downcast::Dog *> d =[]( ::checked_downcast::Dog * __kairo_dc) noexcept-> ::builtin::Nullable< ::checked_downcast::Dog *> {
 // CXX-NEXT:     return __kairo_dc ? ::builtin::Nullable< ::checked_downcast::Dog *>(__kairo_dc): ::builtin::Nullable< ::checked_downcast::Dog *>();
 // CXX-NEXT: }
 // CXX-NEXT: (dynamic_cast< ::checked_downcast::Dog *>(a));

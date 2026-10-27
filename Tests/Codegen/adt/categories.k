@@ -149,16 +149,16 @@ fn main() -> i32 {
 // CXX:       ~Opt() requires __kairo_trivial_dtor = default;
 // CXX:       struct UniqueSlot {
 // CXX:       UniqueSlot(const UniqueSlot&) = delete;
-// CXX-NEXT:  UniqueSlot(UniqueSlot&& o) : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
+// CXX-NEXT:  UniqueSlot(UniqueSlot&& o) noexcept : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
 // CXX:       UniqueSlot& operator=(const UniqueSlot&) = delete;
-// CXX-NEXT:  UniqueSlot& operator=(UniqueSlot&& o) {
+// CXX-NEXT:  UniqueSlot& operator=(UniqueSlot&& o) noexcept {
 // CXX:       ~UniqueSlot() = default;
 // CXX:       struct PinnedSlot {
 // CXX:       PinnedSlot(const PinnedSlot&) = delete;
 // CXX-NEXT:  PinnedSlot(PinnedSlot&&) = delete;
 // CXX-NEXT:  PinnedSlot& operator=(const PinnedSlot&) = delete;
 // CXX-NEXT:  PinnedSlot& operator=(PinnedSlot&&) = delete;
-// CXX-NEXT:  ~PinnedSlot() {
+// CXX-NEXT:  ~PinnedSlot() noexcept {
 
 // REQUIRES: clang, llvm-objdump
 // RUN: rm -rf %t.d %t.o2

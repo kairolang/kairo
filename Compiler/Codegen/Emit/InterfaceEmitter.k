@@ -1120,7 +1120,9 @@ class InterfaceEmitter {
         var tt   = LowerTargets::adt_tag_type();
         var ds   = LowerTargets::adt_destroy();
         var cf   = LowerTargets::adt_construct_from();
-        var req  = self._adt_requires(m, generic);
+        var nx   = self._adt_noexcept();
+        var dreq = self._adt_requires(m, generic);   // a defaulted or deleted form: C++ deduces its noexcept.
+        var req  = nx + dreq;
         var tail = (" = default;") if (m->adt_form == AdtForm::Trivial) else (" = delete;");
         var body = m->adt_form == AdtForm::Body;
         switch m->adt_role {
@@ -1131,19 +1133,19 @@ class InterfaceEmitter {
                 var v    = en->variants[usize(m->adt_variant)];
                 var vt   = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
                 var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")";
-                if v->adt_member == &null { return nm + "(" + vt + ") : " + init + " {}"; }
+                if v->adt_member == &null { return nm + "(" + vt + ")" + nx + " : " + init + " {}"; }
                 // The payload is the callable's prvalue, so the union member
                 // is built straight from it: nothing is copied or moved.
-                return "template <class F> " + nm + "(" + vt + ", F&& f) : " + init + ", "
+                return "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", "
                      + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(static_cast<F&&>(f)()) {}";
             }
             case AdtRole::CopyCtor {
                 if body { return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(o); }"; }
-                return nm + "(const " + nm + "&)" + req + tail;
+                return nm + "(const " + nm + "&)" + dreq + tail;
             }
             case AdtRole::MoveCtor {
                 if body { return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(static_cast<" + nm + "&&>(o)); }"; }
-                return nm + "(" + nm + "&&)" + req + tail;
+                return nm + "(" + nm + "&&)" + dreq + tail;
             }
             case AdtRole::CopyAssign {
                 // Destroying first would leave a self-assignment nothing to
@@ -1152,18 +1154,18 @@ class InterfaceEmitter {
                     return nm + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); "
                          + tag + " = o." + tag + "; " + cf + "(o); } return *this; }";
                 }
-                return nm + "& operator=(const " + nm + "&)" + req + tail;
+                return nm + "& operator=(const " + nm + "&)" + dreq + tail;
             }
             case AdtRole::MoveAssign {
                 if body {
                     return nm + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); "
                          + tag + " = o." + tag + "; " + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }";
                 }
-                return nm + "& operator=(" + nm + "&&)" + req + tail;
+                return nm + "& operator=(" + nm + "&&)" + dreq + tail;
             }
             case AdtRole::Dtor {
                 if body { return "~" + nm + "()" + req + " { " + ds + "(); }"; }
-                return "~" + nm + "()" + req + tail;
+                return "~" + nm + "()" + dreq + tail;
             }
             case AdtRole::Destroy {
                 var s = "void " + ds + "() noexcept { switch (" + tag + ") {";
@@ -1178,7 +1180,7 @@ class InterfaceEmitter {
             case AdtRole::ConstructFrom {
                 // `new` finds the payload struct's own placement form, which
                 // needs no <new>.
-                var s = "template <class O> void " + cf + "(O&& o) { switch (" + tag + ") {";
+                var s = "template <class O> void " + cf + "(O&& o)" + nx + " { switch (" + tag + ") {";
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var v = en->variants[i];
                     if (v == &null) || (v->adt_member == &null) { continue; }
@@ -1192,6 +1194,17 @@ class InterfaceEmitter {
         }
         self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
         return "";
+    }
+
+    /// ` noexcept` on a role function with a body, unless -funwind: each is
+    /// part of a Kairo frame -- a variant constructor runs the payload's
+    /// initializers, the transfers run the payloads' -- and a Kairo frame
+    /// is noexcept by the same rule a closure is (EmitIR::_closure_expr).
+    /// Without it every construction site is an invoke with a terminate
+    /// landing pad, and the enclosing function carries a personality.
+    priv fn _adt_noexcept(self) -> string {
+        if self._cg->opts.unwind { return ""; }
+        return " noexcept";
     }
 
     /// One member of the Nullable lang item's surface (AdtRole, from
@@ -1224,11 +1237,12 @@ class InterfaceEmitter {
         var null_init    = " : " + tag + "(" + null_tag + ") {}";
         var present_init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(some)) + "), " + mem;
         var val = LowerTargets::nullable_value();
+        var nx  = self._adt_noexcept();
         switch m->adt_role {
-            case AdtRole::NullDefault { return nm + "()" + null_init; }
+            case AdtRole::NullDefault { return nm + "()" + nx + null_init; }
             case AdtRole::NullFrom {
                 if m->params.size() != 1 { self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter"); return ""; }
-                return nm + "(" + self._spell->decl(m->params[0]->type_, "", &null, d) + ")" + null_init;
+                return nm + "(" + self._spell->decl(m->params[0]->type_, "", &null, d) + ")" + nx + null_init;
             }
             // Brace-initialized: the payload struct is an aggregate, so its
             // one field is built straight from the argument. Constrained by
@@ -1236,16 +1250,16 @@ class InterfaceEmitter {
             // every member whose constraints hold: an unconstrained copy
             // constructor of a `Nullable<MoveOnly>` is a hard error there.
             case AdtRole::ValueCopy {
-                return nm + "(const " + t + "& v) requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}";
+                return nm + "(const " + t + "& v)" + nx + " requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}";
             }
             case AdtRole::ValueMove {
-                return nm + "(" + t + "&& v) requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}";
+                return nm + "(" + t + "&& v)" + nx + " requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}";
             }
-            case AdtRole::IsNull    { return "bool " + LowerTargets::nullable_is_null() + "() const { return " + is_null + "; }"; }
-            case AdtRole::ValueRef  { return t + "& " + val + "() { return " + mem + "." + fld + "; }"; }
-            case AdtRole::ValueCref { return "const " + t + "& " + val + "() const { return " + mem + "." + fld + "; }"; }
+            case AdtRole::IsNull    { return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + is_null + "; }"; }
+            case AdtRole::ValueRef  { return t + "& " + val + "()" + nx + " { return " + mem + "." + fld + "; }"; }
+            case AdtRole::ValueCref { return "const " + t + "& " + val + "() const" + nx + " { return " + mem + "." + fld + "; }"; }
             case AdtRole::Equal {
-                return "bool operator==(const " + nm + "& o) const requires requires (const " + t + "& a) { a == a; } { return "
+                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + t + "& a) { a == a; } { return "
                      + tag + " == o." + tag + " && ((" + is_null + ") || " + mem + "." + fld + " == o." + mem + "." + fld + "); }";
             }
             default { 0; }

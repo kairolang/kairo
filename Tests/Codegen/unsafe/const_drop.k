@@ -43,7 +43,10 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
+// stderr is dropped: clang's "1 warning generated." for the base cast at
+// line 35 is written while the dump is still being flushed, and lands
+// inside whichever line straddles that byte offset.
+// RUN: { %kairo %s --print-ir 2>/dev/null || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}const_drop.k
 // IR:      reinterpret_cast<const unsigned char *>({{ ?}}::malloc(4))
 // IR-NOT:  reinterpret_cast
