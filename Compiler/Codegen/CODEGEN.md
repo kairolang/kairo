@@ -526,7 +526,11 @@ assignment), `put` (may be a later one; the only use of T's `op =`),
 takes the array by `&&` (a list literal's prvalue, its elements moved) or
 `const&` (copied), building the elements from an index pack
 (`__make_integer_seq`, `LowerTargets::make_index_seq`), and there is no
-`put` (an array is written once, CtorInitCheck).
+`put` (an array is written once, CtorInitCheck). `init_at(k, T)` builds
+element k alone, in place in a box of its own, for an array built element
+by element; the slot is `set` once all N are (CtorInitCheck guarantees
+every path builds every element, and S_pre cannot panic or return, so a
+partly built array is never destroyed).
 
 V1 refusals (each an ICE naming its owner): named unions, interfaces, the
 initializer of an eval field or of an array-typed field FieldInitLowering
@@ -638,6 +642,9 @@ S_post; and the declared constructor, `R(P p) :
 R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}`. In S_pre (`_ci_pre`)
 `self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field that
 is not an array),
+a write CtorInitCheck marked `ci_elem_init` (`self.a[k] = e`, building
+element k) is `__kairo_s.a.init_at(k, e)`, in place, so e runs where it
+is written;
 `self.x` and a bare field are `__kairo_s.x.get()`, and any other `self`
 ICEs (CtorInitCheck rejected it). A carried local is `__kairo_s.__kairo_lI_n`
 in both halves, built at its declaration. The temporary slot record lives

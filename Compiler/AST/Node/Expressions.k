@@ -969,6 +969,11 @@ class AssignOperatorExpr derives Expr {
     /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
     pub var op_instance: *void = &null;
+    /// `self.f[k] = e` in a constructor that builds array field f element by
+    /// element: this write constructs element k (it did not exist before),
+    /// so S_pre spells it `init_at(k, e)` on f's slot, not an assignment.
+    /// One writer: CtorInitCheck. Read by EmitIR.
+    pub var ci_elem_init: bool = false;
 
     static fn create(
         ctx:      *ASTContext,

@@ -836,6 +836,10 @@ class LowerTargets {
     static fn ctor_slot_put() -> string  { return "put"; }
     static fn ctor_slot_get() -> string  { return "get"; }
     static fn ctor_slot_take() -> string { return "take"; }
+    /// An array slot's element-by-element build: `init_at(k, e)` constructs
+    /// element k (CtorInitCheck allows each once), and the slot counts as
+    /// built once all N are.
+    static fn ctor_slot_init_at() -> string { return "init_at"; }
     /// The compiler builtin that makes an index pack (`__make_integer_seq<
     /// Q, usize, N>` is `Q<usize, 0, ..., N-1>`): an array slot builds its
     /// elements from one with no <utility>.

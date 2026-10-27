@@ -621,13 +621,24 @@ an enum with payloads, a record with no usable default constructor, an
 array of those) is required the same way: the constructor's first whole
 write is its initializer, on every path, and later writes are
 assignments; writing part of it (`self.f[i] = e`) before that is an
-error. An array field is assigned once: its one whole write in a
+error, except that a one-dimensional array field of known length (not
+const) may instead be built element by element: `self.f[k] = e`, k a
+constant (ConstEval), every k in 0..N-1 exactly once on every path,
+outside any loop, before `f` or `self` is read. The flow state tracks
+each such element as it tracks a field (CtorFlow::edef / emaybe); the
+array counts as assigned when its last element is, and the write that
+builds an element is marked `AssignOperatorExpr::ci_elem_init` for EmitIR.
+Missing elements (named), a duplicate, a non-constant or out-of-range
+index, a loop, a read before the last element: SC001E. A write into an
+element (`self.f[k].x = e`) and an array of arrays build nothing (a note
+says so). An array field is assigned once: its one whole write in a
 constructor initializes it, on every path or none, and any other is
 SC071E (OperatorTyping defers exactly that write to this pass). The
 constructor body is read in two parts at the frontier, the last
-top-level statement that assigns a const or array field or, for each
-other required field, the first after which it is assigned on every
-path (a quiet walk), whichever is later: S_pre runs before the object
+top-level statement that assigns a const or array field whole or, for
+each other required field (and each array built element by element),
+the first after which it is assigned on every path (a quiet walk),
+whichever is later: S_pre runs before the object
 exists, so in it `self` appears only as `self.f = e` or as a read of a
 field already assigned on every path, and it holds no `return`. Every
 rule is SC001E but the array one; SC116E gates a generic constructor and

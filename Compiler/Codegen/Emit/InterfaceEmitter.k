@@ -2398,8 +2398,9 @@ class InterfaceEmitter {
         // An array field's slot. `init(T u)` would take a decayed pointer and
         // an array has no `=`, so this one builds its elements from the
         // array's, moved from a prvalue (a list literal) or copied from an
-        // lvalue, and has no `put`: CtorInitCheck allows one write. The
-        // field's mem-initializer reads `take()[i]` per element (EmitIR).
+        // lvalue, or one at a time (`init_at`), and has no `put`:
+        // CtorInitCheck allows one write. The field's mem-initializer reads
+        // `take()[i]` per element (EmitIR).
         var a = "template <class T, " + sz + " N> struct " + sl + "<T[N]> {";
         a += " using __a = T[N];";
         a += " template <class I, I... K> struct __q {};";
@@ -2414,6 +2415,14 @@ class InterfaceEmitter {
         a += " template <" + sz + "... K> void __cp(const __a& u, __q<" + sz + ", K...>) { new (static_cast<void*>(&b)) __b{{u[K]...}}; " + st + " = true; }";
         a += " void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
         a += " void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
+        // Element by element (CtorInitCheck): each element is built once,
+        // in place, in its own box (no <new>), and the array counts as built
+        // when the last one is. A constructor never leaves S_pre with part of
+        // it built (it cannot panic or return there, and every path builds
+        // every element), so a partly built array is never destroyed.
+        a += " struct __e { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
+        a += " " + sz + " __n = 0;";
+        a += " void " + LowerTargets::ctor_slot_init_at() + "(" + sz + " k, T u) { new (static_cast<void*>(&b.v[k])) __e{static_cast<T&&>(u)}; if (++__n == N) { " + st + " = true; } }";
         a += " __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return b.v; }";
         a += " __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(b.v); }";
         a += " };";

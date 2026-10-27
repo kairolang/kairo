@@ -2313,6 +2313,25 @@ class EmitIR {
         // S_pre's `self.x = e` fills x's slot: `init` for a const field (its
         // one assignment, CtorInitCheck), `put` for a `var` one, which S_pre
         // may assign again.
+        if self._ci_pre && (n->op_token.kind == TokenKind::OpEqual) && n->ci_elem_init {
+            // `self.f[k] = e` that builds element k of an array field built
+            // element by element (CtorInitCheck): the element does not exist
+            // yet, so it is constructed in the slot, not assigned. In place,
+            // so e runs exactly where it is written.
+            var sub = dyn_cast::<SubscriptExpr>(n->lhs);
+            var esi = usize(-1);
+            if sub != &null {
+                var ef = self._self_field(sub->base);
+                if ef != &null { esi = self._slot_of(static_cast::<*Decl>(ef), true); }
+            }
+            if esi == usize(-1) { self._ice(n->range, "EmitIR: an element write that builds a field with no slot; CtorInitCheck gate failure"); return; }
+            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(esi) + "." + LowerTargets::ctor_slot_init_at() + "(");
+            self.emit(sub->index);
+            self._cg->sink->spell(n->range, ", ");
+            self._value(n->rhs, n->lhs->type_);
+            self._cg->sink->spell(n->range, ")");
+            return;
+        }
         if self._ci_pre && (n->op_token.kind == TokenKind::OpEqual) {
             var f = self._self_field(n->lhs);
             if f != &null {

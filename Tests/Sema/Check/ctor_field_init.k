@@ -68,23 +68,24 @@ class MissingRecord {
 // DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'MissingRecord' does not initialize field 'tok', and 'Token' has no default constructor (declare 'fn Token(self)')
 }
 
-// The user's report: elements written one by one, the array never built.
+// The user's report: elements written one by one. Every element once,
+// with a constant index, builds the array (ctor_field_elems.k).
 class ByElement {
     pub var frames: [Frame; 2]
     fn ByElement(self) {
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: constructor of 'ByElement' does not initialize field 'frames', and 'Frame' is an enum with payloads, so no variant is its default
         self.frames[0] = .Idle
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: this writes part of 'frames', which does not exist until it is built whole
         self.frames[1] = .Idle
     }
 }
 
+// Element 0 is built, so the whole write would build it a second time.
 class PartFirst {
     pub var frames: [Frame; 2]
     fn PartFirst(self) {
         self.frames[0] = .Idle
-// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [{{SC0*1E}}]: 'frames' is written in part before it is initialized, and 'Frame' is an enum with payloads, so no variant is its default
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: note [{{.*}}]: initialized here first; assign its elements instead
         self.frames = [.Idle, .Idle]
+// DIAG-DAG: ctor_field_init.k:[[@LINE-1]]:{{[0-9]+}}: error [SC071E]: an array is not assignable; 'frames' may already be initialized here
     }
 }
 

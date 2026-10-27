@@ -40,7 +40,15 @@
 ///         S_pre assigns at all it assigns on every path (C++ could not
 ///         assign it afterwards);
 ///       - a field with no default is not written in part (`self.f[i] = e`,
-///         `self.f.x = e`) before it is built whole;
+///         `self.f.x = e`) before it is built whole -- except that a
+///         one-dimensional array field of known length may be built
+///         element by element: `self.f[k] = e` with k a constant, every k
+///         in 0..N-1 exactly once on every path, outside any loop, before
+///         f or `self` is read. Each element is a bit of flow state like a
+///         field (CtorFlow::edef); f is assigned once its last element is,
+///         and each write that builds an element is marked ci_elem_init
+///         (EmitIR builds the element in the slot, in place, so source
+///         order holds);
 ///       - in S_pre, `self` appears only as `self.f = e` or as a read of a
 ///         field already assigned on every path: no method call, no `self`
 ///         passed or returned, no `&self.f`, no field S_pre never writes;
@@ -81,6 +89,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
@@ -134,6 +143,15 @@ fn ctor_init_is_once(f: *FieldDecl) -> bool {
     return (f != &null) && (f->is_const() || ctor_init_is_array(f));
 }
 
+/// `self.f[k]` exactly (one subscript straight on `self.f`), else null:
+/// the target of an element write that may build an array field.
+fn ctor_init_elem_target(e: *Expr) -> *SubscriptExpr {
+    var sub = dyn_cast::<SubscriptExpr>(e);
+    if (sub == &null) || (sub->index == &null) || (sub->resolved_op != &null) { return &null; }
+    if !ctor_init_is_array(ctor_init_self_field(sub->base)) { return &null; }
+    return sub;
+}
+
 /// The field a write of PART of it is rooted at: `self.f[i]`, `self.f.x`,
 /// `self.f[i].y`. Null for the whole `self.f`, and for anything not rooted
 /// at a field of `self`.
@@ -184,13 +202,25 @@ class CtorPartWriteFind derives RecursiveASTVisitor::<CtorPartWriteFind> {
     }
 }
 
-/// Every field written as `self.f = ...` under a statement, and where first.
+/// Every field written as `self.f = ...` under a statement, and where first;
+/// and each of \p elems written as `self.f[k] = ...` (built element by
+/// element, CtorInitCheck::_elem_ok).
 class CtorFieldWriteFind derives RecursiveASTVisitor::<CtorFieldWriteFind> {
     pub var fields: vec::<*FieldDecl>;
     pub var at:     vec::<SourceRange>;
+    pub var elems:  vec::<*FieldDecl>;
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         var f = ctor_init_self_field(n->lhs);
+        if (f == &null) && (n->op_token.kind == TokenKind::OpEqual) {
+            var sub = ctor_init_elem_target(n->lhs);
+            if sub != &null {
+                var ef = ctor_init_self_field(sub->base);
+                for var i: usize = 0; i < self.elems.size(); ++i {
+                    if self.elems[i] == ef { f = ef; break; }
+                }
+            }
+        }
         if f == &null { return true; }
         for var i: usize = 0; i < self.fields.size(); ++i {
             if self.fields[i] == f { return true; }
@@ -230,6 +260,10 @@ struct CtorFlow {
     pub var def:   vec::<bool>;
     pub var maybe: vec::<bool>;
     pub var dead:  bool = false;
+    /// The same per element of each array field built element by element,
+    /// field i's elements at CtorInitCheck::_ebase[i].
+    pub var edef:   vec::<bool>;
+    pub var emaybe: vec::<bool>;
 }
 
 /// One thing the expression scan saw `self` do, in evaluation order.
@@ -239,12 +273,15 @@ enum CtorEventKind derives u8 {
     Read,           ///< `self.f` / `self.f.<more>`.
     SelfUse,        ///< `self` as a whole: a call, an argument, `&self.f`.
     PartWrite,      ///< `self.f[i] = e` / `self.f.x = e`: f must exist already.
+    ElemWrite,      ///< `self.f[k] = e`, f an array field: may build element k.
 }
 
 struct CtorEvent {
     pub var kind:  CtorEventKind = CtorEventKind::Read;
     pub var field: *FieldDecl = &null;
     pub var at:    SourceRange;
+    /// ElemWrite: the write itself (its subscript is the index).
+    pub var node:  *AssignOperatorExpr = &null;
 }
 
 /// The expression-level half of the walk: every `self` under an expression
@@ -255,11 +292,12 @@ struct CtorEvent {
 class CtorExprScan derives RecursiveASTVisitor::<CtorExprScan> {
     pub var events: vec::<CtorEvent>;
 
-    priv fn _push(self, k: CtorEventKind, f: *FieldDecl, at: SourceRange) {
+    priv fn _push(self, k: CtorEventKind, f: *FieldDecl, at: SourceRange, node: *AssignOperatorExpr = &null) {
         var e = CtorEvent{};
         e.kind  = k;
         e.field = f;
         e.at    = at;
+        e.node  = node;
         self.events.push_back(e);
     }
 
@@ -270,6 +308,10 @@ class CtorExprScan derives RecursiveASTVisitor::<CtorExprScan> {
             if pf == &null { return true; }
             if n->rhs != &null { self.dispatch_expr(n->rhs); }
             self._scan_part(n->lhs);
+            if (n->op_token.kind == TokenKind::OpEqual) && (ctor_init_elem_target(n->lhs) != &null) {
+                self._push(CtorEventKind::ElemWrite, pf, n->range, n);
+                return false;
+            }
             self._push(CtorEventKind::PartWrite, pf, n->range);
             return false;
         }
@@ -370,6 +412,14 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     /// The array fields whose write the walk reported, so the end of the
     /// walk does not report the same field's paths again.
     priv var _erred:      vec::<*FieldDecl>;
+    /// Per field (by index): where its elements start in CtorFlow::edef, or
+    /// usize(-1) for a field not built element by element (_elem_ok); its
+    /// element count; and per element, where it was first built on the path
+    /// being walked (the note on a second write).
+    priv var _ebase:      vec::<usize>;
+    priv var _elen:       vec::<usize>;
+    priv var _eat:        vec::<SourceRange>;
+    priv var _ce:         ConstEval;
 
     // The function being traversed, for the stray-assignment rule.
     priv var _fn: *FunctionDecl = &null;
@@ -377,6 +427,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     fn CtorInitCheck(self, sc: *SemaContext) {
         self.sc  = sc;
         self._tu = TypeUtil(sc);
+        self._ce = ConstEval(sc);
     }
 
     fn run(self) {
@@ -537,6 +588,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         }
 
         var stmts = f->body_block->body;
+        self._elem_layout(fields);
 
         // The frontier: the last statement assigning a field written once
         // (const or array); and, for each field with no default written
@@ -585,6 +637,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         // What S_pre writes, anywhere: the slot set, and which reads of a
         // not-yet-assigned field are "later" rather than "never".
         var wf = CtorFieldWriteFind();
+        wf.elems = self._elem_fields();
         for var i: usize = 0; i <= frontier; ++i { wf.dispatch_stmt(stmts[i]); }
         self._written  = wf.fields;
         self._first_at = wf.at;
@@ -597,6 +650,8 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             for var i: usize = 0; i < fields.size(); ++i {
                 var fd = fields[i];
                 if self._st.def[i] { continue; }
+                // A field whose write the walk reported already: one error.
+                if self._required(fd) && (!fd->is_const()) && self._has_erred(fd) { continue; }
                 var nm = self.sc->ctx->get_spelling(fd->name);
                 if self._required(fd) && fd->is_const() {
                     var b = self.sc->diag->report(DiagID::SC001E, at.start,
@@ -607,6 +662,15 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
                     self._failed = true;
                 } else if self._required(fd) && (!self._is_written(fd)) {
                     self._missing(fd, cname, at, stmts);
+                    self._failed = true;
+                } else if self._required(fd) && self._elems_begun(i) {
+                    var why = self._why(fd);
+                    var n = self._elen[i];
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"array field '{nm}' is built element by element, but {self._missing_elems(i)} not initialized on every path through the constructor of '{cname}', and {why}");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' has {n} elements; write each one once ('self.{nm}[k] = ...' for every k from 0 to {n - 1}) on every path, or assign it whole").first(fd->name.range);
+                    b.emit();
                     self._failed = true;
                 } else if self._required(fd) {
                     var why = self._why(fd);
@@ -792,6 +856,9 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         for var i: usize = 0; i < self._st.maybe.size(); ++i {
             if (!after.dead) && after.maybe[i] { self._st.maybe[i] = true; }
         }
+        for var i: usize = 0; i < self._st.emaybe.size(); ++i {
+            if (!after.dead) && after.emaybe[i] { self._st.emaybe[i] = true; }
+        }
     }
 
     /// The meet of two paths: assigned where both assigned it, maybe-assigned
@@ -802,6 +869,10 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         for var i: usize = 0; i < self._st.def.size(); ++i {
             self._st.def[i]   = self._st.def[i] && other.def[i];
             self._st.maybe[i] = self._st.maybe[i] || other.maybe[i];
+        }
+        for var i: usize = 0; i < self._st.edef.size(); ++i {
+            self._st.edef[i]   = self._st.edef[i] && other.edef[i];
+            self._st.emaybe[i] = self._st.emaybe[i] || other.emaybe[i];
         }
     }
 
@@ -827,6 +898,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
                 case CtorEventKind::CompoundWrite { self._on_write(e.field, e.at, true); }
                 case CtorEventKind::Read          { self._on_read(e.field, e.at); }
                 case CtorEventKind::PartWrite     { self._on_part_write(e.field, e.at); }
+                case CtorEventKind::ElemWrite     { self._on_elem_write(e.field, e.node); }
                 default                           { self._on_self_use(e.at); }
             }
         }
@@ -903,7 +975,16 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         if i == usize(-1) { return; }
         if self._st.def[i] || self._quiet { return; }
         var nm = self.sc->ctx->get_spelling(f->name);
-        if self._is_written(f) {
+        if self._elems_begun(i) {
+            // Built element by element and not finished: its slot holds
+            // elements that do not exist yet.
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{nm}' is read before all of its elements are initialized: {self._missing_elems(i)} not initialized yet on every path");
+            b.first(at);
+            var first = self._assigned_at[i];
+            if first.is_valid() { b.note(first.start, f"'{nm}' starts being built here; read it after its last element is written").first(first); }
+            b.emit();
+        } else if self._is_written(f) {
             var b = self.sc->diag->report(DiagID::SC001E, at.start,
                 f"'{nm}' is read before it is initialized on every path");
             b.first(at);
@@ -938,8 +1019,78 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             f"'{nm}' is written in part before it is initialized, and {why}");
         b.first(at);
         b.note(f->range.start, f"'{nm}' is declared here without an initializer; the constructor must build it whole first ('self.{nm} = ...'), or give it an initializer").first(f->name.range);
+        var how = self._part_note(f);
+        if how.size() > 0 { b.note(DiagID::SC001N, at.start, how).first(at); }
         b.emit();
         self._failed = true;
+    }
+
+    /// `self.f[k] = e`, f an array field. Field \p f built element by
+    /// element (_elem_ok) and not yet whole: this builds element k, once,
+    /// with k a constant, outside any loop. A field already built whole: an
+    /// ordinary element assignment. Any other: a write of part of f.
+    priv fn _on_elem_write(self, f: *FieldDecl, n: *AssignOperatorExpr) {
+        var i = self._index(f);
+        if (i == usize(-1)) || (n == &null) { return; }
+        if self._st.def[i] { return; }
+        if self._ebase[i] == usize(-1) { self._on_part_write(f, n->range); return; }
+        var sub = cast::<SubscriptExpr>(n->lhs);
+        var nm  = self.sc->ctx->get_spelling(f->name);
+        var len = self._elen[i];
+        var at  = n->range;
+        var c   = self._ce.eval_int(sub->index);
+        var ok  = c.ok && (!c.overflow) && (!c.neg) && (c.mag < static_cast::<u64>(len));
+        var k   = (static_cast::<usize>(c.mag)) if (ok) else (usize(0));
+        if self._quiet {
+            0;
+        } else if self._loops > 0 {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"an element of '{nm}' is initialized inside a loop; each element of an array field built element by element is written exactly once, with a constant index");
+            b.first(at);
+            b.note(f->range.start, f"'{nm}' has no default; write 'self.{nm}[0] = ...' through 'self.{nm}[{len - 1}] = ...' outside the loop, or assign it whole ('self.{nm} = [...]')").first(f->name.range);
+            b.emit();
+            self._erred.push_back(f);
+            self._failed = true;
+            ok = false;
+        } else if (!c.ok) || c.overflow {
+            var b = self.sc->diag->report(DiagID::SC001E, sub->index->range.start,
+                f"the index of an element write that builds '{nm}' must be a constant");
+            b.first(sub->index->range);
+            b.note(f->range.start, f"'{nm}' has no default, so the constructor builds it whole ('self.{nm} = [...]') or writes each of its {len} elements once with a constant index").first(f->name.range);
+            b.emit();
+            self._erred.push_back(f);
+            self._failed = true;
+        } else if !ok {
+            var b = self.sc->diag->report(DiagID::SC001E, sub->index->range.start,
+                f"index {self._ce.str(c)} is out of range for '{nm}', which has {len} elements");
+            b.first(sub->index->range);
+            b.emit();
+            self._erred.push_back(f);
+            self._failed = true;
+        } else if self._st.emaybe[self._ebase[i] + k] {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"element {k} of '{nm}' may already be initialized here; each element is initialized exactly once before '{nm}' is whole");
+            b.first(at);
+            var prev = self._eat[self._ebase[i] + k];
+            if prev.is_valid() { b.note(DiagID::SC001N, prev.start, "initialized here first").first(prev); }
+            b.emit();
+            self._failed = true;
+            ok = false;
+        } else {
+            n->ci_elem_init = true;
+        }
+        if !ok { return; }
+        var e = self._ebase[i] + k;
+        if !self._st.emaybe[e] { self._eat[e] = at; }
+        self._st.edef[e]   = true;
+        self._st.emaybe[e] = true;
+        if !self._st.maybe[i] { self._assigned_at[i] = at; }
+        self._st.maybe[i] = true;
+        var whole = true;
+        for var j: usize = 0; j < self._elen[i]; ++j {
+            if !self._st.edef[self._ebase[i] + j] { whole = false; break; }
+        }
+        if whole { self._st.def[i] = true; }
     }
 
     /// `self` as a whole: a method call, an argument, a return, an address.
@@ -1001,7 +1152,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         var any = false;
         for var i: usize = 0; i < fields.size(); ++i {
             out.push_back(usize(-1));
-            if self._required(fields[i]) && (!ctor_init_is_once(fields[i])) { any = true; }
+            if self._settles(fields[i]) { any = true; }
         }
         if !any { return out; }
         self._quiet = true;
@@ -1012,7 +1163,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             self._stmt(stmts[s]);
             for var i: usize = 0; i < fields.size(); ++i {
                 var fd = fields[i];
-                if (out[i] != usize(-1)) || (!self._required(fd)) || ctor_init_is_once(fd) { continue; }
+                if (out[i] != usize(-1)) || (!self._settles(fd)) { continue; }
                 if self._st.dead || self._st.def[i] { out[i] = s; }
             }
             if self._st.dead { break; }
@@ -1021,9 +1172,10 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         self._failed = false;
         for var i: usize = 0; i < fields.size(); ++i {
             var fd = fields[i];
-            if (out[i] != usize(-1)) || (!self._required(fd)) || ctor_init_is_once(fd) { continue; }
+            if (out[i] != usize(-1)) || (!self._settles(fd)) { continue; }
             for var s: usize = 0; s < stmts.size(); ++s {
                 var w = CtorFieldWriteFind();
+                w.elems = self._elem_fields();
                 w.dispatch_stmt(stmts[s]);
                 for var j: usize = 0; j < w.fields.size(); ++j {
                     if w.fields[j] == fd { out[i] = s; }
@@ -1040,6 +1192,15 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             self._st.def.push_back(false);
             self._st.maybe.push_back(false);
             self._assigned_at.push_back(SourceRange::invalid());
+        }
+        self._eat.clear();
+        for var i: usize = 0; i < self._elen.size(); ++i {
+            if self._ebase[i] == usize(-1) { continue; }
+            for var k: usize = 0; k < self._elen[i]; ++k {
+                self._st.edef.push_back(false);
+                self._st.emaybe.push_back(false);
+                self._eat.push_back(SourceRange::invalid());
+            }
         }
     }
 
@@ -1067,8 +1228,103 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             pw.dispatch_stmt(stmts[s]);
             if pw.found { break; }
         }
-        if pw.found { b.note(pw.at.start, f"this writes part of '{nm}', which does not exist until it is built whole").first(pw.at); }
+        if pw.found {
+            b.note(pw.at.start, f"this writes part of '{nm}', which does not exist until it is built whole").first(pw.at);
+            var how = self._part_note(fd);
+            if how.size() > 0 { b.note(DiagID::SC001N, pw.at.start, how).first(pw.at); }
+        }
         b.emit();
+    }
+
+    /// Why a write of part of array field \p f does not build it, when f is
+    /// an array: only whole elements count, and only of an array built
+    /// element by element. Empty for any other field.
+    priv fn _part_note(self, f: *FieldDecl) -> string {
+        if !ctor_init_is_array(f) { return ""; }
+        var nm = self.sc->ctx->get_spelling(f->name);
+        var i = self._index(f);
+        if (i != usize(-1)) && (self._ebase[i] != usize(-1)) {
+            return f"only a whole element written with a constant index ('self.{nm}[0] = ...') builds part of '{nm}'; a write into an element (a field of it, or a nested index) needs the element to exist first";
+        }
+        return f"'{nm}' cannot be built element by element: only a one-dimensional array of a known length can; assign it whole";
+    }
+
+    // === element by element ===================================================
+
+    /// An array field the constructor may build one element at a time: one
+    /// it must initialize, not const (its one write is whole), of a known
+    /// length (each element gets a bit), of elements that are not arrays
+    /// (an array element cannot be built in place from one; the whole-write
+    /// path gates the same shape).
+    priv fn _elem_ok(self, f: *FieldDecl) -> bool {
+        if (!self._required(f)) || f->is_const() || (!ctor_init_is_array(f)) { return false; }
+        var a = cast::<FixedArrayType>(canon_unqual(f->type_->canonical));
+        if a->is_incomplete || (a->extent_param != &null) { return false; }
+        if (a->element == &null) || (canon_unqual(a->element) == &null) { return false; }
+        if canon_unqual(a->element)->kind == TypeKind::FixedArrayType { return false; }
+        var n = static_cast::<usize>(a->size_bits);
+        return (n > 0) && (n <= usize(65536));
+    }
+
+    /// _ebase / _elen for the record's fields, once per constructor.
+    priv fn _elem_layout(self, fields: FrozenList::<*FieldDecl>) {
+        self._ebase.clear();
+        self._elen.clear();
+        var next: usize = 0;
+        for var i: usize = 0; i < fields.size(); ++i {
+            if !self._elem_ok(fields[i]) {
+                self._ebase.push_back(usize(-1));
+                self._elen.push_back(usize(0));
+                continue;
+            }
+            var n = static_cast::<usize>(cast::<FixedArrayType>(canon_unqual(fields[i]->type_->canonical))->size_bits);
+            self._ebase.push_back(next);
+            self._elen.push_back(n);
+            next += n;
+        }
+    }
+
+    priv fn _elem_fields(self) -> vec::<*FieldDecl> {
+        var out = vec::<*FieldDecl>();
+        for var i: usize = 0; i < self._fields.size(); ++i {
+            if self._ebase[i] != usize(-1) { out.push_back(self._fields[i]); }
+        }
+        return out;
+    }
+
+    /// A field whose frontier is where it is first whole on every path
+    /// (_settle): one written more than once, or one built element by
+    /// element.
+    priv fn _settles(self, f: *FieldDecl) -> bool {
+        if !self._required(f) { return false; }
+        if !ctor_init_is_once(f) { return true; }
+        var i = self._index(f);
+        return (i != usize(-1)) && (self._ebase[i] != usize(-1));
+    }
+
+    /// Some element of field \p i may be built on the path walked so far.
+    priv fn _elems_begun(self, i: usize) -> bool {
+        if (i >= self._ebase.size()) || (self._ebase[i] == usize(-1)) { return false; }
+        for var k: usize = 0; k < self._elen[i]; ++k {
+            if self._st.emaybe[self._ebase[i] + k] { return true; }
+        }
+        return false;
+    }
+
+    /// "element 1 is" / "elements 1, 3 and 4 are": the elements of field
+    /// \p i not built on every path walked so far.
+    priv fn _missing_elems(self, i: usize) -> string {
+        var miss = vec::<usize>();
+        for var k: usize = 0; k < self._elen[i]; ++k {
+            if !self._st.edef[self._ebase[i] + k] { miss.push_back(k); }
+        }
+        if miss.size() == 1 { return f"element {miss[0]} is"; }
+        var out = "elements ";
+        for var j: usize = 0; j < miss.size(); ++j {
+            if j > 0 { out += (" and ") if (j + 1 == miss.size()) else (", "); }
+            out += f"{miss[j]}";
+        }
+        return out + " are";
     }
 
     /// An array field the lowering cannot initialize in place yet: its
