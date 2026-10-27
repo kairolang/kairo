@@ -57,6 +57,7 @@ import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
+import Sema::Check::EvalUsageChecking::*;
 import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
 import Sema::Check::CtorInitCheck::*;
@@ -398,6 +399,9 @@ class Sema {
         // Last: well-typed constructs the lowerings cannot render yet. An
         // error here keeps the schedule out of the lowerings, which ICE on
         // them, and that matters under --type-check-only too.
+        // What an eval context may hold (EVAL.md §6): REQUIRES X's callee
+        // bindings and iter_kind. Before FeatureGate, which stays last.
+        { var _p = TimeRegion("EvalUsage"); EvalUsageChecking(&self.sc).run(); }
         { var _p = TimeRegion("FeatureGate"); FeatureGateCheck(&self.sc).run(); }
         // --no-unsafe / --no-fp / --no-ffi / --cmax-* and friends: the user's
         // own files only, over the tree as written (before any lowering).

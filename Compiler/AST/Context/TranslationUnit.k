@@ -211,6 +211,9 @@ class TranslationUnit derives DeclContext {
     /// position), so EvalIfFolding has something to fold. One writer: the
     /// parser.
     pub var has_eval_if:    bool = false;
+    /// The parser met an `eval for` (InterfaceEmitter writes the eval
+    /// helpers, EVAL.md §5). One writer: the parser.
+    pub var has_eval_for:   bool = false;
 
     /// The HeaderSet this file's ffi imports requested (PPWalker::_finalize),
     /// or null. Typed *void: TranslationUnit cannot name Interop. Owned by the

@@ -546,8 +546,6 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             why = "a constructor cannot be a generator; it returns the object it builds, not a sequence";
         } else if self._is_main(n) {
             why = "'main' cannot be a generator; it returns the process\x27s exit status";
-        } else if n->is_eval() {
-            why = "an 'eval' function cannot be a generator; it runs at compile time, where nothing suspends";
         } else if n->ffi_c_variadic {
             why = "a C-variadic function cannot be a generator; its '...' arguments do not outlive the call";
         } else if n->is_noreturn {

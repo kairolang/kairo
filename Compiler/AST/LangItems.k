@@ -361,6 +361,34 @@ class LowerTargets {
     /// `int[3]`, given a name a functional cast can use.
     static fn array_alias() -> string { return "__kairo_array"; }
 
+    // --- eval for / eval generators (writer: EmitIR; helpers: InterfaceEmitter) ---
+    /// `template <class T, T... I> struct __kairo_iseq {}`: the index pack an
+    /// `eval for` expands over (`__make_integer_seq<__kairo_iseq, ...>`).
+    static fn eval_iseq() -> string { return "__kairo_iseq"; }
+    /// The include guard around those helpers in a header.
+    static fn eval_helpers_guard() -> string { return "__KAIRO_EVAL_HELPERS"; }
+    /// The constexpr growable buffer an eval generator returns (`push`, `p`,
+    /// `n`): transient compile-time allocation, freed before it escapes.
+    static fn eval_buf() -> string { return "__kairo_eval_buf"; }
+    /// `__kairo_eval_arr<T, N>`: an eval generator's values, copied out of
+    /// its buffer into a literal type a `static constexpr` can hold.
+    static fn eval_arr() -> string { return "__kairo_eval_arr"; }
+    /// An eval generator's buffer local, which `yield` pushes into.
+    static fn eval_yield_buf() -> string { return "__kairo_y"; }
+    /// One `eval for`'s pack and per-copy index.
+    /// `d` is the nesting depth: an inner expansion's template parameters
+    /// may not shadow an outer one's.
+    static fn eval_for_pack(d: u32) -> string { return f"__kairo_K{d}"; }
+    static fn eval_for_index(d: u32) -> string { return f"__kairo_I{d}"; }
+    /// A `return` out of an `eval for` copy: the flag and the value slot the
+    /// code after the expansion checks.
+    static fn eval_for_ret_flag() -> string { return "__kairo_efr"; }
+    static fn eval_for_ret_val() -> string { return "__kairo_efv"; }
+    /// An eval generator iterable's count and values, `k` counting them in
+    /// the function.
+    static fn eval_for_gen_n(k: usize) -> string { return f"__kairo_egn{k}"; }
+    static fn eval_for_gen(k: usize) -> string { return f"__kairo_eg{k}"; }
+
     // --- Extension scopes (writer: InterfaceEmitter; reader: CXXSpell) -----------------
 
     /// `struct N::__kairo_ext_<X>`: every extension member of X declared in

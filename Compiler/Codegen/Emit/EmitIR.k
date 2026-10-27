@@ -119,6 +119,13 @@ class EmitIR {
     /// emit_tu's first pass: only eval free functions are emitted, and the
     /// second pass skips them (EVAL.md 1.1).
     priv var _eval_pass: bool = false;
+    /// `eval for` copies the current statement is inside (EVAL.md §5), and
+    /// the runtime loops opened inside the innermost copy: a `break` /
+    /// `continue` with none is the eval for's own (the copy's `return`).
+    priv var _ef_depth: u32 = 0;
+    priv var _ef_loops: u32 = 0;
+    /// Eval generator iterables in the function, for unique names.
+    priv var _ef_gens: usize = 0;
     priv var _eval_done: vec::<*FunctionDecl>;
 
     fn EmitIR(self, cg: *CodegenContext) {
@@ -671,12 +678,22 @@ class EmitIR {
             pro += self._spell._type(ext->target) + "* self = &" + LowerTargets::ext_self() + ";";
             self._cg->sink->spell(b->range, pro);
         }
+        var egen = f->is_generator && f->is_eval();
+        var saved_gens = self._ef_gens;
+        self._ef_gens = 0;
+        if egen {
+            var et = self._yield_elem(f);
+            if (et == &null) { self._ice(f->range, "EmitIR: an eval generator with no element type"); }
+            self._cg->sink->spell(b->range, "::" + LowerTargets::eval_buf() + "<" + self._spell._type(et) + "> " + LowerTargets::eval_yield_buf() + ";");
+        }
         for var i: usize = 0; i < b->body.size(); ++i { self.emit(b->body[i]); }
         // A function is a coroutine only when its body holds a coroutine
         // keyword, and a generator with no `yield` (or only a bare `return`
         // the emitter already spelled `co_return`) may have none. X's
         // has_yield says which; EmitIR does not walk the body to find out.
-        if f->is_generator && (!f->has_yield) { self._cg->sink->spell(b->range, "co_return;"); }
+        if egen { self._cg->sink->spell(b->range, "return " + LowerTargets::eval_yield_buf() + ";"); }
+        else if f->is_generator && (!f->has_yield) { self._cg->sink->spell(b->range, "co_return;"); }
+        self._ef_gens = saved_gens;
         self._cg->sink->synth_at_end(b->range, clang::tok::r_brace);
         self._cur_fn  = saved_fn;
         self._cur_ext = saved_ext;
@@ -710,25 +727,34 @@ class EmitIR {
             }
             case StmtKind::DeclStmt        { self._decl(cast::<DeclStmt>(s)); }
             case StmtKind::ConditionalStmt { self._if(cast::<ConditionalStmt>(s)); }
-            case StmtKind::WhileLoopStmt   { self._while(cast::<WhileLoopStmt>(s)); }
+            case StmtKind::WhileLoopStmt   { self._ef_loops += 1; self._while(cast::<WhileLoopStmt>(s)); self._ef_loops -= 1; }
             case StmtKind::LoopStmt {
                 var n = cast::<LoopStmt>(s);
                 self._cg->sink->spell(n->range, "for (;;)");
+                self._ef_loops += 1;
                 self.emit_block(n->body);
+                self._ef_loops -= 1;
             }
-            case StmtKind::IndexedForStmt  { self._for(cast::<IndexedForStmt>(s)); }
+            case StmtKind::IndexedForStmt  { self._ef_loops += 1; self._for(cast::<IndexedForStmt>(s)); self._ef_loops -= 1; }
             case StmtKind::BreakStmt {
                 var n = cast::<BreakStmt>(s);
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled break; LabelLowering must have rewritten it"); }
-                self._cg->sink->spell(n->range, "break;");
+                // An `eval for`'s own break ends the `&&` fold (EVAL.md §5).
+                if (self._ef_depth > 0) && (self._ef_loops == 0) { self._cg->sink->spell(n->range, "return false;"); }
+                else { self._cg->sink->spell(n->range, "break;"); }
             }
             case StmtKind::ContinueStmt {
                 var n = cast::<ContinueStmt>(s);
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; LabelLowering must have rewritten it"); }
-                self._cg->sink->spell(n->range, "continue;");
+                if (self._ef_depth > 0) && (self._ef_loops == 0) { self._cg->sink->spell(n->range, "return true;"); }
+                else { self._cg->sink->spell(n->range, "continue;"); }
             }
             case StmtKind::UnsafeBlockStmt        { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
-            case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
+            case StmtKind::RangedForStmt {
+                var rf = cast::<RangedForStmt>(s);
+                if (!rf->is_eval) { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
+                self._eval_for(rf);
+            }
             case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place"); }
             case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
@@ -904,6 +930,25 @@ class EmitIR {
             self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             return;
         }
+        // Out of an `eval for` copy: the function's return slot, then stop
+        // the fold; the code after the expansion returns (EVAL.md §5).
+        if self._ef_depth > 0 {
+            self._cg->sink->spell(n->range, "{ " + LowerTargets::eval_for_ret_flag() + " = true;");
+            if n->value != &null {
+                self._cg->sink->spell(n->range, LowerTargets::eval_for_ret_val() + " =");
+                var vrt: *Type = &null;
+                if self._cur_fn != &null { vrt = self._cur_fn->return_type; }
+                self._value(n->value, vrt);
+                self._cg->sink->spell(n->range, ";");
+            }
+            self._cg->sink->spell(n->range, "return false; }");
+            return;
+        }
+        // An eval generator's `return` hands back what it yielded.
+        if (self._cur_fn != &null) && self._cur_fn->is_generator && self._cur_fn->is_eval() {
+            self._cg->sink->spell(n->range, "return " + LowerTargets::eval_yield_buf() + ";");
+            return;
+        }
         // A generator's `return` is bare (X rejects a value) and ends the
         // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
         if (self._cur_fn != &null) && self._cur_fn->is_generator {
@@ -935,6 +980,13 @@ class EmitIR {
     priv fn _yield(self, n: *YieldStmt) {
         if ((self._cur_fn == &null) || (!self._cur_fn->is_generator)) { self._ice(n->range, "EmitIR: yield outside a generator; X gate failure"); }
         if (n->value == &null) { self._ice(n->range, "EmitIR: yield with no value reached codegen"); }
+        // An eval generator pushes into its buffer (EVAL.md §5).
+        if self._cur_fn->is_eval() {
+            self._cg->sink->spell(n->range, LowerTargets::eval_yield_buf() + ".push(");
+            self._value(n->value, self._yield_elem(self._cur_fn));
+            self._cg->sink->spell(n->range, ");");
+            return;
+        }
         self._cg->sink->spell(n->range, "co_yield");
         self._cg->sink->spell(n->range, "(");
         self._value(n->value, self._yield_elem(self._cur_fn));
@@ -965,6 +1017,117 @@ class EmitIR {
             self._cg->sink->spell(n->else_->range, "else");
             self.emit(n->else_);   // a ConditionalStmt (else-if) or a CompoundStmt.
         }
+    }
+
+    /// `eval for i in X { body }` (EVAL.md §5): the body expanded once per
+    /// value with an index pack, so in each copy `i` is a constant:
+    ///
+    ///   { [&]<usize... K>(::__kairo_iseq<usize, K...>) {
+    ///       (... && [&]<usize I>() -> bool { constexpr T i = VAL(I); body; return true; }
+    ///                .template operator()<K>());
+    ///     }(__make_integer_seq<::__kairo_iseq, usize, COUNT>{}); }
+    ///
+    /// The `&&` fold is the unrolled loop: `continue` is `return true` from a
+    /// copy, `break` `return false`, which stops the fold. A `return` sets
+    /// the function's flag (and value slot) and stops it, and the code after
+    /// the outermost expansion returns; an inner one stops its enclosing
+    /// copy. VAL / COUNT: a range is `LO + I` and `HI - LO` (`+ 1` when
+    /// inclusive); an array its elements; an eval generator's values are
+    /// computed once, into `static constexpr` locals, ahead of the expansion.
+    priv fn _eval_for(self, n: *RangedForStmt) {
+        var sz   = "decltype(sizeof(0))";
+        var at   = n->range;
+        var elem = n->iter_elem;
+        if (elem == &null) { self._ice(at, "EmitIR: an eval for with no element type; X gate failure"); }
+        if (n->bindings.size() != 1) { self._ice(at, "EmitIR: an eval for with other than one binding; EvalUsageChecking rejects it"); }
+        var bd = n->bindings[0];
+        var vd = dyn_cast::<VariableDecl>(bd.decl);
+        var et = self._spell._type(elem);
+        var outer = (self._ef_depth == 0);
+        var rt: *Type = &null;
+        if (self._cur_fn != &null) && (!self._cur_fn->is_noreturn) { rt = self._cur_fn->return_type; }
+        var has_val = (rt != &null) && (rt->canonical != &null) && (!self.tu_is_void(rt->canonical));
+
+        self._cg->sink->spell(at, "{");
+        if outer {
+            self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;");
+            if has_val { self._cg->sink->spell(at, self._spell._type(rt) + " " + LowerTargets::eval_for_ret_val() + "{};"); }
+        }
+
+        var gk: usize = 0;
+        var is_range = (n->ev_lo != &null) && (n->ev_hi != &null);
+        var is_gen   = (!is_range) && (n->iter_kind == IterKind::User);
+        if is_gen {
+            gk = self._ef_gens;
+            self._ef_gens += 1;
+            var gn = LowerTargets::eval_for_gen_n(gk);
+            self._cg->sink->spell(at, "static constexpr " + sz + " " + gn + " = (");
+            self.emit(n->iterable);
+            self._cg->sink->spell(at, ").n;");
+            self._cg->sink->spell(at, "static constexpr auto " + LowerTargets::eval_for_gen(gk) + " = []() consteval { ::"
+                + LowerTargets::eval_arr() + "<" + et + ", " + gn + "> a{}; auto b = (");
+            self.emit(n->iterable);
+            self._cg->sink->spell(at, "); for (" + sz + " k = 0; k < " + gn + "; ++k) a.v[k] = b.p[k]; return a; }();");
+        }
+
+        var K = LowerTargets::eval_for_pack(self._ef_depth);
+        var I = LowerTargets::eval_for_index(self._ef_depth);
+        self._cg->sink->spell(at, "[&]<" + sz + "... " + K + ">(::" + LowerTargets::eval_iseq() + "<" + sz + ", " + K + "...>) { (... && [&]<" + sz + " " + I + ">() -> bool {");
+        // The binding: a constant in each copy.
+        var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else ("__kairo_ef_unused");
+        self._cg->sink->spell(at, "[[maybe_unused]] constexpr " + et + " " + nm + " = ");
+        if is_range {
+            self._cg->sink->spell(at, "static_cast<" + et + ">((");
+            self.emit(n->ev_lo);
+            self._cg->sink->spell(at, ") + static_cast<" + et + ">(" + I + "));");
+        } else if is_gen {
+            self._cg->sink->spell(at, LowerTargets::eval_for_gen(gk) + ".v[" + I + "];");
+        } else {
+            self._cg->sink->spell(at, "(");
+            self.emit(n->iterable);
+            self._cg->sink->spell(at, ")[" + I + "];");
+        }
+
+        var sd = self._ef_depth;
+        var sl = self._ef_loops;
+        self._ef_depth += 1;
+        self._ef_loops = 0;
+        for var i: usize = 0; i < n->body->body.size(); ++i { self.emit(n->body->body[i]); }
+        self._ef_depth = sd;
+        self._ef_loops = sl;
+
+        self._cg->sink->spell(at, "return true; }.template operator()<" + K + ">()); }(__make_integer_seq<::" + LowerTargets::eval_iseq() + ", " + sz + ", ");
+        if is_range {
+            self._cg->sink->spell(at, "static_cast<" + sz + ">((");
+            self.emit(n->ev_hi);
+            self._cg->sink->spell(at, ") - (");
+            self.emit(n->ev_lo);
+            self._cg->sink->spell(at, ")" + ((" + 1") if (n->ev_incl) else ("")) + ")");
+        } else if is_gen {
+            self._cg->sink->spell(at, LowerTargets::eval_for_gen_n(gk));
+        } else {
+            var arr = dyn_cast::<FixedArrayType>(canon_unqual(n->iterable->type_));
+            if (arr == &null) { self._ice(at, "EmitIR: an eval for over something that is not a range, an array or an eval generator; EvalUsageChecking rejects it"); }
+            var ext = (self._spell._type(arr->extent_param)) if (arr->extent_param != &null) else (f"{arr->size_bits}");
+            self._cg->sink->spell(at, ext);
+        }
+        self._cg->sink->spell(at, ">{});");
+
+        var flag = LowerTargets::eval_for_ret_flag();
+        if outer {
+            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "; }"); }
+            else       { self._cg->sink->spell(at, "if (" + flag + ") { return; }"); }
+        } else {
+            self._cg->sink->spell(at, "if (" + flag + ") { return false; }");
+        }
+        self._cg->sink->spell(at, "}");
+    }
+
+    priv fn tu_is_void(self, t: *Type) -> bool {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
+        var k = cast::<BuiltinType>(c)->builtin;
+        return (k == BuiltinKind::Void) || (k == BuiltinKind::Never);
     }
 
     priv fn _while(self, n: *WhileLoopStmt) {
@@ -1594,9 +1757,15 @@ class EmitIR {
         }
 
         var saved = self._closure;
+        var sd = self._ef_depth;
+        var sl = self._ef_loops;
         self._closure = n;
+        self._ef_depth = 0;      // a closure's statements are its own, not a copy's.
+        self._ef_loops = 0;
         self.emit_block(n->body_block);
         self._closure = saved;
+        self._ef_depth = sd;
+        self._ef_loops = sl;
 
         if caps.size() == 0 { self._cg->sink->spell(n->range, ")"); }
         else                { self._cg->sink->spell(n->range, "))"); }

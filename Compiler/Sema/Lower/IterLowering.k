@@ -118,7 +118,34 @@ class IterLowering derives ASTWriter::<IterLowering> {
 
     // --- entry points -----------------------------------------------------------
 
+    /// > 0 inside an `eval fn`, which runs at compile time already: an `eval
+    /// for` there is an ordinary loop (EVAL.md 5a), so its bounds may be the
+    /// function's parameters.
+    priv var _in_eval_fn: u32 = 0;
+
+    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
+        if n->is_eval() { self._in_eval_fn += 1; }
+        var out = ASTWriter::<IterLowering>::transform_function_decl(n);
+        if n->is_eval() { self._in_eval_fn -= 1; }
+        return out;
+    }
+
     fn transform_ranged_for_stmt(self, n: *RangedForStmt) -> vec::<*Stmt> {
+        if n->is_eval && (self._in_eval_fn > 0) { n->is_eval = false; }
+        // An `eval for` stays for EmitIR's expansion (EVAL.md §5); only the
+        // loops in its body are lowered, and a range's bounds are kept.
+        if n->is_eval {
+            var r = dyn_cast::<RangeExpr>(self.tu.strip_parens(n->iterable));
+            if (n->iter_kind == IterKind::RangeLit) && (r != &null) {
+                n->ev_lo   = r->begin;
+                n->ev_hi   = r->end;
+                n->ev_incl = r->is_inclusive;
+                n->iterable = &null;
+            }
+            n->body = cast::<CompoundStmt>(self.transform_stmt_scalar(n->body));
+            if n->iterable != &null { n->iterable = self.transform_expr(n->iterable); }
+            return self._one_stmt(n);
+        }
         self._children(n);
         var pre  = self.list_builder::<*Stmt>();
         var loop = self._lower(n, &pre);
@@ -130,7 +157,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
     /// The label stays on the loop: `{ locals; label: while ... }`.
     fn transform_labeled_stmt(self, n: *LabeledStmt) -> vec::<*Stmt> {
         var rf = dyn_cast::<RangedForStmt>(n->inner);
-        if rf == &null { return ASTWriter::<IterLowering>::transform_labeled_stmt(n); }
+        if (rf == &null) || rf->is_eval { return ASTWriter::<IterLowering>::transform_labeled_stmt(n); }
         self._children(rf);
         var pre  = self.list_builder::<*Stmt>();
         var loop = self._lower(rf, &pre);

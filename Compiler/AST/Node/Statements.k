@@ -744,6 +744,12 @@ class RangedForStmt derives Stmt {
     pub var iterable: *Expr;
     pub var body:     *CompoundStmt;
     pub var is_eval:  bool;
+    /// An `eval for` over `lo..hi` / `lo..=hi`: the bounds, moved here by
+    /// IterLowering (the RangeExpr would otherwise become a Range record),
+    /// for EmitIR's expansion (EVAL.md §5). Null otherwise.
+    pub var ev_lo:   *Expr;
+    pub var ev_hi:   *Expr;
+    pub var ev_incl: bool;
     pub var iter_kind: IterKind = IterKind::None;
     pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`; null when the iterable is a Yield<T> itself.
     pub var iter_elem: *Type    = &null;   ///< the element type, canonical and unqualified.
@@ -774,6 +780,9 @@ class RangedForStmt derives Stmt {
         node->iterable = iterable;
         node->body     = body;
         node->is_eval  = is_eval;
+        node->ev_lo    = &null;
+        node->ev_hi    = &null;
+        node->ev_incl  = false;
         node->iter_kind = IterKind::None;
         node->iter_op   = &null;
         node->iter_elem = &null;

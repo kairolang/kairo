@@ -335,6 +335,7 @@ class <T> StmtParse {
                 // `eval for` -> compile-time unrolled loop
                 if dyn()->check_peek(TokenKind::KwFor) {
                     dyn()->advance(); // consume `eval`
+                    if dyn()->tu != &null { dyn()->tu->has_eval_for = true; }
                     return self._parse_for(true);
                 }
                 // `eval if`: the conditional, marked (every `else if` of its

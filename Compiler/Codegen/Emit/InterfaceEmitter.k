@@ -118,6 +118,7 @@ class InterfaceEmitter {
     pub var have_helpers:    bool = false;
     pub var have_ctor_slots: bool = false;
     pub var have_fn_value:   bool = false;
+    pub var have_eval_helpers: bool = false;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -180,6 +181,7 @@ class InterfaceEmitter {
             self._cg->sink->spell(self._tu_at(),
                 "template <class T> inline void " + LowerTargets::destroy_at() + "(T* p) noexcept { p->~T(); }");
             self._cg->sink->brk();
+
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
             self._cg->sink->unanchored(false);
             self.have_helpers = true;
@@ -201,6 +203,38 @@ class InterfaceEmitter {
             self._fn_value_helper(header);
             self._cg->sink->unanchored(false);
             self.have_fn_value = true;
+        }
+        // `eval for` and eval generators (EVAL.md §5), only where one is:
+        // every other TU's text is unchanged.
+        if (!self.have_eval_helpers) && self._needs_eval_helpers() {
+            self._cg->sink->unanchored(true);
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::eval_helpers_guard()); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::eval_helpers_guard()); }
+            // `eval for` and eval generators (EVAL.md §5): the index pack an
+            // expansion runs over, the compile-time buffer a generator
+            // pushes into (a transient constexpr allocation, freed before
+            // the constant escapes), and the literal array its values are
+            // copied into. Plain text, needing no header.
+            var sz = "decltype(sizeof(0))";
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T, T... I> struct " + LowerTargets::eval_iseq() + " {};");
+            self._cg->sink->brk();
+            var eb = LowerTargets::eval_buf();
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T> struct " + eb + " { T* p = nullptr; " + sz + " n = 0; " + sz + " cap = 0; "
+                + "constexpr " + eb + "() = default; "
+                + "constexpr " + eb + "(" + eb + "&& o) : p(o.p), n(o.n), cap(o.cap) { o.p = nullptr; o.n = 0; o.cap = 0; } "
+                + eb + "(const " + eb + "&) = delete; "
+                + "constexpr void push(T v) { if (n == cap) { " + sz + " c = cap ? cap * 2 : 8; T* q = new T[c]; "
+                + "for (" + sz + " i = 0; i < n; ++i) q[i] = p[i]; delete[] p; p = q; cap = c; } p[n++] = v; } "
+                + "constexpr ~" + eb + "() { delete[] p; } };");
+            self._cg->sink->brk();
+            self._cg->sink->spell(self._tu_at(),
+                "template <class T, " + sz + " N> struct " + LowerTargets::eval_arr() + " { T v[N ? N : 1]; };");
+            self._cg->sink->brk();
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._cg->sink->unanchored(false);
+            self.have_eval_helpers = true;
         }
 
         var i: usize = 0;
@@ -658,6 +692,17 @@ class InterfaceEmitter {
     /// Some class this run writes carries an `op =` that rebuilds in place
     /// (Body, Constrained): tier 1, and the records _record_def nests in
     /// those. A header skips what it includes, as run() does.
+    /// An `eval for` in this TU, or an eval generator the plan declares or
+    /// defines here: both spell the eval helpers.
+    priv fn _needs_eval_helpers(self) -> bool {
+        if (self._cg->tu != &null) && self._cg->tu->has_eval_for { return true; }
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(self._plan->entries[i].decl);
+            if (f != &null) && f->is_eval() && f->is_generator { return true; }
+        }
+        return false;
+    }
+
     priv fn _needs_new(self) -> bool {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {

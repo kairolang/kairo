@@ -289,6 +289,14 @@ class CXXSpell {
     /// canonical, so _type already spells the const and `&` goes on the end.
     fn return_spelling(self, f: *FunctionDecl, subst: *InstanceEntry, scope: *Decl = &null) -> string {
         if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst, scope); }
+        // An eval generator runs at compile time, where nothing suspends: it
+        // returns the buffer its `yield`s push into (EVAL.md §5).
+        if f->is_eval() && f->is_generator {
+            var gr = dyn_cast::<RecordType>(canon_unqual(f->return_type->canonical));
+            if (gr != &null) && (gr->args.size() > 0) {
+                return "::" + LowerTargets::eval_buf() + "<" + self._type(gr->args[0], subst, scope) + ">";
+            }
+        }
         if !CXXSpell::is_place_operator(f) { return self._type(f->return_type, subst, scope); }
         var c = canon_unqual(f->return_type->canonical);
         if ((c == &null) || (!isa::<PointerType>(c))) { self._ice(f->range, "CXXSpell: is_place_operator accepted a non-pointer result"); }
