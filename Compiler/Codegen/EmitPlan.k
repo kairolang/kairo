@@ -641,6 +641,7 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
         self._scope_dep(k, self._scopes[k].exts[i]->target);
         self._expand_fn(m);
         self._scope_sig_dep(k, m->return_type);
+        if m->panic_result != &null { self._scope_sig_dep(k, m->panic_result); }
         for var j: usize = 0; j < m->params.size(); ++j {
             var p = m->params[j];
             if (p == &null) || p->is_self { continue; }
@@ -648,6 +649,7 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
         }
         if (!m->is_operator) || (self._spell.ext_forwarder_name(m).size() == 0) { continue; }
         self._scope_dep(k, m->return_type);
+        if m->panic_result != &null { self._scope_dep(k, m->panic_result); }
         for var j: usize = 0; j < m->params.size(); ++j {
             var p = m->params[j];
             if (p == &null) || p->is_self || (p->mode != ParamMode::Value) { continue; }
@@ -894,6 +896,7 @@ fn EmitPlan::_witness_bounds(f: *Decl) {
 /// Requirement \p f's by-value records, as a forwarder's are.
 fn EmitPlan::_witness_sig(k: usize, f: *FunctionDecl) {
     self._witness_dep(k, f->return_type);
+    if f->panic_result != &null { self._witness_dep(k, f->panic_result); }
     for var j: usize = 0; j < f->params.size(); ++j {
         var p = f->params[j];
         if (p == &null) || p->is_self || (p->mode != ParamMode::Value) { continue; }
@@ -1131,6 +1134,9 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
                 self._admit_use(s->resolved_decl);
                 self._admit_cell(s->candidate_cell);
             }
+        } case ExprKind::ClosureExpr {
+            // A panicking closure's lambda returns its Panic result.
+            self._admit_type(cast::<ClosureExpr>(e)->panic_result, PlanNeed::Complete);
         } case ExprKind::SizeOfExpr {
             // The operand is laid out, not just named: Complete, whatever
             // visit_type (Fwd, for a type merely spelled) would say.
@@ -1173,7 +1179,10 @@ fn EmitPlan::visit_decl(d: *Decl) -> bool {
             var p = cast::<ParamDecl>(d);
             self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Complete);
         }
-        case DeclKind::FunctionDecl  { self._admit_type(cast::<FunctionDecl>(d)->return_type, PlanNeed::Complete); }
+        case DeclKind::FunctionDecl  {
+            self._admit_type(cast::<FunctionDecl>(d)->return_type, PlanNeed::Complete);
+            self._admit_type(cast::<FunctionDecl>(d)->panic_result, PlanNeed::Complete);   // PANIC.md §4.1: what C++ returns.
+        }
         case DeclKind::TypeAliasDecl { self._admit_type(cast::<TypeAliasDecl>(d)->aliased, PlanNeed::Complete); }
         default { break; }
     }
@@ -1362,6 +1371,7 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
             if !f->is_unprototyped { self.needs_fn_value = true; }
             for var i: usize = 0; i < f->params.size(); ++i { self._admit_type(*(f->params.get(i)), PlanNeed::Fwd); }
             self._admit_type(f->return_type, PlanNeed::Fwd);
+            self._admit_type(f->panic_result, PlanNeed::Complete);   // its value returns this (PANIC.md §4.1).
         }
         case TypeKind::BuiltinType {
             // A builtin spelled as a Kairo declaration (`byte` -> Byte): an
@@ -1405,6 +1415,7 @@ fn EmitPlan::_expand_fn(n: *FunctionDecl) {
         self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Fwd);
     }
     self._admit_type(n->return_type, PlanNeed::Fwd);
+    self._admit_type(n->panic_result, PlanNeed::Fwd);
 }
 
 /// The whole definition (invariant 11): bases and by-value fields at
@@ -1521,6 +1532,7 @@ fn EmitPlan::_expand_member_sig(n: *FunctionDecl) {
         self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Complete);
     }
     self._admit_type(n->return_type, PlanNeed::Complete);
+    self._admit_type(n->panic_result, PlanNeed::Complete);
 }
 
 /// Extensions targeting \p d written in d's OWN file: their scope is the

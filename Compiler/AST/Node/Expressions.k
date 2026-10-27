@@ -452,6 +452,11 @@ class VariantInitExpr derives Expr {
     /// what the payload's pack-typed fields hold. -1 / null otherwise.
     pub var pack_index:   i32   = -1;
     pub var pack_elem:    *Type = &null;
+    /// A lang item with a site slot (EnumDecl::adt_site_field: the Panic
+    /// lang item's u32 beside the tag, PANIC.md §1.4): the site id this
+    /// construction stores there, in the same word as the tag. 0 stores
+    /// none. One writer: PanicLowering (a `panic X`).
+    pub var site:         u32   = 0;
 
     static fn create(
         ctx:     *ASTContext,
@@ -1143,6 +1148,70 @@ class IfExpr derives Expr {
     }
     /* OVERRIDE */ static fn expr_kind() -> ExprKind {
         return ExprKind::IfExpr;
+    }
+}
+
+///
+///  PanicOpExpr
+///  Lowering-only: never parsed. The C++ PanicLowering needs that no Kairo
+///  expression spells (PANIC.md §4.3, §4.4):
+///
+///    Fwd      `::__kairo_fwd<R>(operand)`: the error `operand` (a panic
+///             result that is not Ok) as the panic result R, the node's
+///             type: the tag and site word copied, the payload moved. Bit
+///             for bit when the two layouts agree, else one case per type.
+///    FwdAll   the same with Ok forwarded too (a tail `return g()` whose
+///             value type is the caller's).
+///    SlotPut  the raw slot `slot` (a local marked raw_slot) built from the
+///             prvalue `operand`, in place: `new (&slot.b) box{operand}`.
+///             void.
+///    SlotTake the slot's value moved out into the result and the slot
+///             destroyed, a prvalue of the slot's type. Read once, at the
+///             `try`'s dispatch.
+///
+///  `operand` is an lvalue for Fwd / FwdAll when it names a held result
+///  (`__kairo_p0`), which it moves from. EmitIR spells every name through
+///  LowerTargets.
+///
+enum PanicOp derives u8 {
+    Fwd,
+    FwdAll,
+    SlotPut,
+    SlotTake,
+}
+
+fn panic_op_name(k: PanicOp) -> string {
+    switch k {
+        case PanicOp::Fwd      { return "fwd"; }
+        case PanicOp::FwdAll   { return "fwd_all"; }
+        case PanicOp::SlotPut  { return "slot_put"; }
+        case PanicOp::SlotTake { return "slot_take"; }
+    }
+    return "?";
+}
+
+class PanicOpExpr derives Expr {
+    pub var which:   PanicOp = PanicOp::Fwd;
+    pub var operand: *Expr   = &null;
+    pub var slot:    *Expr   = &null;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, which: PanicOp, operand: *Expr, slot: *Expr) -> *PanicOpExpr {
+        var node     = ctx->alloc::<PanicOpExpr>();
+        node->kind    = ExprKind::PanicOpExpr;
+        node->range   = range;
+        node->which   = which;
+        node->operand = operand;
+        node->slot    = slot;
+        node->init_annotations(&(ctx->ast_alloc));
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::PanicOpExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::PanicOpExpr;
     }
 }
 

@@ -752,6 +752,13 @@ class FunctionPointerType derives Type {
     /// leaves empty). A syntax node says so with its `panic` qualifier
     /// (is_panic()) instead; this field is the store's.
     pub var canon_panics: bool = false;
+    /// On a CANONICAL node that panics with a set: what a value of this
+    /// type returns in C++, `Panic<R, E...>` (PANIC.md §4.1), so the value
+    /// is `__kairo_fn<Panic<R, E...>(A...)>`. Formed once, by the first
+    /// PanicLowering to meet the type (types are shared by every TU, and
+    /// the form is canonical, so every TU forms the same one). Null
+    /// otherwise; CXXSpell spells `return_type` then.
+    pub var panic_result: *Type = &null;
 
     static fn create(
         ctx:         *ASTContext,

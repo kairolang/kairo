@@ -701,6 +701,7 @@ class EmitIR {
     }
 
     priv fn _ret(self, f: *FunctionDecl) -> string {
+        if f->panic_result != &null { return self._spell._type(f->panic_result); }
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
         return self._spell.return_spelling(f, &null);
     }
@@ -847,7 +848,7 @@ class EmitIR {
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
             case StmtKind::YieldStmt              { self._yield(cast::<YieldStmt>(s)); }
-            case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; PanicLowering owns it"); }
+            case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; not emitted yet (a crash-family check, PANIC.md §2.4a)"); }
             case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
             case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; TupleLowering owns a tuple's, FeatureGateCheck rejects a struct's"); }
@@ -899,6 +900,15 @@ class EmitIR {
     /// pre-X fallback and is a bug if it ever prints for real code.
     priv fn _var_decl(self, n: *VariableDecl) {
         if (n->kind == DeclKind::RecoveryDecl) { self._ice(n->range, "EmitIR: poisoned VariableDecl reached codegen"); }
+        // A `try`'s raw slot (PanicLowering): storage only, built by a
+        // SlotPut and read once by a SlotTake. No initializer: nothing is
+        // built until a failing site builds it.
+        if n->raw_slot {
+            if ((n->type_ == &null) || (n->init != &null)) { self._ice(n->range, "EmitIR: a raw slot with no type or with an initializer; PanicLowering mints neither"); }
+            self._cg->sink->spell(n->name.range, "::" + LowerTargets::raw_slot() + "<" + self._spell._type(n->type_) + ">");
+            self._name(n->name);
+            return;
+        }
         switch n->storage {
             case StorageClass::Const  { self._cg->sink->kw_const(n->name);     }
             case StorageClass::Static { self._cg->sink->kw_static(n->name);    }
@@ -1013,7 +1023,9 @@ class EmitIR {
         // In a closure: the lambda's own return, to the closure's type.
         if self._closure != &null {
             self._cg->sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
-            if n->value != &null { self._value(n->value, self._closure->return_type); }
+            var crt = self._closure->return_type;
+            if self._closure->panic_result != &null { crt = self._closure->panic_result; }
+            if n->value != &null { self._value(n->value, crt); }
             self._cg->sink->synth_at_end(n->range, clang::tok::semi);
             return;
         }
@@ -1025,6 +1037,7 @@ class EmitIR {
                 self._cg->sink->spell(n->range, LowerTargets::eval_for_ret_val() + " =");
                 var vrt: *Type = &null;
                 if self._cur_fn != &null { vrt = self._cur_fn->return_type; }
+                if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { vrt = self._cur_fn->panic_result; }
                 self._value(n->value, vrt);
                 self._cg->sink->spell(n->range, ";");
             }
@@ -1048,6 +1061,9 @@ class EmitIR {
         if n->value != &null {
             var rt: *Type = &null;
             if self._cur_fn != &null { rt = self._cur_fn->return_type; }
+            // A panicking function returns its Panic result (PanicLowering
+            // built every returned value as one).
+            if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { rt = self._cur_fn->panic_result; }
             // A place operator's decl still says `*T` (importers' X reads it),
             // but the C++ function returns `T&`: `return x;` binds the
             // reference, and a conversion to `T*` here would be wrong.
@@ -1133,6 +1149,7 @@ class EmitIR {
         var outer = (self._ef_depth == 0);
         var rt: *Type = &null;
         if (self._cur_fn != &null) && (!self._cur_fn->is_noreturn) { rt = self._cur_fn->return_type; }
+        if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { rt = self._cur_fn->panic_result; }   // what its `return`s now carry.
         var has_val = (rt != &null) && (rt->canonical != &null) && (!self.tu_is_void(rt->canonical));
 
         self._cg->sink->spell(at, "{");
@@ -1228,6 +1245,7 @@ class EmitIR {
         var outer = (self._ef_depth == 0);
         var rt: *Type = &null;
         if (self._cur_fn != &null) && (!self._cur_fn->is_noreturn) { rt = self._cur_fn->return_type; }
+        if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { rt = self._cur_fn->panic_result; }   // what its `return`s now carry.
         var has_val = (rt != &null) && (rt->canonical != &null) && (!self.tu_is_void(rt->canonical));
 
         self._cg->sink->spell(at, "{");
@@ -1375,6 +1393,7 @@ class EmitIR {
             case ExprKind::UnwrapExpr           { self._ice(e->range, "EmitIR: unwrap!; CoalesceLowering owns it"); }
             case ExprKind::DefinedExpr          { self._ice(e->range, "EmitIR: defined!; EvalIfFolding owns it"); }
             case ExprKind::AttributedExpr       { self._ice(e->range, "EmitIR: expression attribute; FeatureGateCheck gates every one"); }
+            case ExprKind::PanicOpExpr          { self._panic_op(cast::<PanicOpExpr>(e)); }
             case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
             case ExprKind::ThreadExpr           { self._ice(e->range, "EmitIR: thread; the async lowering owns it"); }
             // `eval e`: computed by C++ at compile time, in place (EVAL.md
@@ -1417,6 +1436,7 @@ class EmitIR {
     /// through here.
     priv fn _value(self, e: *Expr, want: *Type, subst: *InstanceEntry = &null) {
         if self._array_view(e, want, subst) { return; }
+        if self._fn_effect_value(e, want) { return; }
         if self._needs_cast(e, want, subst) {
             self._cast_to(want, e, "static_cast", subst);
             return;
@@ -1454,6 +1474,40 @@ class EmitIR {
         // temporary and changes value category. Records go as they are.
         if canon_unqual(w)->kind == TypeKind::RecordType { return false; }
         return canon_unqual(have) != canon_unqual(w);
+    }
+
+    /// A `fn` value converted to a `fn` type with a wider panic effect (P4:
+    /// a set S into S' with S a subset, or no set into one; PANIC.md
+    /// §2.10). The two C++ results differ, so the value is wrapped: a
+    /// lambda holding it, whose result is `__kairo_pcall<R'>` of the call
+    /// (the panic result forwarded, or the plain value as Ok). True when it
+    /// emitted.
+    ///
+    ///   ::__kairo_fn<R'(A)>::own(new auto([__kairo_w = ::__kairo_fn<R(A)>(e)]
+    ///       (A __kairo_a0) noexcept -> R' { return ::__kairo_pcall<R'>(__kairo_w, a0); }))
+    priv fn _fn_effect_value(self, e: *Expr, want: *Type) -> bool {
+        if (e == &null) || (want == &null) || (e->type_ == &null) || (want->canonical == &null) { return false; }
+        var w = dyn_cast::<FunctionPointerType>(canon_unqual(want->canonical));
+        var h = dyn_cast::<FunctionPointerType>(canon_unqual(e->type_));
+        if (w == &null) || (h == &null) || (w == h) || (w->panic_result == &null) { return false; }
+        if h->panic_result == w->panic_result { return false; }
+        var rw = self._spell._type(w->panic_result);
+        var ps = "";
+        var fa = "";
+        for var i: usize = 0; i < w->params.size(); ++i {
+            var m = (w->modes[i]) if (i < w->modes.size()) else (ParamMode::Value);
+            var an = LowerTargets::panic_wrap_arg(i);
+            if i > 0 { ps += ", "; }
+            ps += self._spell.param_named(w->params[i], m, an);
+            fa += ", static_cast<decltype(" + an + ")&&>(" + an + ")";
+        }
+        var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+        var fv = "::" + LowerTargets::fn_value();
+        var wn = LowerTargets::panic_wrapped();
+        self._cg->sink->spell(e->range, fv + "<" + self._spell.fn_signature(w) + ">::" + LowerTargets::fn_value_own() + "(new auto([" + wn + " = " + fv + "<" + self._spell.fn_signature(h) + ">(");
+        self.emit(e);
+        self._cg->sink->spell(e->range, ")](" + ps + ") mutable" + nx + " -> " + rw + " { return ::" + LowerTargets::panic_call_as() + "<" + rw + ">(" + wn + fa + "); }))");
+        return true;
     }
 
     /// `[T; N]` where a record is wanted: Sema's array -> slice view
@@ -1915,6 +1969,7 @@ class EmitIR {
         if !self._cg->opts.unwind { head += " noexcept"; }
         var ret = "void";
         if (!n->is_noreturn) && (n->return_type != &null) { ret = self._spell._type(n->return_type); }
+        if n->panic_result != &null { ret = self._spell._type(n->panic_result); }
         head += " -> " + ret;
 
         var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(fp) + ">";
@@ -2395,6 +2450,40 @@ class EmitIR {
         self._cg->sink->spell(e->range, "}");
     }
 
+    /// PanicLowering's C++ with no Kairo spelling (PanicOpExpr):
+    ///   Fwd / FwdAll  `::__kairo_fwd<R, A>(operand)`, R the node's type;
+    ///   SlotPut       `new (&slot.__kairo_b) ::__kairo_rbox<T>{operand}`,
+    ///                 the slot built from the prvalue in place;
+    ///   SlotTake      `slot.__kairo_take()`: the value moved out, the
+    ///                 slot destroyed.
+    /// The slot is a raw_slot local, read by its name.
+    priv fn _panic_op(self, n: *PanicOpExpr) {
+        if (n->which == PanicOp::Fwd) || (n->which == PanicOp::FwdAll) {
+            if ((n->type_ == &null) || (n->operand == &null)) { self._ice(n->range, "EmitIR: a panic fwd with no result type or operand; PanicLowering mints both"); }
+            var all = ("true") if (n->which == PanicOp::FwdAll) else ("false");
+            self._cg->sink->spell(n->range, "::" + LowerTargets::panic_fwd() + "<" + self._spell._type(n->type_) + ", " + all + ">(");
+            self.emit(n->operand);
+            self._cg->sink->spell(n->range, ")");
+            return;
+        }
+        switch n->which {
+            case PanicOp::SlotPut {
+                if ((n->slot == &null) || (n->operand == &null) || (n->slot->type_ == &null)) { self._ice(n->range, "EmitIR: a slot put with no slot or value; PanicLowering mints both"); }
+                self._cg->sink->spell(n->range, "new (&");
+                self.emit(n->slot);
+                self._cg->sink->spell(n->range, "." + LowerTargets::raw_box_member() + ") ::" + LowerTargets::raw_box() + "<" + self._spell._type(n->slot->type_) + ">{");
+                self._value(n->operand, n->slot->type_);
+                self._cg->sink->spell(n->range, "}");
+            }
+            case PanicOp::SlotTake {
+                if (n->slot == &null) { self._ice(n->range, "EmitIR: a slot take with no slot; PanicLowering mints it"); }
+                self.emit(n->slot);
+                self._cg->sink->spell(n->range, "." + LowerTargets::raw_take() + "()");
+            }
+            default { 0; }
+        }
+    }
+
     /// An ADT variant built in place: the enum's tagged constructor,
     /// `T(::__kairo_vt<I>{})` for a variant without a payload, the field
     /// constructor `T{::__kairo_vt<I>{}, f0, f1}` where the variant's
@@ -2441,6 +2530,9 @@ class EmitIR {
             if (n->pack_elem == &null) { self._ice(n->range, "EmitIR: a pack-expanded variant built with no element type; VariantInitLowering records it"); }
             tag += ", ::" + LowerTargets::adt_variant_tag() + "<" + f"{n->pack_index}" + ">{}";
             pt = t + "::" + leaf + "<" + self._spell._type(n->pack_elem) + ">";
+            // A site slot's pack constructor takes the site id (PANIC.md
+            // §1.4; InterfaceEmitter writes it): 0 for none.
+            if en->adt_site_field != &null { tag += ", " + f"{n->site}" + "u"; }
         }
         // noexcept unless -funwind, as the constructor it is passed to is
         // (InterfaceEmitter::_adt_noexcept): the lambda is a Kairo frame.

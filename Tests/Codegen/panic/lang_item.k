@@ -95,7 +95,8 @@ fn main() -> i32 {
 // CXX-NEXT: static constexpr unsigned int __kairo_payload_offset = ::__kairo_max_align<__kairo_Ok_t, __kairo_Err_t<E> ...>(8);
 // CXX-NEXT: union alignas(__kairo_payload_offset) {
 // An element's tag is its id, and destroy / copy find the element by it.
-// CXX: __kairo_tag(static_cast<__kairo_Tag>( ::__kairo_type_id<__type_pack_element<K, E ...>>)), __kairo_site()
+// The site slot takes the id a `panic` writes (PANIC.md §1.4).
+// CXX: template<unsigned int K, class F> Panic( ::__kairo_vt<1>, ::__kairo_vt<K>, unsigned int s, F && f) noexcept: __kairo_tag(static_cast<__kairo_Tag>( ::__kairo_type_id<__type_pack_element<K, E ...>>)), __kairo_site(s)
 // CXX: (( ::__kairo_type_id<E> == static_cast<unsigned int>(__kairo_tag) ?(void)(i = k):(void) 0,++ k), ...);
 // CXX: static constexpr unsigned long __kairo_niche_count = 0;
 // The user's TU: each element's id from Sema, before anything uses it.

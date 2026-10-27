@@ -409,7 +409,12 @@ class SemaContext {
         var gps = decl_generic_params(rep);
         var trimmed = vec::<*Type>();
         var dep = false;
-        for var i: usize = 0; (i < gps.size()) && (i < args->size()); ++i {
+        // A trailing type pack takes every argument from its position on
+        // (an instance carries its pack flat, InstanceEntry::args): trimming
+        // to the parameter count would drop all but the pack's first.
+        var take = gps.size();
+        if (take > 0) && (gps[take - 1] != &null) && gps[take - 1]->is_pack { take = args->size(); }
+        for var i: usize = 0; (i < take) && (i < args->size()); ++i {
             var a = (*args)[i];
             if a == &null { return &null; }
             if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }

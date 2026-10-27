@@ -607,6 +607,7 @@ class <D> ASTWriter {
             case ExprKind::UnwrapExpr               { return self.dyn()->transform_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
             case ExprKind::DefinedExpr              { return self.dyn()->transform_defined_expr(               cast::<DefinedExpr>(e)              ); }
             case ExprKind::AttributedExpr           { return self.dyn()->transform_attributed_expr(            cast::<AttributedExpr>(e)           ); }
+            case ExprKind::PanicOpExpr              { return self.dyn()->transform_panic_op_expr(              cast::<PanicOpExpr>(e)              ); }
             case ExprKind::SpawnExpr                { return self.dyn()->transform_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->transform_thread_expr(                cast::<ThreadExpr>(e)               ); }
             case ExprKind::ConstraintExpr           { return self.dyn()->transform_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
@@ -846,6 +847,12 @@ class <D> ASTWriter {
 
     fn transform_attributed_expr(self, n: *AttributedExpr) -> *Expr {
         self.dyn()->rebuild_expr_list(&(n->args));
+        if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
+        return n;
+    }
+
+    fn transform_panic_op_expr(self, n: *PanicOpExpr) -> *Expr {
+        if n->slot    != &null { n->slot    = self.dyn()->transform_expr(n->slot); }
         if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
         return n;
     }

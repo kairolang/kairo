@@ -510,6 +510,7 @@ class EmitWitness {
     }
 
     priv fn _ret(self, m: *FunctionDecl, subst: *InstanceEntry) -> string {
+        if m->panic_result != &null { return self._spell->_type(m->panic_result); }   // PanicLowering's result (PANIC.md §4.1).
         if m->is_noreturn || (m->return_type == &null) { return "void"; }
         return self._spell->return_spelling(m, subst);
     }

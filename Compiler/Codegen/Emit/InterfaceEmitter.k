@@ -277,11 +277,11 @@ class InterfaceEmitter {
 
         // The Panic lang item's layout helpers (_panic_helpers), wherever an
         // ADT with its knobs is defined.
-        if (!self.have_panic_helpers) && self._needs_panic_helpers() {
+        if (!self.have_panic_helpers) && (self._panic_enum_defined() != &null) {
             self._cg->sink->unanchored(true);
             if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_helpers_guard()); }
             if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_helpers_guard()); }
-            self._panic_helpers();
+            self._panic_helpers(self._panic_enum_defined());
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
             self._cg->sink->unanchored(false);
             self.have_panic_helpers = true;
@@ -1067,7 +1067,7 @@ class InterfaceEmitter {
     ///   `__kairo_type_id<E>`    the id, read off the specialization;
     ///   `__kairo_unit`, `__kairo_nv<T>`   T, or an empty struct for void;
     ///   `__kairo_max_align<P...>(f)`      max(f, alignof(P)...).
-    priv fn _panic_helpers(self) {
+    priv fn _panic_helpers(self, en: *EnumDecl) {
         var u  = builtin_info(BuiltinKind::U32)->cxx;
         var at = self._tu_at();
         var ti = LowerTargets::type_id_trait();
@@ -1081,20 +1081,131 @@ class InterfaceEmitter {
         self._cg->sink->spell(at, "template <class... P> constexpr " + u + " " + LowerTargets::max_align() + "(" + u + " f) noexcept { "
                                   + u + " a = f; ((a = (alignof(P) > a) ? static_cast<" + u + ">(alignof(P)) : a), ...); return a; }");
         self._cg->sink->brk();
+        self._raw_slot_helpers();
+        self._fwd_helpers(en);
     }
 
-    /// An ADT with a lang item's layout knobs is defined here (as
-    /// _needs_pack_union asks).
-    priv fn _needs_panic_helpers(self) -> bool {
+    /// `__kairo_raw<T>` (PANIC.md §4.4): storage for a T that the path
+    /// which never fills it never builds -- a union, so its empty
+    /// constructor and destructor leave the member alone. Filled once by
+    /// placement into `__kairo_b` (EmitIR, PanicOp::SlotPut: the box brings
+    /// its own placement `new`, so no <new>), read once by `__kairo_take()`,
+    /// which moves the value out and destroys the box: from there the value
+    /// is an ordinary local, which every exit destroys.
+    priv fn _raw_slot_helpers(self) {
+        var at  = self._tu_at();
+        var bx  = LowerTargets::raw_box();
+        var bm  = LowerTargets::raw_box_member();
+        var bv  = LowerTargets::raw_box_value();
+        var rs  = LowerTargets::raw_slot();
+        var nx  = self._adt_noexcept();
+        self._cg->sink->spell(at, "template <class T> struct " + bx + " { static void* operator new(decltype(sizeof(0)), void* p) noexcept { return p; } T " + bv + "; };");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, "template <class T> union " + rs + " { " + bx + "<T> " + bm + "; "
+            + rs + "() noexcept {} ~" + rs + "() noexcept {} " + rs + "(const " + rs + "&) = delete; "
+            + "T " + LowerTargets::raw_take() + "()" + nx + " { T r(static_cast<T&&>(" + bm + "." + bv + ")); " + bm + ".~" + bx + "<T>(); return r; } };");
+        self._cg->sink->brk();
+    }
+
+    /// `__kairo_fwd<R, A>(s)` (PANIC.md §4.3): the panic result `s` as the
+    /// result R, whose set holds every type `s` can hold here (an error
+    /// only, unless A). The same type: moved. The same size and payload
+    /// offset, both trivially copied: the bytes, tag and site word and all
+    /// (the payload sits at one offset in both, and an error's tag is its
+    /// type id in every set). Otherwise one case per element of `s`'s set
+    /// (`__kairo_fwd_k`), testing the tag and moving the payload into R's
+    /// element of the same type (`__kairo_pidx`), the site word copied. An
+    /// element R does not hold is never the tag here, so it gets no case.
+    /// Generic over the record (`P<T, E...>`), so no name of the lang item
+    /// is spelled; its members are, read off \p en.
+    priv fn _fwd_helpers(self, en: *EnumDecl) {
+        var at  = self._tu_at();
+        var u   = builtin_info(BuiltinKind::U32)->cxx;
+        var nx  = self._adt_noexcept();
+        var vt  = "::" + LowerTargets::adt_variant_tag();
+        var fw  = LowerTargets::panic_fwd();
+        var fk  = LowerTargets::panic_fwd_step();
+        var px  = LowerTargets::panic_elem_index();
+        var tag = LowerTargets::adt_tag_field();
+        var tt  = LowerTargets::adt_tag_type();
+        var off = LowerTargets::adt_payload_offset();
+        var tid = "::" + LowerTargets::type_id();
+        var nv  = "::" + LowerTargets::void_unit();
+        var get = LowerTargets::adt_pack_get();
+        if en->adt_site_field == &null {
+            self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: the Panic lang item without its site slot; EnumLayoutLowering::_knobs sets it");
+        }
+        var site = self._spell->leaf(static_cast::<*Decl>(en->adt_site_field));
+        var ok: *EnumVariantDecl  = &null;
+        var err: *EnumVariantDecl = &null;
+        var errpos: usize = 0;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if v->is_pack_expansion { err = v; errpos = i; }
+            else if ok == &null { ok = v; }
+        }
+        if (ok == &null) || (err == &null) || (ok->adt_member == &null) || (err->adt_member == &null) {
+            self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: the Panic lang item without its Ok and pack Err variants; lang_item.k pins the shape");
+        }
+        var okn  = self._spell->leaf(static_cast::<*Decl>(ok));
+        var okm  = self._spell->leaf(static_cast::<*Decl>(ok->adt_member));
+        var okf  = self._spell->leaf(static_cast::<*Decl>(ok->payload[0]));
+        var okt  = LowerTargets::adt_payload_type(okn);
+        var erm  = self._spell->leaf(static_cast::<*Decl>(err->adt_member));
+        var erf  = self._spell->leaf(static_cast::<*Decl>(err->payload[0]));
+        var ert  = LowerTargets::adt_payload_type(self._spell->leaf(static_cast::<*Decl>(err)));
+        var npos = "static_cast<" + u + ">(-1)";
+        var tp   = "template <class, class...> class P";
+
+        self._cg->sink->spell(at, "template <class X, " + tp + ", class U, class... F> constexpr " + u + " " + px + "(P<U, F...>*) noexcept { "
+            + u + " k = 0, i = " + npos + "; ((__is_same(X, F) ? (void)(i = k) : (void)0, ++k), ...); return i; }");
+        self._cg->sink->brk();
+        // One element: built into R's element of its type when the tag is
+        // its id (the last element is the tag without a test).
+        self._cg->sink->spell(at, "template <class R, " + u + " K, " + tp + ", class T, class... E> R " + fk + "(P<T, E...>& s)" + nx + " { "
+            + "using X = __type_pack_element<K, E...>; "
+            + "constexpr " + u + " J = " + px + "<X>(static_cast<R*>(nullptr)); "
+            + "if constexpr (J == " + npos + ") { if constexpr (K + 1 < sizeof...(E)) { return " + fk + "<R, K + 1>(s); } else { __builtin_unreachable(); } } "
+            + "else { if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(s." + tag + ") != " + tid + "<X>) { return " + fk + "<R, K + 1>(s); } } "
+            + "return R(" + vt + "<" + f"{errpos}" + ">{}, " + vt + "<J>{}, s." + site + ", [&]()" + nx + " -> typename R::template " + ert + "<X> { "
+            + "return { static_cast<X&&>(s." + erm + ".template " + get + "<K>()." + erf + ") }; }); } }");
+        self._cg->sink->brk();
+        var bits = "(sizeof(R) == sizeof(S) && R::" + off + " == S::" + off + " && __is_trivially_copyable(R) && __is_trivially_copyable(S)"
+                 + " && (!A || __is_same(" + nv + "<T>, decltype(static_cast<R*>(nullptr)->" + okm + "." + okf + "))))";
+        self._cg->sink->spell(at, "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>& s)" + nx + " { "
+            + "using S = P<T, E...>; "
+            + "if constexpr (__is_same(R, S)) { return static_cast<S&&>(s); } "
+            + "else if constexpr " + bits + " { return __builtin_bit_cast(R, s); } "
+            + "else { if constexpr (A) { if (s." + tag + " == S::" + tt + "::" + okn + ") { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { "
+            + "return { static_cast<" + nv + "<T>&&>(s." + okm + "." + okf + ") }; }); } } "
+            + "if constexpr (sizeof...(E) == 0) { __builtin_unreachable(); } else { return " + fk + "<R, 0>(s); } } }");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>&& s)" + nx + " { return " + fw + "<R, A>(s); }");
+        self._cg->sink->brk();
+        // A `fn` value converted to a `fn` type whose set is wider (P4's
+        // conversion by subset): the call's result as R -- a panic result
+        // forwarded whole, a plain value (or nothing) as Ok.
+        var pc = LowerTargets::panic_call_as();
+        self._cg->sink->spell(at, "template <class R, class F, class... A> R " + pc + "(F& f, A&&... a)" + nx + " { "
+            + "using V = decltype(f(static_cast<A&&>(a)...)); "
+            + "if constexpr (requires { V::" + off + "; } && requires (V& v) { v." + site + "; }) { return " + fw + "<R, true>(f(static_cast<A&&>(a)...)); } "
+            + "else if constexpr (__is_same(V, void)) { f(static_cast<A&&>(a)...); return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return {}; }); } "
+            + "else { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return { f(static_cast<A&&>(a)...) }; }); } }");
+        self._cg->sink->brk();
+    }
+
+    /// The Panic lang item, when a plan entry defines it here: an ADT with
+    /// a lang item's layout knobs (as _needs_pack_union asks).
+    priv fn _panic_enum_defined(self) -> *EnumDecl {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
             if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
             if header && (!e->own) { continue; }
             var en = dyn_cast::<EnumDecl>(e->decl);
-            if (en != &null) && en->is_adt && (en->adt_explicit_tags || en->adt_void_unit || (en->adt_payload_offset != &null)) { return true; }
+            if (en != &null) && en->is_adt && (en->adt_explicit_tags || en->adt_void_unit || (en->adt_payload_offset != &null)) { return en; }
         }
-        return false;
+        return &null;
     }
 
     /// `max(floor, alignof(P)...)` over \p lay's payload structs, the pack
@@ -1682,8 +1793,17 @@ class InterfaceEmitter {
                     // tag_value), built into the union's K-th member.
                     var u  = builtin_info(BuiltinKind::U32)->cxx;
                     var kv = "::" + LowerTargets::adt_variant_tag();
-                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, F&& f)" + nx + " : " + tag + "(" + self._pack_tag(en, v, "K", tt) + ")"
-                         + site_init + ", " + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(" + kv + "<K>{}, static_cast<F&&>(f)) {}";
+                    // A site slot (the Panic lang item) is the site id
+                    // this construction stores (PANIC.md §1.4); a `panic`
+                    // passes its own, a widening the one it copies.
+                    var sp = "";
+                    var si = site_init;
+                    if en->adt_site_field != &null {
+                        sp = u + " s, ";
+                        si = ", " + self._spell->leaf(static_cast::<*Decl>(en->adt_site_field)) + "(s)";
+                    }
+                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, " + sp + "F&& f)" + nx + " : " + tag + "(" + self._pack_tag(en, v, "K", tt) + ")"
+                         + si + ", " + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(" + kv + "<K>{}, static_cast<F&&>(f)) {}";
                 }
                 // The payload is the callable's prvalue, so the union member
                 // is built straight from it: nothing is copied or moved.
@@ -2401,6 +2521,7 @@ class InterfaceEmitter {
     }
 
     priv fn _ret(self, f: *FunctionDecl, scope: *Decl = &null) -> string {
+        if f->panic_result != &null { return self._spell->_type(f->panic_result); }   // PanicLowering's result (PANIC.md §4.1).
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
         return self._spell->return_spelling(f, &null, scope);
     }
@@ -2531,6 +2652,7 @@ class InterfaceEmitter {
     }
 
     priv fn _ret_subst(self, f: *FunctionDecl, ie: *InstanceEntry) -> string {
+        if f->panic_result != &null { return self._spell->_type(f->panic_result); }   // PanicLowering's result (PANIC.md §4.1).
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
         return self._spell->return_spelling(f, ie);
     }

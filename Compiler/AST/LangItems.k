@@ -721,6 +721,29 @@ class LowerTargets {
     /// `max(floor, alignof(P)...)`, the initializer of __kairo_payload_offset.
     static fn max_align() -> string                  { return "__kairo_max_align"; }
     static fn panic_helpers_guard() -> string        { return "__KAIRO_PANIC_HELPERS"; }
+    /// PanicLowering's C++ (PANIC.md §4.3, §4.4; writers InterfaceEmitter's
+    /// _panic_helpers and EmitIR's PanicOpExpr). `__kairo_fwd<R, A>(s)`
+    /// widens the panic result `s` into R: the bytes as they are when the
+    /// two layouts agree, else one case per element (`__kairo_fwd_k`), each
+    /// built into R's element by `__kairo_pidx<X>` (X's position in R's
+    /// set). A = true forwards Ok too. `__kairo_raw<T>` is raw storage for
+    /// a T built later: a union over `__kairo_rbox<T>` (which brings its
+    /// own placement `new`, so no <new>), read once by `__kairo_take()`,
+    /// which moves the value out and destroys the box.
+    static fn panic_fwd() -> string                  { return "__kairo_fwd"; }
+    static fn panic_fwd_step() -> string             { return "__kairo_fwd_k"; }
+    static fn panic_elem_index() -> string           { return "__kairo_pidx"; }
+    static fn raw_slot() -> string                   { return "__kairo_raw"; }
+    static fn raw_box() -> string                    { return "__kairo_rbox"; }
+    static fn raw_box_member() -> string             { return "__kairo_b"; }
+    static fn raw_box_value() -> string              { return "__kairo_v"; }
+    static fn raw_take() -> string                   { return "__kairo_take"; }
+    /// A `fn` value whose set widens (EmitIR::_fn_effect_value): its call's
+    /// result as the wider panic result, and the wrapper's captured value
+    /// and parameter names.
+    static fn panic_call_as() -> string              { return "__kairo_pcall"; }
+    static fn panic_wrapped() -> string              { return "__kairo_w"; }
+    static fn panic_wrap_arg(i: usize) -> string     { return f"__kairo_a{i}"; }
     /// The per-TU panic site table (PANIC.md §1.4): one record per site, a
     /// `__kairo_panic_site` named `__kairo_ps_<key>` (key: the 64-bit hash
     /// of the site's path and offset), in the linker-collected section.

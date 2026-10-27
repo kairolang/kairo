@@ -546,6 +546,13 @@ class FunctionDecl
     /// the redeclaration chain, as no_unwind is.
     pub var panic_eff:     FrozenList::<*Type>;
     pub var panic_state:   PanicSetState = PanicSetState::None;
+    /// What C++ sees the function return when it panics: `Panic<T, E...>`
+    /// over `panic_eff` (PANIC.md §4.1), formed by PanicLowering in the
+    /// function's own TU, on every link of the chain. `return_type` stays T:
+    /// an importer's typing reads it after this TU lowered, and a call's
+    /// value is T. Null for a function that does not panic. Codegen spells
+    /// the signature from this when it is set (CXXSpell::return_spelling).
+    pub var panic_result:  *Type = &null;
     pub var body_kind:     FnBodyKind = FnBodyKind::None;
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.
@@ -583,6 +590,11 @@ class FunctionDecl
     /// binds a call to it, so every call site names the one function C++
     /// will see.
     pub var where_lead:   *FunctionDecl = &null;
+    /// On a group's lead only: every member, in dispatch order, the lead
+    /// included (WhereGuardCheck files them). The dispatcher's panic set is
+    /// the union of theirs (PANIC.md §2.8, where.mdx): EffectPropagation
+    /// reads it, here and in every importing TU.
+    pub var where_group:  FrozenList::<*FunctionDecl>;
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.
     pub var ffi_ice_mask:   u32 = 0;              ///< bit i: parameter i takes an integer constant.
     /// A function EnumLayoutLowering minted for an ADT's layout record, or
@@ -736,6 +748,8 @@ class ClosureExpr derives Expr {
     pub var params_end:  SourceRange;
     pub var panic_eff:   FrozenList::<*Type>;
     pub var panic_state: PanicSetState = PanicSetState::None;
+    /// As on FunctionDecl: the lambda's C++ result when it panics.
+    pub var panic_result: *Type = &null;
     pub var is_variadic:         bool = false; ///< trailing `...name: T` pack param.
     pub var is_noreturn:         bool = false;
     pub var explicit_no_capture: bool = false;
@@ -801,6 +815,12 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     pub var type_:   *Type = &null;   ///< null => inferred from init.
     pub var init:    *Expr = &null;   ///< initializer; null for `var x: T` default-init.
     pub var is_thread: bool = false;  ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
+    /// Raw storage for a value of `type_` that is built later and read once
+    /// (PanicOpExpr SlotPut / SlotTake): EmitIR declares it as
+    /// `::__kairo_raw<T>`, a union with an empty constructor and destructor,
+    /// so nothing is built on the path that never fills it. Only
+    /// PanicLowering's `try` slots; never written by the user.
+    pub var raw_slot: bool = false;
     /// `static const x` / `const static x` (or `thread const`): the binding
     /// of a Static-storage variable is const. `storage` stays the storage
     /// keyword so every is_static() reader is unchanged; is_const() folds

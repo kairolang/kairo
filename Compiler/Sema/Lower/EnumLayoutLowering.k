@@ -845,6 +845,128 @@ class EnumLayoutQuery {
         return self._pattern_test(at, self.field_ref(at, e, en, p, f, it), it, adt_niche_dataless(en) + i, neg);
     }
 
+    // --- the Panic lang item (PANIC.md §1.1a; PanicLowering) ---------------------
+
+    /// The Panic lang item a result type \p t is an instance of, or null.
+    fn panic_adt(self, t: *Type) -> *EnumDecl {
+        var en = self.adt_of(t);
+        if (en == &null) || (!PanicSets(self.sc).is_panic(static_cast::<*Decl>(en))) { return &null; }
+        ICE_IF(!self.has_layout(en), "EnumLayoutQuery: a panic result before EnumLayoutLowering built the lang item\x27s record");
+        return en;
+    }
+
+    /// The expanded index of error type \p e in the panic result type \p t:
+    /// the pack variant's position plus e's place in t's canonical set
+    /// (§1.3). The set is the FORMED type's, so the index is the one C++
+    /// reads (`__kairo_get<K>`). ICE when \p e is not in it: every caller
+    /// tests a type the set was checked to hold.
+    fn panic_elem_index(self, t: *Type, e: *Type) -> u32 {
+        var en = self.panic_adt(t);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_elem_index on a type that is no panic result");
+        var p = adt_pack_param(en);
+        var args = self.tu.record_args(self.tu.as_value(t));
+        var want = canon_unqual(e);
+        var pos = adt_variant_pos(en, adt_pack_variant(en));
+        for var i: usize = p; i < args.size(); ++i {
+            if canon_unqual(args[i]) == want { return u32(pos + (i - p)); }
+        }
+        ICE_FAIL("EnumLayoutQuery: \x27" + self.tu.str(e) + "\x27 is outside the panic result \x27" + self.tu.str(t) + "\x27; PanicEffectChecking routed it here");
+        return 0;
+    }
+
+    /// `x` is Ok: its tag is 0 (§1.1a).
+    fn panic_is_ok(self, at: SourceRange, x: *Expr) -> *Expr {
+        var en = self.panic_adt(x->type_);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_is_ok on a value that is no panic result");
+        return self.variant_test(at, x, en, u32(adt_variant_pos(en, self._panic_ok(en))));
+    }
+
+    /// `x` holds error \p e: the tag compared with e's type id, the one
+    /// compare a `catch e: E` is in every set that holds E.
+    fn panic_holds(self, at: SourceRange, x: *Expr, e: *Type) -> *Expr {
+        var en = self.panic_adt(x->type_);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_holds on a value that is no panic result");
+        return self.variant_test(at, x, en, self.panic_elem_index(x->type_, e));
+    }
+
+    /// The Ok value of \p x, an lvalue of \p ty (the result's T).
+    fn panic_value_ref(self, at: SourceRange, x: *Expr, ty: *Type) -> *Expr {
+        var en = self.panic_adt(x->type_);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_value_ref on a value that is no panic result");
+        var ok = self._panic_ok(en);
+        return self.field_ref(at, x, en, u32(adt_variant_pos(en, ok)), ok->payload[0], ty);
+    }
+
+    /// Error \p e held by \p x, an lvalue of \p e: the union's element at
+    /// e's place in the set.
+    fn panic_error_ref(self, at: SourceRange, x: *Expr, e: *Type) -> *Expr {
+        var en = self.panic_adt(x->type_);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_error_ref on a value that is no panic result");
+        var pv = adt_pack_variant(en);
+        return self.field_ref(at, x, en, self.panic_elem_index(x->type_, e), pv->payload[0], e);
+    }
+
+    /// The site word of \p x (§1.4), an lvalue `u32`.
+    fn panic_site_ref(self, at: SourceRange, x: *Expr) -> *Expr {
+        var en = self.panic_adt(x->type_);
+        ICE_IF((en == &null) || (en->adt_site_field == &null), "EnumLayoutQuery: panic_site_ref on a value with no site slot");
+        var sf = en->adt_site_field;
+        return self.synth.field_of(at, x, static_cast::<*Decl>(sf), sf->type_);
+    }
+
+    /// `Ok { value: v }` as the panic result \p t; \p v null for a `void`
+    /// T, whose unit payload is built empty (§1.6).
+    fn panic_ok(self, at: SourceRange, t: *Type, v: *Expr) -> *Expr {
+        var en = self.panic_adt(t);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_ok of a type that is no panic result");
+        var ok = self._panic_ok(en);
+        var n = VariantInitExpr::create(self.sc->ctx, at, static_cast::<*Decl>(en), u32(adt_variant_pos(en, ok)));
+        var fs = ListBuilder::<*Expr>(self.sc->ctx);
+        var so = ListBuilder::<u32>(self.sc->ctx);
+        if v != &null {
+            fs.push(v);
+            so.push(u32(0));
+        }
+        fs.freeze_into(&(n->fields));
+        so.freeze_into(&(n->source_order));
+        n->type_          = t;
+        n->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(n);
+    }
+
+    /// `Err { error: v }` holding error type \p e, as the panic result \p t,
+    /// with site id \p site in its word 0 (§1.4; 0 for none).
+    fn panic_err(self, at: SourceRange, t: *Type, e: *Type, site: u32, v: *Expr) -> *Expr {
+        var en = self.panic_adt(t);
+        ICE_IF(en == &null, "EnumLayoutQuery: panic_err of a type that is no panic result");
+        var pv  = adt_pack_variant(en);
+        var pos = adt_variant_pos(en, pv);
+        var idx = self.panic_elem_index(t, e);
+        var n = VariantInitExpr::create(self.sc->ctx, at, static_cast::<*Decl>(en), u32(pos));
+        var fs = ListBuilder::<*Expr>(self.sc->ctx);
+        var so = ListBuilder::<u32>(self.sc->ctx);
+        fs.push(v);
+        so.push(u32(0));
+        fs.freeze_into(&(n->fields));
+        so.freeze_into(&(n->source_order));
+        n->pack_index     = i32(idx - u32(pos));
+        n->pack_elem      = canon_unqual(e);
+        n->site           = site;
+        n->type_          = t;
+        n->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(n);
+    }
+
+    /// The lang item's ordinary variant: Ok.
+    priv fn _panic_ok(self, en: *EnumDecl) -> *EnumVariantDecl {
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if (v != &null) && (!v->is_pack_expansion) { return v; }
+        }
+        ICE_FAIL("EnumLayoutQuery: the Panic lang item without its Ok variant");
+        return &null;
+    }
+
     priv fn _bin(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
         var b = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, self.synth.punct(at, k));
         b->type_          = self.sc->builtin(BuiltinKind::Bool);

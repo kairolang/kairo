@@ -299,6 +299,9 @@ class CXXSpell {
     /// else, a value `op []` included, is the declared type. The pointee of `*const T` is the `const T`
     /// canonical, so _type already spells the const and `&` goes on the end.
     fn return_spelling(self, f: *FunctionDecl, subst: *InstanceEntry, scope: *Decl = &null) -> string {
+        // A panicking function returns its Panic result (PANIC.md §4.1);
+        // return_type stays the value type an importer's typing reads.
+        if f->panic_result != &null { return self._type(f->panic_result, subst, scope); }
         if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst, scope); }
         // An eval generator runs at compile time, where nothing suspends: it
         // returns the buffer its `yield`s push into (EVAL.md §5).
@@ -761,6 +764,9 @@ class CXXSpell {
             if i > 0 { ps += ", "; }
             ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope);
         }
+        // A panicking `fn` type's value returns its panic result (§4.1).
+        var canon = (cast::<FunctionPointerType>(canon_unqual(f->canonical))) if ((f->canonical != &null) && isa::<FunctionPointerType>(canon_unqual(f->canonical))) else (f);
+        if canon->panic_result != &null { return self.decl(canon->panic_result, f"({ps})", subst, scope); }
         return self.decl(f->return_type, f"({ps})", subst, scope);
     }
 
@@ -816,6 +822,12 @@ class CXXSpell {
     /// The mode's reference and the const marker folded into decl(), so a
     /// name lands inside the declarator: `@inout` on a function pointer is
     /// `U (*&f)(T)`, which decl() brackets as it does any `*`/`&` declarator.
+    /// A `fn` type's parameter \p t in mode \p mode, declared as \p name
+    /// (a wrapper lambda's parameter, EmitIR::_fn_effect_value).
+    fn param_named(self, t: *Type, mode: ParamMode, name: string) -> string {
+        return self._param_type(t, mode, false, name, &null, &null);
+    }
+
     priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, name: string, subst: *InstanceEntry, scope: *Decl) -> string {
         // `const T&` only from a stamped `@copy fn X(self, const other: Self)`
         // (ClassLifecycle); nothing else sets Inout together with `const`.

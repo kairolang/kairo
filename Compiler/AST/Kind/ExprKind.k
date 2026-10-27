@@ -384,6 +384,13 @@ enum ExprKind derives u8 {
     /// FeatureGateCheck reports every one (SC116E).
     AttributedExpr,
 
+    /// The panic lowering's C++ with no Kairo spelling (PANIC.md §4.3,
+    /// §4.4): widening a panic result (`fwd`), and the raw-storage slot a
+    /// multi-site `try` carries its error out in. Node: PanicOpExpr: the
+    /// op, an operand, the slot. Never parsed; PanicLowering mints it and
+    /// EmitIR spells it.
+    PanicOpExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -441,6 +448,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::UnwrapExpr { return "UnwrapExpr"; }
         case ExprKind::DefinedExpr { return "DefinedExpr"; }
         case ExprKind::AttributedExpr { return "AttributedExpr"; }
+        case ExprKind::PanicOpExpr { return "PanicOpExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

@@ -493,6 +493,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::UnwrapExpr               { return self.dyn()->traverse_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
             case ExprKind::DefinedExpr              { return self.dyn()->traverse_defined_expr(               cast::<DefinedExpr>(e)              ); }
             case ExprKind::AttributedExpr           { return self.dyn()->traverse_attributed_expr(            cast::<AttributedExpr>(e)           ); }
+            case ExprKind::PanicOpExpr              { return self.dyn()->traverse_panic_op_expr(              cast::<PanicOpExpr>(e)              ); }
             case ExprKind::SpawnExpr                { return self.dyn()->traverse_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->traverse_thread_expr(                cast::<ThreadExpr>(e)               ); }
             case ExprKind::ConstraintExpr           { return self.dyn()->traverse_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
@@ -862,6 +863,15 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    /// The slot, then the operand (a SlotPut builds the slot from it).
+    fn traverse_panic_op_expr(self, n: *PanicOpExpr) -> *PanicOpExpr {
+        if self.dyn()->walkup_panic_op_expr(n) == false { return n; }
+        if n->slot != &null { self.dyn()->dispatch_expr(n->slot); }
+        if self.stop { return n; }
+        if n->operand != &null { self.dyn()->dispatch_expr(n->operand); }
+        return n;
+    }
+
     fn traverse_spawn_expr(self, n: *SpawnExpr) -> *SpawnExpr {
         if self.dyn()->walkup_spawn_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
@@ -1116,6 +1126,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_attributed_expr(n);
     }
 
+    fn walkup_panic_op_expr(self, n: *PanicOpExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_panic_op_expr(n);
+    }
+
     fn walkup_defined_expr(self, n: *DefinedExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_defined_expr(n);
@@ -1239,6 +1254,7 @@ class <D> RecursiveASTVisitor {
     fn visit_unwrap_expr(                 self, n: *UnwrapExpr               ) -> bool { return true; }
     fn visit_defined_expr(                self, n: *DefinedExpr              ) -> bool { return true; }
     fn visit_attributed_expr(             self, n: *AttributedExpr           ) -> bool { return true; }
+    fn visit_panic_op_expr(               self, n: *PanicOpExpr              ) -> bool { return true; }
     fn visit_spawn_expr(                  self, n: *SpawnExpr                ) -> bool { return true; }
     fn visit_thread_expr(                 self, n: *ThreadExpr               ) -> bool { return true; }
     fn visit_constraint_expr(             self, n: *ConstraintExpr           ) -> bool { return true; }

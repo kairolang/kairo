@@ -102,6 +102,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::UnwrapExpr               { return "UnwrapExpr";               }
         case ExprKind::DefinedExpr              { return "DefinedExpr";              }
         case ExprKind::AttributedExpr           { return "AttributedExpr";           }
+        case ExprKind::PanicOpExpr              { return "PanicOpExpr";              }
         case ExprKind::SpawnExpr                { return "SpawnExpr";                }
         case ExprKind::ThreadExpr               { return "ThreadExpr";               }
         case ExprKind::ConstraintExpr           { return "ConstraintExpr";           }
@@ -413,6 +414,16 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<RangeExpr>(e)            { self._e_range(cast::<RangeExpr>(e));   return; }
         if isa::<ClosureExpr>(e)          { self._e_closure(cast::<ClosureExpr>(e)); return; }
         if isa::<AwaitExpr>(e)            { self._kw_operand("await ",  cast::<AwaitExpr>(e)->operand);  return; }
+        if isa::<PanicOpExpr>(e) {
+            var po = cast::<PanicOpExpr>(e);
+            self.p.paint(Color::Keyword, "__panic_" + panic_op_name(po->which));
+            self.p.put("(");
+            if po->slot != &null { self.src_expr(po->slot); }
+            if (po->slot != &null) && (po->operand != &null) { self.p.put(", "); }
+            if po->operand != &null { self.src_expr(po->operand); }
+            self.p.put(")");
+            return;
+        }
         if isa::<AttributedExpr>(e) {
             var ae = cast::<AttributedExpr>(e);
             self.p.paint(Color::Keyword, "@" + self.tok(ae->name));
@@ -2307,6 +2318,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<AwaitExpr>(e)            { self._dx_kw("AwaitExpr",  cast::<AwaitExpr>(e)->operand,  is_last); return; }
         if isa::<UnwrapExpr>(e)           { self._dx_kw("UnwrapExpr", cast::<UnwrapExpr>(e)->operand, is_last); return; }
         if isa::<AttributedExpr>(e)       { self._dx_attributed(cast::<AttributedExpr>(e), is_last); return; }
+        if isa::<PanicOpExpr>(e)          { self._dx_panic_op(cast::<PanicOpExpr>(e), is_last);      return; }
         if isa::<SpawnExpr>(e)            { self._dx_kw("SpawnExpr",  cast::<SpawnExpr>(e)->operand,  is_last); return; }
         if isa::<ThreadExpr>(e)           { self._dx_kw("ThreadExpr", cast::<ThreadExpr>(e)->operand, is_last); return; }
         if isa::<EvalExpr>(e)             { self._dx_kw("EvalExpr",   cast::<EvalExpr>(e)->operand,   is_last); return; }
@@ -2801,6 +2813,17 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         for var i: usize = 0; i < e->args.size(); ++i { self._child_expr(e->args[i], false); }
         self._child_expr(e->operand, true);
+        self.p.leave();
+    }
+
+    /// `PanicOpExpr <op>`, then the slot and the operand it has.
+    fn _dx_panic_op(self, e: *PanicOpExpr, is_last: bool) {
+        self._head("PanicOpExpr", is_last);
+        self.p.put(" " + panic_op_name(e->which));
+        self.p.newline();
+        self.p.enter(is_last);
+        if e->slot != &null { self._child_expr(e->slot, e->operand == &null); }
+        if e->operand != &null { self._child_expr(e->operand, true); }
         self.p.leave();
     }
 
