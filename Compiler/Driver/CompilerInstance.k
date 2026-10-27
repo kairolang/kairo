@@ -4522,10 +4522,12 @@ fn FrontendAction::_dump_overlays() {
             var row  = rows[i];
             var name = ("<?>") if (imms == &null) else (imms->get_ident(row.key));
             var amb  = (" [AMBIGUOUS]") if (row.entry->is_ambiguous()) else ("");
+            if row.entry->is_ambiguous() && row.entry->lazy { amb += " (reported at use)"; }
             std::print(f"  {name}: {row.entry->targets.size()} target(s){amb}");
             for var t: usize = 0; t < row.entry->targets.size(); ++t {
                 var tg = row.entry->targets[t];
-                std::print(f"    - {_overlay_kind_str(tg.kind)} src=fid {tg.src_fid} vis={_overlay_vis_str(tg.vis)}");
+                var hid = (" hidden") if (tg.hidden) else ("");
+                std::print(f"    - {_overlay_kind_str(tg.kind)} src=fid {tg.src_fid} vis={_overlay_vis_str(tg.vis)}{hid}");
             }
         }
     }

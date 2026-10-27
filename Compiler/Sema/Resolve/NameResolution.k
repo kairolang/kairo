@@ -1880,6 +1880,18 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             return true;
         }
 
+        // Two header entities under one imported name: C++ reports that
+        // here, at the use, not at the import (ImportResolution::_add).
+        if h.via_overlay
+        && MemberLookup::report_lazy_ambiguity(self.sc, h.found_in, imm,
+                                               self.sc->ctx->get_spelling(n->name), n->range) {
+            n->poison();
+            self.sc->trace.use_site(imm, n->range, &null, TraceVia::Overlay,
+                                    h.found_in, usize(-1), 0, true,
+                                    &null, TraceVia::None, &null);
+            return true;
+        }
+
         if h.via_overlay && !self._overlay_access_ok(imm) {
             var nm = self.sc->ctx->get_spelling(n->name);
             self.sc->diag->report(DiagID::R047E, n->range.start,

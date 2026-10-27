@@ -1804,7 +1804,8 @@ A pass that needs one asks that file; it never spells the string itself.
    foreign chain from this TU's code -- an out-of-line body of an imported
    member -- also falls back to the definition's lexical scope, since the
    owner's parents are the header's, not this file's.
-3. **One error, one home.** Import existence/ambiguity: I. Import access:
+3. **One error, one home.** Import existence/ambiguity: I (an ambiguity
+   between header entities only: N / T at the use, IMPORTS.md §5.1). Import access:
    N(b). Redefinition / conflicting kinds: N(a). Function redefinition /
    signature disagreement / default on an out-of-line definition: R.
    Unresolved head, `Self` outside a type body

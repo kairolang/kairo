@@ -325,11 +325,23 @@ group = "import"
     function overloads, which union into one overload set, non-function targets cannot coexist under
     one name.
 
+    when a kairo import takes part, the error is reported at the import. when every symbol came from
+    a C or C++ header (`ffi import`), it is reported only where the name is used, as C++ does: a
+    header set routinely declares names nobody uses. the notes point at each candidate.
+
+    a C/C++ tag and an ordinary name are not a collision: `struct timezone` beside
+    `extern long timezone` is legal C, and the plain name means the variable, exactly as in C++.
+    `typedef struct X X` is one entity.
+
     ## how to fix
 
     alias one of the conflicting imports (`import Foo::{Bar as FooBar}`) or import them selectively so
-    each visible name binds a single target.
+    each visible name binds a single target. for headers, import one of them under an alias
+    (`ffi "c++" import "a.h" as a`) and name the symbol through it.
     """
+
+    [R016.N]
+    explain = "Points at one of the symbols the ambiguous name could mean, naming what kind of declaration it is. One note per candidate."
 
 [R017]
 brief = "ambiguous import"

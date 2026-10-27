@@ -1377,7 +1377,14 @@ class CXXSpell {
             if mine && ((r->args.size() == 0) || self._own_args(r, self.self_iface)) { return self.self_spelling; }
             self._ice(d->range, "CXXSpell: an interface has no C++ type; only its Self inside a witness is spelled");
         }
-        if decl_is_imported(d) { return decl_cxx_spelling(d); }
+        if decl_is_imported(d) {
+            // A tag hidden by an ordinary name (`struct timezone` beside
+            // `extern long timezone`): bare `::timezone` is the variable in
+            // C++, so the type is only reachable elaborated.
+            var kw = decl_ffi_tag_keyword(d);
+            if kw.size() > 0 { return kw + " " + decl_cxx_spelling(d); }
+            return decl_cxx_spelling(d);
+        }
 
         // An instance shell names its PRIMARY plus the registry's args.
         if decl_is_instance(d) {

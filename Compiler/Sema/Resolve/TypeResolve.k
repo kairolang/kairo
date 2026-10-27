@@ -1425,6 +1425,14 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                         ct->poison();
                         return;
                     }
+                    // The use-site half of a header-only collision
+                    // (ImportResolution::_add), as N does for a value.
+                    if r.via_overlay
+                    && MemberLookup::report_lazy_ambiguity(self.sc, r.found_in, imm,
+                                                           self.sc->ctx->get_spelling(tok), seg0->name->range) {
+                        ct->poison();
+                        return;
+                    }
                     // A generic VALUE argument written as a name (`Ring<CAP>`)
                     // parses as a type: an `eval` variable here is its value
                     // (EVAL.md 3), anything else that is a value is reported

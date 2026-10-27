@@ -263,6 +263,105 @@ fn decl_cxx_spelling(d: *Decl) -> string {
     return "";
 }
 
+/// The elaborated keyword of an imported tag whose name is hidden by an
+/// ordinary name (FFILinkage::ffi_tag_keyword), or "".
+fn decl_ffi_tag_keyword(d: *Decl) -> string {
+    if d == &null { return ""; }
+    if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->ffi_tag_keyword;  }
+    if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->ffi_tag_keyword; }
+    if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->ffi_tag_keyword;  }
+    if isa::<EnumDecl>(d)   { return cast::<EnumDecl>(d)->ffi_tag_keyword;   }
+    return "";
+}
+
+fn decl_set_ffi_tag_keyword(d: *Decl, kw: string) {
+    if d == &null { return; }
+    if isa::<ClassDecl>(d)  { cast::<ClassDecl>(d)->ffi_tag_keyword  = kw; return; }
+    if isa::<StructDecl>(d) { cast::<StructDecl>(d)->ffi_tag_keyword = kw; return; }
+    if isa::<UnionDecl>(d)  { cast::<UnionDecl>(d)->ffi_tag_keyword  = kw; return; }
+    if isa::<EnumDecl>(d)   { cast::<EnumDecl>(d)->ffi_tag_keyword   = kw; return; }
+}
+
+// === C/C++ name hiding ====================================================
+//
+// C and C++ keep tags (struct/class/union/enum names) apart from ordinary
+// names (variables, functions, typedefs, enumerators): `struct timezone`
+// and `extern long timezone` coexist, and the ORDINARY name is what a plain
+// `timezone` means ([basic.scope.hiding], [class.name]). Kairo has one
+// namespace per scope, so every place that sees both under one key applies
+// that rule, and only between IMPORTED decls -- a Kairo decl never hides
+// or is hidden this way.
+
+/// Imported from a header: the FFILinkage kinds, plus an enumerator of an
+/// imported enum (EnumVariantDecl carries no mixin of its own).
+fn decl_is_ffi(d: *Decl) -> bool {
+    if d == &null { return false; }
+    if isa::<EnumVariantDecl>(d) {
+        if d->semantic_dc == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        return decl_is_imported(dc->owner_decl());
+    }
+    return decl_is_imported(d);
+}
+
+/// An imported C/C++ tag: clang's IDNS_Tag.
+fn decl_is_ffi_tag(d: *Decl) -> bool {
+    if !decl_is_imported(d) { return false; }
+    return isa::<StructDecl>(d) || isa::<ClassDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d);
+}
+
+/// An imported typedef that names exactly \p tag: `typedef struct X X`
+/// is one entity under one name, not a typedef hiding its own tag.
+fn decl_is_ffi_typedef_of(d: *Decl, tag: *Decl) -> bool {
+    if (d == &null) || (tag == &null) { return false; }
+    if (!isa::<TypeAliasDecl>(d)) || (!decl_is_imported(d)) { return false; }
+    var t = cast::<TypeAliasDecl>(d)->aliased;
+    if (t == &null) || (!isa::<RecordType>(t)) { return false; }
+    return cast::<RecordType>(t)->decl == tag;
+}
+
+/// An imported decl in the ORDINARY namespace that hides \p tag: anything
+/// imported that is not itself a tag and not a typedef of that very tag.
+fn decl_ffi_hides_tag(d: *Decl, tag: *Decl) -> bool {
+    if (!decl_is_ffi(d)) || decl_is_ffi_tag(d) { return false; }
+    if isa::<ModuleDecl>(d) { return false; }   // a namespace is not an ordinary name.
+    if decl_is_ffi_typedef_of(d, tag) { return false; }
+    // Hiding is between declarations of ONE scope. Two headers' global
+    // scopes are two Kairo tables but one C++ scope, so the scope is read
+    // off the qualified C++ spelling: `::timezone` and `::timezone` share
+    // one, `::tz` and an inline namespace's `::a::tz` do not -- C++ calls
+    // that pair ambiguous, and so do we.
+    var ds = decl_cxx_spelling(d);
+    var ts = decl_cxx_spelling(tag);
+    if (ds.size() > 0) && (ts.size() > 0) && (ds != ts) { return false; }
+    return true;
+}
+
+/// Apply C++'s tag hiding to a candidate set, in place, keeping order:
+/// a `typedef struct X X` collapses into its tag, and an imported tag
+/// beside an imported ordinary name drops out. Returns true when anything
+/// was removed. Kairo decls are never touched.
+fn ffi_hide_tags(cands: *vec::<*Decl>) -> bool {
+    var n = cands->size();
+    if n < 2 { return false; }
+    var keep = vec::<*Decl>();
+    for var i: usize = 0; i < n; ++i {
+        var d = (*cands)[i];
+        var drop = false;
+        for var j: usize = 0; (j < n) && (!drop); ++j {
+            if i == j { continue; }
+            var o = (*cands)[j];
+            if o == d { continue; }
+            if decl_is_ffi_tag(d) && decl_ffi_hides_tag(o, d) { drop = true; }
+            else if decl_is_ffi_tag(o) && decl_is_ffi_typedef_of(d, o) { drop = true; }
+        }
+        if !drop { keep.push_back(d); }
+    }
+    if keep.size() == n { return false; }
+    (*cands) = keep;
+    return true;
+}
+
 /// The clang builtin a decl stands for, or 0.
 fn decl_builtin_id(d: *Decl) -> u32 {
     if (d == &null) || (!isa::<FunctionDecl>(d)) { return 0; }

@@ -722,6 +722,61 @@ at the end of execute(); per-set release once its last importer passes
 Checked is the refinement. Fills need it alive: ForeignInstantiate ICEs on
 a released set rather than read a dangling `clang_decl`.
 
+### 5.1 Tags, ordinary names, and lazy ambiguity [DONE]
+
+C and C++ keep tags (struct/class/union/enum names) apart from ordinary
+names (variables, functions, typedefs, enumerators), so glibc declares
+both `struct timezone` (<sys/time.h>) and `extern long timezone` (<time.h>),
+`struct stat` beside `stat()`, `struct sigaction` beside `sigaction()`.
+Kairo has one namespace per scope, so the C++ hiding rule
+([basic.scope.hiding]) is applied wherever the two meet, and only between
+IMPORTED decls -- a Kairo decl never hides and is never hidden this way:
+
+| Header shape | Plain name binds | The tag |
+|---|---|---|
+| `struct T` + ordinary `T` (var, fn, typedef of something else, enumerator) | the ordinary decl | bound only under the internal key `struct T` |
+| `typedef struct T T` | the tag (one entity) | the typedef is not bound by name |
+| `struct T` alone | the tag | |
+| two ordinary `T` (inline namespaces) | nothing: lazy R016E at the use | |
+
+Three places, one rule:
+
+- **DeclImport::_bind_named**, per header set. Clang's own lookup over the
+  whole set decides (`_hidden_tag_keyword`), so a tag in one header and
+  its hider in another are seen together. A hidden tag is bound under
+  `struct timezone` -- a spelling no source can produce -- and stamped
+  `FFILinkage::ffi_tag_keyword`, monotonic across sets.
+- **ImportResolution::_apply_hiding**, per overlay entry. A header's table
+  is filled by the FIRST set that indexes it; a later set that also sees
+  the hider cannot rebind it. The overlay entry marks such a target
+  `hidden` (out of `merged`, out of `non_function_count`). Same scope only:
+  scope is read off the qualified C++ spelling, so a tag in an inline
+  namespace beside a global variable stays an ambiguity, as C++ has it.
+  A header cell with more than one entity folds one target per entity
+  (`_fold_ffi_cell`), not just its first.
+- **ChainBinding::_commit** (`ffi_hide_tags`), for `h::timezone` through
+  an alias, whose scopes are every closure header's.
+
+The type stays reachable through everything that names it -- TypeImport
+goes by the clang decl, never by name -- so `gettimeofday(*timeval,
+*timezone)` types its parameter as the struct. CXXSpell writes a hidden
+tag elaborated, `struct ::timezone`, since bare `::timezone` is the
+variable in C++. Kairo has no syntax yet to NAME a hidden tag; that is an
+open question.
+
+**Lazy ambiguity.** An overlay entry whose collision is between header
+entities only (`OverlayEntry::lazy`) is not reported by I: C++ reports
+such a collision where the name is used, and a header set routinely
+declares names nobody uses. N (expression heads) and T (type names) report
+R016E at the use, one R016N note per candidate naming its kind
+(`MemberLookup::report_lazy_ambiguity`). A collision any Kairo import
+takes part in is still reported eagerly, at the import, as before: the
+Kairo import itself is the mistake, and §2.3's one-home rule stands for
+it. `--print-imports` marks a lazy entry `(reported at use)` and a hidden
+target `hidden`.
+`tests: Tests/Sema/FFI/tag_hiding.k, tag_hiding_ambiguous.k,
+tag_hiding_ambiguous_type.k`.
+
 ---
 
 ## 6. Codegen: EmitPlan

@@ -57,6 +57,7 @@ import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
+import AST::Context::ImportOverlay::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
@@ -641,5 +642,50 @@ class MemberLookup {
         }
         b.insert(at.start, "Self::", f"qualify with 'Self::\x27");
         b.emit();
+    }
+
+    /// The R016E C++ defers to the use: \p imm, found through the overlay of
+    /// \p found_in's TU, names an entry I marked `lazy` (every colliding
+    /// entity came from a header, ImportResolution::_add). Reports at \p at
+    /// with one note per candidate and returns true; false, silently, for
+    /// every other entry. N calls it for expression heads, T for type names.
+    static fn report_lazy_ambiguity(sc: *SemaContext, found_in: *DeclContext, imm: u32,
+                                    nm: string, at: SourceRange) -> bool {
+        var tu = NameLookup::tu_of(found_in);
+        if (tu == &null) || (tu->import_overlay == &null) { return false; }
+        var entry = tu->import_overlay->entry(imm);
+        if (entry == &null) || (!entry->lazy) || (!entry->is_ambiguous()) { return false; }
+
+        var b = sc->diag->report(DiagID::R016E, at.start,
+            f"ambiguous import: '{nm}' names more than one non-function symbol"
+        );
+        b.first(at);
+        var seen = vec::<*Decl>();
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            var t = entry->targets[i];
+            if t.kind != OverlayTargetKind::Type { continue; }
+            if t.hidden || (t.decl == &null) { continue; }
+            var dup = false;
+            for var j: usize = 0; j < seen.size(); ++j { if seen[j] == t.decl { dup = true; break; } }
+            if dup { continue; }
+            seen.push_back(t.decl);
+            var what = MemberLookup::_kind_word(t.decl);
+            b.note(DiagID::R016N, t.decl->range.start, f"'{nm}' could be the {what} declared here").first(t.decl->range);
+        }
+        b.emit();
+        return true;
+    }
+
+    priv static fn _kind_word(d: *Decl) -> string {
+        if isa::<VariableDecl>(d)    { return "variable"; }
+        if isa::<TypeAliasDecl>(d)   { return "typedef"; }
+        if isa::<EnumVariantDecl>(d) { return "enumerator"; }
+        if isa::<StructDecl>(d)      { return "struct"; }
+        if isa::<ClassDecl>(d)       { return "class"; }
+        if isa::<UnionDecl>(d)       { return "union"; }
+        if isa::<EnumDecl>(d)        { return "enum"; }
+        if isa::<ModuleDecl>(d)      { return "namespace"; }
+        if isa::<FunctionDecl>(d)    { return "function"; }
+        return "declaration";
     }
 }

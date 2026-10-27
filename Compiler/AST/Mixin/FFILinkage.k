@@ -93,6 +93,14 @@ class <T> FFILinkage {
     pub var layout:          ForeignLayout;
     pub var ffi_is_union:    bool = false;
     pub var ffi_is_final:    bool = false;
+    /// `struct` / `class` / `union` / `enum` when this tag's name is HIDDEN
+    /// by an ordinary name in its scope (`struct timezone` beside `extern
+    /// long timezone`, C++ [basic.scope.hiding]); "" otherwise. C++ then
+    /// reaches the type only through an elaborated specifier, so CXXSpell
+    /// writes `struct ::timezone` wherever it spells the type. Set by
+    /// DeclImport, monotonic across header sets: once any set saw the name
+    /// hidden, the elaborated spelling is the only one valid in every TU.
+    pub var ffi_tag_keyword: string = "";
 
     // Enums.
     pub var ffi_scoped_enum: bool = false;

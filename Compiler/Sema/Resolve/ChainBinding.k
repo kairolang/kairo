@@ -793,6 +793,12 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     ///                          name reached through different bases.
     priv fn _commit(self, st: *ChainExpr::Step, loc: u32, cands: *vec::<*Decl>,
                     owner: *Decl, frozen: *OverloadCell, through: *Type = &null) -> Anchor {
+        // C++ tag hiding between header decls (`struct timezone` beside
+        // `extern long timezone`): an aliased ffi import unions every
+        // closure header's scope, so the two can meet in one step. The set
+        // shrinks, so the frozen cell no longer is it.
+        var exact = frozen;
+        if ffi_hide_tags(cands) { exact = &null; }
         var n = cands->size();
         if n == 1 {
             var d = NameLookup::representative((*cands)[0]);
@@ -871,8 +877,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         // Overload set. Reuse the frozen cell when it is exactly the set;
         // otherwise union into a sema-owned cell (dies with sema_alloc).
         var cell: *OverloadCell = &null;
-        if (frozen != &null) && (frozen->size() == n) {
-            cell = frozen;
+        if (exact != &null) && (exact->size() == n) {
+            cell = exact;
         } else {
             cell = self.sc->ctx->alloc_init_sema_cleanup::<OverloadCell>();
             for var i: usize = 0; i < n; ++i { cell->append((*cands)[i]); }
