@@ -769,29 +769,14 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
 
     /// `if !test? { unwrap_failed("<message>", <len>) }`. The message names
     /// the global and its line; the UnwrapFailed lang item writes it to fd 2
-    /// and aborts (Lib/rt/unwrap.c), in every build mode.
+    /// and aborts (Lib/rt/crash.c), in every build mode.
     priv fn _abort_unless(self, at: SourceRange, g: usize, test: *Expr) -> *Stmt {
-        var d = self.sc->well_known->get(WellKnownType::UnwrapFailed);
-        ICE_IF(d == &null, "ScriptLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is unbound; Lib/builtin/module.k declares it");
-        var f = dyn_cast::<FunctionDecl>(NameLookup::representative(d));
-        ICE_IF(f == &null, "ScriptLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is not a function");
-
         var v    = self._deferred[g];
         var name = self.tu.decl_name(static_cast::<*Decl>(v));
         var full = self.ctx->sm->get_line_col(v->range.start);
         var file = self.ctx->sm->get_filename(v->range.start);
         var text = f"script variable '{name}' used before its line ran ({file}:{full.line})";
-        var bytes = vec::<u8>();
-        LowerSynth::push_string(text, &bytes);
-        LowerSynth::push_string("\n", &bytes);
-
-        var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
-        var pu8  = self.sc->types->pointer(u8t);
-        var lit  = self.synth.bytes_literal(at, &bytes, pu8);
-        var args = self.list_builder::<*Expr>();
-        args.push(self.synth.cast_to(at, lit, pu8, CastMode::Unsafe));   // `"..."` is const char*; the parameter is const unsigned char*.
-        args.push(self.synth.int_literal(at, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
-        var call = self.synth.free_call(at, static_cast::<*Decl>(f), &args, self.sc->builtin(BuiltinKind::Never));
+        var call = self.synth.crash_call(at, text, "ScriptLowering");
 
         var q = UnaryOperatorExpr::create(self.ctx, at, test, self.synth.punct(at, TokenKind::OpQuestion),
                                           UnaryOperatorExpr::Fix::Postfix);
@@ -801,12 +786,7 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
                                            UnaryOperatorExpr::Fix::Prefix);
         no->type_          = self.sc->builtin(BuiltinKind::Bool);
         no->value_category = Expr::ValueCategory::RValue;
-
-        var blk  = CompoundStmt::create(self.ctx, at);
-        var body = self.list_builder::<*Stmt>();
-        body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, call)));
-        body.freeze_into(&(blk->body));
-        return static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, static_cast::<*Expr>(no), blk, &null));
+        return self.synth.crash_if(at, static_cast::<*Expr>(no), call);
     }
 
     /// The storage of global \p g read whole: typed `T?`, an lvalue. One

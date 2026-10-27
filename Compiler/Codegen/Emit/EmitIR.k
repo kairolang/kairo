@@ -100,6 +100,7 @@ import AST::ParamMode::*;
 import Location::SourceRange::*;
 import Codegen::CodegenICE::*;
 import Token::TokenKind::*;
+import Token::TokenText::*;
 import Lexer::Immediate::*;
 
 class EmitIR {
@@ -2005,6 +2006,15 @@ class EmitIR {
     /// indexes the table of the file that owns the body being emitted, which
     /// for a foreign template homed here is not this TU's.
     priv fn _name(self, t: Token) {
+        // A name that came through a macro (a `crash!(why)` argument) is a
+        // TkMacroExpand token: its imm is the expansion record, and read as
+        // an identifier against the owning file's table it is some other
+        // name (`why` printed as `io`). Unwrap the chain to the spelling.
+        if static_cast::<u32>(t.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            var txt = TokenText::resolve(t, self._cg->ctx->tcm).text;
+            self._cg->sink->create_ident(t.range, txt);
+            return;
+        }
         var spelled = self._spell.imm_name(t.imm, self._owning_fid());
         if (spelled == "<?>") { self._ice(t.range, "EmitIR: identifier token with no spelling in its owning file's table"); }
         self._cg->sink->create_ident(t.range, spelled);

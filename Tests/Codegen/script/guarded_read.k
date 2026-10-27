@@ -4,7 +4,7 @@
 // compile-time check follows, so the guard fires at run time: it writes
 // "script variable 'cfg' used before its line ran (<file>:<line>)" to
 // stderr and aborts (SIGABRT, status 134), in every build mode, the
-// `unwrap!` runtime (Lib/rt/unwrap.c). Nothing after the call runs.
+// `unwrap!` runtime (Lib/rt/crash.c). Nothing after the call runs.
 
 import std::io::println
 
@@ -23,7 +23,7 @@ var cfg = load()
 //
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      if( ::{{.*}}cfg.is_null()) {
-// CXX-NEXT:     ::builtin::unwrap_failed({{.*}}"script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:18)\012"{{.*}}, {{[0-9]+}});
+// CXX-NEXT:     ::builtin::unwrap_failed({{.*}}"script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:18)"{{.*}}, {{[0-9]+}});
 //
 // REQUIRES: clang
 // RUN: rm -rf %t.d

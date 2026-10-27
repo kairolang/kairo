@@ -466,33 +466,12 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
 
     /// `if !test? { unwrap_failed("<message>", <len>) }` for \p n.
     priv fn _abort_unless(self, n: *UnwrapExpr, test: *Expr) -> *Stmt {
-        var d = self.sc->well_known->get(WellKnownType::UnwrapFailed);
-        ICE_IF(d == &null, "CoalesceLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is unbound; Lib/builtin/module.k declares it");
-        var f = dyn_cast::<FunctionDecl>(NameLookup::representative(d));
-        ICE_IF(f == &null, "CoalesceLowering: the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is not a function");
-
         // The message, whole: the expression as written and where it is.
         var at   = n->range;
         var full = self.ctx->sm->get_line_col(at.start);
         var text = f"{self.ctx->get_spelling(at)} on null at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
-        var bytes = vec::<u8>();
-        LowerSynth::push_string(text, &bytes);
-        LowerSynth::push_string("\n", &bytes);
-
-        var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
-        var pu8  = self.sc->types->pointer(u8t);
-        var lit  = self.synth.bytes_literal(at, &bytes, pu8);
-        var args = self.list_builder::<*Expr>();
-        args.push(self.synth.cast_to(at, lit, pu8, CastMode::Unsafe));   // `"..."` is const char*; the parameter is const unsigned char*.
-        args.push(self.synth.int_literal(at, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
-
-        var call = self.synth.free_call(at, static_cast::<*Decl>(f), &args, self.sc->builtin(BuiltinKind::Never));
-
-        var blk  = CompoundStmt::create(self.ctx, at);
-        var body = self.list_builder::<*Stmt>();
-        body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, call)));
-        body.freeze_into(&(blk->body));
-        return static_cast::<*Stmt>(ConditionalStmt::create(self.ctx, at, self._absent(at, test), blk, &null));
+        var call = self.synth.crash_call(at, text, "CoalesceLowering");
+        return self.synth.crash_if(at, self._absent(at, test), call);
     }
 
     // --- the shared pieces ------------------------------------------------------

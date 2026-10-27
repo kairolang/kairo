@@ -23,7 +23,7 @@ println(f"main sees {counter.n}")
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      Bumper::bump() noexcept {
-// CXX:      ::builtin::unwrap_failed({{.*}}"script variable 'counter' used before its line ran ({{.*}}record_method_read.k:18)\012"
+// CXX:      ::builtin::unwrap_failed({{.*}}"script variable 'counter' used before its line ran ({{.*}}record_method_read.k:18)"
 // CXX:      ::builtin::Nullable<{{.*}}Counter> counter =
 //
 // REQUIRES: clang
