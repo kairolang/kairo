@@ -263,6 +263,20 @@ class SemaContext {
     /// code after it dead.
     pub var folded_eval_ifs: vec::<SourceRange>;
 
+    /// This TU is the file a program starts from: a command-line input,
+    /// not one reached through an import or a C++ `#include`. Nothing in the
+    /// TU says it, so the DRIVER sets it before the run (SCRIPT.md 1.1); a
+    /// root with top-level statements and no `fn main` is a script
+    /// (ScriptRules::is_script). Every other TU's top-level statement is an
+    /// error, since nothing would run it.
+    pub var script_root: bool = false;
+
+    /// The first top-level statement of the script ScriptLowering turned
+    /// into `main`; invalid when this TU is no script, or lowering never
+    /// ran. One writer, ScriptLowering; one reader, the driver, which
+    /// rejects two scripts linked into one program by these ranges.
+    pub var script_at: SourceRange = SourceRange::invalid();
+
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;

@@ -1,8 +1,3 @@
-// XFAIL: *
-// Waiting on ScriptLowering being scheduled (Compiler/Sema/SCRIPT.md, the
-// plumbing checklist), with the driver telling it which file is the root.
-// When this XPASSes, delete the XFAIL line.
-//
 // Only the program's root file is a script. app.k is the root and may run
 // statements; lib.k is imported, so its top-level statement is an error,
 // reported at the statement in lib.k. app.k itself is fine.

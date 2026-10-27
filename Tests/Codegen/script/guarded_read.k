@@ -1,8 +1,3 @@
-// XFAIL: *
-// Waiting on ScriptLowering being scheduled (Compiler/Sema/SCRIPT.md, the
-// plumbing checklist): until it runs, a top-level statement reaches EmitIR
-// and ICEs there. When this XPASSes, delete the XFAIL line and keep the runs.
-//
 // A function that reads a deferred script variable reads it CHECKED: the
 // call graph cannot prove the variable's line ran first. Here main calls
 // `report` before `cfg`'s line, through `relay`, one call deeper than the
@@ -28,7 +23,7 @@ var cfg = load()
 //
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      if( ::{{.*}}cfg.is_null()) {
-// CXX-NEXT:     ::builtin::unwrap_failed({{.*}}"script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:23)\012"{{.*}}, {{[0-9]+}});
+// CXX-NEXT:     ::builtin::unwrap_failed({{.*}}"script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:18)\012"{{.*}}, {{[0-9]+}});
 //
 // REQUIRES: clang
 // RUN: rm -rf %t.d
@@ -38,5 +33,5 @@ var cfg = load()
 // RUN: %FileCheck %s --check-prefix=ERR --match-full-lines < %t.err
 // OUT:      before
 // OUT-NOT:  not reached
-// ERR:      script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:23)
+// ERR:      script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:18)
 // ERR-NOT:  {{.}}

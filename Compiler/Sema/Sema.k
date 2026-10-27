@@ -72,6 +72,7 @@ import Sema::Lower::WhereDispatchLowering::*;
 import Sema::Lower::FieldInitLowering::*;
 import Sema::Lower::CtorInitLowering::*;
 import Sema::Lower::CopyMoveLowering::*;
+import Sema::Lower::ScriptLowering::*;
 import Sema::Lower::FinallyLowering::*;
 import Sema::Lower::TupleLowering::*;
 import Sema::Lower::CoalesceLowering::*;
@@ -439,8 +440,8 @@ class Sema {
 
         // The head of the stage is VariantInitLowering, then
         // EnumLayoutLowering, then ExprBodyDesugar, FieldInitLowering,
-        // CtorInitLowering and CopyMoveLowering, then FinallyLowering, and
-        // the rest after them.
+        // CtorInitLowering and CopyMoveLowering, then ScriptLowering and
+        // FinallyLowering, and the rest after them.
         //
         // First: a variant construction becomes the node EmitIR renders -- a
         // VariantInitExpr, or for a plain enum's `.V` the enumerator's name --
@@ -486,6 +487,16 @@ class Sema {
         // SequenceLowering leaves the cast in place, a cast of a name being
         // pure.
         { var _p = TimeRegion("CopyMoveLowering"); CopyMoveLowering(&self.sc).run(); }
+        // A script's top-level statements become a synthesized `main`, its
+        // deferred bindings `T?` storage that main assigns at their lines
+        // (SCRIPT.md). After CopyMoveLowering: the `e as T&&` cast it put on
+        // a moved initializer moves into main with the initializer. Before
+        // FinallyLowering, which lowers the `finally` this pass mints to
+        // tear the globals down; before the nullable block, which lowers the
+        // `g?` tests and narrowed reads it builds and gives each `T?` it
+        // mints its record; before every pass that rebuilds bodies, to which
+        // main is then an ordinary function.
+        { var _p = TimeRegion("ScriptLowering"); ScriptLowering(&self.sc, self.sc.script_root).run(); }
         // A `finally` becomes a record in the function body whose destructor
         // is its body, and a local of it. After CopyMoveLowering, whose
         // `T&&` cast wraps a node this pass rewrites in place; before every

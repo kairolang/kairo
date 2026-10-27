@@ -1,8 +1,3 @@
-// XFAIL: *
-// Waiting on ScriptLowering being scheduled (Compiler/Sema/SCRIPT.md, the
-// plumbing checklist): until it runs, a top-level statement reaches EmitIR
-// and ICEs there. When this XPASSes, delete the XFAIL line and keep the runs.
-//
 // A top-level `return` returns from the synthesized main: its value is the
 // exit status, and a bare one is `return 0`, as is the end of the file. A
 // `return` inside a function or a closure is that function's own.

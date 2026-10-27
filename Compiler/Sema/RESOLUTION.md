@@ -1015,7 +1015,7 @@ exactly what it runs today, in order:
     VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar ->
     WhereDispatchLowering ->
     FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) ->
-    FinallyLowering -> TupleLowering ->
+    ScriptLowering -> FinallyLowering -> TupleLowering ->
     CoalesceLowering -> NullTestLowering -> NarrowedAccessLowering ->
     NullableTypeLowering ->
     OperatorLowering -> FStringLowering -> CallLowering -> IterLowering ->
@@ -1104,6 +1104,29 @@ the only decider, so the cast and the use-after-move check agree. It runs
 before every pass that rebuilds an expression, so each recorded node is
 still in the tree; SequenceLowering leaves the cast in place (a cast of a
 name is pure). Choosing a @copy constructor stays with the later slot.
+
+ScriptLowering [DONE] (SCRIPT.md). A script -- the program's root file
+(`SemaContext::script_root`, set by the driver for each command-line
+input, never for an import or a `.k` a C++ input includes) with top-level
+statements and no `fn main` -- gets a synthesized `fn main() -> i32` whose
+body is those statements, in order, ending in `return 0`. Every top-level
+binding stays a global. One whose initializer is not constant
+(ScriptRules::defers, the one answer to which lines are deferred) is
+DEFERRED: its storage becomes `T?` starting null, main assigns
+it at its line, and main's first statement is a `finally` that nulls the
+deferred globals in reverse order. A read in main after the line is marked
+narrowed; one at or before it, or a direct call from main that reads it on
+every path, is SC001E; a read anywhere else is the `unwrap!` place form,
+aborting with "script variable 'g' used before its line ran". A top-level
+`return` returns from main (bare: 0; with a value: an integer exit
+status). Statements in a file that is not the root, or beside `fn main`,
+are SC001E. After CopyMoveLowering, whose `T&&` cast on a moved
+initializer moves into main with it; before FinallyLowering, which lowers
+the teardown, and before the nullable block, which lowers the tests and
+narrowed reads it builds. Its record of the first statement
+(`SemaContext::script_at`) is how the driver rejects two scripts in one
+link. EmitIR's
+ICE on a top-level statement means this pass did not run.
 
 FinallyLowering [DONE]. `finally { body }` becomes a StructDecl declared in
 the function body whose `op delete` is the body, plus a local of it where

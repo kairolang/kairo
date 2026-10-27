@@ -1,8 +1,3 @@
-// XFAIL: *
-// Waiting on ScriptLowering being scheduled (Compiler/Sema/SCRIPT.md, the
-// plumbing checklist): until it runs, a top-level statement reaches EmitIR
-// and ICEs there. When this XPASSes, delete the XFAIL line and keep the runs.
-//
 // A root file with top-level statements and no `fn main` is a script. Its
 // statements run in order inside a synthesized `main`, and a top-level
 // binding whose initializer is not a constant is DEFERRED: it stays a

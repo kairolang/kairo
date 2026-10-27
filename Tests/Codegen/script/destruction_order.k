@@ -1,8 +1,3 @@
-// XFAIL: *
-// Waiting on ScriptLowering being scheduled (Compiler/Sema/SCRIPT.md, the
-// plumbing checklist): until it runs, a top-level statement reaches EmitIR
-// and ICEs there. When this XPASSes, delete the XFAIL line and keep the runs.
-//
 // Deferred script variables are destroyed at main's exit, in reverse order
 // of their lines, after main's last statement and before any C++ static
 // destructor: the synthesized main's first statement is a `finally` that

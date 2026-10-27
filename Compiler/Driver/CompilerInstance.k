@@ -1911,6 +1911,27 @@ class CompilerInstance {
         return dir + "/" + exe;
     }
 
+    /// The second script of a link is an error at its first statement,
+    /// with a note at the first script's (TUResult::script_at). One error
+    /// per extra script; the first one found in input order is the one the
+    /// others are measured against.
+    priv fn _reject_second_script(self, result: ref!(BatchResult)) {
+        var first: isize = -1;
+        for var i: usize = 0; i < result.tu_results.size(); ++i {
+            var r = result.tu_results[i];
+            if !r.script_at.is_valid() { continue; }
+            if first < 0 { first = static_cast::<isize>(i); continue; }
+            var p = result.tu_results[static_cast::<usize>(first)];
+            var a = Path(p.path).filename();
+            var b = Path(r.path).filename();
+            var d = self._diag->report(DiagID::SC001E, r.script_at.start,
+                f"two script files in one program: '{b}' and '{a}' each run top-level statements as 'main\x27");
+            d.first(r.script_at);
+            d.note(DiagID::SC001N, p.script_at.start, f"'{a}' is a script: its first top-level statement is here").first(p.script_at);
+            d.emit();
+        }
+    }
+
     /// Plans, echoes under -v, runs. The object list is exactly what this
     /// run emitted, never a directory glob: a reused --cache-dir can hold
     /// objects from modules that no longer exist.
@@ -2208,6 +2229,12 @@ class CompilerInstance {
             if action->result.had_fatal { result.aborted = true; }
             result.tu_results.push_back(action->result);
         }
+
+        // Each input may be a script (SCRIPT.md 1.1), and each script is a
+        // `main`: two in one link are two programs, which the linker would
+        // reject as a duplicate symbol naming neither file. Only a link joins
+        // them, so `-c` and --type-check-only of several scripts stay legal.
+        if !self._link_out.empty() { self._reject_second_script(result); }
 
         // C/C++ inputs follow the run's action (_compile_sources); the
         // runtime compiles to objects, and only when Kairo objects were
@@ -3721,6 +3748,12 @@ fn FrontendAction::_sema() -> bool {
         var sem = Sema(ctx, self._global_scope);
         sem.sc.foreign  = self._ci->foreign_instantiate();   // before any pass captures &sem.sc.
         sem.sc.builtins = self._ci->builtins();
+        // The file this action was asked to compile is a root, and may be a
+        // script (SCRIPT.md 1.1); a fid reached through its imports, or a
+        // `.k` a C++ input includes (discovered), is a module, whose
+        // top-level statement nothing would run. The same answer for kcc and
+        // every --emit mode: it depends on the command line, not the output.
+        sem.sc.script_root = (fid == self._file_id) && (!self.discovered);
         // Through L, not just the checks: OperatorLowering rewrites every user
         // operator into the call it is, and codegen ICEs on any operator node
         // that reaches it. --type-check-only stops here too, so the lowering
@@ -3746,6 +3779,8 @@ fn FrontendAction::_sema() -> bool {
             { var _tm = TimeRegion("Mono");  sem.run(); }
         }
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
+        // Kept past `sem`: the batch rejects two scripts in one link.
+        if sem.sc.script_at.is_valid() { self.result.script_at = sem.sc.script_at; }
 
         // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
         // live on this fid's SemaContext and die with `sem` at loop exit.

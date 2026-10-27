@@ -166,13 +166,15 @@ class EmitIR {
                     // File-scope `var`/`const`/`static`/`eval` parse as a
                     // DeclStmt (ASTParse::_build_symbols); the decl is the
                     // namespace-scope variable. Nothing else at file scope
-                    // has a C++ form.
+                    // has a C++ form: ScriptLowering moves a script's
+                    // statements into its `main`, and Sema rejects them in
+                    // any other file, so reaching here means it did not run.
                     var s = item.as_stmt();
                     var ds = dyn_cast::<DeclStmt>(s);
-                    if ((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl))) { self._ice(s->range, f"EmitIR: top-level {to_string(s->kind)} is not emittable C++ (only variable declarations are)"); }
+                    if ((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl))) { self._ice(s->range, f"EmitIR: a top-level {to_string(s->kind)} reached codegen; ScriptLowering should have moved it into the script's 'main' (only variable declarations stay at file scope)"); }
                     self.emit(ds->decl);
                 }
-                default { self._ice(item.as_expr()->range, "EmitIR: top-level expressions are not emittable C++"); }
+                default { self._ice(item.as_expr()->range, "EmitIR: a top-level expression reached codegen; ScriptLowering should have moved it into the script's \x27main\x27"); }
             }
         }
 

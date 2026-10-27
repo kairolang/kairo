@@ -60,8 +60,12 @@
 ///     integer. A redeclaration (`var x` and `static x` at file scope) never
 ///     reaches here: NameResolution reports it (R029E) and the pipeline stops.
 ///
-///   Phase: LOWER, between CopyMoveLowering and FinallyLowering (NOT
-///   scheduled yet; SCRIPT.md has the plumbing). After CopyMoveLowering, so
+///     Which file is a script, and which initializers are constant, is
+///     ScriptRules' answer (Sema/Check/ScriptRules.k), shared with the
+///     checks that ask the same of the tree before this pass runs.
+///
+///   Phase: LOWER, between CopyMoveLowering and FinallyLowering. The root
+///   is the driver's (SemaContext::script_root). After CopyMoveLowering, so
 ///   the `e as T&&` it stamped on a moved initializer is carried into main
 ///   with the initializer. Before FinallyLowering, which lowers the
 ///   `finally` this pass mints. Before the nullable block: NullTestLowering
@@ -80,7 +84,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
-import Sema::Check::ConstEval::*;
+import Sema::Check::ScriptRules::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
@@ -281,9 +285,12 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
     pub var sc: *SemaContext;
     priv var synth: LowerSynth;
     priv var tu:    TypeUtil;
-    priv var ce:    ConstEval;
-    /// The program's root file (the driver's answer; nothing in the TU
-    /// says it). Top-level statements anywhere else are an error.
+    /// Which file is a script and which bindings defer: shared with
+    /// JumpLabelCheck and ControlFlowAnalysis, so all three see one set
+    /// of lines.
+    priv var rules: ScriptRules;
+    /// The program's root file (SemaContext::script_root, the driver's
+    /// answer). Top-level statements anywhere else are an error.
     priv var _root: bool = true;
 
     // The deferred globals, three parallel lists in declaration order.
@@ -301,7 +308,7 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         self.ctx   = sc->ctx;
         self.synth = LowerSynth(sc);
         self.tu    = TypeUtil(sc);
-        self.ce    = ConstEval(sc);
+        self.rules = ScriptRules(sc);
         self._root = root;
     }
 
@@ -313,20 +320,9 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
 
         // Is this a script at all? A file of declarations and bindings only
         // (a library, or a program with `fn main`) is left exactly as it is.
-        var first = SourceRange::invalid();
-        var has_stmt = false;
-        var main_fn: *Decl = &null;
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *(items->get(i));
-            if item.kind == TopLevelKind::Decl {
-                if self._is_main(item.as_decl()) { main_fn = item.as_decl(); }
-                continue;
-            }
-            if self._binding_of(item) != &null { continue; }
-            if !has_stmt { first = item.get_range(); }
-            has_stmt = true;
-        }
-        if !has_stmt { return; }
+        var first = self.rules.first_statement();
+        if !first.is_valid() { return; }
+        var main_fn = self.rules.main_of();
 
         if !self._root {
             var b = self.sc->diag->report(DiagID::SC001E, first.start,
@@ -348,26 +344,12 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         if !self._classify(items) { return; }
         self._check_calls(items);
         self._assemble(items);
+        // For the driver: a second script in the same link is an error
+        // naming both, and this is where this one starts.
+        self.sc->script_at = first;
     }
 
     // --- classification -------------------------------------------------------------
-
-    /// The binding a top-level item declares, or null: a `var` / `const`
-    /// statement, or a `static` / `thread` / `eval` declaration.
-    priv fn _binding_of(self, item: TopLevelItem) -> *VariableDecl {
-        if item.kind == TopLevelKind::Decl { return dyn_cast::<VariableDecl>(item.as_decl()); }
-        if item.kind != TopLevelKind::Stmt { return &null; }
-        var ds = dyn_cast::<DeclStmt>(item.as_stmt());
-        if ds == &null { return &null; }
-        return dyn_cast::<VariableDecl>(ds->decl);
-    }
-
-    /// A free function named `main` at file scope (CXXSpell::is_main's test).
-    priv fn _is_main(self, d: *Decl) -> bool {
-        var f = dyn_cast::<FunctionDecl>(d);
-        if (f == &null) || f->is_method() || f->is_operator { return false; }
-        return self.tu.decl_name(d) == "main";
-    }
 
     /// Every deferred binding, with its storage type and its ordinal among
     /// main's statements; the errors that stop the rewrite. False when one
@@ -377,9 +359,9 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         var ord: usize = 0;
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
-            var v = self._binding_of(item);
+            var v = self.rules.binding_of(item);
             if v != &null {
-                if !self._defers(v) { continue; }
+                if !self.rules.defers(v) { continue; }
                 var c = canon_unqual(v->type_->canonical);
                 if self.tu.nullable_inner(c) != &null {
                     var b = self.sc->diag->report(DiagID::SC001E, v->range.start,
@@ -415,44 +397,6 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         return ok;
     }
 
-    /// The binding's initializer runs at its line in main (file header):
-    /// not `eval`, not `thread`, and not a constant.
-    priv fn _defers(self, v: *VariableDecl) -> bool {
-        if v->is_poisoned() || v->is_eval() || v->is_thread { return false; }
-        if (v->init == &null) || v->init->is_poisoned() { return false; }
-        if (v->type_ == &null) || (v->type_->canonical == &null) { return false; }
-        return !self._constant(v->init, v->type_->canonical);
-    }
-
-    /// An initializer with no observable effect and no read of anything a
-    /// statement could change first: the static initializer C++ runs before
-    /// main loses nothing by running early. FieldInitLowering::_fold's
-    /// constants plus the other literals.
-    priv fn _constant(self, e: *Expr, t: *Type) -> bool {
-        var x = self.tu.strip_parens(e);
-        if x == &null { return false; }
-        switch x->kind {
-            case ExprKind::IntegerLiteralExpr   { return true; }
-            case ExprKind::FloatingLiteralExpr  { return true; }
-            case ExprKind::CharacterLiteralExpr { return true; }
-            case ExprKind::BooleanLiteralExpr   { return true; }
-            case ExprKind::NullLiteralExpr      { return true; }
-            case ExprKind::SizeOfExpr           { return true; }
-            case ExprKind::AlignOfExpr          { return true; }
-            case ExprKind::StringLiteralExpr    { return !cast::<StringLiteralExpr>(x)->is_format(); }
-            default { return self._constant_int(x, t); }
-        }
-        return false;
-    }
-
-    /// An integer ConstEval folds and that fits \p t (a `-1`, an `eval`
-    /// name, `1 << 4`).
-    priv fn _constant_int(self, x: *Expr, t: *Type) -> bool {
-        if !self.tu.is_integer(t) { return false; }
-        var c = self.ce.eval_int(x);
-        return c.ok && (!c.overflow) && self.ce.fits(c, t);
-    }
-
     /// The deferred global \p d is, as an index into the three lists; -1
     /// when it is none.
     priv fn _index_of(self, d: *Decl) -> i64 {
@@ -475,7 +419,7 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         var ord: usize = 0;
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
-            var v = self._binding_of(item);
+            var v = self.rules.binding_of(item);
             var scan = ScriptUseScan(self.sc);
             if v != &null {
                 if self._index_of(static_cast::<*Decl>(v)) < 0 { continue; }
@@ -538,7 +482,7 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         var ord: usize = 0;
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
-            var v = self._binding_of(item);
+            var v = self.rules.binding_of(item);
             if v != &null {
                 var gi = self._index_of(static_cast::<*Decl>(v));
                 if gi >= 0 {
