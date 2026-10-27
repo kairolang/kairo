@@ -31,7 +31,8 @@
 ///         also what keeps IO out;
 ///       - no pointer types or operations (`&x`, `*p`, `->`, a pointer
 ///         parameter);
-///       - no heap allocation (a vector, set or map value);
+///       - a string, vector, set or map value is SC116E: eval-able by design
+///         (EVAL.md §2), with no compile-time C++ form yet;
 ///       - no `await`, `spawn`, `thread`, `panic`;
 ///       - no mutable global, static or thread variable, and no non-eval
 ///         global at all (a `const` global is initialized at run time);
@@ -204,9 +205,13 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
             b.first(n->where_clause->range);
             b.emit();
         }
+        if (n->return_type != &null) && (n->return_type->canonical != &null) && (!n->is_generator) {
+            self._no_eval_form(n->return_type->range, n->return_type->canonical);
+        }
         for var i: usize = 0; i < n->params.size(); ++i {
             var p = n->params[i];
             if (p == &null) || p->is_self || (p->type_ == &null) || (p->type_->canonical == &null) { continue; }
+            if self._no_eval_form(p->range, p->type_->canonical) { continue; }
             if !isa::<PointerType>(canon_unqual(p->type_->canonical)) { continue; }
             var pn = self.sc->ctx->get_spelling(p->name);
             var b = self.sc->diag->report(DiagID::SC001E, p->range.start,
@@ -214,6 +219,21 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
             b.first(p->range);
             b.emit();
         }
+    }
+
+    /// \p t is a string or collection, which has no compile-time form yet
+    /// (EVAL.md 2a, 2b): reported at \p at.
+    priv fn _no_eval_form(self, at: SourceRange, t: *Type) -> bool {
+        var what = "";
+        if self.tu.is_string(t)           { what = "a string"; }
+        else if self.tu.is_vector_like(t) { what = "a vector"; }
+        else if self.tu.is_set_like(t)    { what = "a set"; }
+        else if self.tu.is_map_like(t)    { what = "a map"; }
+        if what.size() == 0 { return false; }
+        var b = self.sc->diag->report(DiagID::SC116E, at.start, f"{what} in an eval context is not yet supported");
+        b.first(at);
+        b.emit();
+        return true;
     }
 
     /// A local of an eval fn: no pointer, no type with a destructor, no
@@ -368,12 +388,21 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
 
     fn visit_expr(self, e: *Expr) -> bool {
         if (self._ctx == 0) || (e->type_ == &null) { return true; }
+        // Strings and the collection literals are eval-able by design (EVAL.md
+        // §2) but have no compile-time C++ form yet (2a, 2b): the builtin
+        // string is not a literal type, and vectors, sets and maps do not
+        // even compile at run time. Reported once, at the outermost one.
         var t = e->type_;
-        if self.tu.is_vector_like(t) || self.tu.is_set_like(t) || self.tu.is_map_like(t) {
-            self._err(e->range, f"an eval context cannot allocate; a '{self.tu.str(t)}' needs the heap, which compile time does not have");
-            return false;
-        }
-        return true;
+        var what = "";
+        if self.tu.is_string(t)           { what = "a string"; }
+        else if self.tu.is_vector_like(t) { what = "a vector"; }
+        else if self.tu.is_set_like(t)    { what = "a set"; }
+        else if self.tu.is_map_like(t)    { what = "a map"; }
+        if what.size() == 0 { return true; }
+        var b = self.sc->diag->report(DiagID::SC116E, e->range.start, f"{what} in an eval context is not yet supported");
+        b.first(e->range);
+        b.emit();
+        return false;
     }
 
     fn visit_await_expr(self, n: *AwaitExpr) -> bool {
