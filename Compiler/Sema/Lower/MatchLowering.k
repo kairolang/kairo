@@ -872,6 +872,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var value: *Expr = &null;
         if d.kind == DomainKind::ClosedEnum {
             value = self._enum_value(n.occ, d.en);
+            if value == &null { self._chain(n, out); return; }
         } else if d.kind == DomainKind::Int {
             value = self._occ(n.occ);
         } else {
@@ -904,8 +905,31 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         out->push_back(self._dispatch(value, &cases, other, (d.kind == DomainKind::ClosedEnum) && d.en->is_adt));
     }
 
+    /// An ADT with no tag to switch on (niche-filled; EnumLayoutQuery): an
+    /// `if` per variant, from variant_test, in edge order. When nothing but
+    /// the policy follows the last edge, the last edge is taken untested --
+    /// it is the only variant left -- which is the switch's unreachable
+    /// default spelled as control flow.
+    priv fn _chain(self, n: DNode, out: *vec::<*Stmt>) {
+        var count = n.nedge;
+        var other = n.other;
+        var open_end = (other < 0) || (self._t->nodes[usize(other)].kind == DKind::Fail);
+        var en = self._enum_at(n.occ);
+        for var k: u32 = 0; k < count; ++k {
+            var e = self._t->edges[usize(n.edge0 + k)];
+            if (k + 1 == count) && open_end && (self.sc->opts.adt_unmatched == UnmatchedPolicy::Unreachable) {
+                out->push_back(self._jump(self._target(i32(e.child))));
+                return;
+            }
+            self._if_goto(self.layout.variant_test(self._at, self._occ(n.occ), en, e.index), i32(e.child), out);
+        }
+        if open_end { out->push_back(self._policy(true)); return; }
+        out->push_back(self._jump(self._target(other)));
+    }
+
     /// The switch operand for an enum: the value itself, or for an ADT the
-    /// word its layout dispatches on (EnumLayoutQuery::tag_word).
+    /// word its layout dispatches on (EnumLayoutQuery::tag_word); null for
+    /// an ADT with no tag (_chain).
     priv fn _enum_value(self, occ: u32, en: *EnumDecl) -> *Expr {
         if !en->is_adt { return self._occ(occ); }
         return self.layout.tag_word(self._at, self._occ(occ), en);

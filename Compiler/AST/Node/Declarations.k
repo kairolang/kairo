@@ -212,6 +212,7 @@ enum AdtRole derives u8 {
     Dtor,
     Destroy,         ///< destroys the active payload: `__kairo_destroy()`.
     ConstructFrom,   ///< builds a payload from another value's: `__kairo_construct_from(o)`.
+    Which,           ///< the variant held, as the tag enum: `__kairo_which()`, in either layout.
 
     // The Nullable lang item's C++ surface (NULLABLE.md 1.2); only that
     // enum's record has them. Every implicit `T -> T?` / `null -> T?` is one
@@ -1341,6 +1342,16 @@ class EnumDecl
     /// EnumLayoutLowering; null until it runs, always null on a plain enum.
     pub var adt_layout:    *Decl      = &null;
     pub var adt_tag_field: *FieldDecl = &null;
+    /// Niche layout (spec ENUMLAYOUT §5; EnumLayoutLowering's header). One
+    /// writer, EnumLayoutLowering. `adt_niche_shape`: the declaration could
+    /// be laid out without a tag -- one variant carries a payload, of one
+    /// field, beside at least one without -- so a generic one gets the
+    /// niche-filled partial specialization beside its tagged primary.
+    /// `adt_niche`: a non-generic one IS laid out that way. `adt_which`: the
+    /// AdtRole::Which member, on a generic ADT and a niche-filled one.
+    pub var adt_niche_shape: bool = false;
+    pub var adt_niche:       bool = false;
+    pub var adt_which:       *FunctionDecl = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -1357,6 +1368,9 @@ class EnumDecl
         node->init_redecl();
         node->adt_layout    = &null;
         node->adt_tag_field = &null;
+        node->adt_niche_shape = false;
+        node->adt_niche       = false;
+        node->adt_which       = &null;
         return node;
     }
 
@@ -1370,6 +1384,9 @@ class EnumDecl
         node->init_redecl();
         node->adt_layout    = &null;
         node->adt_tag_field = &null;
+        node->adt_niche_shape = false;
+        node->adt_niche       = false;
+        node->adt_which       = &null;
         return node;
     }
 

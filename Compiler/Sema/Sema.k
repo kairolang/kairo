@@ -590,6 +590,11 @@ class Sema {
         // Last: a literal is pure until it is a constructor call, and
         // SequenceLowering must not hoist every `"hi"` argument into a local.
         { var _p = TimeRegion("StringLowering"); StringLowering(&self.sc).run(); }
+        // Every generic ADT instance gets the layout C++ will pick for it,
+        // predicted, for codegen to pin with static_asserts. After every
+        // lowering: an instance a lowering mints (a `T?`'s record) is in
+        // the registry by now.
+        { var _p = TimeRegion("EnumLayoutSweep"); EnumLayoutQuery(&self.sc).sweep(); }
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
         //             using Base::name; for merged base overloads C++ would
         //             hide reads type->needs_using written by MemberLookup,

@@ -153,6 +153,12 @@ class InstanceEntry {
     pub var ambiguous_a:       *Decl = &null;
     pub var ambiguous_b:       *Decl = &null;
     pub var ambiguity_reported: bool = false;
+    /// A generic ADT's instance: the layout Sema's niche engine predicts C++
+    /// picks (0 unknown, 1 tagged, 2 niche-filled) and its size in bytes (0
+    /// unknown). One writer, EnumLayoutQuery::sweep; InterfaceEmitter pins
+    /// both with static_asserts beside the instantiation.
+    pub var adt_shape:         u8  = 0;
+    pub var adt_size:          u64 = 0;
     fn InstanceEntry(self) { }
 }
 

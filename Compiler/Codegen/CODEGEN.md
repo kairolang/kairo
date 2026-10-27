@@ -362,16 +362,24 @@ constexpr, and clang rejects a redeclaration that differs, in either order.
 An ADT enum is written as the record EnumLayoutLowering built
 (`EnumDecl::adt_layout`), under the enum's name and template head, in the
 record's order: the tag enum (bare enumerators: a tag is a variant's
-position), each payload struct with its own placement `operator new` as its
+position; its word is the enum's `derives` type, else u8 or u16), each
+payload struct with its own placement `operator new` as its
 first member (`new (&m) P(...)` finds it whether or not the TU includes
 `<new>`, so for a payload
 `::new` is never emitted), the tag (public: an ADT's `==` is a compare of
 two values' tags in the user's code), the anonymous union, a generic ADT's
 five `static constexpr bool` flags (type traits over the payload structs),
-then the role functions rendered from `adt_role` / `adt_form`: a
-`template <class F> E(::__kairo_vt<I>, F&& f)` or `E(::__kairo_vt<I>)` per
-variant, the special members, and the private `__kairo_destroy` /
-`__kairo_construct_from`. Their bodies are written in the class, as a
+then the role functions rendered from `adt_role` / `adt_form`: per variant
+`E(::__kairo_vt<I>, F0 f0, ...)` (the field constructor, every field
+trivial), `template <class F> E(::__kairo_vt<I>, F&& f)` (the lambda one),
+or both, constrained, for a generic ADT, and `E(::__kairo_vt<I>)` for a
+dataless one; the special members; the private `__kairo_destroy` /
+`__kairo_construct_from`; and `__kairo_which()` on a generic ADT. Every
+member with a body is `noexcept` unless -funwind, as is the lambda a
+construction site passes, so a construction is a call, not an invoke.
+Every ADT record also answers the niche trait: `__kairo_niche_count` (the
+tag values past its variants), a `(::__kairo_np, i)` constructor storing
+tag `N + i`, and `__kairo_niche_test`. Their bodies are written in the class, as a
 derived assignment's is (invariant 12's exception): they have no Kairo body
 to put out of line, and the text is still a pure function of the decl. A
 generic ADT declares all
@@ -381,6 +389,24 @@ one form its lifecycle facts select, unconstrained. EmitPlan reads an ADT's
 members, nested types, layout edges and by-value parameters off the record
 (`EmitPlan::adt_record`, through `layout_decl`), and sees through the
 anonymous union and the payload structs as through ordinary fields.
+
+Niche layout (EnumLayoutLowering's header). The preamble trait
+`__kairo_niche<T>` (`_niche_helpers`, guarded `__KAIRO_NICHE_HELPERS` in a
+header) answers `count` / `pattern(i)` / `test(v, i)`: 0 by default, one
+null for any `T*`, and an ADT record's own members; a plain enum with
+values `0..N-1` at namespace scope is followed by its explicit
+specialization (`_enum_niche_trait`; AST/EnumNiche.k decides which, for
+both Sema and codegen). A niche-filled non-generic ADT is written by
+`_niche_record`: the payload struct as its one member, each dataless
+variant a `pattern(j)` of the field, defaulted special members, `which()`,
+its own niche answer past the patterns it uses, then `static_assert(sizeof
+== the payload struct's && standard-layout)`. A niche-shaped generic ADT
+gets that record again as a partial specialization constrained on
+`__kairo_niche<F>::count >= D && trivially copyable && trivially
+destructible` beside the tagged primary, so C++ picks the layout per
+instance in every TU and host alike; each explicit instantiation is
+followed by static_asserts of the size and shape Sema predicted
+(`InstanceEntry::adt_shape` / `adt_size`).
 
 The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
 1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
@@ -577,8 +603,8 @@ The no-headroom rules, each with one home:
   "Record" is a class, struct, union or ADT enum (`_record_operand`): a
   plain enum is a RecordType too, but `==`, `<` and `as` on an `enum class`
   are C++'s own; an ADT's `==` arrives that way, as a compare of the two
-  `__kairo_tag` fields (OperatorLowering, from X's `tag_eq`), never as a
-  call to an `operator==`. `===` in `_binary` is an ICE naming
+  values' variants (OperatorLowering through EnumLayoutQuery::same_variant,
+  from X's `tag_eq`), never as a call to an `operator==`. `===` in `_binary` is an ICE naming
   CoalesceLowering; `x as T&&` (a lowering's move, never user-written) is a
   `static_cast`. The checked downcast `p as (*D)?` (CastTyping's
   `checked_downcast`) is `dynamic_cast<D*>(p)` inside a lambda called on the

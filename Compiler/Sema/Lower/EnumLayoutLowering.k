@@ -16,9 +16,11 @@
 ///           union { __kairo_Some_t __kairo_Some; };
 ///           static constexpr bool __kairo_trivial_copy = __is_trivially_copyable(__kairo_Some_t);
 ///           ...                                       // four more flags
-///           template <class F> Opt(::__kairo_vt<0>, F&& f)
+///           Opt(::__kairo_vt<0>, T v) noexcept requires (<T trivial>)   // AdtCtorForm
+///               : __kairo_tag(__kairo_Tag::Some), __kairo_Some{static_cast<T&&>(v)} {}
+///           template <class F> Opt(::__kairo_vt<0>, F&& f) noexcept
 ///               : __kairo_tag(__kairo_Tag::Some), __kairo_Some(static_cast<F&&>(f)()) {}
-///           Opt(::__kairo_vt<1>) : __kairo_tag(__kairo_Tag::None) {}
+///           Opt(::__kairo_vt<1>) noexcept : __kairo_tag(__kairo_Tag::None) {}
 ///           Opt(const Opt&) requires __kairo_trivial_copy = default;
 ///           Opt(const Opt& o) requires (!__kairo_trivial_copy && __kairo_copyable)
 ///               : __kairo_tag(o.__kairo_tag) { __kairo_construct_from(o); }
@@ -57,6 +59,37 @@
 ///     self-assignment. The destructor is defaulted when trivial, a body
 ///     when destructible, deleted otherwise.
 ///
+///   \par The tag
+///     The enum's `derives` type, else u8 (u16 past 256 variants): the tag
+///     sits before the union, so each byte past what it needs is padding a
+///     small payload pays. Its values are the variant positions, dense, in
+///     declaration order: the match switch and its jump table index by them.
+///
+///   \par Niche layout
+///     An ADT with exactly one payload variant, whose payload is one field,
+///     beside at least one dataless variant, is niche-shaped
+///     (EnumDecl::adt_niche_shape). It is laid out with no tag and no union
+///     -- the payload struct is the record's one member -- when the field
+///     has at least as many invalid bit patterns as there are dataless
+///     variants (EnumLayoutQuery::niche_of: a pointer's null, a dense plain
+///     enum's or a tagged ADT's spare tag values, what a niche-filled ADT
+///     leaves) and is trivially copied and destroyed, so every special
+///     member stays the defaulted one. Dataless variant j (in declaration
+///     order) is the field's pattern j. For `Opt<*Foo>` that is
+///     `__kairo_Some.v == nullptr` for None, and `sizeof` is a pointer's.
+///
+///     A non-generic ADT is decided here (EnumDecl::adt_niche). A generic
+///     one cannot be: Sema does not see every instance (a generic body's are
+///     clang's), so InterfaceEmitter writes the niche-filled record as a
+///     partial specialization constrained on the same rule, over the
+///     `__kairo_niche<T>` trait, and C++ picks per instance -- the same pick
+///     in every TU and C++ host. EnumLayoutQuery predicts it to read and
+///     test values directly; where it cannot (a dependent type, facts only
+///     an instance has) it asks `__kairo_which()`, which both forms answer.
+///     sweep() records each instance's predicted shape and size, and the
+///     static_asserts beside its instantiation make a wrong prediction a
+///     compile error.
+///
 ///   \par Roles, not bodies
 ///     None of these members has a Kairo spelling: a forwarding reference,
 ///     a union member initialized from a prvalue, placement new into a union
@@ -90,6 +123,8 @@ import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::LangItems::*;
+import AST::EnumNiche::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::Mixin::Annotation::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
@@ -101,15 +136,34 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::Token::*;
+import Diagnostic::Registry::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
+
+/// How an ADT value is laid out at one type (EnumLayoutQuery::shape_at).
+///   Tagged  a tag field and a payload union: the tag is read directly.
+///   Niche   no tag (EnumLayoutLowering's header, "Niche layout"): a
+///           dataless variant is a value the payload's one field never
+///           holds, so a test compares that field against it.
+///   Opaque  a generic ADT whose instance C++ lays out -- a dependent type,
+///           or one whose facts Sema cannot settle: the value is asked
+///           through `__kairo_which()`, which both layouts answer.
+enum AdtShape derives u8 {
+    Tagged = 0,
+    Niche,
+    Opaque,
+}
+
+/// "No answer": a niche count that depends on what only C++ instantiates.
+fn niche_unknown() -> u64 { return ~u64(0); }
 
 /// The layout's query surface: every pass that reads or tests an ADT value
 /// goes through it, and none spells the layout itself. The layout is not
 /// uniform -- the tag's width, its values and whether there is a tag at
 /// all are this file's decisions -- so a consumer that wrote
 /// `x.__kairo_tag` or `x.__kairo_<V>.f` by hand would be right only for
-/// the shape it was written against.
+/// the shape it was written against. Every answer is for the value's own
+/// type (`x->type_`): a generic ADT's instances need not share a shape.
 ///
 ///   tag_read(x)              the discriminant as stored, typed as the tag
 ///                            enum; null when the layout has no tag
@@ -120,6 +174,8 @@ import Location::SourceRange::*;
 ///   same_variant(a, b)       bool: an ADT's built-in `==` (no `op ==`)
 ///   is_exhaustive_dense(E)   tags are 0..N-1 in declaration order, so a
 ///                            switch or a table over them is complete
+///   niche_of(T)              how many bit patterns T never holds (spec
+///                            ENUMLAYOUT §5.1), the layout engine's input
 ///
 /// Construction is the VariantInitExpr VariantInitLowering builds; how it
 /// is rendered is read off the variant's facts by EmitIR, so no lowering
@@ -198,15 +254,280 @@ class EnumLayoutQuery {
         return u64(index);
     }
 
-    /// `x.__kairo_tag`, typed as the tag enum.
+    // --- shape --------------------------------------------------------------------
+
+    /// The layout of ADT values of type \p t. A non-generic ADT's is its
+    /// declaration's. A generic one's is per instance and C++ picks it
+    /// (InterfaceEmitter's constrained specialization); this predicts the
+    /// pick from the same facts, and says Opaque where it cannot.
+    fn shape_at(self, t: *Type) -> AdtShape {
+        var en = self.adt_of(t);
+        if (en == &null) || (!en->adt_niche_shape) { return AdtShape::Tagged; }
+        if en->generic_params.size() == 0 {
+            return (AdtShape::Niche) if (en->adt_niche) else (AdtShape::Tagged);
+        }
+        var v = self.tu.as_value(t);
+        if (v == &null) || v->is_dependent() || v->is_instantiation_dependent() { return AdtShape::Opaque; }
+        var args = self.tu.record_args(v);
+        var pv   = en->variants[usize(adt_niche_payload_variant(en))];
+        var ft   = self.field_type_at(en, &args, pv->payload[0]->type_);
+        if ft == &null { return AdtShape::Opaque; }
+        var verdict = self.niche_verdict(en, ft);
+        if verdict < 0 { return AdtShape::Opaque; }
+        return (AdtShape::Niche) if (verdict > 0) else (AdtShape::Tagged);
+    }
+
+    /// Whether a niche-shaped \p en whose one payload field has type \p ft
+    /// is laid out niche-filled: 1 yes, 0 no, -1 unknown. The rule (spec
+    /// ENUMLAYOUT §5.2): the field holds a niche of at least as many
+    /// patterns as there are dataless variants, and is trivially copied and
+    /// destroyed, which keeps every special member trivial. InterfaceEmitter
+    /// writes C++'s side of it as the specialization's constraint.
+    fn niche_verdict(self, en: *EnumDecl, ft: *Type) -> i8 {
+        var n = self.niche_of(ft);
+        if n == niche_unknown() { return -1; }
+        if n < adt_niche_dataless(en) { return 0; }
+        return self.trivial(ft);
+    }
+
+    // --- niche_of -------------------------------------------------------------------
+
+    /// How many bit patterns a value of type \p t never holds, as the C++
+    /// trait `__kairo_niche<T>` counts them (InterfaceEmitter), or
+    /// niche_unknown(). v1 rows (spec ENUMLAYOUT §5.1):
+    ///
+    ///   a pointer                              1: null
+    ///   a plain enum with values 0..N-1        the rest of its word
+    ///   a tagged ADT                           the tag values past its N
+    ///   a niche-filled ADT                     its field's, less the
+    ///                                          patterns its dataless use
+    ///   anything else                          none
+    ///
+    /// `bool` is not a row: a C++ `bool` cannot hold 2, so it needs a
+    /// storage override first. A record's first niche-bearing field (the
+    /// spec's struct row) is answered by niche_of_record, which no layout
+    /// reads yet: C++ can only build a record holding a pattern by
+    /// aggregate initialization, which most Kairo records do not allow.
+    fn niche_of(self, t: *Type) -> u64 {
+        if (t == &null) || (t->canonical == &null) { return niche_unknown(); }
+        var c = canon_unqual(t->canonical);
+        if c == &null { return niche_unknown(); }
+        if isa::<NullableType>(c) {
+            // Read through the lang item, not the lowered record: an ADT
+            // laid out before NullableTypeLowering asks this of a `T?` field.
+            var nd = self.sc->nullable_enum();
+            if !self.has_layout(nd) { return niche_unknown(); }
+            var inner = cast::<NullableType>(c)->inner;
+            var v = self.niche_verdict(nd, inner);
+            if v < 0 { return niche_unknown(); }
+            if v == 0 { return adt_tag_niche_count(nd); }
+            var n = self.niche_of(inner);
+            var used = adt_niche_dataless(nd);
+            return (n - used) if (n > used) else (0);
+        }
+        if isa::<PointerType>(c) { return 1; }
+        if isa::<FunctionPointerType>(c) {
+            return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped) else (0);
+        }
+        if isa::<RecordType>(c) {
+            if c->is_dependent() || c->is_instantiation_dependent() { return niche_unknown(); }
+            var d  = self.tu.pattern_of(cast::<RecordType>(c)->decl);
+            var en = dyn_cast::<EnumDecl>(d);
+            if en == &null { return 0; }
+            if !en->is_adt { return enum_niche_count(en); }
+            if !self.has_layout(en) { return niche_unknown(); }
+            switch self.shape_at(c) {
+                case AdtShape::Tagged { return adt_tag_niche_count(en); }
+                case AdtShape::Niche {
+                    var inner = self._niche_field_type(c, en);
+                    var n = self.niche_of(inner);
+                    if n == niche_unknown() { return n; }
+                    var used = adt_niche_dataless(en);
+                    return (n - used) if (n > used) else (0);
+                }
+                default { 0; }
+            }
+            return niche_unknown();
+        }
+        if c->is_dependent() || c->is_instantiation_dependent() { return niche_unknown(); }
+        return 0;
+    }
+
+    /// The spec's struct row, answered but read by no layout (niche_of): a
+    /// record's first field with a niche, at that field.
+    fn niche_of_record(self, t: *Type) -> u64 {
+        var n = self.niche_of(t);
+        if n != 0 { return n; }
+        var d = self.tu.record_decl(self.tu.as_value(t));
+        var sd = dyn_cast::<StructDecl>(d);
+        if sd == &null { return 0; }
+        for var i: usize = 0; i < sd->fields.size(); ++i {
+            var f = sd->fields[i];
+            if (f == &null) || (f->storage == StorageClass::Eval) { continue; }
+            var k = self.niche_of_record(f->type_);
+            if k != 0 { return k; }
+        }
+        return 0;
+    }
+
+    /// A niche-filled ADT type \p c's one payload field type.
+    priv fn _niche_field_type(self, c: *Type, en: *EnumDecl) -> *Type {
+        var pv = en->variants[usize(adt_niche_payload_variant(en))];
+        if en->generic_params.size() == 0 { return pv->payload[0]->type_; }
+        var args = self.tu.record_args(c);
+        return self.field_type_at(en, &args, pv->payload[0]->type_);
+    }
+
+    /// \p t is trivially copied and destroyed: 1, 0, or -1 unknown. Read off
+    /// the structure for what C++ decides by the structure (an ADT is
+    /// trivial exactly when its payloads are: its special members are
+    /// defaulted then), off ClassLifecycle for a record.
+    fn trivial(self, t: *Type) -> i8 {
+        if (t == &null) || (t->canonical == &null) { return -1; }
+        var c = canon_unqual(t->canonical);
+        if c == &null { return -1; }
+        if isa::<NullableType>(c) { return self.trivial(cast::<NullableType>(c)->inner); }
+        if isa::<BuiltinType>(c) || isa::<PointerType>(c) { return 1; }
+        if isa::<FunctionPointerType>(c) { return (1) if (cast::<FunctionPointerType>(c)->is_unprototyped) else (0); }
+        if isa::<FixedArrayType>(c) { return self.trivial(cast::<FixedArrayType>(c)->element); }
+        if c->is_dependent() || c->is_instantiation_dependent() { return -1; }
+        if isa::<RecordType>(c) {
+            var d  = self.tu.pattern_of(cast::<RecordType>(c)->decl);
+            var en = dyn_cast::<EnumDecl>(d);
+            if (en != &null) && (!en->is_adt) { return 1; }
+            if (en != &null) && (en->generic_params.size() > 0) {
+                var args = self.tu.record_args(c);
+                for var i: usize = 0; i < en->variants.size(); ++i {
+                    var v = en->variants[i];
+                    for var j: usize = 0; j < v->payload.size(); ++j {
+                        var ft = self.field_type_at(en, &args, v->payload[j]->type_);
+                        if ft == &null { return -1; }
+                        var k = self.trivial(ft);
+                        if k != 1 { return k; }
+                    }
+                }
+                return 1;
+            }
+        }
+        var f = lifecycle_of(self.sc)->facts_of_type(c);
+        if (f.trivially_copyable == LifecycleTri::Unknown) || (f.trivial_dtor == LifecycleTri::Unknown) { return -1; }
+        return (1) if ((f.trivially_copyable == LifecycleTri::Yes) && (f.trivial_dtor == LifecycleTri::Yes)) else (0);
+    }
+
+    /// The size and alignment in bytes of a value of type \p t, for the
+    /// types whose layout is plain arithmetic: builtins, pointers, plain
+    /// enums, and ADTs made of them. False for anything else; nothing then
+    /// pins a size.
+    fn size_of(self, t: *Type, size: *u64, align: *u64) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        if c == &null { return false; }
+        if isa::<NullableType>(c) {
+            var lw = cast::<NullableType>(c)->lowered;
+            if lw == &null { return false; }
+            return self.size_of(lw, size, align);
+        }
+        if isa::<BuiltinType>(c) || isa::<PointerType>(c) {
+            if isa::<BuiltinType>(c) && (cast::<BuiltinType>(c)->lang_decl != &null) { return false; }
+            if (c->size_bits == 0) || (c->align_bits == 0) || ((c->size_bits % 8) != 0) { return false; }
+            (*size)  = u64(c->size_bits / 8);
+            (*align) = u64(c->align_bits / 8);
+            return true;
+        }
+        if (!isa::<RecordType>(c)) || c->is_dependent() || c->is_instantiation_dependent() { return false; }
+        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
+        if en == &null { return false; }
+        if !en->is_adt {
+            if decl_is_imported(static_cast::<*Decl>(en)) { return false; }
+            return self.size_of(self.sc->builtin(enum_niche_kind(en)), size, align);
+        }
+        if !self.has_layout(en) { return false; }
+        var shape = self.shape_at(c);
+        if shape == AdtShape::Opaque { return false; }
+        var args = self.tu.record_args(c);
+        // The payload union: each variant's struct laid out field by field.
+        var usz: u64 = 0;
+        var ual: u64 = 1;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if v->payload.size() == 0 { continue; }
+            var off: u64 = 0;
+            var sal: u64 = 1;
+            for var j: usize = 0; j < v->payload.size(); ++j {
+                var ft = v->payload[j]->type_;
+                if en->generic_params.size() > 0 { ft = self.field_type_at(en, &args, ft); }
+                var fs: u64 = 0;
+                var fa: u64 = 0;
+                if (ft == &null) || (!self.size_of(ft, &fs, &fa)) { return false; }
+                off = self._round(off, fa) + fs;
+                if fa > sal { sal = fa; }
+            }
+            var ssz = self._round(off, sal);
+            if ssz > usz { usz = ssz; }
+            if sal > ual { ual = sal; }
+        }
+        if shape == AdtShape::Niche {
+            (*size)  = usz;
+            (*align) = ual;
+            return true;
+        }
+        var ts: u64 = 0;
+        var ta: u64 = 0;
+        if !self.size_of(self.sc->builtin(adt_tag_kind(en)), &ts, &ta) { return false; }
+        var al = (ta) if (ta > ual) else (ual);
+        (*size)  = self._round(self._round(ts, ual) + usz, al);
+        (*align) = al;
+        return true;
+    }
+
+    priv fn _round(self, n: u64, a: u64) -> u64 {
+        if a <= 1 { return n; }
+        return ((n + a - 1) / a) * a;
+    }
+
+    /// Every generic ADT instance the registry holds gets the shape and size
+    /// predicted for it (InstanceEntry::adt_shape / adt_size), which
+    /// InterfaceEmitter pins with static_asserts. Run once, after the last
+    /// lowering: an instance minted late (a `T?` NullableTypeLowering gives
+    /// its record) is in the registry by then.
+    fn sweep(self) {
+        if self.sc->instances == &null { return; }
+        var all = vec::<*InstanceEntry>();
+        self.sc->instances->collect(all);
+        for var i: usize = 0; i < all.size(); ++i {
+            var e  = all[i];
+            var en = dyn_cast::<EnumDecl>(e->primary);
+            if (en == &null) || (!self.has_layout(en)) || (e->decl == &null) { continue; }
+            var t = self.sc->types->record(e->decl, &(e->args));   // an instance's type names its shell and its arguments.
+            if (t == &null) || t->is_dependent() || t->is_instantiation_dependent() { continue; }
+            var shape = self.shape_at(t);
+            if shape == AdtShape::Opaque { continue; }
+            e->adt_shape = (2) if (shape == AdtShape::Niche) else (1);
+            var sz: u64 = 0;
+            var al: u64 = 0;
+            if self.size_of(t, &sz, &al) { e->adt_size = sz; }
+        }
+    }
+
+    // --- reads and tests ---------------------------------------------------------------
+
+    /// The tag as stored, typed as the tag enum: `x.__kairo_tag`, or
+    /// `x.__kairo_which()` where C++ picks the layout. Null when the layout
+    /// has no tag.
     fn tag_read(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
         var tag = en->adt_tag_field;
         ICE_IF(tag == &null, "EnumLayoutQuery: tag_read on an ADT with no layout; EnumLayoutLowering runs first");
+        switch self.shape_at(x->type_) {
+            case AdtShape::Niche  { return &null; }
+            case AdtShape::Opaque { return self._which(at, x, en); }
+            default { 0; }
+        }
         return self.synth.field_of(at, x, static_cast::<*Decl>(tag), tag->type_);
     }
 
     /// The tag as a `u32`, which is what a switch dispatches on and a case
-    /// label is written in (tag_case).
+    /// label is written in (tag_case). Null when the layout has no tag: a
+    /// match then tests each variant in turn (variant_test).
     fn tag_word(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
         var t = self.tag_read(at, x, en);
         if t == &null { return &null; }
@@ -218,8 +539,27 @@ class EnumLayoutQuery {
         return self.synth.int_literal(at, self.tag_value(en, index), BuiltinKind::U32);
     }
 
+    /// `x` holds variant \p index. Niche-filled: a dataless variant is its
+    /// pattern in the field (`x.__kairo_Value.v == nullptr`), the payload
+    /// variant every pattern's absence.
     fn variant_test(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
-        return self._bin(at, self.tag_word(at, x, en), self.tag_case(at, en, index), TokenKind::OpEqualEqual);
+        var w = self.tag_word(at, x, en);
+        if w != &null { return self._bin(at, w, self.tag_case(at, en, index), TokenKind::OpEqualEqual); }
+        var p  = adt_niche_payload_variant(en);
+        var pv = en->variants[usize(p)];
+        var f  = pv->payload[0];
+        var ft = self._niche_field_type(self.tu.as_value(x->type_), en);
+        ICE_IF(ft == &null, "EnumLayoutQuery: a niche-filled ADT whose field type has no answer; shape_at said Niche");
+        if index != p {
+            return self._pattern_test(at, self.field_ref(at, x, en, p, f, ft), ft, adt_niche_pattern_of(en, index), false);
+        }
+        var c: *Expr = &null;
+        var d = adt_niche_dataless(en);
+        for var k: u64 = 0; k < d; ++k {
+            var one = self._pattern_test(at, self.field_ref(at, x, en, p, f, ft), ft, k, true);
+            c = (one) if (c == &null) else (self._bin(at, c, one, TokenKind::OpAmpAmp));
+        }
+        return c;
     }
 
     /// `x.__kairo_<V>`. A variant with no payload has nothing to read.
@@ -236,10 +576,57 @@ class EnumLayoutQuery {
     }
 
     /// An ADT's built-in `==` / `!=`: the variants compared, under the
-    /// written token. Each operand appears once, so each runs once.
+    /// written token. Each operand appears once, so each runs once. Without
+    /// a tag, each side's variant is asked of it (`__kairo_which()`).
     fn same_variant(self, at: SourceRange, a: *Expr, b: *Expr, en: *EnumDecl, tok: Token) -> *Expr {
-        var cmp = BinaryOperatorExpr::create(self.sc->ctx, at, self.tag_read(a->range, a, en), self.tag_read(b->range, b, en), tok);
+        var l = self.tag_read(a->range, a, en);
+        var r = self.tag_read(b->range, b, en);
+        if l == &null { l = self._which(a->range, a, en); }
+        if r == &null { r = self._which(b->range, b, en); }
+        var cmp = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, tok);
         return static_cast::<*Expr>(cmp);
+    }
+
+    /// `x.__kairo_which()`, typed as the tag enum.
+    priv fn _which(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
+        ICE_IF(en->adt_which == &null, "EnumLayoutQuery: no __kairo_which() on an ADT whose layout needs it; EnumLayoutLowering mints it");
+        var args = ListBuilder::<*Expr>(self.sc->ctx);
+        return self.synth.member_call(at, x, static_cast::<*Decl>(en->adt_which), &args, en->adt_tag_field->type_);
+    }
+
+    /// The lvalue \p e of type \p ft holds its niche pattern \p i (or, \p
+    /// neg, does not). Each row is the C++ trait's `test` for the same type
+    /// (InterfaceEmitter), written out so a reader of the C++ sees the
+    /// compare: null for a pointer, `N + i` for a plain enum or a tagged
+    /// ADT's tag, and a niche-filled ADT's own field at its pattern past
+    /// the ones its dataless variants use.
+    priv fn _pattern_test(self, at: SourceRange, e: *Expr, ft: *Type, i: u64, neg: bool) -> *Expr {
+        var cmp_op = (TokenKind::OpExclaimEqual) if (neg) else (TokenKind::OpEqualEqual);
+        var c  = canon_unqual(ft->canonical);
+        if isa::<NullableType>(c) { return self._pattern_test(at, e, cast::<NullableType>(c)->lowered, i, neg); }
+        if isa::<PointerType>(c) || isa::<FunctionPointerType>(c) {
+            var nul = NullLiteralExpr::create(self.sc->ctx, at, true);
+            nul->type_          = ft;
+            nul->value_category = Expr::ValueCategory::RValue;
+            return self._bin(at, e, static_cast::<*Expr>(nul), cmp_op);
+        }
+        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
+        ICE_IF(en == &null, "EnumLayoutQuery: a niche pattern in a type niche_of gives none");
+        var n = u64(en->variants.size());
+        if !en->is_adt {
+            var lit = self.synth.int_literal(at, n + i, enum_niche_kind(en));
+            return self._bin(at, e, self.synth.cast_to(at, lit, ft, CastMode::Default), cmp_op);
+        }
+        if self.shape_at(c) == AdtShape::Tagged {
+            var tag = en->adt_tag_field;
+            var tw  = self.synth.cast_to(at, self.synth.field_of(at, e, static_cast::<*Decl>(tag), tag->type_),
+                                         self.sc->builtin(BuiltinKind::U32), CastMode::Default);
+            return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op);
+        }
+        var p  = adt_niche_payload_variant(en);
+        var f  = en->variants[usize(p)]->payload[0];
+        var it = self._niche_field_type(c, en);
+        return self._pattern_test(at, self.field_ref(at, e, en, p, f, it), it, adt_niche_dataless(en) + i, neg);
     }
 
     priv fn _bin(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
@@ -299,6 +686,39 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         }
         n->field_ctor = true;
         return out;
+    }
+
+    /// `__builtin_niche_of<T>()` -> the count, a `u64` literal (the lang
+    /// item's own body is never what answers). The layouts T holds are
+    /// built first, so the answer is the one a layout reading it would get.
+    fn transform_call_expr(self, n: *CallExpr) -> *Expr {
+        var out = ASTWriter::<EnumLayoutLowering>::transform_call_expr(n);
+        var nd  = self.sc->well_known->get(WellKnownType::NicheOf);
+        if (nd == &null) || (out != static_cast::<*Expr>(n)) { return out; }
+        var callee = dyn_cast::<NamedIdentExpr>(n->callee);
+        if (callee == &null) || (callee->resolved_decl == &null) { return out; }
+        if NameLookup::representative(callee->resolved_decl) != NameLookup::representative(nd) { return out; }
+        // A dependent call (a generic body's) has no instance entry: its T is
+        // the instance's, which is the case reported below.
+        var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
+        ICE_IF((ie != &null) && (ie->args.size() != 1), "EnumLayoutLowering: __builtin_niche_of instance without its one argument");
+        var cnt = niche_unknown();
+        if ie != &null {
+            self._prebuild(ie->args[0]);
+            cnt = EnumLayoutQuery(self.sc).niche_of_record(ie->args[0]);
+        }
+        if cnt == niche_unknown() {
+            // A generic body's T: the count is the instance's, and nothing
+            // here can name it (the call is answered before C++ instantiates).
+            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
+                "'__builtin_niche_of' needs a type whose layout is known here; this one depends on a generic parameter");
+            b.first(n->range, "answered at compile time, before any instantiation");
+            b.emit();
+            cnt = 0;
+        }
+        var lit = self.synth.int_literal(n->range, cnt, BuiltinKind::U64);
+        lit->adopt_sema(static_cast::<*Expr>(n));
+        return lit;
     }
 
     /// An ADT's pattern, once. An instance shares its pattern's record; a
@@ -417,6 +837,23 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         self._member(ldc, &methods, self._role(en, self.synth.ident(at, LowerTargets::adt_construct_from()),
                                                AdtRole::ConstructFrom, AdtForm::Body, 0, VisibilityKind::Private));
         if self._is_nullable(en) { self._nullable_surface(ldc, &methods, en); }
+
+        // Niche layout (file header). The facts are set before which() is
+        // minted: a generic ADT may be laid out either way per instance, a
+        // niche-filled one has no tag to read, and both answer which().
+        en->adt_tag_field   = tf;
+        en->adt_niche_shape = self._niche_shaped(en);
+        if en->adt_niche_shape && (!generic) {
+            var pv = en->variants[usize(adt_niche_payload_variant(en))];
+            self._prebuild(pv->payload[0]->type_);
+            en->adt_layout = static_cast::<*Decl>(lay);   // published for the verdict's own reads.
+            en->adt_niche  = EnumLayoutQuery(self.sc).niche_verdict(en, pv->payload[0]->type_) == 1;
+        }
+        if generic || en->adt_niche {
+            var w = self._role(en, self.synth.ident(at, LowerTargets::adt_which()), AdtRole::Which, AdtForm::Body, 0, VisibilityKind::Public);
+            self._member(ldc, &methods, w);
+            en->adt_which = w;
+        }
         methods.freeze_into(&(lay->methods));
 
         en->adt_layout    = static_cast::<*Decl>(lay);
@@ -445,6 +882,53 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         }
         vs.freeze_into(&(tag->variants));
         return tag;
+    }
+
+    /// \p en could be laid out without a tag (spec ENUMLAYOUT §5.2): exactly
+    /// one variant carries a payload, that payload is one field (v1: a
+    /// record's first-field niche, which would lift this, is answered but
+    /// not laid out -- EnumLayoutQuery::niche_of), at least one variant has
+    /// none, and no generic parameter is a pack. Whether it IS is the
+    /// field's niche and triviality, per instance for a generic enum.
+    priv fn _niche_shaped(self, en: *EnumDecl) -> bool {
+        var payloads: usize = 0;
+        var dataless: usize = 0;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if v->payload.size() == 0 { dataless += 1; continue; }
+            payloads += 1;
+            if v->payload.size() != 1 { return false; }
+        }
+        if (payloads != 1) || (dataless == 0) { return false; }
+        // The specialization's head carries the niche constraint; a declared
+        // one beside it would be a second requires-clause.
+        if decl_requires_clause(static_cast::<*Decl>(en)) != &null { return false; }
+        for var i: usize = 0; i < en->generic_params.size(); ++i {
+            var gp = en->generic_params[i];
+            if (gp == &null) || gp->is_pack { return false; }
+        }
+        return true;
+    }
+
+    /// Build the layout of every ADT \p t holds by value first, so a
+    /// non-generic enum's verdict reads its field's real shape whatever
+    /// order the walk meets the declarations in. By-value ADT cycles are
+    /// TypeCycleCheck's to reject, so this terminates.
+    priv fn _prebuild(self, t: *Type) {
+        if (t == &null) || (t->canonical == &null) { return; }
+        var c = canon_unqual(t->canonical);
+        if c == &null { return; }
+        if isa::<NullableType>(c) {
+            var nd = self.sc->nullable_enum();
+            if (nd != &null) && self._wants_layout(nd) { self._build(nd); }
+            self._prebuild(cast::<NullableType>(c)->inner);
+            return;
+        }
+        if !isa::<RecordType>(c) { return; }
+        var r  = cast::<RecordType>(c);
+        var en = dyn_cast::<EnumDecl>(NameLookup::representative(self.tu.pattern_of(r->decl)));
+        if (en != &null) && en->is_adt && self._wants_layout(en) { self._build(en); }
+        for var i: usize = 0; i < r->args.size(); ++i { self._prebuild(*(r->args.get(i))); }
     }
 
     /// The `derives` type when the enum declares one (TypeResolve checked

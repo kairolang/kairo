@@ -36,10 +36,12 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // Each record's special members are consecutive, one of each, and nothing
-// in this file's records is constrained. Point comes first: Note waits for
+// in this file's records is constrained (the niche trait's helpers, ahead
+// of them, are). Point comes first: Note waits for
 // the string record it holds.
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}nongeneric.k
+// CXX:       struct __kairo_niche<T> {
 // CXX-NOT:   requires
 // CXX:       struct Point {
 // CXX:       Point(::__kairo_vt<1>) noexcept : __kairo_tag(__kairo_Tag::Origin) {

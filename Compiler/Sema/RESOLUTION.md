@@ -1091,7 +1091,11 @@ MatchLowering [PARTIAL]: every match becomes labels, gotos and switches
 over a once-evaluated scrutinee, rendering PatternCompilation's tree (a
 match left on the value of a `T?` by CoalesceLowering is an ordinary one
 by then). A match that tests a dependent column in a generic body gets no
-tree and reaches EmitIR (ticketed).
+tree and reaches EmitIR (ticketed). An exhaustive switch over an ADT's tag
+defaults to `__builtin_unreachable()` (CodeGenOptions::adt_tag_policy; a
+trap under `--hardening=enum-tags`), a plain enum's and an integer's to
+UnmatchedPolicy; an ADT with no tag (niche-filled) is an `if` chain of
+EnumLayoutQuery::variant_test, the last variant untested.
 LabelLowering [DONE]: `break L` / `continue L` become gotos.
 
 EnumLayoutLowering [DONE]. Every ADT pattern gets one StructDecl,
@@ -1108,6 +1112,26 @@ the EnumDecl. Nothing is retargeted: RecordTypes keep naming the enum, and
 codegen reaches the record only through `adt_layout`. A non-generic ADT
 whose facts are Unknown (a payload that is a generic instance) is rejected
 first by FeatureGateCheck (SC116E), so the pass's ICE on one is an invariant.
+
+The tag is the enum's `derives` type, else the narrowest of u8 / u16 that
+holds the variants (a too-narrow `derives` is R001E in TypeResolve); tags
+stay dense `0..N-1`. A variant whose fields are all trivially copied and
+destroyed is built through one field constructor (`EnumVariantDecl::
+adt_ctor`: Fields; a generic ADT has Both, the site choosing by
+`VariantInitExpr::field_ctor`), every other through the lambda one. An ADT
+with one payload variant of one field beside dataless ones is niche-shaped
+(`adt_niche_shape`): laid out with no tag when the field's niche
+(`EnumLayoutQuery::niche_of`) covers the dataless variants and the field is
+trivial -- decided here for a non-generic one (`adt_niche`), by C++ per
+instance for a generic one (a constrained partial specialization), which
+Sema predicts and `EnumLayoutQuery::sweep` records on each InstanceEntry
+for codegen's static_asserts. Every reader and test of an ADT value goes
+through `EnumLayoutQuery` (tag_read, variant_test, payload_ref, field_ref,
+same_variant): MatchLowering and OperatorLowering never spell the layout.
+A generic ADT, and a niche-filled one, also get `__kairo_which()`
+(AdtRole::Which), which the query uses where it cannot predict the
+instance's layout. `__builtin_niche_of<T>()` (the NicheOf lang item) is
+answered here, as a literal.
 
 CopyMoveLowering [PARTIAL]. The moves only, and early: every site
 MoveCheck recorded in `SemaContext::move_sites` -- a MOVE value passed by

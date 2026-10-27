@@ -75,6 +75,7 @@ enum WellKnownType derives u8 {
     RangeTo,    ///< `..b` / `..=b` as a subscript index: RangeTo<T>{ end, inclusive }.
 
     UnwrapFailed, ///< `unwrap!(x)` on null: `fn unwrap_failed(msg, len) -> !` (CoalesceLowering).
+    NicheOf,    ///< `__builtin_niche_of<T>()`: EnumLayoutLowering answers each call with niche_of(T).
 
     COUNT,      ///< keep last.
 }
@@ -109,6 +110,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::RangeFrom  { return "RangeFrom";  }
         case WellKnownType::RangeTo    { return "RangeTo";    }
         case WellKnownType::UnwrapFailed { return "unwrap_failed"; }
+        case WellKnownType::NicheOf    { return "__builtin_niche_of"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -617,6 +619,23 @@ class LowerTargets {
     /// mints the ParamDecl). Unprefixed like the members above: a C++ host
     /// sees it in the declaration.
     static fn nullable_null_param() -> string        { return "n"; }
+    /// The niche machinery (EnumLayoutLowering decides, InterfaceEmitter
+    /// writes). `__kairo_niche<T>` is the preamble trait answering a type's
+    /// niche in C++: `count` invalid bit patterns, the i-th built by
+    /// `pattern(i)` and recognized by `test(v, i)`. An ADT record carries
+    /// its own answer as `__kairo_niche_count`, a `(__kairo_np, i)`
+    /// constructor and `__kairo_niche_test`; the trait reads those.
+    /// `__kairo_which()` is the variant held, in whichever layout C++ chose
+    /// for a generic ADT's instance.
+    static fn niche_trait() -> string                { return "__kairo_niche"; }
+    static fn niche_trait_count() -> string          { return "count"; }
+    static fn niche_trait_pattern() -> string        { return "pattern"; }
+    static fn niche_trait_test() -> string           { return "test"; }
+    static fn niche_ctor_tag() -> string             { return "__kairo_np"; }
+    static fn niche_count() -> string                { return "__kairo_niche_count"; }
+    static fn niche_test() -> string                 { return "__kairo_niche_test"; }
+    static fn adt_which() -> string                  { return "__kairo_which"; }
+    static fn niche_guard() -> string                { return "__KAIRO_NICHE_HELPERS"; }
     static fn construct_at() -> string               { return "__kairo_construct_at"; }
     static fn destroy_at() -> string                 { return "__kairo_destroy_at"; }
 

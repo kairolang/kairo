@@ -88,6 +88,7 @@ import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::LangItems::*;
+import AST::EnumNiche::*;
 import AST::OperatorFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
@@ -119,6 +120,7 @@ class InterfaceEmitter {
     pub var have_ctor_slots: bool = false;
     pub var have_fn_value:   bool = false;
     pub var have_eval_helpers: bool = false;
+    pub var have_niche_helpers: bool = false;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -240,6 +242,16 @@ class InterfaceEmitter {
             self.have_eval_helpers = true;
         }
 
+        // The niche trait (_niche_helpers), wherever an enum is defined: a
+        // plain enum's specialization of it follows the enum, and an ADT's
+        // record answers it.
+        if (!self.have_niche_helpers) && self._needs_niche_helpers() {
+            self._cg->sink->unanchored(true);
+            self._niche_helpers(header);
+            self._cg->sink->unanchored(false);
+            self.have_niche_helpers = true;
+        }
+
         var i: usize = 0;
         var n = self._plan->entries.size();
 
@@ -315,6 +327,10 @@ class InterfaceEmitter {
                 self._static_defs(e->decl);
             });
             if guard { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            // A plain enum's niche: the trait's explicit specialization, at
+            // global scope, right after the definition every use of it needs.
+            var pe = dyn_cast::<EnumDecl>(e->decl);
+            if (pe != &null) && enum_has_niche_trait(pe) { self._enum_niche_trait(pe); }
         }
 
         // tier 2
@@ -1002,6 +1018,10 @@ class InterfaceEmitter {
         var at      = self._at(d);
         var nm      = self._spell->leaf(d);
         var generic = CXXSpell::template_params(d).size() > 0;
+        if en->adt_niche {
+            self._niche_record(en, lay, "struct " + nm + " {", false);
+            return;
+        }
         self._cg->sink->spell(at, self._spell->template_head(d) + "struct " + nm + " {");
 
         // A struct: public unless marked. Only the two helpers the special
@@ -1041,10 +1061,245 @@ class InterfaceEmitter {
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
         }
 
+        // The niche the tag leaves (EnumNiche: the tag values past the
+        // variants), for `__kairo_niche<E>`: a niche-filled ADT holding
+        // this one stores its dataless variants as those tags.
+        cur_access = self._access(cur_access, VIS_PUB(), false, at);
+        var tt = LowerTargets::adt_tag_type();
+        var nv = f"{en->variants.size()}";
+        var w  = builtin_info(BuiltinKind::U64)->cxx;
+        self._cg->sink->spell(at, "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + f"{adt_tag_niche_count(en)}" + ";");
+        self._cg->sink->spell(at, nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + LowerTargets::adt_tag_field()
+                                  + "(static_cast<" + tt + ">(" + nv + " + i)) {}");
+        self._cg->sink->spell(at, "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return static_cast<"
+                                  + w + ">(v." + LowerTargets::adt_tag_field() + ") == " + nv + " + i; }");
+
         self._friends(d);
 
         self._cg->sink->spell(at, "};");
         self._cg->sink->brk();
+
+        // The niche-filled form of a generic ADT, as a partial specialization
+        // constrained on exactly what EnumLayoutQuery::niche_verdict asks:
+        // C++ picks it per instance, in every TU and every C++ host alike,
+        // so no instance Sema never saw (a generic body's) can disagree.
+        if generic && en->adt_niche_shape {
+            var gps  = CXXSpell::template_params(d);
+            var args = "";
+            for var i: usize = 0; i < gps.size(); ++i {
+                if i > 0 { args += ", "; }
+                args += self._spell->imm_name(gps[i]->name.imm, CXXSpell::fid_of(d));
+            }
+            var ft   = self._niche_field_spelling(en);
+            var cond = "::" + LowerTargets::niche_trait() + "<" + ft + ">::" + LowerTargets::niche_trait_count() + " >= " + f"{adt_niche_dataless(en)}"
+                     + " && __is_trivially_copyable(" + ft + ") && __is_trivially_destructible(" + ft + ")";
+            self._niche_record(en, lay, self._spell->template_head(d) + "requires (" + cond + ") struct " + nm + "<" + args + "> {", true);
+        }
+    }
+
+    /// The C++ type of a niche-shaped ADT's one payload field, spelled in the
+    /// enum's own scope (a generic one's in terms of its parameters).
+    priv fn _niche_field_spelling(self, en: *EnumDecl) -> string {
+        var pv = en->variants[usize(adt_niche_payload_variant(en))];
+        return self._spell->decl(pv->payload[0]->type_, "", &null, static_cast::<*Decl>(en));
+    }
+
+    /// A niche-filled ADT record (EnumLayoutLowering's header): no tag and
+    /// no union, the payload struct as the one member, each dataless
+    /// variant a pattern of its field from `__kairo_niche<F>`. Written for a
+    /// non-generic ADT whose verdict was niche, and as the partial
+    /// specialization beside every niche-shaped generic one (\p spec). The
+    /// special members are the defaulted ones (the field is trivially
+    /// copied and destroyed, which is the rule's condition), so the
+    /// destroy and construct helpers, which switch on a tag, are not
+    /// written. The record still declares `__kairo_Tag` for
+    /// `__kairo_which()`, and answers the niche trait itself: a niche-filled
+    /// ADT holding this one uses the field's patterns past these.
+    priv fn _niche_record(self, en: *EnumDecl, lay: *StructDecl, head: string, spec: bool) {
+        var d   = static_cast::<*Decl>(en);
+        var at  = self._at(d);
+        var nm  = self._spell->leaf(d);
+        var p   = adt_niche_payload_variant(en);
+        var pv  = en->variants[usize(p)];
+        var fld = pv->payload[0];
+        var ft  = self._niche_field_spelling(en);
+        var mem = self._spell->leaf(static_cast::<*Decl>(pv->adt_member));
+        var fnm = self._spell->leaf(static_cast::<*Decl>(fld));
+        var nt  = "::" + LowerTargets::niche_trait() + "<" + ft + ">::";
+        var w   = builtin_info(BuiltinKind::U64)->cxx;
+        var dl  = adt_niche_dataless(en);
+        var tt  = LowerTargets::adt_tag_type();
+        self._cg->sink->spell(at, head);
+
+        var dc = static_cast::<*DeclContext>(lay);
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var nd = *(dc->dc_decls.get(i));
+            if (nd == &null) || (!self._is_type(nd)) { continue; }
+            if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+            self._type_def(CXXSpell::rep(nd));
+        }
+        self._cg->sink->spell(at, self._spell->leaf(self._payload_struct_of(pv)) + " " + mem + ";");
+        // A generic ADT's flags, which the Nullable surface's constraints
+        // read: true by the specialization's own constraint.
+        for var i: usize = 0; i < lay->fields.size(); ++i {
+            var f = lay->fields[i];
+            if (f == &null) || (f->storage != StorageClass::Eval) { continue; }
+            self._cg->sink->spell(f->name.range, "static constexpr bool " + self._spell->leaf(static_cast::<*Decl>(f)) + " = true;");
+        }
+
+        var nx = self._adt_noexcept();
+        for var i: usize = 0; i < lay->methods.size(); ++i {
+            var m = lay->methods[i];
+            if m == &null { continue; }
+            var mat = self._at(static_cast::<*Decl>(m));
+            if adt_role_is_nullable(m->adt_role) {
+                self._cg->sink->spell(mat, self._niche_nullable_member(en, m, nm, nt, mem, fnm, ft));
+                continue;
+            }
+            switch m->adt_role {
+                case AdtRole::VariantCtor {
+                    var vt = "::" + LowerTargets::adt_variant_tag() + f"<{m->adt_variant}>";
+                    if m->adt_variant == p {
+                        // The field constructor every concrete site calls,
+                        // and the lambda one a generic body's site calls.
+                        self._cg->sink->spell(mat, nm + "(" + vt + ", " + self._spell->decl(fld->type_, fnm, &null, d) + ")" + nx + " : " + mem + "{" + fnm + "} {}");
+                        self._cg->sink->spell(mat, "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + mem + "(static_cast<F&&>(f)()) {}");
+                    } else {
+                        self._cg->sink->spell(mat, nm + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "("
+                                                   + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}");
+                    }
+                }
+                case AdtRole::CopyCtor   { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "(const " + nm + "&) = default;"); } }
+                case AdtRole::MoveCtor   { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "(" + nm + "&&) = default;"); } }
+                case AdtRole::CopyAssign { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "& operator=(const " + nm + "&) = default;"); } }
+                case AdtRole::MoveAssign { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, nm + "& operator=(" + nm + "&&) = default;"); } }
+                case AdtRole::Dtor       { if m->adt_form == AdtForm::Trivial { self._cg->sink->spell(mat, "~" + nm + "() = default;"); } }
+                case AdtRole::Which {
+                    var s = tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return ";
+                    for var k: usize = 0; k < en->variants.size(); ++k {
+                        if u32(k) == p { continue; }
+                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, u32(k))}" + ") ? "
+                           + tt + "::" + self._spell->leaf(static_cast::<*Decl>(en->variants[k])) + " : ";
+                    }
+                    self._cg->sink->spell(mat, s + tt + "::" + self._spell->leaf(static_cast::<*Decl>(pv)) + "; }");
+                }
+                default { 0; }   // destroy and construct_from: no tag to switch on.
+            }
+        }
+
+        self._cg->sink->spell(at, "static constexpr " + w + " " + LowerTargets::niche_count() + " = " + nt + LowerTargets::niche_trait_count() + " - " + f"{dl}" + ";");
+        self._cg->sink->spell(at, nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}");
+        self._cg->sink->spell(at, "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return "
+                                  + nt + LowerTargets::niche_trait_test() + "(v." + mem + "." + fnm + ", " + f"{dl}" + " + i); }");
+        self._friends(d);
+        self._cg->sink->spell(at, "};");
+        self._cg->sink->brk();
+        if !spec {
+            // Pinned: no tag means the record is its payload struct.
+            var ps = self._spell->leaf(self._payload_struct_of(pv));
+            self._cg->sink->spell(at, "static_assert(sizeof(" + nm + ") == sizeof(" + nm + "::" + ps + ") && __is_standard_layout(" + nm + "));");
+            self._cg->sink->brk();
+        }
+    }
+
+    /// The payload struct variant \p v's union member is typed as.
+    priv fn _payload_struct_of(self, v: *EnumVariantDecl) -> *Decl {
+        var t = v->adt_member->type_;
+        var c: *Type = &null;
+        if (t != &null) && (t->canonical != &null) { c = canon_unqual(t->canonical); }
+        if (c == &null) || (!isa::<RecordType>(c)) {
+            self._ice(self._at(static_cast::<*Decl>(v)), "InterfaceEmitter: an ADT union member whose type is not its payload struct; EnumLayoutLowering gate failure");
+        }
+        return cast::<RecordType>(c)->decl;
+    }
+
+    /// The Nullable lang item's surface over the niche-filled record: null is
+    /// pattern 0 in the field, present is any other value, `==` is the
+    /// field's own (two nulls hold the same pattern).
+    priv fn _niche_nullable_member(self, en: *EnumDecl, m: *FunctionDecl, nm: string, nt: string, mem: string, fnm: string, ft: string) -> string {
+        var at  = self._at(static_cast::<*Decl>(m));
+        var d   = static_cast::<*Decl>(en);
+        var nx  = self._adt_noexcept();
+        var val = LowerTargets::nullable_value();
+        var nul = mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}";
+        switch m->adt_role {
+            case AdtRole::NullDefault { return nm + "()" + nx + " : " + nul; }
+            case AdtRole::NullFrom {
+                if m->params.size() != 1 { self._ice(at, "InterfaceEmitter: Nullable(null_t) without its parameter"); return ""; }
+                return nm + "(" + self._spell->decl(m->params[0]->type_, "", &null, d) + ")" + nx + " : " + nul;
+            }
+            case AdtRole::ValueCopy { return nm + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"; }
+            case AdtRole::ValueMove { return nm + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"; }
+            case AdtRole::IsNull    { return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", 0); }"; }
+            case AdtRole::ValueRef  { return ft + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"; }
+            case AdtRole::ValueCref { return "const " + ft + "& " + val + "() const" + nx + " { return " + mem + "." + fnm + "; }"; }
+            case AdtRole::Equal {
+                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + ft + "& a) { a == a; } { return "
+                     + mem + "." + fnm + " == o." + mem + "." + fnm + "; }";
+            }
+            default { 0; }
+        }
+        self._ice(at, "InterfaceEmitter: a Nullable role with no niche rendering");
+        return "";
+    }
+
+    /// `__kairo_niche<E>` for plain enum \p en (EnumNiche): the values past
+    /// its variants. At global scope, where the trait is, so the enum is
+    /// spelled qualified.
+    priv fn _enum_niche_trait(self, en: *EnumDecl) {
+        var at = self._at(static_cast::<*Decl>(en));
+        var e  = self._spell->qual_name(static_cast::<*Decl>(en));
+        var w  = builtin_info(BuiltinKind::U64)->cxx;
+        var nv = f"{en->variants.size()}";
+        self._cg->sink->spell(at, "template <> struct " + LowerTargets::niche_trait() + "<" + e + "> { static constexpr " + w + " "
+            + LowerTargets::niche_trait_count() + " = " + f"{enum_niche_count(en)}" + "; static " + e + " " + LowerTargets::niche_trait_pattern()
+            + "(" + w + " i) noexcept { return static_cast<" + e + ">(" + nv + " + i); } static bool " + LowerTargets::niche_trait_test()
+            + "(const " + e + "& v, " + w + " i) noexcept { return v == static_cast<" + e + ">(" + nv + " + i); } };");
+        self._cg->sink->brk();
+    }
+
+    /// The niche trait, written once per TU (guarded in a header): count 0
+    /// for anything without one, a pointer's null, and an ADT record's own
+    /// answer (`__kairo_niche_count`, its `(__kairo_np, i)` constructor and
+    /// `__kairo_niche_test`). A plain enum's is specialized after it
+    /// (_enum_niche_trait). EnumLayoutQuery::niche_of is the same table.
+    priv fn _niche_helpers(self, header: bool) {
+        var at = self._tu_at();
+        var w  = builtin_info(BuiltinKind::U64)->cxx;
+        var nt = LowerTargets::niche_trait();
+        var c  = LowerTargets::niche_trait_count();
+        var pt = LowerTargets::niche_trait_pattern();
+        var ts = LowerTargets::niche_trait_test();
+        var np = LowerTargets::niche_ctor_tag();
+        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::niche_guard()); }
+        if header { self._cg->sink->directive(at, "#define " + LowerTargets::niche_guard()); }
+        self._cg->sink->spell(at, "struct " + np + " { explicit " + np + "() = default; };");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, "template <class T> struct " + nt + " { static constexpr " + w + " " + c + " = 0; };");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, "template <class T> struct " + nt + "<T*> { static constexpr " + w + " " + c + " = 1; static T* " + pt + "(" + w
+            + ") noexcept { return nullptr; } static bool " + ts + "(T* const& v, " + w + ") noexcept { return v == nullptr; } };");
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, "template <class T> requires requires { T::" + LowerTargets::niche_count() + "; } struct " + nt + "<T> { static constexpr "
+            + w + " " + c + " = T::" + LowerTargets::niche_count() + "; static T " + pt + "(" + w + " i) noexcept { return T(::" + np + "{}, i); } "
+            + "static bool " + ts + "(const T& v, " + w + " i) noexcept { return T::" + LowerTargets::niche_test() + "(v, i); } };");
+        self._cg->sink->brk();
+        if header { self._cg->sink->directive(at, "#endif"); }
+    }
+
+    /// An enum is defined here: a plain one with a niche trait, or any ADT.
+    /// A header skips what it includes, as run() does.
+    priv fn _needs_niche_helpers(self) -> bool {
+        var header = (self._plan->mode() == PlanMode::Header);
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var e = &(self._plan->entries[i]);
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if header && (!e->own) { continue; }
+            var en = dyn_cast::<EnumDecl>(e->decl);
+            if en == &null { continue; }
+            if en->is_adt || enum_has_niche_trait(en) { return true; }
+        }
+        return false;
     }
 
     /// A flag's initializer: its type trait over every payload struct,
@@ -1196,6 +1451,8 @@ class InterfaceEmitter {
                 }
                 return s + " default: break; } }";
             }
+            // The tagged form; the niche-filled one is _niche_record's.
+            case AdtRole::Which { return tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return " + tag + "; }"; }
             default { 0; }
         }
         self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
@@ -1861,6 +2118,29 @@ class InterfaceEmitter {
             s += ";";
         }
         self._cg->sink->spell(self._at(d), s);
+        self._cg->sink->brk();
+        self._instance_layout_asserts(d, ie);
+    }
+
+    /// The layout Sema predicted for a generic ADT's instance
+    /// (InstanceEntry::adt_shape / adt_size; EnumLayoutQuery::sweep), pinned
+    /// where the instance is named: C++ picks the layout itself (the
+    /// specialization's constraint), so a disagreement is a hard error here
+    /// instead of Sema reading a field that is not where it thinks. A
+    /// niche-filled instance is its payload struct and nothing else, and is
+    /// standard-layout, so it is passed and returned as its one field is.
+    priv fn _instance_layout_asserts(self, d: *Decl, ie: *InstanceEntry) {
+        var en = dyn_cast::<EnumDecl>(d);
+        if (en == &null) || (!en->is_adt) || (ie->adt_shape == 0) { return; }
+        var x = self._spell->qual_name(d) + self._spell->args_str(&(ie->args));
+        if ie->adt_size != 0 {
+            self._cg->sink->spell(self._at(d), "static_assert(sizeof(" + x + ") == " + f"{ie->adt_size}" + ");");
+            self._cg->sink->brk();
+        }
+        if ie->adt_shape != 2 { return; }
+        var pv = en->variants[usize(adt_niche_payload_variant(en))];
+        var ps = x + "::" + LowerTargets::adt_payload_type(self._spell->leaf(static_cast::<*Decl>(pv)));
+        self._cg->sink->spell(self._at(d), "static_assert(sizeof(" + x + ") == sizeof(" + ps + ") && __is_standard_layout(" + x + "));");
         self._cg->sink->brk();
     }
 

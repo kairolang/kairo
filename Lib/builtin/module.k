@@ -29,16 +29,15 @@ ffi "c" import "rt/unwrap.h"
 pub struct null_t {}
 
 /// `T?`. Kairo code never names it (the `?` suffix is the only spelling);
-/// C++ code does. Tagged, Stage 1's only storage (NULLABLE.md 1.2): an ADT,
-/// so the payload is a real T only while present, constructed in place and
+/// C++ code does. An ADT (NULLABLE.md 1.2), so the payload is a real T only while present, constructed in place and
 /// destroyed exactly once, and copy and move follow T's own -- the special
 /// members EnumLayoutLowering gives every generic ADT. That pass also gives
 /// THIS one, the lang item, the C++ surface the desugars and a C++ host
 /// use: `Nullable()` and `Nullable(null_t)` (null), `Nullable(const T&)`
 /// and `Nullable(T&&)` (present), `is_null()`, the unchecked `__value()`
 /// and `==` when T has one. Every implicit `T -> T?` and `null -> T?` is
-/// one of those constructors. Nothing outside this declaration may depend
-/// on the layout: the niche storages (G2b) replace it.
+/// one of those constructors. EnumLayoutLowering may lay it out
+/// niche-filled; nothing outside this declaration may depend on the layout.
 pub enum <T> Nullable {
     Value { v: T },
     Null,
@@ -64,6 +63,13 @@ priv fn <B, E> pow(base: B, exp: E) -> B {
     }
     return r
 }
+
+/// How many bit patterns a `T` never holds: the layout engine's niche_of
+/// (EnumLayoutLowering, spec ENUMLAYOUT §5.1) -- 1 for a pointer, the
+/// values past a plain enum's or an ADT tag's, a record's first field's,
+/// 0 for anything else. Answered at compile time: EnumLayoutLowering
+/// replaces every call with the count, so this body never runs.
+pub eval fn <T> __builtin_niche_of() -> u64 = 0
 
 /// `unwrap!(x)` on null (NULLABLE.md 2.6): `msg` (the expression and where
 /// it is, built at compile time) to stderr, then abort. A lang item the
