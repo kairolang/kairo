@@ -62,6 +62,7 @@ class IncludedDecls {
     pub var panic_helpers: bool = false; ///< InterfaceEmitter::have_panic_helpers
     pub var site_type:  bool = false;    ///< InterfaceEmitter::have_site_type
     pub var panic_api:  bool = false;    ///< InterfaceEmitter::have_panic_api
+    pub var raw_slot:   bool = false;    ///< InterfaceEmitter::have_raw_slot
     pub var tid_seen:   vec::<u64>;      ///< InterfaceEmitter::tid_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
@@ -88,6 +89,7 @@ class IncludedDecls {
         self.panic_helpers = false;
         self.site_type  = false;
         self.panic_api  = false;
+        self.raw_slot   = false;
         self.tid_seen.clear();
         self._keys.clear();
         self._scopes.clear();
@@ -257,6 +259,7 @@ class IncludeEmitter {
         ie.have_panic_helpers = seen->panic_helpers;
         ie.have_site_type = seen->site_type;
         ie.have_panic_api = seen->panic_api;
+        ie.have_raw_slot  = seen->raw_slot;
         // The C++ view's throwing half needs the host's exceptions on: clang
         // rejects a `throw` in a template it only defines.
         ie.cxx_exceptions = static_cast::<bool>(ci->getLangOpts().CXXExceptions);
@@ -272,6 +275,7 @@ class IncludeEmitter {
         seen->panic_helpers = ie.have_panic_helpers;
         seen->site_type = ie.have_site_type;
         seen->panic_api = ie.have_panic_api;
+        seen->raw_slot  = ie.have_raw_slot;
         seen->tid_seen.clear();
         for var k: usize = 0; k < ie.tid_seen.size(); ++k { seen->tid_seen.push_back(ie.tid_seen[k]); }
 

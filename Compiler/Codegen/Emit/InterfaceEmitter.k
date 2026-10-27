@@ -125,6 +125,7 @@ class InterfaceEmitter {
     pub var have_panic_helpers: bool = false;
     pub var have_site_type: bool = false;
     pub var have_panic_api: bool = false;
+    pub var have_raw_slot: bool = false;
     /// The host C++ TU compiles with exceptions (a kcc include: its
     /// LangOptions), so it gets the throwing half of the C++ view
     /// (_panic_api). A header decides with `#if __cpp_exceptions`; an
@@ -297,6 +298,14 @@ class InterfaceEmitter {
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
             self._cg->sink->unanchored(false);
             self.have_panic_helpers = true;
+        }
+
+        // A `try`'s raw slot with no Panic lang item defined here (a C++
+        // exception arm's value, EmitPlan::needs_raw_slot).
+        if (!self.have_raw_slot) && self._plan->needs_raw_slot {
+            self._cg->sink->unanchored(true);
+            self._raw_slot_helpers(header);
+            self._cg->sink->unanchored(false);
         }
 
         // The record type of the TU's panic site table (EmitIR::_panic_sites,
@@ -1122,7 +1131,7 @@ class InterfaceEmitter {
         self._cg->sink->spell(at, "template <class... P> constexpr " + u + " " + LowerTargets::max_align() + "(" + u + " f) noexcept { "
                                   + u + " a = f; ((a = (alignof(P) > a) ? static_cast<" + u + ">(alignof(P)) : a), ...); return a; }");
         self._cg->sink->brk();
-        self._raw_slot_helpers();
+        self._raw_slot_helpers(self._plan->mode() == PlanMode::Header);
         self._fwd_helpers(en);
     }
 
@@ -1133,8 +1142,14 @@ class InterfaceEmitter {
     /// its own placement `new`, so no <new>), read once by `__kairo_take()`,
     /// which moves the value out and destroys the box: from there the value
     /// is an ordinary local, which every exit destroys.
-    priv fn _raw_slot_helpers(self) {
+    priv fn _raw_slot_helpers(self, header: bool) {
+        // Written with the Panic helpers or alone (a C++ arm's slot), once
+        // per C++ TU: its own guard in a header, either way.
+        if self.have_raw_slot { return; }
+        self.have_raw_slot = true;
         var at  = self._tu_at();
+        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::raw_slot_guard()); }
+        if header { self._cg->sink->directive(at, "#define " + LowerTargets::raw_slot_guard()); }
         var bx  = LowerTargets::raw_box();
         var bm  = LowerTargets::raw_box_member();
         var bv  = LowerTargets::raw_box_value();
@@ -1146,6 +1161,7 @@ class InterfaceEmitter {
             + rs + "() noexcept {} ~" + rs + "() noexcept {} " + rs + "(const " + rs + "&) = delete; "
             + "T " + LowerTargets::raw_take() + "()" + nx + " { T r(static_cast<T&&>(" + bm + "." + bv + ")); " + bm + ".~" + bx + "<T>(); return r; } };");
         self._cg->sink->brk();
+        if header { self._cg->sink->directive(at, "#endif"); }
     }
 
     /// `__kairo_fwd<R, A>(s)` (PANIC.md §4.3): the panic result `s` as the

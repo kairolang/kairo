@@ -744,6 +744,7 @@ class LowerTargets {
     static fn panic_fwd_step() -> string             { return "__kairo_fwd_k"; }
     static fn panic_elem_index() -> string           { return "__kairo_pidx"; }
     static fn raw_slot() -> string                   { return "__kairo_raw"; }
+    static fn raw_slot_guard() -> string             { return "__KAIRO_RAW_SLOT"; }
     static fn raw_box() -> string                    { return "__kairo_rbox"; }
     static fn raw_box_member() -> string             { return "__kairo_b"; }
     static fn raw_box_value() -> string              { return "__kairo_v"; }

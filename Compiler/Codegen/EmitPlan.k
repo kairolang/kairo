@@ -213,6 +213,11 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// must define `::__kairo_fn` (InterfaceEmitter::_fn_value_helper).
     /// Only then, so a TU that names none keeps its text.
     pub var needs_fn_value: bool = false;
+    /// A body holds a `try`'s raw-storage slot (PanicLowering) with no Panic
+    /// result in sight: a `try` with only C++ exception arms whose value is
+    /// put in a slot. The preamble must define `::__kairo_raw`, which it
+    /// otherwise writes with the Panic lang item's helpers.
+    pub var needs_raw_slot: bool = false;
 
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
@@ -1263,7 +1268,10 @@ fn EmitPlan::visit_type(t: *Type) -> bool {
 fn EmitPlan::visit_decl(d: *Decl) -> bool {
     if d == &null { return true; }
     switch d->kind {
-        case DeclKind::VariableDecl  { self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Complete); }
+        case DeclKind::VariableDecl  {
+            if cast::<VariableDecl>(d)->raw_slot { self.needs_raw_slot = true; }
+            self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Complete);
+        }
         case DeclKind::FieldDecl     { self._admit_type(cast::<FieldDecl>(d)->type_, PlanNeed::Complete); }
         case DeclKind::ParamDecl {
             var p = cast::<ParamDecl>(d);
