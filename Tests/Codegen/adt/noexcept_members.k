@@ -47,7 +47,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}noexcept_members.k
 // CXX:       struct Inst {
-// CXX:       Inst(::__kairo_vt<0>, F&& f) noexcept : __kairo_tag(
+// CXX:       Inst(::__kairo_vt<0>, signed int value) noexcept : __kairo_tag(
+// CXX:       Inst(::__kairo_vt<2>, F&& f) noexcept : __kairo_tag(
 // CXX:       Inst(::__kairo_vt<3>) noexcept : __kairo_tag(
 // CXX:       Inst(const Inst& o) noexcept : __kairo_tag(
 // CXX:       Inst(Inst&& o) noexcept : __kairo_tag(
@@ -74,8 +75,8 @@ fn main() -> i32 {
 // The construction site's lambda.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}noexcept_members.k
-// IR:        ::Inst( ::__kairo_vt<1> {
-// IR:        ,[&]() noexcept-> {{.*}}::Inst::__kairo_Binary_t {
+// IR:        ::Inst( ::__kairo_vt<2> {
+// IR:        ,[&]() noexcept-> {{.*}}::Inst::__kairo_Text_t {
 
 // The TU's object has no exception table and names no personality at -O0,
 // where nothing proves the calls nounwind for it.

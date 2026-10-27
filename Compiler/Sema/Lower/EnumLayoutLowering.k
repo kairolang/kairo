@@ -104,6 +104,152 @@ import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
+/// The layout's query surface: every pass that reads or tests an ADT value
+/// goes through it, and none spells the layout itself. The layout is not
+/// uniform -- the tag's width, its values and whether there is a tag at
+/// all are this file's decisions -- so a consumer that wrote
+/// `x.__kairo_tag` or `x.__kairo_<V>.f` by hand would be right only for
+/// the shape it was written against.
+///
+///   tag_read(x)              the discriminant as stored, typed as the tag
+///                            enum; null when the layout has no tag
+///   tag_value(V)             the discriminant V is stored as
+///   variant_test(x, V)       bool: "x holds V"
+///   payload_ref(x, V)        lvalue of V's payload struct
+///   field_ref(x, V, f)       lvalue of one payload field
+///   same_variant(a, b)       bool: an ADT's built-in `==` (no `op ==`)
+///   is_exhaustive_dense(E)   tags are 0..N-1 in declaration order, so a
+///                            switch or a table over them is complete
+///
+/// Construction is the VariantInitExpr VariantInitLowering builds; how it
+/// is rendered is read off the variant's facts by EmitIR, so no lowering
+/// spells a constructor either.
+///
+/// Consumers: MatchLowering, OperatorLowering (an ADT's `==`), and
+/// PanicLowering when it lands. The Nullable lang item's surface
+/// (`is_null()`, `__value()`, its constructors) is layout-independent by
+/// construction and is named through SemaContext::nullable_member.
+class EnumLayoutQuery {
+    pub var sc: *SemaContext;
+    priv var tu: TypeUtil;
+    priv var synth: LowerSynth;
+
+    fn EnumLayoutQuery(self) { self.sc = &null; }
+
+    fn EnumLayoutQuery(self, sc: *SemaContext) {
+        self.sc    = sc;
+        self.tu    = TypeUtil(sc);
+        self.synth = LowerSynth(sc);
+    }
+
+    /// The ADT pattern behind the value type \p t (an instance answers its
+    /// pattern: an instance shares its pattern's record), or null.
+    fn adt_of(self, t: *Type) -> *EnumDecl {
+        if t == &null { return &null; }
+        var d = self.tu.record_decl(self.tu.as_value(t));
+        if d == &null { return &null; }
+        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(d));
+        if (en == &null) || (!en->is_adt) { return &null; }
+        return en;
+    }
+
+    /// A payload field's type at an instance of \p en with arguments \p args:
+    /// a parameter of the enum's is its argument, a type that names none is
+    /// itself, and a pointer is a pointer whatever it points at -- which is
+    /// all a layout question asks of one. Null for anything else built from
+    /// a parameter: the question has no answer before C++ instantiates it.
+    fn field_type_at(self, en: *EnumDecl, args: *FrozenList::<*Type>, ft: *Type) -> *Type {
+        if (ft == &null) || (ft->canonical == &null) { return &null; }
+        var c = canon_unqual(ft->canonical);
+        if c == &null { return &null; }
+        var gp = dyn_cast::<GenericParamType>(c);
+        if gp != &null {
+            var owner = gp->owner;
+            if owner != &null { owner = NameLookup::representative(owner); }
+            if (owner != NameLookup::representative(static_cast::<*Decl>(en))) || (usize(gp->param_index) >= args->size()) { return &null; }
+            var a = *(args->get(usize(gp->param_index)));
+            if (a == &null) || a->is_dependent() || a->is_instantiation_dependent() { return &null; }
+            return a;
+        }
+        if isa::<PointerType>(c) { return ft; }
+        if c->is_dependent() || c->is_instantiation_dependent() { return &null; }
+        return ft;
+    }
+
+    /// EnumLayoutLowering built \p en's record: every query below has an
+    /// answer.
+    fn has_layout(self, en: *EnumDecl) -> bool {
+        return (en != &null) && en->is_adt && (en->adt_layout != &null);
+    }
+
+    /// Whether variant \p index has a payload to read.
+    fn has_payload(self, en: *EnumDecl, index: u32) -> bool {
+        if (en == &null) || (usize(index) >= en->variants.size()) { return false; }
+        var v = en->variants[usize(index)];
+        return (v != &null) && (v->adt_member != &null);
+    }
+
+    fn is_exhaustive_dense(self, en: *EnumDecl) -> bool {
+        return self.has_layout(en);
+    }
+
+    /// The discriminant variant \p index is stored as.
+    fn tag_value(self, en: *EnumDecl, index: u32) -> u64 {
+        return u64(index);
+    }
+
+    /// `x.__kairo_tag`, typed as the tag enum.
+    fn tag_read(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
+        var tag = en->adt_tag_field;
+        ICE_IF(tag == &null, "EnumLayoutQuery: tag_read on an ADT with no layout; EnumLayoutLowering runs first");
+        return self.synth.field_of(at, x, static_cast::<*Decl>(tag), tag->type_);
+    }
+
+    /// The tag as a `u32`, which is what a switch dispatches on and a case
+    /// label is written in (tag_case).
+    fn tag_word(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
+        var t = self.tag_read(at, x, en);
+        if t == &null { return &null; }
+        return self.synth.cast_to(at, t, self.sc->builtin(BuiltinKind::U32), CastMode::Default);
+    }
+
+    /// Variant \p index's discriminant as a case label of tag_word.
+    fn tag_case(self, at: SourceRange, en: *EnumDecl, index: u32) -> *Expr {
+        return self.synth.int_literal(at, self.tag_value(en, index), BuiltinKind::U32);
+    }
+
+    fn variant_test(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
+        return self._bin(at, self.tag_word(at, x, en), self.tag_case(at, en, index), TokenKind::OpEqualEqual);
+    }
+
+    /// `x.__kairo_<V>`. A variant with no payload has nothing to read.
+    fn payload_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
+        ICE_IF(!self.has_payload(en, index), "EnumLayoutQuery: payload_ref of a variant with no payload");
+        var m = en->variants[usize(index)]->adt_member;
+        return self.synth.field_of(at, x, static_cast::<*Decl>(m), m->type_);
+    }
+
+    /// `x.__kairo_<V>.<field>`, typed \p ty (the occurrence's type: an
+    /// instance's field type, not the pattern's).
+    fn field_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32, field: *FieldDecl, ty: *Type) -> *Expr {
+        return self.synth.field_of(at, self.payload_ref(at, x, en, index), static_cast::<*Decl>(field), ty);
+    }
+
+    /// An ADT's built-in `==` / `!=`: the variants compared, under the
+    /// written token. Each operand appears once, so each runs once.
+    fn same_variant(self, at: SourceRange, a: *Expr, b: *Expr, en: *EnumDecl, tok: Token) -> *Expr {
+        var cmp = BinaryOperatorExpr::create(self.sc->ctx, at, self.tag_read(a->range, a, en), self.tag_read(b->range, b, en), tok);
+        return static_cast::<*Expr>(cmp);
+    }
+
+    priv fn _bin(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
+        var b = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, self.synth.punct(at, k));
+        b->type_          = self.sc->builtin(BuiltinKind::Bool);
+        b->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(b);
+    }
+}
+
 class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -129,6 +275,29 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     fn transform_enum_decl(self, n: *EnumDecl) -> vec::<*Decl> {
         var out = ASTWriter::<EnumLayoutLowering>::transform_enum_decl(n);
         if self._wants_layout(n) { self._build(n); }
+        return out;
+    }
+
+    /// A construction: a generic variant built both ways (AdtCtorForm::Both)
+    /// calls its field constructor where the instance is concrete and every
+    /// field moves. The layout is built first if the walk has not reached
+    /// the enum yet, so a construction above its enum is decided the same
+    /// way as one below it.
+    fn transform_variant_init_expr(self, n: *VariantInitExpr) -> *Expr {
+        var out = ASTWriter::<EnumLayoutLowering>::transform_variant_init_expr(n);
+        var en  = dyn_cast::<EnumDecl>(n->en);
+        if (en == &null) || (!en->is_adt) || (usize(n->variant) >= en->variants.size()) { return out; }
+        if self._wants_layout(en) { self._build(en); }
+        var v = en->variants[usize(n->variant)];
+        if (v == &null) || (v->adt_ctor != AdtCtorForm::Both) || (n->type_ == &null) { return out; }
+        if n->type_->is_dependent() || n->type_->is_instantiation_dependent() { return out; }
+        var q    = EnumLayoutQuery(self.sc);
+        var args = self.tu.record_args(n->type_);
+        for var i: usize = 0; i < v->payload.size(); ++i {
+            var ft = q.field_type_at(en, &args, v->payload[i]->type_);
+            if (ft == &null) || (!self._moves(ft)) { return out; }
+        }
+        n->field_ctor = true;
         return out;
     }
 
@@ -189,6 +358,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             self._place(static_cast::<*Decl>(m), edc, VisibilityKind::Public, v->name.range);
             members.push(m);
             v->adt_member = m;
+            v->adt_ctor   = self._ctor_form(v, generic);
         }
 
         var fields = self.list_builder::<*FieldDecl>();
@@ -292,6 +462,44 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         }
         if en->variants.size() <= 256 { return BuiltinKind::U8; }
         return BuiltinKind::U16;
+    }
+
+    /// How variant \p v is constructed (AdtCtorForm). A non-generic ADT knows
+    /// its fields' facts: every one trivially copied and destroyed, the field
+    /// constructor alone, else the lambda one. A generic ADT's are per
+    /// instance, so it gets both, the field constructor constrained on them.
+    /// An array field is never passed by value: a C++ parameter of array
+    /// type is a pointer.
+    ///
+    /// Trivial, not merely movable: the field constructor moves each
+    /// argument out of its parameter into the payload, and then destroys the
+    /// parameter. The lambda form builds the payload in place and does
+    /// neither. A Kairo `@move` constructor or `op delete` is user code that
+    /// can count (Codegen/adt/categories.k and smoke.k do), so only for a
+    /// field whose move is its bytes and whose destruction is nothing are
+    /// the two forms the same program.
+    priv fn _ctor_form(self, v: *EnumVariantDecl, generic: bool) -> AdtCtorForm {
+        for var j: usize = 0; j < v->payload.size(); ++j {
+            var t = v->payload[j]->type_;
+            if (t == &null) || (t->canonical == &null) || isa::<FixedArrayType>(canon_unqual(t->canonical)) {
+                return AdtCtorForm::Lambda;
+            }
+        }
+        if generic { return AdtCtorForm::Both; }
+        for var j: usize = 0; j < v->payload.size(); ++j {
+            if !self._moves(v->payload[j]->type_) { return AdtCtorForm::Lambda; }
+        }
+        return AdtCtorForm::Fields;
+    }
+
+    /// \p t moves as its bytes and is destroyed as nothing, and is no array
+    /// (_ctor_form).
+    priv fn _moves(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        if isa::<FixedArrayType>(canon_unqual(t->canonical)) { return false; }
+        var f = lifecycle_of(self.sc)->facts_of_type(t->canonical);
+        return (f.movable == LifecycleTri::Yes) && (f.trivially_copyable == LifecycleTri::Yes)
+            && (f.trivial_dtor == LifecycleTri::Yes);
     }
 
     /// `struct __kairo_<V>_t` over the variant's own payload FieldDecls (file
@@ -457,129 +665,5 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
 
     priv fn _type_of(self, d: *Decl) -> *Type {
         return self.sc->types->record(d, &null);
-    }
-}
-
-
-/// The layout's query surface: every pass that reads or tests an ADT value
-/// goes through it, and none spells the layout itself. The layout is not
-/// uniform -- the tag's width, its values and whether there is a tag at
-/// all are this file's decisions -- so a consumer that wrote
-/// `x.__kairo_tag` or `x.__kairo_<V>.f` by hand would be right only for
-/// the shape it was written against.
-///
-///   tag_read(x)              the discriminant as stored, typed as the tag
-///                            enum; null when the layout has no tag
-///   tag_value(V)             the discriminant V is stored as
-///   variant_test(x, V)       bool: "x holds V"
-///   payload_ref(x, V)        lvalue of V's payload struct
-///   field_ref(x, V, f)       lvalue of one payload field
-///   same_variant(a, b)       bool: an ADT's built-in `==` (no `op ==`)
-///   is_exhaustive_dense(E)   tags are 0..N-1 in declaration order, so a
-///                            switch or a table over them is complete
-///
-/// Construction is the VariantInitExpr VariantInitLowering builds; how it
-/// is rendered is read off the variant's facts by EmitIR, so no lowering
-/// spells a constructor either.
-///
-/// Consumers: MatchLowering, OperatorLowering (an ADT's `==`), and
-/// PanicLowering when it lands. The Nullable lang item's surface
-/// (`is_null()`, `__value()`, its constructors) is layout-independent by
-/// construction and is named through SemaContext::nullable_member.
-class EnumLayoutQuery {
-    pub var sc: *SemaContext;
-    priv var tu: TypeUtil;
-    priv var synth: LowerSynth;
-
-    fn EnumLayoutQuery(self) { self.sc = &null; }
-
-    fn EnumLayoutQuery(self, sc: *SemaContext) {
-        self.sc    = sc;
-        self.tu    = TypeUtil(sc);
-        self.synth = LowerSynth(sc);
-    }
-
-    /// The ADT pattern behind the value type \p t (an instance answers its
-    /// pattern: an instance shares its pattern's record), or null.
-    fn adt_of(self, t: *Type) -> *EnumDecl {
-        if t == &null { return &null; }
-        var d = self.tu.record_decl(self.tu.as_value(t));
-        if d == &null { return &null; }
-        var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(d));
-        if (en == &null) || (!en->is_adt) { return &null; }
-        return en;
-    }
-
-    /// EnumLayoutLowering built \p en's record: every query below has an
-    /// answer.
-    fn has_layout(self, en: *EnumDecl) -> bool {
-        return (en != &null) && en->is_adt && (en->adt_layout != &null);
-    }
-
-    /// Whether variant \p index has a payload to read.
-    fn has_payload(self, en: *EnumDecl, index: u32) -> bool {
-        if (en == &null) || (usize(index) >= en->variants.size()) { return false; }
-        var v = en->variants[usize(index)];
-        return (v != &null) && (v->adt_member != &null);
-    }
-
-    fn is_exhaustive_dense(self, en: *EnumDecl) -> bool {
-        return self.has_layout(en);
-    }
-
-    /// The discriminant variant \p index is stored as.
-    fn tag_value(self, en: *EnumDecl, index: u32) -> u64 {
-        return u64(index);
-    }
-
-    /// `x.__kairo_tag`, typed as the tag enum.
-    fn tag_read(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
-        var tag = en->adt_tag_field;
-        ICE_IF(tag == &null, "EnumLayoutQuery: tag_read on an ADT with no layout; EnumLayoutLowering runs first");
-        return self.synth.field_of(at, x, static_cast::<*Decl>(tag), tag->type_);
-    }
-
-    /// The tag as a `u32`, which is what a switch dispatches on and a case
-    /// label is written in (tag_case).
-    fn tag_word(self, at: SourceRange, x: *Expr, en: *EnumDecl) -> *Expr {
-        var t = self.tag_read(at, x, en);
-        if t == &null { return &null; }
-        return self.synth.cast_to(at, t, self.sc->builtin(BuiltinKind::U32), CastMode::Default);
-    }
-
-    /// Variant \p index's discriminant as a case label of tag_word.
-    fn tag_case(self, at: SourceRange, en: *EnumDecl, index: u32) -> *Expr {
-        return self.synth.int_literal(at, self.tag_value(en, index), BuiltinKind::U32);
-    }
-
-    fn variant_test(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
-        return self._bin(at, self.tag_word(at, x, en), self.tag_case(at, en, index), TokenKind::OpEqualEqual);
-    }
-
-    /// `x.__kairo_<V>`. A variant with no payload has nothing to read.
-    fn payload_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
-        ICE_IF(!self.has_payload(en, index), "EnumLayoutQuery: payload_ref of a variant with no payload");
-        var m = en->variants[usize(index)]->adt_member;
-        return self.synth.field_of(at, x, static_cast::<*Decl>(m), m->type_);
-    }
-
-    /// `x.__kairo_<V>.<field>`, typed \p ty (the occurrence's type: an
-    /// instance's field type, not the pattern's).
-    fn field_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32, field: *FieldDecl, ty: *Type) -> *Expr {
-        return self.synth.field_of(at, self.payload_ref(at, x, en, index), static_cast::<*Decl>(field), ty);
-    }
-
-    /// An ADT's built-in `==` / `!=`: the variants compared, under the
-    /// written token. Each operand appears once, so each runs once.
-    fn same_variant(self, at: SourceRange, a: *Expr, b: *Expr, en: *EnumDecl, tok: Token) -> *Expr {
-        var cmp = BinaryOperatorExpr::create(self.sc->ctx, at, self.tag_read(a->range, a, en), self.tag_read(b->range, b, en), tok);
-        return static_cast::<*Expr>(cmp);
-    }
-
-    priv fn _bin(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
-        var b = BinaryOperatorExpr::create(self.sc->ctx, at, l, r, self.synth.punct(at, k));
-        b->type_          = self.sc->builtin(BuiltinKind::Bool);
-        b->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(b);
     }
 }

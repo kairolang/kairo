@@ -423,7 +423,8 @@ class StmtExpr derives Expr {
 ///  declaration order; `source_order[i]` is the position field i was written
 ///  at. One writer: VariantInitLowering, which mints it, typed as the enum and
 ///  an rvalue, in place of the construction X checked. EmitIR spells it as the
-///  tagged constructor taking a lambda that returns the payload struct. A
+///  tagged constructor the variant's AdtCtorForm names: the fields passed
+///  in order, or a lambda that returns the payload struct. A
 ///  plain enum's variant never becomes one: it is a value, and its `.V` is
 ///  lowered to the enumerator's name.
 ///
@@ -433,6 +434,11 @@ class VariantInitExpr derives Expr {
     pub var variant:      u32   = 0;               ///< position in en->variants.
     pub var fields:       FrozenList::<*Expr>;     ///< declaration order; empty for a nullary variant.
     pub var source_order: FrozenList::<u32>;       ///< parallel to fields.
+    /// A generic ADT's variant (AdtCtorForm::Both): this site's instance is
+    /// concrete and every field moves, so the field constructor is called.
+    /// Otherwise the lambda one, which every such variant has. One writer:
+    /// EnumLayoutLowering.
+    pub var field_ctor:   bool = false;
 
     static fn create(
         ctx:     *ASTContext,
@@ -447,6 +453,7 @@ class VariantInitExpr derives Expr {
         node->variant      = variant;
         node->fields       = create_empty_frozen_list::<*Expr>();
         node->source_order = create_empty_frozen_list::<u32>();
+        node->field_ctor   = false;
         node->init_annotations(&(ctx->ast_alloc));
         return node;
     }

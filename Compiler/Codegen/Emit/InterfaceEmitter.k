@@ -1136,8 +1136,14 @@ class InterfaceEmitter {
                 if v->adt_member == &null { return nm + "(" + vt + ")" + nx + " : " + init + " {}"; }
                 // The payload is the callable's prvalue, so the union member
                 // is built straight from it: nothing is copied or moved.
-                return "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", "
-                     + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(static_cast<F&&>(f)()) {}";
+                var lam = "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", "
+                        + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(static_cast<F&&>(f)()) {}";
+                switch v->adt_ctor {
+                    case AdtCtorForm::Fields { return self._field_ctor(en, v, nm, vt, init, nx, false); }
+                    case AdtCtorForm::Both   { return self._field_ctor(en, v, nm, vt, init, nx, true) + " " + lam; }
+                    default { 0; }
+                }
+                return lam;
             }
             case AdtRole::CopyCtor {
                 if body { return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ") { " + cf + "(o); }"; }
@@ -1194,6 +1200,44 @@ class InterfaceEmitter {
         }
         self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
         return "";
+    }
+
+    /// Variant \p v's field constructor (AdtCtorForm::Fields / Both): each
+    /// field by value, moved into the payload's braced initializer -- a
+    /// prvalue initializing the union member, so nothing past the parameter
+    /// is copied, and the runtime is the lambda form's: every field is
+    /// trivially copied and destroyed (EnumLayoutLowering::_ctor_form), so
+    /// the move out of the parameter and its destruction run no code. A
+    /// generic ADT's is
+    /// constrained on exactly that, which only C++ knows per instance; a
+    /// site whose instance is concrete and qualifies calls it
+    /// (VariantInitExpr::field_ctor), every other one the lambda form.
+    priv fn _field_ctor(self, en: *EnumDecl, v: *EnumVariantDecl, nm: string, vt: string, init: string, nx: string,
+                        constrained: bool) -> string {
+        var d     = static_cast::<*Decl>(en);
+        var ps    = "";
+        var vals  = "";
+        var moves = "";
+        for var i: usize = 0; i < v->payload.size(); ++i {
+            var f  = v->payload[i];
+            var fn_ = self._spell->leaf(static_cast::<*Decl>(f));
+            var t  = self._spell->decl(f->type_, "", &null, d);
+            ps += ", " + self._spell->decl(f->type_, fn_, &null, d);
+            if i > 0 { vals += ", "; moves += " && "; }
+            vals  += (fn_) if (self._scalar(f->type_)) else ("static_cast<" + t + "&&>(" + fn_ + ")");
+            moves += "__is_constructible(" + t + ", " + t + "&&) && __is_trivially_copyable(" + t + ") && __is_trivially_destructible(" + t + ")";
+        }
+        var req = (" requires (" + moves + ")") if (constrained) else ("");
+        return nm + "(" + vt + ps + ")" + nx + req + " : " + init + ", "
+             + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "{" + vals + "} {}";
+    }
+
+    /// A field type whose move is its copy: a builtin or a pointer, passed
+    /// on bare. Anything else is moved out of its parameter.
+    priv fn _scalar(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return false; }
+        var c = canon_unqual(t->canonical);
+        return (c != &null) && (isa::<BuiltinType>(c) || isa::<PointerType>(c));
     }
 
     /// ` noexcept` on a role function with a body, unless -funwind: each is

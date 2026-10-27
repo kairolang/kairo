@@ -227,6 +227,26 @@ enum AdtRole derives u8 {
     Equal,           ///< `operator==`, when T has one: null == null, null != a value. C++20 derives `!=`.
 }
 
+/// How an ADT variant with a payload is constructed in C++
+/// (EnumVariantDecl::adt_ctor). EnumLayoutLowering decides it; InterfaceEmitter
+/// declares the constructor(s) it names and EmitIR calls one.
+///
+///   Fields   `E(__kairo_vt<I>, F0 f0, F1 f1)`: one non-template constructor
+///            taking each field by value. Every field is trivially copied
+///            and destroyed, so the move out of the parameter and its
+///            destruction run no code: the same program as the lambda form.
+///   Lambda   `template <class F> E(__kairo_vt<I>, F&& f)`: the payload is
+///            the callable's prvalue, so a field that cannot move is still
+///            built in place.
+///   Both     a generic ADT, whose fields' movability C++ learns per
+///            instance: the field constructor, constrained on it, beside the
+///            lambda one. A site picks (VariantInitExpr::field_ctor).
+enum AdtCtorForm derives u8 {
+    Lambda = 0,
+    Fields,
+    Both,
+}
+
 /// \p r is one of the Nullable lang item's surface roles, which
 /// InterfaceEmitter renders apart from every other ADT member.
 fn adt_role_is_nullable(r: AdtRole) -> bool { return r >= AdtRole::NullDefault; }
@@ -1245,6 +1265,7 @@ class EnumVariantDecl derives Decl {
     pub var payload:      FrozenList::<*FieldDecl>; ///< ADT fields; empty for plain variants.
     pub var index:        u32 = 0;                ///< declaration order.
     pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
+    pub var adt_ctor:     AdtCtorForm = AdtCtorForm::Lambda;  ///< how C++ builds it (AdtCtorForm); one writer, EnumLayoutLowering.
     /// The variant's value: its discriminant's, else the previous variant's
     /// plus one, else 0 for the first, so an ADT's variants are their
     /// positions. One writer: StmtTyping::traverse_enum_variant_decl, in
@@ -1267,6 +1288,7 @@ class EnumVariantDecl derives Decl {
         node->name   = name;
         node->index  = index;
         node->adt_member = &null;
+        node->adt_ctor   = AdtCtorForm::Lambda;
         node->value      = IntConst{};
         return node;
     }

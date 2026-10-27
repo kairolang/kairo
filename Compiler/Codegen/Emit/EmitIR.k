@@ -2232,7 +2232,9 @@ class EmitIR {
     }
 
     /// An ADT variant built in place: the enum's tagged constructor,
-    /// `T(::__kairo_vt<I>{})` for a variant without a payload, and otherwise
+    /// `T(::__kairo_vt<I>{})` for a variant without a payload, the field
+    /// constructor `T{::__kairo_vt<I>{}, f0, f1}` where the variant's
+    /// AdtCtorForm gives one, and otherwise
     ///
     ///   T(::__kairo_vt<I>{}, [&]() noexcept -> P { return { f0, f1 }; })
     ///
@@ -2251,6 +2253,18 @@ class EmitIR {
         var tag = "::" + LowerTargets::adt_variant_tag() + "<" + f"{n->variant}" + ">{}";
         if v->payload.size() == 0 {
             self._cg->sink->spell(n->range, t + "(" + tag + ")");
+            return;
+        }
+        // The field constructor, braced: a braced list runs its clauses left
+        // to right even when it calls a constructor, so the payload's order
+        // is the lambda form's (SequenceLowering's contract).
+        if (v->adt_ctor == AdtCtorForm::Fields) || ((v->adt_ctor == AdtCtorForm::Both) && n->field_ctor) {
+            self._cg->sink->spell(n->range, t + "{" + tag);
+            for var i: usize = 0; i < n->fields.size(); ++i {
+                self._cg->sink->spell(n->range, ",");
+                self._value(n->fields[i], v->payload[i]->type_);
+            }
+            self._cg->sink->spell(n->range, "}");
             return;
         }
         var leaf = LowerTargets::adt_payload_type(self._spell.leaf(static_cast::<*Decl>(v)));
