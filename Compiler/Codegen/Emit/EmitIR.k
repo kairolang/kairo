@@ -226,19 +226,7 @@ class EmitIR {
         for var i: usize = 0; i < tu->panic_sites.size(); ++i {
             var r = tu->panic_sites[i];
             var lc = sm->get_line_col(r.at);
-            var path = sm->get_filename(r.at);
-            var lit = "\"";
-            for var j: usize = 0; j < path.size(); ++j {
-                var b = u8(path[j]);
-                if b == 0x22 { lit += "\\\""; continue; }
-                if b == 0x5c { lit += "\\\\"; continue; }
-                if (b >= 0x20) && (b < 0x7f) { lit += static_cast::<char>(b); continue; }
-                lit += "\\";
-                lit += static_cast::<char>('0' + ((b >> 6) & 7));
-                lit += static_cast::<char>('0' + ((b >> 3) & 7));
-                lit += static_cast::<char>('0' + (b & 7));
-            }
-            lit += "\"";
+            var lit = CXXSpell::c_string(sm->get_filename(r.at));
             self._cg->sink->spell(at, "[[gnu::used, gnu::section(\"" + sec + "\")]] static const ::" + st + " " + LowerTargets::panic_site_record(r.key)
                 + " = { " + f"{r.id}" + "u, " + f"{lc.line}" + "u, " + f"{lc.column}" + "u, " + lit + " };");
         }

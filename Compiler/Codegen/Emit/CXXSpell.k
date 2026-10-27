@@ -161,6 +161,25 @@ class CXXSpell {
         return tu->fid;
     }
 
+    /// \p s as a C++ narrow string literal, quotes included: printable ASCII
+    /// as it is, a quote and a backslash escaped, every other byte octal (three digits,
+    /// so a following digit is never read into it).
+    static fn c_string(s: string) -> string {
+        var lit = "\"";
+        for var j: usize = 0; j < s.size(); ++j {
+            var b = u8(s[j]);
+            if b == 0x22 { lit += "\\\""; continue; }
+            if b == 0x5c { lit += "\\\\"; continue; }
+            if (b >= 0x20) && (b < 0x7f) { lit += static_cast::<char>(b); continue; }
+            lit += "\\";
+            lit += static_cast::<char>('0' + ((b >> 6) & 7));
+            lit += static_cast::<char>('0' + ((b >> 3) & 7));
+            lit += static_cast::<char>('0' + (b & 7));
+        }
+        lit += "\"";
+        return lit;
+    }
+
     /// Where a declaration's C++ tokens are anchored: its name token, or for
     /// an operator (whose `name` is a default Token) the span of its operator
     /// tokens, `[` through `]` for `op []`. op_token always has an element.

@@ -124,6 +124,12 @@ class InterfaceEmitter {
     pub var have_pack_union: bool = false;
     pub var have_panic_helpers: bool = false;
     pub var have_site_type: bool = false;
+    pub var have_panic_api: bool = false;
+    /// The host C++ TU compiles with exceptions (a kcc include: its
+    /// LangOptions), so it gets the throwing half of the C++ view
+    /// (_panic_api). A header decides with `#if __cpp_exceptions`; an
+    /// object's own TU never throws and never gets it.
+    pub var cxx_exceptions: bool = false;
     /// The `__kairo_tid` specializations already written into this C++ TU
     /// (their keys): a token stream carries no guard, so a kcc include
     /// chain carries this from one include to the next (IncludedDecls).
@@ -294,16 +300,12 @@ class InterfaceEmitter {
         }
 
         // The record type of the TU's panic site table (EmitIR::_panic_sites,
-        // PANIC.md §1.4), when it has sites.
+        // PANIC.md §1.4), when it has sites. The C++ view reads the table too
+        // (_panic_api writes it then).
         if (!self.have_site_type) && (self._cg->tu->panic_sites.size() > 0) {
-            var u = builtin_info(BuiltinKind::U32)->cxx;
             self._cg->sink->unanchored(true);
-            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_site_guard()); }
-            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_site_guard()); }
-            self._cg->sink->spell(self._tu_at(), "struct " + LowerTargets::panic_site_type() + " { " + u + " id; " + u + " line; " + u + " col; const char* file; };");
-            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._site_type(header);
             self._cg->sink->unanchored(false);
-            self.have_site_type = true;
         }
 
         var i: usize = 0;
@@ -346,6 +348,15 @@ class InterfaceEmitter {
             self._ns_close(opened);
         }
 
+        // The C++ view of a panic result (_panic_api), after the forward
+        // declarations: its templates name the Panic lang item.
+        if (!self.have_panic_api) && (self._panic_enum_defined() != &null) {
+            self._cg->sink->unanchored(true);
+            self._panic_api(self._panic_enum_defined(), header);
+            self._cg->sink->unanchored(false);
+            self.have_panic_api = true;
+        }
+
         // Each type-id-tagged instance's element ids (_type_id_specs), at
         // global scope after the forward declarations they name and before
         // any definition or body could use one.
@@ -369,6 +380,7 @@ class InterfaceEmitter {
                 var opened = self._ns_open(e->decl, e->scope->ns, false);
                 self._scope_def(e->scope);
                 self._ns_close(opened);
+                self._scope_panic_msg(e->scope);
                 continue;
             }
             if e->witness != &null {
@@ -1221,6 +1233,232 @@ class InterfaceEmitter {
             + "else if constexpr (__is_same(V, void)) { f(static_cast<A&&>(a)...); return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return {}; }); } "
             + "else { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { return { f(static_cast<A&&>(a)...) }; }); } }");
         self._cg->sink->brk();
+    }
+
+    /// `struct __kairo_panic_site`, the record of the panic site table, once
+    /// per C++ TU (a header guards it).
+    priv fn _site_type(self, header: bool) {
+        if self.have_site_type { return; }
+        var u = builtin_info(BuiltinKind::U32)->cxx;
+        if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::panic_site_guard()); }
+        if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::panic_site_guard()); }
+        self._cg->sink->spell(self._tu_at(), "struct " + LowerTargets::panic_site_type() + " { " + u + " id; " + u + " line; " + u + " col; const char* file; };");
+        if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+        self.have_site_type = true;
+    }
+
+    /// The C++ view of a panic result (PANIC.md §4.6): what a C++ caller of
+    /// a panicking Kairo function gets, as free templates in `::builtin`
+    /// (class text must be one text everywhere, so nothing is a member).
+    ///
+    ///   type_id<E>, panic_set<P> (value_type, types, size, payload_offset:
+    ///   ONE partial specialization over the lang item, as `__kairo_fwd` is
+    ///   one template, never a specialization per instance), ok, value,
+    ///   is<E>, error<E>, site -- all `noexcept`, no exception needed;
+    ///
+    ///   panic_error_base (a std::exception), panic_error<E> (its `error`),
+    ///   value_or_throw -- only where the C++ compiles with exceptions: a
+    ///   header under `#if __cpp_exceptions`, a kcc include when its host
+    ///   has them (cxx_exceptions). clang rejects a `throw` at a template's
+    ///   definition, not its use, so the half is left out, not guarded.
+    ///
+    /// error<E> reads E's element the way `__kairo_fwd_k` does
+    /// (`__kairo_pidx`, `__kairo_get<K>`), never at a byte offset. site()
+    /// and what() search the linker-collected site table (§1.4): records
+    /// equal in all four fields are one site (a kcc include writes a site
+    /// into every TU that includes it); one id at two places is printed
+    /// whole, ` | `-separated. what() is built ONCE, when the exception is
+    /// constructed, into a reference-counted buffer the copies share.
+    priv fn _panic_api(self, en: *EnumDecl, header: bool) {
+        var at  = self._tu_at();
+        var u   = builtin_info(BuiltinKind::U32)->cxx;
+        var sz  = "decltype(sizeof(0))";
+        var st  = "::" + LowerTargets::panic_site_type();
+        var pn  = self._spell->qual_name(static_cast::<*Decl>(en));
+        var pt  = pn + "<T, E...>";
+        var tag = LowerTargets::adt_tag_field();
+        var tt  = LowerTargets::adt_tag_type();
+        var get = LowerTargets::adt_pack_get();
+        var px  = "::" + LowerTargets::panic_elem_index();
+        var tid = "::" + LowerTargets::type_id();
+        var npos = "static_cast<" + u + ">(-1)";
+        var ok: *EnumVariantDecl  = &null;
+        var err: *EnumVariantDecl = &null;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var v = en->variants[i];
+            if v->is_pack_expansion { err = v; }
+            else if ok == &null { ok = v; }
+        }
+        if (ok == &null) || (err == &null) || (ok->adt_member == &null) || (err->adt_member == &null) || (en->adt_site_field == &null) {
+            self._ice(self._at(static_cast::<*Decl>(en)), "InterfaceEmitter: the Panic lang item without its Ok, pack Err and site; lang_item.k pins the shape");
+        }
+        var site = self._spell->leaf(static_cast::<*Decl>(en->adt_site_field));
+        var okn  = self._spell->leaf(static_cast::<*Decl>(ok));
+        var okv  = self._spell->leaf(static_cast::<*Decl>(ok->adt_member)) + "." + self._spell->leaf(static_cast::<*Decl>(ok->payload[0]));
+        var erm  = self._spell->leaf(static_cast::<*Decl>(err->adt_member));
+        var erf  = self._spell->leaf(static_cast::<*Decl>(err->payload[0]));
+        var api  = LowerTargets::panic_api_ns();
+        var im   = LowerTargets::panic_api_impl();
+        var ss   = "::" + api + "::" + LowerTargets::panic_api_source_site();
+        var b0   = LowerTargets::panic_sites_begin_sym();
+        var b1   = LowerTargets::panic_sites_end_sym();
+        var fmt  = "";
+        var ci   = self._cg->ctx->ci;
+        if ci != &null { fmt = ci->target.object_format; }
+
+        if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::panic_api_guard()); }
+        if header { self._cg->sink->directive(at, "#define " + LowerTargets::panic_api_guard()); }
+        self._site_type(header);
+        // The table's bounds. ELF: the linker's __start_/__stop_, weak so a
+        // program with no site links. Mach-O: section$start/end. Any other
+        // format has none here yet (ticketed): no site is ever found.
+        if (fmt == "ELF") || (fmt.size() == 0) {
+            self._cg->sink->spell(at, "extern \x22" + "C\x22 { [[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_start() + "[]; "
+                + "[[gnu::weak]] extern const " + st + " " + LowerTargets::panic_sites_stop() + "[]; }");
+            b0 = LowerTargets::panic_sites_start();
+            b1 = LowerTargets::panic_sites_stop();
+        } else if fmt == "Mach-O" {
+            self._cg->sink->spell(at, "extern const " + st + " " + b0 + "[] __asm(\x22" + LowerTargets::panic_sites_start_macho() + "\x22);");
+            self._cg->sink->spell(at, "extern const " + st + " " + b1 + "[] __asm(\x22" + LowerTargets::panic_sites_stop_macho() + "\x22);");
+        } else {
+            b0 = "nullptr";
+            b1 = "nullptr";
+        }
+        self._cg->sink->brk();
+        self._cg->sink->spell(at, "template <class E> struct " + LowerTargets::panic_msg_trait() + ";");
+        self._cg->sink->brk();
+
+        var cnt = "unsigned long";
+        var s = "namespace " + api + " { ";
+        s += "template <class E> inline constexpr " + u + " " + LowerTargets::panic_api_type_id() + " = " + tid + "<E>; ";
+        s += "template <class... E> struct " + LowerTargets::panic_api_types() + " {}; ";
+        s += "template <class P> struct " + LowerTargets::panic_api_set() + "; ";
+        s += "template <class T, class... E> struct " + LowerTargets::panic_api_set() + "<" + pt + "> { using value_type = T; using types = ::" + api + "::" + LowerTargets::panic_api_types() + "<E...>; "
+           + "static constexpr " + u + " size = sizeof...(E); static constexpr " + u + " payload_offset = " + pt + "::" + LowerTargets::adt_payload_offset() + "; }; ";
+        s += "struct " + LowerTargets::panic_api_source_site() + " { const char* file; " + u + " line; " + u + " col; }; ";
+        // The machinery: the table walk and what()'s text, sized by a first
+        // pass with no buffer (o null) and written by a second.
+        s += "struct " + im + " { ";
+        s += "static const " + st + "* first() noexcept { return " + b0 + "; } ";
+        s += "static const " + st + "* last() noexcept { return " + b1 + "; } ";
+        s += "static " + ss + " site_of(" + u + " id) noexcept { if (id != 0) { for (const " + st + "* r = first(); r != last(); ++r) { if (r->id == id) { return " + ss + "{r->file, r->line, r->col}; } } } return " + ss + "{nullptr, 0, 0}; } ";
+        s += "static " + sz + " put(char* o, " + sz + " n, const char* x, " + sz + " k) noexcept { if (o) { for (" + sz + " i = 0; i < k; ++i) { o[n + i] = x[i]; } } return n + k; } ";
+        s += "static " + sz + " putu(char* o, " + sz + " n, " + u + " v) noexcept { char b[10]; int k = 0; do { b[k++] = static_cast<char>(48 + v % 10); v /= 10; } while (v); "
+           + "while (k) { if (o) { o[n] = b[k - 1]; } ++n; --k; } return n; } ";
+        s += "static " + sz + " len(const char* x) noexcept { " + sz + " n = 0; while (x[n]) { ++n; } return n; } ";
+        s += "static bool same(const " + st + "* a, const " + st + "* b) noexcept { if ((a->line != b->line) || (a->col != b->col)) { return false; } "
+           + "const char* x = a->file; const char* y = b->file; while (*x && (*x == *y)) { ++x; ++y; } return *x == *y; } ";
+        s += "static " + sz + " text(char* o, const unsigned char* m, " + sz + " ml, bool hm, const char* name, " + u + " site) noexcept { " + sz + " n = 0; "
+           + "if (hm) { n = put(o, n, reinterpret_cast<const char*>(m), ml); n = put(o, n, \x22 [\x22, 2); } "
+           + "n = put(o, n, name, len(name)); bool one = true; "
+           + "if (site != 0) { for (const " + st + "* r = first(); r != last(); ++r) { if (r->id != site) { continue; } bool dup = false; "
+           + "for (const " + st + "* q = first(); q != r; ++q) { if ((q->id == site) && same(q, r)) { dup = true; break; } } if (dup) { continue; } "
+           + "n = one ? put(o, n, \x22 at \x22, 4) : put(o, n, \x22 | \x22, 3); one = false; "
+           + "n = put(o, n, r->file, len(r->file)); n = put(o, n, \x22:\x22, 1); n = putu(o, n, r->line); n = put(o, n, \x22:\x22, 1); n = putu(o, n, r->col); } } "
+           + "if (hm) { n = put(o, n, \x22]\x22, 1); } return n; } ";
+        s += "}; ";
+        s += "template <class T, class... E> bool " + LowerTargets::panic_api_ok() + "(const " + pt + "& p) noexcept { return p." + tag + " == " + pt + "::" + tt + "::" + okn + "; } ";
+        s += "template <class T, class... E> auto& " + LowerTargets::panic_api_value() + "(" + pt + "& p) noexcept { return p." + okv + "; } ";
+        s += "template <class T, class... E> const auto& " + LowerTargets::panic_api_value() + "(const " + pt + "& p) noexcept { return p." + okv + "; } ";
+        s += "template <class X, class T, class... E> bool " + LowerTargets::panic_api_is() + "(const " + pt + "& p) noexcept { "
+           + "if constexpr (" + px + "<X>(static_cast<" + pt + "*>(nullptr)) == " + npos + ") { return false; } "
+           + "else { return static_cast<" + u + ">(p." + tag + ") == " + tid + "<X>; } } ";
+        var nin = "static_assert(J != " + npos + ", \x22::" + api + "::" + LowerTargets::panic_api_error() + "<E>: E is not in this panic set\x22); ";
+        s += "template <class X, class T, class... E> X& " + LowerTargets::panic_api_error() + "(" + pt + "& p) noexcept { "
+           + "constexpr " + u + " J = " + px + "<X>(static_cast<" + pt + "*>(nullptr)); " + nin + "return p." + erm + ".template " + get + "<J>()." + erf + "; } ";
+        s += "template <class X, class T, class... E> const X& " + LowerTargets::panic_api_error() + "(const " + pt + "& p) noexcept { "
+           + "constexpr " + u + " J = " + px + "<X>(static_cast<" + pt + "*>(nullptr)); " + nin + "return p." + erm + ".template " + get + "<J>()." + erf + "; } ";
+        s += "template <class T, class... E> " + ss + " " + LowerTargets::panic_api_site() + "(const " + pt + "& p) noexcept { return " + im + "::site_of(p." + site + "); } ";
+        s += "}";
+        self._cg->sink->spell(at, s);
+        self._cg->sink->brk();
+
+        // The throwing half.
+        var throwing = header || self.cxx_exceptions;
+        if throwing {
+            if header { self._cg->sink->directive(at, "#if __cpp_exceptions"); }
+            self._cg->sink->system_header(at, "exception");
+            var eb  = LowerTargets::panic_api_error_base();
+            var et  = LowerTargets::panic_api_error_type();
+            var w   = LowerTargets::panic_api_text();
+            var bld = LowerTargets::panic_api_build();
+            var drp = LowerTargets::panic_api_drop();
+            var th  = LowerTargets::panic_api_throw();
+            var nm  = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name();
+            var sd  = LangMembers::string_data();
+            var sl  = LangMembers::string_len();
+            // No `: ::name` anywhere: a header's text sink writes no space
+            // between tokens, and `:::` lexes as `::` `:`. The base is
+            // default-built in the copy (std::exception holds nothing).
+            // The memory orders by value (relaxed 0, acq_rel 4): a kcc
+            // include's tokens are past the preprocessor, so the
+            // __ATOMIC_* macros would not expand.
+            var t = "namespace " + api + " { ";
+            t += "struct " + eb + " : public ::std::exception { " + u + " type; " + u + " site; ";
+            t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { __atomic_fetch_add(" + w + ", 1, 0); } } ";
+            t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { __atomic_fetch_add(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } ";
+            t += "~" + eb + "() override { " + drp + "(); } ";
+            t += "const char* what() const noexcept override { return " + w + " ? reinterpret_cast<const char*>(" + w + " + 1) : \x22\x22; } ";
+            t += "protected: " + eb + "(" + u + " t, " + u + " s) noexcept : type(t), site(s) {} ";
+            t += cnt + "* " + w + " = nullptr; ";
+            t += "void " + drp + "() noexcept { if (" + w + " && (__atomic_sub_fetch(" + w + ", 1, 4) == 0)) { __builtin_free(" + w + "); } " + w + " = nullptr; } ";
+            t += "void " + bld + "(const unsigned char* m, " + sz + " ml, bool hm, const char* name) noexcept { "
+               + sz + " n = ::" + api + "::" + im + "::text(nullptr, m, ml, hm, name, site); "
+               + w + " = static_cast<" + cnt + "*>(__builtin_malloc(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; "
+               + "char* o = reinterpret_cast<char*>(" + w + " + 1); ::" + api + "::" + im + "::text(o, m, ml, hm, name, site); o[n] = 0; } ";
+            t += "}; ";
+            t += "template <class E> struct " + et + " : public ::" + api + "::" + eb + " { E " + LowerTargets::panic_api_error() + "; ";
+            t += "template <class A> " + et + "(A&& e, " + u + " s) noexcept : " + eb + "(" + tid + "<E>, s), " + LowerTargets::panic_api_error() + "(static_cast<A&&>(e)) { "
+               + "const E& x = this->" + LowerTargets::panic_api_error() + "; "
+               + "if constexpr (requires (const E& y) { y." + LowerTargets::op_panic() + "(); }) { auto m = x." + LowerTargets::op_panic() + "(); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } "
+               + "else if constexpr (requires (const E& y) { ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(y); }) { "
+               + "auto m = ::" + LowerTargets::panic_msg_trait() + "<E>::" + LowerTargets::panic_msg_get() + "(x); this->" + bld + "(m." + sd + ", m." + sl + ", true, " + nm + "); } "
+               + "else { this->" + bld + "(nullptr, 0, false, " + nm + "); } } }; ";
+            // The error the result holds, thrown as panic_error<X>: moved
+            // out of an rvalue result, copied out of an lvalue one.
+            t += "struct " + th + " { ";
+            t += "template <" + u + " K, bool M, class T, class... E> [[noreturn]] static void raise(" + pt + "& p) { using X = __type_pack_element<K, E...>; "
+               + "if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(p." + tag + ") != " + tid + "<X>) { raise<K + 1, M>(p); } } "
+               + "if constexpr (M) { throw ::" + api + "::" + et + "<X>(static_cast<X&&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } "
+               + "else { throw ::" + api + "::" + et + "<X>(static_cast<const X&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } } ";
+            t += "template <bool M, class T, class... E> static T value(" + pt + "& p) { "
+               + "if (p." + tag + " != " + pt + "::" + tt + "::" + okn + ") { if constexpr (sizeof...(E) > 0) { raise<0, M>(p); } else { __builtin_unreachable(); } } "
+               + "if constexpr (!__is_same(T, void)) { if constexpr (M) { return static_cast<T&&>(p." + okv + "); } else { return p." + okv + "; } } } ";
+            t += "}; ";
+            t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(" + pt + "&& p) { return " + th + "::template value<true>(p); } ";
+            t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(const " + pt + "& p) { return " + th + "::template value<false>(const_cast<" + pt + "&>(p)); } ";
+            t += "}";
+            self._cg->sink->spell(at, t);
+            self._cg->sink->brk();
+            if header { self._cg->sink->directive(at, "#endif"); }
+        }
+        if header { self._cg->sink->directive(at, "#endif"); }
+    }
+
+    /// An extension's `op panic` (PANIC.md §1.5) as the C++ view reads it:
+    /// `__kairo_pmsg<T>::get(e)`, which calls the scope's static member. A
+    /// type's own `op panic` is a member the C++ view finds by itself; an
+    /// extension's lives in a scope only Kairo can name. At global scope,
+    /// after the scope's definition. A generic target's member is a
+    /// template, which no specialization of one type can name: left out
+    /// (what() falls back to the type name).
+    priv fn _scope_panic_msg(self, sc: *ExtScope) {
+        for var i: usize = 0; i < sc->members.size(); ++i {
+            var m = sc->members[i];
+            if (!m->is_operator) || (m->op_token.size() != 1) || (m->op_token[0].kind != TokenKind::KwPanic) { continue; }
+            if self._spell->template_head(static_cast::<*Decl>(m)).size() != 0 { continue; }
+            var ty = "";
+            if sc->target_ty != &null { ty = self._spell->_type(sc->target_ty); }
+            else if (sc->target != &null) && (self._spell->template_head(sc->target).size() == 0) { ty = self._spell->qual_name(sc->target); }
+            if ty.size() == 0 { continue; }
+            var at = self._at(static_cast::<*Decl>(m));
+            var pm = LowerTargets::panic_msg_trait();
+            // A template, so its body (which returns a `string`) is compiled
+            // where it is used: the string may still be incomplete here.
+            self._cg->sink->spell(at, "template <class E> struct " + pm + "; template <> struct " + pm + "<" + ty + "> { template <class X = " + ty + "> static auto "
+                + LowerTargets::panic_msg_get() + "(const X& e) noexcept { return " + self._scope_qual(sc) + "::" + LowerTargets::op_panic() + "(e); } };");
+            self._cg->sink->brk();
+        }
     }
 
     /// The Panic lang item, when a plan entry defines it here: an ADT with
@@ -2369,6 +2607,7 @@ class InterfaceEmitter {
         var is_conv = m->is_operator && (m->op_token[0].kind == TokenKind::KwAs);
         var is_method = m->is_method();
 
+        if m->panic_result != &null { s += "[[nodiscard]] "; }   // PANIC.md §4.6, as _free_fn_text.
         if (!is_method) && (!is_ctor) && !is_dtor { s += "static "; }
         if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual) { s += "virtual "; }
         if m->is_noreturn { s += "[[noreturn]] "; }
@@ -2422,6 +2661,9 @@ class InterfaceEmitter {
         // The attribute leads the decl-specifiers; between `static` and the
         // type it is ill-formed.
         if f->is_noreturn { s += "[[noreturn]] "; }
+        // A panic result is the error (PANIC.md §4.6): a C++ caller that drops
+        // it drops the error with it.
+        if f->panic_result != &null { s += "[[nodiscard]] "; }
         if ext != &null { s += "static "; }
         if f->is_eval() { s += "consteval "; }   // EVAL.md 1.1
         s += self._ret(f);
@@ -2661,8 +2903,12 @@ class InterfaceEmitter {
             var g = LowerTargets::type_id_guard(key);
             if header { self._cg->sink->directive(self._at(d), "#ifndef " + g); }
             if header { self._cg->sink->directive(self._at(d), "#define " + g); }
+            // Its Kairo name too, what the C++ view's what() prints (PANIC.md
+            // §4.6): one text per element, so every TU's specialization agrees.
+            var nm = ("") if (i >= ie->type_names.size()) else (ie->type_names[i]);
             self._cg->sink->spell(self._at(d), "template <> struct " + LowerTargets::type_id_trait() + "<" + self._spell->_type(ie->args[p + i])
-                                  + "> { static constexpr " + u + " value = 0x" + hex32(ie->type_ids[i]) + "u; };");
+                                  + "> { static constexpr " + u + " value = 0x" + hex32(ie->type_ids[i]) + "u; "
+                                  + "static constexpr const char* " + LowerTargets::type_id_name() + " = " + CXXSpell::c_string(nm) + "; };");
             if header { self._cg->sink->directive(self._at(d), "#endif"); }
         }
     }

@@ -466,6 +466,25 @@ node in the tree -- is wrapped where it is converted
 (`EmitIR::_fn_effect_value`): an owned lambda holding the value and
 returning `__kairo_pcall<R'>` of the call.
 
+The C++ view of a panic result (PANIC.md §4.6, P7) is preamble text too,
+written after tier 0 wherever the Panic lang item is defined
+(`InterfaceEmitter::_panic_api`, `__KAIRO_PANIC_API` in a header): in
+`::builtin`, `type_id<E>`, ONE partial specialization `panic_set<Panic<T,
+E...>>` (value_type, types, size, payload_offset), `ok`, `value`,
+`is<E>`, `error<E>` (by `__kairo_pidx` / `__kairo_get<K>`, never a byte
+offset), `site` (a search of the site table, whose bounds are the
+linker's `__start_`/`__stop_` symbols, weak, on ELF), and, only where the
+C++ compiles with exceptions -- a header under `#if __cpp_exceptions`, a
+kcc include when its host's LangOptions have them, never an object's own
+TU -- `panic_error_base`, `panic_error<E>` and `value_or_throw`. Each
+`__kairo_tid<E>` specialization also carries E's Kairo `name`; an
+`extend`'s `op panic` gets `__kairo_pmsg<T>` after its scope. A panicking
+function's declaration is `[[nodiscard]]`. A panic result's elements are
+admitted Complete wherever the result is named (EmitPlan::_arg_by_value
+and _admit_instance), so a header declaring `Panic<T, E...> f()` includes
+every E's header; its instance is `extern template` there as every
+instance is, homed in one object.
+
 The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
 1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
 eight more roles (AdtRole::NullDefault on, `InterfaceEmitter::

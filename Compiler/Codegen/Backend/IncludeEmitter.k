@@ -61,6 +61,7 @@ class IncludedDecls {
     pub var pack_union: bool = false;    ///< InterfaceEmitter::have_pack_union
     pub var panic_helpers: bool = false; ///< InterfaceEmitter::have_panic_helpers
     pub var site_type:  bool = false;    ///< InterfaceEmitter::have_site_type
+    pub var panic_api:  bool = false;    ///< InterfaceEmitter::have_panic_api
     pub var tid_seen:   vec::<u64>;      ///< InterfaceEmitter::tid_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
@@ -77,8 +78,17 @@ class IncludedDecls {
     fn IncludedDecls(self) { }
 
     fn clear(self) {
+        // Every flag: the next host TU has none of what this one was given.
         self.helpers    = false;
         self.ctor_slots = false;
+        self.fn_value   = false;
+        self.eval_helpers = false;
+        self.niche_helpers = false;
+        self.pack_union = false;
+        self.panic_helpers = false;
+        self.site_type  = false;
+        self.panic_api  = false;
+        self.tid_seen.clear();
         self._keys.clear();
         self._scopes.clear();
         self._bodies.clear();
@@ -246,6 +256,10 @@ class IncludeEmitter {
         ie.have_pack_union = seen->pack_union;
         ie.have_panic_helpers = seen->panic_helpers;
         ie.have_site_type = seen->site_type;
+        ie.have_panic_api = seen->panic_api;
+        // The C++ view's throwing half needs the host's exceptions on: clang
+        // rejects a `throw` in a template it only defines.
+        ie.cxx_exceptions = static_cast::<bool>(ci->getLangOpts().CXXExceptions);
         for var k: usize = 0; k < seen->tid_seen.size(); ++k { ie.tid_seen.push_back(seen->tid_seen[k]); }
         for var k: usize = 0; k < pruned.size(); ++k { ie.pruned_insts.push_back(pruned[k]); }
         ie.run();
@@ -257,6 +271,7 @@ class IncludeEmitter {
         seen->pack_union = ie.have_pack_union;
         seen->panic_helpers = ie.have_panic_helpers;
         seen->site_type = ie.have_site_type;
+        seen->panic_api = ie.have_panic_api;
         seen->tid_seen.clear();
         for var k: usize = 0; k < ie.tid_seen.size(); ++k { seen->tid_seen.push_back(ie.tid_seen[k]); }
 

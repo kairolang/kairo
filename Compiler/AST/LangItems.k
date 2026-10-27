@@ -764,6 +764,43 @@ class LowerTargets {
     static fn panic_site_record(key: u64) -> string  { return "__kairo_ps_" + hex64(key); }
     static fn panic_sites_section() -> string        { return "__kairo_panic_sites"; }
     static fn panic_sites_section_macho() -> string  { return "__DATA,__kairo_psite"; }
+    /// The table's bounds, which the linker defines: `__start_<section>` /
+    /// `__stop_<section>` on ELF (declared weak, so a program with no site
+    /// still links), `section$start$__DATA$__kairo_psite` on Mach-O.
+    static fn panic_sites_start() -> string          { return "__start_" + LowerTargets::panic_sites_section(); }
+    static fn panic_sites_stop() -> string           { return "__stop_" + LowerTargets::panic_sites_section(); }
+    static fn panic_sites_start_macho() -> string    { return "section$start$__DATA$__kairo_psite"; }
+    static fn panic_sites_stop_macho() -> string     { return "section$end$__DATA$__kairo_psite"; }
+    static fn panic_sites_begin_sym() -> string      { return "__kairo_psites_begin"; }
+    static fn panic_sites_end_sym() -> string        { return "__kairo_psites_end"; }
+    /// The C++ view of a panic result (PANIC.md §4.6), for C++ code calling
+    /// Kairo: free templates in `::builtin`, beside `::builtin::null`. Each
+    /// public name is the documented API (c-cpp-exceptions.mdx); the
+    /// `__kairo_` ones are its machinery. `__kairo_tid<E>::name` is E's
+    /// Kairo name, what `what()` prints; `__kairo_pmsg<E>::get(e)` is an
+    /// `extend`'s `op panic` (a type's own is the member `__kairo_op_panic`).
+    static fn panic_api_ns() -> string               { return "builtin"; }
+    static fn panic_api_guard() -> string            { return "__KAIRO_PANIC_API"; }
+    static fn panic_api_ok() -> string               { return "ok"; }
+    static fn panic_api_value() -> string            { return "value"; }
+    static fn panic_api_is() -> string               { return "is"; }
+    static fn panic_api_error() -> string            { return "error"; }
+    static fn panic_api_site() -> string             { return "site"; }
+    static fn panic_api_source_site() -> string      { return "source_site"; }
+    static fn panic_api_type_id() -> string          { return "type_id"; }
+    static fn panic_api_set() -> string              { return "panic_set"; }
+    static fn panic_api_types() -> string            { return "panic_types"; }
+    static fn panic_api_error_type() -> string       { return "panic_error"; }
+    static fn panic_api_error_base() -> string       { return "panic_error_base"; }
+    static fn panic_api_value_or_throw() -> string   { return "value_or_throw"; }
+    static fn panic_api_impl() -> string             { return "__kairo_papi"; }
+    static fn panic_api_throw() -> string            { return "__kairo_pthrow"; }
+    static fn panic_api_text() -> string             { return "__kairo_what"; }
+    static fn panic_api_build() -> string            { return "__kairo_build"; }
+    static fn panic_api_drop() -> string             { return "__kairo_drop"; }
+    static fn type_id_name() -> string               { return "name"; }
+    static fn panic_msg_trait() -> string            { return "__kairo_pmsg"; }
+    static fn panic_msg_get() -> string              { return "get"; }
     /// A prefix-tagged ADT's union member holding only the tag, and its type
     /// (EnumDecl::adt_tag_member): the tag is read through it.
     static fn adt_tag_member() -> string             { return "__kairo_t"; }

@@ -295,6 +295,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _specs_after_primary(self, v: *vec::<PlanEntry>);
     fn adt_record(self, d: *Decl) -> *Decl;
     fn anon_union_of(self, f: *FieldDecl) -> *UnionDecl;
+    fn _arg_by_value(self, prim: *Decl, i: usize) -> bool;
     fn param_by_value(self, prim: *Decl, idx: u32) -> bool;
     fn _param_by_value_walk(self, prim: *Decl, idx: u32) -> bool;
     fn _edges_reach_param(self, list: *FrozenList::<InheritEdge>, prim: *Decl, idx: u32) -> bool;
@@ -1408,9 +1409,15 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     // C++ inline body), so every one needs the specializations its bounds
     // bind, or it compiles the primary instead (CODEGEN.md §7b.6).
     for var i: usize = 0; i < e->rows.size(); ++i { self._witness_row(e->rows[i]); }
+    // A panic result's elements are complete wherever it is named, even
+    // where a declaration only names it (a header's `Panic<T, E...> f()`):
+    // its tier-3 line asserts its size, and a C++ caller receives it by
+    // value and reads its error (PANIC.md §4.6).
+    var en = dyn_cast::<EnumDecl>(prim);
+    var whole = (en != &null) && en->adt_explicit_tags;
     for var i: usize = 0; i < e->args.size(); ++i {
-        var n = need;
-        if !self.param_by_value(prim, static_cast::<u32>(i)) { n = PlanNeed::Fwd; }
+        var n = (PlanNeed::Complete) if (whole) else (need);
+        if !self._arg_by_value(prim, i) { n = PlanNeed::Fwd; }
         self._admit_type(e->args[i], n);
     }
     // Laid out by a partial specialization: what IT holds by value is what
@@ -1441,7 +1448,7 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
                 self._admit(d, need);
                 for var i: usize = 0; i < r->args.size(); ++i {
                     var n = need;
-                    if !self.param_by_value(d, static_cast::<u32>(i)) { n = PlanNeed::Fwd; }
+                    if !self._arg_by_value(d, i) { n = PlanNeed::Fwd; }
                     self._admit_type(*(r->args.get(i)), n);
                 }
             }
@@ -1751,6 +1758,20 @@ fn EmitPlan::anon_union_of(f: *FieldDecl) -> *UnionDecl {
 /// Recursion through another generic's field bottoms out at a depth cap
 /// and answers "by value", the safe direction (an over-strong edge can
 /// only trip the cycle assert, never miss a definition).
+/// param_by_value for argument \p i of an instance of \p prim, flat. An
+/// element of a pack-expanded variant's pack is held by value (a pack field
+/// is the pack itself, P0), in the variant's `__kairo_pu` union, which the
+/// field walk does not see through: a header declaring a function that
+/// returns `Panic<T, E...>` needs every E complete (PANIC.md §4.6).
+fn EmitPlan::_arg_by_value(prim: *Decl, i: usize) -> bool {
+    var en = dyn_cast::<EnumDecl>(prim);
+    if (en != &null) && en->is_adt {
+        var p = adt_pack_param(en);
+        if (p != usize(-1)) && (i >= p) { return true; }
+    }
+    return self.param_by_value(prim, static_cast::<u32>(i));
+}
+
 fn EmitPlan::param_by_value(prim: *Decl, idx_in: u32) -> bool {
     if prim == &null { return false; }
     // An instance's arguments past a pack's position are the pack's

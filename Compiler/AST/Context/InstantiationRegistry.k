@@ -172,6 +172,9 @@ class InstanceEntry {
     /// EnumLayoutQuery::sweep; InterfaceEmitter writes the specializations.
     pub var type_ids:          vec::<u32>;
     pub var type_keys:         vec::<u64>;
+    /// Each element's Kairo name (`ConfigError`, `i64`), the one the C++
+    /// view's `what()` prints (PANIC.md §4.6): its specialization carries it.
+    pub var type_names:        vec::<string>;
     /// Where its payloads start (the union's alignment), 0 unknown.
     pub var payload_offset:    u64 = 0;
     /// Where such an instance's set was first formed, and in which TU: the
