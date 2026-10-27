@@ -123,6 +123,10 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// Every catch arm's binding met so far (an arm is visited before its
     /// body): what a re-panic `panic e` names.
     priv var _arm_decls: llvm::DenseSet::<u64>;
+    /// The bare arms' bindings among them, and every `panic` payload met
+    /// (a statement is visited before its payload).
+    priv var _bare_decls:    llvm::DenseSet::<u64>;
+    priv var _repanic_names: llvm::DenseSet::<u64>;
     /// Every call's callee expression met so far (a call is visited before
     /// its callee): a function named there is called, not used as a value.
     priv var _callees: llvm::DenseSet::<u64>;
@@ -250,6 +254,9 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     // === payload types ========================================================
 
     fn visit_panic_stmt(self, n: *PanicStmt) -> bool {
+        // Its payload is visited after this: a bare arm's binding re-panicked
+        // is the one use that needs no type for it.
+        if n->payload != &null { self._repanic_names.insert(reinterpret_cast::<u64>(self._tu.strip_parens(n->payload))); }
         if (n->payload == &null) || n->payload->is_poisoned() { return true; }
         // `panic e` of a catch arm's binding re-panics the caught error: its
         // type was judged where it was raised (and a bare arm's binding has
@@ -269,6 +276,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         for var i: usize = 0; i < n->arms.size(); ++i {
             var arm = n->arms.get(i);
             if arm->decl != &null { self._arm_decls.insert(reinterpret_cast::<u64>(arm->decl)); }
+            if (arm->decl != &null) && (arm->filter == &null) { self._bare_decls.insert(reinterpret_cast::<u64>(arm->decl)); }
             if (arm->filter != &null) && (arm->filter->canonical != &null) && (!self._is_cxx_type(arm->filter->canonical)) {
                 self._check_payload(arm->filter->canonical, arm->filter->range, "caught");
             }
@@ -280,6 +288,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var arm = n->catch_arms.get(i);
             if arm->decl != &null { self._arm_decls.insert(reinterpret_cast::<u64>(arm->decl)); }
+            if (arm->decl != &null) && (arm->filter == &null) { self._bare_decls.insert(reinterpret_cast::<u64>(arm->decl)); }
             if (arm->filter != &null) && (arm->filter->canonical != &null) && (!self._is_cxx_type(arm->filter->canonical)) {
                 self._check_payload(arm->filter->canonical, arm->filter->range, "caught");
             }
@@ -634,6 +643,17 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     }
 
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        // A bare `catch e`'s binding holds whatever the arm caught: one of
+        // the types its `try` left. X types it as the `Panic` lang item with
+        // no arguments, which nothing can read and codegen cannot plan; its
+        // real type, `Panic<void, E...>` over what is left, needs P1's
+        // `Panic` (PANIC.md §3.6). Until then, re-panicking it is its only
+        // use (§3.4).
+        if (n->resolved_decl != &null) && self._bare_decls.contains(reinterpret_cast::<u64>(n->resolved_decl))
+        && (!self._repanic_names.contains(reinterpret_cast::<u64>(static_cast::<*Expr>(n)))) {
+            self._gate(n->range, "using a bare 'catch' arm's binding other than to re-panic it ('panic e')");
+            return true;
+        }
         if self._callees.contains(reinterpret_cast::<u64>(static_cast::<*Expr>(n))) { return true; }
         self._value_use(n->range, n->resolved_decl);
         return true;
@@ -702,6 +722,16 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
 
     /// A `fn` type has no body to infer from: its set is written (§2.2).
     fn visit_function_pointer_type(self, n: *FunctionPointerType) -> bool {
+        // A set naming a generic parameter (`fn <E> run(f: fn() panic(E))`)
+        // is per instance: deducing and checking it is P10, with M2 (§2.6).
+        for var i: usize = 0; i < n->panic_set.size(); ++i {
+            var t = n->panic_set[i];
+            if (t == &null) || (t->canonical == &null) { continue; }
+            if t->canonical->is_dependent() || t->canonical->is_instantiation_dependent() {
+                self._gate(t->range, "a 'fn' type's panic set that depends on a generic parameter");
+                return true;
+            }
+        }
         if (!n->is_panic()) || (n->panic_set.size() > 0) { return true; }
         var pr = n->qual_range(TypeQual::<Type>::Flags::IsPanic);
         self._needs_set(pr, n->range, "the panic set of a 'fn' type must be declared: 'fn(T) panic(E) -> U\x27", &null);
