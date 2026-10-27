@@ -16,9 +16,8 @@
 ///
 ///     `is_null()` is one of the members EnumLayoutLowering mints on the
 ///     Nullable lang item's layout (AdtRole::IsNull) and InterfaceEmitter
-///     writes in C++; it is found on the pattern's layout by role, as
-///     MatchLowering finds the tag field (an instance shares the pattern's
-///     layout), and called through LowerSynth::member_call, so EmitIR spells
+///     writes in C++; it is found on the pattern's layout by role (an
+///     instance shares the pattern's layout), and called through LowerSynth::member_call, so EmitIR spells
 ///     `x.is_null()` like any member call. The operand is evaluated once, as
 ///     it was written once. The `null` literal a comparison held is dropped
 ///     with the comparison, so NullableTypeLowering never sees it.

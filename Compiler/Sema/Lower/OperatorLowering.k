@@ -21,8 +21,9 @@
 ///       a < b   from op <=>  ->  ((a.op<=>(b)) as i8) < 0     the original token, against 0
 ///
 ///     An ADT's `==` (X's tag_eq: the enum declares no `op ==`) binds no
-///     operator. It is the builtin compare of the two tags, an `enum class`:
-///       a == b  on an ADT    ->  a.__kairo_tag == b.__kairo_tag     `!=` likewise
+///     operator. It compares the two values' variants, in whatever form the
+///     layout keeps them (EnumLayoutQuery::same_variant):
+///       a == b  on an ADT    ->  a's variant == b's variant     `!=` likewise
 ///
 ///     Compound assignment, one definition per pair:
 ///       a += b  with op +=   ->  a.op+=(b)
@@ -56,6 +57,7 @@ import Sema::SemaContext::*;
 import AST::OperatorFacts::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Type::TypeUtil::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
@@ -240,26 +242,23 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     // --- ADT `==` ----------------------------------------------------------------
 
-    /// `a == b` on an ADT with no `op ==` -> `a.__kairo_tag == b.__kairo_tag`,
-    /// and `!=` likewise, under the written token. The tags are an `enum
-    /// class`, which C++ compares natively, so the node built here is a
-    /// builtin operator: no resolved_op and no tag_eq, nothing for this pass
-    /// or EmitIR to rewrite. Each operand appears once, so it runs once; their
-    /// order is C++'s, as for every primitive operator (SequenceLowering
-    /// orders call arguments only). The tag field is the pattern's --
-    /// EnumLayoutLowering lays out the pattern and an instance shares it --
-    /// reached as MatchLowering reaches it, and a public member of the record.
+    /// `a == b` on an ADT with no `op ==`: the two variants compared, `!=`
+    /// likewise, under the written token. The query builds it from builtin
+    /// compares, so the node is no operator call: no resolved_op and no
+    /// tag_eq, nothing for this pass or EmitIR to rewrite. Each operand
+    /// appears once, so it runs once; their order is C++'s, as for every
+    /// primitive operator (SequenceLowering orders call arguments only). How
+    /// the variant is read is the layout's (EnumLayoutQuery), never spelled
+    /// here.
     priv fn _tag_eq(self, n: *BinaryOperatorExpr) -> *Expr {
         var tu = TypeUtil(self.sc);
         var d  = tu.record_decl(tu.as_value(n->lhs->type_));
         ICE_IF(d == &null, "OperatorLowering: tag_eq on an operand that is no record; OperatorTyping gate failure");
         var en = dyn_cast::<EnumDecl>(tu.pattern_of(d));
         ICE_IF((en == &null) || (!en->is_adt), "OperatorLowering: tag_eq on an operand that is no ADT enum; OperatorTyping gate failure");
-        var tag = en->adt_tag_field;
-        ICE_IF(tag == &null, "OperatorLowering: tag_eq on an ADT with no tag field; EnumLayoutLowering runs first");
-        var l   = self.synth.field_of(n->lhs->range, n->lhs, static_cast::<*Decl>(tag), tag->type_);
-        var r   = self.synth.field_of(n->rhs->range, n->rhs, static_cast::<*Decl>(tag), tag->type_);
-        var cmp = BinaryOperatorExpr::create(self.ctx, n->range, l, r, n->op_token);
+        var q = EnumLayoutQuery(self.sc);
+        ICE_IF(!q.has_layout(en), "OperatorLowering: tag_eq on an ADT with no layout; EnumLayoutLowering runs first");
+        var cmp = q.same_variant(n->range, n->lhs, n->rhs, en, n->op_token);
         cmp->adopt_sema(static_cast::<*Expr>(n));
         return static_cast::<*Expr>(cmp);
     }

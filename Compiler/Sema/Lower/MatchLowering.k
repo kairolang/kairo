@@ -92,6 +92,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::PatternCompilation::*;
+import Sema::Lower::EnumLayoutLowering::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
@@ -135,6 +136,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     priv var tu: TypeUtil;
     priv var ps: PatternSpace;
     priv var synth: LowerSynth;
+    priv var layout: EnumLayoutQuery;   ///< every read and test of an ADT value.
     priv var _fn_matches: usize = 0;   ///< matches lowered so far in this function.
 
     // --- one match ---------------------------------------------------------------
@@ -165,6 +167,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         self.tu    = TypeUtil(sc);
         self.ps    = PatternSpace(sc);
         self.synth = LowerSynth(sc);
+        self.layout = EnumLayoutQuery(sc);
     }
 
     fn run(self) {
@@ -408,8 +411,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             case OccKind::Field   { return self._occ_ok(u32(d.parent)); }
             case OccKind::Payload {
                 if !self._occ_ok(u32(d.parent)) { return false; }
-                var v = self._variant_of(u32(d.parent), d.index);
-                return (v != &null) && (v->adt_member != &null);
+                return self.layout.has_payload(self._enum_at(u32(d.parent)), d.index);
             }
             default { return false; }   // the root of a tuple literal: never bound, its elements are.
         }
@@ -420,7 +422,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var en = self._enum_at(o);
         if en == &null { return false; }
         if !en->is_adt { return true; }
-        return en->adt_tag_field != &null;
+        return self.layout.has_layout(en);
     }
 
     priv fn _enum_at(self, o: u32) -> *EnumDecl {
@@ -886,18 +888,17 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         out->push_back(self._dispatch(value, &cases, other));
     }
 
-    /// The switch operand for an enum: the value itself, or for an ADT its
-    /// tag as `u32` (tags are the variant positions; EnumLayoutLowering).
+    /// The switch operand for an enum: the value itself, or for an ADT the
+    /// word its layout dispatches on (EnumLayoutQuery::tag_word).
     priv fn _enum_value(self, occ: u32, en: *EnumDecl) -> *Expr {
         if !en->is_adt { return self._occ(occ); }
-        var tag = en->adt_tag_field;
-        var f = self.synth.field_of(self._at, self._occ(occ), static_cast::<*Decl>(tag), tag->type_);
-        return self.synth.cast_to(self._at, f, self._u32(), CastMode::Default);
+        return self.layout.tag_word(self._at, self._occ(occ), en);
     }
 
-    /// A case value: the enumerator, or for an ADT the tag's position.
+    /// A case value: the enumerator, or for an ADT the variant's stored
+    /// discriminant (EnumLayoutQuery::tag_case).
     priv fn _enum_case(self, en: *EnumDecl, index: u32, ty: *Type) -> *Expr {
-        if en->is_adt { return self.synth.int_literal(self._at, u64(index), BuiltinKind::U32); }
+        if en->is_adt { return self.layout.tag_case(self._at, en, index); }
         return self._decl_ref(static_cast::<*Decl>(en->variants[usize(index)]), ty);
     }
 
@@ -973,6 +974,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             case CtorKind::Variant {
                 var en = self._enum_at(occ);
+                if en->is_adt { return self.layout.variant_test(self._at, self._occ(occ), en, e.index); }
                 return self._eq(self._enum_value(occ, en), self._enum_case(en, e.index, self._occ_type(occ)));
             }
             case CtorKind::Opaque { return self._opaque_cond(occ, e.pat); }
@@ -1077,10 +1079,8 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
                 return self.synth.field_of(self._at, self._occ(u32(d.parent)), static_cast::<*Decl>(d.field), self._occ_type(o));
             }
             case OccKind::Payload {
-                var v = self._variant_of(u32(d.parent), d.index);
-                var m = v->adt_member;
-                var u = self.synth.field_of(self._at, self._occ(u32(d.parent)), static_cast::<*Decl>(m), m->type_);
-                return self.synth.field_of(self._at, u, static_cast::<*Decl>(d.field), self._occ_type(o));
+                return self.layout.field_ref(self._at, self._occ(u32(d.parent)), self._enum_at(u32(d.parent)), d.index,
+                                             d.field, self._occ_type(o));
             }
             default { 0; }
         }
