@@ -82,16 +82,16 @@ fn nested(x: i32) -> i32 {
 
 class Port {
     var n: i32
-    fn Port(self, n: i32) panic(ParseError) {
+    static fn make(n: i32) panic(ParseError) -> Port {
         if n < 0 { panic ParseError { pos: n } }
-        self.n = n
-    }
+        return Port(n) }
+    fn Port(self, n: i32) { self.n = n }
     fn op + (self, o: Port) panic(IOError) -> Port { panic IOError { code: 1 } }
     fn get(self) panic -> i32 { return read_file(self.n) }
 }
 
 fn members() -> i32 {
-    var a = Port(1)
+    var a = Port::make(1)
     var b = a + a
     return b.get()
 }
@@ -130,12 +130,12 @@ fn main() -> i32 {
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{64:24-64:24}:" catch => crash!()"
 // CHECK: unhandled.k:65:7: warning [SC001W]: this arm never runs: 'ParseError' is not in the panic set of its 'try' (this 'try' may panic only with 'IOError')
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{65:7-67:6}:""
-// CHECK: unhandled.k:94:13: error [SC001E]: unhandled panic: 'Port' may panic with 'ParseError', and 'members' is not marked 'panic'
+// CHECK: unhandled.k:94:13: error [SC001E]: unhandled panic: 'make' may panic with 'ParseError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
-// CHECK-NEXT: unhandled.k:85:5: note [SC001N]: 'Port' is declared 'panic' here
+// CHECK-NEXT: unhandled.k:85:5: note [SC001N]: 'make' is declared 'panic' here
 // CHECK-NEXT: unhandled.k:94:13: note [SC001N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:13-94:13}:"try "
-// CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:20-94:20}:" catch => crash!()"
+// CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:26-94:26}:" catch => crash!()"
 // CHECK: unhandled.k:95:13: error [SC001E]: unhandled panic: this operator may panic with 'IOError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
 // CHECK-NEXT: unhandled.k:89:5: note [SC001N]: 'op +' is declared 'panic' here

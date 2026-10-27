@@ -23,10 +23,12 @@
 ///         a `try` in (§4.5).
 ///     A set that is not known says nothing (EffectPropagation).
 ///
-///     Declaration rules: `fn main() panic`; `panic` with `-> !` (§2.8); a
-///     `panic` on what is called where no call is written -- a destructor,
-///     a transfer or default constructor, an `@implicit` conversion, `op
-///     panic` itself -- since nothing could handle it there. Every type a
+///     Declaration rules: `fn main() panic`; `panic` with `-> !` (§2.8);
+///     `panic` on ANY constructor or the destructor (USER 2026-10-27: an
+///     object is built whole or not at all; fallible construction is a
+///     static factory), and a panic escaping one's body; a `panic` on what
+///     is called where no call is written -- an `@implicit` conversion,
+///     `op panic` itself -- since nothing could handle it there. Every type a
 ///     `panic` raises, a set declares or a `catch` names must be a movable,
 ///     complete value type: not a reference, not `void` (§1.5).
 ///
@@ -108,6 +110,8 @@ enum PanicBody derives u8 {
     Field,      ///< a field's default.
     Param,      ///< a parameter's default.
     Global,     ///< a global's or a static field's initializer.
+    Ctor,       ///< a constructor's body: nothing may leave it.
+    Dtor,       ///< a destructor's body: nothing may leave it.
 }
 
 class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
@@ -206,6 +210,11 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         w.keep_sites = true;
         w.walk_fn(f);
         var kind = (PanicBody::Main) if (self._sr.is_main(static_cast::<*Decl>(f))) else (PanicBody::Fn);
+        var life = self._lifecycle_fn(f);
+        if life.size() > 0 {
+            if f->is_panic() { return true; }   // the specifier is the error; one per function.
+            kind = (PanicBody::Dtor) if (life == "a destructor") else (PanicBody::Ctor);
+        }
         self._judge(&w, kind, f, &null, &null);
         return true;
     }
@@ -371,6 +380,22 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
                 f"'{nm}' cannot be both 'panic' and '-> !': a panic returns its error, and '!' never returns");
             b.first(at);
             b.note(DiagID::SC001N, f->range.start, f"'{nm}' is declared here").first(self._name_range(f));
+            b.remove(f->panic_range, "remove 'panic\x27");
+            b.emit();
+            return;
+        }
+        // A constructor or a destructor never panics (USER 2026-10-27): an
+        // object is either built whole or not at all, and a destructor runs
+        // on every exit, where nothing could take an error.
+        var life = self._lifecycle_fn(f);
+        if life.size() > 0 {
+            var why = ("it runs on every exit from the object's scope, where nothing could take an error") if (life == "a destructor") else ("an object is either built whole or not at all");
+            var b = self.sc->diag->report(DiagID::SC001E, at.start, f"{life} cannot panic: " + why);
+            b.first(at);
+            b.note(DiagID::SC001N, f->range.start, f"'{nm}' is declared here").first(self._name_range(f));
+            if self._is_ctor(f) {
+                b.note(DiagID::SC001N, f->range.start, "construction that can fail belongs in a static factory function that may panic and returns the object");
+            }
             b.remove(f->panic_range, "remove 'panic\x27");
             b.emit();
             return;
@@ -740,21 +765,23 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
 
     /// What \p f is when the language calls it without a call being
     /// written, for the message; empty when it is called only explicitly.
-    priv fn _hidden_call(self, f: *FunctionDecl) -> string {
+    /// "a constructor" / "a destructor" for any constructor (with or
+    /// without parameters, a transfer one included) or the destructor;
+    /// "" for every other function.
+    priv fn _lifecycle_fn(self, f: *FunctionDecl) -> string {
         if f->transfer != TransferKind::NotTransfer { return "a transfer constructor"; }
+        if f->is_operator && (f->op_token.size() > 0) && (f->op_token[0].kind == TokenKind::KwDelete) { return "a destructor"; }
+        if self._is_ctor(f) { return "a constructor"; }
+        return "";
+    }
+
+    /// Called where no call is written (constructors and the destructor are
+    /// _lifecycle_fn's, which runs first).
+    priv fn _hidden_call(self, f: *FunctionDecl) -> string {
         if f->is_operator && (f->op_token.size() > 0) {
             var k = f->op_token[0].kind;
-            if k == TokenKind::KwDelete { return "a destructor"; }
             if k == TokenKind::KwPanic  { return "'op panic\x27"; }
             if OperatorFacts::is_implicit_conv(f) { return "an '@implicit' conversion"; }
-            return "";
-        }
-        if self._is_ctor(f) {
-            var n = 0;
-            for var i: usize = 0; i < f->params.size(); ++i {
-                if (f->params[i] != &null) && (!f->params[i]->is_self) { n += 1; }
-            }
-            if n == 0 { return "a default constructor"; }
         }
         return "";
     }
@@ -926,6 +953,10 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             head = f"a field's default cannot panic: {what} {names}, which {nh}";
         } else if kind == PanicBody::Param {
             head = f"a parameter's default cannot panic: {what} {names}, which {nh}";
+        } else if kind == PanicBody::Ctor {
+            head = f"a constructor cannot panic: {what} {names}, which {nh}";
+        } else if kind == PanicBody::Dtor {
+            head = f"a destructor cannot panic: {what} {names}, which {nh}";
         } else if c != &null {
             head = f"unhandled panic: {what} {names}, and the closure is not marked 'panic\x27";
         } else {
@@ -942,8 +973,11 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         }
         // Handle it here: a call becomes `try call catch => crash!()`. Only a
         // call, an expression; a `panic` statement has no value to wrap.
+        if kind == PanicBody::Ctor {
+            b.note(DiagID::SC001N, s->range.start, "construction that can fail belongs in a static factory function that may panic and returns the object");
+        }
         if s->raise == &null {
-            var msg = ("or handle it here, or stop the program with 'crash!()\x27") if ((kind == PanicBody::Main) || (kind == PanicBody::Script)) else ("or handle it here");
+            var msg = ("or handle it here, or stop the program with 'crash!()\x27") if ((kind == PanicBody::Main) || (kind == PanicBody::Script) || (kind == PanicBody::Ctor) || (kind == PanicBody::Dtor)) else ("or handle it here");
             b.note(DiagID::SC001N, s->range.start, msg);
             b.child_fix(SourceRange(s->range.start, s->range.start), "try ", "wrap the call in 'try\x27");
             b.child_fix(SourceRange(s->range.end, s->range.end), " catch => crash!()", "catch everything it may panic with");

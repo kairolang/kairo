@@ -66,6 +66,7 @@ import AST::Node::Casting::*;
 import AST::Kind::StmtKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
+import Token::TokenKind::*;
 import Location::SourceRange::*;
 
 // === sets ===================================================================
@@ -171,11 +172,27 @@ fn panic_in_generic(d_in: *Decl) -> bool {
     return false;
 }
 
+/// Any constructor (a transfer one included) or the destructor: they never
+/// panic (USER 2026-10-27; PanicEffectChecking reports a `panic` on one), so
+/// a call of one adds nothing, whatever it was marked.
+fn panic_lifecycle_fn(tu: *TypeUtil, f: *FunctionDecl) -> bool {
+    if f == &null { return false; }
+    if f->transfer != TransferKind::NotTransfer { return true; }
+    if f->is_operator {
+        return (f->op_token.size() > 0) && (f->op_token[0].kind == TokenKind::KwDelete);
+    }
+    if !f->is_method() { return false; }
+    var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+    if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_owner == &null) { return false; }
+    return tu->decl_name(static_cast::<*Decl>(f)) == tu->decl_name(dc->dc_owner);
+}
+
 /// The final set of \p f_in into \p out.
 fn panic_set_of_fn(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -> PanicKnown {
     if f_in == &null { return PanicKnown::Unknown; }
     var f = panic_home(f_in);
     if (!f->is_panic()) && (!f_in->is_panic()) { return PanicKnown::No; }
+    if panic_lifecycle_fn(tu, f) { return PanicKnown::No; }
     // A `where` group is one function to its callers; a `panic` member is
     // WhereGuardCheck's SC116E until the dispatcher's set (the union) is
     // built with P6.

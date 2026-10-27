@@ -2,9 +2,9 @@
 // - `main` can never panic, and nothing may reach it: each unhandled call
 //   is an error whose edit handles it or stops with `crash!()`;
 // - `panic` with `-> !` is contradictory: a panic returns its error;
-// - what the language calls where no call is written cannot panic, since
-//   nothing could handle it there: a destructor, a transfer or default
-//   constructor, an `@implicit` conversion, and `op panic` itself.
+// - no constructor (any kind) or destructor can panic (USER 2026-10-27);
+// - what is called where no call is written cannot panic, since nothing
+//   could handle it there: an `@implicit` conversion, `op panic` itself.
 // Each gets an edit removing `panic`.
 
 struct E { var code: i32 }
@@ -37,13 +37,19 @@ fn main() panic -> i32 {
 // CHECK: declarations.k:14:12: error [SC001E]: 'fatal' cannot be both 'panic' and '-> !': a panic returns its error, and '!' never returns
 // CHECK-NEXT: fix-it:"{{.*}}declarations.k":{14:12-14:17}:""
 // CHECK-NEXT: declarations.k:14:1: note [SC001N]: 'fatal' is declared here
-// CHECK: declarations.k:20:18: error [SC001E]: a default constructor cannot panic: it runs where no call is written, so nothing could handle the error
+// CHECK: declarations.k:20:18: error [SC001E]: a constructor cannot panic: an object is either built whole or not at all
 // CHECK-NEXT: fix-it:"{{.*}}declarations.k":{20:18-20:23}:""
 // CHECK-NEXT: declarations.k:20:5: note [SC001N]: 'Res' is declared here
-// CHECK: declarations.k:22:36: error [SC001E]: a transfer constructor cannot panic: it runs where no call is written, so nothing could handle the error
+// CHECK-NEXT: declarations.k:20:5: note [SC001N]: construction that can fail belongs in a static factory function that may panic and returns the object
+// CHECK: declarations.k:21:26: error [SC001E]: a constructor cannot panic: an object is either built whole or not at all
+// CHECK-NEXT: fix-it:"{{.*}}declarations.k":{21:26-21:31}:""
+// CHECK-NEXT: declarations.k:21:5: note [SC001N]: 'Res' is declared here
+// CHECK-NEXT: declarations.k:21:5: note [SC001N]: construction that can fail belongs in a static factory function that may panic and returns the object
+// CHECK: declarations.k:22:36: error [SC001E]: a transfer constructor cannot panic: an object is either built whole or not at all
 // CHECK-NEXT: fix-it:"{{.*}}declarations.k":{22:36-22:41}:""
 // CHECK-NEXT: declarations.k:22:11: note [SC001N]: 'Res' is declared here
-// CHECK: declarations.k:23:24: error [SC001E]: a destructor cannot panic: it runs where no call is written, so nothing could handle the error
+// CHECK-NEXT: declarations.k:22:11: note [SC001N]: construction that can fail belongs in a static factory function that may panic and returns the object
+// CHECK: declarations.k:23:24: error [SC001E]: a destructor cannot panic: it runs on every exit from the object's scope, where nothing could take an error
 // CHECK-NEXT: fix-it:"{{.*}}declarations.k":{23:24-23:29}:""
 // CHECK-NEXT: declarations.k:23:5: note [SC001N]: 'op delete' is declared here
 // CHECK: declarations.k:24:31: error [SC001E]: an '@implicit' conversion cannot panic: it runs where no call is written, so nothing could handle the error
