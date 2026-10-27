@@ -715,7 +715,14 @@ class TypeUtil {
             case TypeKind::FixedArrayType {
                 var a = cast::<FixedArrayType>(t);
                 if a->is_incomplete { return "[" + self.str(a->element) + ";]"; }
+                if a->extent_param != &null { return "[" + self.str(a->element) + "; " + self.str(a->extent_param) + "]"; }
                 return f"[{self.str(a->element)}; {a->size_bits}]";
+            }
+            // A generic VALUE argument (`4` of `Ring<4, i32>`).
+            case TypeKind::TypeExpr {
+                var v = cast::<TypeExpr>(t);
+                if v->is_value { return (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}"); }
+                return "<value>";
             }
             // No TupleType arm: a tuple canonical is its record (above);
             // a syntax TupleType falls to the default and prints its canonical.

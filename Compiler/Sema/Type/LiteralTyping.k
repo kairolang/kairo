@@ -294,7 +294,8 @@ class <T> LiteralTyping {
         if (ex != &null) && isa::<FixedArrayType>(ex) && (!cast::<FixedArrayType>(ex)->is_incomplete) {
             var at = cast::<FixedArrayType>(ex);
             if count == 0 { dyn()->fail(n, DiagID::SC079E, "an array literal needs at least one element"); return &null; }
-            if static_cast::<usize>(at->size_bits) != count {
+            // `[T; N]` over a value parameter: C++ checks it per instance.
+            if (at->extent_param == &null) && (static_cast::<usize>(at->size_bits) != count) {
                 dyn()->fail(n, DiagID::SC079E, f"array literal has {count} element(s), but '{dyn()->tu.str(ex)}' needs {at->size_bits}");
                 return &null;
             }

@@ -1983,7 +1983,8 @@ class EmitIR {
         if bare {
             self._cg->sink->spell(n->range, "{");
         } else {
-            self._cg->sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + f"{at->size_bits}" + ">{");
+            var ext = (self._spell._type(at->extent_param)) if (at->extent_param != &null) else (f"{at->size_bits}");
+            self._cg->sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + ext + ">{");
         }
         for var i: usize = 0; i < n->elements.size(); ++i {
             if i > 0 { self._cg->sink->spell(n->range, ","); }

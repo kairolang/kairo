@@ -82,6 +82,7 @@ import AST::Node::Expressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Node::CanonicalNodes::*;
+import AST::Node::Types::*;
 import AST::Kind::StmtKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
@@ -116,6 +117,14 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
     fn visit_ranged_for_stmt(self, n: *RangedForStmt) -> bool {
         if n->iterable == &null { return true; }
         if n->iterable->is_poisoned() || (n->iterable->type_ == &null) { return true; }
+
+        // IterLowering counts an array by its extent, which for `[T; N]` over
+        // a generic value parameter is the parameter (EVAL.md 3).
+        var at = canon_unqual(n->iterable->type_);
+        if (at != &null) && isa::<FixedArrayType>(at) && (cast::<FixedArrayType>(at)->extent_param != &null) {
+            self._gate(n->iterable->range, "iterating an array whose length is a generic value parameter");
+            return true;
+        }
 
         var what = "";
         switch n->iter_kind {
