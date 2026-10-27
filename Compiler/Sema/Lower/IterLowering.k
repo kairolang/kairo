@@ -249,10 +249,10 @@ class IterLowering derives ASTWriter::<IterLowering> {
         ICE_IF(tb == &null, "IterLowering: Range over a non-builtin element; X restricts ranges to integers");
 
         var r   = self._local(pre, at, "rng", rt, n->iterable);
-        var i   = self._local(pre, at, "i",   t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, "begin"), t));
-        var hi  = self._local(pre, at, "hi",  t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, "end"), t));
+        var i   = self._local(pre, at, "i",   t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, LangMembers::range_begin()), t));
+        var hi  = self._local(pre, at, "hi",  t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, LangMembers::range_end()), t));
         var inc = self._local(pre, at, "inc", self._bool(),
-                              self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, "inclusive"), self._bool()));
+                              self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, LangMembers::range_inclusive()), self._bool()));
 
         var more = self._local(pre, at, "more", self._bool(), self._cmp(at, self._use(i, at), self._use(hi, at), TokenKind::OpLess));
         var to_le = self.list_builder::<*Stmt>();
@@ -320,8 +320,8 @@ class IterLowering derives ASTWriter::<IterLowering> {
         var s = self._local(pre, at, "seq", st, n->iterable);
         self._extend(n->iterable);
 
-        var data = self._lang_member(WellKnownType::Slice, "data");
-        var len  = self._lang_member(WellKnownType::Slice, "len");
+        var data = self._lang_member(WellKnownType::Slice, LangMembers::slice_data());
+        var len  = self._lang_member(WellKnownType::Slice, LangMembers::slice_len());
         var p    = self._local(pre, at, "p", ptr, self.synth.field_of(at, self._use(s, at), data, ptr));
         var cnt  = self._local(pre, at, "n", self._usize(), self.synth.field_of(at, self._use(s, at), len, self._usize()));
         var k    = self._local(pre, at, "k", self._usize(), self.synth.int_literal(at, 0, BuiltinKind::USize));
@@ -368,8 +368,8 @@ class IterLowering derives ASTWriter::<IterLowering> {
             it = self._local(pre, at, "it", gen_ty, self.synth.member_call(at, recv, n->iter_op, &none, gen_ty));
         }
 
-        var next_d = self._lang_member(WellKnownType::Yield, "next");
-        var cur_d  = self._lang_member(WellKnownType::Yield, "current");
+        var next_d = self._lang_member(WellKnownType::Yield, LangMembers::yield_next());
+        var cur_d  = self._lang_member(WellKnownType::Yield, LangMembers::yield_current());
 
         var gen_cur  = (self._deref(self._use(it, at), gen_ty)) if (by_addr) else (self._use(it, at));
         var gen_next = (self._deref(self._use(it, at), gen_ty)) if (by_addr) else (self._use(it, at));

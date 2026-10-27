@@ -132,6 +132,38 @@ fn tuple_record_name(arity: usize) -> string { return f"Tuple{arity}"; }
 fn tuple_param_name(i: usize)      -> string { return f"T{i}"; }
 fn tuple_field_name(i: usize)      -> string { return f"_{i}"; }
 
+/// \class LangMembers
+/// \brief Members of lang items that the compiler finds BY NAME in the
+///        item's own scope (Lib/builtin), then uses as declarations: a
+///        lowering reads a Range's `begin` field or calls a Yield's `next`.
+///        Not LowerTargets: those are names the compiler INVENTS; these are
+///        declared in Kairo source, and CXXSpell spells the decl it finds.
+///        One spelling each, as the tuple names above: a rename in
+///        Lib/builtin is a change here, not a sweep. `data` and `len` repeat
+///        across string and Slice on purpose -- two declarations that
+///        happen to share a spelling, so two rows. FmtBuf's `put_*` family
+///        is fmt_put_name, below.
+class LangMembers {
+    /// Range<T>, RangeFrom<T>, RangeTo<T> fields (types.k): IterLowering
+    /// reads them, RangeLowering initializes them by designator.
+    static fn range_begin() -> string     { return "begin"; }
+    static fn range_end() -> string       { return "end"; }
+    static fn range_inclusive() -> string { return "inclusive"; }
+    /// Slice<T> fields (containers.k): IterLowering walks a slice by them.
+    static fn slice_data() -> string { return "data"; }
+    static fn slice_len() -> string  { return "len"; }
+    /// string fields (string.k): MatchLowering compares a string head's
+    /// bytes, LiteralTyping sizes an f-string's buffer.
+    static fn string_data() -> string { return "data"; }
+    static fn string_len() -> string  { return "len"; }
+    /// Yield<T> methods (types.k): the generator protocol IterLowering drives.
+    static fn yield_next() -> string    { return "next"; }
+    static fn yield_current() -> string { return "current"; }
+    /// FmtBuf methods (fmt.k) every f-string lowers onto.
+    static fn fmtbuf_text() -> string   { return "text"; }
+    static fn fmtbuf_finish() -> string { return "finish"; }
+}
+
 /// \class WellKnownDecls
 /// \brief WellKnownType -> canonical *Decl. ONE per build, owned by
 ///        GlobalDisambigTable and filled once from the builtins fid (lang

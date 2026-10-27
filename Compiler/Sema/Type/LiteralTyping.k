@@ -348,9 +348,9 @@ class <T> LiteralTyping {
         var fb = dyn()->sc->well_known->get(WellKnownType::FmtBuf);
         if fb == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf)); return false; }
         n->fmt_ctor   = self._lang_ctor(WellKnownType::FmtBuf, 1, false);
-        n->fmt_text   = self._lang_method(WellKnownType::FmtBuf, "text");
-        n->fmt_finish = self._lang_method(WellKnownType::FmtBuf, "finish");
-        n->fmt_len    = self._lang_field(WellKnownType::String, "len");
+        n->fmt_text   = self._lang_method(WellKnownType::FmtBuf, LangMembers::fmtbuf_text());
+        n->fmt_finish = self._lang_method(WellKnownType::FmtBuf, LangMembers::fmtbuf_finish());
+        n->fmt_len    = self._lang_field(WellKnownType::String, LangMembers::string_len());
         if (n->fmt_ctor == &null) || (n->fmt_text == &null) || (n->fmt_finish == &null) || (n->fmt_len == &null) {
             dyn()->missing_lang_item(n, to_string(WellKnownType::FmtBuf));
             return false;
