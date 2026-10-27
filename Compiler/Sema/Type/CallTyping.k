@@ -560,6 +560,47 @@ class <T> CallTyping {
         for var i: usize = 0; i < tmp.size(); ++i { dyn()->ovl.explicit_args.push_back(tmp[i]); }
     }
 
+    /// `y.foo(42)` selecting a STATIC requirement or a static extension
+    /// member: rejected, with the fix-it to `T::foo(42)`. A requirement has no
+    /// object to dispatch on, so a value names no witness; an extension
+    /// member is a free function in the C++ it lowers to, so there is no
+    /// receiver slot to drop the value into. Left alone, ExtensionLowering
+    /// meets the call with nowhere to put it and ICEs. A plain class's static
+    /// called through a value is C++'s rule and stays legal (it is a member
+    /// of the class, and the value is simply discarded).
+    priv fn _static_through_value(self, n: *CallExpr, step: *ChainExpr::Step,
+                                  f: *FunctionDecl, recv: *Type) -> bool {
+        if (f == &null) || f->is_method() || f->is_operator { return false; }
+        if step->access_kind == ChainExpr::AccessKind::ColonColon { return false; }
+        var fd = static_cast::<*Decl>(f);
+        var req = false;
+        if f->semantic_dc != &null {
+            var home = reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl();
+            req = (home != &null) && isa::<InterfaceDecl>(NameLookup::representative(home));
+        }
+        if (!req) && (decl_extension_of(fd) == &null) { return false; }
+
+        var nm   = dyn()->tu.decl_name(fd);
+        var what = ("static requirement") if (req) else ("static extension member");
+        var ch   = dyn_cast::<ChainExpr>(dyn()->tu.strip_parens(n->callee));
+        var at = (step->name->range.start) if (step->name != &null) else (step->range.start);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, at,
+            f"'{nm}' is a {what}; it takes no 'self' and is called through the type, not a value");
+        if step->name != &null { b.first(step->name->range); } else { b.first(step->range); }
+        if fd->range.is_valid() {
+            b.note(DiagID::SC001N, fd->range.start, f"'{nm}' is declared here, without 'self\x27").first(fd->range);
+        }
+        // The receiver's TYPE as written in the diagnostics (`T`, not what a
+        // bound T stands for): `T::foo` is the spelling that works in the
+        // generic body the call is in.
+        if (ch != &null) && (recv != &null) && (step->name != &null) {
+            var ty = dyn()->tu.str(dyn()->tu.as_value(recv));
+            b.fix(SourceRange(ch->range.start, step->name->range.start), ty + "::", f"call it through the type: '{ty}::{nm}\x27");
+        }
+        b.emit();
+        return true;
+    }
+
     /// Resolve against \p cands, promote the winner onto \p ident or \p step.
     /// \param adl  the callee was an unqualified name: widen \p cands with
     ///             argument-dependent lookup before resolving.
@@ -631,6 +672,7 @@ class <T> CallTyping {
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
         if !ok { dyn()->poison_only(n); return &null; }
+        if (step != &null) && self._static_through_value(n, step, r.decl, recv) { dyn()->poison_only(n); return &null; }
 
         if recv != &null { r.ded.bind_from_record(canon_unqual(recv)); }
 
