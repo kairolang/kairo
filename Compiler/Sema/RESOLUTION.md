@@ -64,7 +64,9 @@ Then `RequiresDesugar`. Macro expansion and eval lowering do not run.
 
 ### 2.4 V Verify [DONE]
 
-Six independent structural checks. Errors hard-stop before N.
+Five independent structural checks. Errors hard-stop before N. (Unreachable
+code was the sixth, lexically; it needs `!` types and is ControlFlowAnalysis
+in C now, §2.8.)
 
 ### 2.5 N NameResolution [DONE]
 
@@ -423,7 +425,8 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
-`ReturnPathCheck`, `ClassLifecycle`, `ClosureCaptures`, `MoveCheck`, `InitCheck`,
+`ReturnPathCheck`, `ControlFlowAnalysis`, `ClassLifecycle`, `ClosureCaptures`,
+`MoveCheck`, `InitCheck`,
 `CtorInitCheck`, `ConformanceChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
 callee bindings), `FeatureGateCheck`, `FlagGates`,
@@ -512,6 +515,16 @@ because a call ends a path when its type is `!`; after PatternChecking
 because a `match` ends one only when `is_exhaustive` and every arm does.
 Unknowns (recovery nodes, `inline` blocks, `jump!`, a non-exhaustive match,
 already SC120E) count as ending the path.
+
+`ControlFlowAnalysis` [DONE] is the unreachable-code warning, SC003W: one
+per run of statements after one that ends the path, up to the block's end
+or a `label!` (a `jump!` target; a label nested in the run ends it too).
+The divergence rule is ReturnPathCheck's, shared as `FallThrough`
+(`Sema/Check/ControlFlowAnalysis.k`), with unknowns the other way round:
+they fall through, so code that may run is never called dead. Same
+REQUIRES as ReturnPathCheck; before every lowering, so it sees only user
+code. Dead match arms stay PatternChecking's SC121E. It replaced the
+lexical V pass TerminatorCheck, which could not see `-> !` calls.
 
 `OperatorSignatureCheck` [DONE] runs BEFORE X, because X's derived
 operators and compound-assignment pairing assume the shapes it rejects:

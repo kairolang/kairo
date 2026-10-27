@@ -40,7 +40,6 @@ import Sema::Expand::RequiresDesugar::*;
 import Sema::Expand::EvalIfFolding::*;
 import Sema::Verify::LoopContextCheck::*;
 import Sema::Verify::ArmOrderCheck::*;
-import Sema::Verify::TerminatorCheck::*;
 import Sema::Verify::JumpLabelCheck::*;
 import Sema::Verify::PatternBindingCheck::*;
 import Sema::Verify::CxxNameCheck::*;
@@ -55,6 +54,7 @@ import Sema::Check::ClosureCaptures::*;
 import Sema::Check::MoveCheck::*;
 import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
+import Sema::Check::ControlFlowAnalysis::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
 import Sema::Check::EvalUsageChecking::*;
@@ -243,11 +243,11 @@ class Sema {
         var _t = TimeRegion("Verify");
         self.sc.require_phase(SemaPhase::Expanded);
 
-        // Per pass, not one number for the stage. Six independent full-tree
+        // Per pass, not one number for the stage. Five independent full-tree
         // walks (and one look at the TU's pin): the whole question here is which of them is worth fusing.
+        // Unreachable code is not here: it needs `!` types (ControlFlowAnalysis, in C).
         { var _p = TimeRegion("LoopContext");     LoopContextCheck(&self.sc).run();     }
         { var _p = TimeRegion("ArmOrder");        ArmOrderCheck(&self.sc).run();        }
-        { var _p = TimeRegion("Terminator");      TerminatorCheck(&self.sc).run();      }
         { var _p = TimeRegion("JumpLabel");       JumpLabelCheck(&self.sc).run();       }
         { var _p = TimeRegion("PatternBinding");  PatternBindingCheck(&self.sc).run();  }
         { var _p = TimeRegion("CxxName");         CxxNameCheck(&self.sc).run();         }
@@ -357,6 +357,11 @@ class Sema {
         // terminator when its type is `!`. REQUIRES PatternChecking: match
         // coverage is MatchStmt::is_exhaustive.
         { var _p = TimeRegion("ReturnPath"); ReturnPathCheck(&self.sc).run(); }
+
+        // Unreachable code (SC003W), on the same divergence rule as
+        // ReturnPath (FallThrough). Same REQUIRES; before every lowering, so
+        // it warns only on code the user wrote.
+        { var _p = TimeRegion("ControlFlow"); ControlFlowAnalysis(&self.sc).run(); }
 
         // Per-record lifecycle facts (copyable / movable / trivial) and the
         // rules about the lifecycle itself: one transfer ctor, no user

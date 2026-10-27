@@ -32,7 +32,7 @@
 ///     record return and is checked like any other.
 ///
 ///   \par What this is NOT
-///     Unreachable-code warnings (TerminatorCheck, lexical), definite
+///     Unreachable-code warnings (ControlFlowAnalysis), definite
 ///     initialization, or an exhaustiveness diagnostic (PatternChecking).
 ///     This pass reads the match facts; it reports nothing about the match
 ///     itself.
