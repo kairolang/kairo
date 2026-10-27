@@ -4,8 +4,8 @@
 //   function that is generic or inside a generic type, any panicking site
 //   in such a body, caught or not, and a `fn` type whose set names a
 //   generic parameter;
-// - a bare `catch e`'s binding used other than to re-panic it: its type,
-//   whatever the `try` left, needs P1's `Panic` (PANIC.md §3.6);
+// - a panic result held in a variable (§1.1): a bare `catch e` binding is
+//   `Panic<void, L...>` (§3.6); re-panicking it is fine, `var c = e` not;
 // - generators and `async` (§2.7): the error surfaces at the resume site,
 //   which needs the coroutine frame. A `panic` generator or `async`
 //   function, and any panicking site in either body.
@@ -57,4 +57,4 @@ fn bare_binding_read(x: i32) -> i32 {
 // CHECK: gates.k:33:11: error [SC116E]: a call that may panic inside a generator is not yet supported
 // CHECK: gates.k:36:16: error [SC116E]: an 'async' 'panic' function is not yet supported
 // CHECK: gates.k:38:40: error [SC116E]: a 'fn' type's panic set that depends on a generic parameter is not yet supported
-// CHECK: gates.k:45:51: error [SC116E]: using a bare 'catch' arm's binding other than to re-panic it ('panic e') is not yet supported
+// CHECK: gates.k:45:44: error [SC116E]: a stored panic result is not yet supported

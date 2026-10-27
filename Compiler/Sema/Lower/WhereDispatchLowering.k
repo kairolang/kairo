@@ -278,6 +278,14 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
         c->return_type = m->return_type;      // shared, as every minted function's is.
         c->is_noreturn = m->is_noreturn;
         c->no_unwind   = m->no_unwind;
+        // Its panic contract is the member's own (PANIC.md §2.8): the set
+        // EffectPropagation solved for this body, and the written one. The
+        // dispatcher keeps the group (where_lead / where_group), whose set
+        // is the union of these.
+        c->panic_set   = m->panic_set;
+        c->panic_range = m->panic_range;
+        c->panic_eff   = m->panic_eff;
+        c->panic_state = m->panic_state;
 
         c->params     = m->params;            // moved: the body names these.
         c->body_kind  = m->body_kind;

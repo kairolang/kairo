@@ -74,8 +74,8 @@ class C {
 
 // --- not yet supported (SC116E) -------------------------------------------
 
-fn pn(x: i32) panic -> i32 where x > 1 { return 2 }
-fn pn(x: i32) -> i32 { return 3 }
+// (A 'panic' member is supported since P6: the dispatcher's set is the
+// union of its members'. Codegen/panic/where.k runs one.)
 
 fn dflt(x: i32, y: i32 = 2) -> i32 where x > 1 { return y }
 fn dflt(x: i32, y: i32) -> i32 { return 3 }
@@ -132,7 +132,6 @@ fn use_closure() -> i32 {                          // [parse]
 // CHECK-NEXT: :68:5: note [SC001N]: the first overload of the dispatch is here
 // CHECK:     :71:5: error [SC116E]: 'where' dispatch on a 'virtual' or 'override' method is not yet supported
 // CHECK:     :72:5: error [SC116E]: 'where' dispatch on a 'virtual' or 'override' method is not yet supported
-// CHECK:     :77:1: error [SC116E]: 'where' dispatch on a 'panic' function is not yet supported
 // CHECK:     :80:1: error [SC116E]: 'where' dispatch on a default argument is not yet supported
 // CHECK:     :83:1: error [SC116E]: 'where' dispatch on a generic function is not yet supported
 

@@ -136,6 +136,8 @@ fn main() -> i32 {
 // CHECK-NEXT: unhandled.k:94:13: note [SC001N]: or handle it here
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:13-94:13}:"try "
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{94:26-94:26}:" catch => crash!()"
+// A panicking operator is not lowered yet (PanicEffectChecking's gate).
+// CHECK: unhandled.k:95:13: error [SC116E]: a call of a panicking operator is not yet supported
 // CHECK: unhandled.k:95:13: error [SC001E]: unhandled panic: this operator may panic with 'IOError', and 'members' is not marked 'panic'
 // CHECK-NEXT: fix-it:"{{.*}}unhandled.k":{93:13-93:13}:" panic"
 // CHECK-NEXT: unhandled.k:89:5: note [SC001N]: 'op +' is declared 'panic' here

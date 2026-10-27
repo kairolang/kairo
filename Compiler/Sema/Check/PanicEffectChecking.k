@@ -72,6 +72,7 @@ import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Check::EffectPropagation::*;
+import Sema::Type::PanicSets::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::ScriptRules::*;
 import AST::OperatorFacts::*;
@@ -127,10 +128,10 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// Every catch arm's binding met so far (an arm is visited before its
     /// body): what a re-panic `panic e` names.
     priv var _arm_decls: llvm::DenseSet::<u64>;
-    /// The bare arms' bindings among them, and every `panic` payload met
-    /// (a statement is visited before its payload).
+    /// The bare arms' bindings among them.
     priv var _bare_decls:    llvm::DenseSet::<u64>;
-    priv var _repanic_names: llvm::DenseSet::<u64>;
+    /// The bare bindings given their `Panic<void, L...>` type.
+    priv var _bare_types:    llvm::DenseSet::<u64>;
     /// Every call's callee expression met so far (a call is visited before
     /// its callee): a function named there is called, not used as a value.
     priv var _callees: llvm::DenseSet::<u64>;
@@ -231,7 +232,18 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
 
     /// A global's initializer (§4.5); a local's is its function's.
     fn visit_variable_decl(self, v: *VariableDecl) -> bool {
-        if (v == &null) || v->is_poisoned() || (v->init == &null) { return true; }
+        if (v == &null) || v->is_poisoned() { return true; }
+        // A panic result held in a variable (`var c = e`, e a bare `catch`
+        // binding): §1.1 keeps that for a later `var p: panic`. The arm's
+        // own binding is not one.
+        if (!self.sc->opts.test_panic_type) && (!self._arm_decls.contains(reinterpret_cast::<u64>(v))) && (v->type_ != &null) && (v->type_->canonical != &null) {
+            var rd = self._tu.record_decl(canon_unqual(v->type_->canonical));
+            if (rd != &null) && PanicSets(self.sc).is_panic(rd) {
+                self._gate(v->name.range, "a stored panic result");
+                return true;
+            }
+        }
+        if v->init == &null { return true; }
         if self._script { return true; }   // main's body; walked in run().
         if !self._is_global(v) { return true; }
         var w = PanicWalk(self.sc);
@@ -263,9 +275,6 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     // === payload types ========================================================
 
     fn visit_panic_stmt(self, n: *PanicStmt) -> bool {
-        // Its payload is visited after this: a bare arm's binding re-panicked
-        // is the one use that needs no type for it.
-        if n->payload != &null { self._repanic_names.insert(reinterpret_cast::<u64>(self._tu.strip_parens(n->payload))); }
         if (n->payload == &null) || n->payload->is_poisoned() { return true; }
         // `panic e` of a catch arm's binding re-panics the caught error: its
         // type was judged where it was raised (and a bare arm's binding has
@@ -595,55 +604,8 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         d.emit();
     }
 
-    /// The method \p m overrides: the nearest base's virtual or override
-    /// method of its name, arity and parameter types.
     priv fn _overridden(self, cd: *ClassDecl, m: *FunctionDecl) -> *FunctionDecl {
-        // An operator has no name to spell (FunctionDecl::name): it is
-        // matched by its symbol.
-        var nm = (OperatorFacts::symbol(m)) if (m->is_operator) else (self._tu.decl_name(static_cast::<*Decl>(m)));
-        var seen = vec::<*Decl>();
-        var todo = vec::<*Decl>();
-        for var i: usize = 0; i < cd->derives_list.size(); ++i {
-            var e = cd->derives_list.get(i);
-            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
-            var bd = self._tu.record_decl(e->base->canonical);
-            if bd != &null { todo.push_back(NameLookup::representative(bd)); }
-        }
-        var k: usize = 0;
-        while k < todo.size() {
-            var d = todo[k];
-            k += 1;
-            var dup = false;
-            for var i: usize = 0; i < seen.size(); ++i { if seen[i] == d { dup = true; break; } }
-            if dup { continue; }
-            seen.push_back(d);
-            var bc = dyn_cast::<ClassDecl>(d);
-            if bc == &null { continue; }
-            for var i: usize = 0; i < bc->methods.size(); ++i {
-                var b = bc->methods[i];
-                if (b == &null) || ((b->abi != AbiKind::Virtual) && (b->abi != AbiKind::Override)) { continue; }
-                if b->is_operator != m->is_operator { continue; }
-                var bn = (OperatorFacts::symbol(b)) if (b->is_operator) else (self._tu.decl_name(static_cast::<*Decl>(b)));
-                if bn != nm { continue; }
-                if b->params.size() != m->params.size() { continue; }
-                var same = true;
-                for var p: usize = 0; p < m->params.size(); ++p {
-                    var x = m->params[p];
-                    var y = b->params[p];
-                    if (x == &null) || (y == &null) { same = false; break; }
-                    if x->is_self || y->is_self { continue; }
-                    if (x->type_ == &null) || (y->type_ == &null) || (x->type_->canonical != y->type_->canonical) { same = false; break; }
-                }
-                if same { return b; }
-            }
-            for var i: usize = 0; i < bc->derives_list.size(); ++i {
-                var e = bc->derives_list.get(i);
-                if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
-                var bd = self._tu.record_decl(e->base->canonical);
-                if bd != &null { todo.push_back(NameLookup::representative(bd)); }
-            }
-        }
-        return &null;
+        return panic_overridden(&(self._tu), cd, m);
     }
 
     /// `Base::m` / `I::m`: a method as a message names it.
@@ -668,17 +630,14 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     }
 
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
-        // A bare `catch e`'s binding holds whatever the arm caught: one of
-        // the types its `try` left. X types it as the `Panic` lang item with
-        // no arguments, which nothing can read and codegen cannot plan; its
-        // real type, `Panic<void, E...>` over what is left, needs P1's
-        // `Panic` (PANIC.md §3.6). Until then, re-panicking it is its only
-        // use (§3.4).
-        if (n->resolved_decl != &null) && self._bare_decls.contains(reinterpret_cast::<u64>(n->resolved_decl))
-        && (!self._repanic_names.contains(reinterpret_cast::<u64>(static_cast::<*Expr>(n)))) {
-            self._gate(n->range, "using a bare 'catch' arm's binding other than to re-panic it ('panic e')");
+        // A bare `catch e`'s binding: typed `Panic<void, L...>` once its
+        // `try` was judged (_type_bare_binder, which ran with the body's
+        // walk, before this use is visited). Its uses follow.
+        if (n->resolved_decl != &null) && self._bare_types.contains(reinterpret_cast::<u64>(n->resolved_decl)) {
+            n->type_ = cast::<VariableDecl>(n->resolved_decl)->type_;
             return true;
         }
+        if (n->resolved_decl != &null) && self._bare_decls.contains(reinterpret_cast::<u64>(n->resolved_decl)) { return true; }
         if self._callees.contains(reinterpret_cast::<u64>(static_cast::<*Expr>(n))) { return true; }
         self._value_use(n->range, n->resolved_decl);
         return true;
@@ -825,6 +784,15 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             return;
         }
 
+        // A panicking operator is called through the operator's own syntax,
+        // which OperatorLowering derives other operators from (`!=` from
+        // `==`, `+=` from `+`) with the declared result: not lowered yet.
+        for var i: usize = 0; i < w->sites.size(); ++i {
+            var s = &(w->sites[i]);
+            var cf = dyn_cast::<FunctionDecl>(s->callee);
+            if (cf != &null) && cf->is_operator { self._gate(s->range, "a call of a panicking operator"); }
+        }
+
         if kind == PanicBody::Global {
             for var i: usize = 0; i < w->sites.size(); ++i { self._global_site(&(w->sites[i]), holder); }
             for var i: usize = 0; i < w->tries.size(); ++i { self._global_try(&(w->tries[i]), holder); }
@@ -882,6 +850,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         var n = (t->stmt->arms.size()) if (t->stmt != &null) else (t->expr->catch_arms.size());
         if t->stmt != &null { t->stmt->reach.from_vec(&(t->reach), self.sc->ctx); }
         else { t->expr->reach.from_vec(&(t->reach), self.sc->ctx); }
+        self._type_bare_binder(t);
         for var i: usize = 0; i < n; ++i {
             var filt = self._arm_filter(t, i);
             if (filt == &null) || (filt->canonical == &null) { continue; }
@@ -911,6 +880,34 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             w.first(filt->range);
             w.remove(ar, "remove the arm");
             w.emit();
+        }
+    }
+
+    /// A bare `catch e`'s binding holds whatever the arm catches: one of
+    /// the types the `try` leaves after its typed arms. X typed it before
+    /// any set was known (the `Panic` lang item with no arguments); here it
+    /// becomes `Panic<void, L...>` over that leftover L (PANIC.md §3.6),
+    /// formed like every panic result (PanicSets::form), and its uses are
+    /// retyped as they are visited (visit_named_ident_expr). Nothing is
+    /// caught when L is empty: the arm never runs, and keeps X's type.
+    priv fn _type_bare_binder(self, t: *PanicTry) {
+        var n = (t->stmt->arms.size()) if (t->stmt != &null) else (t->expr->catch_arms.size());
+        for var i: usize = 0; i < n; ++i {
+            var filt: *Type = &null;
+            var d: *Decl = &null;
+            var r = self._arm_range(t, i);
+            if t->stmt != &null { filt = t->stmt->arms.get(i)->filter; d = t->stmt->arms.get(i)->decl; }
+            else { filt = t->expr->catch_arms.get(i)->filter; d = t->expr->catch_arms.get(i)->decl; }
+            if (filt != &null) || (d == &null) || (!isa::<VariableDecl>(d)) { continue; }
+            var left = vec::<*Type>();
+            for var k: usize = 0; k < t->reach.size(); ++k {
+                if !pset_has(&(t->types), t->reach[k]) { left.push_back(t->reach[k]); }
+            }
+            if left.size() == 0 { continue; }
+            var pt = PanicSets(self.sc).form(r, self.sc->builtin(BuiltinKind::Void), &left);
+            if pt == &null { continue; }
+            cast::<VariableDecl>(d)->type_ = pt;
+            self._bare_types.insert(reinterpret_cast::<u64>(d));
         }
     }
 

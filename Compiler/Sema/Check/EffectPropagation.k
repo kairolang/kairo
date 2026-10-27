@@ -28,12 +28,13 @@
 ///     A set that cannot be known says nothing: a callee whose TU stopped
 ///     before Typed, an undefined bare-`panic` prototype, a generic or
 ///     generator `panic` function (each gated where it is declared). A
-///     call to it adds nothing and is never reported unhandled.
+///     call to it adds nothing and is never reported unhandled. A `where`
+///     group's set is the union of its members' (§2.8).
 ///
-///     The canonical ORDER is by spelling (TypeUtil::str), with the pointer
-///     breaking ties between equal spellings. It is a placeholder for the
-///     type-id order P1 introduces (§1.3): stable run to run, which a
-///     pointer order is not, so every message naming a set reads the same.
+///     The canonical ORDER is P1's (§1.3): by type id, as PanicTypeIds
+///     orders a formed `Panic<...>`, so the set a body is checked against
+///     and the result type PanicLowering forms from it are one list. Stable
+///     run to run, so every message naming a set reads the same.
 ///
 ///   Phase: CHECK (the solve runs at the Typed barrier; see Sema.k)
 ///
@@ -49,6 +50,8 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Type::PanicSets::*;
+import AST::OperatorFacts::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -71,8 +74,24 @@ import Location::SourceRange::*;
 
 // === sets ===================================================================
 
-/// \p a before \p b in the canonical order: by spelling, then by address.
+/// \p a before \p b in the canonical order (PANIC.md §1.3): by type id,
+/// ties (a collision, itself an error where the set is formed) by the
+/// spelling key -- PanicTypeIds::order, so a set here and the `Panic<...>`
+/// PanicLowering forms from it list their types alike. A type with no id
+/// (dependent, a reference: never in a formed set) orders by spelling, then
+/// by address.
 fn pset_before(tu: *TypeUtil, a: *Type, b: *Type) -> bool {
+    if tu->sc != &null {
+        var ps = PanicSets(tu->sc);
+        var ia = ps.type_id(a);
+        var ib = ps.type_id(b);
+        if (ia != u32(0)) && (ib != u32(0)) {
+            if ia != ib { return ia < ib; }
+            var ka = ps.type_key(a);
+            var kb = ps.type_key(b);
+            if ka != kb { return ka < kb; }
+        }
+    }
     var sa = tu->str(a);
     var sb = tu->str(b);
     if sa != sb { return sa < sb; }
@@ -187,16 +206,14 @@ fn panic_lifecycle_fn(tu: *TypeUtil, f: *FunctionDecl) -> bool {
     return tu->decl_name(static_cast::<*Decl>(f)) == tu->decl_name(dc->dc_owner);
 }
 
-/// The final set of \p f_in into \p out.
-fn panic_set_of_fn(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -> PanicKnown {
+/// One function's own set, a `where` member's included (its body's).
+fn panic_set_of_member(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -> PanicKnown {
     if f_in == &null { return PanicKnown::Unknown; }
-    var f = panic_home(f_in);
+    // A `where` group is one redeclaration chain whose links are distinct
+    // bodies: a member's facts are its own, never the chain's.
+    var f = (f_in) if (f_in->where_lead != &null) else (panic_home(f_in));
     if (!f->is_panic()) && (!f_in->is_panic()) { return PanicKnown::No; }
     if panic_lifecycle_fn(tu, f) { return PanicKnown::No; }
-    // A `where` group is one function to its callers; a `panic` member is
-    // WhereGuardCheck's SC116E until the dispatcher's set (the union) is
-    // built with P6.
-    if f->where_lead != &null { return PanicKnown::Unknown; }
     if f->panic_state == PanicSetState::Final {
         for var i: usize = 0; i < f->panic_eff.size(); ++i { out->push_back(f->panic_eff[i]); }
         return (PanicKnown::Set) if (out->size() > 0) else (PanicKnown::No);
@@ -214,9 +231,89 @@ fn panic_set_of_fn(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -> Pa
     return PanicKnown::Unknown;
 }
 
+/// The final set of \p f_in into \p out. A `where` group is one function
+/// to its callers, bound to its lead: its set is the union of its members'
+/// (PANIC.md §2.8), each member's its own body's.
+fn panic_set_of_fn(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -> PanicKnown {
+    if f_in == &null { return PanicKnown::Unknown; }
+    var lead = f_in->where_lead;
+    if (lead != &null) && (lead->where_group.size() > 0) {
+        var any = false;
+        for var i: usize = 0; i < lead->where_group.size(); ++i {
+            var s = vec::<*Type>();
+            var k = panic_set_of_member(tu, lead->where_group[i], &s);
+            if k == PanicKnown::Unknown { return PanicKnown::Unknown; }
+            for var j: usize = 0; j < s.size(); ++j {
+                pset_add(tu, out, s[j]);
+                any = true;
+            }
+        }
+        return (PanicKnown::Set) if (any) else (PanicKnown::No);
+    }
+    return panic_set_of_member(tu, f_in, out);
+}
+
+
+/// The method \p m overrides: the nearest base's virtual or override
+/// method of its name, arity and parameter types.
+fn panic_overridden(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl) -> *FunctionDecl {
+    // An operator has no name to spell (FunctionDecl::name): it is
+    // matched by its symbol.
+    var nm = (OperatorFacts::symbol(m)) if (m->is_operator) else (tu->decl_name(static_cast::<*Decl>(m)));
+    var seen = vec::<*Decl>();
+    var todo = vec::<*Decl>();
+    for var i: usize = 0; i < cd->derives_list.size(); ++i {
+        var e = cd->derives_list.get(i);
+        if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+        var bd = tu->record_decl(e->base->canonical);
+        if bd != &null { todo.push_back(NameLookup::representative(bd)); }
+    }
+    var k: usize = 0;
+    while k < todo.size() {
+        var d = todo[k];
+        k += 1;
+        var dup = false;
+        for var i: usize = 0; i < seen.size(); ++i { if seen[i] == d { dup = true; break; } }
+        if dup { continue; }
+        seen.push_back(d);
+        var bc = dyn_cast::<ClassDecl>(d);
+        if bc == &null { continue; }
+        for var i: usize = 0; i < bc->methods.size(); ++i {
+            var b = bc->methods[i];
+            if (b == &null) || ((b->abi != AbiKind::Virtual) && (b->abi != AbiKind::Override)) { continue; }
+            if b->is_operator != m->is_operator { continue; }
+            var bn = (OperatorFacts::symbol(b)) if (b->is_operator) else (tu->decl_name(static_cast::<*Decl>(b)));
+            if bn != nm { continue; }
+            if b->params.size() != m->params.size() { continue; }
+            var same = true;
+            for var p: usize = 0; p < m->params.size(); ++p {
+                var x = m->params[p];
+                var y = b->params[p];
+                if (x == &null) || (y == &null) { same = false; break; }
+                if x->is_self || y->is_self { continue; }
+                if (x->type_ == &null) || (y->type_ == &null) || (x->type_->canonical != y->type_->canonical) { same = false; break; }
+            }
+            if same { return b; }
+        }
+        for var i: usize = 0; i < bc->derives_list.size(); ++i {
+            var e = bc->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var bd = tu->record_decl(e->base->canonical);
+            if bd != &null { todo.push_back(NameLookup::representative(bd)); }
+        }
+    }
+    return &null;
+}
+
 /// Write \p s as the final set of \p f's whole redeclaration chain.
 fn panic_store_fn(ctx: *ASTContext, f: *FunctionDecl, s: *vec::<*Type>, st: PanicSetState) {
     if f == &null { return; }
+    // A `where` member's chain links its siblings, each its own body.
+    if f->where_lead != &null {
+        f->panic_eff.from_vec(s, ctx);
+        f->panic_state = st;
+        return;
+    }
     var cur = f;
     for var guard: u32 = 0; guard < 4096; ++guard {
         cur->panic_eff.from_vec(s, ctx);
@@ -559,13 +656,14 @@ class EffectEntry {
 }
 
 /// A bare-`panic` function whose set can be inferred: it has a body, and
-/// it is not generic, a generator, `async`, or a `where` candidate (each
-/// gated at its declaration by PanicEffectChecking).
+/// it is not generic, a generator or `async` (each gated at its
+/// declaration by PanicEffectChecking). A `where` member is its own body;
+/// its group's set is the union (panic_set_of_fn).
 fn panic_inferable_fn(f: *FunctionDecl) -> bool {
     if (f == &null) || f->is_poisoned() { return false; }
     if (!f->is_panic()) || f->has_panic_set() { return false; }
     if (f->body_block == &null) && (f->body_expr == &null) { return false; }
-    if f->is_generator || f->is_async() || (f->where_lead != &null) { return false; }
+    if f->is_generator || f->is_async() { return false; }
     if panic_in_generic(static_cast::<*Decl>(f)) { return false; }
     return true;
 }

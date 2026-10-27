@@ -23,10 +23,14 @@
 ///       `async`, `eval`, `-> !`, or virtual-ness.
 ///     Two unguarded definitions are R029E, from RedeclMerge.
 ///
+///   \par Panics
+///     A member may panic; the dispatcher's set is the union of its
+///     members' (where.mdx, PANIC.md §2.8). The group is filed on its lead
+///     (FunctionDecl::where_group) for EffectPropagation to take the union.
+///
 ///   \par Not yet supported (SC116E)
 ///     A guarded `virtual` / `override` method (a dispatcher in a vtable has
-///     no rule yet), a `panic` member (PANIC.md: panic is not built, and the
-///     dispatcher's panic-ness is the union of its members'), a generic
+///     no rule yet), a generic
 ///     function (its parameter types are dependent, so RedeclMerge never
 ///     finds two signatures the same, and a template dispatcher's calls
 ///     need the per-instance registry entries M2 builds; a METHOD of a
@@ -219,6 +223,7 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         }
 
         for var i: usize = 0; i < order.size(); ++i { self.sc->where_groups.push_back(order[i]); }
+        lead->where_group.from_vec(&order, self.sc->ctx);
     }
 
     /// What may carry a guard, and what a group may not hold yet. One
@@ -265,7 +270,6 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
 
         var gate = "";
         if (f->abi == AbiKind::Virtual) || (f->abi == AbiKind::Override) { gate = "a 'virtual' or 'override' method"; }
-        else if f->is_panic()      { gate = "a 'panic' function"; }
         else if f->generic_params.size() > 0 { gate = "a generic function"; }
         else if decl_extension_of(static_cast::<*Decl>(f)) != &null { gate = "an extension member"; }
         else if f->is_operator     { gate = "an operator"; }
@@ -278,9 +282,6 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         else if f->is_variadic     { gate = "a variadic function"; }
         if gate.size() == 0 { return true; }
 
-        // TODO(panic): PANIC.md (main checkout) -- panic is not built. When
-        // it is, the dispatcher is `panic` if any member is (where.mdx,
-        // "Where and panic"), and the panic gate above goes.
         var b = self.sc->diag->report(DiagID::SC116E, at.start,
             f"'where' dispatch on {gate} is not yet supported");
         b.first(guard);
