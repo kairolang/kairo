@@ -424,7 +424,9 @@ In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
 `ReturnPathCheck`, `ClassLifecycle`, `ClosureCaptures`, `MoveCheck`, `InitCheck`,
-`CtorInitCheck`, `ConformanceChecking`, `FeatureGateCheck`, `FlagGates`,
+`CtorInitCheck`, `ConformanceChecking`, `EvalUsageChecking` (EVAL.md §6:
+what an eval context, `eval for` and a body `eval if` may hold; needs X's
+callee bindings), `FeatureGateCheck`, `FlagGates`,
 `PatternCompilation`. (`ConstraintExtraction` runs in T, before
 ChainBinding, §2.6.)
 
