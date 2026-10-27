@@ -850,6 +850,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // until instantiation. Dependent, unexpanded-pack bit CLEARED (this
         // node consumed it), exactly as create() set up.
         self._mark_dependent(n);
+        // A bare pack, `T...`, the one form an argument list takes today:
+        // its canonical is the pack parameter, which stands for its
+        // expansion wherever it is an argument (Deduction::substitute
+        // splices the elements in; CXXSpell spells `T...`). A pattern over
+        // the pack (`Box<T>...`) has none yet.
+        var pc = canon_unqual(n->pattern->canonical);
+        if (pc != &null) && isa::<GenericParamType>(pc) && cast::<GenericParamType>(pc)->is_pack {
+            n->canonical = pc;
+        }
     }
 
     /// \class GenericHit
@@ -2425,6 +2434,11 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if a == &null { ok = false; continue; }
             self.dispatch_type(a);                    // memoized; the main walk's dispatch is then a no-op.
             if a->is_poisoned() || (a->canonical == &null) { ok = false; continue; }
+            // `Traits<Box<T>, Args...>`: the registry never matches a pack
+            // pattern (InstantiationRegistry::_match), so the partial could
+            // never be selected here while C++ would select it per instance.
+            // Dropped, as it was before `Args...` had a canonical (ticketed).
+            if isa::<PackExpansionType>(a) { ok = false; continue; }
             if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }
             args.push_back(a->canonical);
         }
