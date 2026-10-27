@@ -342,11 +342,6 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
         }
     }
 
-    // TODO(eval): an `eval if` branch that is not taken is folded away
-    // before this pass (EvalIfFolding); if a ConditionalStmt still carries
-    // `is_eval` here, skip its bodies -- only the taken one is real code.
-    // ConditionalStmt has no such flag in this tree yet (StmtParse FIXME).
-
     fn traverse_compound_stmt(self, n: *CompoundStmt) -> *CompoundStmt {
         if n == &null { return n; }
         if self.dyn()->walkup_compound_stmt(n) == false { return n; }
@@ -359,7 +354,11 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
             if s == &null { ++i; continue; }
 
             if cut != &null {
-                // Dead from here: find the end of the region.
+                // Dead from here: find the end of the region. A path that a
+                // folded `eval if` ended (its taken branch spliced into this
+                // block) ends only on this target, so the region stops where
+                // that branch does: the code after it runs on every other.
+                var fold = self._fold_of(cut);
                 var j = i;
                 var last: *Stmt = &null;
                 while j < n->body.size() {
@@ -367,6 +366,7 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
                     if d != &null {
                         if d->kind == StmtKind::LabelIntrinsicStmt { break; }
                         if self._contains_label(d) { break; }
+                        if fold.is_valid() && (!fold.contains(d->range.start)) { break; }
                         last = d;
                     }
                     ++j;
@@ -383,6 +383,18 @@ class ControlFlowAnalysis derives RecursiveASTVisitor::<ControlFlowAnalysis> {
             ++i;
         }
         return n;
+    }
+
+    /// The innermost folded function-body `eval if` holding `s`, or invalid.
+    priv fn _fold_of(self, s: *Stmt) -> SourceRange {
+        var best = SourceRange::invalid();
+        if !s->range.start.is_valid() { return best; }
+        for var i: usize = 0; i < self.sc->folded_eval_ifs.size(); ++i {
+            var r = self.sc->folded_eval_ifs[i];
+            if !r.contains(s->range.start) { continue; }
+            if (!best.is_valid()) || (r.size() < best.size()) { best = r; }
+        }
+        return best;
     }
 
     priv fn _report(self, cut: *Stmt, first: *Stmt, last: *Stmt) {

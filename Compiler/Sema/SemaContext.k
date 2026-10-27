@@ -32,6 +32,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Context::CanonicalTypes::*;
 import AST::Node::Base::*;
+import Location::SourceRange::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
@@ -255,6 +256,12 @@ class SemaContext {
     /// for, which is called without being tested. One writer,
     /// WhereGuardCheck; one reader, WhereDispatchLowering.
     pub var where_groups: vec::<*FunctionDecl>;
+
+    /// The range of every function-body `eval if` EvalIfFolding folded (its
+    /// taken branch spliced in). A path one of them ends ends only on this
+    /// target and configuration, so ControlFlowAnalysis does not call the
+    /// code after it dead.
+    pub var folded_eval_ifs: vec::<SourceRange>;
 
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).

@@ -213,6 +213,27 @@ fn ok_non_exhaustive(c: Color) -> i32 {
 }
 // CHECK: unreachable_code.k:[[@LINE-5]]:5: error [SC120E]
 
+// A folded `eval if` ends the path only on the target it was folded for:
+// the code after it runs on every other one, so it is not dead. Code after
+// the end inside the taken branch is dead everywhere.
+fn ok_after_folded_eval_if() -> i32 {
+    eval if true {
+        return 1;
+    }
+    return 2;
+}
+
+fn dead_inside_folded_eval_if() -> i32 {
+    eval if true {
+        return 1;
+        sink(2);
+    }
+    return 3;
+}
+// CHECK: unreachable_code.k:[[@LINE-4]]:9: warning [SC003W]
+// CHECK-NEXT: fix-it:{{.*}}:{[[@LINE-5]]:9-[[@LINE-5]]:17}:""
+// CHECK-NEXT: unreachable_code.k:[[@LINE-7]]:9: note [I900N]: any code after this 'return' is never run
+
 fn main() -> i32 { return 0; }
 
 // --- lit wiring -------------------------------------------------------------

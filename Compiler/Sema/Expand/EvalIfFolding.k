@@ -185,6 +185,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         }
         var taken = self._taken;
         if self._body_depth == 0 { self._mark_dirty(self._dcs[self._dcs.size() - 1]); }
+        else { self.sc->folded_eval_ifs.push_back(n->range); }
         var out = vec::<*Stmt>();
         if taken == &null { return out; }
         for var i: usize = 0; i < taken->body.size(); ++i {
