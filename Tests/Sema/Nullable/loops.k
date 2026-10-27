@@ -175,11 +175,11 @@ fn bad_labeled_while(n: i32) -> i32 {
     var x: i32? = null
     var r = 0
     outer: while r < n {
+        r += 1
         while true {
             x = 4
             break outer
         }
-        r += 1
     }
     return x + 0
 }
