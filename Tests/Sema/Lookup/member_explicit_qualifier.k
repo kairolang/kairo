@@ -13,8 +13,11 @@
 // members bare, the second reported "use of undeclared identifier", and the
 // nested-type exception did not hold in an `extend` body at all.
 //
-// POSITIVE cases are proven by the ABSENCE of a diagnostic: DIAG-NOT below
-// pins that the nested type and the alias never appear in the output.
+// POSITIVE cases are proven by the ABSENCE of an error: the nested type and
+// the alias bind in all four spellings. A bare one is still SC001W, the
+// readability lint that suggests `Self::` (member_type_self_qualifier.k), and
+// the warnings below pin that it is a warning and nothing more. (The alias
+// uses are not warned here: T does not run after N's errors.)
 
 class Foo {
     var x: i32
@@ -37,6 +40,7 @@ class Foo {
     // Out-of-line below: the SAME body, and it must report the same thing.
     fn out_of_line(self) -> i32
 }
+// DIAG: warning [SC001W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 // DIAG: note [R049N]: 'x' is declared here
 // DIAG: error [R049E]: use of method 'inc' requires an explicit qualifier
@@ -46,6 +50,7 @@ fn Foo::out_of_line(self) -> i32 {
     var n = Nested { a: 1 }
     return x + n.a
 }
+// DIAG: warning [SC001W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 
 // An extend body's scope parents to the TU, not to Foo -- the nested type must
@@ -62,6 +67,7 @@ extend Foo {
         return f()
     }
 }
+// DIAG: warning [SC001W]: nested type 'Nested' of 'Foo' is named without a qualifier; write 'Self::Nested'
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 // DIAG: error [R049E]: use of member 'x' requires an explicit qualifier
 
@@ -72,6 +78,6 @@ class St {
 }
 // DIAG: error [R049E]: use of static member 'k' requires an explicit qualifier
 
-// The exception never fires as a diagnostic, in any of the four spellings.
-// DIAG-NOT: 'Nested'
-// DIAG-NOT: 'Alias'
+// The exception never fires as an ERROR, in any of the four spellings.
+// DIAG-NOT: error {{.*}}'Nested'
+// DIAG-NOT: error {{.*}}'Alias'

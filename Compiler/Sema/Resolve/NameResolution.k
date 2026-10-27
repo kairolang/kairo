@@ -1897,6 +1897,15 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             return true;
         }
 
+        // The scope exception's readability lint: `Node { .. }` binds, and
+        // says `Self::Node` would read better (MemberLookup).
+        if (!h.from_local) && (!h.via_overlay) && (h.decl != &null) {
+            var so = self._self_owner();
+            if MemberLookup::is_member_type_of(h.decl, so) {
+                MemberLookup::warn_unqualified_member_type(self.sc, n->range, h.decl, so);
+            }
+        }
+
         if h.decl != &null {
             n->resolved_decl = h.decl;
         } else {
@@ -1968,6 +1977,24 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     // nested types, type aliases and nested modules. `Nested { a: 1 }` inside a
     // method resolves to `Self::Nested` and stays legal, because naming a type
     // is not an access through an object.
+
+    /// The record `Self` denotes here: the innermost type scope around the
+    /// use, or the target of the `extend` it is in. Null outside any type
+    /// body (and inside `extend i32`, which has no record to name).
+    priv fn _self_owner(self) -> *Decl {
+        var dc = self.cur_dc;
+        while dc != &null {
+            if dc->is_type_scope() {
+                if dc->context_kind() == DeclContextKind::Extension {
+                    if self._ext_target == &null { return &null; }
+                    return self._ext_target->owner_decl();
+                }
+                return dc->owner_decl();
+            }
+            dc = dc->parent_context();
+        }
+        return &null;
+    }
 
     /// True when the answering decl denotes a scope/type rather than a member
     /// entity -- the sole exception to the qualifier rule.

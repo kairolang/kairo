@@ -185,6 +185,18 @@ DC chain); T's `_lookup_in_selfs` for type position. Field defaults and enum
 variant values keep the type body's scope (`_fn_depth` resets to 0 on entry
 to every type scope).
 
+Legal, but warned [DONE]: a bare nested type, type alias or associated type
+of the record `Self` denotes at the use is SC001W with the fix-it inserting
+`Self::` (readability: nothing at the use says the name is a member).
+`MemberLookup::is_member_type_of` / `warn_unqualified_member_type`; N calls
+them for expression position (`Node { .. }`, `Node::make()`), T for type
+position, after the name has bound, so each use is warned once and binding
+is unchanged. Only the INNERMOST Self: a sibling of an enclosing type seen
+from a nested one, the type's own name, inherited nested types and nested
+modules are not warned (`Self::` would name the wrong scope, or a module).
+This is in any body, not only a function's: a field type or a method
+signature in the class body is warned too.
+
 **Clang builtins** [DONE]. A name clang knows as a builtin
 (`__builtin_expect`, `__builtin_popcount`, ...) is a foreign function the TU
 did not have to import. `Sema/Foreign/BuiltinImport.k` owns them: one

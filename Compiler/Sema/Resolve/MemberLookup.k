@@ -67,6 +67,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenKind::*;
+import Diagnostic::Registry::*;
 
 class MemberLookup {
     pub var sc: *SemaContext;
@@ -578,5 +579,67 @@ class MemberLookup {
             }
             if !dup { out->push_back(d); }
         }
+    }
+
+    // --- unqualified member types (the `Self::` readability lint) ----------
+    //
+    // classes.md "Members always need a qualifier": a nested type, type alias
+    // or associated type of the enclosing type MAY be named bare inside its
+    // body (`Node` means `Self::Node`), the one exception to the qualifier
+    // rule. It stays legal; it is warned, because at the use nothing says
+    // the name is a member and not something from the module. N reports the
+    // expression position (`Node { .. }`, `Node::make()`), T the type
+    // position; each reaches a use once, so each use is warned once.
+
+    /// \p d, the decl a BARE name resolved to, is a member type of \p owner
+    /// (the record `Self` denotes at the use). Only the innermost Self: a
+    /// sibling of an enclosing type, seen from inside a nested one, is not a
+    /// member of Self, and `Self::` would name the wrong scope; nor is a
+    /// type's own name, which answers from the scope around it. Nested
+    /// modules are scopes too but are not warned: `Self::` reads as a type,
+    /// and a module is not one.
+    static fn is_member_type_of(d: *Decl, owner: *Decl) -> bool {
+        if (d == &null) || (owner == &null) { return false; }
+        var kind_ok = isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<EnumDecl>(d)
+                   || isa::<UnionDecl>(d) || isa::<InterfaceDecl>(d) || isa::<TypeAliasDecl>(d);
+        if !kind_ok { return false; }
+        if d->semantic_dc == &null { return false; }
+        var home = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+        if home == &null { return false; }
+        var a = NameLookup::representative(home);
+        var b = NameLookup::representative(owner);
+        return a == b;
+    }
+
+    /// SC001W at \p at, the bare spelling of member type \p d of \p owner:
+    /// a note at its name, and the fix-it that writes `Self::`.
+    static fn warn_unqualified_member_type(sc: *SemaContext, at: SourceRange, d: *Decl, owner: *Decl) {
+        if !at.is_valid() { return; }
+        var dctx = NameLookup::ctx_of(d);
+        var octx = NameLookup::ctx_of(owner);
+        if dctx == &null { dctx = sc->ctx; }
+        if octx == &null { octx = sc->ctx; }
+        var tok  = decl_name_tok(d);
+        var otok = decl_name_tok(owner);
+        if (tok.kind == TokenKind::TkUnknown) || (otok.kind == TokenKind::TkUnknown) { return; }
+        var nm = dctx->get_spelling(tok);
+        var on = octx->get_spelling(otok);
+
+        var what = "nested type";
+        var ta = dyn_cast::<TypeAliasDecl>(d);
+        if ta != &null {
+            what = "type alias";
+            if ta->is_associated { what = "associated type"; }
+        }
+
+        var b = sc->diag->report(DiagID::SC001W, at.start,
+            f"{what} '{nm}' of '{on}' is named without a qualifier; write 'Self::{nm}' so it reads as a member"
+        );
+        b.first(at);
+        if tok.range.is_valid() {
+            b.note(DiagID::SC001N, tok.range.start, f"'{nm}' is declared here, in '{on}\x27").first(tok.range);
+        }
+        b.insert(at.start, "Self::", f"qualify with 'Self::\x27");
+        b.emit();
     }
 }

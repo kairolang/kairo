@@ -1055,6 +1055,20 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         return self._selfs[self._selfs.size() - 1];
     }
 
+    /// The record whose members a bare name inside the innermost type body
+    /// reaches: Self's decl, or the body an instance Self selects (as
+    /// _lookup_in_selfs walks it). Null outside a type body and for a
+    /// non-record Self.
+    priv fn _self_owner(self) -> *Decl {
+        var t = self._current_self();
+        if t == &null { return &null; }
+        var d = self._self_decl_of(t);
+        if d == &null { return &null; }
+        var b = self.sc->record_body(t);
+        if b != &null { return b; }
+        return d;
+    }
+
     /// The decl a Self type's members live in: its record's. Null for a
     /// non-record Self (`extend i32`), which has no scope to look into.
     priv fn _self_decl_of(self, t: *Type) -> *Decl {
@@ -1445,6 +1459,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                     }
                     head = self._pick_type_candidate(r, seg0->name);
                     if head == &null { ct->poison(); return; }   // diagnosed inside.
+                    // The scope exception's readability lint: `-> Node`
+                    // resolves, and says `Self::Node` would read better.
+                    var so = self._self_owner();
+                    if MemberLookup::is_member_type_of(head, so) {
+                        MemberLookup::warn_unqualified_member_type(self.sc, seg0->name->range, head, so);
+                    }
                     self._append_module_scopes(r, &mods);
                 }
             }
