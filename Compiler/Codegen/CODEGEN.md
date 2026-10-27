@@ -414,6 +414,16 @@ instance in every TU and host alike; each explicit instantiation is
 followed by static_asserts of the size and shape Sema predicted
 (`InstanceEntry::adt_shape` / `adt_size`).
 
+A pack-expanded variant (RESOLUTION.md's EnumLayoutLowering) is written as
+a member template payload `template <class __kairo_pe> struct __kairo_V_t`
+(the enum's pack spelled as `__kairo_pe` inside, `CXXSpell::pack_alias`),
+a union member `::__kairo_pu<__kairo_V_t<E>...>`, flags folded over the
+pack, a `template <unsigned K, class F>` constructor storing tag p + K, and
+the destroy / construct-from helpers' `default:` handing a tag past p to
+the union's own, by runtime index. `__kairo_pu` (head/rest union, `get<K>`,
+trivial special members exactly when its members' are) is emitted once per
+TU that defines such an ADT (`__KAIRO_PACK_UNION` in a header).
+
 The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
 1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
 eight more roles (AdtRole::NullDefault on, `InterfaceEmitter::

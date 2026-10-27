@@ -3761,6 +3761,14 @@ class <T> DeclParse {
                 v->discriminant = disc;
             }
         }
+        // A pack-expanded variant, `Err { e: E }...`: one variant per element
+        // of the pack its payload names. A nullary `V...` is read too, so
+        // Sema can say why it means nothing (VariadicEnumCheck).
+        if dyn()->check(TokenKind::OpEllipsis) {
+            v->is_pack_expansion = true;
+            v->pack_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+        }
 
         v->range = start | dyn()->prev().range;
         return v;

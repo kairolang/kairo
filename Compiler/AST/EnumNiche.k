@@ -90,6 +90,9 @@ fn adt_tag_kind(en: *EnumDecl) -> BuiltinKind {
 /// tags are explicit values: "past N" may be a live tag then.
 fn adt_tag_niche_count(en: *EnumDecl) -> u64 {
     if en->adt_explicit_tags { return 0; }
+    // A pack-expanded variant takes as many tags as its instance has
+    // elements, so "past N" is per instance: none is promised.
+    if adt_pack_variant(en) != &null { return 0; }
     var n = u64(en->variants.size());
     var w = niche_word_values(adt_tag_kind(en));
     if w <= n { return 0; }

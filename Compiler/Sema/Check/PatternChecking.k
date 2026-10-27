@@ -63,6 +63,7 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
+import AST::DeclFacts::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::ASTSupport::*;
@@ -355,7 +356,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
         switch d.kind {
             case DomainKind::ClosedEnum {
-                var n = d.en->variants.size();
+                var n = usize(d.nctors);   // a pack-expanded variant counts once per element.
                 var seen = vec::<bool>();
                 for var k: usize = 0; k < n; ++k { seen.push_back(false); }
                 for var i: usize = 0; i < rows.size(); ++i {
@@ -371,7 +372,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
                         var c = Ctor{};
                         c.kind  = CtorKind::Variant;
                         c.index = u32(k);
-                        c.arity = u32(d.en->variants[k]->payload.size());
+                        c.arity = u32(adt_variant_at(d.en, k)->payload.size());
                         var r = self._useful_ctor(&rows, q, c, d, closed, want);
                         if r.useful { return r; }
                     }

@@ -69,6 +69,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::ASTSupport::*;
 import AST::ParamMode::*;
+import AST::DeclFacts::*;
 
 /// \brief 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
 ///        into a bucket key. Only ever a HINT: every bucket hit is confirmed by
@@ -213,8 +214,17 @@ class CanonicalTypeStore {
     /// The canonical nominal type for \p decl instantiated at \p args.
     /// \p decl MUST be the canonical redecl link (the definition where one
     /// exists) -- passing a forward declaration forks the entity in two.
-    fn record(self, decl: *Decl, args: *vec::<*Type>) -> *Type {
+    fn record(self, decl: *Decl, args_in: *vec::<*Type>) -> *Type {
         if decl == &null { return &null; }
+        // An enum's expanded pack is a set (decl_dedup_pack_args), so its
+        // duplicates are gone before the type has an identity.
+        var args = args_in;
+        var deduped = vec::<*Type>();
+        if (args_in != &null) && (args_in->size() > 1) && (decl_pack_set_at(decl) != usize(-1)) {
+            for var i: usize = 0; i < args_in->size(); ++i { deduped.push_back((*args_in)[i]); }
+            decl_dedup_pack_args(decl, &deduped);
+            if deduped.size() != args_in->size() { args = &deduped; }
+        }
 
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::RecordType)));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(decl));

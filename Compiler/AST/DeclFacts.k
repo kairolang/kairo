@@ -328,6 +328,98 @@ fn param_is_type_pack(p: *ParamDecl) -> bool {
     return (g != &null) && g->is_pack;
 }
 
+/// The pack-expanded variant of ADT \p en (`Err { e: E }...`), or null.
+fn adt_pack_variant(en: *EnumDecl) -> *EnumVariantDecl {
+    if en == &null { return &null; }
+    for var i: usize = 0; i < en->variants.size(); ++i {
+        var v = en->variants[i];
+        if (v != &null) && v->is_pack_expansion { return v; }
+    }
+    return &null;
+}
+
+/// The position in \p en's generic parameters of the type pack its
+/// pack-expanded variant expands, or usize(-1) when it has none. An
+/// instance's arguments from here on are the pack's elements
+/// (InstanceEntry::args keeps packs flat, at the tail).
+fn adt_pack_param(en: *EnumDecl) -> usize {
+    if adt_pack_variant(en) == &null { return usize(-1); }
+    for var i: usize = 0; i < en->generic_params.size(); ++i {
+        var gp = en->generic_params[i];
+        if (gp != &null) && gp->is_pack { return i; }
+    }
+    return usize(-1);
+}
+
+/// The position of variant \p v in \p en, or usize(-1).
+fn adt_variant_pos(en: *EnumDecl, v: *EnumVariantDecl) -> usize {
+    if (en == &null) || (v == &null) { return usize(-1); }
+    for var i: usize = 0; i < en->variants.size(); ++i { if en->variants[i] == v { return i; } }
+    return usize(-1);
+}
+
+/// An ADT's EXPANDED index: its constructors in tag order, which every
+/// pattern and layout question indexes by. An ordinary variant's is its
+/// position; element k of the pack-expanded variant (always the last, at
+/// position p) is p + k, so for an enum without one the two are the same.
+/// The variant expanded index \p i belongs to, or null past the last.
+fn adt_variant_at(en: *EnumDecl, i: usize) -> *EnumVariantDecl {
+    if en == &null { return &null; }
+    var n = en->variants.size();
+    if n == 0 { return &null; }
+    if i < n {
+        var v = en->variants[i];
+        return v;
+    }
+    var last = en->variants[n - 1];
+    if (last != &null) && last->is_pack_expansion { return last; }
+    return &null;
+}
+
+/// The pack element expanded index \p i stands for, or -1 for an ordinary
+/// variant (adt_variant_at).
+fn adt_expansion_at(en: *EnumDecl, i: usize) -> i32 {
+    var v = adt_variant_at(en, i);
+    if (v == &null) || (!v->is_pack_expansion) { return -1; }
+    return i32(i - (en->variants.size() - 1));
+}
+
+/// Where \p d's arguments become a set (decl_dedup_pack_args): the pack
+/// position of an enum with a pack-expanded variant, \p d being it or an
+/// instance of it; usize(-1) for every other decl.
+fn decl_pack_set_at(d: *Decl) -> usize {
+    if d == &null { return usize(-1); }
+    var p = decl_instantiated_from(d);
+    if p == &null { p = d; }
+    var en = dyn_cast::<EnumDecl>(p);
+    if (en == &null) || (!en->is_adt) { return usize(-1); }
+    return adt_pack_param(en);
+}
+
+/// `R<i32, string, string>` IS `R<i32, string>` when R's pack is expanded
+/// into variants (PANIC.md §1.2: equal types are one variant). The pack is a
+/// set, kept in first-occurrence order, so the dedup happens where a type is
+/// formed (CanonicalTypes::record, InstantiationRegistry) and every reader
+/// after it -- the instance's args, the expansions' tags, C++'s template
+/// arguments -- sees one list. \p d is the primary or an instance of it.
+fn decl_dedup_pack_args(d: *Decl, args: *vec::<*Type>) {
+    if (d == &null) || (args == &null) { return; }
+    var at = decl_pack_set_at(d);
+    if (at == usize(-1)) || (args->size() <= at + 1) { return; }
+    var out = vec::<*Type>();
+    for var i: usize = 0; i < args->size(); ++i {
+        var a = (*args)[i];
+        var dup = false;
+        if i > at {
+            for var j: usize = at; j < out.size(); ++j { if out[j] == a { dup = true; break; } }
+        }
+        if !dup { out.push_back(a); }
+    }
+    if out.size() == args->size() { return; }
+    args->clear();
+    for var i: usize = 0; i < out.size(); ++i { args->push_back(out[i]); }
+}
+
 /// `derives_list`: the kinds with nominal bases.
 fn decl_bases(d: *Decl) -> FrozenList::<InheritEdge> {
     if d == &null { return create_empty_frozen_list::<InheritEdge>(); }

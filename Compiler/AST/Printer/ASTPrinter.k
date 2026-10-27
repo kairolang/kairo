@@ -1637,6 +1637,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Punct, " = ");
             self.src_expr(v->discriminant);
         }
+        if v->is_pack_expansion { self.p.paint(Color::Punct, "..."); }
     }
 
     fn _d_union(self, ud: *UnionDecl) {
@@ -3495,6 +3496,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(v));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(v->name));
+        if v->is_pack_expansion { self.p.paint(Color::Punct, " pack-expansion"); }
         self.p.newline();
 
         var has_attrs = self._has_annotations(static_cast::<*Decl>(v));

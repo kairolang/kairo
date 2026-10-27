@@ -968,6 +968,10 @@ class StructDecl
     /// operator new, so `new (&member) P(...)` needs no <new>. One writer:
     /// EnumLayoutLowering.
     pub var is_adt_payload: bool  = false;
+    /// A pack-expanded variant's payload struct: a template over one pack
+    /// element, inside which the enum's pack parameter (this) spells as that
+    /// element (InterfaceEmitter). Null for every other struct.
+    pub var adt_pack_param: *GenericParamDecl = &null;
     /// The ADT enum this record is the layout of (EnumDecl::adt_layout), or
     /// null. One writer: EnumLayoutLowering.
     pub var adt_of:         *Decl = &null;
@@ -1003,6 +1007,7 @@ class StructDecl
         node->init_dc(DeclContextKind::Struct, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         node->is_adt_payload = false;
+        node->adt_pack_param = &null;
         node->adt_of         = &null;
         node->assign_from    = &null;
         node->assign_form    = AssignForm::Implicit;
@@ -1019,6 +1024,7 @@ class StructDecl
         node->init_dc(DeclContextKind::Struct, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         node->is_adt_payload = false;
+        node->adt_pack_param = &null;
         node->adt_of         = &null;
         node->assign_from    = &null;
         node->assign_form    = AssignForm::Implicit;
@@ -1268,6 +1274,12 @@ class EnumVariantDecl derives Decl {
     pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
     pub var adt_ctor:     AdtCtorForm = AdtCtorForm::Lambda;  ///< how C++ builds it (AdtCtorForm); one writer, EnumLayoutLowering.
     pub var adt_tag_value: u64 = 0;               ///< the tag this ADT variant is stored as: its position unless EnumDecl::adt_explicit_tags.
+    /// `V { e: E }...`: one variant per element of the type pack its payload
+    /// names (PANIC.md §1.2). Element k's tag is adt_tag_value + k
+    /// (EnumLayoutQuery::tag_value_at); the payload's fields are the
+    /// pattern's, read at element k's type.
+    pub var is_pack_expansion: bool = false;
+    pub var pack_range: SourceRange;              ///< the `...`, when is_pack_expansion.
     /// The variant's value: its discriminant's, else the previous variant's
     /// plus one, else 0 for the first, so an ADT's variants are their
     /// positions. One writer: StmtTyping::traverse_enum_variant_decl, in
@@ -1292,6 +1304,8 @@ class EnumVariantDecl derives Decl {
         node->adt_member = &null;
         node->adt_ctor   = AdtCtorForm::Lambda;
         node->adt_tag_value = u64(index);
+        node->is_pack_expansion = false;
+        node->pack_range = range;
         node->value      = IntConst{};
         return node;
     }
@@ -1303,6 +1317,8 @@ class EnumVariantDecl derives Decl {
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         node->adt_member    = &null;
+        node->is_pack_expansion = false;
+        node->pack_range    = range;
         node->value         = IntConst{};
         return node;
     }

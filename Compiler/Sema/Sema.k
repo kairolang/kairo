@@ -48,6 +48,7 @@ import Sema::Check::ConstraintExtraction::*;
 import Sema::Check::TypeCycleCheck::*;
 import Sema::Check::ShadowCheck::*;
 import Sema::Check::ShorthandLint::*;
+import Sema::Check::PackChecking::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::ClosureCaptures::*;
@@ -330,6 +331,12 @@ class Sema {
         // compound-assignment pairing assume shapes this pass has already
         // rejected (a compound operator with a result, both halves of a pair).
         { var _p = TimeRegion("OperatorSignature"); OperatorSignatureCheck(&self.sc).run(); }
+
+        // Where a type pack, a pack parameter and a pack-expanded variant may
+        // appear. Before X: it reads only N's names and T's types, and an
+        // enum it rejects is poisoned before any pattern or construction is
+        // typed against its expansions.
+        { var _p = TimeRegion("PackChecking"); PackChecking(&self.sc).run(); }
 
         // Expression typing. After TypeCycleCheck because it asks for sizes
         // and layouts through the canonical store, and a by-value cycle has

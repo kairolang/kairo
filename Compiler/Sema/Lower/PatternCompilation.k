@@ -88,6 +88,8 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
+import AST::DeclFacts::*;
+import Sema::Type::VariadicEnum::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
@@ -442,10 +444,15 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
                 }
             }
             case CtorKind::Variant {
-                var v = d.en->variants[usize(c.index)];
+                var v = adt_variant_at(d.en, usize(c.index));
+                // Element k of a pack-expanded variant: its fields read at
+                // that element's type, which is the occurrence's.
+                var k = adt_expansion_at(d.en, usize(c.index));
                 for var i: usize = 0; (i < v->payload.size()) && (i < usize(c.arity)); ++i {
                     var f = v->payload[i];
-                    out.push_back(self._occ(occ, OccKind::Payload, c.index, f, self._canon(f->type_)));
+                    var ft = self._canon(f->type_);
+                    if k >= 0 { ft = VariadicEnum(self._ps.sc).field_at(d.ty, f, usize(k)); }
+                    out.push_back(self._occ(occ, OccKind::Payload, c.index, f, ft));
                 }
             }
             default { 0; }
@@ -720,7 +727,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
     }
 
     priv fn _switch_enum(self, rows: *vec::<CRow>, occs: *vec::<u32>, d: Domain) -> u32 {
-        var n = d.en->variants.size();
+        var n = usize(d.nctors);   // a pack-expanded variant counts once per element.
         var order = vec::<u32>();
         var heads = vec::<*Pattern>();
         for var i: usize = 0; i < rows->size(); ++i {
@@ -738,7 +745,7 @@ class PatternCompilation derives RecursiveASTVisitor::<PatternCompilation> {
             var c = Ctor{};
             c.kind  = CtorKind::Variant;
             c.index = order[k];
-            c.arity = u32(d.en->variants[usize(order[k])]->payload.size());
+            c.arity = u32(adt_variant_at(d.en, usize(order[k]))->payload.size());
             var sub   = self._sub_occs((*occs)[0], c, d);
             var srows = self._specialize(rows, occs, c);
             var socc  = self._with_sub(occs, &sub);
@@ -1203,9 +1210,10 @@ fn decision_occ(sc: *SemaContext, t: *DecisionTree, o: u32) -> string {
             var ps = PatternSpace(sc);
             var pd = ps.domain_of(t->occs[usize(d.parent)].type_);
             var v = "?";
-            if (pd.en != &null) && (usize(d.index) < pd.en->variants.size()) {
-                v = tu.decl_name(static_cast::<*Decl>(pd.en->variants[usize(d.index)]));
-            }
+            var pv = adt_variant_at(pd.en, usize(d.index));
+            if pv != &null { v = tu.decl_name(static_cast::<*Decl>(pv)); }
+            var pk = adt_expansion_at(pd.en, usize(d.index));
+            if pk >= 0 { v += f"[{pk}]"; }
             return decision_occ(sc, t, u32(d.parent)) + "." + v + "." + tu.decl_name(static_cast::<*Decl>(d.field));
         }
     }

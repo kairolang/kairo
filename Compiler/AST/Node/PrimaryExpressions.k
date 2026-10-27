@@ -353,6 +353,11 @@ class ChainExpr derives Expr {
         /// otherwise.
         pub var index: u32 = 0;
 
+        /// A pack-expanded variant's payload member (EnumLayoutQuery::
+        /// payload_ref): the pack element this step reads, which EmitIR
+        /// spells after the member as its getter; -1 on every other step.
+        pub var pack_index: i32 = -1;
+
         /// resolved type of this step's result. set by sema, null before.
         pub var resolved_type: *Type;
 

@@ -296,10 +296,27 @@ class Deduction {
                 var ppat = NameLookup::representative(self.tu.pattern_of(pr->decl));
                 var apat = NameLookup::representative(self.tu.pattern_of(ar->decl));
                 if ppat != apat { return ImplicitRank::None; }
-                if pr->args.size() != ar->args.size() { return ImplicitRank::None; }
                 for var i: usize = 0; i < pr->args.size(); ++i {
+                    // `Outcome<i32, E...>` against `Outcome<i32, f64, bool>`:
+                    // a trailing pack takes every argument from here on, and
+                    // one already deduced must be those exactly.
+                    var pg = dyn_cast::<GenericParamType>(pr->args[i]);
+                    if (pg != &null) && pg->is_pack && (i + 1 == pr->args.size()) && (pg->owner != &null) {
+                        if i > ar->args.size() { return ImplicitRank::None; }
+                        var have = vec::<*Type>();
+                        if self.pack_elems(pg->owner, pg->param_index, &have) {
+                            if have.size() != ar->args.size() - i { return ImplicitRank::None; }
+                            for var k: usize = 0; k < have.size(); ++k { if have[k] != ar->args[i + k] { return ImplicitRank::None; } }
+                            return ImplicitRank::Exact;
+                        }
+                        self.open_pack(pg->owner, pg->param_index);
+                        for var k: usize = i; k < ar->args.size(); ++k { self.push_pack(pg->owner, pg->param_index, ar->args[k]); }
+                        return ImplicitRank::Exact;
+                    }
+                    if i >= ar->args.size() { return ImplicitRank::None; }
                     if self.unify(pr->args[i], ar->args[i], false) == ImplicitRank::None { return ImplicitRank::None; }
                 }
+                if pr->args.size() != ar->args.size() { return ImplicitRank::None; }
                 return ImplicitRank::Exact;
             } default { return ImplicitRank::None; }
         }

@@ -93,6 +93,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
+import AST::DeclFacts::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::PatternCompilation::*;
 import Sema::Lower::EnumLayoutLowering::*;
@@ -445,8 +446,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
 
     priv fn _variant_of(self, o: u32, index: u32) -> *EnumVariantDecl {
         var en = self._enum_at(o);
-        if (en == &null) || (usize(index) >= en->variants.size()) { return &null; }
-        return en->variants[usize(index)];
+        return adt_variant_at(en, usize(index));   // \p index is expanded (EnumLayoutQuery).
     }
 
     // --- arms --------------------------------------------------------------------------

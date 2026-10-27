@@ -68,6 +68,11 @@ class CXXSpell {
     /// Null everywhere else, where an interface type is still an ICE.
     pub var self_iface:    *Decl  = &null;
     pub var self_spelling: string = "";
+    /// While InterfaceEmitter writes a pack-expanded variant's payload struct
+    /// (a template over one element): the enum's pack parameter, which
+    /// spells there as that element, LowerTargets::adt_pack_elem(). Null
+    /// everywhere else.
+    pub var pack_alias:    *GenericParamDecl = &null;
 
     fn CXXSpell(self) { self._cg = &null; }
     fn CXXSpell(self, cg: *CodegenContext) { self._cg = cg; }
@@ -1371,6 +1376,10 @@ class CXXSpell {
         // A pack is only ever spelled expanded: a canonical pack parameter
         // stands for its expansion (`R<i32, E...>`'s argument, `...xs: T`'s
         // type), so it is `E...`, or under an instance its elements.
+        if g->is_pack && (self.pack_alias != &null) {
+            var ags = decl_generic_params(owner);
+            if (usize(g->param_index) < ags.size()) && (ags[usize(g->param_index)] == self.pack_alias) { return LowerTargets::adt_pack_elem(); }
+        }
         if g->is_pack {
             var els = vec::<*Type>();
             if self.subst_pack(g, subst, &els) {

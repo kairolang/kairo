@@ -121,6 +121,7 @@ class InterfaceEmitter {
     pub var have_fn_value:   bool = false;
     pub var have_eval_helpers: bool = false;
     pub var have_niche_helpers: bool = false;
+    pub var have_pack_union: bool = false;
 
     fn InterfaceEmitter(self, cg: *CodegenContext, plan: *EmitPlan) {
         self._cg    = cg;
@@ -250,6 +251,18 @@ class InterfaceEmitter {
             self._niche_helpers(header);
             self._cg->sink->unanchored(false);
             self.have_niche_helpers = true;
+        }
+
+        // A pack-expanded variant's payload union (_pack_union), wherever an
+        // ADT with one is defined.
+        if (!self.have_pack_union) && self._needs_pack_union() {
+            self._cg->sink->unanchored(true);
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + LowerTargets::adt_pack_guard()); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + LowerTargets::adt_pack_guard()); }
+            self._pack_union();
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+            self._cg->sink->unanchored(false);
+            self.have_pack_union = true;
         }
 
         var i: usize = 0;
@@ -932,11 +945,80 @@ class InterfaceEmitter {
         for var i: usize = 0; i < u->fields.size(); ++i {
             var m = u->fields[i];
             if m == &null { continue; }
+            var mps = self._member_payload(m);
+            if (mps != &null) && (mps->adt_pack_param != &null) {
+                // One payload per element of the pack (_pack_union).
+                self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), "::" + LowerTargets::adt_pack_union() + "<" + self._pack_payload(mps, owner)
+                                      + "...> " + self._spell->leaf(static_cast::<*Decl>(m)) + ";");
+                continue;
+            }
             var ms = self._spell->decl(m->type_, self._spell->leaf(static_cast::<*Decl>(m)), &null, owner);
             ms += ";";
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), ms);
         }
         self._cg->sink->spell(fat, "};");
+    }
+
+    /// The payload member of a pack-expanded variant (PANIC.md §1.2):
+    /// `__kairo_pu<P<E>...>`, a union of one payload per element, head and
+    /// rest. Element K is `__kairo_get<K>()`; building one is the
+    /// `(__kairo_vt<K>, f)` constructor, which recurses to the K-th member;
+    /// destroying or copying element k (a runtime index, the tag's) is the
+    /// helper of the same name, which recurses the same way. Its special
+    /// members are trivial exactly when every member's are, so an ADT over
+    /// trivial elements stays trivial; otherwise they do nothing, and the
+    /// ADT's own (which know the tag) run the element's. Once per TU,
+    /// beside the variant tags it is built with.
+    priv fn _pack_union(self) {
+        var pu  = LowerTargets::adt_pack_union();
+        var hd  = LowerTargets::adt_pack_head();
+        var rs  = LowerTargets::adt_pack_rest();
+        var get = LowerTargets::adt_pack_get();
+        var ds  = LowerTargets::adt_destroy();
+        var cf  = LowerTargets::adt_construct_from();
+        var vt  = "::" + LowerTargets::adt_variant_tag();
+        var u   = builtin_info(BuiltinKind::U32)->cxx;
+        var tc  = "(__is_trivially_copyable(H) && (__is_trivially_copyable(R) && ...))";
+        var td  = "(__is_trivially_destructible(H) && (__is_trivially_destructible(R) && ...))";
+        var at  = self._tu_at();
+        self._cg->sink->spell(at, "template <class... P> union " + pu + " { " + pu + "() noexcept {} void " + ds + "(" + u + ") noexcept {} "
+            + "template <class O> void " + cf + "(" + u + ", O&&) noexcept {} };");
+        self._cg->sink->brk();
+        var s = "template <class H, class... R> union " + pu + "<H, R...> { H " + hd + "; " + pu + "<R...> " + rs + "; "
+              + pu + "() noexcept {} "
+              + "template <class F> " + pu + "(" + vt + "<0>, F&& f) noexcept : " + hd + "(static_cast<F&&>(f)()) {} "
+              + "template <" + u + " K, class F> requires (K > 0) " + pu + "(" + vt + "<K>, F&& f) noexcept : " + rs + "(" + vt + "<K - 1>{}, static_cast<F&&>(f)) {} "
+              + pu + "(const " + pu + "&) requires " + tc + " = default; "
+              + pu + "(const " + pu + "&) noexcept requires (!" + tc + ") {} "
+              + pu + "(" + pu + "&&) requires " + tc + " = default; "
+              + pu + "(" + pu + "&&) noexcept requires (!" + tc + ") {} "
+              + pu + "& operator=(const " + pu + "&) requires " + tc + " = default; "
+              + pu + "& operator=(" + pu + "&&) requires " + tc + " = default; "
+              + "~" + pu + "() requires " + td + " = default; "
+              + "~" + pu + "() noexcept requires (!" + td + ") {} "
+              + "template <" + u + " K> auto& " + get + "() noexcept { if constexpr (K == 0) { return " + hd + "; } else { return " + rs + ".template " + get + "<K - 1>(); } } "
+              + "template <" + u + " K> const auto& " + get + "() const noexcept { if constexpr (K == 0) { return " + hd + "; } else { return " + rs + ".template " + get + "<K - 1>(); } } "
+              + "void " + ds + "(" + u + " k) noexcept { if (k == 0) { " + hd + ".~H(); } else { " + rs + "." + ds + "(k - 1); } } "
+              + "template <class O> void " + cf + "(" + u + " k, O&& o) noexcept { if (k == 0) { new (&" + hd + ") H(static_cast<O&&>(o)." + hd + "); } "
+              + "else { " + rs + "." + cf + "(k - 1, static_cast<O&&>(o)." + rs + "); } } };";
+        self._cg->sink->spell(at, s);
+        self._cg->sink->brk();
+    }
+
+    /// The payload struct template of pack-expanded variant \p v, applied
+    /// to its pack, unexpanded: `__kairo_Err_t<E>`, the pattern a fold or
+    /// a `__kairo_pu<...>` expands.
+    priv fn _pack_payload(self, ps: *StructDecl, en: *Decl) -> string {
+        var gp = ps->adt_pack_param;
+        return self._spell->leaf(static_cast::<*Decl>(ps)) + "<" + self._spell->imm_name(gp->name.imm, CXXSpell::fid_of(en)) + ">";
+    }
+
+    /// The payload struct an ADT union member \p m holds, or null.
+    priv fn _member_payload(self, m: *FieldDecl) -> *StructDecl {
+        if (m == &null) || (m->type_ == &null) || (m->type_->canonical == &null) { return &null; }
+        var c = canon_unqual(m->type_->canonical);
+        if !isa::<RecordType>(c) { return &null; }
+        return dyn_cast::<StructDecl>(cast::<RecordType>(c)->decl);
     }
 
     priv fn _is_type(self, d: *Decl) -> bool {
@@ -1043,7 +1125,16 @@ class InterfaceEmitter {
             // Written where its field is (_anon_union_field).
             if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
+            // A pack-expanded variant's payload: a template over one element,
+            // inside which the enum's pack spells as that element.
+            var pps = dyn_cast::<StructDecl>(nd);
+            var pk = (pps->adt_pack_param) if (pps != &null) else (&null);
+            if pk != &null {
+                self._cg->sink->spell(self._at(nd), "template <class " + LowerTargets::adt_pack_elem() + ">");
+                self._spell->pack_alias = pk;
+            }
             self._type_def(CXXSpell::rep(nd));
+            if pk != &null { self._spell->pack_alias = &null; }
         }
 
         for var i: usize = 0; i < lay->fields.size(); ++i {
@@ -1309,6 +1400,20 @@ class InterfaceEmitter {
         return false;
     }
 
+    /// An ADT with a pack-expanded variant is defined here (as
+    /// _needs_niche_helpers asks).
+    priv fn _needs_pack_union(self) -> bool {
+        var header = (self._plan->mode() == PlanMode::Header);
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var e = &(self._plan->entries[i]);
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if header && (!e->own) { continue; }
+            var en = dyn_cast::<EnumDecl>(e->decl);
+            if (en != &null) && en->is_adt && (adt_pack_variant(en) != &null) { return true; }
+        }
+        return false;
+    }
+
     /// A flag's initializer: its type trait over every payload struct,
     /// joined with `&&`. Which flag it is is read off the name LowerTargets
     /// gave it; the structs go by leaf, the text being inside the record.
@@ -1319,6 +1424,10 @@ class InterfaceEmitter {
             var ps = dyn_cast::<StructDecl>(*(dc->dc_decls.get(i)));
             if (ps == &null) || (!ps->is_adt_payload) { continue; }
             var p    = self._spell->leaf(static_cast::<*Decl>(ps));
+            // A pack-expanded variant's: every element's, as a fold (true
+            // for an empty pack).
+            var fold = ps->adt_pack_param != &null;
+            if fold { p = self._pack_payload(ps, lay->adt_of); }
             var term = "";
             if nm == LowerTargets::adt_trivial_dtor()      { term = "__is_trivially_destructible(" + p + ")"; }
             else if nm == LowerTargets::adt_trivial_copy() { term = "__is_trivially_copyable(" + p + ")"; }
@@ -1326,6 +1435,7 @@ class InterfaceEmitter {
             else if nm == LowerTargets::adt_copyable()     { term = "__is_constructible(" + p + ", const " + p + "&)"; }
             else if nm == LowerTargets::adt_movable()      { term = "__is_constructible(" + p + ", " + p + "&&)"; }
             else { self._ice(self._at(static_cast::<*Decl>(f)), f"InterfaceEmitter: ADT record field '{nm}' is compile-time but none of the five flags"); }
+            if fold { term = "(" + term + " && ...)"; }
             if s.size() > 0 { s += " && "; }
             s += term;
         }
@@ -1419,6 +1529,15 @@ class InterfaceEmitter {
                 }
                 var init = tag + "(" + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ")" + site_init;
                 if v->adt_member == &null { return nm + "(" + vt + ")" + nx + " : " + init + " {}"; }
+                if v->is_pack_expansion {
+                    // Element K: the variant's tag plus K (EnumLayoutQuery::
+                    // tag_value), built into the union's K-th member.
+                    var u  = builtin_info(BuiltinKind::U32)->cxx;
+                    var kv = "::" + LowerTargets::adt_variant_tag();
+                    var tv = f"{v->adt_tag_value}";
+                    return "template <" + u + " K, class F> " + nm + "(" + vt + ", " + kv + "<K>, F&& f)" + nx + " : " + tag + "(static_cast<" + tt + ">(" + tv + " + K))"
+                         + site_init + ", " + self._spell->leaf(static_cast::<*Decl>(v->adt_member)) + "(" + kv + "<K>{}, static_cast<F&&>(f)) {}";
+                }
                 // The payload is the callable's prvalue, so the union member
                 // is built straight from it: nothing is copied or moved.
                 var lam = "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + init + ", "
@@ -1462,11 +1581,11 @@ class InterfaceEmitter {
                 var s = "void " + ds + "() noexcept { switch (" + tag + ") {";
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var v = en->variants[i];
-                    if (v == &null) || (v->adt_member == &null) { continue; }
+                    if (v == &null) || (v->adt_member == &null) || v->is_pack_expansion { continue; }
                     var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
                     s += " case " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ": " + mem + ".~" + self._payload_leaf(v) + "(); break;";
                 }
-                return s + " default: break; } }";
+                return s + " default: " + self._pack_default(en, ds, "") + "break; } }";
             }
             case AdtRole::ConstructFrom {
                 // `new` finds the payload struct's own placement form, which
@@ -1474,12 +1593,12 @@ class InterfaceEmitter {
                 var s = "template <class O> void " + cf + "(O&& o)" + nx + " { switch (" + tag + ") {";
                 for var i: usize = 0; i < en->variants.size(); ++i {
                     var v = en->variants[i];
-                    if (v == &null) || (v->adt_member == &null) { continue; }
+                    if (v == &null) || (v->adt_member == &null) || v->is_pack_expansion { continue; }
                     var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
                     s += " case " + tt + "::" + self._spell->leaf(static_cast::<*Decl>(v)) + ": new (&" + mem + ") "
                        + self._payload_leaf(v) + "(static_cast<O&&>(o)." + mem + "); break;";
                 }
-                return s + " default: break; } }";
+                return s + " default: " + self._pack_default(en, cf, "static_cast<O&&>(o).") + "break; } }";
             }
             // The tagged form; the niche-filled one is _niche_record's.
             case AdtRole::Which { return tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return " + tag + "; }"; }
@@ -1487,6 +1606,21 @@ class InterfaceEmitter {
         }
         self._ice(self._at(static_cast::<*Decl>(m)), "InterfaceEmitter: an ADT role function with no rendering; EnumLayoutLowering minted a role this emitter does not know");
         return "";
+    }
+
+    /// The `default:` of Destroy / ConstructFrom for a pack-expanded variant
+    /// (always last): a tag past its own is element (tag - its tag), which
+    /// the union's helper \p fn reaches by that runtime index; \p from is
+    /// the source object's prefix for ConstructFrom. "" without one.
+    priv fn _pack_default(self, en: *EnumDecl, fn_: string, from: string) -> string {
+        var v = adt_pack_variant(en);
+        if (v == &null) || (v->adt_member == &null) { return ""; }
+        var u   = builtin_info(BuiltinKind::U32)->cxx;
+        var tag = "static_cast<" + u + ">(" + LowerTargets::adt_tag_field() + ")";
+        var tv  = f"{v->adt_tag_value}";
+        var mem = self._spell->leaf(static_cast::<*Decl>(v->adt_member));
+        var arg = (", " + from + mem) if (from.size() > 0) else ("");
+        return "if (" + tag + " >= " + tv + ") { " + mem + "." + fn_ + "(" + tag + " - " + tv + arg + "); } ";
     }
 
     /// Variant \p v's field constructor (AdtCtorForm::Fields / Both): each

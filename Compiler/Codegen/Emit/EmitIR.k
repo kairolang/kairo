@@ -1554,6 +1554,11 @@ class EmitIR {
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
             self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")));
             self._name(st->name->name);
+            // A pack-expanded variant's member holds one payload per element:
+            // element K is its getter's (EnumLayoutQuery::payload_ref).
+            if st->pack_index >= 0 {
+                self._cg->sink->spell(st->range, ".template " + LowerTargets::adt_pack_get() + "<" + f"{st->pack_index}" + ">()");
+            }
             is_ptr = self._type_is_pointer(st->resolved_type);
         }
         return is_ptr;
@@ -2342,6 +2347,15 @@ class EmitIR {
         }
         var leaf = LowerTargets::adt_payload_type(self._spell.leaf(static_cast::<*Decl>(v)));
         var pt   = self._spell.dependent_member_type(n->type_, leaf);
+        // A pack-expanded variant's element K: the constructor takes the
+        // variant's tag, then K's, and the payload is the member template at
+        // the element (InterfaceEmitter writes both). Always at a concrete
+        // instance (ControlTyping refuses a dependent one).
+        if n->pack_index >= 0 {
+            if (n->pack_elem == &null) { self._ice(n->range, "EmitIR: a pack-expanded variant built with no element type; VariantInitLowering records it"); }
+            tag += ", ::" + LowerTargets::adt_variant_tag() + "<" + f"{n->pack_index}" + ">{}";
+            pt = t + "::" + leaf + "<" + self._spell._type(n->pack_elem) + ">";
+        }
         // noexcept unless -funwind, as the constructor it is passed to is
         // (InterfaceEmitter::_adt_noexcept): the lambda is a Kairo frame.
         var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
@@ -2354,8 +2368,11 @@ class EmitIR {
             var fc: *Type = &null;
             if (fd->type_ != &null) && (fd->type_->canonical != &null) { fc = canon_unqual(fd->type_->canonical); }
             var il = dyn_cast::<InitListExpr>(f);
+            var pg = dyn_cast::<GenericParamType>(fc);
             if (il != &null) && (fc != &null) && (fc->kind == TypeKind::FixedArrayType) {
                 self._init_list(il, true);
+            } else if (n->pack_index >= 0) && (pg != &null) && pg->is_pack {
+                self._value(f, n->pack_elem);   // the pack field holds the element.
             } else {
                 self._value(f, fd->type_);
             }

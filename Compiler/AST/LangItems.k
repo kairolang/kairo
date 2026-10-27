@@ -609,6 +609,17 @@ class LowerTargets {
     static fn adt_destructible() -> string           { return "__kairo_destructible"; }
     static fn adt_copyable() -> string               { return "__kairo_copyable"; }
     static fn adt_movable() -> string                { return "__kairo_movable"; }
+    /// A pack-expanded variant (PANIC.md §1.2): its payload member is a
+    /// `__kairo_pu<P<E>...>`, the preamble's recursive union holding one
+    /// payload per element, read through `.template __kairo_get<K>()`; its
+    /// payload struct is a template over the element, `__kairo_pe`. The
+    /// union's own two members are its head and the rest.
+    static fn adt_pack_union() -> string             { return "__kairo_pu"; }
+    static fn adt_pack_get() -> string               { return "__kairo_get"; }
+    static fn adt_pack_elem() -> string              { return "__kairo_pe"; }
+    static fn adt_pack_head() -> string              { return "__kairo_h"; }
+    static fn adt_pack_rest() -> string              { return "__kairo_r"; }
+    static fn adt_pack_guard() -> string             { return "__KAIRO_PACK_UNION"; }
     /// The Nullable lang item's C++ members and `null_t`'s constant (writer:
     /// EnumLayoutLowering names the roles, InterfaceEmitter spells them).
     /// Not `__kairo_`-prefixed: a C++ host calls them.

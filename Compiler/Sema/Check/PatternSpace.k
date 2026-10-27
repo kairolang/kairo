@@ -59,6 +59,7 @@ import Sema::Check::ConstEval::*;
 import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
+import Sema::Type::VariadicEnum::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -92,6 +93,10 @@ struct Domain {
     var signed:  bool       = false;   ///< Int.
     var max_key: u64        = 0;       ///< Int: the largest key (2^bits - 1).
     var arity:   u32        = 0;       ///< Record.
+    /// ClosedEnum: its constructors at this type, in EXPANDED index order
+    /// (adt_variant_at): the variants, a pack-expanded one once per element.
+    var nctors:  u32        = 0;
+    var ty:      *Type      = &null;   ///< ClosedEnum: the column's type, which a pack's elements are read off.
 }
 
 /// What a pattern's head tests. `Wild` matches every value of the column.
@@ -164,6 +169,8 @@ class PatternSpace {
             if en != &null {
                 d.en = en;
                 d.kind = (DomainKind::OpenEnum) if (self.is_open_enum(en)) else (DomainKind::ClosedEnum);
+                d.ty = u;
+                d.nctors = u32(VariadicEnum(self.sc).ctor_count(en, u));
                 return d;
             }
             if isa::<StructDecl>(rd) || isa::<ClassDecl>(rd) {
@@ -360,6 +367,9 @@ class PatternSpace {
             if d.kind == DomainKind::ClosedEnum {
                 var idx = self.variant_index(d.en, v);
                 if idx >= 0 {
+                    // Element k of a pack-expanded variant is its own
+                    // constructor, at the variant's position plus k.
+                    if v->is_pack_expansion && (p->pack_index >= 0) { idx += p->pack_index; }
                     var c = Ctor{};
                     c.kind  = CtorKind::Variant;
                     c.index = u32(idx);
@@ -587,8 +597,19 @@ class PatternSpace {
             case CtorKind::Opaque { return "_"; }
             case CtorKind::Variant {
                 var name = "_";
-                if (d.en != &null) && (usize(c.index) < d.en->variants.size()) {
-                    name = "." + self.tu.decl_name(static_cast::<*Decl>(d.en->variants[usize(c.index)]));
+                var vv = adt_variant_at(d.en, usize(c.index));
+                if vv != &null { name = "." + self.tu.decl_name(static_cast::<*Decl>(vv)); }
+                // An element of a pack-expanded variant reads as the pattern
+                // that picks it: its pack field's binder, typed.
+                var k = adt_expansion_at(d.en, usize(c.index));
+                if (k >= 0) && self._all_wild(subs) {
+                    var ve = VariadicEnum(self.sc);
+                    for var j: usize = 0; j < vv->payload.size(); ++j {
+                        if !ve.is_pack_field(vv->payload[j]) { continue; }
+                        var et = ve.field_at(d.ty, vv->payload[j], usize(k));
+                        var tn = ("?") if (et == &null) else (self.tu.str(et));
+                        return name + "(var " + self.tu.decl_name(static_cast::<*Decl>(vv->payload[j])) + ": " + tn + ")";
+                    }
                 }
                 if self._all_wild(subs) { return name; }
                 return name + "(" + self._join(subs) + ")";

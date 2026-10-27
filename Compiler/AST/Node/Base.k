@@ -375,6 +375,12 @@ class Pattern derives Annotation::<Pattern> {
     /// destructures. Null otherwise. One writer: PatternTyping (ExprTyper).
     pub var field_decl: *Decl = &null;
 
+    /// On a pattern naming a pack-expanded variant (`.Err(var e: f64)`): the
+    /// pack element it picked, by payload type; -1 otherwise. Its expanded
+    /// index (adt_variant_at) is the variant's position plus this. One
+    /// writer: PatternTyping.
+    pub var pack_index: i32 = -1;
+
     /// Sema poison bit; see Expr::poisoned for the contract.
     pub var poisoned: bool = false;
 
@@ -390,6 +396,7 @@ class Pattern derives Annotation::<Pattern> {
         self.type_         = other->type_;
         self.resolved_decl = other->resolved_decl;
         self.field_decl    = other->field_decl;
+        self.pack_index    = other->pack_index;
         self.poisoned      = other->poisoned;
     }
 

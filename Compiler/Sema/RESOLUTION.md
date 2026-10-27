@@ -436,7 +436,9 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 ### 2.8 C checks [PARTIAL]
 
 In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
-`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
+`OperatorSignatureCheck`, `PackChecking` (where a type pack, a pack
+parameter and a pack-expanded variant may appear; before X, on N's names
+and T's types; an enum it rejects is poisoned), `ExprTyper` (§2.9), `ValueCategoryPass`,
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
 `ReturnPathCheck`, `ControlFlowAnalysis`, JumpLabelCheck's script rule,
 `WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
@@ -1116,6 +1118,23 @@ the EnumDecl. Nothing is retargeted: RecordTypes keep naming the enum, and
 codegen reaches the record only through `adt_layout`. A non-generic ADT
 whose facts are Unknown (a payload that is a generic instance) is rejected
 first by FeatureGateCheck (SC116E), so the pass's ICE on one is an invariant.
+
+A pack-expanded variant `Err { e: E }...` (PANIC.md §1.2; always the last
+variant, its pack fields typed bare `E`) is one constructor per element of
+the instance's pack. Its payload struct is a C++ template over the element
+(`StructDecl::adt_pack_param`), its union member a `__kairo_pu<P<E>...>`
+(the preamble's recursive union), its constructor `(vt<p>, vt<K>, f)`, and
+its tag the variant's plus K. Every index EnumLayoutQuery takes is EXPANDED
+(`adt_variant_at` / `adt_expansion_at`): a variant's position, element k of
+the pack variant at position p being p + k, which is also its tag; a payload
+read carries K on its chain step (`Step::pack_index`). An enum whose pack is
+expanded has its pack args deduplicated where the type is formed
+(`decl_dedup_pack_args`, in CanonicalTypes::record and the registry), so
+equal elements are one variant. Construction and patterns pick the element
+by payload type (`VariadicEnum`; ControlTyping / PatternTyping record
+`variant_pack` / `Pattern::pack_index`); at a dependent type either is
+SC116E until M2. No niche: the tag niche is per instance, so none is
+promised.
 
 The tag is the enum's `derives` type, else the narrowest of u8 / u16 that
 holds the variants (a too-narrow `derives` is R001E in TypeResolve); tags

@@ -198,7 +198,9 @@ class InstantiationRegistry {
     // === Lookup / create ======================================================
 
     /// The entry for (primary, args), or null if none was ever named.
-    fn find(self, primary: *Decl, args: *vec::<*Type>) -> *InstanceEntry {
+    fn find(self, primary: *Decl, args_in: *vec::<*Type>) -> *InstanceEntry {
+        var dd = vec::<*Type>();
+        var args = self._set_args(primary, args_in, &dd);
         var rlock = std::SharedLock(self._mu);
         return self._probe(self._hash(primary, args), primary, args);
     }
@@ -217,9 +219,11 @@ class InstantiationRegistry {
     /// node's names are the primary's names, interned in the primary's TU.
     /// PRE: every arg canonical and non-dependent. Callers that cannot
     /// promise that (T on a dependent use) must not call this.
-    fn instance_for(self, primary: *Decl, args: *vec::<*Type>, fid: u32,
+    fn instance_for(self, primary: *Decl, args_in: *vec::<*Type>, fid: u32,
                     ctx: *ASTContext) -> *InstanceEntry {
-        if (primary == &null) || (args == &null) || (ctx == &null) { return &null; }
+        if (primary == &null) || (args_in == &null) || (ctx == &null) { return &null; }
+        var dd = vec::<*Type>();
+        var args = self._set_args(primary, args_in, &dd);
         var h = self._hash(primary, args);
 
         var lock = std::LockGuard(self._mu);
@@ -244,9 +248,11 @@ class InstantiationRegistry {
     ///   !entry->is_explicit          an implicit node already exists: some
     ///                                use named these args before the spec
     ///                                was seen. T diagnoses.
-    fn register_explicit(self, primary: *Decl, args: *vec::<*Type>, spec: *Decl,
+    fn register_explicit(self, primary: *Decl, args_in: *vec::<*Type>, spec: *Decl,
                          fid: u32) -> *InstanceEntry {
-        if (primary == &null) || (args == &null) || (spec == &null) { return &null; }
+        if (primary == &null) || (args_in == &null) || (spec == &null) { return &null; }
+        var dd = vec::<*Type>();
+        var args = self._set_args(primary, args_in, &dd);
         var h = self._hash(primary, args);
 
         var lock = std::LockGuard(self._mu);
@@ -596,6 +602,15 @@ class InstantiationRegistry {
             if (r->conformer == conformer) && (r->iface == iface) { return r; }
         }
         return &null;
+    }
+
+    /// \p args with an expanded enum pack's duplicates gone
+    /// (decl_dedup_pack_args), in \p scratch when anything was dropped.
+    priv fn _set_args(self, primary: *Decl, args: *vec::<*Type>, scratch: *vec::<*Type>) -> *vec::<*Type> {
+        if (args == &null) || (decl_pack_set_at(primary) == usize(-1)) { return args; }
+        for var i: usize = 0; i < args->size(); ++i { scratch->push_back((*args)[i]); }
+        decl_dedup_pack_args(primary, scratch);
+        return (scratch) if (scratch->size() != args->size()) else (args);
     }
 
     /// Under the lock (either mode).

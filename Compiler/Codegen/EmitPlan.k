@@ -1628,8 +1628,15 @@ fn EmitPlan::anon_union_of(f: *FieldDecl) -> *UnionDecl {
 /// Recursion through another generic's field bottoms out at a depth cap
 /// and answers "by value", the safe direction (an over-strong edge can
 /// only trip the cycle assert, never miss a definition).
-fn EmitPlan::param_by_value(prim: *Decl, idx: u32) -> bool {
+fn EmitPlan::param_by_value(prim: *Decl, idx_in: u32) -> bool {
     if prim == &null { return false; }
+    // An instance's arguments past a pack's position are the pack's
+    // elements (InstanceEntry::args, flat): each is held as the pack is.
+    var idx = idx_in;
+    var pgs = decl_generic_params(prim);
+    for var i: usize = 0; i < pgs.size(); ++i {
+        if (pgs[i] != &null) && pgs[i]->is_pack && (usize(idx) > i) { idx = u32(i); break; }
+    }
     // One question per record: an ADT asked as its enum or as its layout
     // record is the same one, so it gets one memo key.
     var p   = self.layout_decl(prim);

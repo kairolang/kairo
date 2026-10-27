@@ -58,6 +58,7 @@ class IncludedDecls {
     pub var fn_value:   bool = false;   ///< InterfaceEmitter::have_fn_value
     pub var eval_helpers: bool = false; ///< InterfaceEmitter::have_eval_helpers
     pub var niche_helpers: bool = false; ///< InterfaceEmitter::have_niche_helpers
+    pub var pack_union: bool = false;    ///< InterfaceEmitter::have_pack_union
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
     /// a later include from defining X.
@@ -225,12 +226,14 @@ class IncludeEmitter {
         ie.have_fn_value   = seen->fn_value;
         ie.have_eval_helpers = seen->eval_helpers;
         ie.have_niche_helpers = seen->niche_helpers;
+        ie.have_pack_union = seen->pack_union;
         ie.run();
         seen->helpers    = ie.have_helpers;
         seen->ctor_slots = ie.have_ctor_slots;
         seen->fn_value   = ie.have_fn_value;
         seen->eval_helpers = ie.have_eval_helpers;
         seen->niche_helpers = ie.have_niche_helpers;
+        seen->pack_union = ie.have_pack_union;
 
         var bodies = vec::<*FunctionDecl>();
         var all = plan.include_bodies();

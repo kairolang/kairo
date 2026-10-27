@@ -43,6 +43,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::NullnessFlow::*;
+import Sema::Type::VariadicEnum::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -705,6 +706,34 @@ class <T> ControlTyping {
             return &null;
         }
 
+        // A pack-expanded variant is one variant per element at a concrete
+        // instance; which one is built is the payload's type (VariadicEnum).
+        var ve = VariadicEnum(dyn()->sc);
+        var pes = vec::<*Type>();
+        if v->is_pack_expansion {
+            var vn = dyn()->tu.decl_name(static_cast::<*Decl>(v));
+            if (rec == &null) || (!ve.elems(rec, &pes)) {
+                self._type_fields_unknown(fields);
+                var b = dyn()->sc->diag->report(DiagID::SC116E, n->range.start,
+                    f"building pack-expanded variant '{nm}' at a type that depends on a generic parameter is not supported yet");
+                b.first(n->range, "which element this builds is known only per instance");
+                b.note(DiagID::SC116N, v->range.start, "the variant is expanded over the pack here").first(v->range);
+                b.emit();
+                dyn()->poison_only(n);
+                return &null;
+            }
+            if pes.size() == 0 {
+                self._type_fields_unknown(fields);
+                var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    f"'{dyn()->tu.str(rec)}' has no '{vn}' variant: its pack is empty");
+                b.first(n->range);
+                b.note(v->range.start, "one variant per element of the pack").first(v->range);
+                b.emit();
+                dyn()->poison_only(n);
+                return &null;
+            }
+        }
+
         // Per payload field: the initializer written for it.
         var given = vec::<*InitField>();
         for var k: usize = 0; k < np; ++k { given.push_back(&null); }
@@ -739,6 +768,9 @@ class <T> ControlTyping {
             given[uk] = f;
 
             var fd = v->payload[uk];
+            // A field naming the pack is typed on its own; its type picks the
+            // element, against which it is checked below.
+            if v->is_pack_expansion && ve.is_pack_field(fd) { dyn()->type_of(f->value, &null); continue; }
             var ft = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
             if ft != &null { ft = dyn()->ded_scratch()->member_through(rec, ft); }
             dyn()->type_of(f->value, ft);
@@ -763,12 +795,73 @@ class <T> ControlTyping {
         }
         if !ok { dyn()->poison_only(n); return &null; }
 
+        var pick: i32 = -1;
+        if v->is_pack_expansion {
+            pick = self._init_pick_element(n, v, rec, nm, &given, &ve, &pes);
+            if pick < 0 { dyn()->poison_only(n); return &null; }
+        }
+
         // Only now, every field matched exactly once: a failed construction
         // carries no fact for a later pass to build from.
         for var k: usize = 0; k < np; ++k { given[k]->field_decl = static_cast::<*Decl>(v->payload[k]); }
         self._set_variant_decl(n, static_cast::<*Decl>(v));
+        if isa::<NamedInitializerExpr>(n) { cast::<NamedInitializerExpr>(n)->variant_pack = pick; }
         n->value_category = Expr::ValueCategory::RValue;
         return rec;
+    }
+
+    /// The element of pack-expanded \p v a construction builds: the one
+    /// whose type every pack-typed field's value has exactly, else the one
+    /// they all convert to; -1 after reporting none or several. Each value
+    /// is then checked against the element picked.
+    priv fn _init_pick_element(self, n: *Expr, v: *EnumVariantDecl, rec: *Type, nm: string,
+                          given: *vec::<*InitField>, ve: *VariadicEnum, pes: *vec::<*Type>) -> i32 {
+        var pick: i32 = -1;
+        var vals = vec::<*Expr>();
+        for var k: usize = 0; k < v->payload.size(); ++k {
+            if !ve->is_pack_field(v->payload[k]) { continue; }
+            var e = (*given)[k]->value;
+            if e->is_poisoned() { return -1; }
+            if e->type_ == &null {
+                dyn()->sc->diag->report(DiagID::SC001E, e->range.start,
+                    f"the type of this value decides which '{nm}' is built, and it is not known here"
+                ).first(e->range).emit();
+                return -1;
+            }
+            vals.push_back(e);
+        }
+        if vals.size() == 0 { return (0) if (pes->size() == 1) else (-1); }   // PackChecking: a pack-expanded payload names the pack.
+        // Exact: every value's own type is the one element.
+        for var i: usize = 0; i < vals.size(); ++i {
+            var k = ve->exact(rec, vals[i]->type_);
+            if (k < 0) || ((pick >= 0) && (k != pick)) { pick = -1; break; }
+            pick = k;
+        }
+        // Else the one element every value converts to.
+        if pick < 0 {
+            var hits: usize = 0;
+            for var k: usize = 0; k < pes->size(); ++k {
+                var all = true;
+                for var i: usize = 0; i < vals.size(); ++i {
+                    if !dyn()->conv.convertible(vals[i]->type_, (*pes)[k]) { all = false; break; }
+                }
+                if all { hits += 1; pick = i32(k); }
+            }
+            if hits != 1 {
+                var what = dyn()->tu.str(vals[0]->type_);
+                var msg = (f"no '{nm}' of '{dyn()->tu.str(rec)}' holds a '{what}\x27") if (hits == 0)
+                          else (f"a '{what}' fits more than one '{nm}' of '{dyn()->tu.str(rec)}'; the payload's type must pick one");
+                var b = dyn()->sc->diag->report(DiagID::SC001E, vals[0]->range.start, msg);
+                b.first(vals[0]->range, "the payload's type picks the variant");
+                b.note(v->range.start, f"its variants here: {ve->describe(rec, v)}").first(v->range);
+                b.emit();
+                return -1;
+            }
+        }
+        for var i: usize = 0; i < vals.size(); ++i {
+            if !dyn()->check_convertible(vals[i], (*pes)[usize(pick)]) { return -1; }
+        }
+        return pick;
     }
 
     /// The one writer of `variant_decl`, on whichever node the construction

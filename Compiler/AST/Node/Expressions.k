@@ -439,6 +439,11 @@ class VariantInitExpr derives Expr {
     /// Otherwise the lambda one, which every such variant has. One writer:
     /// EnumLayoutLowering.
     pub var field_ctor:   bool = false;
+    /// A pack-expanded variant's construction: the pack element built
+    /// (`variant`'s expanded index is variant + pack_index) and its type,
+    /// what the payload's pack-typed fields hold. -1 / null otherwise.
+    pub var pack_index:   i32   = -1;
+    pub var pack_elem:    *Type = &null;
 
     static fn create(
         ctx:     *ASTContext,
@@ -645,6 +650,9 @@ class NamedInitializerExpr derives Expr {
     /// construction that failed. One writer: X (ControlTyping); read through
     /// variant_decl_of. VariantInitLowering replaces the node.
     pub var variant_decl: *Decl = &null;
+    /// variant_decl is pack-expanded: the element its payload's type picked
+    /// (ControlTyping::_check_variant); -1 otherwise.
+    pub var variant_pack: i32 = -1;
 
     static fn create(
         ctx:       *ASTContext,

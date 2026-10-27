@@ -234,6 +234,8 @@ class EnumLayoutQuery {
         var c = canon_unqual(ft->canonical);
         if c == &null { return &null; }
         var gp = dyn_cast::<GenericParamType>(c);
+        // A pack-expanded variant's field: one type per element, none here.
+        if (gp != &null) && gp->is_pack { return &null; }
         if gp != &null {
             var owner = gp->owner;
             if owner != &null { owner = NameLookup::representative(owner); }
@@ -253,10 +255,12 @@ class EnumLayoutQuery {
         return (en != &null) && en->is_adt && (en->adt_layout != &null);
     }
 
-    /// Whether variant \p index has a payload to read.
+    /// Whether variant \p index has a payload to read. Every \p index
+    /// below is EXPANDED (adt_variant_at): a variant's position, or for
+    /// element k of the pack-expanded variant at position p, p + k -- its
+    /// tag. Without a pack-expanded variant the two are the same.
     fn has_payload(self, en: *EnumDecl, index: u32) -> bool {
-        if (en == &null) || (usize(index) >= en->variants.size()) { return false; }
-        var v = en->variants[usize(index)];
+        var v = adt_variant_at(en, usize(index));
         return (v != &null) && (v->adt_member != &null);
     }
 
@@ -269,7 +273,14 @@ class EnumLayoutQuery {
     /// The discriminant variant \p index is stored as: its position, or the
     /// explicit value a lang item gave it (AdtLayoutKnobs).
     fn tag_value(self, en: *EnumDecl, index: u32) -> u64 {
-        return en->variants[usize(index)]->adt_tag_value;
+        var v = adt_variant_at(en, usize(index));
+        ICE_IF(v == &null, "EnumLayoutQuery: tag_value past the last variant");
+        var k = adt_expansion_at(en, usize(index));
+        // Element k of a pack-expanded variant: the variant's tag plus k
+        // (InterfaceEmitter's constructor stores the same). PanicLowering's
+        // type-id tags replace exactly this line.
+        if k > 0 { return v->adt_tag_value + u64(k); }
+        return v->adt_tag_value;
     }
 
     // --- shape --------------------------------------------------------------------
@@ -608,8 +619,12 @@ class EnumLayoutQuery {
     /// `x.__kairo_<V>`. A variant with no payload has nothing to read.
     fn payload_ref(self, at: SourceRange, x: *Expr, en: *EnumDecl, index: u32) -> *Expr {
         ICE_IF(!self.has_payload(en, index), "EnumLayoutQuery: payload_ref of a variant with no payload");
-        var m = en->variants[usize(index)]->adt_member;
-        return self.synth.field_of(at, x, static_cast::<*Decl>(m), m->type_);
+        var m = adt_variant_at(en, usize(index))->adt_member;
+        var r = self.synth.field_of(at, x, static_cast::<*Decl>(m), m->type_);
+        // Element k's payload is the member's k-th (EmitIR spells the getter).
+        var k = adt_expansion_at(en, usize(index));
+        if k >= 0 { cast::<ChainExpr>(r)->steps.get(0)->pack_index = k; }
+        return r;
     }
 
     /// `x.__kairo_<V>.<field>`, typed \p ty (the occurrence's type: an
@@ -843,6 +858,9 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             if v->payload.is_empty() { continue; }
             var vn = self.tu.decl_name(static_cast::<*Decl>(v));
             var ps = self._payload_struct(v, vn, edc, (ttype) if (prefix) else (&null));
+            // `Err { e: E }...`: the struct is a template over one element,
+            // and its union member holds one per element (InterfaceEmitter).
+            if v->is_pack_expansion { ps->adt_pack_param = en->generic_params[adt_pack_param(en)]; }
             ldc->add_decl(static_cast::<*Decl>(ps));
             var m = FieldDecl::create(self.ctx, v->name.range,
                                       self.synth.ident(v->name.range, LowerTargets::adt_payload_field(vn)),
@@ -851,7 +869,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             members.push(m);
             mvec.push_back(m);
             v->adt_member = m;
-            v->adt_ctor   = self._ctor_form(v, generic);
+            v->adt_ctor   = (AdtCtorForm::Lambda) if (v->is_pack_expansion) else (self._ctor_form(v, generic));
         }
 
         var fields = self.list_builder::<*FieldDecl>();
