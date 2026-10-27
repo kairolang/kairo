@@ -438,7 +438,8 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
-`ReturnPathCheck`, `ControlFlowAnalysis`, `WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
+`ReturnPathCheck`, `ControlFlowAnalysis`, JumpLabelCheck's script rule,
+`WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
 `MoveCheck`, `InitCheck`,
 `CtorInitCheck`, `ConformanceChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
@@ -552,6 +553,15 @@ they fall through, so code that may run is never called dead. Same
 REQUIRES as ReturnPathCheck; before every lowering, so it sees only user
 code. Dead match arms stay PatternChecking's SC121E. It replaced the
 lexical V pass TerminatorCheck, which could not see `-> !` calls.
+
+JumpLabelCheck's script rule (`run_script_jumps`) [DONE]: in a script
+(ScriptRules::is_script), a top-level `jump!` whose path crosses the line
+of a deferred binding, forward or back, is SC001E at the jump, with notes
+at the binding and the label (SCRIPT.md 2.7). Its frame rules stay in V;
+this half runs after X, because which bindings defer is
+ScriptRules::defers, a question of typed, ConstEval-folded initializers,
+and the same predicate ScriptLowering moves lines by. Every user
+`label!`/`jump!` is still FeatureGateCheck's SC116E as well.
 
 `OperatorSignatureCheck` [DONE] runs BEFORE X, because X's derived
 operators and compound-assignment pairing assume the shapes it rejects:
@@ -1111,8 +1121,8 @@ input, never for an import or a `.k` a C++ input includes) with top-level
 statements and no `fn main` -- gets a synthesized `fn main() -> i32` whose
 body is those statements, in order, ending in `return 0`. Every top-level
 binding stays a global. One whose initializer is not constant
-(ScriptRules::defers, the one answer to which lines are deferred) is
-DEFERRED: its storage becomes `T?` starting null, main assigns
+(ScriptRules::defers, the one answer to which lines are deferred, which
+JumpLabelCheck's script rule shares) is DEFERRED: its storage becomes `T?` starting null, main assigns
 it at its line, and main's first statement is a `finally` that nulls the
 deferred globals in reverse order. A read in main after the line is marked
 narrowed; one at or before it, or a direct call from main that reads it on

@@ -366,6 +366,11 @@ class Sema {
         // it warns only on code the user wrote.
         { var _p = TimeRegion("ControlFlow"); ControlFlowAnalysis(&self.sc).run(); }
 
+        // A script's top-level `jump!` that crosses a deferred binding's line
+        // (SCRIPT.md 2.7). JumpLabelCheck's own frame rules ran in Verify;
+        // this one asks which initializers are constant, a fact of X's types.
+        { var _p = TimeRegion("ScriptJumps"); JumpLabelCheck(&self.sc).run_script_jumps(); }
+
         // `where` dispatch groups (where.mdx): what may be guarded, the
         // fallback, member agreement, unreachable and overlapping guards,
         // and the SC116E gates; files each group it passes for
