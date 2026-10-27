@@ -339,6 +339,23 @@ an `eval` field of the field's own class whose initializer does not fold
 SC116E with a fix-it hoisting the constant to module scope (1.2a,
 `_own_class_constant`; `_cur_field` is the field being resolved).
 
+**What does not fold is kept for C++** (EVAL.md 0.2): a length or generic
+value argument over value parameters (`N + 1`), eval constants whose
+initializer does not fold, eval calls (`f(3)`), an enclosing unrolled
+`eval for`'s binding, `+ - * / % << >> & | ^`, unary `-` / `~` and `as`
+to an integer type becomes an interned canonical value node
+(`TypeExpr`, `ValueOp`; `_value_expr`, `CanonicalTypeStore::value_expr`):
+`[T; N + 1]` is `array_of_param(T, (N + 1))`, `Buf<f(3)>` has that node
+as its argument. Identity is the expression's structure: `[i32; f(3)]` is
+not `[i32; 4]`, as C++ treats a dependent expression before instantiation.
+ArgumentDeduction substitutes a node's operands and folds it when they
+are all values (ConstEval::value_node), so `Buf<3>`'s `[T; N + 1]` IS
+`[T; 4]`; a computed argument or extent is a non-deduced context. A node
+with an eval call or an eval constant in it is SC116E outside a function
+body (`_value_placeable`): a field, a signature or a namespace-scope
+binding is spelled before any consteval body or eval binding is defined.
+A call of a non-eval function is SC001E with a fix-it.
+
 **`unsafe *T` is a distinct canonical from `*T`** [DECIDED, MISSING, spec 2].
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
 cast family is undecidable.

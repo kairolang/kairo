@@ -2578,6 +2578,15 @@ class InterfaceEmitter {
     priv fn _instantiation(self, e: *PlanEntry) {
         var d  = e->decl;
         var ie = e->inst;
+        // An instance over a value C++ computes (`Buf<twice(1)>`, EVAL.md
+        // 0.2) may be the very specialization another spelling names
+        // (`Buf<2>`), and C++ rejects two explicit instantiations of one: no
+        // line; it is instantiated implicitly where used (its bodies are
+        // visible, as every template's are).
+        for var i: usize = 0; i < ie->args.size(); ++i {
+            var v = dyn_cast::<TypeExpr>(ie->args[i]);
+            if (v != &null) && v->is_value && (!v->is_exact()) { return; }
+        }
         var s  = ("") if (e->is_home) else ("extern ");
         s += "template ";
         if isa::<FunctionDecl>(d) {

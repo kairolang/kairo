@@ -124,6 +124,55 @@ class ConstEval {
         return r;
     }
 
+    /// A canonical value node (EVAL.md 0.2, 3) for \p vk over \p ops:
+    /// folded to an exact value_arg when every operand is one and the
+    /// operator is one this class evaluates (`[T; N + 1]` under N := 3 is
+    /// `[T; 4]`), else the interned expression for C++ to compute. A call,
+    /// an eval name and `~` (which needs a width) never fold here.
+    fn value_node(self, vk: ValueOp, tok: TokenKind, decl: *Decl, ops: *vec::<*Type>, ty: *Type) -> *Type {
+        var exact = (vk == ValueOp::Unary) || (vk == ValueOp::Binary) || (vk == ValueOp::Cast);
+        var vals = vec::<IntConst>();
+        for var i: usize = 0; i < ops->size(); ++i {
+            var v = dyn_cast::<TypeExpr>((*ops)[i]);
+            if (v == &null) || (!v->is_exact()) { exact = false; break; }
+            vals.push_back(self.make(v->vneg, v->vmag));
+        }
+        if exact {
+            var r = IntConst{};
+            if vk == ValueOp::Unary {
+                if tok == TokenKind::OpMinus { r = self.negate(vals[0]); }
+                else if tok == TokenKind::OpPlus { r = vals[0]; }
+            } else if vk == ValueOp::Cast {
+                var u = self.tu.as_value(ty);
+                if (u != &null) && self.tu.is_integer(u) { r = self.wrap(vals[0], self.tu.int_bits(u), self.tu.is_signed_int(u)); }
+            } else {
+                r = self._fold_binary(tok, vals[0], vals[1]);
+            }
+            if r.ok && (!r.overflow) { return self.sc->types->value_arg(r.neg, r.mag); }
+        }
+        return self.sc->types->value_expr(vk, tok, decl, ops, ty);
+    }
+
+    /// The builtin binary operators on exact values, C++'s truncating `/`
+    /// and `%` among them; not ok for anything else (and for a zero divisor
+    /// or a negative shift, which C++ rejects in a constant expression).
+    priv fn _fold_binary(self, k: TokenKind, l: IntConst, r: IntConst) -> IntConst {
+        if k == TokenKind::OpPlus  { return self.add(l, r); }
+        if k == TokenKind::OpMinus { return self.sub(l, r); }
+        if k == TokenKind::OpStar  { return self.mul(l, r); }
+        if (k == TokenKind::OpPipe)  || (k == TokenKind::KwBitor)  { return self.bitop(l, r, u8(0)); }
+        if (k == TokenKind::OpAmp)   || (k == TokenKind::KwBitand) { return self.bitop(l, r, u8(1)); }
+        if (k == TokenKind::OpCaret) || (k == TokenKind::KwXor)    { return self.bitop(l, r, u8(2)); }
+        if ((k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater)) && (!r.neg) {
+            return (self.shl(l, r)) if (k == TokenKind::OpLessLess) else (self.shr(l, r));
+        }
+        if ((k == TokenKind::OpSlash) || (k == TokenKind::OpPercent)) && (r.mag != u64(0)) {
+            if k == TokenKind::OpSlash { return self.make(l.neg != r.neg, l.mag / r.mag); }
+            return self.make(l.neg, l.mag % r.mag);
+        }
+        return IntConst{};
+    }
+
     priv fn _reset(self) {
         self.bad      = &null;
         self.bad_why  = "";
@@ -369,7 +418,7 @@ class ConstEval {
             var ch = cast::<ChainExpr>(e);
             if ch->steps.size() == 0 { return self._fail(e, "this does not evaluate at compile time"); }
             var last = ch->steps.get(ch->steps.size() - 1)->resolved_decl;
-            if last == &null { last = self._scope_path(ch); }
+            if last == &null { last = self.scope_path(ch); }
             return self._ref(e, last, depth);
         }
 
@@ -384,7 +433,7 @@ class ConstEval {
     /// head of a chain is resolved. A path of `::` steps through modules and
     /// types is looked up here as ChainBinding would, through the frozen
     /// tables; a single unambiguous hit or nothing.
-    priv fn _scope_path(self, ch: *ChainExpr) -> *Decl {
+    fn scope_path(self, ch: *ChainExpr) -> *Decl {
         if (ch->base == &null) || (!isa::<NamedIdentExpr>(ch->base)) { return &null; }
         var d = cast::<NamedIdentExpr>(ch->base)->resolved_decl;
         for var i: usize = 0; i < ch->steps.size(); ++i {

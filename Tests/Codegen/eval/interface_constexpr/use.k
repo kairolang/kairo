@@ -10,7 +10,12 @@ eval LABEL = TAG
 
 fn main() -> i32 {
     var a: [i32; K] = [1, 2, 3]
-    return M + NEXT + a[2] + LABEL.len as i32     // 9 + 9 + 3 + 3 == 24
+    // Lengths C++ computes from lib's constants and eval fns (EVAL.md 0.2):
+    // N does not fold in Sema, so `[i32; N + 1]` is `[i32; (::lib::N + 1)]`.
+    var w: [i32; N + 1]
+    w[8] = 2
+    var q: [i32; cube(1)] = [5]
+    return M + NEXT + a[2] + LABEL.len as i32 + w[8] + q[0]    // 9 + 9 + 3 + 3 + 2 + 5 == 31
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -28,11 +33,13 @@ fn main() -> i32 {
 // IR:      inline constexpr signed int const N = ::lib::cube(2);
 // IR:      inline constexpr signed int const NEXT =( ::lib::N + 1);
 // IR:      inline constexpr signed int const M =( ::lib::N + 1);
+// IR:      signed int w[( ::lib::N + 1)]
+// IR:      signed int q[ ::lib::cube(1)] =
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d/c
-// RUN: %t.exe; test $? -eq 24
+// RUN: %t.exe; test $? -eq 31
 
 // The header (`--emit-headers`) and kcc's `#include "lib.k"`: C++ reads
 // the constants in static_asserts and an array bound (host.cc).

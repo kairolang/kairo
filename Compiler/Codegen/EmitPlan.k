@@ -1453,7 +1453,23 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         // No Vector/Set/Map/Tuple arms: they are RecordTypes now and admit
         // through the record path, which already walks their generic
         // arguments (a tuple's elements are by value, so at \p need).
-        case TypeKind::FixedArrayType { self._admit_type(cast::<FixedArrayType>(c)->element, need); }
+        case TypeKind::FixedArrayType {
+            self._admit_type(cast::<FixedArrayType>(c)->element, need);
+            self._admit_type(cast::<FixedArrayType>(c)->extent_param, PlanNeed::Fwd);
+        }
+        // A computed value (EVAL.md 0.2) names what C++ computes it from:
+        // the eval fn it calls (consteval, so its body comes too), the eval
+        // constant it reads (its definition comes too, visible_eval_vars),
+        // a cast's type.
+        case TypeKind::TypeExpr {
+            var v = cast::<TypeExpr>(c);
+            if (!v->is_value) || v->is_exact() { break; }
+            // Not an `eval for` binding: a local, declared where it stands.
+            var local = (v->vdecl != &null) && ((v->vdecl->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl));
+            if (v->vdecl != &null) && (!local) { self._admit_use(v->vdecl); }
+            if v->vty != &null { self._admit_type(v->vty, PlanNeed::Fwd); }
+            for var i: usize = 0; i < v->vops.size(); ++i { self._admit_type(v->vops[i], PlanNeed::Fwd); }
+        }
         case TypeKind::FunctionPointerType {
             var f = cast::<FunctionPointerType>(c);
             if !f->is_unprototyped { self.needs_fn_value = true; }

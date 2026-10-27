@@ -759,6 +759,17 @@ every eval binding, foreign and own, dependencies first
 (`EmitPlan::_eval_vars`), then the rest. A header and an include stream
 (`emit_bodies`) keep the same order.
 
+A computed value (EVAL.md 0.2: an array extent or generic value argument
+Sema kept as an expression, `TypeExpr` with a `ValueOp`) is spelled by
+`CXXSpell::value`: each operator application parenthesized, value
+parameters as written or by their instance's value, eval constants and
+calls by qualified name. EmitPlan admits what it names (the eval fn, the
+eval binding, its definition with it). An instance over such a value gets
+no `template class` / `extern template` line: it may be the
+specialization another spelling names (`Buf<twice(1)>` is `Buf<2>`), and
+C++ rejects two explicit instantiations of one; it is instantiated
+implicitly where used.
+
 A string literal C++ reads at compile time (`StringLiteralExpr::
 const_eval`, set by EvalUsageChecking, EVAL.md 2a) passes its bytes as
 `::__kairo_estr<b0, b1, ...>`, a variable template of `const unsigned char`

@@ -1,7 +1,7 @@
 // An array length is type identity, so Sema folds it (EVAL.md 0.1): it must
 // be eval-able. A `const` name is not (EVAL.md 3: a fix-it rewrites its
-// `const` to `eval`), a variable is not, a call is C++'s to compute and has
-// no canonical extent yet (SC116E), and a negative one has no array.
+// `const` to `eval`), a variable is not, a call of an eval fn is C++'s to
+// compute (EVAL.md 0.2, line 14: accepted), and a negative one has no array.
 const C = 3
 eval E = 2
 eval fn g() -> i32 { return 2 }
@@ -25,5 +25,4 @@ fn main() -> i32 {
 // CHECK-NEXT: array_length_errors.k:5:7: note [SC001N]: 'C' is declared 'const' here
 // CHECK: array_length_errors.k:13:18: error [SC001E]: an array length must be an 'eval' constant; 'n' is a variable
 // CHECK-NEXT: array_length_errors.k:11:9: note [SC001N]: 'n' is declared here
-// CHECK: array_length_errors.k:14:18: error [SC116E]: an array length computed by a call is not yet supported
 // CHECK: array_length_errors.k:15:18: error [SC001E]: an array length must be a non-negative constant that fits 64 bits; this one is -3, which is negative

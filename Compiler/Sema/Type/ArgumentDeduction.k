@@ -32,6 +32,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
@@ -246,6 +247,11 @@ class Deduction {
             return (ImplicitRank::Converted) if (rr != ImplicitRank::None) else (ImplicitRank::None);
         }
 
+        // A computed value argument (`Buf<N + 1>`, EVAL.md 0.2) is a
+        // non-deduced context: it binds nothing; the substituted type is
+        // compared after deduction.
+        if isa::<TypeExpr>(param) && cast::<TypeExpr>(param)->is_value { return ImplicitRank::Exact; }
+
         // Dependent composite: same shape, recurse exact.
         if param->kind != arg->kind {
             // *Derived -> *Base<T>: allow the top-level pointer case through
@@ -268,6 +274,11 @@ class Deduction {
                 // `[T; N]` against `[i32; 3]` deduces the value parameter
                 // N := 3 (EVAL.md 3).
                 if (pa->extent_param != &null) && (aa->extent_param == &null) {
+                    // A computed extent (`[T; N + 1]`) is a non-deduced
+                    // context, as in C++: it binds nothing here; N comes
+                    // from another argument, and the substituted parameter
+                    // type is checked against this one after (EVAL.md 0.2).
+                    if isa::<TypeExpr>(pa->extent_param) { return self._inner(self.unify(pa->element, aa->element, false)); }
                     var g = dyn_cast::<GenericParamType>(pa->extent_param);
                     if (g == &null) || (g->owner == &null) { return ImplicitRank::None; }
                     var v = self.sc->types->value_arg(false, static_cast::<u64>(aa->size_bits));
@@ -390,8 +401,10 @@ class Deduction {
                     var x = self.substitute(a->extent_param);
                     if x == &null { return &null; }
                     var v = dyn_cast::<TypeExpr>(x);
-                    if (v != &null) && v->is_value && (!v->vneg) { return self.sc->types->array(e, v->vmag); }
-                    if isa::<GenericParamType>(x) { return self.sc->types->array_of_param(e, x); }
+                    if (v != &null) && v->is_exact() && (!v->vneg) { return self.sc->types->array(e, v->vmag); }
+                    // Still a parameter, or an expression C++ computes
+                    // (EVAL.md 0.2): the extent stays that node.
+                    if isa::<GenericParamType>(x) || ((v != &null) && v->is_value && (!v->is_exact())) { return self.sc->types->array_of_param(e, x); }
                     return &null;
                 }
                 return self.sc->types->array(e, static_cast::<u64>(a->size_bits));
@@ -448,6 +461,20 @@ class Deduction {
                                                          NameLookup::ctx_of(primary));
                 var inst = (e->decl) if (e != &null) else (primary);
                 return self.sc->types->record(inst, &args);
+            } case TypeKind::TypeExpr {
+                // A computed value (EVAL.md 0.2): its operands substituted,
+                // then folded when they all became values (`N + 1` under
+                // N := 3 is 4), so an instance's extent is the number.
+                var v = cast::<TypeExpr>(t);
+                if (!v->is_value) || v->is_exact() { return t; }
+                var ops = vec::<*Type>();
+                for var i: usize = 0; i < v->vops.size(); ++i {
+                    var o = self.substitute(v->vops[i]);
+                    if o == &null { return &null; }
+                    ops.push_back(o);
+                }
+                var ce = ConstEval(self.sc);
+                return ce.value_node(v->vop, v->vtok, v->vdecl, &ops, v->vty);
             } default { return &null; }
         }
     }

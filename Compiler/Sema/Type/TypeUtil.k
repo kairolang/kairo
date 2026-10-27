@@ -36,6 +36,7 @@ import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Kind::ExprKind::*;
 import AST::ParamMode::*;
+import Token::TokenKind::*;
 
 /// The pointer levels of a canonical type (TypeUtil::pointer_shape): how
 /// many, whether the outermost is `unsafe`, and what is under the last.
@@ -734,6 +735,22 @@ class TypeUtil {
 
     // === rendering ==========================================================
 
+    /// A computed value's binary operator, as written (TypeResolve keeps the
+    /// symbol form).
+    priv fn _value_op(self, k: TokenKind) -> string {
+        if k == TokenKind::OpPlus  { return "+"; }
+        if k == TokenKind::OpMinus { return "-"; }
+        if k == TokenKind::OpStar  { return "*"; }
+        if k == TokenKind::OpSlash { return "/"; }
+        if k == TokenKind::OpPercent { return "%"; }
+        if k == TokenKind::OpPipe  { return "|"; }
+        if k == TokenKind::OpAmp   { return "&"; }
+        if k == TokenKind::OpCaret { return "^"; }
+        if k == TokenKind::OpLessLess { return "<<"; }
+        if k == TokenKind::OpGreaterGreater { return ">>"; }
+        return "?";
+    }
+
     fn str(self, t: *Type) -> string {
         if t == &null { return "<unknown>"; }
         switch t->kind {
@@ -813,7 +830,24 @@ class TypeUtil {
             // A generic VALUE argument (`4` of `Ring<4, i32>`).
             case TypeKind::TypeExpr {
                 var v = cast::<TypeExpr>(t);
-                if v->is_value { return (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}"); }
+                if !v->is_value { return "<value>"; }
+                if v->is_exact() { return (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}"); }
+                // A computed value (EVAL.md 0.2), as Kairo would write it.
+                switch v->vop {
+                    case ValueOp::Decl { return self.decl_name(v->vdecl); }
+                    case ValueOp::Call {
+                        var s = self.decl_name(v->vdecl) + "(";
+                        for var i: usize = 0; i < v->vops.size(); ++i {
+                            if i > 0 { s += ", "; }
+                            s += self.str(v->vops[i]);
+                        }
+                        return s + ")";
+                    }
+                    case ValueOp::Unary { return ((("~") if (v->vtok == TokenKind::OpTilde) else ("-"))) + self.str(v->vops[0]); }
+                    case ValueOp::Binary { return "(" + self.str(v->vops[0]) + " " + self._value_op(v->vtok) + " " + self.str(v->vops[1]) + ")"; }
+                    case ValueOp::Cast { return "(" + self.str(v->vops[0]) + " as " + self.str(v->vty) + ")"; }
+                    default { return "<value>"; }
+                }
                 return "<value>";
             }
             // No TupleType arm: a tuple canonical is its record (above);

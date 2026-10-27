@@ -70,6 +70,7 @@ import AST::Node::Casting::*;
 import AST::ASTSupport::*;
 import AST::ParamMode::*;
 import AST::DeclFacts::*;
+import Token::TokenKind::*;
 
 /// \brief 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
 ///        into a bucket key. Only ever a HINT: every bucket hit is confirmed by
@@ -436,7 +437,7 @@ class CanonicalTypeStore {
                 var c = (*b)[i];
                 if c->kind != TypeKind::TypeExpr { continue; }
                 var v = cast::<TypeExpr>(c);
-                if v->is_value && (v->vneg == neg) && (v->vmag == mag) { return c; }
+                if v->is_exact() && (v->vneg == neg) && (v->vmag == mag) { return c; }
             }
         }
 
@@ -447,6 +448,11 @@ class CanonicalTypeStore {
         te->is_value = true;
         te->vneg     = neg;
         te->vmag     = mag;
+        te->vop      = ValueOp::Literal;
+        te->vtok     = TokenKind::TkUnknown;
+        te->vdecl    = &null;
+        te->vty      = &null;
+        te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
         te->type_flags = Type::TypeFlags::None;
         te->init_annotations(&(self._arena));
         te->init_spans(&(self._arena));
@@ -455,6 +461,69 @@ class CanonicalTypeStore {
         ty->canonical = ty;
         self._insert(h, ty);
         return ty;
+    }
+
+    /// A value Sema keeps for C++ to compute (EVAL.md 0.2): an array extent
+    /// or generic value argument over value parameters, eval names and
+    /// eval calls that does not fold (ValueOp). Keyed on the node's own
+    /// fields and its operands' canonicals, which are interned themselves,
+    /// so two nodes are the same type exactly when they are the same
+    /// expression. Dependent when an operand is (a value parameter).
+    fn value_expr(self, vk: ValueOp, tok: TokenKind, decl: *Decl, ops: *vec::<*Type>, ty: *Type) -> *Type {
+        var n: usize = 0;
+        if ops != &null { n = ops->size(); }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TypeExpr)));
+        h = canon_hash_u64(h, u64(0x5645));   // apart from value_arg's keys.
+        h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u8>(vk)));
+        h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u32>(tok)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(decl));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(ty));
+        h = canon_hash_u64(h, static_cast::<u64>(n));
+        for var i: usize = 0; i < n; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*ops)[i])); }
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::TypeExpr { continue; }
+                var v = cast::<TypeExpr>(c);
+                if (!v->is_value) || (v->vop != vk) || (v->vtok != tok) || (v->vdecl != decl) || (v->vty != ty) { continue; }
+                if v->vops.size() != n { continue; }
+                var same = true;
+                for var k: usize = 0; k < n; ++k { if v->vops[k] != (*ops)[k] { same = false; break; } }
+                if same { return c; }
+            }
+        }
+
+        var te = self._alloc::<TypeExpr>();
+        te->kind     = TypeKind::TypeExpr;
+        te->range    = SourceRange::invalid();
+        te->expr     = &null;
+        te->is_value = true;
+        te->vneg     = false;
+        te->vmag     = u64(0);
+        te->vop      = vk;
+        te->vtok     = tok;
+        te->vdecl    = decl;
+        te->vty      = ty;
+        if n > 0 {
+            var buf = self._alloc_array::<*Type>(n);
+            for var i: usize = 0; i < n; ++i { buf[i] = (*ops)[i]; }
+            te->vops.from_raw(buf, n);
+        } else {
+            te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
+        }
+        te->type_flags = Type::TypeFlags::None;
+        te->init_annotations(&(self._arena));
+        te->init_spans(&(self._arena));
+
+        var t = static_cast::<*Type>(te);
+        t->canonical = t;
+        for var i: usize = 0; i < n; ++i { self._absorb_flags(t, (*ops)[i]); }
+        if ty != &null { self._absorb_flags(t, ty); }
+        self._insert(h, t);
+        return t;
     }
 
     /// \p modes is parallel to \p params, or null for all-Value (every

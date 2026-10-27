@@ -37,6 +37,7 @@ import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::ParamMode::*;
+import Token::TokenKind::*;
 
 ///
 ///  Helper propagate type_flags from children into a parent node.
@@ -991,14 +992,42 @@ class OpaqueFFIType derives Type {
     }
 }
 
+/// What a canonical value node (TypeExpr, is_value) is (EVAL.md 0.2, 3).
+/// Literal is an exact integer (vneg / vmag); every other kind is an
+/// expression Sema keeps for C++ to compute: an array extent or generic
+/// value argument that does not fold, interned so that type identity is
+/// structural equality of the expression (`[i32; f(3)]` is `[i32; f(3)]`
+/// and not `[i32; 3]`, as C++ treats a dependent expression before
+/// instantiation).
+enum ValueOp derives u8 {
+    Literal = 0,
+    Decl,      ///< vdecl: an eval constant whose initializer does not fold, or an `eval for` binding.
+    Call,      ///< vdecl: the eval fn; vops: the arguments.
+    Unary,     ///< vtok: `-` or `~`; vops[0].
+    Binary,    ///< vtok: the operator; vops[0], vops[1].
+    Cast,      ///< vty: the integer target; vops[0].
+}
+
 class TypeExpr derives Type {
     pub var expr: *Expr;
-    /// CANONICAL only (CanonicalTypeStore::value_arg): a generic VALUE
-    /// argument, `4` of `Buf<4>`, as its exact integer (EVAL.md 3). The
-    /// syntax node has `expr` and is_value false.
+    /// CANONICAL only (CanonicalTypeStore::value_arg / value_expr): a
+    /// generic VALUE argument or a computed array extent. A Literal is the
+    /// exact integer, `4` of `Buf<4>` (EVAL.md 3); any other ValueOp is an
+    /// interned expression over value parameters (GenericParamType
+    /// operands), eval names and eval calls (EVAL.md 0.2). The syntax node
+    /// has `expr` and is_value false.
     pub var is_value: bool;
     pub var vneg:     bool;
     pub var vmag:     u64;
+    pub var vop:      ValueOp = ValueOp::Literal;
+    pub var vtok:     TokenKind = TokenKind::TkUnknown;
+    pub var vdecl:    *Decl = &null;
+    pub var vty:      *Type = &null;
+    pub var vops:     FrozenList::<*Type>;
+
+    /// A canonical exact integer (value_arg), the only value Sema itself
+    /// reads.
+    fn is_exact(self) -> bool { return self.is_value && (self.vop == ValueOp::Literal); }
 
     static fn create(
         ctx:   *ASTContext,
@@ -1014,6 +1043,11 @@ class TypeExpr derives Type {
         node->is_value = false;
         node->vneg     = false;
         node->vmag     = u64(0);
+        node->vop      = ValueOp::Literal;
+        node->vtok     = TokenKind::TkUnknown;
+        node->vdecl    = &null;
+        node->vty      = &null;
+        node->vops     = create_empty_frozen_list::<*Type>();
         return node;
     }
 

@@ -733,8 +733,7 @@ class CXXSpell {
             case TypeKind::TypeExpr {
                 var v = cast::<TypeExpr>(t);
                 if !v->is_value { self._ice(t_in->range, "CXXSpell: an unfolded generic value argument reached codegen; TypeResolve folds every one"); return ""; }
-                var s = (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}");
-                return self._join(s, name);
+                return self._join(self.value(v, subst, scope), name);
             }
             case TypeKind::OpaqueFFIType {
                 var o = cast::<OpaqueFFIType>(t);
@@ -754,6 +753,67 @@ class CXXSpell {
             }
         }
         return "";
+    }
+
+    /// A canonical value (EVAL.md 0.2, 3) as the C++ expression that
+    /// computes it: the integer, or the expression Sema kept (`(N + 1)`,
+    /// `::m::f(3)`, `::m::K`), each operand spelled as a type argument is
+    /// (a value parameter, or its instance's value under \p subst). Every
+    /// operator application is parenthesized, so the text means the same as
+    /// an array bound and as a template argument, where a bare `>>` would
+    /// close the list.
+    fn value(self, v: *TypeExpr, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        if v->is_exact() { return (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}"); }
+        switch v->vop {
+            case ValueOp::Decl {
+                // An `eval for` binding is a local with no scope home: its
+                // name, read from the table of the file it is written in.
+                var vd = dyn_cast::<VariableDecl>(v->vdecl);
+                if (vd != &null) && ((vd->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl)) {
+                    return self.imm_name(vd->name.imm, self._cg->ctx->sm->get_fid(vd->name.range));
+                }
+                return self.qual_name(v->vdecl);
+            }
+            case ValueOp::Call {
+                var s = self.qual_name(v->vdecl) + "(";
+                for var i: usize = 0; i < v->vops.size(); ++i {
+                    if i > 0 { s += ", "; }
+                    s += self._type(v->vops[i], subst, scope);
+                }
+                return s + ")";
+            }
+            case ValueOp::Unary {
+                var sym = ("~") if (v->vtok == TokenKind::OpTilde) else ("-");
+                return "(" + sym + self._type(v->vops[0], subst, scope) + ")";
+            }
+            case ValueOp::Binary {
+                return "(" + self._type(v->vops[0], subst, scope) + " " + CXXSpell::value_op(v->vtok) + " " + self._type(v->vops[1], subst, scope) + ")";
+            }
+            case ValueOp::Cast {
+                return "static_cast<" + self._type(v->vty, subst, scope) + ">(" + self._type(v->vops[0], subst, scope) + ")";
+            }
+            default { return ""; }
+        }
+        return "";
+    }
+
+    /// The C++ operator for a computed value's binary operator; Kairo's
+    /// keyword forms were normalized to these by TypeResolve.
+    static fn value_op(k: TokenKind) -> string {
+        switch k {
+            case TokenKind::OpPlus           { return "+"; }
+            case TokenKind::OpMinus          { return "-"; }
+            case TokenKind::OpStar           { return "*"; }
+            case TokenKind::OpSlash          { return "/"; }
+            case TokenKind::OpPercent        { return "%"; }
+            case TokenKind::OpPipe           { return "|"; }
+            case TokenKind::OpAmp            { return "&"; }
+            case TokenKind::OpCaret          { return "^"; }
+            case TokenKind::OpLessLess       { return "<<"; }
+            case TokenKind::OpGreaterGreater { return ">>"; }
+            default                          { return "?"; }
+        }
+        return "?";
     }
 
     /// `R(A...)`, the function type a `fn(A) -> R` value wraps: each
