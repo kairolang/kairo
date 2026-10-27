@@ -491,7 +491,7 @@ class EmitIR {
             if (f == &null) || (!m->ci_dense[i]) { continue; }
             h += (" : ") if (first) else (", ");
             first = false;
-            h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + sa + "." + self._slot_name(i) + ".take())";
+            h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + sa + "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "())";
         }
         self._cg->sink->spell(at, h);
         self._cg->sink->synth_at_start(post->range, clang::tok::l_brace);
@@ -501,7 +501,7 @@ class EmitIR {
             var f = dyn_cast::<FieldDecl>(m->ci_slots[i]);
             if (f == &null) || m->ci_dense[i] { continue; }
             var nm = self._slot_name(i);
-            self._cg->sink->spell(post->range, "if (" + sa + "." + nm + ".set) { this->" + self._spell.leaf(static_cast::<*Decl>(f)) + " = " + sa + "." + nm + ".take(); }");
+            self._cg->sink->spell(post->range, "if (" + sa + "." + nm + "." + LowerTargets::ctor_slot_set() + ") { this->" + self._spell.leaf(static_cast::<*Decl>(f)) + " = " + sa + "." + nm + "." + LowerTargets::ctor_slot_take() + "(); }");
         }
         for var i: usize = 0; i < post->body.size(); ++i { self.emit(post->body[i]); }
         self._cg->sink->synth_at_end(post->range, clang::tok::r_brace);
@@ -552,7 +552,7 @@ class EmitIR {
     /// `var n: T` alone is `T{}`, the default every local gets (_var_init).
     priv fn _slot_local_init(self, v: *VariableDecl) {
         var si = self._slot_of(static_cast::<*Decl>(v), false);
-        self._cg->sink->spell(v->name.range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + ".init(");
+        self._cg->sink->spell(v->name.range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + "." + LowerTargets::ctor_slot_init() + "(");
         if v->init == &null {
             self._cg->sink->spell(v->name.range, self._spell._type(v->type_) + "{}");
         } else {
@@ -995,7 +995,7 @@ class EmitIR {
         if (n->value == &null) { self._ice(n->range, "EmitIR: yield with no value reached codegen"); }
         // An eval generator pushes into its buffer (EVAL.md §5).
         if self._cur_fn->is_eval() {
-            self._cg->sink->spell(n->range, LowerTargets::eval_yield_buf() + ".push(");
+            self._cg->sink->spell(n->range, LowerTargets::eval_yield_buf() + "." + LowerTargets::eval_buf_push() + "(");
             self._value(n->value, self._yield_elem(self._cur_fn));
             self._cg->sink->spell(n->range, ");");
             return;
@@ -1076,11 +1076,11 @@ class EmitIR {
             var gn = LowerTargets::eval_for_gen_n(gk);
             self._cg->sink->spell(at, "static constexpr " + sz + " " + gn + " = (");
             self.emit(n->iterable);
-            self._cg->sink->spell(at, ").n;");
+            self._cg->sink->spell(at, ")." + LowerTargets::eval_buf_count() + ";");
             self._cg->sink->spell(at, "static constexpr auto " + LowerTargets::eval_for_gen(gk) + " = []() consteval { ::"
                 + LowerTargets::eval_arr() + "<" + et + ", " + gn + "> a{}; auto b = (");
             self.emit(n->iterable);
-            self._cg->sink->spell(at, "); for (" + sz + " k = 0; k < " + gn + "; ++k) a.v[k] = b.p[k]; return a; }();");
+            self._cg->sink->spell(at, "); for (" + sz + " k = 0; k < " + gn + "; ++k) a." + LowerTargets::eval_arr_values() + "[k] = b." + LowerTargets::eval_buf_data() + "[k]; return a; }();");
         }
 
         var K = LowerTargets::eval_for_pack(self._ef_depth);
@@ -1094,7 +1094,7 @@ class EmitIR {
             self.emit(n->ev_lo);
             self._cg->sink->spell(at, ") + static_cast<" + et + ">(" + I + "));");
         } else if is_gen {
-            self._cg->sink->spell(at, LowerTargets::eval_for_gen(gk) + ".v[" + I + "];");
+            self._cg->sink->spell(at, LowerTargets::eval_for_gen(gk) + "." + LowerTargets::eval_arr_values() + "[" + I + "];");
         } else {
             self._cg->sink->spell(at, "(");
             self.emit(n->iterable);
@@ -1400,7 +1400,7 @@ class EmitIR {
         // field (named bare) only in S_pre, where the object does not exist.
         var si = self._slot_of(d, self._ci_pre);
         if si != usize(-1) {
-            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + ".get()");
+            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + "." + LowerTargets::ctor_slot_get() + "()");
             return;
         }
         if self._ci_pre && self._is_self_decl(d) { self._ice(n->range, "EmitIR: `self` before every const field is initialized; CtorInitCheck gate failure"); }
@@ -1472,7 +1472,7 @@ class EmitIR {
                 var st0 = n->steps.get(0);
                 var s0 = self._slot_of(st0->resolved_decl, true);
                 if s0 == usize(-1) { self._ice(st0->range, "EmitIR: a field S_pre never assigns read before the object exists; CtorInitCheck gate failure"); }
-                self._cg->sink->spell(st0->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(s0) + ".get()");
+                self._cg->sink->spell(st0->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(s0) + "." + LowerTargets::ctor_slot_get() + "()");
                 is_ptr = self._type_is_pointer(st0->resolved_type);
                 i = 1;
             } else {
@@ -2013,7 +2013,7 @@ class EmitIR {
             if f != &null {
                 var si = self._slot_of(static_cast::<*Decl>(f), true);
                 if si == usize(-1) { self._ice(n->range, "EmitIR: S_pre assigns a field with no slot; CtorInitCheck gate failure"); }
-                var put_fn = (".init(") if (f->is_const()) else (".put(");
+                var put_fn = "." + ((LowerTargets::ctor_slot_init()) if (f->is_const()) else (LowerTargets::ctor_slot_put())) + "(";
                 self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + put_fn);
                 self._value(n->rhs, f->type_);
                 self._cg->sink->spell(n->range, ")");

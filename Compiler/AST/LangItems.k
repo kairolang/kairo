@@ -416,6 +416,13 @@ class LowerTargets {
     /// `__kairo_eval_arr<T, N>`: an eval generator's values, copied out of
     /// its buffer into a literal type a `static constexpr` can hold.
     static fn eval_arr() -> string { return "__kairo_eval_arr"; }
+    /// The members of those two EmitIR reads or calls: the buffer's storage,
+    /// count and push (a generator's `yield`), the array's values. Plain
+    /// names, as fn_value_own: members of a reserved type cannot collide.
+    static fn eval_buf_data() -> string   { return "p"; }
+    static fn eval_buf_count() -> string  { return "n"; }
+    static fn eval_buf_push() -> string   { return "push"; }
+    static fn eval_arr_values() -> string { return "v"; }
     /// An eval generator's buffer local, which `yield` pushes into.
     static fn eval_yield_buf() -> string { return "__kairo_y"; }
     /// One `eval for`'s pack and per-copy index.
@@ -618,6 +625,14 @@ class LowerTargets {
     static fn ctor_slot() -> string       { return "__kairo_slot"; }
     static fn lref() -> string            { return "__kairo_lref"; }
     static fn ctor_slot_guard() -> string { return "__KAIRO_CTOR_SLOT_HELPERS"; }
+    /// `__kairo_slot<T>`'s members EmitIR uses: whether S_pre built the
+    /// value, a first assignment, a later one, a read, the hand-off to the
+    /// field's initializer (InterfaceEmitter::_ctor_slot_helpers).
+    static fn ctor_slot_set() -> string  { return "set"; }
+    static fn ctor_slot_init() -> string { return "init"; }
+    static fn ctor_slot_put() -> string  { return "put"; }
+    static fn ctor_slot_get() -> string  { return "get"; }
+    static fn ctor_slot_take() -> string { return "take"; }
     /// Per split constructor k of a record (FunctionDecl::ci_index): its slot
     /// record, its pre-function, and the slot record's parameter name in
     /// both. A local carried across is slot `__kairo_l<i>_<name>`, i its

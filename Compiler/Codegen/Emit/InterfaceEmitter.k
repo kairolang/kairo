@@ -220,17 +220,20 @@ class InterfaceEmitter {
                 "template <class T, T... I> struct " + LowerTargets::eval_iseq() + " {};");
             self._cg->sink->brk();
             var eb = LowerTargets::eval_buf();
+            var bp = LowerTargets::eval_buf_data();    // EmitIR reads these three.
+            var bn = LowerTargets::eval_buf_count();
+            var bu = LowerTargets::eval_buf_push();
             self._cg->sink->spell(self._tu_at(),
-                "template <class T> struct " + eb + " { T* p = nullptr; " + sz + " n = 0; " + sz + " cap = 0; "
+                "template <class T> struct " + eb + " { T* " + bp + " = nullptr; " + sz + " " + bn + " = 0; " + sz + " cap = 0; "
                 + "constexpr " + eb + "() = default; "
-                + "constexpr " + eb + "(" + eb + "&& o) : p(o.p), n(o.n), cap(o.cap) { o.p = nullptr; o.n = 0; o.cap = 0; } "
+                + "constexpr " + eb + "(" + eb + "&& o) : " + bp + "(o." + bp + "), " + bn + "(o." + bn + "), cap(o.cap) { o." + bp + " = nullptr; o." + bn + " = 0; o.cap = 0; } "
                 + eb + "(const " + eb + "&) = delete; "
-                + "constexpr void push(T v) { if (n == cap) { " + sz + " c = cap ? cap * 2 : 8; T* q = new T[c]; "
-                + "for (" + sz + " i = 0; i < n; ++i) q[i] = p[i]; delete[] p; p = q; cap = c; } p[n++] = v; } "
-                + "constexpr ~" + eb + "() { delete[] p; } };");
+                + "constexpr void " + bu + "(T v) { if (" + bn + " == cap) { " + sz + " c = cap ? cap * 2 : 8; T* q = new T[c]; "
+                + "for (" + sz + " i = 0; i < " + bn + "; ++i) q[i] = " + bp + "[i]; delete[] " + bp + "; " + bp + " = q; cap = c; } " + bp + "[" + bn + "++] = v; } "
+                + "constexpr ~" + eb + "() { delete[] " + bp + "; } };");
             self._cg->sink->brk();
             self._cg->sink->spell(self._tu_at(),
-                "template <class T, " + sz + " N> struct " + LowerTargets::eval_arr() + " { T v[N ? N : 1]; };");
+                "template <class T, " + sz + " N> struct " + LowerTargets::eval_arr() + " { T " + LowerTargets::eval_arr_values() + "[N ? N : 1]; };");
             self._cg->sink->brk();
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
             self._cg->sink->unanchored(false);
@@ -1329,15 +1332,18 @@ class InterfaceEmitter {
         var t = "template <class T> struct " + sl + " {";
         t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
         t += " union { __b b; };";
-        t += " bool set = false;";
+        // The members EmitIR calls, one spelling each (LowerTargets).
+        var st = LowerTargets::ctor_slot_set();
+        var si = LowerTargets::ctor_slot_init();
+        t += " bool " + st + " = false;";
         t += " " + sl + "() noexcept {}";
         t += " " + sl + "(const " + sl + "&) = delete;";
         t += " " + sl + "& operator=(const " + sl + "&) = delete;";
-        t += " ~" + sl + "() { if (set) { b.~__b(); } }";
-        t += " void init(T u) { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; set = true; }";
-        t += " void put(T u) { if (set) { b.v = static_cast<T&&>(u); } else { init(static_cast<T&&>(u)); } }";
-        t += " T& get() noexcept { return b.v; }";
-        t += " T&& take() noexcept { return static_cast<T&&>(b.v); }";
+        t += " ~" + sl + "() { if (" + st + ") { b.~__b(); } }";
+        t += " void " + si + "(T u) { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; " + st + " = true; }";
+        t += " void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { b.v = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }";
+        t += " T& " + LowerTargets::ctor_slot_get() + "() noexcept { return b.v; }";
+        t += " T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(b.v); }";
         t += " };";
         self._cg->sink->spell(at, t);
         self._cg->sink->brk();
