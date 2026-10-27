@@ -4457,7 +4457,8 @@ fn _overlay_vis_str(v: OverlayVisibility) -> string {
 /// (PANIC.md §1.3, §1.1a), by its C++ spelling: the canonical set in
 /// order with each type id, then the layout Sema predicted (size 0:
 /// not known before C++ lays it out). Sorted, for golden tests: the
-/// registry's own order is a hash order.
+/// registry's own order is mint order, which moves when an unrelated TU
+/// mints first.
 fn FrontendAction::_dump_panic_sets() {
     var ids = self._ci->panic_type_ids();
     if ids == &null { return; }
