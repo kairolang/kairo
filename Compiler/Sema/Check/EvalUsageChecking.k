@@ -175,6 +175,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
                 b.emit();
             }
         }
+        if n->is_eval() && (n->init == &null) { self._needs_init(n->name, n->range); }
         if n->is_eval() && (n->init != &null) {
             self._ctx += 1;
             var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_variable_decl(n);
@@ -186,6 +187,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     }
 
     fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
+        if n->is_eval() && (n->init == &null) && (!n->is_implicit) && (n->init_fold == FieldFold::None) { self._needs_init(n->name, n->range); }
         if n->is_eval() && (n->init != &null) {
             self._ctx += 1;
             var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_field_decl(n);
@@ -201,6 +203,16 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_eval_expr(n);
         self._ctx -= 1;
         return r;
+    }
+
+    /// An `eval` constant is its value: one with none (`eval K: i32`) would
+    /// be a zero C++ made up.
+    priv fn _needs_init(self, name: Token, at: SourceRange) {
+        var nm = self.sc->ctx->get_spelling(name);
+        var b = self.sc->diag->report(DiagID::SC001E, name.range.start,
+            f"'{nm}' is an 'eval' constant and needs an initializer: its value is computed at compile time");
+        b.first(name.range);
+        b.emit();
     }
 
     // === requires ============================================================
