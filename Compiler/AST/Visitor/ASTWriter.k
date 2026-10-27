@@ -604,6 +604,7 @@ class <D> ASTWriter {
             case ExprKind::ClosureExpr              { return self.dyn()->transform_closure_expr(               cast::<ClosureExpr>(e)              ); }
             case ExprKind::AwaitExpr                { return self.dyn()->transform_await_expr(                 cast::<AwaitExpr>(e)                ); }
             case ExprKind::UnwrapExpr               { return self.dyn()->transform_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
+            case ExprKind::DefinedExpr              { return self.dyn()->transform_defined_expr(               cast::<DefinedExpr>(e)              ); }
             case ExprKind::AttributedExpr           { return self.dyn()->transform_attributed_expr(            cast::<AttributedExpr>(e)           ); }
             case ExprKind::SpawnExpr                { return self.dyn()->transform_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->transform_thread_expr(                cast::<ThreadExpr>(e)               ); }
@@ -833,6 +834,8 @@ class <D> ASTWriter {
         if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
         return n;
     }
+
+    fn transform_defined_expr(self, n: *DefinedExpr) -> *Expr { return n; }
 
     fn transform_unwrap_expr(self, n: *UnwrapExpr) -> *Expr {
         if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }

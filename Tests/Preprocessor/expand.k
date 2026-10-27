@@ -46,7 +46,7 @@
 // AST-NEXT: |   `-StringLiteralExpr "rest!(1, 2)"
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var d
-// AST-NEXT: |   `-IntegerLiteralExpr 1
+// AST-NEXT: |   `-BooleanLiteralExpr true
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var w
 // AST-NEXT: |   `-ListLiteralExpr (2)
@@ -108,7 +108,7 @@ var g2 = paste!(get_, first!(alpha, beta))   // get_alpha
 
 // stringify!/defined! stay RAW (quoting/name position)
 var s = stringify!(rest!(1, 2))   // "rest!(1, 2)" spelling, NOT "2"
-var d = defined!(list)            // 1
+var d = defined!(list)            // true
 
 // pattern splat: replicate the parenthesized pattern per pack element
 macro wrap_all!(...xs)  { [ (box(xs))... ] }        // [ box(1), box(2) ]

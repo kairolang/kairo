@@ -1323,6 +1323,28 @@ class UnwrapExpr derives Expr {
 }
 
 ///
+///  DefinedExpr
+///  `defined!(NAME)` the preprocessor could not answer from Kairo's macro
+///  table: a clang macro (predefined, or from an ffi header) or none.
+///  EvalIfFolding folds it to a bool literal (EVAL.md §4.3).
+///
+class DefinedExpr derives Expr {
+    pub var name: Token;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, name: Token) -> *DefinedExpr {
+        var node   = ctx->alloc::<DefinedExpr>();
+        node->kind  = ExprKind::DefinedExpr;
+        node->range = range;
+        node->name  = name;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::DefinedExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::DefinedExpr; }
+}
+
+///
 ///  AttributedExpr
 ///  `@name operand` / `@name(args) operand`: an attribute applied to an
 ///  expression (`var *cfg = @create Config(8080)`). `name` is the identifier

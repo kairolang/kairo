@@ -370,6 +370,13 @@ enum ExprKind derives u8 {
     /// expression; CoalesceLowering expands it (NULLABLE.md 2.6).
     UnwrapExpr,
 
+    /// `defined!(NAME)` for a NAME the preprocessor's own table does not
+    /// hold (it writes `true` for one it does): clang's predefined macros
+    /// and the TU's ffi headers' macros answer it. Node: DefinedExpr: name:
+    /// Token. EvalIfFolding replaces every one with a bool literal in phase
+    /// E (EVAL.md §4.3); nothing after it sees one.
+    DefinedExpr,
+
     /// An attribute applied to an expression: `@create Config(8080)`,
     /// `@name(args) operand` (attributes.mdx). Node: AttributedExpr: the
     /// attribute's name and arguments (the declaration attribute's grammar)
@@ -432,6 +439,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::StmtExpr { return "StmtExpr"; }
         case ExprKind::VariantInitExpr { return "VariantInitExpr"; }
         case ExprKind::UnwrapExpr { return "UnwrapExpr"; }
+        case ExprKind::DefinedExpr { return "DefinedExpr"; }
         case ExprKind::AttributedExpr { return "AttributedExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }

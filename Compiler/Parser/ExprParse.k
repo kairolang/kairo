@@ -1111,6 +1111,34 @@ class <T> ExprParse {
         return TypeOfExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
     }
 
+    /// \brief parses `defined!(NAME)` (EVAL.md §4.3). The preprocessor only
+    ///        lets a well-formed one through, so a malformed one here was
+    ///        written some way the PP did not see (a macro's output).
+    ///  Grammar:  'defined' '!' '(' identifier ')'
+    inline fn _parse_defined_intrinsic(self) -> *Expr {
+        var kw_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `defined`
+        dyn()->advance(); // consume `!`
+        if (!dyn()->check(TokenKind::OpLParen)) || ((dyn()->ig_peek_kind()) != TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected '(name)' after 'defined!': write 'defined!(NAME)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        dyn()->advance(); // consume `(`
+        var name = dyn()->current();
+        dyn()->advance(); // consume NAME
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected ')' to close 'defined!(...)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        dyn()->advance(); // consume `)`
+        if dyn()->tu != &null { dyn()->tu->has_eval_if = true; }   // EvalIfFolding answers it.
+        return static_cast::<*Expr>(DefinedExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, name));
+    }
+
     /// \brief parses the unwrap intrinsic (NULLABLE.md 2.6).
     ///  Grammar:  'unwrap' '!' '(' expr ')'
     inline fn _parse_unwrap_intrinsic(self) -> *Expr {
@@ -2166,6 +2194,13 @@ class <T> ExprParse {
         if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
         && (dyn()->ctx->get_spelling(dyn()->current()) == "unwrap") {
             return self._parse_unwrap_intrinsic();
+        }
+
+        // -- defined!(NAME) the PP's table could not answer (it passes those
+        // through raw, Preprocessor::_builtin_defined): clang's macros do.
+        if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
+        && (dyn()->ctx->get_spelling(dyn()->current()) == "defined") {
+            return self._parse_defined_intrinsic();
         }
 
         // -- identifier (including `self`) ---------------------------

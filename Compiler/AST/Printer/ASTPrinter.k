@@ -100,6 +100,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::ClosureExpr              { return "ClosureExpr";              }
         case ExprKind::AwaitExpr                { return "AwaitExpr";                }
         case ExprKind::UnwrapExpr               { return "UnwrapExpr";               }
+        case ExprKind::DefinedExpr              { return "DefinedExpr";              }
         case ExprKind::AttributedExpr           { return "AttributedExpr";           }
         case ExprKind::SpawnExpr                { return "SpawnExpr";                }
         case ExprKind::ThreadExpr               { return "ThreadExpr";               }
@@ -385,6 +386,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             if ae->has_args { self._expr_list("(", ")", ae->args); }
             self.p.put(" ");
             self.src_expr(ae->operand);
+            return;
+        }
+        if isa::<DefinedExpr>(e) {
+            self.p.paint(Color::Keyword, "defined!");
+            self.p.paint(Color::Punct, "(");
+            self.p.put(self.ctx->get_spelling(cast::<DefinedExpr>(e)->name));
+            self.p.paint(Color::Punct, ")");
             return;
         }
         if isa::<UnwrapExpr>(e) {
@@ -2219,7 +2227,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         // falls all the way through to `<unknown-expr>`.
         if isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e)
         || isa::<BooleanLiteralExpr>(e) || isa::<NullLiteralExpr>(e)
-        || isa::<CharacterLiteralExpr>(e) {
+        || isa::<CharacterLiteralExpr>(e) || isa::<DefinedExpr>(e) {
             self._head(self._expr_kind_name(e), is_last);
             self._inline_expr(e);
             self.p.newline();

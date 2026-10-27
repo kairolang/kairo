@@ -487,6 +487,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::ClosureExpr              { return self.dyn()->traverse_closure_expr(               cast::<ClosureExpr>(e)              ); }
             case ExprKind::AwaitExpr                { return self.dyn()->traverse_await_expr(                 cast::<AwaitExpr>(e)                ); }
             case ExprKind::UnwrapExpr               { return self.dyn()->traverse_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
+            case ExprKind::DefinedExpr              { return self.dyn()->traverse_defined_expr(               cast::<DefinedExpr>(e)              ); }
             case ExprKind::AttributedExpr           { return self.dyn()->traverse_attributed_expr(            cast::<AttributedExpr>(e)           ); }
             case ExprKind::SpawnExpr                { return self.dyn()->traverse_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->traverse_thread_expr(                cast::<ThreadExpr>(e)               ); }
@@ -824,6 +825,11 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    fn traverse_defined_expr(self, n: *DefinedExpr) -> *DefinedExpr {
+        self.dyn()->walkup_defined_expr(n);
+        return n;
+    }
+
     fn traverse_unwrap_expr(self, n: *UnwrapExpr) -> *UnwrapExpr {
         if self.dyn()->walkup_unwrap_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
@@ -1101,6 +1107,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_attributed_expr(n);
     }
 
+    fn walkup_defined_expr(self, n: *DefinedExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_defined_expr(n);
+    }
+
     fn walkup_unwrap_expr(self, n: *UnwrapExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_unwrap_expr(n);
@@ -1217,6 +1228,7 @@ class <D> RecursiveASTVisitor {
     fn visit_closure_expr(                self, n: *ClosureExpr              ) -> bool { return true; }
     fn visit_await_expr(                  self, n: *AwaitExpr                ) -> bool { return true; }
     fn visit_unwrap_expr(                 self, n: *UnwrapExpr               ) -> bool { return true; }
+    fn visit_defined_expr(                self, n: *DefinedExpr              ) -> bool { return true; }
     fn visit_attributed_expr(             self, n: *AttributedExpr           ) -> bool { return true; }
     fn visit_spawn_expr(                  self, n: *SpawnExpr                ) -> bool { return true; }
     fn visit_thread_expr(                 self, n: *ThreadExpr               ) -> bool { return true; }

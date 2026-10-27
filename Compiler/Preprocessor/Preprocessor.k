@@ -87,6 +87,10 @@ class PPWalker
     /// Every deeper hop of a runaway chain trips the same limit; one R008E per
     /// chain says it, the rest are noise that buries the real error.
     priv var _depth_reported:    set::<u32>;
+    /// `defined!` invocations passed through to the parser (by the name
+    /// token's location), so the rescan of their own output does not take
+    /// them for an invocation again.
+    priv var _defined_raw:       set::<u32>;
     priv var _unique_counter:    u32 = 0;
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
@@ -749,6 +753,8 @@ class PPWalker
         if path_toks.size() == 1 {
             var sp = TokenText::spelling(name_tok, self._tcm);
             if (sp == "label") || (sp == "jump") || (sp == "unwrap") { return result; }
+            // A `defined!` _builtin_defined already passed through raw.
+            if (sp == "defined") && self._defined_raw.contains(name_tok.range.start.raw()) { return result; }
         }
 
         result.found   = true;
@@ -1230,6 +1236,13 @@ class PPWalker
             data->body     = range;
             tok.imm = idx;
         }
+        return tok;
+    }
+
+    priv fn _punct(self, k: TokenKind, range: SourceRange) -> Token {
+        var tok = Token();
+        tok.kind  = k;
+        tok.range = range;
         return tok;
     }
 
@@ -1994,6 +2007,7 @@ class PPWalker
             var name_tok = args[0]->get(0);
 
             if name_tok->kind == TokenKind::LitIdentifier {
+                var raw_name = *name_tok;
                 var name_sym = self._sym->intern(
                     self._builtin_token_text(name_tok)
                 );
@@ -2008,14 +2022,27 @@ class PPWalker
 
                 if self._resolve(probe) != &null {
                     found = 1;
+                } else {
+                    // Not a Kairo macro: it may be clang's (predefined, or
+                    // from an ffi header), which only Sema can ask, after
+                    // the headers are built. Passed on as written for the
+                    // parser's DefinedExpr (EVAL.md §4.3).
+                    self._defined_raw.insert(invoke->name.range.start.raw());
+                    out->append(invoke->name);
+                    out->append(self._punct(TokenKind::OpExclaim, invoke->name.range));
+                    out->append(self._punct(TokenKind::OpLParen, invoke->name.range));
+                    out->append(raw_name);
+                    out->append(self._punct(TokenKind::OpRParen, invoke->name.range));
+                    return out;
                 }
             }
         }
 
-        out->append(self.make_int_token(
-            found,
-            invoke->name.range
-        ));
+        // A condition: `true` / `false`, not 1 / 0 (EVAL.md 4.3a).
+        var b = Token();
+        b.kind  = (TokenKind::KwTrue) if (found == u64(1)) else (TokenKind::KwFalse);
+        b.range = invoke->name.range;
+        out->append(b);
 
         return out;
     }

@@ -120,6 +120,12 @@ class BuiltinImport {
 
     fn ready(self) -> bool { return self._ready; }
 
+    /// Is \p name a predefined macro of the target (EVAL.md §4.3).
+    fn macro_predefined(self, name: string) -> bool {
+        if self._oracle == &null { return false; }
+        return self._oracle->predefined(name);
+    }
+
     /// The scope a builtin decl answers from, for the resolution trace.
     fn scope(self) -> *DeclContext { return static_cast::<*DeclContext>(self._tu); }
 

@@ -80,6 +80,8 @@ import AST::Kind::StmtKind::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
+import Sema::Foreign::BuiltinImport::*;
+import Interop::Clang::HeaderSet::*;
 
 /// A folded condition's value: a bool, or an integer (a `defined!` is the
 /// literal `1` / `0`; an integer is true when it is not zero).
@@ -290,6 +292,30 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         b.emit();
     }
 
+    // === defined! ===========================================================
+
+    /// Every `defined!` the preprocessor passed on, wherever it stands, is a
+    /// bool literal from here on: nothing after this pass sees one.
+    fn transform_defined_expr(self, n: *DefinedExpr) -> *Expr {
+        var b = BooleanLiteralExpr::create(self.ctx, n->range, self._macro(n->name));
+        return static_cast::<*Expr>(b);
+    }
+
+    /// Clang's answer for \p name (EVAL.md §4.3): the TU's HeaderSet when
+    /// it has ffi headers (its preprocessor holds the target's predefines
+    /// and every header's #defines), else the target's predefines alone.
+    /// Kairo's own macros never get here: the preprocessor answered those.
+    priv fn _macro(self, name: Token) -> bool {
+        var nm = self.ctx->get_spelling(name);
+        var tu = self.sc->tu;
+        if tu->header_set != &null {
+            var hs = reinterpret_cast::<*HeaderSet>(tu->header_set);
+            if hs->alive() { return hs->macro_defined(nm); }
+        }
+        if self.sc->builtins != &null { return self.sc->builtins->macro_predefined(nm); }
+        return false;
+    }
+
     // === conditions =========================================================
 
     priv fn _no(self, at: *Expr, why: string) -> FoldVal {
@@ -323,6 +349,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         var e = e0;
         while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
         if isa::<BooleanLiteralExpr>(e) { return self._bool(cast::<BooleanLiteralExpr>(e)->value); }
+        if isa::<DefinedExpr>(e) { return self._bool(self._macro(cast::<DefinedExpr>(e)->name)); }
         if isa::<IntegerLiteralExpr>(e) {
             var r = self._ce.eval_int(e);
             if !r.ok { return self._no(e, "this literal has no value"); }

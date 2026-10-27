@@ -475,6 +475,8 @@ class ExprTyper
             case ExprKind::ClosureExpr          { return self.type_closure(cast::<ClosureExpr>(e), expected); }
             case ExprKind::AwaitExpr            { return self.type_await(cast::<AwaitExpr>(e), expected); }
             case ExprKind::UnwrapExpr           { return self.type_unwrap(cast::<UnwrapExpr>(e), expected); }
+            // EvalIfFolding folded every one; a bool if one is ever left.
+            case ExprKind::DefinedExpr          { return self.tu.builtin(BuiltinKind::Bool); }
             case ExprKind::AttributedExpr {
                 // No expression attribute has a meaning yet: FeatureGateCheck
                 // reports each one (SC116E), and that error stops the

@@ -220,6 +220,17 @@ class HeaderSet {
     /// Hold this around any clang::Sema call from sema (M2's RequireCompleteType).
     fn sema_lock(self) -> *std::RecursiveMutex { return &(self._sema_mu); }
 
+    /// Is \p name a macro once the set's headers are read: a predefined one
+    /// (`__linux__`) or one a header `#define`s. build() never ends the
+    /// source file, so the preprocessor still holds every definition.
+    /// Kairo's `defined!` (EVAL.md §4.3).
+    fn macro_defined(self, name: string) -> bool {
+        if self._ci == &null { return false; }
+        if !self._ci->hasPreprocessor() { return false; }
+        var slock = std::LockGuard(self._sema_mu);
+        return self._ci->getPreprocessor().isMacroDefined(sref(name));
+    }
+
     fn pch_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.pch"; }
 
     /// Phase B's textual include of this set: one in-memory header replaying
