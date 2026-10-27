@@ -871,7 +871,10 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             }
             if dup { continue; }
             if pset_has(&(t->reach), c) { continue; }
-            if self._is_cxx_type(c) { continue; }
+            if self._is_cxx_type(c) {
+                self._cxx_arm(t, i, c, filt, ar);
+                continue;
+            }
             if t->stmt != &null { t->stmt->arms.get(i)->is_dead = true; }
             else { t->expr->catch_arms.get(i)->is_dead = true; }
             var why = "nothing in this 'try' can panic";
@@ -881,6 +884,24 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             w.remove(ar, "remove the arm");
             w.emit();
         }
+    }
+
+    /// A C++ exception arm (§3.5): marked for PanicLowering, which keeps it
+    /// as a C++ `catch` around the lowered body. It needs C++ exceptions: a
+    /// build without them (-fno-exceptions, a freestanding target) cannot
+    /// catch one, and clang would reject the `try` it lowers to.
+    priv fn _cxx_arm(self, t: *PanicTry, i: usize, c: *Type, filt: *Type, ar: SourceRange) {
+        if t->stmt != &null { t->stmt->arms.get(i)->is_cxx = true; }
+        else { t->expr->catch_arms.get(i)->is_cxx = true; }
+        if self.sc->opts.cxx_exceptions { return; }
+        var nm = self._tu.str(c);
+        var b = self.sc->diag->report(DiagID::SC001E, ar.start,
+            f"'catch' of the C++ exception '{nm}' in a build without C++ exceptions (-fno-exceptions, or a target with no OS)");
+        b.first(filt->range, "a C++ type outside the panic set: this arm catches a C++ exception");
+        var d = self._tu.record_decl(c);
+        if (d != &null) && d->range.is_valid() { b.note(DiagID::SC001N, d->range.start, f"'{nm}' is declared here, in C++").first(d->range); }
+        b.remove(ar, "remove the arm");
+        b.emit();
     }
 
     /// A bare `catch e`'s binding holds whatever the arm catches: one of

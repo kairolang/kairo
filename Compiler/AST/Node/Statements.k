@@ -109,6 +109,10 @@ struct CatchArm {
     /// exception arm (its type is not in the set and is a C++ type) is
     /// never dead. One writer: PanicEffectChecking.
     var is_dead: bool = false;
+    /// The arm catches a C++ exception (PANIC.md §3.5): its type is a C++
+    /// type not in the set. PanicLowering keeps it as a C++ `catch`. One
+    /// writer: PanicEffectChecking.
+    var is_cxx:  bool = false;
 }
 
 ///
@@ -993,6 +997,10 @@ class TryCatchStmt derives Stmt {
     /// `try` from its body, canonical. The arms discharge it; PanicLowering
     /// sizes the slot from it. One writer: PanicEffectChecking.
     pub var reach:    FrozenList::<*Type>;
+    /// PanicLowering's C++ `try` (PANIC.md §3.5, §4.5a H): every arm is a C++
+    /// exception arm, its body the lowered `try` body. EmitIR writes it as
+    /// `try { } catch (T& e) { }`; any other TryCatchStmt is PanicLowering's.
+    pub var cxx:      bool = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, try_body: *CompoundStmt) -> *TryCatchStmt {
         var node      = ctx->alloc::<TryCatchStmt>();

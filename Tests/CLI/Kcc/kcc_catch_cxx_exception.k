@@ -3,16 +3,12 @@
 // c-cpp-exceptions.md specifies: `catch e: cxx::std::exception`.
 //
 // `relay` is `@unwind`: the exception has to cross its frame to reach the
-// try in `guarded` (a noexcept frame would terminate).
-//
-// Expected to fail for now: codegen ICEs on the try: "EmitIR: try/catch;
-// PanicLowering owns it". PanicLowering does not yet lower a try around a
-// C++ call to a C++ try/catch. (Exceptions themselves are on now.) When
-// it lands this XPASSes: drop the XFAIL line.
+// try in `guarded` (a noexcept frame would terminate). `guarded` itself is
+// noexcept: the C++ `try` PanicLowering keeps around the body (PANIC.md
+// §3.5, §4.5a H) catches it inside the frame.
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// XFAIL: *
 // REQUIRES: kcc, default-sysroot
 // RUN: rm -rf %t.d && mkdir -p %t.d && cd %t.d
 // RUN: %kcc %S/Inputs/unwind/guarded_main.cpp -o %t.d/app

@@ -143,6 +143,7 @@ struct PanicArm {
     var sbody:    *CompoundStmt = &null;   ///< the statement form's body.
     var ebody:    *Expr = &null;           ///< the expression form's value (or jump).
     var range:    SourceRange;
+    var is_cxx:   bool = false;            ///< a C++ exception arm (§3.5).
 }
 
 class PanicLowering derives ASTWriter::<PanicLowering> {
@@ -153,6 +154,12 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
 
     priv var _targets: vec::<PanicTarget>;   ///< innermost last; empty in a body that cannot panic, outside a `try`.
     priv var _holders: vec::<PanicHolder>;
+    /// The bindings of C++ exception arms: `panic e` of one panics a copy of
+    /// the caught object (its arm's type, what the set holds), from here.
+    priv var _cxx_binders: vec::<*Decl>;
+    /// Inside the body of a `try` with a C++ arm: a value that can throw is
+    /// computed first too (_leaves).
+    priv var _cxx_depth: i32 = 0;
     priv var _fn_r: *Type = &null;           ///< the current body's result, or null when it does not panic.
     priv var _fn_t: *Type = &null;           ///< its value type T.
 
@@ -385,7 +392,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         var at = n->range;
         // A re-panic forwards the result the error is held in, word 0 as
         // it is: the original site (§3.4).
-        if n->repanic != &null {
+        if (n->repanic != &null) && (!self._is_cxx_binder(n->repanic)) {
             var h = self._holder_of(n->repanic);
             ICE_IF(h == &null, "PanicLowering: a re-panic of a binding no lowered arm holds; PanicEffectChecking stamps only an arm's");
             self._deliver(at, h, &out);
@@ -446,9 +453,13 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     }
 
     /// \p e can leave the function or jump: it holds a call that may panic,
-    /// or a `try`.
+    /// or a `try`. Or, in the body of a `try` with a C++ arm, it can throw
+    /// (anything not pure): codegen builds a payload in a noexcept lambda
+    /// and a noexcept constructor, which would stop the exception short of
+    /// the C++ `try` and terminate.
     priv fn _leaves(self, e: *Expr) -> bool {
         if e == &null { return false; }
+        if (self._cxx_depth > 0) && (!LowerSynth::pure(e)) { return true; }
         var w = PanicWalk(self.sc);
         w.keep_sites = true;
         w.walk_expr(e);
@@ -602,6 +613,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     fn transform_try_catch_stmt(self, n: *TryCatchStmt) -> vec::<*Stmt> {
         var at = n->range;
         var arms = vec::<PanicArm>();
+        var cxx  = vec::<PanicArm>();
         for var i: usize = 0; i < n->arms.size(); ++i {
             var a = n->arms.get(i);
             var pa = PanicArm();
@@ -611,17 +623,25 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             pa.sbody   = a->body;
             pa.range   = a->range;
             if (a->decl != &null) && isa::<VariableDecl>(a->decl) { pa.is_const = cast::<VariableDecl>(a->decl)->storage == StorageClass::Const; }
-            arms.push_back(pa);
+            pa.is_cxx  = a->is_cxx;
+            if pa.is_cxx { cxx.push_back(pa); } else { arms.push_back(pa); }
         }
         var out = vec::<*Stmt>();
-        // Nothing reaches it: the body alone; no arm runs.
+        // Nothing reaches it: the body alone; no panic arm runs (a C++ one
+        // may: the body is its C++ `try`).
         if n->reach.size() == 0 {
-            out.push_back(self.transform_stmt_scalar(static_cast::<*Stmt>(n->try_body)));
+            if cxx.size() > 0 { self._cxx_depth += 1; }
+            var only = self.transform_stmt_scalar(static_cast::<*Stmt>(n->try_body));
+            if cxx.size() > 0 { self._cxx_depth -= 1; }
+            if cxx.size() > 0 { only = self._cxx_try(at, only, &cxx, &null); }
+            out.push_back(only);
             return out;
         }
 
-        // Direct: one statement, the one call that can panic, first.
-        var shape = self._direct_shape(n);
+        // Direct: one statement, the one call that can panic, first. Not
+        // with a C++ arm: the dispatch would sit inside the C++ `try`, and
+        // a panic arm is outside its `try`.
+        var shape = (-1) if (cxx.size() > 0) else (self._direct_shape(n));
         if shape >= 0 {
             var s  = n->try_body->body[0];
             var pc = self._as_call(self._direct_call(s, shape));
@@ -655,8 +675,13 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         tg.label = self.synth.fresh(at, "catch");
         var done = self.synth.fresh(at, "done");
         self._targets.push_back(tg);
+        if cxx.size() > 0 { self._cxx_depth += 1; }
         var body = self.transform_stmt_scalar(static_cast::<*Stmt>(n->try_body));
+        if cxx.size() > 0 { self._cxx_depth -= 1; }
         self._targets.pop_back();
+        // The C++ `try` holds the body only; a failing site's jump to the
+        // dispatch leaves it (a goto out of a C++ try block is legal).
+        if cxx.size() > 0 { body = self._cxx_try(at, body, &cxx, &null); }
         lb.push(body);
         lb.push(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, at, done)));
         lb.push(static_cast::<*Stmt>(LabelIntrinsicStmt::create(self.ctx, at, tg.label)));
@@ -671,6 +696,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     fn transform_try_catch_expr(self, n: *TryCatchExpr) -> *Expr {
         var at = n->range;
         var arms = vec::<PanicArm>();
+        var cxx  = vec::<PanicArm>();
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var a = n->catch_arms.get(i);
             var pa = PanicArm();
@@ -680,9 +706,10 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             pa.is_dead  = a->is_dead;
             pa.ebody    = a->body;
             pa.range    = a->range;
-            arms.push_back(pa);
+            pa.is_cxx   = a->is_cxx;
+            if pa.is_cxx { cxx.push_back(pa); } else { arms.push_back(pa); }
         }
-        if n->reach.size() == 0 { return self.transform_expr(n->try_expr); }
+        if (n->reach.size() == 0) && (cxx.size() == 0) { return self.transform_expr(n->try_expr); }
 
         var t = self._value_type(n->type_);
         var orig = static_cast::<*Expr>(n);
@@ -691,7 +718,16 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         if !self.tu.is_void(t) { res = self._raw(at, "r", t, &lb); }
 
         var pc = self._as_call(n->try_expr);
-        if (pc.call != &null) && (self._sites_in_expr(n->try_expr) == 1) {
+        if n->reach.size() == 0 {
+            // Only C++ arms: `try { r <- operand } catch (T& e) { r <- arm }`.
+            self._cxx_depth += 1;
+            var v = self.transform_expr(n->try_expr);
+            self._cxx_depth -= 1;
+            var bv = vec::<*Stmt>();
+            if res != &null { bv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self._slot_put(at, res, v)))); }
+            else { bv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, v))); }
+            lb.push(self._cxx_try(at, static_cast::<*Stmt>(self._block(at, &bv)), &cxx, res));
+        } else if (cxx.size() == 0) && (pc.call != &null) && (self._sites_in_expr(n->try_expr) == 1) {
             // Direct: the operand IS the one call that can panic.
             ASTWriter::<PanicLowering>::transform_call_expr(pc.call);
             self._retype(pc);
@@ -712,13 +748,19 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             tg.label = self.synth.fresh(at, "catch");
             var done = self.synth.fresh(at, "done");
             self._targets.push_back(tg);
+            if cxx.size() > 0 { self._cxx_depth += 1; }
             var v = self.transform_expr(n->try_expr);
+            if cxx.size() > 0 { self._cxx_depth -= 1; }
             self._targets.pop_back();
             var bv = vec::<*Stmt>();
             if res != &null { bv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self._slot_put(at, res, v)))); }
             else { bv.push_back(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, v))); }
             bv.push_back(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, at, done)));
-            lb.push(static_cast::<*Stmt>(self._block(at, &bv)));
+            var bs = static_cast::<*Stmt>(self._block(at, &bv));
+            lb.push((self._cxx_try(at, bs, &cxx, res)) if (cxx.size() > 0) else (bs));
+            // A C++ arm ends below its `try`, not at the jump inside it: on
+            // to the value, past the dispatch.
+            if cxx.size() > 0 { lb.push(static_cast::<*Stmt>(JumpIntrinsicStmt::create(self.ctx, at, done))); }
             lb.push(static_cast::<*Stmt>(LabelIntrinsicStmt::create(self.ctx, at, tg.label)));
             lb.push(self._catch_block(at, slot, st, &arms, res));
             lb.push(static_cast::<*Stmt>(LabelIntrinsicStmt::create(self.ctx, at, done)));
@@ -730,6 +772,57 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
             lb.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, static_cast::<*Expr>(take))));
         }
         return self.synth.stmt_expr(orig, &lb, t);
+    }
+
+    /// The C++ `try` of a `try` with C++ exception arms (§3.5, §4.5a H):
+    /// \p body, already lowered, inside a TryCatchStmt marked `cxx` whose
+    /// arms are those arms, each binding a reference to the exception and
+    /// lowered with the `try`'s target closed (an arm is outside its `try`).
+    /// Every Kairo function stays noexcept: an exception this does not catch
+    /// reaches the frame's boundary and terminates there, as one thrown
+    /// anywhere else in a noexcept frame does. Only a call lexically inside
+    /// the `try` is covered; one inside a Kairo callee stops at that
+    /// callee's own boundary unless it is `@unwind` (c-cpp-exceptions.mdx).
+    priv fn _cxx_try(self, at: SourceRange, body: *Stmt, cxx: *vec::<PanicArm>, res: *VariableDecl) -> *Stmt {
+        var blk = dyn_cast::<CompoundStmt>(body);
+        if blk == &null {
+            var one = vec::<*Stmt>();
+            one.push_back(body);
+            blk = self._block(at, &one);
+        }
+        var t = TryCatchStmt::create(self.ctx, at, blk);
+        t->cxx = true;
+        var cas = vec::<CatchArm>();
+        for var i: usize = 0; i < cxx->size(); ++i {
+            var a = &((*cxx)[i]);
+            var stmts = vec::<*Stmt>();
+            if (a->decl != &null) && isa::<VariableDecl>(a->decl) {
+                var vd = cast::<VariableDecl>(a->decl);
+                var et = canon_unqual(a->filter->canonical);
+                if a->is_const { et = self.sc->types->qualified(et, QUAL_CONST()); }
+                vd->type_   = self.sc->types->cxx_lref(et);
+                vd->storage = StorageClass::Var;   // the `const` is in the type.
+                vd->init    = &null;
+                self._cxx_binders.push_back(a->decl);
+            }
+            self._arm_body(a, &null, res, &stmts);
+            var ca = CatchArm{};
+            ca.filter  = a->filter;
+            ca.binding = &null;
+            ca.body    = self._block(a->range, &stmts);
+            ca.range   = a->range;
+            ca.decl    = a->decl;
+            ca.is_dead = false;
+            ca.is_cxx  = true;
+            cas.push_back(ca);
+        }
+        t->arms.from_vec(&cas, self.ctx);
+        return static_cast::<*Stmt>(t);
+    }
+
+    priv fn _is_cxx_binder(self, d: *Decl) -> bool {
+        for var i: usize = 0; i < self._cxx_binders.size(); ++i { if self._cxx_binders[i] == d { return true; } }
+        return false;
     }
 
     /// `{ var __kairo_e = take(slot); <dispatch e> }`: the error moved out

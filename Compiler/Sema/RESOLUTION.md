@@ -673,7 +673,10 @@ library (`--shared`), an inferred set on a `pub` function is SC001W.
 The `try` rules (P5): each `try`'s body set is recorded on the node
 (`TryCatchStmt::reach` / `TryCatchExpr::reach`); an arm whose type is not
 in it is SC001W with a remove edit and marked `is_dead` for PanicLowering
-(a C++ type outside the set is a C++ exception arm, never dead); a second
+(a C++ type outside the set is a C++ exception arm, never dead, marked
+`is_cxx`, and SC001E with a remove edit in a build without C++ exceptions,
+SemaOptions::cxx_exceptions -- LangOptions::cxx_exceptions, the rule
+FlagTranslator passes to clang); a second
 arm for one type is SC001E. Arms match exact types: no subtyping. An arm
 after a bare `catch` is ArmOrderCheck's (V) SC001E in the statement form
 and the parser's S054E in the expression form. An expression arm may be
@@ -1381,6 +1384,14 @@ its dispatch, which moves it into a local first; `catch e: E` is one tag
 compare. A `try` whose body is one statement that is, assigns, returns or
 binds its one site reads that call's result with no slot. C++ with no Kairo
 spelling is a PanicOpExpr (`fwd`, slot put / take) and a `raw_slot` local.
+A `try` with C++ exception arms (`is_cxx`, P7) keeps them as a C++ `try`:
+the lowered body goes in a TryCatchStmt marked `cxx` whose arms are those
+arms (EmitIR writes `try { } catch (T& e) { }`), the panic dispatch after
+it (always the slot form, so no panic arm sits inside the C++ `try`); the
+function stays noexcept, so an exception no arm matches terminates at its
+boundary. In that body a value that can throw is bound to a local before
+an ADT payload is built from it (codegen builds payloads in noexcept
+lambdas). `panic e` of a C++ arm's binding panics a copy of it.
 After ScriptLowering (a script's main is an ordinary body) and
 CopyMoveLowering; before FinallyLowering (every jump and return made here
 is an ordinary exit to it), LabelLowering, CallLowering and SequenceLowering

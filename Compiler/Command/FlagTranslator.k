@@ -486,7 +486,7 @@ class FlagTranslator {
             var etri = llvm::Triple(llvm::Triple::normalize(sref(triple)));
             if etri.getOS() == llvm::Triple::UnknownOS { hosted = false; }
         }
-        if (lg.exceptions == 1) || ((lg.exceptions == -1) && hosted) {
+        if lg.cxx_exceptions(hosted) {
             if cc1 { _fx_push(&o, "-fcxx-exceptions"); _fx_push(&o, "-fexceptions"); }
             else if lg.exceptions == 1 { _fx_push(&o, "-fexceptions"); }
         }

@@ -17,3 +17,9 @@ inline int contained(int x) {
 inline int guard(int (*f)(int), int x) {
     try { return f(x); } catch (const std::exception&) { return -1; }
 }
+
+// Throws std::logic_error for 13, std::runtime_error below 0 (via checked).
+inline int unlucky(int x) {
+    if (x == 13) throw std::logic_error("unlucky");
+    return checked(x);
+}

@@ -104,6 +104,11 @@ class TargetOptions {
     /// one call site and not another.
     pub var is_x86: bool = false;
 
+    /// The triple names an OS (llvm::Triple's OS is not UnknownOS): a hosted
+    /// target, which has an unwinder, so C++ exceptions default on
+    /// (LangOptions::cxx_exceptions). A bare-metal triple has none.
+    pub var has_os: bool = true;
+
     // --- C++ `long double`, read from clang::TargetInfo ----------------------
     //
     // `f80` lowers to C++ `long double`, so whether f80 exists is an ABI fact,

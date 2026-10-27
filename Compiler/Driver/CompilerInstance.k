@@ -3160,6 +3160,7 @@ class CompilerInstance {
         (t->object_format)    = objfmt;
         (t->is_little_endian) = tt.isLittleEndian();
         (t->is_x86)           = tt.isX86();
+        (t->has_os)           = (tt.getOS() != llvm::Triple::UnknownOS);
         self._fill_clang_type_facts(tt);
         (t->resolved)         = true;
 

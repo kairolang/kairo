@@ -1246,6 +1246,8 @@ class TryCatchExpr derives Expr {
         var decl:        *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
         /// The arm never runs (Statements.k CatchArm::is_dead).
         var is_dead:     bool = false;
+        /// A C++ exception arm (Statements.k CatchArm::is_cxx).
+        var is_cxx:      bool = false;
     }
 
     pub var try_expr:   *Expr;

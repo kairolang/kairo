@@ -886,7 +886,11 @@ class EmitIR {
                 }
             }
             case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place"); }
-            case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
+            case StmtKind::TryCatchStmt {
+                var t = cast::<TryCatchStmt>(s);
+                if !t->cxx { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
+                self._cxx_try(t);
+            }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
             case StmtKind::YieldStmt              { self._yield(cast::<YieldStmt>(s)); }
@@ -910,6 +914,30 @@ class EmitIR {
             case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }
             case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: an eval block in a function body; FeatureGateCheck rejects it"); }
             default { self._ice(s->range, f"EmitIR: statement kind {to_string(s->kind)} is not in the core"); }
+        }
+    }
+
+    /// PanicLowering's C++ `try` (PANIC.md §3.5, §4.5a H): `try { body }
+    /// catch (T& e) { arm } ...`, each arm's binding a reference to the
+    /// exception (PanicLowering typed it), or the type alone when the arm
+    /// binds nothing.
+    priv fn _cxx_try(self, n: *TryCatchStmt) {
+        self._cg->sink->spell(n->range, "try");
+        self.emit_block(n->try_body);
+        for var i: usize = 0; i < n->arms.size(); ++i {
+            var a = n->arms.get(i);
+            self._cg->sink->spell(a->range, "catch (");
+            // Not _var_decl: a handler's parameter has no initializer, and a
+            // local without one is value-initialized there.
+            var vd = dyn_cast::<VariableDecl>(a->decl);
+            if vd != &null {
+                self._cg->sink->spell(vd->name.range, self._spell._type(vd->type_));
+                self._name(vd->name);
+            } else {
+                self._cg->sink->spell(a->range, self._spell._type(a->filter->canonical) + "&");
+            }
+            self._cg->sink->spell(a->range, ")");
+            self.emit_block(a->body);
         }
     }
 

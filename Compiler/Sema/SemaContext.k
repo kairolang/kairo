@@ -138,6 +138,9 @@ class SemaOptions {
     // Defaults are "off" / unlimited so a hand-built SemaOptions (tests that
     // skip load) never trips a gate; load() applies the real defaults.
     pub var no_unsafe:  bool = false;  ///< --no-unsafe or -fno-unsafe.
+    /// The C++ this build compiles has exceptions (LangOptions::cxx_exceptions):
+    /// a `catch e: cxx::...` arm needs them (PANIC.md §3.5).
+    pub var cxx_exceptions: bool = true;
     pub var unwind_all: bool = false;  ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
     pub var no_fp:      bool = false;  ///< --no-fp.
     pub var no_ffi:     bool = false;  ///< --no-ffi.
@@ -179,6 +182,10 @@ class SemaOptions {
         // rather than making the pass know two spellings.
         self.no_unsafe  = ci->lang.no_unsafe || (ci->lang.unsafe_feature == 0);
         self.unwind_all = (ci->lang.unwind == 1);
+        // FlagTranslator's test of a hosted target, on the resolved triple.
+        var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode);
+        if ci->target.resolved && (!ci->target.has_os) { hosted = false; }
+        self.cxx_exceptions = ci->lang.cxx_exceptions(hosted);
         self.no_fp      = ci->lang.no_fp;
         self.no_ffi     = ci->lang.no_ffi;
         self.no_cxx     = ci->lang.no_cxx;

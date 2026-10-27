@@ -84,6 +84,15 @@ class LangOptions {
     pub var max_interface_impls:   i32 = 0;    ///< 0 = unlimited
     pub var max_extend_chain:      i32 = 64;
 
+    /// Whether the C++ a build writes and compiles has exceptions: -fexceptions,
+    /// or by default a hosted target (\p hosted: the triple names an OS, not
+    /// --freestanding, not kernel mode), which has an unwinder; -fno-exceptions
+    /// turns them off anywhere. The one rule: FlagTranslator passes it to
+    /// clang, Sema rejects a C++ exception arm without it (PANIC.md §3.5).
+    fn cxx_exceptions(self, hosted: bool) -> bool {
+        return (self.exceptions == 1) || ((self.exceptions == -1) && hosted);
+    }
+
     static fn from_args(args: ref!(ParsedArgs)) -> LangOptions {
         var o = LangOptions();
         (o.edition)         = args.get_string("edition");
