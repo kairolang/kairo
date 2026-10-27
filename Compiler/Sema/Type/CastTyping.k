@@ -62,6 +62,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
@@ -205,12 +206,12 @@ class <T> CastTyping {
                 dyn()->fail(n, DiagID::SC091E, f"pointer cast between unrelated types '{dyn()->tu.str(src)}' and '{dyn()->tu.str(target)}'; use 'as unsafe *' to reinterpret");
                 return &null;
             }
-            if dyn()->tu.derives_from(sd, td) {
+            if Substitution(dyn()->sc).derives_from(sp, tp) {
                 // upcast: static, implicit already does it.
                 self._lint_widening(n, src, target, expected);
                 return target;
             }
-            if dyn()->tu.derives_from(td, sd) {
+            if Substitution(dyn()->sc).derives_from(tp, sp) {
                 if mode == CastMode::Static {
                     dyn()->sc->diag->report(DiagID::SC024E, n->range.start,
                         f"static downcast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' is not allowed"

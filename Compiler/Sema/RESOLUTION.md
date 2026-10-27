@@ -1041,10 +1041,18 @@ ambiguous, not callable.
 **Deduction** (`ArgumentDeduction.k`). Structural unify of the param's
 canonical against the arg's, binding `(owner, index)`; conflicts fail,
 there is no common-type search. Top level may succeed through the implicit
-relation (Converted); inside a structure exact or nothing. `substitute`
-rebuilds through the store and goes through the registry for a concrete
-record. `member_through(recv, mt)` reads a member type through the
-receiver's args. `replace_self(t, I, T)` reads an interface member through
+relation (Converted); inside a structure exact or nothing. The bindings and
+their rewrite are its base, **Substitution** (`Substitution.k`), split out
+so the layer Deduction ranks with (Conversion) can substitute too.
+`substitute` rebuilds through the store and goes through the registry for
+a concrete record. `member_through(recv, mt)` reads a member type through
+the receiver's args. `derives_from(derived, base)` is derived-to-base on
+TYPES (every implicit upcast, `as`, the downcast hint): an instance's bases
+are its body's declared list (`record_body`: a filled instance's own, a
+selected partial's, else the pattern's) with the instance's arguments
+substituted, so `Const<i32>` of `derives Source<T>` reaches `Source<i32>`
+and not `Source<f64>` (MONO.md G4, D0: facts by substitution, never by
+re-typing). `replace_self(t, I, T)` reads an interface member through
 a bound (`-> Self` is `T`). `bind_from_extension(f, recv)` seeds a generic
 extension's parameters from the receiver before any argument is ranked:
 the extension's target is UNIFIED with the receiver, so `extend <T>

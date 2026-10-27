@@ -87,6 +87,7 @@ import Sema::Resolve::GenericArgs::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::ArgumentDeduction::*;
 import Sema::Type::LiteralTyping::*;
 import Sema::Type::OperatorTyping::*;
@@ -966,7 +967,7 @@ class ExprTyper
                 hint = "; a safe pointer becomes a raw one only explicitly: 'unsafe &x', or 'as unsafe *T' inside an unsafe block";
             } else if self.tu.is_unsafe_ptr(from) && (!self.tu.is_unsafe_ptr(to)) {
                 hint = "; a raw pointer becomes safe only by 'as *T' inside an unsafe block";
-            } else if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(td, fd) {
+            } else if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(self.tu.pointee(to), self.tu.pointee(from)) {
                 hint = "; a base-to-derived pointer needs an explicit 'as\x27";
             }
         }

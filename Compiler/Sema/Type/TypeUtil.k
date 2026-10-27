@@ -261,42 +261,10 @@ class TypeUtil {
     }
 
     // === inheritance ========================================================
-
-    /// True when \p derived is \p base or reaches it through `derives`
-    /// edges. Works on representatives; instances walk their pattern.
-    fn derives_from(self, derived: *Decl, base: *Decl) -> bool {
-        if (derived == &null) || (base == &null) { return false; }
-        var d = NameLookup::representative(derived);
-        var b = NameLookup::representative(base);
-        var seen = vec::<*Decl>();
-        return self._derives_walk(d, b, &seen, 0);
-    }
-
-    priv fn _derives_walk(self, d: *Decl, b: *Decl, seen: *vec::<*Decl>, depth: u32) -> bool {
-        if d == b { return true; }
-        if depth > 64 { return false; }
-        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == d { return false; } }
-        seen->push_back(d);
-        var bases = self._bases_of(d);
-        for var i: usize = 0; i < bases.size(); ++i {
-            var e = bases.get(i);
-            if (e == &null) || (e->base == &null) { continue; }
-            var c = e->base->canonical;
-            var bd = self.record_decl(c);
-            if bd == &null { continue; }
-            if self._derives_walk(NameLookup::representative(bd), b, seen, depth + 1) { return true; }
-        }
-        // an instance inherits its pattern's bases.
-        var pat = self.pattern_of(d);
-        if pat != d { return self._derives_walk(pat, b, seen, depth + 1); }
-        return false;
-    }
-
-    priv fn _bases_of(self, d: *Decl) -> FrozenList::<InheritEdge> {
-        if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->derives_list;     }
-        if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->derives_list; }
-        return create_empty_frozen_list::<InheritEdge>();
-    }
+    //
+    // Derived-to-base is Substitution::derives_from: it is a question about
+    // TYPES, since an instance's bases are its pattern's read through its
+    // arguments, and the substitution that reads them sits above this file.
 
     /// The first pure virtual method (FnBodyKind::Virtual: a bodyless
     /// `virtual fn`, or an imported C++ `= 0`) that `d` or one of its bases

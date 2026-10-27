@@ -40,6 +40,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import AST::OperatorFacts::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -333,7 +334,7 @@ class Conversion {
             if !self._quals_kept(fp, tp) { return ImplicitRank::None; }
             var fd = self.tu.record_decl(fp);
             var td = self.tu.record_decl(tp);
-            if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(fd, td) {
+            if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(fp, tp) {
                 return ImplicitRank::Converted;
             }
             if self._qual_conv(fu, tq, true) { return ImplicitRank::Converted; }
@@ -556,7 +557,7 @@ class Conversion {
         if src == ru { return ImplicitRank::Exact; }
         var fd = self.tu.record_decl(src);
         var td = self.tu.record_decl(ru);
-        if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(fd, td) {
+        if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(src, ru) {
             return ImplicitRank::Converted;
         }
         if canon_has_const(referee) && (self.implicit(src, ru) != ImplicitRank::None) { return ImplicitRank::Converted; }
@@ -611,7 +612,7 @@ class Conversion {
         if su == ru { return RefRel::Same; }
         var fd = self.tu.record_decl(su);
         var td = self.tu.record_decl(ru);
-        if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(fd, td) { return RefRel::Derived; }
+        if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(su, ru) { return RefRel::Derived; }
         if self.implicit(su, ru) != ImplicitRank::None { return RefRel::Converts; }
         return RefRel::None;
     }

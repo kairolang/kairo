@@ -2,13 +2,11 @@
 // (`class <T> Const derives Source<T>`, classes.md, Generic Classes): an
 // instance upcasts to the matching base instance and dispatches through it.
 //
-// XFAIL: *
-// Waiting on the base list of a generic instance being substituted:
-// `var s: *Source<i32> = &k` with k a Const<i32> is SC028E "cannot convert
-// '*Const<i32>' to '*Source<i32>'". A non-generic `derives Source<i32>`
-// upcasts fine (generic_virtual_base.k).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// An instance's bases are its pattern's list read through its arguments
+// (MONO.md G4): `Const<i32>` derives `Source<i32>`, and `Leaf<i32>` of
+// `derives Mid<*T>` derives `Mid<*i32>` and through it `Source<*i32>`.
+// The mismatched instances stay unrelated: Tests/Sema/Types/
+// instance_base_substitution.k.
 
 class <T> Source {
     virtual fn get(self) -> i32 { return 0 }
@@ -20,10 +18,22 @@ class <T> Const derives Source<T> {
     override fn get(self) -> i32 { return self.v }
 }
 
+class <T> Mid derives Source<T> {
+    override fn get(self) -> i32 { return 1 }
+}
+
+class <T> Leaf derives Mid<*T> {
+    override fn get(self) -> i32 { return 2 }
+}
+
 fn main() -> i32 {
     var k = Const<i32>(41)
     var s: *Source<i32> = &k
-    return s->get()
+    var l = Leaf<i32>()
+    var m: *Mid<*i32>    = &l
+    var t: *Source<*i32> = m
+    var u: *Source<*i32> = &l
+    return s->get() + t->get() + u->get()      // 41 + 2 + 2
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -33,4 +43,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 41
+// RUN: %t.exe; test $? -eq 45
