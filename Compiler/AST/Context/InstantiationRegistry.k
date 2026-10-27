@@ -86,6 +86,11 @@ class ConformanceRow {
     /// Parallel to `iface_decl`'s methods: the implementing decl, or null
     /// where the conformer has none (then `ok` is false).
     pub var witnesses: vec::<*Decl>;
+    /// Parallel to `witnesses`: the requirement each implements (the
+    /// interface's composed list), for the checks that hold a witness to its
+    /// requirement (PanicEffectChecking: its panic set within the
+    /// requirement's).
+    pub var reqs:      vec::<*Decl>;
     /// A witness that is a GENERIC extension's member is called with the
     /// extension's arguments, as the conformer binds them (`extend <E>
     /// Wrap<E>` met by `Wrap<i32>`: E := i32): flat, `ext_arg_count[i]` of
@@ -534,6 +539,7 @@ class InstantiationRegistry {
         row->covered_by = r->covered_by;
         row->ok         = r->ok;
         for var i: usize = 0; i < r->witnesses.size(); ++i { row->witnesses.push_back(r->witnesses[i]); }
+        for var i: usize = 0; i < r->reqs.size(); ++i { row->reqs.push_back(r->reqs[i]); }
         for var i: usize = 0; i < r->ext_args.size(); ++i { row->ext_args.push_back(r->ext_args[i]); }
         for var i: usize = 0; i < r->ext_arg_count.size(); ++i { row->ext_arg_count.push_back(r->ext_arg_count[i]); }
         for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }

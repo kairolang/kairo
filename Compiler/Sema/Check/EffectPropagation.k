@@ -209,12 +209,20 @@ fn panic_store_fn(ctx: *ASTContext, f: *FunctionDecl, s: *vec::<*Type>, st: Pani
     }
 }
 
-/// The set a `fn` value of type \p t_in panics with. Until the set is part
-/// of the `fn` type's identity (P4), a call through a value is taken as
-/// not panicking.
+/// The set a `fn` value of type \p t_in panics with: the effect is part of
+/// the `fn` type's canonical (CanonicalTypeStore::func), so the value's
+/// type says it. A bare `panic` with no set is a closure or function value
+/// whose set was never declared, which PanicEffectChecking reports where
+/// it is written: unknown here.
 fn panic_set_of_fn_type(tu: *TypeUtil, t_in: *Type, out: *vec::<*Type>) -> PanicKnown {
     if t_in == &null { return PanicKnown::No; }
-    return PanicKnown::No;
+    var t = canon_unqual(tu->strip_nullable(canon_unqual(t_in)));
+    if (t == &null) || (!isa::<FunctionPointerType>(t)) { return PanicKnown::No; }
+    var f = cast::<FunctionPointerType>(t);
+    if !f->canon_panics { return PanicKnown::No; }
+    if f->panic_set.size() == 0 { return PanicKnown::Unknown; }
+    for var i: usize = 0; i < f->panic_set.size(); ++i { out->push_back(f->panic_set[i]); }
+    return PanicKnown::Set;
 }
 
 // === the walk over one body ==================================================

@@ -559,6 +559,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 if (w == &null) || ((wf != &null) && (!self._ext_args(wf, x, &ea))) { row.ok = false; }
             }
             row.witnesses.push_back(w);
+            row.reqs.push_back(decls[i]);
             row.sources.push_back(srcs[i]);
             row.ext_arg_count.push_back(ea.size());
             for var k2: usize = 0; k2 < ea.size(); ++k2 { row.ext_args.push_back(ea[k2]); }

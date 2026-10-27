@@ -49,6 +49,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::TypeKind::*;
+import AST::ParamMode::*;
 import Token::TokenKind::*;
 
 /// \enum ConvClass
@@ -348,6 +349,16 @@ class Conversion {
             return ImplicitRank::None;
         }
 
+        // `fn` values: the same signature, and an effect the target allows
+        // (PANIC.md §2.2). A function whose set is S converts to a `fn` type
+        // whose set is S' only when S is a subset of S'; one that does not
+        // panic converts to any panicking `fn` type. The effect is in the
+        // canonical, so only the effect can differ here.
+        if isa::<FunctionPointerType>(fu) && isa::<FunctionPointerType>(tq) {
+            return (ImplicitRank::Converted) if (self._fn_effect_widens(cast::<FunctionPointerType>(fu), cast::<FunctionPointerType>(tq)))
+                   else (ImplicitRank::None);
+        }
+
         if !user { return ImplicitRank::None; }
 
         // `[T; N]` -> `[T;]`: a view of the array, nothing copied. The one
@@ -359,6 +370,30 @@ class Conversion {
         if self.implicit_op(from, tq) != &null { return ImplicitRank::Converted; }
 
         return ImplicitRank::None;
+    }
+
+    /// \p a and \p b are one signature (parameters, modes, result) and \p a's
+    /// panic effect is within \p b's: \p a does not panic, or both do and
+    /// \p a's set is a subset of \p b's.
+    priv fn _fn_effect_widens(self, a: *FunctionPointerType, b: *FunctionPointerType) -> bool {
+        if (a->return_type != b->return_type) || (a->params.size() != b->params.size()) { return false; }
+        if a->is_unprototyped != b->is_unprototyped { return false; }
+        for var i: usize = 0; i < a->params.size(); ++i {
+            if a->params[i] != b->params[i] { return false; }
+            var ma = (a->modes[i]) if (i < a->modes.size()) else (ParamMode::Value);
+            var mb = (b->modes[i]) if (i < b->modes.size()) else (ParamMode::Value);
+            if ma != mb { return false; }
+        }
+        if !a->canon_panics { return true; }
+        if !b->canon_panics { return false; }
+        for var i: usize = 0; i < a->panic_set.size(); ++i {
+            var found = false;
+            for var j: usize = 0; j < b->panic_set.size(); ++j {
+                if a->panic_set[i] == b->panic_set[j] { found = true; break; }
+            }
+            if !found { return false; }
+        }
+        return true;
     }
 
     /// `[T; N]` seen as the slice \p to: `[T;]`, or `[const T;]`. A const

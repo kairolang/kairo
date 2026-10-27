@@ -737,6 +737,18 @@ class TypeUtil {
                     s += self.str(f->params[i]);
                 }
                 s += ")";
+                // The effect is part of the type: `fn () panic(E1, E2)`.
+                if f->canon_panics {
+                    s += " panic";
+                    if f->panic_set.size() > 0 {
+                        s += "(";
+                        for var i: usize = 0; i < f->panic_set.size(); ++i {
+                            if i > 0 { s += ", "; }
+                            s += self.str(f->panic_set[i]);
+                        }
+                        s += ")";
+                    }
+                }
                 if (f->return_type != &null) && (!self.is_void(f->return_type)) {
                     s += " -> " + self.str(f->return_type);
                 }

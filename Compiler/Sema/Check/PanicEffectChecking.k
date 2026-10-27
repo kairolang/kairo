@@ -30,6 +30,17 @@
 ///     `panic` raises, a set declares or a `catch` names must be a movable,
 ///     complete value type: not a reference, not `void` (§1.5).
 ///
+///     Declared sets (§2.2): a bare `panic` where the set is a contract or
+///     has no body to infer from -- a `fn` type, an interface requirement,
+///     a virtual base method, a closure -- is an error, the edit writing
+///     the inferred set where there is one. An override's set is within the
+///     base method's, a conformer's within the requirement's (edit: add the
+///     types to the declared set). A bare-`panic` function cannot be used as
+///     a value: a `fn` value's type carries the set (the `fn` type rung in
+///     Conversion checks the subset), and an inferred one is known only
+///     past the barrier. Building a library, an inferred set on a `pub`
+///     function is a warning.
+///
 ///     Gates (SC116E): a `panic` function or closure that is generic or
 ///     inside a generic (§2.6: needs M2), a generator or `async` (§2.7: the
 ///     coroutine frame does not exist yet); a panicking site in any of
@@ -59,6 +70,8 @@ import AST::OperatorFacts::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::InstantiationRegistry::*;
+import AST::Mixin::TypeQual::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::Node::Base::*;
@@ -104,6 +117,13 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// Every catch arm's binding met so far (an arm is visited before its
     /// body): what a re-panic `panic e` names.
     priv var _arm_decls: llvm::DenseSet::<u64>;
+    /// Every call's callee expression met so far (a call is visited before
+    /// its callee): a function named there is called, not used as a value.
+    priv var _callees: llvm::DenseSet::<u64>;
+    /// Overrides and conformers already held to their base's set: a
+    /// method can be reached through a visibility group and the list.
+    priv var _subset_done: llvm::DenseSet::<u64>;
+    priv var _scratch: vec::<*Type>;
 
     fn PanicEffectChecking(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -367,6 +387,275 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             var t = f->panic_set[i];
             if (t != &null) && (t->canonical != &null) { self._check_payload(t->canonical, t->range, "panicked"); }
         }
+        if f->has_panic_set() { return; }
+
+        // A bare `panic` where the set is a contract (§2.2): an interface
+        // requirement, and a virtual method of a base. The edit writes the
+        // inferred set when there is a body to infer it from.
+        if self._in_interface(f) {
+            self._needs_set(f->panic_range, f->range, f"the panic set of interface requirement '{nm}' must be declared: it is the contract every conformer is held to", self._fn_inferred(f));
+            return;
+        }
+        if f->abi == AbiKind::Virtual {
+            self._needs_set(f->panic_range, f->range, f"the panic set of virtual method '{nm}' must be declared: it is the contract every override is held to", self._fn_inferred(f));
+            return;
+        }
+        // An inferred set on a `pub` function is API surface that changes
+        // with the body: in a library build, say so (a warning, §2.2).
+        if self.sc->opts.library_build && f->is_public() && (!self._library_tu()) && (f->panic_state == PanicSetState::Final) {
+            var s = vec::<*Type>();
+            for var i: usize = 0; i < f->panic_eff.size(); ++i { s.push_back(f->panic_eff[i]); }
+            var what = (pset_names(&(self._tu), &s)) if (s.size() > 0) else ("nothing");
+            var b = self.sc->diag->report(DiagID::SC001W, at.start,
+                f"the panic set of public function '{nm}' is inferred ({what}); declare it, or a change to the body changes its callers' contract");
+            b.first(at);
+            self._write_set_fix(&b, f->panic_range, &s);
+            b.emit();
+        }
+    }
+
+    /// A bare `panic` in a position that needs the set written: the error,
+    /// and the edit writing \p inferred (or removing `panic` when nothing
+    /// panics; none when there is no body to infer from).
+    priv fn _needs_set(self, pr: SourceRange, fallback: SourceRange, msg: string, inferred: *vec::<*Type>) {
+        var at = (pr) if (pr.is_valid()) else (fallback);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start, msg);
+        b.first(at, "write the set: 'panic(E1, E2)\x27");
+        if inferred != &null {
+            self._write_set_fix(&b, pr, inferred);
+        } else {
+            b.note(DiagID::SC001N, at.start, "there is no body to infer it from");
+        }
+        b.emit();
+    }
+
+    /// The edit that writes \p s in place of the specifier \p pr: `panic(A,
+    /// B)`, or no `panic` at all for the empty set (`panic()` is not a set).
+    priv fn _write_set_fix(self, b: *DiagBuilder, pr: SourceRange, s: *vec::<*Type>) {
+        if !pr.is_valid() { return; }
+        if s->size() == 0 {
+            b->remove(pr, "nothing in the body panics: remove 'panic\x27");
+            return;
+        }
+        var txt = "panic(" + pset_spelling(&(self._tu), s) + ")";
+        b->fix(pr, txt, f"declare the inferred set: '{txt}\x27");
+    }
+
+    /// \p f's inferred set, when it has a body that was solved; else null.
+    priv fn _fn_inferred(self, f: *FunctionDecl) -> *vec::<*Type> {
+        var h = panic_home(f);
+        if (h->panic_state != PanicSetState::Final) || ((h->body_block == &null) && (h->body_expr == &null)) { return &null; }
+        self._scratch.clear();
+        for var i: usize = 0; i < h->panic_eff.size(); ++i { self._scratch.push_back(h->panic_eff[i]); }
+        return &(self._scratch);
+    }
+
+    priv fn _in_interface(self, f: *FunctionDecl) -> bool {
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if dc == &null { return false; }
+        var o = dc->owner_decl();
+        return (o != &null) && isa::<InterfaceDecl>(o);
+    }
+
+    /// The program's own file, not the builtin root or std (FlagGates'
+    /// test): a library the user cannot edit is not linted.
+    priv fn _library_tu(self) -> bool {
+        var fid = self.sc->ctx->fid;
+        if (self.sc->g != &null) && self.sc->g->is_builtin_fid(fid) { return true; }
+        var ci = self.sc->ctx->ci;
+        if (ci == &null) || (self.sc->ctx->sm == &null) { return false; }
+        var root = ci->pp.std_dir;
+        if root.empty() && (!ci->target.resource_dir.empty()) { root = ci->target.resource_dir + "/std"; }
+        if root.empty() { return false; }
+        if !root.ends_with("/") { root += "/"; }
+        return self.sc->ctx->sm->get_filename(fid).starts_with(root);
+    }
+
+    // === subset rules (§2.2) ===================================================
+
+    /// An override's set is a subset of the base method's: a caller through
+    /// the base handles only the base's set.
+    fn visit_class_decl(self, cd: *ClassDecl) -> bool {
+        if (cd == &null) || cd->is_poisoned() || decl_is_imported(static_cast::<*Decl>(cd)) { return true; }
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var m = cd->methods[i];
+            if (m == &null) || m->is_poisoned() || (m->abi != AbiKind::Override) || (!m->is_panic()) { continue; }
+            var base = self._overridden(cd, m);
+            if base == &null { continue; }
+            self._subset(m, base, "overrides", "an override");
+        }
+        self._conformances(static_cast::<*Decl>(cd));
+        return true;
+    }
+
+    fn visit_struct_decl(self, sd: *StructDecl) -> bool {
+        if (sd != &null) && (!sd->is_poisoned()) { self._conformances(static_cast::<*Decl>(sd)); }
+        return true;
+    }
+
+    fn visit_extension_decl(self, x: *ExtensionDecl) -> bool {
+        if (x != &null) && (!x->is_poisoned()) { self._conformances(static_cast::<*Decl>(x)); }
+        return true;
+    }
+
+    /// A conforming method's set is a subset of the requirement's, for each
+    /// conformance \p by declares (`class X impl I`, `extend X impl I`).
+    priv fn _conformances(self, by: *Decl) {
+        if self.sc->instances == &null { return; }
+        var rows = vec::<*ConformanceRow>();
+        self.sc->instances->declared_rows(by, &rows);
+        for var r: usize = 0; r < rows.size(); ++r {
+            var row = rows[r];
+            if row == &null { continue; }
+            for var i: usize = 0; (i < row->witnesses.size()) && (i < row->reqs.size()); ++i {
+                var w = dyn_cast::<FunctionDecl>(row->witnesses[i]);
+                var q = dyn_cast::<FunctionDecl>(row->reqs[i]);
+                if (w == &null) || (q == &null) || (w == q) { continue; }
+                if decl_is_imported(static_cast::<*Decl>(w)) { continue; }
+                // Only where the conformer is written: its own TU reports it.
+                if self._tu.fid_of(static_cast::<*Decl>(w)) != self.sc->ctx->fid { continue; }
+                self._subset(w, q, "implements", "a conforming method");
+            }
+        }
+    }
+
+    /// \p sub's set within \p sup's; an error naming each type outside,
+    /// at \p sub, with a note at \p sup and the edit adding the types to
+    /// \p sup's declared set.
+    priv fn _subset(self, sub: *FunctionDecl, sup: *FunctionDecl, verb: string, what: string) {
+        var key = reinterpret_cast::<u64>(sub);
+        if self._subset_done.contains(key) { return; }
+        self._subset_done.insert(key);
+        var a = vec::<*Type>();
+        var b = vec::<*Type>();
+        var ka = panic_set_of_fn(&(self._tu), sub, &a);
+        if ka != PanicKnown::Set { return; }
+        var kb = panic_set_of_fn(&(self._tu), sup, &b);
+        if kb == PanicKnown::Unknown { return; }
+        var out = vec::<*Type>();
+        for var i: usize = 0; i < a.size(); ++i { if !pset_has(&b, a[i]) { out.push_back(a[i]); } }
+        if out.size() == 0 { return; }
+        var names = pset_names(&(self._tu), &out);
+        var sn = self._qual_name(sup);
+        var at = (sub->panic_range) if (sub->panic_range.is_valid()) else (self._name_range(sub));
+        var msg = "";
+        if kb == PanicKnown::No {
+            msg = f"{what} cannot panic when '{sn}', which it {verb}, does not: it panics with {names}";
+        } else {
+            var verb2 = ("is") if (out.size() == 1) else ("are");
+            msg = f"{names} {verb2} not in the panic set of '{sn}', which this {verb}; {what}'s set must be a subset of it";
+        }
+        var d = self.sc->diag->report(DiagID::SC001E, at.start, msg);
+        d.first(at);
+        var sat = (sup->panic_range) if (sup->panic_range.is_valid()) else (self._name_range(sup));
+        d.note(DiagID::SC001N, sup->range.start, f"'{sn}' is declared here").first(sat);
+        if sup->has_panic_set() && sup->panic_range.is_valid() && (!decl_is_imported(static_cast::<*Decl>(sup))) {
+            d.insert(sup->panic_range.end.with_offset(-1), ", " + pset_spelling(&(self._tu), &out), f"add it to the set of '{sn}\x27");
+        }
+        d.emit();
+    }
+
+    /// The method \p m overrides: the nearest base's virtual or override
+    /// method of its name, arity and parameter types.
+    priv fn _overridden(self, cd: *ClassDecl, m: *FunctionDecl) -> *FunctionDecl {
+        // An operator has no name to spell (FunctionDecl::name): it is
+        // matched by its symbol.
+        var nm = (OperatorFacts::symbol(m)) if (m->is_operator) else (self._tu.decl_name(static_cast::<*Decl>(m)));
+        var seen = vec::<*Decl>();
+        var todo = vec::<*Decl>();
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var bd = self._tu.record_decl(e->base->canonical);
+            if bd != &null { todo.push_back(NameLookup::representative(bd)); }
+        }
+        var k: usize = 0;
+        while k < todo.size() {
+            var d = todo[k];
+            k += 1;
+            var dup = false;
+            for var i: usize = 0; i < seen.size(); ++i { if seen[i] == d { dup = true; break; } }
+            if dup { continue; }
+            seen.push_back(d);
+            var bc = dyn_cast::<ClassDecl>(d);
+            if bc == &null { continue; }
+            for var i: usize = 0; i < bc->methods.size(); ++i {
+                var b = bc->methods[i];
+                if (b == &null) || ((b->abi != AbiKind::Virtual) && (b->abi != AbiKind::Override)) { continue; }
+                if b->is_operator != m->is_operator { continue; }
+                var bn = (OperatorFacts::symbol(b)) if (b->is_operator) else (self._tu.decl_name(static_cast::<*Decl>(b)));
+                if bn != nm { continue; }
+                if b->params.size() != m->params.size() { continue; }
+                var same = true;
+                for var p: usize = 0; p < m->params.size(); ++p {
+                    var x = m->params[p];
+                    var y = b->params[p];
+                    if (x == &null) || (y == &null) { same = false; break; }
+                    if x->is_self || y->is_self { continue; }
+                    if (x->type_ == &null) || (y->type_ == &null) || (x->type_->canonical != y->type_->canonical) { same = false; break; }
+                }
+                if same { return b; }
+            }
+            for var i: usize = 0; i < bc->derives_list.size(); ++i {
+                var e = bc->derives_list.get(i);
+                if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+                var bd = self._tu.record_decl(e->base->canonical);
+                if bd != &null { todo.push_back(NameLookup::representative(bd)); }
+            }
+        }
+        return &null;
+    }
+
+    /// `Base::m` / `I::m`: a method as a message names it.
+    priv fn _qual_name(self, f: *FunctionDecl) -> string {
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        var o = (dc->owner_decl()) if (dc != &null) else (&null);
+        if (o != &null) && (isa::<ClassDecl>(o) || isa::<StructDecl>(o) || isa::<InterfaceDecl>(o)) {
+            return self._tu.decl_name(o) + "::" + self._fn_name(f);
+        }
+        return self._fn_name(f);
+    }
+
+    // === a function as a value (§2.2) ==========================================
+
+    /// A `fn` value's type carries its set, and a bare `panic` function's
+    /// set is inferred only after its type was given: the function must
+    /// declare it to be used as a value. The edit writes it.
+    fn visit_call_expr(self, n: *CallExpr) -> bool {
+        var c = self._tu.strip_parens(n->callee);
+        if c != &null { self._callees.insert(reinterpret_cast::<u64>(c)); }
+        return true;
+    }
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if self._callees.contains(reinterpret_cast::<u64>(static_cast::<*Expr>(n))) { return true; }
+        self._value_use(n->range, n->resolved_decl);
+        return true;
+    }
+
+    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
+        if self._callees.contains(reinterpret_cast::<u64>(static_cast::<*Expr>(n))) { return true; }
+        if n->steps.size() == 0 { return true; }
+        var st = n->steps.get(n->steps.size() - 1);
+        self._value_use(n->range, st->resolved_decl);
+        return true;
+    }
+
+    priv fn _value_use(self, at: SourceRange, d: *Decl) {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f == &null) || (!f->is_panic()) { return; }
+        var h = panic_home(f);
+        if h->has_panic_set() || f->has_panic_set() { return; }
+        var nm = self._fn_name(f);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"'{nm}' is used as a value, but its panic set is inferred: a 'fn' value's type carries the set, so '{nm}' must declare it");
+        b.first(at);
+        var pr = (h->panic_range) if (h->panic_range.is_valid()) else (f->panic_range);
+        var nat = (pr) if (pr.is_valid()) else (self._name_range(f));
+        b.note(DiagID::SC001N, f->range.start, f"'{nm}' is declared here").first(nat);
+        var inf = self._fn_inferred(f);
+        if inf != &null { self._write_set_fix(&b, pr, inf); }
+        b.emit();
     }
 
     priv fn _check_closure_decl(self, c: *ClosureExpr) {
@@ -393,6 +682,24 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             var t = c->panic_set[i];
             if (t != &null) && (t->canonical != &null) { self._check_payload(t->canonical, t->range, "panicked"); }
         }
+        if c->panic_set.size() > 0 { return; }
+        // A closure writes its set (§2.2): a readability rule, the set is
+        // visible where the closure is. It was inferred anyway, for the edit.
+        var inf: *vec::<*Type> = &null;
+        if c->panic_state == PanicSetState::Final {
+            self._scratch.clear();
+            for var i: usize = 0; i < c->panic_eff.size(); ++i { self._scratch.push_back(c->panic_eff[i]); }
+            inf = &(self._scratch);
+        }
+        self._needs_set(c->panic_range, c->range, "a closure's panic set must be declared: 'fn () panic(E) -> T\x27", inf);
+    }
+
+    /// A `fn` type has no body to infer from: its set is written (§2.2).
+    fn visit_function_pointer_type(self, n: *FunctionPointerType) -> bool {
+        if (!n->is_panic()) || (n->panic_set.size() > 0) { return true; }
+        var pr = n->qual_range(TypeQual::<Type>::Flags::IsPanic);
+        self._needs_set(pr, n->range, "the panic set of a 'fn' type must be declared: 'fn(T) panic(E) -> U\x27", &null);
+        return true;
     }
 
     /// What \p f is when the language calls it without a call being

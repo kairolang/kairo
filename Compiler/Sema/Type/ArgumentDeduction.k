@@ -410,7 +410,11 @@ class Deduction {
                     r = self.substitute(f->return_type);
                     if r == &null { return &null; }
                 }
-                return self.sc->types->func(&ps, &ms, r);
+                // The effect survives substitution; a `panic` in a generic
+                // signature is gated (PANIC.md §2.6), so its set is concrete.
+                var pset = vec::<*Type>();
+                for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
+                return self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset);
             } case TypeKind::QualifiedType {
                 var q = cast::<QualifiedType>(t);
                 var i = self.substitute(q->inner);
@@ -558,7 +562,9 @@ class Deduction {
                     r = self.replace_self(f->return_type, iface, with, own);
                     if r != f->return_type { changed = true; }
                 }
-                return (t) if (!changed) else (self.sc->types->func(&ps, &ms, r));
+                var pset = vec::<*Type>();
+                for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
+                return (t) if (!changed) else (self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset));
             } default { return t; }
         }
     }

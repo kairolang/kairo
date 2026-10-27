@@ -743,10 +743,15 @@ class FunctionPointerType derives Type {
     /// `fn(i32) panic(E1, E2) -> T`: the declared set, as written (PANIC.md
     /// §2.2). Empty for a bare `panic` qualifier and for no `panic` at all.
     /// Each element resolves like a parameter type, and a poisoned one
-    /// poisons this node. NOT in the canonical key yet: `fn` value
-    /// conversion by subset is P4, and until then two `fn` types that differ
-    /// only in their sets are one type.
+    /// poisons this node. On a CANONICAL node it is the canonical set
+    /// (each type once, in the one order), and part of the key with
+    /// `canon_panics`: two `fn` types that differ in their sets are two
+    /// types, converted by subset (Conversion).
     pub var panic_set: FrozenList::<*Type>;
+    /// A CANONICAL fn type panics (with `panic_set`, which a bare `panic`
+    /// leaves empty). A syntax node says so with its `panic` qualifier
+    /// (is_panic()) instead; this field is the store's.
+    pub var canon_panics: bool = false;
 
     static fn create(
         ctx:         *ASTContext,

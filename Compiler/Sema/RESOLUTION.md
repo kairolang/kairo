@@ -293,10 +293,14 @@ What T decides:
 - **A declared panic set's elements** are written types in the
   declaration's scope, resolved in the same walk as its parameters (a
   generic parameter of the function is in scope). On a `fn` type they are
-  components (`_component_ok`): a poisoned element poisons the type. They
-  are NOT in the `fn` canonical key until P4 (fn conversion by subset), so
-  two `fn` types that differ only in their sets are one type today.
-  Whether an element can be panicked at all is PanicEffectChecking's.
+  components (`_component_ok`): a poisoned element poisons the type. The
+  effect is in the `fn` canonical key (`CanonicalTypeStore::func`:
+  `canon_panics` and the canonical set, PANIC.md §2.2): `fn() panic(A, B)`
+  and `fn() panic(B, A)` are one type, `fn() panic(A)` and `fn()` two,
+  converted by subset (Conversion's fn rung). A function's value type
+  carries its DECLARED set (ExprTyper::fn_pointer_type), a closure's its
+  written one. Whether an element can be panicked at all is
+  PanicEffectChecking's.
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 
@@ -611,6 +615,13 @@ each panicked, declared or caught type must be a movable, complete value
 type (§1.5); and SC116E for a generic, generator or `async` `panic`
 function or closure and for every panicking site in such a body. It
 stamps `PanicStmt::repanic` on a `panic e` of a catch binding (§3.4).
+The declared-set rules (P4): a bare `panic` on a `fn` type, an interface
+requirement, a virtual base method or a closure is SC001E (edit: write the
+inferred set where there is a body); an override's set within the base
+method's and a conformer's within the requirement's (declared rows,
+`ConformanceRow::reqs`); a bare-`panic` function used as a value is
+SC001E (its value type carries only a declared set); and, building a
+library (`--shared`), an inferred set on a `pub` function is SC001W.
 `op panic`'s own signature (`const self`, `-> string`) is
 OperatorSignatureCheck's, beside the other operator rules.
 

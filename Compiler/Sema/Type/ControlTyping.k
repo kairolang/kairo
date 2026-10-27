@@ -38,6 +38,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
+import Sema::Check::EffectPropagation::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
@@ -479,7 +480,13 @@ class <T> ControlTyping {
             dyn()->mark_unknown(n);
             return &null;
         }
-        return dyn()->sc->types->func(&params, &modes, canon_unqual(ret));
+        // The effect is part of the type (PANIC.md §2.2): the declared set,
+        // which a closure must write (P4); a bare `panic` closure is the
+        // error PanicEffectChecking reports, and its type has no set.
+        var panics = (static_cast::<u16>(n->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0;
+        var pset = vec::<*Type>();
+        if panics { canonical_set(&(dyn()->tu), &(n->panic_set), &pset); }
+        return dyn()->sc->types->func(&params, &modes, canon_unqual(ret), panics, &pset);
     }
 
     // === initializers =======================================================

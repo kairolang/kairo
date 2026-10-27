@@ -463,11 +463,22 @@ class CanonicalTypeStore {
     /// Modes are in the key: `fn(@inout i32)` and `fn(i32)` are two
     /// entities, because a closure's type IS this canonical and the mode
     /// must survive `apply(f: fn(i32) -> i32)`.
-    fn func(self, params: *vec::<*Type>, modes: *vec::<ParamMode>, ret: *Type) -> *Type {
+    ///
+    /// So is the panic effect (PANIC.md §2.2): \p panics, and \p pset, the
+    /// canonical set (null or empty for a bare `panic` with no set known).
+    /// `fn() panic(E) -> i32` and `fn() -> i32` are two types, converted by
+    /// subset (Conversion's fn rung); a call through a value of one adds
+    /// its set. The caller passes the set CANONICAL (EffectPropagation's
+    /// canonical_set: each type once, in the one order): the store only
+    /// compares it element by element, it cannot spell types to sort them.
+    fn func(self, params: *vec::<*Type>, modes: *vec::<ParamMode>, ret: *Type,
+            panics: bool = false, pset: *vec::<*Type> = &null) -> *Type {
         var n: usize = 0;
         if params != &null { n = params->size(); }
         ICE_IF(((modes != &null) && (modes->size() != n)),
                "CanonicalTypeStore::func: modes not parallel to params");
+        var ns: usize = 0;
+        if (pset != &null) && panics { ns = pset->size(); }
 
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::FunctionPointerType)));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(ret));
@@ -476,9 +487,11 @@ class CanonicalTypeStore {
             h = canon_hash_ptr(h, reinterpret_cast::<*void>((*params)[i]));
             h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u8>(self._mode_at(modes, i))));
         }
+        h = canon_hash_u64(h, (u64(1)) if (panics) else (u64(0)));
+        for var i: usize = 0; i < ns; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*pset)[i])); }
 
         var lock = std::LockGuard(self._mu);
-        var hit = self._probe_func(h, params, modes, n, ret);
+        var hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns);
         if hit != &null { return hit; }
 
         var ft = self._alloc::<FunctionPointerType>();
@@ -501,6 +514,14 @@ class CanonicalTypeStore {
         } else {
             ft->params.from_raw(static_cast::<*(*Type)>(&null), 0);
             ft->modes.from_raw(static_cast::<*ParamMode>(&null), 0);
+        }
+        ft->canon_panics = panics;
+        if ns > 0 {
+            var sb = self._alloc_array::<*Type>(ns);
+            for var i: usize = 0; i < ns; ++i { sb[i] = (*pset)[i]; }
+            ft->panic_set.from_raw(sb, ns);
+        } else {
+            ft->panic_set.from_raw(static_cast::<*(*Type)>(&null), 0);
         }
 
         var ty = static_cast::<*Type>(ft);
@@ -790,7 +811,7 @@ class CanonicalTypeStore {
     }
 
     priv fn _probe_func(self, h: u64, params: *vec::<*Type>, modes: *vec::<ParamMode>,
-                        n: usize, ret: *Type) -> *Type {
+                        n: usize, ret: *Type, panics: bool, pset: *vec::<*Type>, ns: usize) -> *Type {
         var b = self._bucket(h);
         if b == &null { return &null; }
         for var i: usize = 0; i < b->size(); ++i {
@@ -799,10 +820,15 @@ class CanonicalTypeStore {
             var f = cast::<FunctionPointerType>(c);
             if f->return_type != ret { continue; }
             if f->params.size() != n { continue; }
+            if f->canon_panics != panics { continue; }
+            if f->panic_set.size() != ns { continue; }
             var same = true;
             for var j: usize = 0; j < n; ++j {
                 if f->params[j] != (*params)[j]          { same = false; break; }
                 if f->modes[j]  != self._mode_at(modes, j) { same = false; break; }
+            }
+            for var j: usize = 0; same && (j < ns); ++j {
+                if f->panic_set[j] != (*pset)[j] { same = false; }
             }
             if same { return c; }
         }

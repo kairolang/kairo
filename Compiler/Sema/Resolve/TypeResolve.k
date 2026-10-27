@@ -88,6 +88,8 @@ import AST::Context::InstantiationRegistry::*;
 import Sema::Type::ArgumentDeduction::*;
 import Sema::Type::PanicSets::*;
 import AST::ParamMode::*;
+import Sema::Type::TypeUtil::*;
+import Sema::Check::EffectPropagation::*;
 
 ///
 /// \class GenericFrame
@@ -644,12 +646,19 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         }
         // A declared `panic(E1, E2)`: its elements are types and resolve
         // like the parameters, and a bad one poisons the `fn` type with
-        // them. They are not in the key (FunctionPointerType::panic_set).
+        // them. The effect is in the key (PANIC.md §2.2): `panic` and its
+        // set, canonical, so `fn() panic(A, B)` and `fn() panic(B, A)` are
+        // one type and `fn() panic(A)` another.
         for var i: usize = 0; i < n->panic_set.size(); ++i {
             if !self._component_ok(n, n->panic_set[i]) { ok = false; }
         }
         if !ok { return; }
-        n->canonical = self.sc->types->func(&params, &modes, ret);
+        var pset = vec::<*Type>();
+        if n->is_panic() {
+            var tu = TypeUtil(self.sc);
+            canonical_set(&tu, &(n->panic_set), &pset);
+        }
+        n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset);
     }
 
     priv fn _resolve_opaque(self, n: *OpaqueFFIType) {

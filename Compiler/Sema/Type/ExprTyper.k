@@ -97,6 +97,7 @@ import Sema::Type::ControlTyping::*;
 import Sema::Type::StmtTyping::*;
 import Sema::Type::PatternTyping::*;
 import Sema::Type::NullnessFlow::*;
+import Sema::Check::EffectPropagation::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -849,7 +850,13 @@ class ExprTyper
         }
         var r = self.fn_return_type(f);
         if r == &null { return &null; }
-        return self.sc->types->func(&ps, &ms, r);
+        // The effect is part of the type (PANIC.md §2.2): the DECLARED set.
+        // A bare `panic` function's set is inferred only past the Typed
+        // barrier, so its value type carries `panic` with no set here, and
+        // PanicEffectChecking rejects such a function used as a value.
+        var pset = vec::<*Type>();
+        if f->is_panic() { canonical_set(&(self.tu), &(panic_home(f)->panic_set), &pset); }
+        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset);
     }
 
     // === outcomes ===========================================================
