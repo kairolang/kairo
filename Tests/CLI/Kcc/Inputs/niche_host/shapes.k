@@ -3,3 +3,5 @@
 pub enum Kind { Dot, Line, Box }
 
 pub enum Mark { Set { k: Kind }, Clear }
+
+pub enum Pin { At { k: *Kind }, Loose }

@@ -327,10 +327,6 @@ class InterfaceEmitter {
                 self._static_defs(e->decl);
             });
             if guard { self._cg->sink->directive(self._tu_at(), "#endif"); }
-            // A plain enum's niche: the trait's explicit specialization, at
-            // global scope, right after the definition every use of it needs.
-            var pe = dyn_cast::<EnumDecl>(e->decl);
-            if (pe != &null) && enum_has_niche_trait(pe) { self._enum_niche_trait(pe); }
         }
 
         // tier 2
@@ -1268,26 +1264,11 @@ class InterfaceEmitter {
         return "";
     }
 
-    /// `__kairo_niche<E>` for plain enum \p en (EnumNiche): the values past
-    /// its variants. At global scope, where the trait is, so the enum is
-    /// spelled qualified.
-    priv fn _enum_niche_trait(self, en: *EnumDecl) {
-        var at = self._at(static_cast::<*Decl>(en));
-        var e  = self._spell->qual_name(static_cast::<*Decl>(en));
-        var w  = builtin_info(BuiltinKind::U64)->cxx;
-        var nv = f"{en->variants.size()}";
-        self._cg->sink->spell(at, "template <> struct " + LowerTargets::niche_trait() + "<" + e + "> { static constexpr " + w + " "
-            + LowerTargets::niche_trait_count() + " = " + f"{enum_niche_count(en)}" + "; static " + e + " " + LowerTargets::niche_trait_pattern()
-            + "(" + w + " i) noexcept { return static_cast<" + e + ">(" + nv + " + i); } static bool " + LowerTargets::niche_trait_test()
-            + "(const " + e + "& v, " + w + " i) noexcept { return v == static_cast<" + e + ">(" + nv + " + i); } };");
-        self._cg->sink->brk();
-    }
-
     /// The niche trait, written once per TU (guarded in a header): count 0
     /// for anything without one, a pointer's null, and an ADT record's own
     /// answer (`__kairo_niche_count`, its `(__kairo_np, i)` constructor and
-    /// `__kairo_niche_test`). A plain enum's is specialized after it
-    /// (_enum_niche_trait). EnumLayoutQuery::niche_of is the same table.
+    /// `__kairo_niche_test`). A plain enum has none (EnumNiche).
+    /// EnumLayoutQuery::niche_of is the same table.
     priv fn _niche_helpers(self, header: bool) {
         var at = self._tu_at();
         var w  = builtin_info(BuiltinKind::U64)->cxx;
@@ -1312,7 +1293,7 @@ class InterfaceEmitter {
         if header { self._cg->sink->directive(at, "#endif"); }
     }
 
-    /// An enum is defined here: a plain one with a niche trait, or any ADT.
+    /// An ADT is defined here.
     /// A header skips what it includes, as run() does.
     priv fn _needs_niche_helpers(self) -> bool {
         var header = (self._plan->mode() == PlanMode::Header);
@@ -1322,7 +1303,7 @@ class InterfaceEmitter {
             if header && (!e->own) { continue; }
             var en = dyn_cast::<EnumDecl>(e->decl);
             if en == &null { continue; }
-            if en->is_adt || enum_has_niche_trait(en) { return true; }
+            if en->is_adt { return true; }
         }
         return false;
     }

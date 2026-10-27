@@ -1,4 +1,4 @@
-// colors.k: a plain enum a niche can use, and an ADT holding a pointer.
+// colors.k: a plain enum (no niche), and an ADT holding a pointer.
 pub enum Color derives u8 { Red, Green, Blue }
 
 pub struct Pixel { pub var c: Color = Color::Red }

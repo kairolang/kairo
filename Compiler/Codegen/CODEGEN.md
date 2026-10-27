@@ -400,10 +400,9 @@ written (its special members are all defaulted).
 Niche layout (EnumLayoutLowering's header). The preamble trait
 `__kairo_niche<T>` (`_niche_helpers`, guarded `__KAIRO_NICHE_HELPERS` in a
 header) answers `count` / `pattern(i)` / `test(v, i)`: 0 by default, one
-null for any `T*`, and an ADT record's own members; a plain enum with
-values `0..N-1` at namespace scope is followed by its explicit
-specialization (`_enum_niche_trait`; AST/EnumNiche.k decides which, for
-both Sema and codegen). A niche-filled non-generic ADT is written by
+null for any `T*`, and an ADT record's own members (AST/EnumNiche.k holds
+the counts both Sema and codegen read). A plain enum has none: `as` makes
+any value of its underlying type, so no value is spare. A niche-filled non-generic ADT is written by
 `_niche_record`: the payload struct as its one member, each dataless
 variant a `pattern(j)` of the field, defaulted special members, `which()`,
 its own niche answer past the patterns it uses, then `static_assert(sizeof

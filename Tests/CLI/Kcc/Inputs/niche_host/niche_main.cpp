@@ -7,10 +7,11 @@
 
 using ::builtin::Nullable;
 
-static_assert(sizeof(Nullable<colors::Color>) == 1, "Color? is one byte: null is 3");
+static_assert(sizeof(Nullable<colors::Color>) == 2, "Color? keeps its tag: a plain enum has no niche");
 static_assert(sizeof(Nullable<colors::Pixel*>) == sizeof(colors::Pixel*), "a nullable pointer is the pointer");
 static_assert(sizeof(colors::Slot) == sizeof(colors::Pixel*), "Slot is niche-filled");
-static_assert(sizeof(shapes::Mark) == sizeof(shapes::Kind), "Mark stores Clear as Kind 3");
+static_assert(sizeof(shapes::Mark) == 2 * sizeof(shapes::Kind), "Mark keeps its tag: Kind has no niche");
+static_assert(sizeof(shapes::Pin) == sizeof(shapes::Kind*), "Pin stores Loose as null");
 
 int main() {
     Nullable<colors::Color> n = ::builtin::null;

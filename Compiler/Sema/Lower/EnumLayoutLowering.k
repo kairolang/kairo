@@ -352,7 +352,8 @@ class EnumLayoutQuery {
             var d  = self.tu.pattern_of(cast::<RecordType>(c)->decl);
             var en = dyn_cast::<EnumDecl>(d);
             if en == &null { return 0; }
-            if !en->is_adt { return enum_niche_count(en); }
+            // A plain enum has none: `as` makes any value of its word (EnumNiche).
+            if !en->is_adt { return 0; }
             if !self.has_layout(en) { return niche_unknown(); }
             switch self.shape_at(c) {
                 case AdtShape::Tagged { return adt_tag_niche_count(en); }
@@ -639,9 +640,9 @@ class EnumLayoutQuery {
     /// The lvalue \p e of type \p ft holds its niche pattern \p i (or, \p
     /// neg, does not). Each row is the C++ trait's `test` for the same type
     /// (InterfaceEmitter), written out so a reader of the C++ sees the
-    /// compare: null for a pointer, `N + i` for a plain enum or a tagged
-    /// ADT's tag, and a niche-filled ADT's own field at its pattern past
-    /// the ones its dataless variants use.
+    /// compare: null for a pointer, `N + i` for a tagged ADT's tag, and a
+    /// niche-filled ADT's own field at its pattern past the ones its
+    /// dataless variants use.
     priv fn _pattern_test(self, at: SourceRange, e: *Expr, ft: *Type, i: u64, neg: bool) -> *Expr {
         var cmp_op = (TokenKind::OpExclaimEqual) if (neg) else (TokenKind::OpEqualEqual);
         var c  = canon_unqual(ft->canonical);
@@ -654,11 +655,8 @@ class EnumLayoutQuery {
         }
         var en = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(c)->decl));
         ICE_IF(en == &null, "EnumLayoutQuery: a niche pattern in a type niche_of gives none");
+        ICE_IF(!en->is_adt, "EnumLayoutQuery: a niche pattern in a plain enum, which has none");
         var n = u64(en->variants.size());
-        if !en->is_adt {
-            var lit = self.synth.int_literal(at, n + i, enum_niche_kind(en));
-            return self._bin(at, e, self.synth.cast_to(at, lit, ft, CastMode::Default), cmp_op);
-        }
         if self.shape_at(c) == AdtShape::Tagged {
             var tw  = self.synth.cast_to(at, self._tag_lvalue(at, e, en), self.sc->builtin(BuiltinKind::U32), CastMode::Default);
             return self._bin(at, tw, self.synth.int_literal(at, n + i, BuiltinKind::U32), cmp_op);

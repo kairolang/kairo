@@ -1,23 +1,21 @@
 /// --- The Kairo Project ------------------------------- AST/EnumNiche.k --- ///
 ///
 ///   \brief The niche facts both halves of the compiler must agree on: how
-///          many tag values a word holds, and which plain enums carry a
-///          C++ niche trait and how many invalid values it reports.
+///          many tag values a word holds, and how many of them an ADT's
+///          tag leaves free.
 ///
 ///   \detail
 ///     A niche-filled ADT (EnumLayoutLowering) stores its dataless variants
 ///     as values its one field can never hold. Sema predicts the layout C++
 ///     will pick -- to read and test values directly, and to pin sizes --
 ///     and C++ picks it from `__kairo_niche<T>` (InterfaceEmitter). Both
-///     read these functions, so the count Sema assumes for a plain enum or
-///     an ADT's tag is the count the trait reports, by construction.
+///     read these functions, so the count Sema assumes for an ADT's tag is
+///     the count the trait reports, by construction.
 ///
-///     A plain enum holds a niche only when its values are exactly
-///     `0..N-1` (every other value of its underlying type is then free) and
-///     it is declared at namespace scope (the trait's explicit
-///     specialization follows the enum's definition, which for a nested
-///     enum is inside its record). An imported enum never: clang owns it
-///     and it is never emitted. `byte` (no variants) never.
+///     A plain enum never holds a niche (USER 2026-10-27): `as` from its
+///     underlying type never fails, so `3 as Color` is a value the program
+///     may hold, and a niche at 3 would read it back as null. An ADT's tag
+///     can't be written that way, so only an ADT has free values.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -63,7 +61,7 @@ fn niche_int_kind(t: *Type, out: *BuiltinKind) -> bool {
     return true;
 }
 
-/// A plain enum's underlying word: its `derives` type, else u32.
+/// A plain enum's underlying word (its size): its `derives` type, else u32.
 fn enum_niche_kind(en: *EnumDecl) -> BuiltinKind {
     var b = BuiltinKind::U32;
     if (en->underlying != &null) && (!en->underlying->is_poisoned()) {
@@ -71,27 +69,6 @@ fn enum_niche_kind(en: *EnumDecl) -> BuiltinKind {
         if niche_int_kind(en->underlying, &k) { b = k; }
     }
     return b;
-}
-
-/// Plain enum \p en carries `__kairo_niche<E>` (file header).
-fn enum_has_niche_trait(en: *EnumDecl) -> bool {
-    if (en == &null) || en->is_adt || en->is_poisoned() { return false; }
-    var d = static_cast::<*Decl>(en);
-    if decl_is_imported(d) || (en->variants.size() == 0) { return false; }
-    var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
-    if (dc == &null) || ((dc->dc_kind != DeclContextKind::TranslationUnit) && (dc->dc_kind != DeclContextKind::Module)) { return false; }
-    for var i: usize = 0; i < en->variants.size(); ++i {
-        var v = en->variants[i];
-        if (v == &null) || (!v->value.ok) || v->value.neg || (v->value.mag != u64(i)) { return false; }
-    }
-    return niche_word_values(enum_niche_kind(en)) > u64(en->variants.size());
-}
-
-/// The trait's count for plain enum \p en: every value of its word past
-/// its N variants. 0 without the trait.
-fn enum_niche_count(en: *EnumDecl) -> u64 {
-    if !enum_has_niche_trait(en) { return 0; }
-    return niche_word_values(enum_niche_kind(en)) - u64(en->variants.size());
 }
 
 /// ADT \p en's tag word, read off its layout's tag field.
