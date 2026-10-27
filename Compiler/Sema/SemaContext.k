@@ -247,6 +247,15 @@ class SemaContext {
     /// one the checker counted.
     pub var move_sites: llvm::DenseSet::<u64>;
 
+    /// Every `where` dispatch group of this TU that WhereGuardCheck passed,
+    /// flat: one group is a run of members sharing `where_lead`, in
+    /// DISPATCH order -- the guarded ones as declared, then the unguarded
+    /// fallback, wherever it was declared. A run with no fallback ends in a guarded
+    /// member whose guard the earlier ones were proven to leave nothing
+    /// for, which is called without being tested. One writer,
+    /// WhereGuardCheck; one reader, WhereDispatchLowering.
+    pub var where_groups: vec::<*FunctionDecl>;
+
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;

@@ -521,6 +521,15 @@ class FunctionDecl
     pub var no_unwind:     bool = false;
     pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
+    /// The function a `where` dispatch group is called through, stamped on
+    /// every member of the group (itself included), null on every other
+    /// function. A group is the same-signature overloads of one name in one
+    /// scope that differ only by their guards; RedeclMerge links them into
+    /// one chain and writes this, its first-declared link, which
+    /// WhereDispatchLowering turns into the dispatcher. OverloadResolution
+    /// binds a call to it, so every call site names the one function C++
+    /// will see.
+    pub var where_lead:   *FunctionDecl = &null;
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.
     pub var ffi_ice_mask:   u32 = 0;              ///< bit i: parameter i takes an integer constant.
     /// A function EnumLayoutLowering minted for an ADT's layout record, or

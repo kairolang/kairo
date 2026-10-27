@@ -55,6 +55,7 @@ import Sema::Check::MoveCheck::*;
 import Sema::Check::PatternChecking::*;
 import Sema::Check::ReturnPathCheck::*;
 import Sema::Check::ControlFlowAnalysis::*;
+import Sema::Check::WhereGuardCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Check::FeatureGateCheck::*;
 import Sema::Check::EvalUsageChecking::*;
@@ -362,6 +363,13 @@ class Sema {
         // ReturnPath (FallThrough). Same REQUIRES; before every lowering, so
         // it warns only on code the user wrote.
         { var _p = TimeRegion("ControlFlow"); ControlFlowAnalysis(&self.sc).run(); }
+
+        // `where` dispatch groups (where.mdx): what may be guarded, the
+        // fallback, member agreement, unreachable and overlapping guards,
+        // and the SC116E gates; files each group it passes for
+        // WhereDispatchLowering. REQUIRES ExprTyper: guards are typed, and
+        // `is_generator` is X's.
+        { var _p = TimeRegion("WhereGuard"); WhereGuardCheck(&self.sc).run(); }
 
         // Per-record lifecycle facts (copyable / movable / trivial) and the
         // rules about the lifecycle itself: one transfer ctor, no user

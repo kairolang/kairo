@@ -151,9 +151,15 @@
 ///       macros with no merge semantics defined yet; deciding which must
 ///       agree, which are first-wins, and which accumulate is an
 ///       attribute-system question, not a redecl one.
-///     - `where` clause agreement. A runtime-dispatch guard on one link and
-///       not another is either a conflict or a third dispatch axis, and
-///       WhereDispatchLowering owns that call. FIXME marks the site.
+///     - `where` groups. Same-signature overloads where either one has a
+///       `where` guard are a dispatch group (where.mdx), not one entity:
+///       they are never linked, so none is a redefinition of another.
+///       This pass only names the group, stamping `where_lead` (its
+///       first-declared member) on every member; WhereGuardCheck judges
+///       the group and WhereDispatchLowering folds it into one function.
+///       An `unsafe` overload is never a member (where.mdx, "Where and
+///       unsafe"). Two UNGUARDED same-signature definitions are still
+///       linked, so a second fallback is R029E as before.
 ///     - block-scope redeclaration semantics. C++ discards a default added
 ///       in a block-scope declaration at the end of that block; Kairo has
 ///       block-scope `fn` (NameResolution::_stmt_decl_imm) but no rule yet.
@@ -332,7 +338,34 @@ class RedeclMerge {
                     if !b->is_poisoned() { self._check_cxx_collision(name, a, b); }
                     continue;
                 }
+                // A guard on either side: two members of one `where` group
+                // (header), or an `unsafe` one beside a guard, which
+                // WhereGuardCheck reports. Never one entity.
+                if a->has_where() || b->has_where() { continue; }
                 self._link(name, a, b, in_type_body);
+            }
+        }
+        self._stamp_where_groups(&group);
+    }
+
+    /// Stamp `where_lead` on every member of each `where` group in one cell.
+    /// A group is the safe, unpoisoned functions sharing a guarded
+    /// function's signature; its lead is the first of them in the cell,
+    /// which holds a scope's declarations in source order. Runs after the
+    /// pairwise loop, so a second fallback is already poisoned (R029E) and
+    /// stays out, and so is anything else that loop rejected.
+    priv fn _stamp_where_groups(self, group: *vec::<*FunctionDecl>) {
+        for var i: usize = 0; i < group->size(); ++i {
+            var g = (*group)[i];
+            if (!g->has_where()) || g->is_unsafe() || g->is_poisoned() { continue; }
+            if g->where_lead != &null { continue; }
+            var lead: *FunctionDecl = &null;
+            for var j: usize = 0; j < group->size(); ++j {
+                var m = (*group)[j];
+                if m->is_unsafe() || m->is_poisoned() { continue; }
+                if (m != g) && (!self._same_signature(m, g)) { continue; }
+                if lead == &null { lead = m; }
+                m->where_lead = lead;
             }
         }
     }
@@ -905,9 +938,9 @@ class RedeclMerge {
     /// `[]` pair never reaches here: const is its identity,
     /// keyed on operator kind (is_place_kind), place or value alike.
     ///
-    /// FIXME(where): a `where` guard on one link and not another is either
-    /// this same kind of conflict or a third dispatch axis;
-    /// WhereDispatchLowering owns that decision. Not checked yet.
+    /// A `where` guard never reaches here: a guarded pair is a dispatch
+    /// group, not a chain (_merge_cell), and WhereGuardCheck holds its
+    /// members to the agreement this function holds a chain to.
     priv fn _check_modifiers_agree(self, name: string, prev: *FunctionDecl,
                                    cur: *FunctionDecl) {
         var what = "";

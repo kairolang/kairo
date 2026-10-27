@@ -635,6 +635,10 @@ class OverloadResolution {
         for var i: usize = 0; i < cands->size(); ++i {
             var f = dyn_cast::<FunctionDecl>((*cands)[i]);
             if f == &null { continue; }
+            // A `where` group is one candidate with one signature, and a
+            // call binds to its lead, the function WhereDispatchLowering
+            // makes the dispatcher (FunctionDecl::where_lead).
+            if f->where_lead != &null { f = f->where_lead; }
             if f->is_poisoned() { continue; }
             if NameLookup::is_specialization(static_cast::<*Decl>(f)) { continue; }   // OverloadResolution pairs later.
             var seen = false;

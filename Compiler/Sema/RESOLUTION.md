@@ -355,6 +355,19 @@ definition nowhere. Per TU, so the body has to be in the declaring file --
 which an importer needs anyway. `= default` / `= delete` / `= virtual`
 count as bodies.
 
+`where` groups (where.mdx). Two same-signature functions either of which
+has a `where` guard are never linked: they are members of one dispatch
+group, not one entity. After the pairwise loop, R(a) stamps
+`FunctionDecl::where_lead` -- the first member in the cell, which is
+source order -- on every safe, unpoisoned function sharing a guarded
+one's signature. An `unsafe` function is never a member. Two UNGUARDED
+same-signature definitions still link, so a second fallback is R029E.
+OverloadResolution maps every candidate to its `where_lead` before it
+dedups, so a group is one candidate with one signature and every call,
+in every TU, binds to the lead. A dependent signature never compares
+equal (above), so generic functions do not group (WhereGuardCheck gates
+them, SC116E).
+
 ### 2.7 ChainBinding [DONE]
 
 `Sema/Resolve/ChainBinding.k`, after RedeclMerge in the T stage. Walks
@@ -425,13 +438,26 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
 `OperatorSignatureCheck`, `ExprTyper` (§2.9), `ValueCategoryPass`,
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
-`ReturnPathCheck`, `ControlFlowAnalysis`, `ClassLifecycle`, `ClosureCaptures`,
+`ReturnPathCheck`, `ControlFlowAnalysis`, `WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
 `MoveCheck`, `InitCheck`,
 `CtorInitCheck`, `ConformanceChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
 callee bindings), `FeatureGateCheck`, `FlagGates`,
 `PatternCompilation`. (`ConstraintExtraction` runs in T, before
 ChainBinding, §2.6.)
+
+`WhereGuardCheck` [DONE] judges each `where` group: a guard on an
+interface method, an `unsafe` overload or a bodiless declaration, a group
+with no fallback, and members disagreeing on return type, `const self`,
+`inline`, `-> !` or linkage are SC001E; virtual, `panic`, generic,
+extension, operator, constructor, out-of-line, forward-declared,
+generator, `async`, `eval`, defaulted and variadic members are SC116E.
+Guards that are conjunctions of integer-parameter-vs-constant comparisons
+(and bool parameters) are boxes; a box inside an earlier one (or inside
+the union of earlier one-parameter boxes) is unreachable, a box meeting
+an earlier one with neither inside the other overlaps, an empty one never
+holds: SC001W. Boxes covering every value are a fallback. Each passed
+group goes to `SemaContext::where_groups` in dispatch order.
 
 `PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
 non-exhaustive match (statement form too), with a witness; SC121E for an
