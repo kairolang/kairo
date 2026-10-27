@@ -15,8 +15,8 @@ An allocator with RAII semantics it frees everything it allocated when it leaves
 ```kairo
 @mem::set_scoped_allocator(ArenaAllocator)
 fn process_frame() {
-    var a = @create Mesh(vertices)
-    var b = @create Texture(pixels)
+    var *a = @create Mesh(vertices)
+    var *b = @create Texture(pixels)
     // freed wholesale when process_frame returns
 }
 ```

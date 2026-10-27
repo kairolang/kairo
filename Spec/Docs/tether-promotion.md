@@ -10,7 +10,7 @@ Exactly one live binding holds the pointer at any point. Ownership may transfer 
 
 ```kairo
 fn make_config() -> *Config {
-    var cfg = @create Config(8080)
+    var *cfg = @create Config(8080)
     return cfg
     // debug: promote cfg -> std::Unique<Config>
     // release: error, annotate the return type
@@ -23,7 +23,7 @@ Multiple live bindings refer to the same allocation and single ownership cannot 
 
 ```kairo
 fn share_config(a: *Server, b: *Server) {
-    var cfg = @create Config(8080)
+    var *cfg = @create Config(8080)
     a.config = cfg
     b.config = cfg
     // debug: promote cfg -> std::Shared<Config>
@@ -33,7 +33,7 @@ fn share_config(a: *Server, b: *Server) {
 A short-lived alias that dies before the owner escapes does **not** force `Shared`. The trigger is not "multiple pointers exist" but "multiple pointers are *live* at a point where shared ownership is required for safety."
 
 ```kairo
-var cfg = @create Config(8080)
+var *cfg = @create Config(8080)
 {
     var tmp: *Config = cfg
     validate(tmp)
@@ -58,7 +58,7 @@ A pointer whose lifetime is fully contained, or provably bounded by its referent
 
 ```kairo
 fn process() {
-    var data = @create Buffer(1024)
+    var *data = @create Buffer(1024)
     fill(data)
     consume(data)
     @destroy data    // fully contained -> plain *T

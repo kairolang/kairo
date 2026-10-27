@@ -183,14 +183,16 @@ shape->area()   // 78.539... dynamic dispatch
 
 `virtual` creates a vtable slot. `override` in the derived class replaces the entry in that slot. A class only has a vtable pointer (8 bytes at offset 0) if it declares or inherits at least one `virtual` method. Non-polymorphic classes have no vtable overhead.
 
+A `virtual` method that may [panic](/docs/language/panic/) must declare its panic set (`virtual fn load(self) panic(IOError) -> Data`), since it is the contract for every override. An `override` may leave its own set inferred, but that set must be a subset of the base method's. See [Declared Panic Sets](/docs/language/panic/#declared-panic-sets).
+
 ### Abstract classes (pure virtual)
 
-A method declared with `= virtual` has no body and must be overridden by any non-abstract derived class:
+A `virtual` method declared with no body is pure virtual: it must be overridden by any non-abstract derived class:
 
 ```kairo
 class Shape {
-    fn area(const self) -> f64 = virtual
-    fn perimeter(const self) -> f64 = virtual
+    virtual fn area(const self) -> f64
+    virtual fn perimeter(const self) -> f64
 }
 
 class Circle derives Shape {
@@ -211,7 +213,17 @@ class Circle derives Shape {
 var c = Circle(5.0)  // ok: all pure virtuals overridden
 ```
 
-`= virtual` implies vtable participation no `virtual` prefix is needed on the declaration. A class with any `= virtual` method cannot be instantiated directly.
+A class with a pure virtual method is abstract, and so is a derived class that leaves any of its bases' pure methods unoverridden. Creating an object of an abstract class (`Shape()`, `Shape{ }`) is a compile error that points at the method keeping it abstract; a pointer to one (`*Shape`) is fine. In C++ a pure virtual method is `virtual R f() = 0`, so a C++ class can derive a Kairo abstract class and a Kairo class can derive a C++ one.
+
+Kairo methods are `noexcept` in C++ (see [Exceptions](/docs/language/c-cpp-exceptions/#c-exceptions-through-kairo-frames)), so a C++ class overriding a Kairo `virtual fn` must declare its override `noexcept` as well, unless the Kairo method is `@unwind`:
+
+```cpp
+struct Rect : shape::Shape {                       // Shape: a Kairo abstract class
+    double area() const noexcept override { return w * h; }
+};
+```
+
+Only a `virtual` method without a body is pure; a method that is not `virtual` and has no body is a declaration. After `=`, a function takes only an expression, `default` or `delete`: the old spelling `fn area(const self) -> f64 = virtual` is an error whose fix-it rewrites it to `virtual fn area(const self) -> f64`.
 
 ### Final
 

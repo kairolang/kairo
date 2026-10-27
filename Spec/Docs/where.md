@@ -1,6 +1,6 @@
 # Where Clauses
 
-`where` attaches runtime-conditional constraints to function declarations. A `where` clause specifies a condition that is checked at the call site if it fails, execution falls through to the next matching overload. The compiler folds multiple `where`-constrained overloads into a single function with branch dispatch.
+`where` attaches runtime-conditional constraints to function declarations. A `where` clause specifies a condition that is checked when the function is called; if it fails, execution falls through to the next matching overload. The compiler folds multiple `where`-constrained overloads into a single function with branch dispatch.
 
 For compile-time constraints, see [Requires Clauses](/docs/language/requires/).
 
@@ -22,17 +22,19 @@ For compile-time constraints, see [Requires Clauses](/docs/language/requires/).
 A `where` clause appears after the parameter list and return type, before the function body:
 
 ```kairo
-fn sqrt(x: f64) -> f64
+ffi "c" import "math.h"   // the C library's sqrt
+
+fn root(x: f64) -> f64
   where x >= 0.0 {
-    return std::math::sqrt(x)
+    return sqrt(x)
 }
 
-fn sqrt(x: f64) -> f64 {
+fn root(x: f64) -> f64 {
     return 0.0   // fallback for negative input
 }
 ```
 
-At the call site, the compiler generates a branch. If the condition holds, the constrained overload runs. If not, execution falls to the next candidate.
+The overloads compile to one function, `root`, which tests the condition. If the condition holds, the constrained overload runs. If not, execution falls to the next candidate. Every caller, including C++ code calling `root`, calls that one function; the overloads' bodies are private to the file.
 
 Multiple conditions are combined with boolean operators:
 
@@ -51,17 +53,26 @@ fn safe_divide(a: i32, b: i32) -> i32 {
 
 ## Fallback Requirement
 
-Every `where`-constrained overload must have a fallback an overload with no `where` clause (or a `where` clause that covers the remaining cases). If no fallback exists, the compiler emits an error:
+Every `where`-constrained overload must have a fallback: an overload with no `where` clause, or `where` clauses the compiler can prove cover every remaining case. If no fallback exists, the compiler emits an error:
 
 ```
-error: no fallback overload for 'sqrt' when where condition fails
+error: no fallback overload for 'root' when where condition fails
   --> src/math.k:1:1
-  1 | fn sqrt(x: f64) -> f64
+  1 | fn root(x: f64) -> f64
   2 |   where x >= 0.0 {
   note: add an overload without a 'where' clause to handle all remaining cases
 ```
 
 The fallback is the compiler's guarantee that every call site has a valid code path.
+
+Conditions that compare integer parameters with constants (`x >= 0`, `x < 0`, joined with `&&`), test a `bool` parameter, or are `true`, can cover every value without a fallback; the last one is then never tested:
+
+```kairo
+fn sign(x: i32) -> i32 where x >= 0 { return 1 }
+fn sign(x: i32) -> i32 where x < 0  { return -1 }   // ok: every i32 is covered
+```
+
+Overloads with the same parameter types are dispatched together, and must agree on the return type and on receiver `const`-ness. An overload with a different parameter list is an ordinary overload and is not a fallback.
 
 ---
 
@@ -85,10 +96,10 @@ fn categorize(x: i32) -> string {
 }
 ```
 
-Declaration order is the programmer's explicit priority control. The compiler does not attempt to determine which condition is "more specific" it chains them sequentially in the order they appear in source.
+Declaration order is the programmer's explicit priority control. The compiler does not attempt to determine which condition is "more specific": it chains them sequentially in the order they appear in source. The fallback is always tested last, wherever it is declared. Each condition is evaluated at most once per call, in order, and only until one holds.
 
 > [!WARNING]
-> A `where` condition that is a strict subset of a preceding condition will never fire. The compiler emits a warning when it can statically determine that a `where` clause is unreachable:
+> A `where` condition that is a strict subset of a preceding condition will never fire. The compiler emits a warning when it can statically determine that a `where` clause is unreachable (it decides conditions that compare integer parameters with constants, alone or joined with `&&`):
 >
 > ```kairo
 > fn process(x: i32) -> string where x > 50 { return "high" }
@@ -108,7 +119,7 @@ fn handle(x: i32) -> string where x > 50            { return "over 50" }  // war
 fn handle(x: i32) -> string                          { return "other" }
 ```
 
-Declaration order still determines the result `x == 75` hits the first overload but the warning signals that the intent may not match the behavior.
+Declaration order still determines the result: `x == 75` hits the first overload, but the warning signals that the intent may not match the behavior. A narrower condition before a wider one, as in `categorize` above, is the priority pattern and is not warned about. Conditions the compiler cannot decide (floating-point comparisons, function calls) produce no warning.
 
 ---
 
@@ -146,11 +157,16 @@ A match guard that fails causes the arm to be skipped and evaluation continues t
 `where` clauses and [`panic`](/docs/language/panic/) are orthogonal. `where` selects which overload runs based on a runtime condition. `panic` signals an error from within a function body. They can coexist:
 
 ```kairo
+struct ConnectError {
+    var host: string
+    fn op panic (const self) -> string { return f"cannot connect to {self.host}" }
+}
+
 fn connect(host: string, port: i32) panic -> Connection
   where port > 0 && port <= 65535 {
     var conn = tcp_connect(host, port)
     if !conn.is_valid() {
-        panic std::Error::IO("connection failed")
+        panic ConnectError { host: host }
     }
     return conn
 }
@@ -160,6 +176,8 @@ fn connect(host: string, port: i32) -> Connection {
     return Connection::invalid()
 }
 ```
+
+Overloads in one `where` group may differ in `panic`. A call through the group may reach any of them, so its panic set is the union of the candidates' sets: a call to `connect` must handle `ConnectError` even though the fallback never panics.
 
 ---
 
@@ -193,7 +211,7 @@ See [Unsafe](/docs/language/unsafe/) for the unsafe overload model.
 
 ## What where Cannot Do
 
-`where` is only valid on free functions and methods. The following are compile errors:
+`where` is only valid on free functions and methods. The following are compile errors (so is a `where` clause on a closure):
 
 ```kairo
 // compile error: where on a type use requires instead
@@ -217,8 +235,8 @@ Type instantiation is always compile-time. [Interface conformance](/docs/languag
 
 ```kairo
 // Basic runtime dispatch with fallback
-fn sqrt(x: f64) -> f64 where x >= 0.0 { return std::math::sqrt(x) }
-fn sqrt(x: f64) -> f64                 { return 0.0 }
+fn root(x: f64) -> f64 where x >= 0.0 { return sqrt(x) }   // C's sqrt, from math.h
+fn root(x: f64) -> f64                 { return 0.0 }
 
 // Multiple constrained overloads declaration order is priority
 fn classify(temp: f64) -> string where temp > 100.0 { return "boiling" }
@@ -226,10 +244,15 @@ fn classify(temp: f64) -> string where temp > 0.0   { return "liquid" }
 fn classify(temp: f64) -> string                     { return "frozen" }
 
 // Where with panic
+struct NotPositive {
+    var value: i32
+    fn op panic (const self) -> string { return f"{self.value} is not positive" }
+}
+
 fn parse_positive(input: string) panic -> i32
   where input.length() > 0 {
     var n = std::parse<i32>(input)
-    if n <= 0 { panic std::Error::Runtime("not positive") }
+    if n <= 0 { panic NotPositive { value: n } }
     return n
 }
 

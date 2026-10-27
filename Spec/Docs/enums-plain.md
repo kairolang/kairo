@@ -59,6 +59,8 @@ fn main() -> i32 {
 
 [Bitwise operators](/docs/language/operators/#bitwise) are not defined on the enum type itself, so test a flag on the underlying integer: cast both sides with `as` and compare the result with `0`.
 
+A combination no variant names (`Read | Execute`, 5 above) is not a value of a [closed](#closed-and-open-enums) enum, so casting it back with `as` fails. A flags enum that is meant to hold any combination is declared `@open`.
+
 ---
 
 ## Underlying Type
@@ -107,7 +109,41 @@ fn main() -> i32 {
 }
 ```
 
-Casting an integer to an enum that has no matching discriminant is undefined behavior.
+Casting back is checked, unless the enum is `@open`: see the next section.
+
+---
+
+## Closed and open enums
+
+A plain enum is **closed** by default: it only ever holds one of its variants' values. Every way to make a value of it keeps that true:
+
+- `n as E` with a **constant** `n` that is no variant's value is a compile error, [SC001E](/docs/language/diagnostics/#sc001e-a-constant-cast-into-a-closed-enum-is-no-variants-value), with a fix-it that declares the enum `@open`.
+- `n as E` with any other `n` is checked when it runs. A value that is no variant's **crashes** the program, like a failed bounds check: it prints the cast and where it is, then aborts. It is not a [`panic`](/docs/language/panic/): no `try` catches it. The check compares the integer before the cast, so when the compiler can see the value it costs nothing: `v >= 3` for an enum whose values are `0`, `1`, `2`, and one compare per variant when the values are explicit.
+
+Because a closed enum never holds anything else, the compiler can use the values past its variants: `Color?` is one byte, `null` stored as a value no `Color` has (see [ADT memory layout](/docs/language/enums-adt/#memory-layout)), and a `match` that covers every variant needs no fallback for an undeclared value.
+
+The `@open` attribute declares an **open** enum, one that may hold any value of its underlying type, as a C++ enum does (clang's `enum_extensibility(open)`):
+
+```kairo
+@open enum Signal derives u8 {
+    Hup = 1,
+    Int = 2,
+    Kill = 9,
+}
+
+fn main() -> i32 {
+    var s = 15 as Signal    // fine: Signal is open, 15 is a value it may hold
+    return 0
+}
+```
+
+An open enum gets no `as` check, no niche (`Signal?` keeps a tag), and a complete `match` over it traps on an undeclared value below `-O3`. Use it for flags whose combinations are values, for codes another program may extend, and for anything filled in by C or C++.
+
+- `@open` applies to a plain enum only. On an enum with payloads, a struct, a function or anything else it is an error with a fix-it that removes it. Written on a [forward declaration](#forward-declarations) or the definition, it opens the enum.
+- An enum [imported from C or C++](/docs/language/c-cpp/) is always open: clang owns its values.
+- An enum with no variants holds no value at all unless it is `@open`; declare one that is a raw word, like the builtin `Byte`, `@open`.
+
+`unsafe` code can still put an undeclared value into a closed enum without `as`: a reinterpreting pointer cast (`&n as unsafe *Color`), a [union](/docs/language/unions/), or C or C++ code writing through a pointer it was handed. That is undefined behavior: the value may read back as `null` through a `Color?`, and a `match` may take any arm. Declare the enum `@open` when other code writes it.
 
 ---
 

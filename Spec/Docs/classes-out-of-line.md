@@ -18,6 +18,12 @@ class Parser {
 Member methods can also be declared inside the class body without a body and defined out-of-line using the `Class::method` qualified-name syntax:
 
 ```kairo
+struct ParseError {
+    var message: string
+    var pos: usize
+    fn op panic (const self) -> string { return f"{self.message} at token {self.pos}" }
+}
+
 class Parser {
     var tokens: [Token]
     var pos: usize
@@ -42,7 +48,7 @@ fn Parser::advance(self) -> Token {
 fn Parser::peek(const self) -> Token = self.tokens[self.pos]
 
 fn Parser::error(self, msg: string) panic {
-    panic std::Error::Parse(msg, self.pos)
+    panic ParseError { message: msg, pos: self.pos }
 }
 ```
 

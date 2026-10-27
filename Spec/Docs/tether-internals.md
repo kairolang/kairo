@@ -44,7 +44,7 @@ fn <T> take_ownership(x: *T) {
 }
 
 fn caller() {
-    var cfg = @create Config(8080)
+    var *cfg = @create Config(8080)
     take_ownership(cfg)
     // ownership transferred; using cfg after this is a compile error
 }

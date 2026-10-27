@@ -55,6 +55,20 @@ r.set_new_handle(open_handle())   // safe: previous handle was released
 delete r   // safe: idempotent delete operator
 ```
 
+### Constructors and destructors never panic
+
+No constructor (one with parameters, the default constructor, or a transfer constructor) and no destructor can [panic](/docs/language/panic/). Marking one `panic` is a compile error, and so is a panic that would escape one: an unhandled panicking call or `panic` statement in its body, or in a field default it runs. An object is either built whole or not at all, and a destructor runs on every exit from its scope, where nothing could take an error. Handle the error inside with `try`/`catch`, or stop the program with `crash!()`. Construction that can fail belongs in a static factory function, which may panic and returns the object:
+
+```kairo
+class Conn {
+    var fd: i32
+    fn Conn(self, fd: i32) { self.fd = fd }
+    static fn open(path: string) panic(IOError) -> Conn {
+        return Conn(open_fd(path))   // open_fd may panic; the constructor never does
+    }
+}
+```
+
 ### `delete` does not free
 
 `delete` in kairo does not free memory. It is a **destruction operation** that runs the [destructor](/docs/language/classes-lifecycle/#destructors---delete-operators) and any side effects, but does not reclaim the allocation. Meaning if the class can be re-constructed with a separate function call, the memory is still valid and can be reused. The `delete` operation is used to explicitly clean up resources without deallocating the memory, which is useful in certain scenarios where you want to manage memory manually or reuse it.
@@ -66,13 +80,13 @@ class MyClass {
     fn MyClass(self) = default
 
     fn init(self) {
-        data = unsafe std::alloc<i32>(sizeof i32 * 10) // 10 i32's allocated
+        self.data = unsafe std::alloc<i32>(sizeof i32 * 10) // 10 i32's allocated
     }
 
     fn op delete(self) {
-        if data != &null {
-            unsafe std::free(data)
-            data = &null
+        if self.data != &null {
+            unsafe std::free(self.data)
+            self.data = &null
         }
     }
 }
@@ -147,6 +161,8 @@ class X {
 
 A move is written bare at the call site, `X(h)`, with no marker on the argument.
 
+A transfer constructor written `= default` copies or moves every field, which initializes each of them. One with a body is a constructor like any other: it must initialize every `const` member and every [field without a default](/docs/language/classes/#fields-without-a-default), and its first whole write of such a field is that field's initialization.
+
 A class with no transfer constructor takes the weakest category its bases and fields allow: **COPY** if all of them are COPY, **MOVE** if any is move-only, **NON_TRANSFER** if any cannot be transferred. Its special members are compiler-generated to match.
 
 A class cannot define both `@copy` and `@move` transfer constructors pick one:
@@ -205,7 +221,7 @@ class Buffer {
     var size: usize
 
     fn Buffer(self, size: usize) {
-        self.data = std::alloc<u8>(size)
+        self.data = unsafe std::alloc<u8>(size)
         self.size = size
     }
 
@@ -213,12 +229,12 @@ class Buffer {
     fn Buffer(self, other: Self) {
         self.data  = other.data
         self.size  = other.size
-        other.data = null
+        other.data = &null
         other.size = 0
     }
 
     fn op delete(self) {
-        std::free(self.data)
+        unsafe std::free(self.data)
     }
 }
 ```

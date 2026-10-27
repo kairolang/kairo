@@ -22,7 +22,7 @@ An `unsafe { ... }` block suspends [Tether](/docs/language/tether/) for all oper
 - `unsafe &x` can create raw pointers from safe bindings
 
 ```kairo
-var x = @create i32(42)   // Tether-tracked safe pointer
+var *x = @create i32(42)   // Tether-tracked safe pointer
 
 unsafe {
     forget!(x)                  // drop x from Tether tracking
@@ -40,7 +40,7 @@ An `unsafe` block is required when calling a [C/C++ function](/docs/language/c-c
 ffi "c++" import "native.hh";
 
 fn main() {
-    var data = @create i32(100)
+    var *data = @create i32(100)
 
     unsafe {
         forget!(data)
@@ -74,7 +74,7 @@ See [C/C++ Interop](/docs/language/c-cpp/) for the full FFI model.
 `forget!()` is a [compiler intrinsic](/docs/language/macros-builtin/#compiler-intrinsic-macros) that permanently removes a pointer from Tether tracking. It is only valid inside an `unsafe` block:
 
 ```kairo
-var ptr = @create Config(8080)
+var *ptr = @create Config(8080)
 
 unsafe {
     forget!(ptr)   // Tether stops tracking ptr
@@ -90,7 +90,7 @@ The primary use case is [transferring ownership to C++ code](/docs/language/c-cp
 ffi "c++" import "engine.hh";
 
 fn init_engine() {
-    var cfg = @create EngineConfig(defaults())
+    var *cfg = @create EngineConfig(defaults())
 
     unsafe {
         forget!(cfg)
@@ -211,7 +211,7 @@ fn foo() unsafe     Yes             Yes             Compiler (Tether)
 ffi "c++" import "lib.hh";
 
 fn send_to_native(data: Config) {
-    var ptr = @create Config(data)
+    var *ptr = @create Config(data)
 
     unsafe {
         forget!(ptr)
@@ -234,7 +234,7 @@ fn allocate_aligned(size: usize, align: usize) -> unsafe *void {
 ```kairo
 fn write_register(addr: usize, value: u32) {
     unsafe {
-        var reg = addr as unsafe *u32   // integer-to-pointer cast fabricates provenance
+        var unsafe *reg = addr as unsafe *u32   // integer-to-pointer cast fabricates provenance
         *reg = value
     }
 }
@@ -260,7 +260,7 @@ fn bounds_check(arr: [i32], index: i32) unsafe -> i32 {
 
 ```kairo
 // Unsafe block suspends Tether
-var ptr = @create i32(42)
+var *ptr = @create i32(42)
 unsafe {
     forget!(ptr)
     c_function(ptr as unsafe *i32)
@@ -278,7 +278,7 @@ var precise = compute(3.14)
 var fast = unsafe compute(3.14)
 
 // forget!() drop pointer from Tether
-var data = @create Buffer(1024)
+var *data = @create Buffer(1024)
 unsafe {
     forget!(data)
     // data is no longer tracked manual management required

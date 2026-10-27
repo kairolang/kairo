@@ -100,12 +100,12 @@ Returning a slice literal is also an error, because the literal's storage ends w
 
 ### No-return `!`
 
-Functions that never return they always panic, loop forever, or call a no-return function use `!` as their return type:
+Functions that never return (they crash, loop forever, or call a no-return function) use `!` as their return type:
 
 ```kairo
 fn fatal(msg: string) -> ! {
     std::println(f"Fatal: {msg}")
-    std::crash(1)
+    crash!()
 }
 
 fn event_loop() -> ! {
@@ -231,12 +231,14 @@ Functions are first-class values. The type of a [function pointer](/docs/languag
 fn add(a: i32, b: i32) -> i32 = a + b
 fn sub(a: i32, b: i32) -> i32 = a - b
 
-var #op: fn(i32, i32) -> i32 = add
-op(3, 4)   // 7
+var f: fn(i32, i32) -> i32 = add
+f(3, 4)   // 7
 
-op = sub
-op(10, 3)  // 7
+f = sub
+f(10, 3)  // 7
 ```
+
+A function type for a function that may [panic](/docs/language/panic/) must declare its panic set: `fn(string) panic(IOError) -> i32`, not a bare `panic`, since a type has no body to infer the set from. A function converts to such a type when its own set is a subset of the declared one; a function that doesn't panic converts to any panicking function type. See [Declared Panic Sets](/docs/language/panic/#declared-panic-sets).
 
 Functions can be nested [inner functions](/docs/language/closures/#closures-vs-inner-functions) are scoped to the enclosing function:
 
@@ -315,7 +317,7 @@ fn process(x: i32) unsafe -> i32 { /* ... */ }
 
 // Method with modifiers
 class Server {
-    pub fn start(self) async panic { /* ... */ }
+    pub fn start(self) async panic { /* ... */ }   // `async` with `panic`: not supported yet (SC116E)
     pub fn status(const self) -> string { /* ... */ }
     pub static fn default_port() -> i32 = 8080
 }
@@ -324,7 +326,7 @@ class Server {
 var handler: fn(Request) -> Response = handle_request
 
 // No-return
-fn abort() -> ! { std::crash(1) }
+fn abort() -> ! { crash!() }
 ```
 
 ## See also

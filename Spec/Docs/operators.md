@@ -66,7 +66,7 @@ Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN`
 
 ### `==` vs `===`
 
-`===` is valid when at least one operand is [nullable](/docs/language/nullables/) (`T?`). `a === b` is true when both are non-null and equal. On nullable pointers (`*T?`) it compares the values they point to, where `==` compares **addresses**. Using `===` where neither operand is nullable is an error, including two `*T`. To compare the pointees of two non-null pointers, dereference them and use `==`.
+`===` is valid when at least one operand is [nullable](/docs/language/nullables/) (`T?`). `a === b` is true when both are non-null and equal: it reads as `(a? && b?) && a == b`, with `==` applied to the unwrapped values. A non-nullable operand needs no test, so `a === 5` is `a? && a == 5`. On nullable pointers (`*T?`) it compares the values they point to, where `==` compares **addresses**. This goes one level only: on `(**T)?` it compares the `*T` values, which are addresses. Using `===` where neither operand is nullable is an error, including two `*T`. To compare the pointees of two non-null pointers, dereference them and use `==`. When a nullable pointer is involved, both sides must be pointers (`p === 42` is an error), and a nullable raw pointer (`unsafe *T?`) needs an `unsafe` block, since `===` dereferences it. `x === null` is never true, so it is an error, with a fix-it that writes the null test `!x?`.
 
 ```kairo
 var a = 42
@@ -79,8 +79,8 @@ p === q   // true: both point to 42
 ```
 
 ```kairo
-var x = &a
-var y = &b
+var *x = &a
+var *y = &b
 
 x === y   // error: '===' needs a nullable operand; '*i32' and '*i32' are not nullable
 *x == *y  // true
@@ -182,11 +182,18 @@ Kairo provides null-safe operators for working with [nullable types](/docs/langu
 | `?.` | Null-safe member access | `obj?.field` |
 | `?->` | Null-safe pointer deref + member access | `ptr?->field` |
 
-If the left-hand side is null, the entire expression evaluates to null instead of crashing.
+If the left-hand side is null, nothing on the right is evaluated and the entire expression is null. `x?.m` reads as `if x? => x.m else null`, and `x?.f(args)` the same: the call and its arguments run only when `x` is non-null. Nothing is constructed on the null path. The result type is the member's (or the call result's) type made nullable, `M?`, and stays `M?` when `M` is already nullable rather than becoming `(M?)?`. `?->` is the same over a nullable pointer, and a chain `a?.b?.c` applies each step to the previous step's result.
 
 ```kairo
 var user: User? = find_user("alice")
-var name = user?.get_name()   // string? null if user is null
+var name? = user?.get_name()  // string?: null if user is null; get_name() not called
+var city? = user?.address?.city  // string?: null if user or address is null
+```
+
+`??` supplies the fallback for the null case. The result is `T`, or `T?` when the right side is itself nullable; it chains to the right:
+
+```kairo
+var shown = user?.get_name() ?? "guest"   // string
 ```
 
 The non-null equivalents follow the same pattern without the safety check:
@@ -297,7 +304,7 @@ Operators are listed from highest precedence (tightest binding) to lowest. Opera
 |---|---|---|---|
 | 1 | Literals, names, `( )` grouping, `({ ... })`, `match` | | Primary expressions |
 | 2 | `::` | Left | Scope resolution |
-| 3 | `()` `[]` `.` `->` `?.` `?->` | Left | Postfix / member access |
+| 3 | `()` `[]` `.` `->` `?.` `?->` `?` (null test) | Left | Postfix / member access |
 | 4 | `++` `--` (postfix) | Left | Postfix increment/decrement |
 | 5 | `++` `--` (prefix) `!` `~` `+` `-` (unary) `*` `&` `sizeof` `alignof` `typeof` | Right | Prefix / unary |
 | 6 | `as` | Left | Type cast |

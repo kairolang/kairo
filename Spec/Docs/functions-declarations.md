@@ -23,7 +23,7 @@ fn background() async -> Data          { /* ... */ }
 | `unsafe` | Yes | Yes | [Separate overload namespace](/docs/language/unsafe/#unsafe-function-overloads) for alternative implementations |
 | `eval` | Yes | Yes | Must be evaluable at compile time. See [Eval](/docs/language/eval/) |
 | `async` | Yes | Yes | Asynchronous execution. See [Concurrency](/docs/language/concurrency/) |
-| `panic` | Yes | Yes | May panic; callers must handle. See [Panic](/docs/language/panic/) |
+| `panic` | Yes | Yes | May panic; callers must handle. `panic(E1, E2)` declares the set. See [Panic](/docs/language/panic/) |
 | `inline` | Yes | Yes | Puts the body in the interface. See [`inline`](#inline) |
 | `final` | | Yes | Prevents override in subclasses. See [Classes](/docs/language/classes-inheritance/#final) |
 

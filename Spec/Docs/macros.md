@@ -186,7 +186,7 @@ eval ICON = embed!("icon.png")
 var n = count!(a, b, c, d)   // 4
 
 // Diagnostics
-eval if sizeof usize < 8 {
+eval if !defined!(__LP64__) {
     compile_error!("64-bit platform required")
 }
 

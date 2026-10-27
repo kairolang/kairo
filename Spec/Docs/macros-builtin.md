@@ -71,7 +71,7 @@ std::println(f"logged from {file!}:{line!}")
 | `compile_note!(msg)` | Emit a compile note |
 
 ```kairo
-eval if platform == "wasm" {
+eval if defined!(__wasm__) {
     compile_error!("WebAssembly is not supported yet")
 }
 ```
@@ -86,9 +86,10 @@ The `compile_` prefix keeps these distinct from runtime logging: `compile_error!
 | `embed_str!(path)` | File contents as a string literal |
 | `embed!(path)` | File contents as a byte array (`[byte]`) |
 | `unique_id!` / `unique_id!(tag)` | Generate a unique identifier |
-| `todo!(msg)` | Runtime panic placeholder with optional message |
-| `unreachable!(msg)` | Assert a code path is unreachable (panics if reached) |
+| `todo!(msg)` | Placeholder that crashes at runtime, with an optional message |
+| `unreachable!(msg)` | Assert a code path is unreachable (crashes if reached) |
 | `unreachable_unchecked!` | Optimizer hint: path is dead (UB if reached) |
+| `crash!()` / `crash!(msg)` | End the process: write `msg` (if given) and a newline to stderr, then abort. Never returns |
 
 ```kairo
 // Embed a shader as a string
@@ -103,7 +104,11 @@ fn process() -> Config {
 }
 ```
 
-`todo!()` and `unreachable!()` are SAFE: both [panic](/docs/language/panic/) at runtime if reached, with `unreachable!()` signaling a logic error rather than missing code. `unreachable_unchecked!()` is the unsafe variant: it is a hard assertion to the optimizer that the path is dead, and reaching it at runtime is undefined behavior. Reach for `unreachable_unchecked!` only when the panic branch of `unreachable!` shows up in a profile.
+`todo!()` and `unreachable!()` are SAFE: both crash at runtime if reached, like [`crash!()`](/docs/language/panic/#main-and-crash) (neither is a [panic](/docs/language/panic/): they join no panic set, so `fn process() -> Config { todo!(...) }` needs no `panic` specifier), with `unreachable!()` signaling a logic error rather than missing code. `unreachable_unchecked!()` is the unsafe variant: it is a hard assertion to the optimizer that the path is dead, and reaching it at runtime is undefined behavior. Reach for `unreachable_unchecked!` only when the crash branch of `unreachable!` shows up in a profile.
+
+`crash!` is not a compiler intrinsic: it is an ordinary `pub macro` declared in the builtin library, and every file sees it without an import, the way it sees the builtin types. It expands to a call to a function that returns [`!`](/docs/language/panic/#panic-and-no-return-), so the compiler knows nothing after it runs: a function returning `T` may end in `crash!()` with no `return` after it. Like `todo!()`, it is not a [panic](/docs/language/panic/): it joins no panic set and no `try` catches it, and `main` may call it. Because it is a library macro rather than a reserved name, a macro named `crash!` that a file declares or imports itself takes precedence.
+
+What a crash may do is deliberately small, because it runs on a program that has just proved itself wrong (its stack or heap may be damaged). It behaves like a signal handler: it writes the message and a newline to stderr in a single `write`, then aborts, and does nothing else. It never allocates, takes no lock, and runs no Kairo code, so `msg` is not formatted at crash time. A literal costs nothing; a runtime `string` is fine too, but only its bytes are written, as they are, and at most 4096 of them. A crash during a crash ends the process at once. Any `SIGABRT` handler the program installed is reset before the abort, so the process always dies of `SIGABRT` (exit status 134 from a shell). `unwrap!` on null, a failed checked `as` into a closed enum, and a failed [asserting downcast](/docs/language/casting/#downcasting-base-to-derived) end the program the same way, with a message the compiler writes (the expression, and its `file:line:col`).
 
 Untagged, `unique_id!` produces a fresh identifier on every invocation. The tagged form `unique_id!(tag)` is stable within one dynamic macro expansion: every `unique_id!(guard)` inside the same expansion instance yields the SAME identifier, letting a macro body refer to one generated name in several places, while separate invocations of the macro still get distinct names.
 
@@ -111,13 +116,25 @@ Untagged, `unique_id!` produces a fresh identifier on every invocation. The tagg
 
 | Macro | Description |
 |---|---|
-| `defined!(name)` | Check if a macro with the given name exists |
+| `defined!(name)` | `true` if a macro with the given name exists, `false` otherwise |
 
 ```kairo
 eval if defined!(DEBUG_MODE) {
     fn log(msg: string) { std::println(f"[DEBUG] {msg}") }
 } else {
     fn log(msg: string) { }
+}
+```
+
+`defined!` sees Kairo macros (a `macro NAME!` defined earlier, or `-D NAME` on the command line) and C/C++ macros: the target's predefined macros (`__linux__`, `_WIN32`, `__x86_64__`, `__aarch64__`, ...) and every macro the file's [`ffi`](/docs/language/c-cpp/) headers define. That makes it the way to select platform code:
+
+```kairo
+ffi "c" import "config.h"     // #define HAVE_FAST_PATH 1
+
+eval if defined!(__linux__) && defined!(HAVE_FAST_PATH) {
+    fn init() { /* ... */ }
+} else {
+    fn init() { /* fallback */ }
 }
 ```
 
@@ -132,7 +149,7 @@ Some macros are compiler intrinsics that perform operations beyond token substit
 | `label!(name)` | Declare a jump target | [Control Flow](/docs/language/control-flow/#jumps) |
 | `jump!(name)` | Unconditional jump to a label | [Control Flow](/docs/language/control-flow/#jumps) |
 | `forget!(ptr)` | Drop a pointer from Tether tracking | [Unsafe](/docs/language/unsafe/#forget) |
-| `unwrap!(expr)` | Force-unwrap a nullable, panic on null | [Variables](/docs/language/nullables/#force-unwrap) |
+| `unwrap!(expr)` | Force-unwrap a nullable; aborts the program on null | [Nullables](/docs/language/nullables/#force-unwrap) |
 | `mref!(T)` | Produce an rvalue reference type (`&&T`) | [Library](/docs/library/core/functions/move_refrence/) |
 
 These use macro syntax (`name!`) to make their usage explicit and searchable in a codebase, but they are not user-definable they are built into the compiler.

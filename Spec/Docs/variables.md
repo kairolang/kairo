@@ -4,8 +4,8 @@
 |---|---|---|---|---|
 | `var` | Yes | Automatic | Optional (default-initialized) | Optional (inferred) |
 | `const` | No | Automatic | Required | Optional (inferred) |
-| `static` | Yes | Static | Optional | Required |
-| `thread` | Yes | Thread-local (one instance per thread) | Optional | Required |
+| `static` | Yes | Static | Optional | Optional (inferred) |
+| `thread` | Yes | Thread-local (one instance per thread) | Optional | Optional (inferred) |
 | `eval` | No | Compile-time | Required | Optional (inferred) |
 
 > Variables in Kairo are mutable by default. `const` bindings at local scope require an initializer, but class-level `const` members can be left uninitialized at declaration and assigned exactly once in the constructor body. See [Classes](/docs/language/classes/#const-members-in-constructors) for details.
@@ -16,6 +16,26 @@ var y: string = "Hello, World!"
 ```
 
 Multi-variable declarations on a single line are not supported. Each binding gets its own statement.
+
+---
+
+## Identifiers
+
+An identifier is a run of letters, digits, `_`, `#` and any non-ASCII (UTF-8) characters, and it cannot begin with a digit. `#` has no special meaning: it is an ordinary name character, valid at the start, in the middle or at the end of a name, as many times as you like. There is no length limit.
+
+```kairo
+var count = 0
+var größe = 12
+var item#2 = "second"
+var a#b##c__42 = true
+```
+
+Keywords are spelled only with ASCII letters, digits and `_`, so a name containing `#` (or any non-ASCII character) is never a keyword. That makes `#` a convenient way to use a keyword's spelling as a name: `#op`, `#match` and `#type` are plain identifiers. Each is its own name, distinct from the keyword and from any other spelling: `#op` and `op#` are two different variables, and you write the `#` every time you use one.
+
+```kairo
+var #type: string = "circle"
+std::println(#type)
+```
 
 ---
 
@@ -66,7 +86,42 @@ var name? = get_name()
 // equivalent to: var name: string? = get_name()
 ```
 
-These are purely syntactic sugar the compiler infers the full type from the right-hand side. The long form is always valid and preferred when clarity matters.
+The stars give the pointer depth, to any depth, and they combine with `?`:
+
+```kairo
+var x = 5
+var *p = &x            // *i32
+var **pp = &p          // **i32
+var ***ppp = &pp       // ***i32
+var *n? = &x           // (*i32)?: a nullable pointer, wrapped once
+var *m? = find_ptr()   // find_ptr() -> (*i32)?: m is (*i32)?, not ((*i32)?)?
+```
+
+These are purely syntactic sugar the compiler infers the full type from the right-hand side. The shorthand never converts anything: the stars must match the initializer, and a mismatch is a compile error whose fix-it writes the right spelling:
+
+```kairo
+var *bad = &p          // error: '*bad' states a pointer of depth 1, but its initializer is '**i32', a pointer of depth 2; write '**bad'
+var *notp = x          // error: '*notp' declares a pointer, but its initializer has type 'i32', which is not one
+var unsafe *s = &x     // error: 'unsafe *s' declares an unsafe pointer, but its initializer is the safe pointer '*i32'; write '*s'
+var *m2 = find_ptr()   // error: '*m2' is initialized with a nullable '*i32?'; write '*m2?' so the declaration says it may be null
+```
+
+`unsafe` describes the outermost pointer only, as in the type `unsafe **i32` (an unsafe pointer to a safe `*i32`). A shorthand and a type annotation on the same name (`var *p: *i32`, `var x?: i32`) is an error: write one or the other. Fields declare their type and never take a shorthand.
+
+The long form is always valid and preferred when clarity matters.
+
+A binding with neither an annotation nor a shorthand whose inferred type is nullable or a pointer gets a warning, so the declaration always shows what the binding is. The fix-it writes the shorthand:
+
+```kairo
+var n = find()         // warning: 'n' is nullable; write 'n?' so it reads as one
+var p = &x             // warning: 'p' is a pointer; write '*p'
+var pp = &p            // warning: 'pp' is a pointer; write '**pp'
+var r = raw()          // raw() -> unsafe *i32. warning: 'r' is a pointer; write 'unsafe *r'
+var m = find_ptr()     // warning: 'm' is a nullable pointer; write '*m?' so it reads as one
+var q: *i32 = &x       // no warning: the type is written
+```
+
+Destructuring and `for` bindings are not checked, and neither is a binding whose type depends on a generic parameter.
 
 ---
 
@@ -80,7 +135,7 @@ var b: string     // ""
 var d: [i32]      // []
 ```
 
-`bool` has no default value: declaring a `bool` without an initializer is an error. The same applies to a struct or class with no default constructor, including one whose default constructor is explicitly deleted.
+`bool` has no default value: declaring a `bool` without an initializer is an error. The same applies to a struct or class with no default constructor, including one whose default constructor is explicitly deleted, to an [enum with payloads](/docs/language/enums-adt/) (no variant is its default), and to an array of any of these. A class field of such a type is initialized by the constructor instead; see [Classes](/docs/language/classes/#fields-without-a-default).
 
 ```kairo
 var c: bool       // error: c must be initialized
@@ -127,19 +182,29 @@ eval MAX_SIZE = 1024 * 1024
 
 ## Static Variables
 
-`static` declares a binding with static storage duration it lives for the entire program. Unlike `var`, `static` requires an explicit type annotation.
+`static` declares a binding with static storage duration it lives for the entire program. Its type follows the same rule as `var`: write a type, an initializer, or both, and with an initializer the type is inferred. A `static` with neither is an error.
 
 ```kairo
 static counter: i32 = 0
+static limit = 64        // i32
+static *top = &limit      // *i32
 ```
 
-`static` can be combined with `const` for immutable static data. See [Modules](/docs/language/modules/) for `static` at module scope.
+`static` can be combined with `const` for immutable static data, in either order: `static const` and `const static` are the same declaration. The `const` applies to the binding itself, so the static cannot be reassigned; a `const` deeper in the type (`static p: *const i32`) only protects what it points to. The shorthands work as usual.
+
+```kairo
+static const LIMIT = 64          // const i32, static storage
+const static NAME: string = "k"  // same thing, other order
+static const *ROOT = &limit      // *i32 that cannot be re-pointed
+```
+
+Seen from C++, a namespace-scope `static const` is a `const` variable, a function-local one is `static const`, and a class member is a `static const` data member. `eval` is already `const`, so `eval const` and `const eval` are accepted and mean exactly `eval`. See [Modules](/docs/language/modules/) for `static` at module scope.
 
 ---
 
 ## Thread-Local Variables
 
-`thread` declares a binding with thread storage duration: every thread gets its own instance, initialized when the thread first touches it and destroyed when that thread exits. Like `static`, it requires an explicit type annotation and may appear at file scope, class scope, or inside a function body. A function-local `thread` keeps its value across calls on the same thread, like a static local, and is independent per thread.
+`thread` declares a binding with thread storage duration: every thread gets its own instance, initialized when the thread first touches it and destroyed when that thread exits. Like `static`, its type may be written or inferred from the initializer, and it may appear at file scope, class scope, or inside a function body. A function-local `thread` keeps its value across calls on the same thread, like a static local, and is independent per thread.
 
 ```kairo
 thread counter: i32 = 0
@@ -156,7 +221,7 @@ fn next_id() -> u64 {
 }
 ```
 
-`thread` combines with `const` the way `static` does. A `thread` binding without an initializer is default-initialized per thread under the rules in [Default Initialization](#default-initialization). Access is `name` at file scope and `Self::name` / `Type::name` at class scope, the same as `static`. Seen from C++, a `thread` binding is a `thread_local` variable.
+`thread` combines with `const` the way `static` does. A `thread` binding without an initializer is default-initialized per thread under the rules in [Default Initialization](#default-initialization). Access is `name` at file scope and `Self::name` / `Type::name` at class scope, the same as `static`. Seen from C++, a `thread` binding is a `thread_local` variable (`static thread_local` in a class or a function body). `static thread` is accepted as another spelling of `thread`.
 
 ---
 
@@ -362,7 +427,7 @@ Variables are block-scoped and [destroyed at the end of their enclosing block](/
 
 ```kairo
 var x = 10
-var y = &x
+var *y = &x
 {
     *y = 15    // ok: x is still alive, y is valid
 }

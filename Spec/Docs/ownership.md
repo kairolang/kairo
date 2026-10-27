@@ -238,14 +238,14 @@ When Tether promotes a heap pointer to a [smart pointer](/docs/language/pointers
 
 ```kairo
 // Single owner, no aliasing -> Unique
-var cfg = @create Config(8080)
+var *cfg = @create Config(8080)
 return cfg
 // Tether: cfg has one owner -> Unique
 ```
 
 ```kairo
 // Aliased, both pointers escape -> Shared
-var cfg = @create Config(8080)
+var *cfg = @create Config(8080)
 server_a.config = cfg
 server_b.config = cfg
 // Tether: cfg is aliased across two live bindings -> Shared
@@ -253,7 +253,7 @@ server_b.config = cfg
 
 ```kairo
 // Aliased, but the alias dies before escape -> Unique
-var cfg = @create Config(8080)
+var *cfg = @create Config(8080)
 {
     var tmp: *Config = cfg
     validate(tmp)
@@ -418,8 +418,8 @@ y.method()             // ok
 
 // Pointer aliasing (single-threaded): allowed, Tether checks provenance
 var val = 42
-var p = &val
-var q = &val
+var *p = &val
+var *q = &val
 *p = 100
 std::println(*q)       // 100
 

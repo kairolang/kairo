@@ -239,7 +239,7 @@ var void_t: MyObj<void> = MyObj<void>()  // void is valid here
 | Type | Size | Description |
 |---|---|---|
 | `*T` | 8 bytes | Safe pointer non-null, compiler-tracked |
-| `unsafe *T` | 8 bytes | Raw pointer nullable, no safety checks |
+| `unsafe *T` | 8 bytes | Raw pointer may hold `&null`, no safety checks |
 
 `*T` is a thin pointer (8 bytes). It is non-null by construction and supports pointer arithmetic when the compiler can track its provenance via [Tether](/docs/language/tether/). See [Pointers](/docs/language/pointers/) for full details.
 
@@ -295,7 +295,7 @@ var k: byte = 0xFF      // raw byte, no arithmetic
 
 // Pointers
 var x = 42
-var p = &x              // *i32
+var *p = &x             // *i32
 var q: unsafe *i32 = unsafe &x
 
 // Collections
@@ -308,7 +308,7 @@ var point: (f64, f64) = (1.0, 2.0)                    // tuple
 
 // Function pointer
 fn add(a: i32, b: i32) -> i32 { return a + b }
-var #op: fn (i32, i32) -> i32 = add
+var f: fn (i32, i32) -> i32 = add
 ```
 
 ---

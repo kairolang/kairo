@@ -28,11 +28,33 @@ A module's path is exactly its C++ namespace. `utils/strings.k` in a library nam
 
 This holds for the files you compile, too. A `.k` named on the command line, or included from C++, is a module like any other, with the path an import of it gets: compiled from `project/`, `utils/io.k` is `utils::io` whether it is compiled, imported or included. So `kcc -c utils/io.k` in one run defines `utils::io::read_file`, and a `main.k` compiled in another run that imports `utils::io` links against it. A path segment that is not a valid C++ identifier is rewritten into one (`operator.k` is `namespace operator_`).
 
-`main` is the exception: a file-scope `fn main` is the program's global `int main` in whatever file it is declared, never in a namespace. A `main` inside a `module foo { }` block is the ordinary function `foo::main`.
+`main` is the exception: a file-scope `fn main` is the program's global `int main` in whatever file it is declared, never in a namespace, and so is the `main` a [script](#scripts) gets. A `main` inside a `module foo { }` block is the ordinary function `foo::main`.
 
 A file outside every [search directory](#search-directories-and-library-names) and every [library](#naming-a-library) has no module path. Its declarations are emitted in a namespace named after the file's stem (`/tmp/scratch.k` becomes `namespace scratch`), its `priv` and `internal` declarations sit in an unnamed namespace and cannot be reached from any other translation unit, and it has no header. A file-scope declaration with no visibility written is `pub`.
 
 Two files under one root that both open `module codec` reopen one namespace, as in C++. Reopening never crosses a root.
+
+## Scripts
+
+A file named on the command line (by `kairo` or `kcc`) that has statements at the top level and no `fn main` is a **script**: its top-level statements are the program, run in order as the body of a `main` the compiler writes. The end of the file returns `0`; a top-level `return` returns from that `main`, and its value, an integer, is the exit status.
+
+```kairo
+import std::io::println
+
+fn load() -> i32 { return 42 }
+
+const LIMIT: i32 = 10           // a constant: initialized before anything runs
+var answer = load()             // not a constant: runs here, at its line
+println(f"start {LIMIT}")
+println(f"answer {answer}")
+if answer > LIMIT { return 1 }  // exit status 1
+```
+
+Every top-level `var`, `const`, `static`, `thread` and `eval` stays a global: functions in the file can name it. A binding whose initializer is a constant (a literal, `sizeof` / `alignof`, or an integer the compiler can evaluate) is initialized before the first statement, as any global is; so are `eval` and `thread` bindings and a binding with no initializer. Every other initializer runs at its own line, in order with the statements around it.
+
+Reading such a variable before its line has run is an error when the compiler can see it: a read in the top-level code above the line, a read in the variable's own initializer, or a top-level call, above the line, of a function in the file that reads it on every path. Anywhere the order cannot be seen (in a function called through another function, a method, a closure), the read is checked when it runs, and the program stops with `script variable 'x' used before its line ran (file:line)`, in every build mode. Values whose line has run are destroyed when the program ends, in reverse order, after the last statement and on every `return`.
+
+A file with `fn main` cannot also have top-level statements, and only the file the program starts from runs them: a top-level statement in an imported module, or in a `.k` file a C++ file includes, is an error. Every command-line input may be a script, but two scripts linked into one program are an error naming both (compiling them with `-c` and no link is fine). A `jump!` at the top level may not cross a line whose initializer runs there. See [Diagnostics](/docs/language/diagnostics/#scripts) for the errors, and [Implementation Status](/docs/status/) for what is not supported yet.
 
 ## Library Entry Files
 
@@ -251,7 +273,7 @@ import std::{println, create}
 println("hello")
 ```
 
-[**Core language primitives**](/docs/language/primitives/) (`i32`, `string`, `bool`, `[T]`, etc.) and **built-in syntax** (`if`, `for`, `match`, etc.) are always available without any import. Only **standard library functions and types** (`std::println`, `std::Error`, `std::Shared`, etc.) require an explicit import.
+[**Core language primitives**](/docs/language/primitives/) (`i32`, `string`, `bool`, `[T]`, etc.) and **built-in syntax** (`if`, `for`, `match`, etc.) are always available without any import. Only **standard library functions and types** (`std::println`, `std::parse`, `std::Shared`, etc.) require an explicit import.
 
 See [Imports](/docs/language/imports/) for import syntax and the `pub import` pattern for re-exporting.
 

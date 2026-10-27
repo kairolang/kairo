@@ -246,19 +246,31 @@ try {
 }
 ```
 
-Catch blocks can filter by specific error types. The compiler checks exhaustiveness against the set of panic types declared by the called functions:
+Catch blocks can filter by specific error types. An error type is any movable type; it may define [`op panic`](/docs/language/operator-overloading/#op-panic) to give itself a message. The compiler checks exhaustiveness against the panic sets of the called functions:
 
 ```kairo
+struct IOError {
+    var path: string
+    fn op panic (const self) -> string { return f"cannot read {self.path}" }
+}
+
+struct ParseError {
+    var line: i32
+    fn op panic (const self) -> string { return f"parse error on line {self.line}" }
+}
+
+fn load_data(path: string) panic(IOError, ParseError) -> Data { /* ... */ }
+
 try {
-    read_file("data.txt")
-} catch e: std::Error::IO {
-    std::println(f"IO error: {e}")
-} catch e: std::Error::Runtime {
-    std::println(f"Runtime error: {e}")
+    load_data("data.txt")
+} catch e: IOError {
+    std::println(f"IO error: cannot read {e.path}")
+} catch e: ParseError {
+    std::println(f"parse error on line {e.line}")
 }
 ```
 
-A bare `catch` (no type) acts as a catch-all and satisfies exhaustiveness for any remaining types.
+A bare `catch` (no type) acts as a catch-all and satisfies exhaustiveness for any remaining types. Each typed arm catches exactly its type, with no subtyping between error types; an arm for a type the body cannot panic with is a warning. See [Panic](/docs/language/panic/#arms-match-exact-types).
 
 ### `try`/`catch` as an expression
 
@@ -306,7 +318,7 @@ The last arm of a `try` extends as far right as it can, like the last arm of an 
 try {
     acquire_resource()
     do_work()
-} catch e: std::Error::Runtime {
+} catch e: IOError {
     handle_error(e)
 } finally {
     release_resource()   // always executes
@@ -377,7 +389,7 @@ The `-fassert-mode` compiler flag replaces the default failure behavior:
 
 | Mode | Behavior |
 |---|---|
-| `panic`  | Panics with the provided message or a generated diagnostic |
+| `crash`  | Crashes with the provided message or a generated diagnostic: prints it with the source location and terminates, like [`crash!()`](/docs/language/panic/#main-and-crash). A failed assert is never a [panic](/docs/language/panic/): it joins no panic set and cannot be caught |
 | `return` | Returns a default-constructed value of the function's return type |
 | `log` | Logs the assertion failure and continues execution |
 
@@ -390,18 +402,22 @@ Asserts cannot appear at file scope they are only valid inside function bodies.
 
 ## `panic`
 
-`panic` is a statement that triggers an unrecoverable error in the current function. Functions that can panic must be annotated with the `panic` specifier in their signature, and the compiler enforces that callers handle the panic via `try`/`catch`.
+`panic` is a statement that raises an error from the current function: the function returns the error to its caller instead of a value. Functions that can panic must be annotated with the `panic` specifier in their signature, and the compiler enforces that callers handle the panic via `try`/`catch` or propagate it. The value panicked can be of any movable type (see [Error Types](/docs/language/panic/#error-types)).
 
 ```kairo
+struct DivideByZero {
+    fn op panic (const self) -> string { return "division by zero" }
+}
+
 fn divide(a: i32, b: i32) panic -> i32 {
     if b == 0 {
-        panic std::Error::Runtime("division by zero")
+        panic DivideByZero {}
     }
     return a / b
 }
 ```
 
-See [Panic](/docs/language/panic/) for the full panic model, including `Panickable<T>`, desugaring semantics, and the zero-cost codegen strategy.
+A panic never stops the program: an error can't reach `main` unhandled. To stop the program, use `crash!()`. See [Panic](/docs/language/panic/) for the full panic model, including panic sets, `main` and `crash!`, and the zero-cost codegen strategy.
 
 ---
 
@@ -414,6 +430,8 @@ fn max(a: i32, b: i32) -> i32 {
     return if a > b => a else => b
 }
 ```
+
+A statement written after a `return` in the same block (or after a `break`, `continue`, `panic` or `jump!`) can never run, and the compiler warns about it ([SC003W](/docs/language/diagnostics/#sc003w-unreachable-code)). A `return` inside a closure ends only the closure.
 
 ## Blocks and Scope
 
@@ -486,9 +504,9 @@ Kairo does not have a `goto` keyword. `label!` and `jump!` are compiler intrinsi
 `eval if` selects a branch at compile time. The condition must be a compile-time constant expression if it is not, the compiler emits an error. Only the selected branch is included in the final program; the other branches are discarded entirely (no codegen, no type-checking).
 
 ```kairo
-eval if platform == "linux" {
+eval if defined!(__linux__) {
     fn init() { /* linux-specific init */ }
-} else if platform == "windows" {
+} else if defined!(_WIN32) {
     fn init() { /* windows-specific init */ }
 } else {
     fn init() { /* fallback */ }
@@ -541,11 +559,12 @@ Branch hints cannot be applied to `eval if` branches compile-time branches are r
 
 ## The Never Type
 
-Functions that never return they always panic, loop forever, or call a noreturn function use `!` as their return type:
+Functions that never return (they crash, loop forever, or call a noreturn function) use `!` as their return type. A `-> !` function cannot be [`panic`](/docs/language/panic/#panic-and-no-return-):
 
 ```kairo
-fn fatal(msg: string) panic -> ! {
-    panic std::Error::Runtime(msg)
+fn fatal(msg: string) -> ! {
+    std::println(msg)
+    crash!()
 }
 
 fn event_loop() -> ! {
@@ -561,6 +580,8 @@ fn event_loop() -> ! {
 var x: i32 = if valid => compute() else => fatal("invalid state")
 // fatal() returns ! which coerces to i32
 ```
+
+Because a call to a `-> !` function never comes back, a statement after it in the same block is unreachable, and the compiler warns ([SC003W](/docs/language/diagnostics/#sc003w-unreachable-code)). The same holds after an `if` whose every branch leaves, an exhaustive `match` whose every arm leaves, and a `loop` or `while true` that no `break` exits.
 
 See [Functions](/docs/language/functions/) for return type syntax and [Type System](/docs/language/type-system/) for how `!` interacts with type inference.
 
@@ -578,7 +599,7 @@ See [Functions](/docs/language/functions/) for return type syntax and [Type Syst
 
 ```kairo
 if ptr != null && *ptr == 42 {
-    // safe: *ptr is only evaluated if ptr is non-null
+    // safe: *ptr is only evaluated if ptr (a *i32?) is non-null, so ptr is narrowed there
 }
 ```
 

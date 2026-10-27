@@ -158,6 +158,30 @@ var kind = match http_status {
 }
 ```
 
+## Matching a nullable
+
+A `match` on a [nullable](/docs/language/nullables/) `T?` must answer null first: its first arm is `case null`, on its own and with no `where` guard. A first arm that is anything else is a compile error (not a warning). When the match has no `case null` at all, the fix-it inserts `case null { }` at the top (in expression form, where the arm needs a value, the error says to add `case null => <value>`); when `case null` is further down, or shares its arm with other patterns, the error points at it. Because null is answered once, at the top, every later arm, `default` included, sees the value as non-null:
+
+```kairo
+match port {                    // port: i32?
+    case null { use_default() } // port is null here
+    case 0    { pick_free() }   // a value pattern only matches a present value
+    default   { bind(port) }    // port is non-null: case null took null
+}
+```
+
+A binding pattern binds the unwrapped value, so `case var v` on an `i32?` binds `v: i32` and never matches null:
+
+```kairo
+var label = match port {
+    case null                    => "none"
+    case var p where p < 1024    => f"system port {p}"   // p: i32
+    default                      => f"port {port}"        // port reads as i32
+}
+```
+
+A `where` guard narrows its arm the same way an `if` condition does. After the `match`, the value's null state is the merge of every arm that can fall through. A second `case null` is an error: the first arm already answered null. Exhaustiveness is checked over `T`, so a `bool?` with `case null`, `case true` and `case false` needs no `default`.
+
 ## `match` as an expression
 
 ```kairo
@@ -205,6 +229,7 @@ The compiler verifies that all possible values are covered:
 | Integers / strings | `default` always required |
 | Booleans | `true` + `false` covers it |
 | Structs | `default` always required |
+| Nullable `T?` | `case null` first, then the rule for `T` |
 
 A `default` case matches any value not covered by preceding cases. It must be the last case.
 

@@ -139,6 +139,10 @@ error: '-fno-rtti' changes C++ type layout and cannot be used in a translation u
 
 The distinction matters because the fix differs. Category 2 means *drop the flag*. Category 3 means *this can never work in a mixed TU*.
 
+### Exceptions
+
+C++ exceptions are on in a Kairo translation unit's C++ on a hosted target, and off on a freestanding one (no OS in the triple, `--freestanding`, kernel mode) unless `-fexceptions` is given; `-fno-exceptions` turns them off. Separately, `-funwind` / `-fno-unwind` (the default) decide whether Kairo functions are `noexcept`: see [Exceptions & Panics](/docs/language/c-cpp-exceptions/#c-exceptions-through-kairo-frames). Use one `-funwind` setting for every Kairo module and `kcc` host in a program.
+
 ## See also
 
 - [C & C++ Interoperability](/docs/language/c-cpp/)

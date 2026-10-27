@@ -196,8 +196,8 @@ var record: (i32, string, bool) = (42, "Answer", true)
 
 ```kairo
 fn add(a: i32, b: i32) -> i32 { return a + b }
-var #op: fn (i32, i32) -> i32 = add
-op(3, 4)  // 7
+var f: fn (i32, i32) -> i32 = add
+f(3, 4)  // 7
 ```
 
 > [!IMPORTANT]

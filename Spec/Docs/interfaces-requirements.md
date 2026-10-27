@@ -1,6 +1,6 @@
 # Interface Requirements
 
-An interface body contains method signatures (including generic methods), static function signatures, operator signatures, constructor requirements, and [associated types](/docs/language/interfaces/#associated-types). This page covers the operator, constructor, static, and `Self` requirements.
+An interface body contains method signatures (including generic methods), static function signatures, operator signatures, constructor requirements, and [associated types](/docs/language/interfaces/#associated-types). This page covers the operator, constructor, static, `Self` and panicking requirements.
 
 ---
 
@@ -173,6 +173,36 @@ interface Duplicable {
     fn clone(self) -> *Self
 }
 ```
+
+---
+
+## Panicking Requirements
+
+A requirement that may [panic](/docs/language/panic/) must declare its panic set, `panic(E1, E2)`. A bare `panic` on a requirement is an error: a requirement has no body to infer a set from, and the set is the contract every conformer is held to.
+
+```kairo
+struct ReadError {
+    var path: string
+    fn op panic (const self) -> string { return f"cannot read {self.path}" }
+}
+
+interface Source {
+    fn read(self, path: string) panic(ReadError) -> string
+}
+
+class Disk impl Source {
+    fn read(self, path: string) panic -> string {     // set inferred: ReadError
+        if !exists(path) { panic ReadError { path: path } }
+        return load(path)
+    }
+}
+
+class Memory impl Source {
+    fn read(self, path: string) -> string { return "" }   // ok: no panic at all
+}
+```
+
+A conforming method may infer its set, but the set must be a subset of the requirement's. Panicking with a type outside it is an error at the conformer.
 
 ---
 

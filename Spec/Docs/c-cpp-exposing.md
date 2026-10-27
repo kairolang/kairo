@@ -87,6 +87,8 @@ A module that defines nothing (only comments, or only [`pub import` re-exports](
 | `fn m(self)` inside `extend Vec2 { }` | free function `geo::vec::m(Vec2* self)` |
 | `x: i32`, `x: f64`, `x: usize` | `std::int32_t`, `double`, `std::size_t` |
 | `p: *T` | `T*` |
+| `x: T?` | `::builtin::Nullable<T>` (see [Nullables Across the Boundary](#nullables-across-the-boundary)) |
+| `null` | `::builtin::null` |
 | `@inout x: T`, `@move x: T` | `T&`, `T&&` |
 | `type Name = T` inside a class | `using Name = T;` member, under the same access level |
 | `@no_unwind fn f()` | `void f() noexcept` |
@@ -113,6 +115,27 @@ The struct's name is a **structural** function of its element types, not an ordi
 
 > [!NOTE]
 > The exact structural encoding is part of the ABI and is specified separately. It is injective across all type constructors that can appear in a tuple, and unambiguous under nesting.
+
+---
+
+## Nullables Across the Boundary
+
+A Kairo [nullable](/docs/language/nullables/) `T?` is the C++ class template `::builtin::Nullable<T>`, and Kairo's `null` is the constant `::builtin::null`, the one value of the empty type `::builtin::null_t`. `Nullable<T>` has two constructors, one from `null_t` and one from `T`, so C++ code builds one the same way Kairo's implicit conversions do:
+
+```cpp
+::builtin::Nullable<int> a = ::builtin::null;   // Kairo: var a: i32? = null
+::builtin::Nullable<int> b = 5;                 // Kairo: var b: i32? = 5
+```
+
+The layout depends on `T`:
+
+| Kairo | Storage |
+|---|---|
+| `*T?` (any safe pointer, `const` included) | the pointer alone, `sizeof(T*)`; null is `0x0` |
+| `bool?` | one byte; `0x02` is null |
+| any other `T?` | the `T` and a presence flag |
+
+`(T?)?` is `Nullable<Nullable<T>>`.
 
 ---
 

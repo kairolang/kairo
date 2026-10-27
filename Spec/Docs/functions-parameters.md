@@ -146,7 +146,9 @@ fn <...T> print_all(...args: T) {
 print_all(42, "hello", true)   // prints each on a new line
 ```
 
-The parameter is a tuple of heterogeneous types. Each element in the pack must satisfy the constraints used in the function body in the example above, every `T` must be convertible to `string` via `as`.
+The parameter is a pack: one value per argument, each with its own type, and `T` stands for that list of types. A pack is not a value on its own: the body iterates it with `for` (the loop body runs once per element, at that element's type) or forwards it with `...` (below). Each element must satisfy the constraints the body puts on it: in the example above, every `T` must be convertible to `string` via `as`. The element types are deduced from the arguments; writing them as generic arguments (`print_all<i32, bool>(...)`) is not supported yet.
+
+A type pack is only ever written expanded (`Box<T...>`) or as the type of a `...` parameter: a field, variable, return value or ordinary parameter cannot have a pack as its type.
 
 ### Pack expansion and forwarding
 
@@ -158,7 +160,7 @@ fn <...T> log_all(...args: T) {
 }
 ```
 
-The same postfix form appears in type position for pack-typed signatures. The split mirrors the [token-macro splat](/docs/language/macros/#variadic-macros-and-pack-expansion): `...` before a name declares a pack, `...` after an expression expands one.
+An expansion is written only as a call argument, and only of a pack parameter. The same postfix form appears in type position for pack-typed signatures (`-> Outcome<i32, T...>`, `derives Base<T...>`). The split mirrors the [token-macro splat](/docs/language/macros/#variadic-macros-and-pack-expansion): `...` before a name declares a pack, `...` after an expression expands one.
 
 
 ## See also

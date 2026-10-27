@@ -194,6 +194,48 @@ var cfg = Config(3, 30.0)
 
 If a `const` member has an initializer at the declaration site, it cannot be reassigned in the constructor.
 
+### Fields without a default
+
+A field with no initializer whose type has no default value (`bool`, an [enum with payloads](/docs/language/enums-adt/), a class with no default constructor, or an array of any of these; see [Variables](/docs/language/variables/#default-initialization)) must be initialized by every constructor, like a `const` member. The constructor's first write of the whole field is its initialization; later writes are ordinary assignments:
+
+```kairo
+enum Frame {
+    Burst { base: i32, count: i32 },
+    Idle,
+}
+
+class Batch {
+    var frames: [Frame; 3]
+    var ready: bool
+
+    fn Batch(self, base: i32) {
+        self.frames = [.Burst { base: base, count: 3 }, .Idle, .Idle]  // initialization
+        self.ready = false
+        self.log()                                                      // the object exists from here
+        self.frames[2] = .Burst { base: 1, count: 1 }                  // ordinary assignment
+    }
+
+    fn log(self) { }
+}
+```
+
+Until every such field is initialized, the object does not exist yet, so the constructor can use `self` only to initialize fields and to read the ones already initialized: no method call, no `return`. A field the constructor leaves uninitialized on some path, or writes element by element before building it whole, is an error at the constructor:
+
+```kairo
+class Broken {
+    var frames: [Frame; 2]
+
+    fn Broken(self) {
+        self.frames[0] = .Idle   // error: 'frames' does not exist until it is built whole
+        self.frames[1] = .Idle
+    }
+}
+```
+
+Giving the field an initializer at its declaration (`var frames: [Frame; 3] = [.Idle, .Idle, .Idle]`) lifts the requirement.
+
+An array is not assignable, so an array field's one whole write in a constructor is its initialization: it must happen on every path through the constructor or on none, and never in a loop. A second whole write is an error; write the elements instead.
+
 ### Default and deleted constructors
 
 ```kairo
@@ -271,6 +313,10 @@ See [Interfaces](/docs/language/interfaces/) and [Requires Clauses](/docs/langua
 [Type parameters](/docs/language/generics/) are declared in angle brackets before the class name:
 
 ```kairo
+struct StackUnderflow {
+    fn op panic (const self) -> string { return "stack underflow" }
+}
+
 class <T> Stack {
     var items: [T]
 
@@ -284,7 +330,7 @@ class <T> Stack {
 
     fn pop(self) panic -> T {
         if self.items.length() == 0 {
-            panic std::Error::Runtime("stack underflow")
+            panic StackUnderflow {}
         }
         return self.items.pop()
     }
@@ -293,6 +339,9 @@ class <T> Stack {
 var s = Stack<i32>()
 s.push(42)
 ```
+
+> [!NOTE]
+> A `panic` method of a generic class, like `pop` here, is not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): a generic body's panic set will be inferred per instantiation. See [Status](/docs/status/#not-compiled-yet).
 
 Generic classes can inherit from other generic classes:
 
@@ -333,9 +382,6 @@ Counter::get_count()   // 2
 ```
 
 Static variables are declared `static name: Type`, with no `var`, and require an explicit type annotation. They can be initialized at the declaration site or at program startup. Static methods do not take `self` and cannot access instance members.
-
-> [!NOTE]
-> Static fields do not compile yet: an initializer on one is rejected, and without one the program does not link. See [Status](/docs/status/#not-compiled-yet).
 
 ---
 
@@ -425,7 +471,7 @@ class Tree {
     var root: unsafe *Node
 
     fn Tree(self) {
-        self.root = null
+        self.root = &null
     }
 }
 ```
@@ -510,7 +556,7 @@ var obj = Foo(42)   // stack-allocated
 Heap allocation uses `@create T()`, which returns a pointer. [Tether](/docs/language/tether/) determines whether the returned pointer is raw or promoted to a smart pointer based on usage analysis:
 
 ```kairo
-var ptr = @create Foo(42)
+var *ptr = @create Foo(42)
 ```
 
 See [Pointers](/docs/language/pointers/) and [Tether](/docs/language/tether/).
@@ -565,7 +611,7 @@ class UniqueFile {
     @move
     fn UniqueFile(self, other: Self) {
         self.handle  = other.handle
-        other.handle = null
+        other.handle = &null
     }
 
     fn op delete(self) {
@@ -575,7 +621,7 @@ class UniqueFile {
 
 // Inheritance with virtual dispatch
 class Shape {
-    fn area(const self) -> f64 = virtual
+    virtual fn area(const self) -> f64
 }
 
 class Circle derives Shape {
@@ -594,7 +640,7 @@ class <T impl Comparable> PriorityQueue impl Iterable {
 
     fn PriorityQueue(self) { self.heap = [] }
     fn push(self, item: T) { ... }
-    fn pop(self) panic -> T { ... }
+    fn pop(self) panic -> T { ... }   // `panic` in a generic class: not supported yet (SC116E)
 }
 
 // Final class

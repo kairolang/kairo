@@ -70,7 +70,7 @@ One branch (or zero), discharging millions of accesses. This is the same class o
 
 ### Forming versus dereferencing, and one-past-the-end
 
-`var q = a + i` produces a pointer value and emits no code, regardless of whether `i` is in range. The obligation attaches to `*q`, not to the formation of `q`.
+`var *q = a + i` produces a pointer value and emits no code, regardless of whether `i` is in range. The obligation attaches to `*q`, not to the formation of `q`.
 
 Forming a pointer anywhere in `[base, base + count]` inclusive of the one-past-the-end address is legal and emits nothing. This is required: idiomatic range loops compare against a one-past pointer (`while p < end`), and that pointer must be formable and comparable without being undefined. Forming a pointer *beyond* one-past carries a "not dereferenceable" mark in its provenance; the pointer value is defined and may be compared, but any attempt to dereference it fails C3. Comparison of two pointers is defined when they share provenance, or when both lie in `[base, base + count]`.
 
@@ -96,7 +96,7 @@ A pointer value derived at epoch *e* records *e* in its provenance. Clause C1 re
 
 ```kairo
 var buf: *i32 = @create i32(64)
-var p = buf + 5
+var *p = buf + 5
 realloc(buf)        // increments buf's epoch
 *p = 1              // C1 residual: p was derived at the old epoch
 ```
@@ -111,7 +111,7 @@ Folding UAF into the same obligation as bounds is what makes the architecture sc
 
 `foo.bar.baz` is `PROVEN_STATIC` when `foo` is non-null and the field offsets are static: the access inherits `foo`'s provenance with a constant offset, and its obligation is exactly `foo`'s obligation.
 
-Taking an interior pointer `var p = &foo.bar` creates a new pointer whose provenance is derived from `foo`'s allocation at `foo`'s current epoch. Dropping or moving `foo` increments that epoch, so a later `*p` fails C1 by the same mechanism as any other use-after-free. Interior pointers are not special-cased; they reuse the epoch machinery.
+Taking an interior pointer `var *p = &foo.bar` creates a new pointer whose provenance is derived from `foo`'s allocation at `foo`'s current epoch. Dropping or moving `foo` increments that epoch, so a later `*p` fails C1 by the same mechanism as any other use-after-free. Interior pointers are not special-cased; they reuse the epoch machinery.
 
 ## See also
 

@@ -125,6 +125,33 @@ f([1, 2, 3] as [i32])          // ok
 
 ---
 
+## Where Clauses
+
+### `no fallback overload for '{f}' when where condition fails`
+
+Every [`where`](/docs/language/where/#fallback-requirement)-constrained overload needs a fallback: an overload of the same signature with no `where` clause, or conditions the compiler can prove cover every value. A note says what to add.
+
+```kairo
+fn root(x: f64) -> f64 where x >= 0.0 { return x }   // error: no fallback
+fn root(x: f64) -> f64 { return 0.0 }                 // ok: the fallback
+```
+
+**Fix:** add an overload without a `where` clause.
+
+### `'where' is not allowed on ...`
+
+A `where` clause is runtime dispatch among overloads, so it is an error on a type (`'where' is not allowed on a class`, with a fix-it to `requires`), on an interface method, on an `unsafe` overload (unsafe overloads are a separate namespace), and on a closure. A guarded overload also needs a body (`a guarded overload of '{f}' needs a body`).
+
+### `every overload in the 'where' dispatch of '{f}' must have the same {what}`
+
+The overloads of one dispatch become one function, so they must agree on return type, `const self`, `inline`, `-> !` and linkage. A note points at the first overload.
+
+### `'where' guard of '{f}' is unreachable` / `overlaps an earlier one` / `never holds` (warnings)
+
+The compiler compares conditions that test integer parameters against constants. A condition inside an earlier one never fires (a note points at the earlier one); a condition that partly overlaps an earlier one sends the shared values to the earlier overload; a contradictory one (`x > 5 && x < 3`) never holds. See [Declaration Order](/docs/language/where/#declaration-order-determines-priority).
+
+---
+
 ## Default Arguments
 
 ### SC106E: a default argument refers to another parameter or `self`
@@ -261,6 +288,101 @@ Imported C++ enums are exempt.
 
 **Fix:** give each variant a distinct value. See [Enums](/docs/language/enums-plain/#discriminant-values).
 
+### SC001E: a constant cast into a closed enum is no variant's value
+
+`as` into a [closed](/docs/language/enums-plain/#closed-and-open-enums) plain enum with a constant that no variant has. The code is a placeholder until the error gets its own.
+
+```
+{n} is not a value of '{E}': a closed enum holds only its variants' values
+```
+
+```kairo
+enum Color derives u8 { Red, Green, Blue }
+
+var c = 3 as Color     // error SC001E: 3 is not a value of 'Color'
+```
+
+The note points at the enum. When the enum is declared in the same file, a fix-it inserts `@open` before its `enum` keyword.
+
+**Fix:** cast a value one of the variants has, or declare the enum `@open` if it is meant to hold other values. A non-constant operand is not an error: it is checked when it runs and crashes on a miss.
+
+### SC001E: `@open` on something other than a plain enum
+
+```
+'@open' does not apply to an ADT enum: no cast makes its tag, so it is always closed
+'@open' does not apply to this declaration; only a plain enum can be open
+```
+
+The fix-it removes the attribute.
+
+### SC001E: a pack-expanded variant is malformed
+
+A [pack-expanded variant](/docs/language/enums-adt/#variadic-enums) `V { e: E }...` must have a payload that names the enum's type pack, must be the enum's last variant, and must be its only one. A pack named in a variant without `...` is the same error. The code is a placeholder until the error gets its own.
+
+```
+variant '{V}' is followed by ... but has no payload, so there is nothing to expand
+variant '{V}' is followed by ..., but its payload names no type pack of '{E}'
+pack-expanded variant '{V}' must be the last variant of '{E}'
+'{E}' already has a pack-expanded variant, '{V}'; an enum expands its pack once
+variant '{V}' names the type pack '{P}', but is one variant; add ... after it to make one variant per element of '{P}'
+```
+
+```kairo
+enum <T, ...E> R {
+    Err { e: E },        // error SC001E: add ... after it
+    Ok { v: T },
+}
+```
+
+A fix-it removes a `...` that expands nothing, or adds the missing one.
+
+**Fix:** follow the variant that holds the pack with `...` and put it last.
+
+### SC001E: no expansion of a pack-expanded variant fits
+
+A construction or a pattern names a pack-expanded variant, and its payload type picks no expansion, or several. A pattern must write the type on the binder of the pack field when there is more than one expansion; a fix-it writes the first one's. The note lists the expansions.
+
+```
+no '{V}' of '{T}' holds a '{U}'
+a '{U}' fits more than one '{V}' of '{T}'; the payload's type must pick one
+'{V}' is one variant per element of a pack in '{T}'; name the payload's type to pick one
+'{T}' has no '{V}' variant: its pack is empty
+```
+
+```kairo
+enum <T, ...E> Outcome { Ok { value: T }, Err { error: E }... }
+
+var o: Outcome<i32, i64, f64> = .Err { error: 1 }   // error SC001E: an i32 fits both
+match o {
+    case .Err(var error) { }                         // error SC001E: name the type, 'var error: i64'
+    default { }
+}
+```
+
+**Fix:** give the payload a value of exactly one element's type, and write `var error: T` in the pattern.
+
+### SC001E: a type pack or a pack parameter where one value or type is expected
+
+A type pack (`...T`) stands for several types and a pack parameter (`...xs: T`) for several values, so neither can be used as one. A pack is written expanded as an argument (`Box<T...>`, `f(xs...)`), as the type of a `...` parameter, or, for a pack parameter, iterated with `for`. The code is a placeholder until the error gets its own.
+
+```
+'{T}' is a type pack and stands for several types; a field cannot have it as its type
+'{xs}' is a pack of values with different types; pass it on expanded as an argument, or iterate it with a for loop
+a pack expansion is written only as a call argument, where it passes each element as its own argument
+only a pack parameter can be expanded
+```
+
+```kairo
+class <...T> Holder { var xs: T }     // error SC001E
+fn <...T> f(...xs: T) {
+    var y = xs                         // error SC001E
+    for x in xs { }                    // fine
+    g(xs...)                           // fine
+}
+```
+
+**Fix:** expand the pack, or iterate it.
+
 ### SC123E: a variant name does not fit the expected type
 
 A `.V`, or a pattern head, must name a variant of the enum it is checked against. It covers construction as well as [`match` patterns](/docs/language/pattern-matching/#enum-variant-matching): `.V` with no expected enum type, `.V` against a type that is not an enum, a variant the enum does not have, a variant of another enum, a type that is not the matched type, and a name that is not a variant, a constant or a type.
@@ -331,6 +453,184 @@ fn main() -> i32 {
 
 See [Enums](/docs/language/enums-adt/#construction).
 
+### SC001E: a constructor does not initialize a field that has no default
+
+A field with no initializer whose type has no default (`bool`, an enum with payloads, a class with no default constructor, an array of any of these) is initialized by every constructor, like a `const` member: the constructor's first whole write of it is its initialization. See [Classes](/docs/language/classes/#fields-without-a-default). The code is a placeholder until the error gets its own.
+
+```
+constructor of '{C}' does not initialize field '{f}', and {why}
+field '{f}' is not initialized on every path through the constructor of '{C}', and {why}
+'{f}' is written in part before it is initialized, and {why}
+a defaulted constructor of '{C}' cannot initialize field '{f}', and {why}
+array field '{f}' is initialized on some paths through the constructor of '{C}' only; an array is not assignable, so its one initialization must be on every path
+'self' is used before the constructor has initialized its fields
+```
+
+`{why}` says why the type has no default, the same reason a local gets (`'Frame' is an enum with payloads, so no variant is its default`). The note points at the field; when the constructor writes the field element by element instead, a second note points at the first such write.
+
+```kairo
+enum Frame { Burst { base: i32, count: i32 }, Idle }
+
+class Batch {
+    var frames: [Frame; 2]
+
+    fn Batch(self) {             // error SC001E: does not initialize field 'frames'
+        self.frames[0] = .Idle   // note: this writes part of 'frames'
+        self.frames[1] = .Idle
+    }
+}
+```
+
+**Fix:** build the field whole first (`self.frames = [.Idle, .Idle]`) on every path, before any method call; or give it an initializer at its declaration.
+
+An array field's one whole write in a constructor is its initialization, so a second one, or one inside a loop, is SC071E (`an array is not assignable; 'frames' may already be initialized here`).
+
+---
+
+## Panic
+
+These are the [panic](/docs/language/panic/) effect checks: every error a call or a `panic` may produce is handled with `try`/`catch` or propagated by a `panic` function. Messages name every type involved; a set is listed in a fixed order.
+
+### SC001E: `unhandled panic: '{f}' may panic with '{E}', and '{g}' is not marked 'panic'`
+
+A call to a panicking function, or a `panic` statement, in a function with no `panic` specifier, where no enclosing `try` catches the types listed. Two fix-its: mark the function `panic` to propagate, or wrap the call in `try ... catch => crash!()` to handle it there. The same check applies to a closure (`... and the closure is not marked 'panic'`).
+
+```kairo
+fn parse_port(s: string) panic -> i32 { ... }
+
+fn bad() -> i32 {
+    return parse_port("8080")   // error SC001E
+}
+```
+
+**Fix:** mark `bad` `panic`, or handle the error: `return try parse_port("8080") catch => 8080`.
+
+### SC001E: `'{E}' is not in the declared panic set of '{f}'`
+
+A function (or closure) with a [declared set](/docs/language/panic/#declared-panic-sets) `panic(E1, E2)` panics with, or propagates, a type outside it. The note points at the callee the type comes from; the fix-it adds the type to the list.
+
+```kairo
+fn load(path: string) panic(IOError) -> i32 {
+    return parse_port(read_file(path))   // error: 'RangeError' is not in the declared panic set of 'load'
+}
+```
+
+### SC001E: `'main' cannot panic` / `a panic cannot reach 'main'`
+
+`main` can never be `panic` (fix-it: remove it), and an error that would reach `main` unhandled is an error at the call that propagates it, with a fix-it handling it there or stopping the program with [`crash!()`](/docs/language/panic/#main-and-crash). A script's top-level code follows the same rule (`a panic cannot reach a script's top level`).
+
+### SC001E: `'{f}' cannot be both 'panic' and '-> !'`
+
+A `panic` function returns its error to the caller; a `-> !` function never returns. Fix-it: remove `panic`.
+
+### SC001E: `{what} cannot panic: it runs where no call is written, so nothing could handle the error`
+
+An `@implicit` conversion and `op panic` are called by the language where no call is written, so an error from them could never be caught. Fix-it: remove `panic`.
+
+### SC001E: `a constructor cannot panic` / `a destructor cannot panic`
+
+No constructor (one with parameters, the default constructor, a transfer constructor) and no destructor (`op delete`) can [panic](/docs/language/classes-lifecycle/#constructors-and-destructors-never-panic): an object is built whole or not at all, and a destructor runs on every exit, where nothing could take an error. Marking one `panic` is `a constructor cannot panic: an object is either built whole or not at all` (or the destructor's reason), with a fix-it removing `panic`. A panic that would escape one's body is `a constructor cannot panic: '{f}' may panic with '{E}', which is not handled`, with fix-its handling it there or stopping the program with `crash!()`. For a constructor, a note says that construction which can fail belongs in a static factory function.
+
+```kairo
+class Conn {
+    var fd: i32
+    fn Conn(self, n: i32) { self.fd = open_fd(n) }   // error: a constructor cannot panic
+    static fn open(n: i32) panic -> Conn { return Conn(open_fd(n)) }   // fine
+}
+```
+
+### SC001E: `type '{T}' cannot be panicked: {why}`
+
+An error is returned and propagated by value, so a type a `panic` raises, a declared set names, or a `catch` names (`cannot be caught`) must be movable, complete, and a value: not a reference, not `void`. The reason says which rule failed, and a note points at the type.
+
+```kairo
+class Pinned {
+    fn Pinned(self) {}
+    @move fn Pinned(self, other: Pinned) = delete
+}
+fn f() panic -> i32 { panic Pinned() }   // error: it is not movable
+```
+
+### SC001E: `a global's initializer cannot panic` / `cannot hold a 'try'`
+
+A global's (or static field's) initializer runs at file scope: there is no function for an error to propagate to, and no place for a `try`. Initialize it in a function instead. A field's default and a parameter's default may call a panicking function only inside a `try` that handles everything (`a field's default cannot panic: ...`).
+
+### SC001E: `the panic set of ... must be declared`
+
+A bare `panic` where the set is a contract or has no body to infer from: a [function type](/docs/language/panic/#where-a-declared-set-is-required) (`the panic set of a 'fn' type must be declared`), an interface requirement, a `virtual` method of a base class, or a closure (`a closure's panic set must be declared`). Where there is a body, the fix-it writes the set it was inferred to be (or removes `panic` when nothing panics); otherwise a note says there is no body to infer from.
+
+```kairo
+var retry = fn () panic -> string { return read_file("x") }   // error: write 'panic(IOError)'
+```
+
+### SC001E: `'{E}' is not in the panic set of '{Base::m}', which this overrides` / `implements`
+
+An [override](/docs/language/panic/#subsets)'s set must be a subset of the base method's, and a conforming method's a subset of the interface requirement's. The fix-it adds the type to the base's or the requirement's declared set. Overriding a method that does not panic with one that does is `an override cannot panic when '{Base::m}', which it overrides, does not`.
+
+### SC001E: `'{f}' is used as a value, but its panic set is inferred`
+
+A function value's type carries its panic set (`fn() panic(IOError) -> i32`), and a set inferred from the body is not known when the value's type is given. Declare it; the fix-it writes the inferred set. Converting between function types follows the [subset rule](/docs/language/panic/#subsets): a function whose set is not a subset of the target's is a type mismatch (`cannot convert 'fn () panic(E, F) -> i32' to 'fn () panic(E) -> i32'`).
+
+### SC001W: `the panic set of public function '{f}' is inferred ({E}); declare it ...`
+
+Only when building a library (`--shared`): a `pub` function's inferred set is API surface that changes when the body does. The fix-it writes the set.
+
+### SC001W: `this arm never runs: '{T}' is not in the panic set of its 'try' (...)`
+
+A `catch e: T` whose `T` the `try` body cannot panic with. A warning, not an error, so that a library removing an error from a function's set does not break callers that still catch it. The fix-it removes the arm. Arms match [exact types](/docs/language/panic/#arms-match-exact-types): `catch e: Base` does not catch a `Derived`. A C++ type outside the set is a [C++ exception](/docs/language/c-cpp-exceptions/#exceptions) arm and is never reported.
+
+### SC001W: `'{p as *D}' crashes the program when the object is not a '{D}'; use '{p as *D}?' and test the result for cleaner handling`
+
+Every [asserting downcast](/docs/language/casting/#downcasting-base-to-derived) warns: on the wrong dynamic type it crashes the program (it is not a panic and cannot be caught). The fix-it appends `?`, turning it into the checked downcast, which yields null on a miss.
+
+### SC001E: `a second 'catch' arm for '{T}'` / `no 'catch' arm may follow a bare 'catch'`
+
+Two arms for the same type, or any arm after a bare `catch` (which has already handled everything), are errors with a fix-it removing the arm. In the expression form an arm after the default is a syntax error (S054E).
+
+### SC001E: `'catch' of the C++ exception '{T}' in a build without C++ exceptions (-fno-exceptions, or a target with no OS)`
+
+A `catch e: T` arm whose `T` is a C++ type outside the `try` body's panic set [catches a C++ exception](/docs/language/c-cpp-exceptions/#c-to-kairo), which needs C++ exceptions. They are off with `-fno-exceptions`, and by default for a target with no OS (or `--freestanding`). A note points at the C++ type; the fix-it removes the arm. The code is a placeholder until the error gets its own.
+
+**Fix:** remove the arm, or build with `-fexceptions`.
+
+### SC001E: `'op panic' takes 'const self'` / `'op panic' must return 'string'`
+
+[`op panic`](/docs/language/operator-overloading/#op-panic) is optional, but when a type defines it, it is `fn op panic (const self) -> string`. Fix-its insert `const` and write `string`. An operand besides `self` is SC055E (`'op panic' takes no operand besides the receiver`).
+
+### S055E: `an explicit panic set names at least one error type`
+
+`panic()` with nothing inside, in a function header, a closure or a function type. A bare `panic` already means an inferred set. Fix-it: remove the parentheses.
+
+### SC001E: `'{A}' and '{B}' cannot be in one panic set: both have type id 0x{id}`
+
+Every error type has a 32-bit type id, the tag its errors are stored with, computed from the type's full name so every file agrees on it. Two types whose ids are equal cannot be in one panic set: their errors would be indistinguishable. This is astronomically rare; it is reported where the set is formed, with a note at each type. The code is a placeholder until the error gets its own.
+
+**Fix:** rename one of the two types, or keep them in different sets (handle one of them before the other propagates).
+
+### OPT001R: `'{Panic}' is {n} bytes, so a function returning it returns through memory, not in two registers`
+
+A remark, not a warning. A panicking function's result is returned in two registers while it is at most 16 bytes: the tag and site word, plus a payload of at most 8 bytes. One wider error type (or a wider return type) makes every function with that set return through memory: correct, just slower. The remark names the widest payload. The code is a placeholder until the remark gets its own.
+
+**Fix:** nothing is required. To keep the fast path, panic with a small error (an id, or a pointer to the details).
+
+---
+
+## Compile-Time Values
+
+The errors of [array lengths and generic value arguments](/docs/language/generics/#computed-lengths-and-arguments) that are computed at compile time. The codes are placeholders until each gets its own.
+
+### SC001E: `an array length can call only 'eval' functions; '{f}' is not 'eval'`
+
+A length or value argument is computed at compile time, so a function it calls must be `eval`. A note points at the function; when it is yours, the fix-it adds `eval`. (`a generic value argument can call ...` is the same for an argument.)
+
+### SC001E: `'{T}' cannot be the type of a generic value parameter: {why}`
+
+An [eval class](/docs/language/generics/#eval-classes-as-value-parameters) used as a value parameter's type must be structural: `{why}` names the first field that is not `pub`, is `mutable` or points to mutable memory (through nested fields: `its field 'inner' is a 'Hidden', and its field 'secret' is not 'pub'`), or the first of its constructors that is not `eval`, or a destructor. A note points at it.
+
+### SC001E: `the condition of an 'eval if' outside a function body must fold before names are resolved; 'sizeof' needs a type's layout, ...`
+
+A declaration-scope [`eval if`](/docs/language/eval/#eval-if) decides which declarations exist before types are resolved, so `sizeof` and `alignof` cannot be part of it. The note names what works: `defined!(__LP64__)` for the pointer width, or the `eval if` moved into a function body, where it is decided with the layout known.
+
 ---
 
 ## Not Yet Supported
@@ -350,8 +650,20 @@ It is reported for:
 - matching a string against a pattern that isn't a string literal or a constant initialized with one
 - matching a record value against a literal-style pattern
 - a non-generic payload enum whose payload holds a type whose copy, move and destruction are not known until instantiation
-- an initializer on a `static`, `eval` or array-typed field
+- an initializer on an `eval` field, and one on an array-typed field that is `static`, an array of arrays, or not a list literal
+- in a constructor that initializes a `const` field or a field without a default: a generic constructor or one with an expression body; `try`, `finally`, an `inline` block, `label!` or `jump!` before the last such initialization; a `static` or array local declared before it and used after it; initializing an array field of arrays, or one whose length is a generic parameter
+- a vector, set, map or f-string in an `eval` context (`a vector in an eval context is not yet supported`); a string literal is fine
+- an array length computed by C++ from an `eval` constant of the field's own class (`an array length computed by C++ from 'J', an 'eval' constant of the field's own class, is not supported`): inside its own body the class is incomplete. A note points at the constant; the fix-it moves it to module scope
+- an array length or generic value argument that calls an `eval fn` (or reads an `eval` constant computed by one) in a declaration's type, a field or a signature (`... is not yet supported in a declaration's type; write it inside a function body, or make the constant fold`); inside a function body it is accepted
+- a generic value parameter whose type is neither an integer nor an eval class (`<eval B: bool>`)
 - a generic record's field default that reads another field
+- an attribute applied to an expression, such as `@create T(args)` (`the expression attribute '@create' is not yet supported`)
+- building or matching a [pack-expanded variant](/docs/language/enums-adt/#variadic-enums) at a type that depends on a generic parameter, and a pack-expanded variant's field whose type is built from the pack (`e: *E`)
+- naming the panic result type `Panic<T, E...>` in source (`a panic result type cannot be named yet`): a panicking call's result is handled with `try` or propagated, not stored
+- keeping a panic result in a variable (`a stored panic result is not yet supported`), such as `var copy = e` for a bare `catch e`'s binding (re-panicking it with `panic e` is fine), and a function type whose panic set names a generic parameter
+- a call of a panicking operator (`a call of a panicking operator is not yet supported`)
+- a generic [`panic`](/docs/language/panic/) function (or one inside a generic type), a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside a generic function, a generator, or an `async` body
+- [`where` dispatch](/docs/language/where/) on a generic function, a `virtual` or `override` method, an `extend` member, an operator, a constructor, an out-of-line definition, a forward declaration, a generator, an `async` function, a variadic function, or an overload with a default argument (`'where' dispatch on a generic function is not yet supported`)
 
 It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot build.
 
@@ -373,6 +685,91 @@ enum W { Has { b: Box<i32> }, Empty }   // error SC116E
 > ```
 
 **Fix:** rewrite around the construct for now. See [Status](/docs/status/).
+
+---
+
+## Scripts
+
+The errors of [script mode](/docs/language/modules/#scripts): a file with top-level statements and no `fn main`.
+
+### `script variable '{x}' is read before the line that gives it a value has run`
+
+A top-level variable whose initializer is not a constant gets its value at its own line. Reading it in the top-level code above that line, or in its own initializer, reads a value that does not exist yet. A note points at the line.
+
+```kairo
+import std::io::println
+
+fn load() -> i32 { return 1 }
+
+println(f"{count}")      // error: read before its line
+var count = load()
+```
+
+**Fix:** move the read below the line, or give the variable a constant initializer.
+
+### `'{f}' reads script variable '{x}' before the line that gives it a value has run`
+
+A top-level call, made above `x`'s line, of a function in the file that reads `x` on every path. Notes point at the read and at the line. A function that reads it only on some path, or through another function, is not reported: that read is checked when it runs, and stops the program with `script variable '{x}' used before its line ran ({file}:{line})`.
+
+**Fix:** call the function after the line.
+
+### `this 'jump!' crosses the line that gives script variable '{x}' its value`
+
+A top-level `jump!` whose path passes over a line whose initializer runs there: forward, the initializer would be skipped while the reads after the label assume it ran; back, it would run again. Notes point at the line and at the label. (A `jump!` written by the user is also [SC116E](#sc116e-a-feature-is-not-yet-supported) for now.)
+
+### `a file with 'fn main' cannot also have top-level statements; 'main' is where the program starts`
+
+The statements would never run. A note points at `main`.
+
+**Fix:** move them into `main`, or delete `main` to make the file a script.
+
+### `a top-level statement runs only in the program's root file; this file is imported as a module`
+
+Only the file the program starts from runs top-level statements. An imported module, or a `.k` file included from C++, runs none.
+
+**Fix:** move the statement into a function, or into the file the program starts from.
+
+### `two script files in one program: '{a}' and '{b}' each run top-level statements as 'main'`
+
+Every command-line input may be a script, and each script is a `main`, so two in one link are two programs. Reported at the second script's first statement, with a note at the first's. Compiling them with `-c` and no link is not an error.
+
+### `a top-level 'return' gives the program's exit status, an integer; this value is a '{T}'`
+
+A top-level `return` returns from the script's `main`: bare it returns `0`, and a value must be an integer.
+
+### `'{x}' redefined`
+
+A name defined twice in one scope; at the top level that includes two bindings of one name, whatever keyword declares each (`static count` and `var count`). A note points at the first. When both are file-scope bindings, a fix-it renames the second to the first free `{x}2`, `{x}3`, ...; a duplicate field or local gets the error and the note only.
+
+---
+
+## Control Flow
+
+### SC003W: unreachable code
+
+Message: `unreachable code; the statement above always transfers control out of this block`
+
+A statement can never run because the one before it in the same block always leaves: a `return`, `break`, `continue`, `panic` or `jump!`; a call to a function that returns `!`; an `if` with an `else` whose every branch leaves; an exhaustive `match` whose every arm leaves; or an infinite `loop` / `while true` that no `break` exits.
+
+```kairo
+fn stop() -> ! { loop { } }
+
+fn f(c: bool) -> i32 {
+    if c { return 1 } else { return 2 }
+    return 3         // warning SC003W
+}
+
+fn g() -> i32 {
+    stop()
+    return 0         // warning SC003W
+}
+```
+
+One warning covers the whole dead run of statements, up to the end of the block or the next `label!` (a `jump!` target makes what follows it reachable again). A note points at the statement that leaves. A `return` inside a closure ends only the closure, so code after the closure is not affected. A `match` arm that can never match is reported separately, as SC121E.
+
+The top level of a [script](/docs/language/modules/#scripts) is a block too: code after a top-level `return` is reported. A declaration between the statements (a function, a type, a binding with a constant initializer) is never dead code and is left out of the warning and its fix-it; the dead code after it gets a warning of its own.
+
+**Fix:** delete the dead statements (the fix-it does), or move them above the statement that leaves. See [Control Flow](/docs/language/control-flow/).
 
 ---
 

@@ -38,7 +38,7 @@ Where Tether places a value's destruction depends on whether the destructor is o
 **Trivial destructors** (no observable side effect just memory to reclaim) run at **last use**. Tether places the `@destroy`/`@free` as early as the final use permits, since reclaiming memory after the last use is indistinguishable from reclaiming it at the scope brace:
 
 ```kairo
-var foo = @create SomeClass()    // trivial destructor
+var *foo = @create SomeClass()    // trivial destructor
 use(foo)
 // @destroy foo inserted here
 std::println(10)
@@ -48,7 +48,7 @@ std::println(10)
 
 ```kairo
 fn example() {
-    var cfg = @create Config(8080)    // side-effecting destructor
+    var *cfg = @create Config(8080)    // side-effecting destructor
     use(cfg)
     std::println(10)
 }
@@ -74,7 +74,7 @@ If the destructor has timing-sensitive side effects a flush, a lock release, a l
 ## What Tether Does Not Do
 
 - **Garbage collection.** No tracing, no mark-and-sweep, no runtime collector. Reference counting for `Shared` is the only runtime ownership cost, and it exists only where multiple ownership is required.
-- **Runtime borrow checking.** Aliasing is resolved at compile time. Tether does not insert runtime aliasing checks; it inserts bounds, epoch, and (for tainted/nullable residuals) access checks those are clause discharges, not borrow checks.
+- **Runtime borrow checking.** Aliasing is resolved at compile time. Tether does not insert runtime aliasing checks; it inserts bounds, epoch, and (for tainted residuals) access checks those are clause discharges, not borrow checks.
 - **Lifetime annotations.** No `'a`-style parameters, no lifetime polymorphism. Whole-program analysis infers concrete lifetimes from usage.
 - **Reference counting everywhere.** Single-owner pointers promote to `Unique` (no refcount); contained lifetimes are not promoted at all. Refcounting appears only under proven multiple ownership.
 - **Cross-language analysis.** C++ is opaque beyond the one-level heuristic on a visible body. Across the [FFI boundary](/docs/language/tether-internals/#cc-interop), Tether fails closed (taint inbound, epoch-freeze outbound) rather than guessing.
@@ -90,7 +90,7 @@ The whole system, in one table maps each clause's residual to its response:
 | bounds (range)                                   | hoisted/local check, both modes              | R    |
 | UAF (provenance intact)                          | epoch compare, both modes                    | R    |
 | UAF (provenance lost)                            | hard error                                   | N    |
-| nullability                                      | debug check / release error                  | P    |
+| nullability                                      | compile error, both modes                    | N    |
 | ownership escape (heap-promotable)               | debug promote / release error                | P    |
 | stack escape (heap-promotable)                   | debug heap-lift / release error              | P    |
 | stack escape (non-promotable)                    | hard error                                   | N    |

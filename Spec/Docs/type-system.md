@@ -197,11 +197,12 @@ Interface-satisfying types are not subtypes of the interface. [Interfaces](/docs
 
 ## The Never Type (`!`)
 
-`!` is the return type of functions that never return they [panic](/docs/language/panic/#panic-and-no-return-), loop forever, or call a no-return function:
+`!` is the return type of functions that never return: they crash, loop forever, or call a no-return function. A `-> !` function cannot [panic](/docs/language/panic/#panic-and-no-return-):
 
 ```kairo
-fn fatal(msg: string) panic -> ! {
-    panic std::Error::Runtime(msg)
+fn fatal(msg: string) -> ! {
+    std::println(msg)
+    crash!()
 }
 ```
 
@@ -242,7 +243,7 @@ See [Primitives](/docs/language/primitives/#void) for details.
 
 ## Nullable Types in the Type System
 
-`T?` is syntactic sugar for the compiler-intrinsic `Nullable<T>` tagged union. `Nullable` is not directly usable as a type name use the `?` suffix:
+`T?` is syntactic sugar for the built-in `Nullable<T>`, which holds a `T` or `null` (the one value of the empty type `null_t`). It is constructed only from a `T` or from `null`, which is what the implicit conversions `T` to `T?` and `null` to `T?` do. `Nullable` is not directly usable as a type name use the `?` suffix:
 
 ```kairo
 var x: i32? = 42
@@ -294,10 +295,15 @@ var add: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 var log: fn(string) -> void = std::println
 ```
 
-The [`panic` modifier](/docs/language/panic/#the-panic-specifier) can appear on function types to indicate the function may panic. Callers must handle the panic via `try`/`catch`:
+The [`panic` modifier](/docs/language/panic/#the-panic-specifier) can appear on function types to indicate the function may panic. On a function type it must name the panic set, `panic(E1, E2)`: a type has no body to infer the set from. Callers must handle the panic via `try`/`catch`:
 
 ```kairo
-var risky: fn(i32) panic -> i32 = some_panicking_function
+struct ParseError {
+    var input: string
+    fn op panic (const self) -> string { return f"cannot parse {self.input}" }
+}
+
+var risky: fn(i32) panic(ParseError) -> i32 = some_panicking_function
 
 try {
     risky(42)
@@ -305,6 +311,8 @@ try {
     // handle
 }
 ```
+
+A function converts to a panicking function type when its own set is a subset of the type's; a function that doesn't panic converts to any of them. See [Declared Panic Sets](/docs/language/panic/#declared-panic-sets).
 
 No other modifiers (`const`, `async`, `eval`, `unsafe`) are valid on function pointer types. `const` is a property of methods (it constrains `self`), not of the function signature. `unsafe` selects a different overload namespace, not a different type. `async` and `eval` require named function declarations.
 
@@ -499,7 +507,7 @@ var z: typeof x = 10                // type position: resolves to i32?
 
 // Function types
 var f: fn(i32) -> i32 = fn (x: i32) -> i32 { return x * 2 }
-var g: fn(i32) panic -> i32 = risky_fn
+var g: fn(i32) panic(ParseError) -> i32 = risky_fn
 
 // Collections
 var vec: [i32] = [1, 2, 3]

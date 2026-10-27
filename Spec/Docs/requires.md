@@ -171,7 +171,7 @@ eval fn is_power_of_two(n: i32) -> bool {
     return n > 0 && (n & (n - 1)) == 0
 }
 
-fn <const N: i32> clear_aligned(@inout buf: [u8; N])
+fn <eval N: i32> clear_aligned(@inout buf: [u8; N])
   requires is_power_of_two(N) {
     for i in 0..N { buf[i] = 0 }
 }
@@ -191,11 +191,16 @@ See [Eval](/docs/language/eval/) for compile-time evaluation rules.
 `requires` and [`panic`](/docs/language/panic/) serve different purposes and can coexist. `requires` filters invalid inputs before the function body executes. `panic` handles valid inputs that produce errors during processing:
 
 ```kairo
+struct PortRange {
+    var port: i32
+    fn op panic (const self) -> string { return f"port {self.port} out of range" }
+}
+
 fn parse_port(input: string) panic -> i32
   requires input.length() > 0 {
     var port = std::parse<i32>(input)
     if port < 0 || port > 65535 {
-        panic std::Error::Runtime("port out of range")
+        panic PortRange { port: port }
     }
     return port
 }

@@ -63,7 +63,7 @@ Attributes can take additional arguments beyond the implicit node parameter:
 ```kairo
 macro @repeat(block: *AST::Block, times: i32) {
     var original = block->clone()
-    var expanded = @create AST::Block()
+    var *expanded = @create AST::Block()
 
     for i in 0..times {
         expanded->body.append(original.clone())
@@ -159,6 +159,10 @@ struct SimdData { ... }
 var old_config: Config
 ```
 
+An attribute can also be applied to an expression: `@name operand`, or `@name(args) operand`. The operand is one unary expression, including its calls, member accesses and initializers, so `@create Config(8080)` applies to the whole constructor call. Binary operators bind looser (`@a x + 1` is `(@a x) + 1`), and a member access on the result needs parentheses: `(@create Config(8080))->port`. At the start of a statement, an `@name` is an expression attribute when an expression follows it on the same line (`@destroy p`, `@create Config(8080)`); it attaches to the statement or declaration instead when what follows is a declaration (`@deprecated var`, `@copy fn`), a keyword statement (`@likely if`), a block (`@repeat(3) { ... }`), a loop label, or a line break.
+
+> Expression attributes parse, but none has a meaning yet: `@create` and every other one are rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported). See [Status](/docs/status/).
+
 ---
 
 ## Built-in Attributes
@@ -195,27 +199,38 @@ See [Control Flow](/docs/language/control-flow/#branch-hints) for branch predict
 
 | Attribute | Description | Applies to |
 |---|---|---|
-| `@no_unwind` | Promise that the function never unwinds | Functions |
+| `@unwind` | Let a C++ exception pass through this function | Functions, methods |
+| `@no_unwind` | Keep the function `noexcept`, even under `-funwind` | Functions, methods |
 
-`@no_unwind` marks the function's generated C++ declaration and definition `noexcept`. That is all it does: nothing checks the promise. If a `@no_unwind` function does unwind, for example because a C++ exception passes through it, the program terminates (`std::terminate`).
+Every Kairo function is `noexcept` in its generated C++ declaration and definition: a C++ exception that reaches a Kairo frame terminates the program (`std::terminate`). `@unwind` removes the `noexcept` from one function, so a C++ exception thrown by a C++ callee unwinds through it to the next frame up. The `-funwind` flag removes it from every Kairo function, closures included; `@no_unwind` keeps it on one function even then. Marking one function both is an error.
 
 ```kairo
-@no_unwind
-fn add(a: i32, b: i32) -> i32 { return a + b }   // C++: int add(int a, int b) noexcept
+fn add(a: i32, b: i32) -> i32 { return a + b }        // C++: int add(int a, int b) noexcept
+@unwind fn relay(x: i32) -> i32 { return cxx_may_throw(x) }   // C++: int relay(int x)
 ```
 
-Writing `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
+Writing `@unwind` or `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
 
 ```kairo
 class Counter {
     var n: i32
-    @no_unwind fn get(const self) -> i32     // declared here...
+    @unwind fn get(const self) -> i32     // declared here...
 }
 
-fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition is noexcept too
+fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition is not noexcept either
 ```
 
+A closure cannot carry `@unwind` yet: written before a closure, it is an expression attribute, which is not supported. A closure follows `-funwind`.
+
 See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) for how C++ exceptions move through Kairo code.
+
+### Enums
+
+| Attribute | Description | Applies to |
+|---|---|---|
+| `@open` | The enum may hold any value of its underlying type: no checked `as`, no niche | Plain enums |
+
+A plain enum is closed by default; see [Closed and open enums](/docs/language/enums-plain/#closed-and-open-enums). `@open` on anything else is an error.
 
 ### Conversions
 

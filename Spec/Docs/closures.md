@@ -151,10 +151,16 @@ identity("hello")   // string
 
 Closures support the `panic`, `volatile`, and `async` [modifiers](/docs/language/functions-declarations/#function-modifiers). Modifiers appear after the capture list (if present) and before the return type. Order between modifiers does not matter. A closure can also use `-> !` to indicate it [never returns](/docs/language/functions/#no-return-).
 
+A panicking closure must **declare its panic set**, `panic(E1, E2)`: a bare `panic` on a closure is an error whose fix-it writes the set inferred from the body. The set is then visible where the closure is written, and it matches the [function type](/docs/language/functions/#function-pointers) the closure is stored in, which needs a declared set too.
+
 ```kairo
-var risky = fn () panic -> i32 {
+struct Failed {
+    fn op panic (const self) -> string { return "failed" }
+}
+
+var risky = fn () panic(Failed) -> i32 {
     if bad_condition {
-        panic std::Error::Runtime("failed")
+        panic Failed {}
     }
     return 42
 }
@@ -163,17 +169,20 @@ var side_effect = fn () volatile {}
 
 var background = fn () async {}
 
-var all_three = fn () volatile async panic -> i32 {
+var all_three = fn () volatile async panic(Failed) -> i32 {
     return 100
 }
 
-var divergent = fn () panic -> ! {
-    panic std::Error::Runtime("always panics")
+var divergent = fn () -> ! {
+    crash!()   // never returns; `panic` and `-> !` cannot be combined
 }
 ```
 
 > [!NOTE]
 > Closures cannot be `eval`, `const`, `unsafe`, `virtual`, `override`, `inline`, or `final`.
+
+> [!NOTE]
+> An `async` closure that is also `panic`, like `all_three`, is not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)). See [Status](/docs/status/#not-compiled-yet).
 
 See [Panic](/docs/language/panic/) for the full panic model.
 
@@ -311,8 +320,8 @@ var id = fn <T>(x: T) -> T { return x }
 var nested = fn () = fn (x: i32) -> i32 = x * 2
 
 // Modifiers
-var risky = fn () panic -> i32 { return 42 }
-var divergent = fn () panic -> ! { panic std::Error::Runtime("fatal") }
+var risky = fn () panic(Failed) -> i32 { return 42 }
+var divergent = fn () -> ! { crash!() }
 
 // Passing closures
 fn apply(f: fn(i32) -> i32, x: i32) -> i32 = f(x)
