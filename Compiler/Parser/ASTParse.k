@@ -134,6 +134,10 @@ class ASTParse
     /// The last closure signature's declared `panic(E1, E2)` set, empty when
     /// it had none: handed over the same way as closure_cap_range.
     pub var closure_panic_set: FrozenList::<*Type>;
+    /// The same signature's `panic` specifier (set included) and its
+    /// parameter list's `)`, invalid when absent: fix-it anchors.
+    pub var closure_panic_range: SourceRange = SourceRange::invalid();
+    pub var closure_params_end:  SourceRange = SourceRange::invalid();
     /// the module whose body holds the `eval if` / `eval for` being parsed
     /// (DeclParse::_parse_eval_stmt_decl). Declarations in its branches are
     /// branch-local, so StmtParse::_attach_local_decl must not add them to

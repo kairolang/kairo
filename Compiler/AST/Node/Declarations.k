@@ -192,6 +192,15 @@ enum FnBodyKind derives u8 {
     Virtual,    ///< `= virtual` pure virtual (abstract).
 }
 
+/// Whether a function's or closure's final panic set (`panic_eff`) can be
+/// read yet (PANIC.md §2.2: sets are final only past the whole-program
+/// barrier).
+enum PanicSetState derives u8 {
+    None = 0,   ///< not solved yet (or the function never reached the solve).
+    Final,      ///< panic_eff is the set; empty means it does not panic.
+    Unknown,    ///< its TU stopped before typing finished: say nothing about it.
+}
+
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
 enum TransferKind derives u8 {
     NotTransfer = 0, ///< not a transfer ctor.
@@ -521,6 +530,22 @@ class FunctionDecl
     /// non-empty list is exactly "the set was declared". Nothing checks it
     /// yet (P3/P4); it is recorded for them.
     pub var panic_set:     FrozenList::<*Type>;
+    /// The `panic` specifier as written, its set's `)` included; invalid
+    /// when there is none. `params_end` is the parameter list's `)`. Both
+    /// are the parser's, for fix-its: one removes the specifier, the other
+    /// inserts one (PanicEffectChecking).
+    pub var panic_range:   SourceRange;
+    pub var params_end:    SourceRange;
+    /// The function's FINAL panic set (PANIC.md §2): canonical, deduplicated,
+    /// in the canonical order (EffectPropagation::canonical_set). The
+    /// declared set canonicalized, or the inferred one. Empty for a function
+    /// that does not panic. `panic_state` says whether it can be read:
+    /// PanicSetState::Final once EffectPropagation solved it, Unknown when
+    /// the function's TU stopped before typing finished (a call to it then
+    /// reports nothing). One writer: EffectPropagation, onto every link of
+    /// the redeclaration chain, as no_unwind is.
+    pub var panic_eff:     FrozenList::<*Type>;
+    pub var panic_state:   PanicSetState = PanicSetState::None;
     pub var body_kind:     FnBodyKind = FnBodyKind::None;
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.
@@ -705,6 +730,12 @@ class ClosureExpr derives Expr {
     pub var modifiers:   FnModifier = FnModifier::None;
     /// `fn (x: i32) panic(E) -> T`: the declared set, as on FunctionDecl.
     pub var panic_set:   FrozenList::<*Type>;
+    /// As on FunctionDecl: the specifier as written and the parameter
+    /// list's `)`, for fix-its; the final set and whether it is readable.
+    pub var panic_range: SourceRange;
+    pub var params_end:  SourceRange;
+    pub var panic_eff:   FrozenList::<*Type>;
+    pub var panic_state: PanicSetState = PanicSetState::None;
     pub var is_variadic:         bool = false; ///< trailing `...name: T` pack param.
     pub var is_noreturn:         bool = false;
     pub var explicit_no_capture: bool = false;

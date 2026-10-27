@@ -1441,6 +1441,8 @@ class <T> DeclParse {
         var params: std::StackBuf::<*ParamDecl, 4>;
         self._parse_param_list(&params);
         fd->params.from_buf(params.data(), params.size(), dyn()->ctx);
+        // The list's `)`, where a fix-it inserts a ` panic` specifier.
+        if dyn()->prev_ptr()->kind == TokenKind::OpRParen { fd->params_end = dyn()->prev_ptr()->range; }
         // DERIVED, never written directly: the parameter list is the truth
         // about which parameter is the pack (ParamDecl::is_pack), and a flag on
         // the function cannot say which one it is.
@@ -2096,6 +2098,7 @@ class <T> DeclParse {
             else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
             else if dyn()->check(TokenKind::KwPanic)    {
                 fd->modifiers |= FnModifier::IsPanic;
+                var pk = dyn()->current_ptr()->range;
                 dyn()->advance();
                 // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
                 // has the disambiguation rule).
@@ -2104,6 +2107,9 @@ class <T> DeclParse {
                     dyn()->parse_panic_set(&pset);
                     fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
                 }
+                // The specifier as written, its set included: what a fix-it
+                // removes or rewrites.
+                fd->panic_range = pk | dyn()->prev_ptr()->range;
             }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
@@ -2162,6 +2168,7 @@ class <T> DeclParse {
             else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
             else if dyn()->check(TokenKind::KwPanic)    {
                 fd->modifiers |= FnModifier::IsPanic;
+                var pk = dyn()->current_ptr()->range;
                 dyn()->advance();
                 // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
                 // has the disambiguation rule).
@@ -2170,6 +2177,9 @@ class <T> DeclParse {
                     dyn()->parse_panic_set(&pset);
                     fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
                 }
+                // The specifier as written, its set included: what a fix-it
+                // removes or rewrites.
+                fd->panic_range = pk | dyn()->prev_ptr()->range;
             }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
@@ -4626,8 +4636,10 @@ class <T> DeclParse {
         }
 
         // parameter list: `(x: i32, y: i32)`
+        dyn()->closure_params_end = SourceRange::invalid();
         if dyn()->check(TokenKind::OpLParen) {
             self._parse_param_list(&params);
+            if dyn()->prev_ptr()->kind == TokenKind::OpRParen { dyn()->closure_params_end = dyn()->prev_ptr()->range; }
         }
 
         // Recovery: If parameter list parsing exited unexpectedly or left corrupt tokens,
@@ -4660,6 +4672,7 @@ class <T> DeclParse {
         // trailing modifiers: const / unsafe / async / eval
         var modifiers = FnModifier::None;
         dyn()->closure_panic_set = FrozenList::<*Type>::empty();
+        dyn()->closure_panic_range = SourceRange::invalid();
         while true {
             if dyn()->check(TokenKind::KwConst) {
                 var r = dyn()->current_ptr()->range;
@@ -4705,12 +4718,14 @@ class <T> DeclParse {
 
             else if dyn()->check(TokenKind::KwPanic)    {
                 modifiers |= FnModifier::IsPanic;
+                var pk = dyn()->current_ptr()->range;
                 dyn()->advance();
                 if dyn()->check(TokenKind::OpLParen) {
                     var pset: std::StackBuf::<*Type, 4>;
                     dyn()->parse_panic_set(&pset);
                     dyn()->closure_panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
                 }
+                dyn()->closure_panic_range = pk | dyn()->prev_ptr()->range;
             }
             else if dyn()->check(TokenKind::KwVolatile) { modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { modifiers |= FnModifier::IsAsync;    dyn()->advance(); }

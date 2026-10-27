@@ -314,6 +314,12 @@ class ContinueStmt derives Stmt {
 ///
 class PanicStmt derives Stmt {
     pub var payload: *Expr;
+    /// `panic e` of a catch arm's binding: a re-panic of the caught error,
+    /// which keeps its ORIGINAL site (PANIC.md §3.4) -- PanicLowering
+    /// forwards word 0 as it is instead of writing a new site. The arm's
+    /// binding decl; null for a fresh panic. One writer:
+    /// PanicEffectChecking.
+    pub var repanic: *Decl = &null;
 
     static fn create(ctx: *ASTContext, range: SourceRange, payload: *Expr) -> *PanicStmt {
         var node     = ctx->alloc::<PanicStmt>();

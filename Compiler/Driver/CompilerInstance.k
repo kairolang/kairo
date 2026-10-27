@@ -146,6 +146,7 @@ import Sema::Type::PanicSets::*;
 import Sema::Sema::*;
 import Sema::SemaDump::*;
 import Sema::SemaContext::*;
+import Sema::Check::EffectPropagation::*;
 import AST::Context::ImportOverlay::*;
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::ClangJobs::*;
@@ -264,6 +265,7 @@ class FrontendAction {
     priv fn _sema(self)        -> bool;
     priv fn _attach_ffi_edges(self, tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet);
     priv fn _import_order(self) -> vec::<u32>;
+    priv fn _sema_group(self, fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions);
     priv fn _codegen(self)     -> bool;
     priv fn _tu_is_empty(self, fid: u32) -> bool;
     priv fn _dump_tokens(self);
@@ -3562,6 +3564,191 @@ fn FrontendAction::_parse() -> bool {
 
 /// Semantic analysis stage: runs the pipeline to its current end (N) over
 /// every fid of this TU's graph, then honors the sema dump flags.
+/// One group of the sema loop (FrontendAction::_sema): every Kairo TU of
+/// \p fids to SemaPhase::Typed, the group's panic sets solved, then each
+/// on to Checked, the lowerings and mono, in \p fids's order.
+///
+/// The group's Semas live until the second pass is done, at addresses that
+/// never move: Sema keeps `&self.sc` (and the context `&self.lifecycle`)
+/// from its constructor on, so a growing vector of them by value would
+/// break both. The arena runs their destructors when the group ends, which
+/// for a group of one is where the loop's `sem` used to die.
+fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions) {
+    var sema_arena: llvm::SpecificBumpPtrAllocator::<Sema>;
+    var sems = vec::<*Sema>();
+    for var i: usize = 0; i < fids->size(); ++i {
+        var fid = (*fids)[i];
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null { continue; }
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null { continue; }
+        if tu->is_foreign { continue; }   // decls came from clang, already resolved; nothing to run.
+        var sem = sema_arena.Allocate(1);
+        libcxx::construct_at(sem, ctx, self._global_scope);
+        sem->sc.foreign  = self._ci->foreign_instantiate();   // before any pass captures &sem->sc.
+        sem->sc.builtins = self._ci->builtins();
+        sem->sc.effects  = reinterpret_cast::<*void>(effects);
+        // The file this action was asked to compile is a root, and may be a
+        // script (SCRIPT.md 1.1); a fid reached through its imports, or a
+        // `.k` a C++ input includes (discovered), is a module, whose
+        // top-level statement nothing would run. The same answer for kcc and
+        // every --emit mode: it depends on the command line, not the output.
+        sem->sc.script_root = (fid == self._file_id) && (!self.discovered);
+        { var _ts = TimeRegion("Sema"); sem->run_to(SemaPhase::Typed); }
+        sems.push_back(sem);
+    }
+
+    // The barrier. A TU that stopped short of Typed (a hard stop in I/N/T)
+    // is not registered: its bodies were never typed, and a call into it
+    // says nothing about panics (EffectPropagation, "a set that cannot be
+    // known"). A TU that reached Typed with errors is: its poisoned nodes
+    // are skipped like everywhere else.
+    {
+        var _te = TimeRegion("PanicSets");
+        effects->reset();
+        for var i: usize = 0; i < sems.size(); ++i {
+            if static_cast::<u8>(sems[i]->sc.phase) >= static_cast::<u8>(SemaPhase::Typed) {
+                effects->add_tu(&(sems[i]->sc));
+            }
+        }
+        effects->solve();
+    }
+
+    for var i: usize = 0; i < sems.size(); ++i {
+        var sem = sems[i];
+        var ctx: *ASTContext = sem->sc.ctx;
+        // Through L, not just the checks: OperatorLowering rewrites every user
+        // operator into the call it is, and codegen ICEs on any operator node
+        // that reaches it. --type-check-only stops here too, so the lowering
+        // schedule runs under it and is exercised by the sema tests.
+        // The dump is PINNED at Checked: X's output is what --print-sema is
+        // about, and a lowering replaces the very nodes it names (a list
+        // literal becomes a ctor call, a cast becomes a construction). Run
+        // the rest afterwards; --print-lowered is the same dump on the far
+        // side, for asserting what a lowering produced.
+        // Splitting the run must not lose the hard stop: a stage that
+        // returned false has already halted the pipeline, and re-entering
+        // would carry on past it -- running the checks and the lowerings over
+        // a tree whose names or types never resolved, which is cascade noise
+        // by the schedule's own policy (Sema.k::_hard_stop). A TU that
+        // stopped before Typed is not continued at all; one that reached it
+        // runs the late checks whatever errors it had, as one run did.
+        var reached = false;
+        if static_cast::<u8>(sem->sc.phase) >= static_cast::<u8>(SemaPhase::Typed) {
+            var _ts = TimeRegion("Sema");
+            reached = sem->run_to(SemaPhase::Checked);
+        }
+        if print_sema { SemaDump(&(sem->sc), sema_opts).run(); }
+        // Two continuations instead of one run(), only so the timing tree can
+        // tell lowering from mono. run_to is re-entrant and _done() is pure,
+        // so stopping at Lowered and resuming is the same schedule.
+        if reached {
+            { var _tl = TimeRegion("Lower"); sem->run_to(SemaPhase::Lowered); }
+            { var _tm = TimeRegion("Mono");  sem->run(); }
+        }
+        ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
+        // Kept past `sem`: the batch rejects two scripts in one link.
+        if sem->sc.script_at.is_valid() { self.result.script_at = sem->sc.script_at; }
+
+        // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
+        // live on this fid's SemaContext and die with the arena.
+        if print_lowered {
+            std::print(f"-- lowered: {self.path.full_path()} --");
+            SemaDump(&(sem->sc), sema_opts).run();
+        }
+    }
+}
+
+/// The import graph of one action cut into the groups the sema loop runs
+/// together: its strongly connected components, each placed after every
+/// component it imports, in the order the loop already used (`order`,
+/// _import_order) wherever that order holds. With no import cycle every
+/// component is one fid and the groups are `order` itself.
+class ImportGroups {
+    pub var fids:   vec::<u32>;     ///< every fid, group by group.
+    pub var starts: vec::<usize>;   ///< group g is fids[starts[g] .. starts[g + 1]).
+    priv var _order: vec::<u32>;
+    priv var _adj:   vec::<usize>;  ///< the imports of order[i], as indices: _adj[_adj_at[i] .. _adj_at[i + 1]).
+    priv var _adj_at: vec::<usize>;
+    priv var _reach: vec::<bool>;   ///< n*n: order[i] reaches order[j] through imports.
+    priv var _done:  vec::<bool>;
+
+    fn ImportGroups(self) { }
+
+    fn build(self, order: *vec::<u32>, gs: *GlobalDisambigTable) {
+        var n = order->size();
+        self._order = *order;
+        // Index by fid, WIDENED: an edge's target can be u32(-1), DenseMap's
+        // empty key (_import_order has the same note).
+        var at = llvm::DenseMap::<u64, u64>();
+        for var i: usize = 0; i < n; ++i { at[static_cast::<u64>((*order)[i])] = static_cast::<u64>(i); }
+        for var i: usize = 0; i < n; ++i {
+            self._adj_at.push_back(self._adj.size());
+            var ctx = gs->get_context((*order)[i]);
+            var tu: *TranslationUnit = &null;
+            if ctx != &null { tu = reinterpret_cast::<*TranslationUnit>(ctx->tu); }
+            if tu == &null { continue; }
+            for var j: usize = 0; j < tu->import_edges.size(); ++j {
+                var e = tu->import_edges.get(j);
+                if e == &null { continue; }
+                var it = at.find(static_cast::<u64>(e->target_fid));
+                if it == at.end() { continue; }
+                var k = static_cast::<usize>(it->second);
+                if k != i { self._adj.push_back(k); }
+            }
+        }
+        self._adj_at.push_back(self._adj.size());
+
+        // Reachability by one walk from each fid: graphs are small, and a
+        // component is then "reaches and is reached by".
+        for var i: usize = 0; i < n * n; ++i { self._reach.push_back(false); }
+        for var i: usize = 0; i < n; ++i {
+            var stack = vec::<usize>();
+            stack.push_back(i);
+            while stack.size() > 0 {
+                var v = stack[stack.size() - 1];
+                stack.pop_back();
+                for var a: usize = self._adj_at[v]; a < self._adj_at[v + 1]; ++a {
+                    var w = self._adj[a];
+                    if self._reach[i * n + w] { continue; }
+                    self._reach[i * n + w] = true;
+                    stack.push_back(w);
+                }
+            }
+        }
+        for var i: usize = 0; i < n; ++i { self._done.push_back(false); }
+        for var i: usize = 0; i < n; ++i { self._place(i); }
+        self.starts.push_back(self.fids.size());
+    }
+
+    priv fn _same(self, i: usize, j: usize) -> bool {
+        if i == j { return true; }
+        var n = self._order.size();
+        return self._reach[i * n + j] && self._reach[j * n + i];
+    }
+
+    /// Place \p i's component after every component it imports. Its members
+    /// are marked first: no import of another component can lead back into
+    /// this one (it would be in it), so the recursion ends.
+    priv fn _place(self, i: usize) {
+        if self._done[i] { return; }
+        var n = self._order.size();
+        var members = vec::<usize>();
+        for var j: usize = 0; j < n; ++j {
+            if self._same(i, j) { members.push_back(j); self._done[j] = true; }
+        }
+        for var m: usize = 0; m < members.size(); ++m {
+            var v = members[m];
+            for var a: usize = self._adj_at[v]; a < self._adj_at[v + 1]; ++a {
+                var w = self._adj[a];
+                if !self._same(i, w) { self._place(w); }
+            }
+        }
+        self.starts.push_back(self.fids.size());
+        for var m: usize = 0; m < members.size(); ++m { self.fids.push_back(self._order[members[m]]); }
+    }
+}
+
 fn FrontendAction::_sema() -> bool {
     // Timed per piece, not as one region: this function also runs the FFI
     // header join, the lowerings and mono, none of which is semantic
@@ -3759,56 +3946,25 @@ fn FrontendAction::_sema() -> bool {
     // lowering / M1 / M2 stubs are not reached.
     var n     = self._fids.size();
     var order = self._import_order();
-    for var i: usize = 0; i < order.size(); ++i {
-        var fid = order[i];
-        var ctx = self._global_scope->get_context(fid);
-        if ctx == &null { continue; }
-        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-        if tu == &null { continue; }
-        if tu->is_foreign { continue; }   // decls came from clang, already resolved; nothing to run.
-        var sem = Sema(ctx, self._global_scope);
-        sem.sc.foreign  = self._ci->foreign_instantiate();   // before any pass captures &sem.sc.
-        sem.sc.builtins = self._ci->builtins();
-        // The file this action was asked to compile is a root, and may be a
-        // script (SCRIPT.md 1.1); a fid reached through its imports, or a
-        // `.k` a C++ input includes (discovered), is a module, whose
-        // top-level statement nothing would run. The same answer for kcc and
-        // every --emit mode: it depends on the command line, not the output.
-        sem.sc.script_root = (fid == self._file_id) && (!self.discovered);
-        // Through L, not just the checks: OperatorLowering rewrites every user
-        // operator into the call it is, and codegen ICEs on any operator node
-        // that reaches it. --type-check-only stops here too, so the lowering
-        // schedule runs under it and is exercised by the sema tests.
-        // The dump is PINNED at Checked: X's output is what --print-sema is
-        // about, and a lowering replaces the very nodes it names (a list
-        // literal becomes a ctor call, a cast becomes a construction). Run
-        // the rest afterwards; --print-lowered is the same dump on the far
-        // side, for asserting what a lowering produced.
-        // Splitting the run must not lose the hard stop: a stage that
-        // returned false has already halted the pipeline, and re-entering
-        // would carry on past it -- running the checks and the lowerings over
-        // a tree whose names or types never resolved, which is cascade noise
-        // by the schedule's own policy (Sema.k::_hard_stop).
-        var reached = false;
-        { var _ts = TimeRegion("Sema"); reached = sem.run_to(SemaPhase::Checked); }
-        if fe.print_sema { SemaDump(&(sem.sc), sema_opts).run(); }
-        // Two continuations instead of one run(), only so the timing tree can
-        // tell lowering from mono. run_to is re-entrant and _done() is pure,
-        // so stopping at Lowered and resuming is the same schedule.
-        if reached {
-            { var _tl = TimeRegion("Lower"); sem.run_to(SemaPhase::Lowered); }
-            { var _tm = TimeRegion("Mono");  sem.run(); }
-        }
-        ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
-        // Kept past `sem`: the batch rejects two scripts in one link.
-        if sem.sc.script_at.is_valid() { self.result.script_at = sem.sc.script_at; }
 
-        // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
-        // live on this fid's SemaContext and die with `sem` at loop exit.
-        if fe.print_lowered {
-            std::print(f"-- lowered: {self.path.full_path()} --");
-            SemaDump(&(sem.sc), sema_opts).run();
-        }
+    // The panic-set barrier (PANIC.md §2.2, RESOLUTION.md "The Typed
+    // barrier"). A set is the union of its callees' sets, and a callee is
+    // only ever in the caller's import closure, so a TU's sets are final
+    // once every TU it reaches through imports is typed. In import order
+    // that holds for free -- except inside an import CYCLE (a.k and b.k
+    // importing each other type-check today), which has no order in which
+    // every callee is finished first. So the graph runs in groups, one per
+    // strongly connected component of the import graph: every TU of a group
+    // goes to SemaPhase::Typed, the group's sets are solved at once, and
+    // then each goes on. A group is one TU everywhere there is no cycle, and
+    // that is exactly the loop as it was.
+    var groups = ImportGroups();
+    groups.build(&order, self._global_scope);
+    var effects: EffectTable;
+    for var g: usize = 0; g + 1 < groups.starts.size(); ++g {
+        var members = vec::<u32>();
+        for var k: usize = groups.starts[g]; k < groups.starts[g + 1]; ++k { members.push_back(groups.fids[k]); }
+        self._sema_group(&members, &effects, fe.print_sema, fe.print_lowered, sema_opts);
     }
 
     if fe.print_imports { self._dump_overlays(); }

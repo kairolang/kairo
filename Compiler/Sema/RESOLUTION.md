@@ -8,8 +8,40 @@ change the loop.
 Pipeline, as scheduled by `Sema.k`:
 
     P -> I -> E -> V -> N -> T (TypeResolve, RedeclMerge, ChainBinding)
-      -> C (ConstraintExtraction, TypeCycleCheck, ExprTyper, ShadowCheck, ...)
+      -> C (ConstraintExtraction, TypeCycleCheck, ExprTyper, ShadowCheck,
+            ... ConformanceChecking)                       => Typed
+      == the panic-set barrier: every TU of the import cycle (one TU when
+         there is none) is Typed, then EffectPropagation solves its sets ==
+      -> C (PanicEffectChecking, EvalUsage, FeatureGate, ...) => Checked
       -> L -> M1 -> M2
+
+**The Typed barrier** is the one place a TU waits for others (PANIC.md
+§2.2: every TU's typing finishes before any panic set is final). A set is
+the union of what a body raises and what its callees leave, and a callee
+is always in the caller's import closure (an override's or a conformer's
+set is bounded by the base's or the requirement's DECLARED set, P4), so a
+TU's sets are final once every TU it reaches through imports is typed.
+`CompilerInstance::_sema` therefore runs the graph in groups, one per
+strongly connected component of the import graph (`ImportGroups`), each
+after every group it imports, in the import order wherever that order
+holds: every TU of a group goes to `SemaPhase::Typed` (through
+ConformanceChecking), the build-wide `EffectTable` (Sema/Check/
+EffectPropagation.k) registers the group's TUs that reached Typed and
+solves every inferred set of the group to one fixpoint (§2.5), and then
+each TU of the group goes on -- the late checks, `--print-sema`, the
+lowerings, mono, the diagnostic drain. With no import cycle every group is
+one TU and this is the one-TU-at-a-time loop it always was: a TU's lowering
+still runs before the next TU is typed (NullTestLowering, for one, reads
+the Nullable layout only once its TU has run EnumLayoutLowering). Only an
+import cycle -- which has no order in which every callee is finished
+first -- holds several TUs at Typed together; their Semas live until the
+group ends, each at a fixed address (an arena: Sema keeps `&self.sc` from
+its constructor on). Today the dependency scan drops a cyclic pair of user
+files altogether (TICKETS), so a group of more than one TU does not occur
+yet. A TU that stopped before Typed (a hard stop in I/N/T) is neither
+registered nor continued; a call into it says nothing about panics. A run
+with no driver table (`sc->effects` null) solves its own TU in
+PanicEffectChecking, reading other TUs' sets as they were left.
 
 **The dumps are pinned to phases, not to the end of the run.**
 `--print-sema` dumps after `run_to(Checked)` -- X's output, before any
@@ -263,9 +295,8 @@ What T decides:
   generic parameter of the function is in scope). On a `fn` type they are
   components (`_component_ok`): a poisoned element poisons the type. They
   are NOT in the `fn` canonical key until P4 (fn conversion by subset), so
-  two `fn` types that differ only in their sets are one type today. Nothing
-  else reads the set yet; whether an element can be panicked at all is
-  PanicEffectChecking's (P3).
+  two `fn` types that differ only in their sets are one type today.
+  Whether an element can be panicked at all is PanicEffectChecking's.
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 
@@ -462,7 +493,8 @@ and T's types; an enum it rejects is poisoned), `ExprTyper` (§2.9), `ValueCateg
 `ReturnPathCheck`, `ControlFlowAnalysis`, JumpLabelCheck's script rule,
 `WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
 `MoveCheck`, `InitCheck`,
-`CtorInitCheck`, `ConformanceChecking`, `EvalUsageChecking` (EVAL.md §6:
+`CtorInitCheck`, `ConformanceChecking` -- Typed, the panic-set barrier
+(top of this file) -- `PanicEffectChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
 callee bindings), `FeatureGateCheck`, `FlagGates`,
 `PatternCompilation`. (`ConstraintExtraction` runs in T, before
@@ -557,6 +589,30 @@ its special members from those facts), and an initializer on an eval or
 array-typed field (FieldInitLowering lowers every other one), and a
 generic closure (`fn <T>(x: T)`: X types neither its parameters nor a
 call of it). A gate is removed in the commit that lands its lowering.
+
+`PanicEffectChecking` [PARTIAL, PANIC.md P3-P5] reads the sets the
+barrier solved (EffectPropagation: one PanicWalk per body, a fixpoint over
+every bare-`panic` function and closure of the graph) and walks each body
+again keeping its sites. Each site's leftover (what no enclosing `try`
+arm discharges) must be in its body's set: a body with no `panic` lets
+nothing leave (SC001E naming every unhandled type, with the edits "mark it
+`panic`" and "wrap the call in `try ... catch => crash!()`"); a declared
+`panic(E1, E2)` lets only those leave (SC001E, edit: add the type to the
+list); `main` and a script's top level let nothing leave and cannot be
+`panic`; a field's or parameter's default lets nothing leave; a global's
+or static field's initializer holds no panicking site and no `try`
+(§4.5). A call is anything X resolved to a function: a call, a
+constructor, a user operator (`resolved_op`), a `for` loop's `op in`. A
+set that cannot be known (a callee in a fid that stopped before Typed, an
+undefined bare-`panic` prototype, a gated callee) adds nothing. Also: `panic`
+with `-> !`; `panic` on what runs with no call written (a destructor, a
+transfer or default constructor, an `@implicit` conversion, `op panic`);
+each panicked, declared or caught type must be a movable, complete value
+type (§1.5); and SC116E for a generic, generator or `async` `panic`
+function or closure and for every panicking site in such a body. It
+stamps `PanicStmt::repanic` on a `panic e` of a catch binding (§3.4).
+`op panic`'s own signature (`const self`, `-> string`) is
+OperatorSignatureCheck's, beside the other operator rules.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
 value-returning body can reach its closing brace, SC105 for `-> !`. After X
@@ -974,8 +1030,9 @@ is forbidden outright. `as const` asserts 1. `T? as T` is an error naming
 `??` / `unwrap!()`; there is no collapsing cast. Pointer <-> integer: `ptr
 as usize` needs no unsafe; `ptr as u8` is an error; `int as unsafe *T`
 needs unsafe; `int as *T` is an error; `*T as unsafe *T` needs unsafe.
-Asserting downcasts are recorded in `panic_sites()` for
-PanicEffectChecking.
+An asserting downcast is not a panic: it crashes on a wrong type
+(PANIC.md §5, P9) and joins no panic set. `panic_sites()` collects them
+for that check; PanicEffectChecking does not read it.
 
 Into a CLOSED plain enum (every plain enum not `@open`; the parser stamps
 `EnumDecl::is_open`, TypeResolve ORs it over a forward declaration's chain,
@@ -1050,8 +1107,8 @@ record type, or `const` / `eval` constant) into `Pattern::resolved_decl`,
 maps payload subpatterns to fields (names first, then positions) into
 `Pattern::field_decl`, and types every binder;
 const-correctness, including assignment to const and const-cast validity
-beyond "adds const" (ConstChecking); effect propagation (reads
-`panic_sites()`); access control (AccessCheck); `yield` vs `yield T`;
+beyond "adds const" (ConstChecking); panic effects (PanicEffectChecking,
+past the Typed barrier); access control (AccessCheck); `yield` vs `yield T`;
 the context-binding protocol; the `: type` regime (M2 re-check).
 
 **Depends on** (blocking, spec items 1-7): `BuiltinKind::Never`;
@@ -1731,7 +1788,7 @@ Type domain (each unblocks the next):
        `.Variant`, exhaustiveness
     k. ADL / free operator functions (X, OperatorTyping)     DONE
     l. AccessCheck (+ `prot` same-library provenance)
-    m. ConstChecking, PanicEffectChecking (reads panic_sites)
+    m. ConstChecking; PanicEffectChecking                  PARTIAL
     n. ExtensionLowering: `a.m()` -> `m(&a)`, prvalue receiver   DONE
        materialization (`__kairo_tmp`), generic extensions (receiver
        deduction, one merged template head). Residue: the `semantic_dc`

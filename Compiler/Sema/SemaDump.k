@@ -265,6 +265,7 @@ fn sema_dump_phase_str(p: SemaPhase) -> string {
         case SemaPhase::Verified        { return "Verified";        }
         case SemaPhase::NamesResolved   { return "NamesResolved";   }
         case SemaPhase::TypesResolved   { return "TypesResolved";   }
+        case SemaPhase::Typed           { return "Typed";           }
         case SemaPhase::Checked         { return "Checked";         }
         case SemaPhase::Lowered         { return "Lowered";         }
         case SemaPhase::MonoCollected   { return "MonoCollected";   }

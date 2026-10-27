@@ -75,6 +75,12 @@ enum SemaPhase derives u8 {
     NamesResolved,
     /// Phase T done: every non-dependent Type node canonical.
     TypesResolved,
+    /// The checks through ConformanceChecking done: X's types and callee
+    /// bindings are final. THE barrier for panic sets (PANIC.md §2.2): the
+    /// driver takes every TU of an import cycle (just this one when there is
+    /// none) here before any of them goes on, and EffectPropagation solves
+    /// their sets at once (RESOLUTION.md, "The Typed barrier").
+    Typed,
     /// Signature/shape checks done (operator signatures, conformance
     /// declarations verified, const checks).
     Checked,
@@ -149,6 +155,9 @@ class SemaOptions {
     /// may name `Panic<...>`, and type ids keep only this many low bits.
     pub var test_panic_type:    bool = false;
     pub var test_panic_id_bits: i32  = 32;
+    /// The build produces a library (--shared): the `pub` inferred-panic-set
+    /// lint is on (PANIC.md §2.2). Off for an executable.
+    pub var library_build: bool = false;
 
     fn SemaOptions(self) { }
 
@@ -184,6 +193,7 @@ class SemaOptions {
         self.max_extend_chain    = ci->lang.max_extend_chain;
         self.test_panic_type     = ci->lang.test_panic_type;
         self.test_panic_id_bits  = ci->lang.test_panic_id_bits;
+        self.library_build       = ci->linker.shared;
     }
 
     /// Resolve a tri-state against its profile default.
@@ -248,6 +258,12 @@ class SemaContext {
     pub var trace: ResolutionTrace;
 
     pub var lifecycle: *void = &null; ///< the Sema-owned ClassLifecycle; one writer: Sema. Untyped because ClassLifecycle imports this file.
+    /// The build-wide panic-set table (`*EffectTable`, EffectPropagation.k),
+    /// owned by the driver and solved at the Typed barrier, one import
+    /// cycle (or one TU) at a time.
+    /// Null when nothing set one up: PanicEffectChecking then solves this TU
+    /// alone. Untyped for the same import-cycle reason as `lifecycle`.
+    pub var effects: *void = &null;
 
     /// The expressions a transfer moves from (`*Expr` as u64): a MOVE value
     /// passed, initialized from or assigned. One writer, MoveCheck, which

@@ -65,6 +65,7 @@ import Sema::Check::InitCheck::*;
 import Sema::Check::CtorInitCheck::*;
 import Sema::Check::ConformanceChecking::*;
 import Sema::Check::InterfaceComposition::*;
+import Sema::Check::PanicEffectChecking::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::VariantInitLowering::*;
 import Sema::Lower::EnumLayoutLowering::*;
@@ -155,6 +156,12 @@ class Sema {
         if !self._stage_type_resolution()         { return false; }
 
         if !self._gate(SemaPhase::TypesResolved, target) { return self._done(); }
+        if !self._stage_typed_checks()            { return false; }
+
+        // The panic-set barrier sits between these two (SemaPhase::Typed):
+        // the driver takes every TU of an import cycle to Typed, solves
+        // their sets (EffectPropagation), then continues each.
+        if !self._gate(SemaPhase::Typed, target) { return self._done(); }
         if !self._stage_checks()                  { return false; }
 
         if !self._gate(SemaPhase::Checked, target) { return self._done(); }
@@ -315,9 +322,11 @@ class Sema {
     /// Signature/shape checks: operator signatures, conformance
     /// declarations, const checks, eval usage. These poison nodes rather
     /// than hard-stopping independent errors should all surface in one
-    /// compile.
-    priv fn _stage_checks(self) -> bool {
-        if self._already(SemaPhase::Checked) { return true; }
+    /// compile. The first half, everything typing feeds: X and the checks
+    /// on its result, through ConformanceChecking. It ends at Typed, the
+    /// panic-set barrier (_stage_checks has the second half).
+    priv fn _stage_typed_checks(self) -> bool {
+        if self._already(SemaPhase::Typed) { return true; }
         var _t = TimeRegion("Checks");
         self.sc.require_phase(SemaPhase::TypesResolved);
 
@@ -421,6 +430,23 @@ class Sema {
         // witness calls are emitted against them.
         { var _p = TimeRegion("Conformance"); ConformanceChecking(&self.sc).run(); }
         // TODO(sema): ConstChecking(&self.sc).run();
+        self.sc.advance_phase(SemaPhase::Typed);
+        return true;
+    }
+
+    /// The second half of the checks, past the panic-set barrier: every
+    /// TU this one reaches through imports is Typed and its sets are solved
+    /// (or, with no driver table, this TU's are solved here).
+    priv fn _stage_checks(self) -> bool {
+        if self._already(SemaPhase::Checked) { return true; }
+        var _t = TimeRegion("LateChecks");
+        self.sc.require_phase(SemaPhase::Typed);
+
+        // Panic effects (PANIC.md §2, §3.1): unhandled calls, declared sets,
+        // `main`, the payload rules, try/catch arms. REQUIRES the solved
+        // sets (EffectPropagation, at the barrier) and X's callee bindings.
+        // Before FeatureGate, which stays last.
+        { var _p = TimeRegion("PanicEffect"); PanicEffectChecking(&self.sc).run(); }
 
         // Last: well-typed constructs the lowerings cannot render yet. An
         // error here keeps the schedule out of the lowerings, which ICE on

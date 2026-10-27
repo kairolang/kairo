@@ -182,6 +182,13 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         if f->return_type != &null { rt = f->return_type->canonical; }
         if (f->return_type != &null) && ((rt == &null) || rt->is_dependent()) { return; }
 
+        // `fn op panic (const self) -> string` (PANIC.md §1.5): the display
+        // path reads the message from a const caught error and through a C++
+        // `const&`, so the receiver is const; and the message is a string.
+        if sym == "panic" {
+            self._check_op_panic(f, rt);
+            return;
+        }
         if sym == "->" {
             var p = (self._tu.pointee(rt)) if (rt != &null) else (&null);
             if (p == &null) || self._tu.is_unsafe_ptr(rt) {
@@ -222,6 +229,35 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
             }
             return;
         }
+    }
+
+    /// `op panic`'s two rules, each with the edit that makes it hold. A free
+    /// operator's first parameter is its receiver and is not a `self`, so
+    /// only a member's (or an extension member's) `self` is judged.
+    priv fn _check_op_panic(self, f: *FunctionDecl, rt: *Type) {
+        var recv: *ParamDecl = &null;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if (f->params[i] != &null) && f->params[i]->is_self { recv = f->params[i]; break; }
+        }
+        if (recv != &null) && (!recv->is_const) {
+            var b = self.sc->diag->report(DiagID::SC001E, recv->range.start,
+                "'op panic' takes 'const self': the message is read from a const caught error");
+            b.first(recv->range, "not const");
+            b.note(DiagID::SC001N, f->range.start, "the operator is declared here").first(f->range);
+            b.insert(recv->range.start, "const ", "make the receiver 'const self\x27");
+            b.emit();
+        }
+        if (rt != &null) && self._tu.is_string(rt) { return; }
+        var at = (f->return_type->range) if ((f->return_type != &null) && f->return_type->range.is_valid()) else (f->range);
+        var rb = self.sc->diag->report(DiagID::SC001E, at.start, "'op panic' must return 'string', the error's message");
+        rb.first(at);
+        rb.note(DiagID::SC001N, f->range.start, "the operator is declared here").first(f->range);
+        if (f->return_type != &null) && f->return_type->range.is_valid() {
+            rb.fix(f->return_type->range, "string", "return 'string\x27");
+        } else if f->params_end.is_valid() {
+            rb.insert(f->params_end.end, " -> string", "return 'string\x27");
+        }
+        rb.emit();
     }
 
     // === one definition per pair ===========================================

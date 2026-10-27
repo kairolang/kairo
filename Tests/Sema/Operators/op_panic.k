@@ -2,8 +2,8 @@
 // optional message, a new operator spelled like every other `op`. It
 // parses in a type's body and in an extension, prints back as written,
 // and takes no operand besides the receiver. Its full signature rule
-// (`const self`, `-> string`) is P3's; here it only has to be an
-// operator the arity table knows. Before it parsed, `panic` after `op`
+// (`const self`, `-> string`) is op_panic_signature.k; here it only has
+// to be an operator the arity table knows. Before it parsed, `panic` after `op`
 // was "given operator is not valid to overload" (S045E).
 
 class ConfigError {

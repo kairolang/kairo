@@ -102,6 +102,8 @@ files it imports) or a documented role (parity/, kairo-only/).
       ExprTyper/        expression typing, overloads, call arguments
       Check/            post-resolution checks (lifecycle, C++ name clashes)
       Operators/        operator declaration / use rules
+      Panic/            panic effects: sets, unhandled calls, try/catch arms (PANIC.md)
+        Inputs/cross_tu/  a library whose sets are inferred, one that stops early, an importer
       Modes/            argument modes; kairo-only/ has no C++ oracle
       FFI/              C++ interop; parity/ is differential against clang
         Builtins/         clang builtins as unqualified names (RESOLUTION.md 2.5)
