@@ -138,6 +138,7 @@ import AST::Printer::PrintCore::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
@@ -1423,7 +1424,7 @@ class CompilerInstance {
             if broot.empty() && (!self.invocation().target.resource_dir.empty()) {
                 broot = (Path(self.invocation().target.resource_dir) / "builtin").full_path();
             }
-            if !broot.empty() { rb.add_include(Path(broot), "builtin"); }
+            if !broot.empty() { rb.add_include(Path(broot), builtin_root_name()); }
 
             // The std root, NAMED `kairo::std` and SPELLED `std`. The name is
             // its identity: `Lib/std/io.k` is `kairo::std::io` and emits into
@@ -1440,7 +1441,7 @@ class CompilerInstance {
                 if sroot.empty() && (!self.invocation().target.resource_dir.empty()) {
                     sroot = (Path(self.invocation().target.resource_dir) / "std").full_path();
                 }
-                if !sroot.empty() { rb.add_include(Path(sroot), "kairo::std", "std"); }
+                if !sroot.empty() { rb.add_include(Path(sroot), std_root_name(), std_root_spelling()); }
             }
 
             self._imp = rb.create_ptr(self._pool);
@@ -3631,7 +3632,7 @@ fn FrontendAction::_sema() -> bool {
     // reports the item missing from inside Lib/builtin itself.
     var bfid = self._global_scope->builtin_fid();
     if bfid != 0 {
-        var bsym   = self._ci->pp()->get_symbol_table()->intern("builtin");
+        var bsym   = self._ci->pp()->get_symbol_table()->intern(builtin_root_name());
         var inject = !self._ci->invocation().pp.no_builtins;
         self._global_scope->mark_builtin_fid(bfid);   // the loop skips the root below.
         {

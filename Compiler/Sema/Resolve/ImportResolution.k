@@ -36,6 +36,7 @@ import AST::Context::ImportOverlay::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import Token::Token::*;
 import Token::TokenKind::*;
@@ -481,7 +482,7 @@ class ImportResolution {
         var tok   = Token{};
         tok.kind  = TokenKind::LitIdentifier;
         tok.range = at;
-        tok.imm   = self.sc->imm_table()->intern_ident_copy("cxx");
+        tok.imm   = self.sc->imm_table()->intern_ident_copy(cxx_root_name());
 
         var tbl  = self.sc->ctx->alloc_init_cleanup::<SymbolTable>(self.sc->ctx);
         var skey = self.sc->imm_table()->intern_ident_copy("std");
@@ -502,7 +503,7 @@ class ImportResolution {
         t.origin  = origin;
         t.vis     = OverlayVisibility::Public;
         t.src_fid = self.sc->ctx->fid;
-        self._add(overlay, "cxx", t);
+        self._add(overlay, cxx_root_name(), t);
     }
 
     /// Intern the visible name into THIS TU's imm space (overlay key), add the

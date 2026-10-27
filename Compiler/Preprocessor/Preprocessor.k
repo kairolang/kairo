@@ -40,6 +40,7 @@ import Parser::Shared::MacroHeaderGrammar::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Diagnostic::BufferedDiagSink::*;
@@ -2734,7 +2735,7 @@ class PreProcessor {
                 }
             } else {
                 var segs = vec::<string>();
-                segs.push_back("builtin");
+                segs.push_back(builtin_root_name());
                 p_fid = scanner.add_module_dependency(segs, &graph);
                 // Only the real builtin module is reported: a custom --prelude
                 // is a file, not the lang-item root, and sema must not read

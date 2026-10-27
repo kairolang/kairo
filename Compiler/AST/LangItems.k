@@ -114,6 +114,19 @@ fn to_string(k: WellKnownType) -> string {
     return "<unknown>";
 }
 
+/// The module roots the driver names, which no source file declares. The
+/// builtin root is the prelude every TU imports and where the lang items
+/// are bound from; std is NAMED `kairo::std` (its identity, and the C++
+/// namespace it emits into, clear of C++'s own `std`) and SPELLED `std` in
+/// source; `cxx` is the module ImportResolution mints over a bare ffi
+/// import's headers, so C++'s `std` is reached as `cxx::std`. The resource
+/// directory's `builtin/` and `std/` subdirectories share these words by
+/// design but are layout, not names: the driver spells those itself.
+fn builtin_root_name() -> string { return "builtin"; }
+fn std_root_name() -> string     { return "kairo::std"; }
+fn std_root_spelling() -> string { return "std"; }
+fn cxx_root_name() -> string     { return "cxx"; }
+
 /// Tuples exist up to this arity. Not a lang item: `(A, B)` is the record
 /// `Tuple2<A, B>` that TupleRecords MINTS on first use (one per arity per
 /// build, no source file behind it), and a written tuple wider than this
