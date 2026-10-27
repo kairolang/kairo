@@ -765,6 +765,10 @@ class LowerTargets {
     static fn ctor_slot_put() -> string  { return "put"; }
     static fn ctor_slot_get() -> string  { return "get"; }
     static fn ctor_slot_take() -> string { return "take"; }
+    /// The compiler builtin that makes an index pack (`__make_integer_seq<
+    /// Q, usize, N>` is `Q<usize, 0, ..., N-1>`): an array slot builds its
+    /// elements from one with no <utility>.
+    static fn make_index_seq() -> string { return "__make_integer_seq"; }
     /// Per split constructor k of a record (FunctionDecl::ci_index): its slot
     /// record, its pre-function, and the slot record's parameter name in
     /// both. A local carried across is slot `__kairo_l<i>_<name>`, i its

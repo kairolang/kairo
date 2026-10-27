@@ -569,13 +569,25 @@ in constructors), structural like ReturnPathCheck. A const field with no
 declared initializer is assigned on every path through each constructor,
 exactly once (never in a loop); one with an initializer is never
 assigned; outside a constructor of its own record no const field is
-assigned at all. The constructor body is read in two parts at the
-frontier, the last top-level statement that assigns a const field:
-S_pre runs before the object exists, so in it `self` appears only as
-`self.f = e` or as a read of a field already assigned on every path, and
-it holds no `return`. Every rule is SC001E; SC116E gates a generic
-constructor and `try` / `finally` / `inline` / `label!` / `jump!` in
-S_pre, and a static or array local carried across. It writes the cut
+assigned at all. A field with no initializer whose type has no default
+(`TypeUtil::why_no_default`, the answer InitCheck gives a local: `bool`,
+an enum with payloads, a record with no usable default constructor, an
+array of those) is required the same way: the constructor's first whole
+write is its initializer, on every path, and later writes are
+assignments; writing part of it (`self.f[i] = e`) before that is an
+error. An array field is assigned once: its one whole write in a
+constructor initializes it, on every path or none, and any other is
+SC071E (OperatorTyping defers exactly that write to this pass). The
+constructor body is read in two parts at the frontier, the last
+top-level statement that assigns a const or array field or, for each
+other required field, the first after which it is assigned on every
+path (a quiet walk), whichever is later: S_pre runs before the object
+exists, so in it `self` appears only as `self.f = e` or as a read of a
+field already assigned on every path, and it holds no `return`. Every
+rule is SC001E but the array one; SC116E gates a generic constructor and
+`try` / `finally` / `inline` / `label!` / `jump!` in S_pre, a static or
+array local carried across, and an array field of arrays or of a generic
+length initialized in place. It writes the cut
 (`FunctionDecl::ci_split`, `ci_index`, `ci_slots`, `ci_dense`) for
 CtorInitLowering and the emitters (CODEGEN.md §6). ClassLifecycle makes
 a record with a const field unassignable member by member (SC071E), as

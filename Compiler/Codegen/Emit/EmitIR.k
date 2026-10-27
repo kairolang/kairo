@@ -40,14 +40,15 @@
 ///     of it (IMPORTS.md §7). Extension members: out-of-line definitions
 ///     of their scope's static members, in its namespace, receiver first.
 ///
-///   \par Constructors that initialize a const field
-///     C++ wants a const member's value at the mem-initializer list, so a
+///   \par Constructors that initialize a field in place
+///     C++ wants a const member's value at the mem-initializer list, and a
+///     member with no default constructor built there too, so a
 ///     constructor CtorInitCheck split (FunctionDecl::ci_split; the body is
 ///     `{ {S_pre} {S_post} }` after CtorInitLowering) becomes four
 ///     definitions (_split_ctor):
 ///
 ///       struct R::__kairo_ciK { ::__kairo_slot<T> x; ... };
-///       auto R::__kairo_ctor_preK(__kairo_ciK&& __kairo_s, P& p) -> __kairo_ciK& { S_pre; return __kairo_s; }
+///       auto R::__kairo_ctor_preK(__kairo_ciK&& __kairo_s, P& p) -> __kairo_ciK& { S_pre; return static_cast<__kairo_ciK&>(__kairo_s); }
 ///       R::R(__kairo_ciK& __kairo_s, P& p) : x(__kairo_s.x.take()) { S_post }
 ///       R::R(P p) : R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}
 ///
@@ -471,7 +472,7 @@ class EmitIR {
         }
     }
 
-    // --- Constructors that initialize a const field (file header) ----------------
+    // --- Constructors that initialize a field in place (file header) ------------
 
     /// The slot record's definition, the pre-function, the slot constructor
     /// and the public constructor that delegates to it, for \p m, whose body
@@ -536,7 +537,20 @@ class EmitIR {
             if (f == &null) || (!m->ci_dense[i]) { continue; }
             h += (" : ") if (first) else (", ");
             first = false;
-            h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + sa + "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "())";
+            var take = sa + "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "()";
+            var ext  = self._array_extent(f->type_);
+            if ext == usize(-1) {
+                h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + take + ")";
+            } else {
+                // A member array cannot be initialized from an array, only
+                // from its elements, each moved out of the slot's.
+                h += self._spell.leaf(static_cast::<*Decl>(f)) + "{";
+                for var k: usize = 0; k < ext; ++k {
+                    if k > 0 { h += ", "; }
+                    h += take + f"[{k}]";
+                }
+                h += "}";
+            }
         }
         self._cg->sink->spell(at, h);
         self._cg->sink->synth_at_start(post->range, clang::tok::l_brace);
@@ -564,6 +578,18 @@ class EmitIR {
         pub_h += " : " + leaf + "(" + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "()" + args + ")" + args + ") {}";
         self._cg->sink->spell(at, pub_h);
         self._close_ns(m->range, wrap);
+    }
+
+    /// The length of \p t when it is a fixed array of known length (the one
+    /// kind of field whose slot hands its value over element by element),
+    /// else usize(-1). CtorInitCheck gated a generic length.
+    priv fn _array_extent(self, t: *Type) -> usize {
+        if (t == &null) || (t->canonical == &null) { return usize(-1); }
+        var c = canon_unqual(t->canonical);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return usize(-1); }
+        var a = cast::<FixedArrayType>(c);
+        if a->is_incomplete || (a->extent_param != &null) { return usize(-1); }
+        return static_cast::<usize>(a->size_bits);
     }
 
     /// Index of \p d in the live split constructor's slots, or usize(-1). A
@@ -2145,7 +2171,10 @@ class EmitIR {
             if f != &null {
                 var si = self._slot_of(static_cast::<*Decl>(f), true);
                 if si == usize(-1) { self._ice(n->range, "EmitIR: S_pre assigns a field with no slot; CtorInitCheck gate failure"); }
-                var put_fn = "." + ((LowerTargets::ctor_slot_init()) if (f->is_const()) else (LowerTargets::ctor_slot_put())) + "(";
+                // An array is written once (CtorInitCheck), and its slot has
+                // no `put`: an array has no `=`.
+                var once   = f->is_const() || (self._array_extent(f->type_) != usize(-1));
+                var put_fn = "." + ((LowerTargets::ctor_slot_init()) if (once) else (LowerTargets::ctor_slot_put())) + "(";
                 self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + put_fn);
                 self._value(n->rhs, f->type_);
                 self._cg->sink->spell(n->range, ")");

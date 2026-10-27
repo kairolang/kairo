@@ -199,7 +199,7 @@ class InterfaceEmitter {
             self._cg->sink->unanchored(false);
             self.have_helpers = true;
         }
-        // A constructor that initializes a const field (_ctor_slot_helpers).
+        // A constructor that initializes a field in place (_ctor_slot_helpers).
         // Only when one is planned, so no other TU's text changes; guarded
         // apart from the helpers above, which an earlier header may have
         // defined without these.
@@ -708,7 +708,7 @@ class InterfaceEmitter {
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
-        // Each constructor that initializes a const field: its slot record,
+        // Each constructor that initializes a field in place: its slot record,
         // its pre-function and the constructor that takes the slots
         // (_split_ctor_decls). Private: only the public constructor calls
         // them.
@@ -1991,6 +1991,30 @@ class InterfaceEmitter {
         t += " T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(b.v); }";
         t += " };";
         self._cg->sink->spell(at, t);
+        self._cg->sink->brk();
+        // An array field's slot. `init(T u)` would take a decayed pointer and
+        // an array has no `=`, so this one builds its elements from the
+        // array's, moved from a prvalue (a list literal) or copied from an
+        // lvalue, and has no `put`: CtorInitCheck allows one write. The
+        // field's mem-initializer reads `take()[i]` per element (EmitIR).
+        var a = "template <class T, " + sz + " N> struct " + sl + "<T[N]> {";
+        a += " using __a = T[N];";
+        a += " template <class I, I... K> struct __q {};";
+        a += " struct __b { T v[N]; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
+        a += " union { __b b; };";
+        a += " bool " + st + " = false;";
+        a += " " + sl + "() noexcept {}";
+        a += " " + sl + "(const " + sl + "&) = delete;";
+        a += " " + sl + "& operator=(const " + sl + "&) = delete;";
+        a += " ~" + sl + "() { if (" + st + ") { b.~__b(); } }";
+        a += " template <" + sz + "... K> void __mv(__a& u, __q<" + sz + ", K...>) { new (static_cast<void*>(&b)) __b{{static_cast<T&&>(u[K])...}}; " + st + " = true; }";
+        a += " template <" + sz + "... K> void __cp(const __a& u, __q<" + sz + ", K...>) { new (static_cast<void*>(&b)) __b{{u[K]...}}; " + st + " = true; }";
+        a += " void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
+        a += " void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
+        a += " __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return b.v; }";
+        a += " __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(b.v); }";
+        a += " };";
+        self._cg->sink->spell(at, a);
         self._cg->sink->brk();
         if header { self._cg->sink->directive(at, "#endif"); }
     }

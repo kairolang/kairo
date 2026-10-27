@@ -632,6 +632,81 @@ class TypeUtil {
         return t->is_unsafe();
     }
 
+    // === default values =====================================================
+
+    /// Empty when a value of \p t can be built from nothing; otherwise why
+    /// not, phrased to follow "and" ("'x' is declared without an
+    /// initializer, and ..."). variables.mdx: a number or a pointer is 0 /
+    /// null, a nullable is null, a record with a usable constructor callable
+    /// on `self` alone is that, an array is its elements'. `bool` has no zero
+    /// state to assume, a record without such a constructor -- none at all,
+    /// or one deleted -- is never built, and an enum with payloads has no
+    /// variant to pick. Imported C++ types and dependent ones answer empty:
+    /// clang and instantiation decide them. One answer for every binding
+    /// that has no initializer: a local, a static (InitCheck) and a field a
+    /// constructor must build (CtorInitCheck).
+    fn why_no_default(self, t: *Type) -> string {
+        var el = self.element_of(t);
+        if el != &null { return self.why_no_default(canon_unqual(el)); }
+        if self.is_bool(t) { return "'bool' has no zero state: a default would have to guess true or false"; }
+        if self.nullable_inner(t) != &null { return ""; }
+        var en = self.payload_enum(t);
+        if en != &null {
+            var en_nm = self.sc->ctx->get_spelling(en->name);
+            return f"'{en_nm}' is an enum with payloads, so no variant is its default";
+        }
+        var rd = self.default_record(t);
+        if rd == &null { return ""; }
+        var nm = self.decl_name(rd);
+        var dc = self.default_ctor_of(rd);
+        if dc == &null { return f"'{nm}' has no default constructor (declare 'fn {nm}(self)')"; }
+        if dc->body_kind == FnBodyKind::Delete { return f"the default constructor of '{nm}' is deleted"; }
+        return "";
+    }
+
+    /// The Kairo enum with payloads \p t names (its pattern), else null.
+    fn payload_enum(self, t: *Type) -> *EnumDecl {
+        var rd = self.record_decl(t);
+        if rd == &null { return &null; }
+        if decl_is_instance(rd) { rd = decl_pattern(rd); }
+        if (rd == &null) || (!isa::<EnumDecl>(rd)) || decl_is_imported(rd) { return &null; }
+        var en = cast::<EnumDecl>(rd);
+        return (en) if (en->is_adt) else (&null);
+    }
+
+    /// A Kairo class or struct, pattern side, as the default-value question
+    /// sees it. Null for an imported C++ record (clang decides), an enum, a
+    /// dependent type.
+    fn default_record(self, t: *Type) -> *Decl {
+        var rd = self.record_decl(t);
+        if rd == &null { return &null; }
+        if decl_is_instance(rd) { rd = decl_pattern(rd); }
+        if (rd == &null) || decl_is_imported(rd) { return &null; }
+        if (!isa::<ClassDecl>(rd)) && (!isa::<StructDecl>(rd)) { return &null; }
+        return rd;
+    }
+
+    /// The constructor of class or struct \p d callable with no arguments:
+    /// not an operator, not a transfer (`@copy`/`@move` build from another
+    /// value, not from none), every parameter but `self` defaulted.
+    fn default_ctor_of(self, d: *Decl) -> *FunctionDecl {
+        var nm = self.decl_name(d);
+        var ms = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
+            if (m == &null) || m->is_operator || (m->adt_role != AdtRole::None) { continue; }
+            if (m->transfer != TransferKind::NotTransfer) || (self.decl_name(static_cast::<*Decl>(m)) != nm) { continue; }
+            var ok = true;
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var p = m->params[j];
+                if p->is_self { continue; }
+                if (p->default_val == &null) && (!p->has_default) && (!p->is_pack) { ok = false; break; }
+            }
+            if ok { return m; }
+        }
+        return &null;
+    }
+
     /// The list literal an instance array field is initialized with, when
     /// FieldInitLowering lowers it one element at a time (a thunk each);
     /// null for every other initializer, which keeps the SC116E gate: a

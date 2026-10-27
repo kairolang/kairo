@@ -483,12 +483,17 @@ __kairo_lref = T&;` and `__kairo_slot<T>`, a T in union storage built on
 its first assignment through its box's own placement `operator new` (no
 `<new>`), destroyed only if built, never copied: `init` (first
 assignment), `put` (may be a later one; the only use of T's `op =`),
-`get`, `take`, `set`.
+`get`, `take`, `set`. `__kairo_slot<T[N]>` is the array field's: `init`
+takes the array by `&&` (a list literal's prvalue, its elements moved) or
+`const&` (copied), building the elements from an index pack
+(`__make_integer_seq`, `LowerTargets::make_index_seq`), and there is no
+`put` (an array is written once, CtorInitCheck).
 
 V1 refusals (each an ICE naming its owner): named unions, interfaces, the
-initializer of an eval or array-typed field (FeatureGateCheck rejects it
-first, SC116E: no eval constant is emitted yet, and a C++ function
-cannot return an array). A one-type pack is spelled as its `Slice<E>`
+initializer of an eval field or of an array-typed field FieldInitLowering
+did not take element by element (FeatureGateCheck rejects it first,
+SC116E: no eval constant is emitted yet, and a C++ function cannot
+return an array). A one-type pack is spelled as its `Slice<E>`
 (`ParamDecl::pack_type`); a type pack as `T... xs`, under an instance its
 elements, and a canonical pack parameter in an argument list as `E...`.
 
@@ -577,15 +582,23 @@ clang-only -- it is not C++, it is a GNU extension clang implements -- so it
 carries the same HARD clang dependency.
 
 A split constructor (its body `{ {S_pre} {S_post} }` after
-CtorInitLowering) is four definitions (`_split_ctor`): the slot record
+CtorInitLowering: one that initializes a const field, a field whose type
+has no default, or an array field, CtorInitCheck) is four definitions
+(`_split_ctor`): the slot record
 (`::__kairo_slot<T>` per field S_pre assigns, in declaration order, then
 per carried local); the pre-function, S_pre against the slots, `return
-__kairo_s;`; the slot constructor, mem-initializers `x(__kairo_s.x.take())`
-for every field S_pre assigns on all paths, in declaration order, then
+static_cast<__kairo_ciK&>(__kairo_s);` (not `return __kairo_s;`: since
+C++23 a returned `&&` parameter is an xvalue, which the `&` return cannot
+bind); the slot constructor, mem-initializers `x(__kairo_s.x.take())`
+for every field S_pre assigns on all paths, in declaration order (an
+array `a{__kairo_s.a.take()[0], ..., __kairo_s.a.take()[N-1]}`: a member
+array is initialized from elements, never from an array), then
 `if (__kairo_s.y.set) { this->y = __kairo_s.y.take(); }` for one it
-assigns on some, then S_post; and the declared constructor, `R(P p) :
+assigns on some (never an array: CtorInitCheck requires every path), then
+S_post; and the declared constructor, `R(P p) :
 R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}`. In S_pre (`_ci_pre`)
-`self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field),
+`self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field that
+is not an array),
 `self.x` and a bare field are `__kairo_s.x.get()`, and any other `self`
 ICEs (CtorInitCheck rejected it). A carried local is `__kairo_s.__kairo_lI_n`
 in both halves, built at its declaration. The temporary slot record lives
@@ -1381,7 +1394,8 @@ name comparison — goldens for every `Tests/Codegen` test go in FIRST, or
 the refactor has nothing to hold it.
 
 Constructor initializer lists for every constructor: only a split one
-(a const field, §6) builds the fields S_pre assigns by mem-initializer; any
+(a const field, a field with no default or an array field, §6) builds the
+fields S_pre assigns by mem-initializer; any
 other constructor that assigns a defaulted field in its body still runs
 the default first, then the assignment. The fast path the design allows
 for a split constructor (straight-line S_pre lowered into the

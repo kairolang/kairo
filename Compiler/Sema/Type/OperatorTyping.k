@@ -1369,6 +1369,31 @@ class <T> OperatorTyping {
 
     // === assignment =========================================================
 
+    /// `self.f = e` directly in a constructor of f's record: for an array
+    /// field this may be its initialization, which is no assignment, so the
+    /// array rule (SC071E) is CtorInitCheck's to apply once it knows which
+    /// write comes first. A closure in the constructor has a frame of its
+    /// own, with no function, so its writes stay assignments.
+    priv fn _ctor_field_write(self, n: *AssignOperatorExpr) -> bool {
+        var fr = dyn()->cur_frame();
+        if (fr == &null) || (fr->fn_decl == &null) { return false; }
+        var fd = fr->fn_decl;
+        if fd->is_operator || (!fd->is_method()) || (fd->adt_role != AdtRole::None) { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(fd->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_owner == &null) { return false; }
+        if dyn()->tu.decl_name(static_cast::<*Decl>(fd)) != dyn()->tu.decl_name(dc->dc_owner) { return false; }
+        var c = dyn_cast::<ChainExpr>(n->lhs);
+        if (c == &null) || (c->steps.size() != 1) { return false; }
+        var ni = dyn_cast::<NamedIdentExpr>(c->base);
+        if (ni == &null) || (ni->resolved_decl == &null) { return false; }
+        var p = dyn_cast::<ParamDecl>(ni->resolved_decl);
+        if (p == &null) || (!p->is_self) { return false; }
+        var st = c->steps.get(0);
+        if (st->resolved_decl == &null) || (!isa::<FieldDecl>(st->resolved_decl)) { return false; }
+        var f = cast::<FieldDecl>(st->resolved_decl);
+        return (!f->is_static()) && (f->semantic_dc == fd->semantic_dc);
+    }
+
     fn type_assign(self, n: *AssignOperatorExpr, expected: *Type) -> *Type {
         var k  = n->op_token.kind;
         var lt = dyn()->type_of(n->lhs, &null);
@@ -1388,7 +1413,7 @@ class <T> OperatorTyping {
 
         if k == TokenKind::OpEqual {
             var lc = canon_unqual(lt);
-            if (lc != &null) && isa::<FixedArrayType>(lc) {
+            if (lc != &null) && isa::<FixedArrayType>(lc) && (!self._ctor_field_write(n)) {
                 dyn()->type_of(n->rhs, lt);
                 dyn()->fail(n, DiagID::SC071E, "an array is not assignable; assign its elements, or go through a slice");
                 return &null;
