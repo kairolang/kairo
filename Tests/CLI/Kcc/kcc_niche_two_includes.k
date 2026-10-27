@@ -2,9 +2,9 @@
 // niche trait (`__kairo_niche`, `__kairo_np`) once: an include's token
 // stream carries no guard, so the second is skipped by the record of the
 // first (IncludeEmitter's IncludedDecls). The host then sees the niche
-// layouts Kairo does (spec ENUMLAYOUT §5): `Color?` tagged (a plain enum
-// has no niche), a nullable pointer the pointer, a niche-filled ADT its
-// payload.
+// layouts Kairo does (spec ENUMLAYOUT §5): `Color?` one byte (a closed
+// enum's niche), a nullable pointer the pointer, a niche-filled ADT its
+// payload, and an ADT over an `@open` enum its tag.
 
 // REQUIRES: kcc
 // RUN: rm -rf %t.d && mkdir -p %t.d && cd %t.d

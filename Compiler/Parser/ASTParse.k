@@ -42,6 +42,7 @@ import Parser::PatternParse::*;
 import Parser::Shared::ImportGrammar::*;
 import Parser::Shared::MacroHeaderGrammar::*;
 import AST::ParamMode::*;
+import AST::LangItems::*;
 
 struct PendingComment {
     var kind:  AnnotationKind = AnnotationKind::DocComment;
@@ -2228,14 +2229,38 @@ class ASTParse
         // transfer ctor is an ordinary method and the lifecycle rules are blind.
         if isa::<FunctionDecl>(decl) {
             var fd     = cast::<FunctionDecl>(decl);
-            var k_copy = self.ctx->hoisted->intern("copy");
-            var k_move = self.ctx->hoisted->intern("move");
+            var k_copy = self.ctx->hoisted->intern(LangAttrs::transfer_copy());
+            var k_move = self.ctx->hoisted->intern(LangAttrs::transfer_move());
             for var i: usize = 0; i < annot->entries.size(); ++i {
                 var e = &annot->entries[i];
                 if e->kind != AnnotationKind::Attribute { continue; }
                 if e->name == k_copy { fd->transfer = TransferKind::Copy; }
                 if e->name == k_move { fd->transfer = TransferKind::Move; }
             }
+        }
+
+        // `@open enum E`: EnumDecl::is_open, the one field the niche, the
+        // checked `as` and match lowering read. Anywhere else the attribute
+        // means nothing, and silently ignoring it would let a reader believe
+        // an ADT or a struct had been opened.
+        var k_open = self.ctx->hoisted->intern(LangAttrs::open_enum());
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            if (e->kind != AnnotationKind::Attribute) || (e->name != k_open) { continue; }
+            var oe = dyn_cast::<EnumDecl>(decl);
+            if (oe != &null) && (!oe->is_adt) {
+                oe->is_open = true;
+                continue;
+            }
+            if self.mode != ParseMode::Full { continue; }   // the Full parse reports it once.
+            var what = ("an ADT enum: no cast makes its tag, so it is always closed") if (oe != &null) else ("this declaration; only a plain enum can be open");
+            var an   = "\x27@" + LangAttrs::open_enum() + "\x27";
+            var b = self.diag->report(DiagID::SC001E, e->range.start,
+                an + " does not apply to " + what);
+            b.first(e->range);
+            b.note(decl->range.start, "the attribute is on this declaration");
+            b.remove(e->range, "remove " + an);
+            b.emit();
         }
 
         if annot->visibility != VisibilityKind::None {

@@ -375,6 +375,23 @@ fn hex32(v: u32) -> string {
     return out;
 }
 
+/// \class LangAttrs
+/// \brief The `@name` attributes the compiler gives a meaning. Neither a
+///        lang item (nothing declares them) nor a lower target (the user
+///        writes them): the one spelling the parser stamps from and every
+///        diagnostic quotes, so a message cannot name an attribute the
+///        parser does not read.
+class LangAttrs {
+    /// `@copy fn T(self, other: Self)`: FunctionDecl::transfer (Parser).
+    static fn transfer_copy() -> string { return "copy"; }
+    /// `@move fn T(self, other: Self)`: FunctionDecl::transfer (Parser).
+    static fn transfer_move() -> string { return "move"; }
+    /// `@open enum E`: a plain enum that may hold any value of its
+    /// underlying type, clang's `enum_extensibility(open)`. EnumDecl::is_open
+    /// (Parser); no niche, `as` unchecked.
+    static fn open_enum() -> string { return "open"; }
+}
+
 /// \class LowerTargets
 /// \brief The invented C++ name fragments. Nothing else in the compiler
 ///        carries a copy of any string here.

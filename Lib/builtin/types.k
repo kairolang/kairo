@@ -43,9 +43,10 @@ pub struct <T> Future  { var state: *void }
 /// shape (no arithmetic, explicit conversions) without needing <cstddef>.
 /// Kairo bypasses clang's preprocessor, so an emitted TU cannot #include
 /// one; a builtin declaration the plan emits like any other can. Named
-/// `Byte` because `byte` is a type keyword, not an identifier. Sema keeps
+/// `Byte` because `byte` is a type keyword, not an identifier. `@open`: a
+/// byte holds any of its 256 values, none of them a variant. Sema keeps
 /// its own `byte` rules; only the C++ spelling points here.
-pub enum Byte derives u8 {}
+@open pub enum Byte derives u8 {}
 pub struct BigInt   { var limbs: *u64; var len: usize; var neg: bool }
 pub struct BigFloat { var mant: BigInt; var exp: i64 }
 pub struct AssertFail { var message: string }

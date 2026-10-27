@@ -1354,6 +1354,15 @@ class EnumDecl
     pub var underlying: *Type = &null;                  ///< `derives u8` etc; null if defaulted.
     pub var variants:   FrozenList::<*EnumVariantDecl>;
     pub var is_adt:     bool = false;                   ///< any variant carries a payload.
+    /// `@open` (LangAttrs::open_enum): this plain enum may hold any value of
+    /// its underlying type, not only its variants' -- clang's
+    /// `enum_extensibility(open)`. A closed one (the default) has a niche
+    /// past its values (EnumNiche) and a checked `as` from its underlying
+    /// type (CastTyping). Writers: the parser stamps it, TypeResolve ORs it
+    /// over a forward declaration's chain, DeclImport sets it on every
+    /// imported C/C++ enum (clang owns those values). Never set on an ADT
+    /// (the parser rejects `@open` there).
+    pub var is_open:    bool = false;
     /// ADT enums: the record EnumLayoutLowering builds, and its `__kairo_tag`
     /// field (tags are variant positions, in the narrowest unsigned word
     /// that holds them unless `derives` names one). One writer:

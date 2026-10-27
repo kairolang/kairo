@@ -739,6 +739,7 @@ class InstantiationRegistry {
             n->variants.from_raw(static_cast::<*(*EnumVariantDecl)>(&null), 0);
             n->underlying = p->underlying;
             n->is_adt     = p->is_adt;
+            n->is_open    = p->is_open;
             return static_cast::<*Decl>(n);
         }
         if isa::<InterfaceDecl>(primary) {

@@ -2007,6 +2007,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         var out = RecursiveASTVisitor::<TypeResolution>::traverse_enum_decl(n);
         self._check_enum_underlying(n);
+        self._merge_enum_open(n);
         self._pop_frame();
         self._selfs.pop_back();
         self.cur_dc = saved;
@@ -2260,6 +2261,48 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     }
 
     // === Enum underlying ========================================================
+
+    /// `@open` on any declaration of an enum opens all of them: the forward
+    /// declaration `@open enum E derives u8` and the definition are one
+    /// enum, and whichever decl a reader reaches must answer alike. Every
+    /// link is visited, so the last visit leaves the whole ring agreed.
+    priv fn _merge_enum_open(self, n: *EnumDecl) {
+        var head = n->first_decl();
+        if head == &null { return; }
+        var any = false;
+        var cur = head;
+        while true {
+            if cur->is_open { any = true; }
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
+        if !any { return; }
+        // `@open enum E` forward-declares what turns out to be an ADT: the
+        // parser saw no body, so it could not reject it there.
+        var def = n->definition();
+        if (def != &null) && def->is_adt {
+            if n->is_open {
+                var k  = self.sc->imm_table()->find_ident(LangAttrs::open_enum());
+                var ar = (n->attribute_range(k)) if (k != u32(-1)) else (n->range);
+                if !ar.is_valid() { ar = n->range; }
+                var an = "\x27@" + LangAttrs::open_enum() + "\x27";
+                var b = self.sc->diag->report(DiagID::SC001E, ar.start,
+                    an + " does not apply to an ADT enum: no cast makes its tag, so it is always closed");
+                b.first(ar);
+                b.note(def->name.range.start, "its definition has payload variants");
+                b.remove(ar, "remove " + an);
+                b.emit();
+                n->is_open = false;
+            }
+            return;
+        }
+        cur = head;
+        while true {
+            cur->is_open = true;
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
+    }
 
     priv fn _check_enum_underlying(self, n: *EnumDecl) {
         if n->underlying == &null { return; }

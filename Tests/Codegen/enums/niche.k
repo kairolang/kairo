@@ -1,13 +1,13 @@
 // Niche layout (spec ENUMLAYOUT §5): an ADT with one payload variant of one
 // field, beside dataless variants, stores no tag when the field never holds
 // some bit patterns and is trivially copied and destroyed. Each dataless
-// variant is one such pattern: null for a pointer, `N + i` for a tagged
-// ADT's tag of N variants, and for a field that is itself niche-filled, the
-// patterns past the ones it uses. A plain enum has none: `as` makes any
-// value of its word. So `(*Foo)?` is one pointer, `Color?` keeps its tag
-// (two bytes), `(Color?)?` is a `Color?` whose tag is 2, `((*Foo)?)?` falls
-// back to a tag (its field's one pattern is taken), and `Inst?` is an Inst
-// whose tag is 4.
+// variant is one such pattern: null for a pointer, `N + i` for a closed
+// plain enum of N values (not `@open`: Codegen/enums/closed_enum_cast.k)
+// or a tagged ADT's tag, and for a field that is itself niche-filled, the
+// patterns past the ones it uses. So `(*Foo)?` is one
+// pointer, `Color?` one byte (pattern 3), `(Color?)?` one byte (pattern 4),
+// `((*Foo)?)?` falls back to a tag (its field's one pattern is taken), and
+// `Inst?` is an Inst whose tag is 4.
 //
 // A generic ADT's instances are laid out by C++, from the constrained
 // partial specialization beside the tagged primary. Sema predicts the
@@ -67,7 +67,7 @@ fn pass(p: *Foo?) -> *Foo? = p
 fn main() -> i32 {
     var f = Foo{ a: 5 }
     var r = 0
-    if (sizeof((*Foo)?) == 8) && (sizeof(Color?) == 2) && (sizeof((Color?)?) == 2) && (sizeof(((*Foo)?)?) == 16) { r += 1 }
+    if (sizeof((*Foo)?) == 8) && (sizeof(Color?) == 1) && (sizeof((Color?)?) == 1) && (sizeof(((*Foo)?)?) == 16) { r += 1 }
     if (sizeof(Inst?) == sizeof(Inst)) && (sizeof(Opt<i32>) == 8) && (sizeof(MaybeFoo) == 8) { r += 2 }
     if ptr_some(Opt<*Foo>::Some { v: &f }) && (!ptr_some(Opt<*Foo>::None)) { r += 4 }
     if (color_of(Opt<Color>::Some { v: .Blue }) == 2) && (color_of(.None) == 9) { r += 8 }
@@ -90,13 +90,14 @@ fn main() -> i32 {
 // DIAG-NOT: error
 // DIAG-NOT: warning [{{[^S]|S[^0]|S0[^5]|S05[^5]}}
 
-// The trait (a plain enum gets no answer to it), the tagged primary's own
-// answer, and the niche-filled partial specialization.
+// The trait, a plain enum's answer to it after the enum, the tagged
+// primary's own answer, and the niche-filled partial specialization.
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}niche.k
 // CXX:       template<class T> struct __kairo_niche<T*> {
 // CXX-NEXT:  static constexpr unsigned long count = 1;
-// CXX-NOT:   template<> struct __kairo_niche<
+// CXX:       template<> struct __kairo_niche<::{{.*}}::Color> {
+// CXX-NEXT:  static constexpr unsigned long count = 253;
 // CXX:       template<class T> struct Opt {
 // CXX-NEXT:  enum class __kairo_Tag : unsigned char {
 // CXX:       __kairo_Tag __kairo_which() const noexcept {
@@ -127,17 +128,17 @@ fn main() -> i32 {
 // IR:       bool ptr_some(
 // IR:       if(__kairo_m0_s.__kairo_Some.v != nullptr) {
 // IR:       signed int color_of(
-// IR:       switch(static_cast<unsigned int>(__kairo_m0_s.__kairo_tag)) {
+// IR:       if(__kairo_m0_s.__kairo_Some.v != static_cast< ::{{.*}}::Color>(3)) {
 // IR:       signed int nested(
-// IR:       if(static_cast<unsigned int>(__kairo_m0_s.__kairo_Some.v.__kairo_tag) != 2) {
+// IR:       if(__kairo_m0_s.__kairo_Some.v.__kairo_Value.v != static_cast< ::{{.*}}::Color>(4)) {
 // IR:       signed int foo_a(
 // IR:       if(__kairo_m0_s.__kairo_Has.p != nullptr) {
 // IR:       signed int layered(
 // IR:       switch(static_cast<unsigned int>(__kairo_m0_s.__kairo_which())) {
 // IR:       int main()
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>) == 8);
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Color>) == 2);
-// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::builtin::Nullable< ::{{.*}}::Color>>) == 2);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Color>) == 1);
+// IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::builtin::Nullable< ::{{.*}}::Color>>) == 1);
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::builtin::Nullable< ::{{.*}}::Foo *>>) == 16);
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Inst>) == 8);
 // IR-DAG:   static_assert(sizeof({{ ?}}::{{.*}}::Opt<signed int>) == 8);

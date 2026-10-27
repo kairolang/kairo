@@ -415,6 +415,8 @@ class DeclImport {
             }
             case clang::Decl::Enum {
                 var e = EnumDecl::create(t->ctx, at, name, parent);
+                // clang owns its values: open, so no niche and no checked `as`.
+                e->is_open = true;
                 out = static_cast::<*Decl>(e);
             }
             case clang::Decl::Function         { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
