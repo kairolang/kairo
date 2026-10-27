@@ -511,6 +511,30 @@ class ConstEval {
             return c;
         }
 
+        // An `eval` field is a class constant (EVAL.md 1.2, 7d): one value
+        // per class, its initializer, as an `eval` variable is.
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (fd != &null) && fd->is_eval() {
+            var fnm = self.tu.decl_name(d);
+            if (fd->init == &null) || (depth > 8) {
+                return self._fail(at, f"'{fnm}' has no initializer that evaluates", d);
+            }
+            var fc = self._eval(fd->init, depth + 1);
+            if !fc.ok {
+                if !self.quiet {
+                    self.bad      = at;
+                    self.bad_why  = f"the initializer of '{fnm}' does not evaluate";
+                    self.bad_decl = d;
+                }
+                return fc;
+            }
+            var ft: *Type = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
+            if (ft != &null) && self.tu.is_integer(self.tu.as_value(ft)) && (!self.fits(fc, ft)) {
+                return self._fail(at, f"'{fnm}' is {self.str(fc)}, which does not fit its type '{self.tu.str(ft)}\x27", d);
+            }
+            return fc;
+        }
+
         var v = dyn_cast::<EnumVariantDecl>(d);
         if v != &null { return self._variant(at, v); }
 

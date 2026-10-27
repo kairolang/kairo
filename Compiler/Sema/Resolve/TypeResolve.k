@@ -481,6 +481,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 return;
             }
             var vp = self._extent_dependent(&ce);
+            if (vp == &null) && self._own_class_constant(n, &ce) {
+                n->poison();
+                return;
+            }
             if vp == &null {
                 self._bad_extent(n, &ce, c, "an array length");
                 n->poison();
@@ -509,6 +513,55 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             return;
         }
         n->canonical = self.sc->types->array(elem, extent);
+    }
+
+    /// `[i32; K]` as a field of K's own class, where K's value does not fold
+    /// and C++ must compute it (EVAL.md 1.2a): inside its class body K is
+    /// declared but the class is incomplete, so it is no constant expression
+    /// there, in any C++ version. Reported (SC116E) with a fix-it hoisting K
+    /// to module scope. One that folds is spelled as its value and is fine;
+    /// a method body is a complete-class context and is fine too.
+    priv fn _own_class_constant(self, n: *FixedArrayType, ce: *ConstEval) -> bool {
+        if (self._cur_field == &null) || (ce->bad_decl == &null) { return false; }
+        var k = dyn_cast::<FieldDecl>(ce->bad_decl);
+        if (k == &null) || (!k->is_eval()) { return false; }
+        if k->semantic_dc != self._cur_field->semantic_dc { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(k->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        var kn = self.sc->ctx->get_spelling(k->name);
+        var on = ("its class") if (owner == &null) else (f"'{ce->tu.decl_name(owner)}\x27");
+        var b = self.sc->diag->report(DiagID::SC116E, n->size_expr->range.start,
+            f"an array length computed by C++ from '{kn}', an 'eval' constant of the field\x27s own class, is not supported: {on} is incomplete inside its own body");
+        b.first(n->size_expr->range);
+        b.note(DiagID::SC001N, k->name.range.start,
+            f"'{kn}' is declared here; its value is computed by C++, which reads it only once the class is complete").first(k->name.range);
+        if (owner != &null) && (k->type_ != &null) && (k->init != &null) && (!self._foreign(static_cast::<*Decl>(k))) {
+            var sm = self.sc->ctx->sm;
+            var hoist = f"eval {kn}: {sm->get_text(k->type_->range)} = {sm->get_text(k->init->range)}\n";
+            b.insert(self._with_vis(owner->range.start), hoist, f"move '{kn}' to module scope, where it is complete before the class");
+            b.remove(SourceRange::from_bounds(self._with_vis(k->range.start), k->range.end), f"and remove it from the class");
+        }
+        b.emit();
+        return true;
+    }
+
+    /// \p at, or the visibility keyword written right before it: a
+    /// declaration's range starts after `pub`, and a fix-it that moves the
+    /// declaration must take the keyword along.
+    priv fn _with_vis(self, at: SourceLocation) -> SourceLocation {
+        var sm = self.sc->ctx->sm;
+        var kws = vec::<string>();
+        kws.push_back("pub ");
+        kws.push_back("priv ");
+        kws.push_back("prot ");
+        var off = sm->get_offset(at);
+        for var i: usize = 0; i < kws.size(); ++i {
+            var n = kws[i].size();
+            if off < n { continue; }   // nothing before it in the file.
+            var st = at.retreat(n);
+            if sm->get_text(SourceRange::from_bounds(st, static_cast::<u32>(n))) == kws[i] { return st; }
+        }
+        return at;
     }
 
     /// The generic VALUE parameter the evaluation stopped at (`[i32; N]` in
@@ -1852,6 +1905,18 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     }
 
     // === Scope cursor management (mirrors NameResolution) =====================
+
+    /// The field whose type is being resolved, for EVAL.md 1.2a
+    /// (_own_class_constant); null elsewhere.
+    priv var _cur_field: *FieldDecl = &null;
+
+    fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
+        var saved = self._cur_field;
+        self._cur_field = n;
+        var r = RecursiveASTVisitor::<TypeResolution>::traverse_field_decl(n);
+        self._cur_field = saved;
+        return r;
+    }
 
     fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
         if n == &null { return n; }

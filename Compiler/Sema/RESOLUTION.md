@@ -328,6 +328,14 @@ FFI-imported incomplete array keeps the structural `array(elem, 0)`. A
 `[...]` literal is a `Slice<E>` (or takes an expected `[E; N]` outright);
 `Slice<T> -> Vector<T>` is the one container conversion, rank Converted.
 
+**An array length is folded here** (`_resolve_array`, EVAL.md 0.1): by
+ConstEval, untyped -- literals, `eval` variables and `eval` fields (class
+constants, EVAL.md 1.2), and the arithmetic over them. A length read from
+an `eval` field of the field's own class whose initializer does not fold
+(C++ would compute it, and inside its own body the class is incomplete) is
+SC116E with a fix-it hoisting the constant to module scope (1.2a,
+`_own_class_constant`; `_cur_field` is the field being resolved).
+
 **`unsafe *T` is a distinct canonical from `*T`** [DECIDED, MISSING, spec 2].
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
 cast family is undecidable.
