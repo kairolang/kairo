@@ -242,25 +242,31 @@ class GenericArgs {
             if !filled[i] {
                 if gp->default_type == &null { return false; }   // arity said otherwise; defensive.
                 var dc = gp->default_type->canonical;
-                // A FOREIGN default comes back as the header's canonical, and
-                // a default naming the primary's own params (`class A =
-                // allocator<T>`) is dependent there. Every param before this
-                // one is already placed, so substitute them in: without it
-                // `std::vector<i32>` keyed as `vector<i32, allocator<T>>`, a
-                // dependent type with no instance behind it, and nothing (the
-                // clang fill included) ever looked past the pattern.
-                if (dc != &null) && dc->is_dependent() && foreign {
+                // A default naming the primary's own params (`class A =
+                // allocator<T>`, `<K, V = K>`) is dependent on THEM. Every
+                // param before this one is already placed, so substitute
+                // them in: without it `std::vector<i32>` keyed as
+                // `vector<i32, allocator<T>>` and `Pair<i32>` as
+                // `Pair<i32, K>`, dependent types with no instance behind
+                // them, and C++ was handed a `K` nothing declares.
+                //
+                // A FOREIGN result that is still dependent names an unplaced
+                // param. A Kairo one may be dependent through its ARGUMENTS
+                // (`Pair<U>` in a generic body is `Pair<U, U>`), which is a
+                // real answer; only an unbound param (null) is not.
+                if (dc != &null) && dc->is_dependent() {
                     var ded = Deduction(self.sc, &null);
                     var rep = NameLookup::representative(primary);
                     for var j: usize = 0; j < out->size(); ++j { ded.bind(rep, static_cast::<u32>(j), (*out)[j]); }
                     var sub = ded.substitute(dc);
-                    if (sub != &null) && (!sub->is_dependent()) { dc = sub; }
+                    if (sub != &null) && ((!foreign) || (!sub->is_dependent())) { dc = sub; }
                     else { dc = &null; }      // still names an unplaced param: the stand-in below.
                 }
                 if dc == &null {
                     if gp->default_type->is_poisoned() { return false; }
-                    // Dependent default (mentions the primary's own params):
-                    // substitution is M2's. Stand in with the param itself.
+                    // A default substitution cannot place (it names a
+                    // later param, or has no canonical): stand in with the
+                    // param itself, instantiation-dependent.
                     self.inst_dependent = true;
                     out->push_back(self.sc->types->generic_param(primary, gp->index, false));
                     continue;
