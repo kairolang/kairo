@@ -224,6 +224,10 @@ class TranslationUnit derives DeclContext {
     /// The parser met an `eval for` (InterfaceEmitter writes the eval
     /// helpers, EVAL.md §5). One writer: the parser.
     pub var has_eval_for:   bool = false;
+    /// StringLowering spelled a string literal C++ reads at compile time
+    /// (EVAL.md 2a), so InterfaceEmitter writes `__kairo_estr`. One writer:
+    /// StringLowering.
+    pub var has_eval_string: bool = false;
 
     /// The HeaderSet this file's ffi imports requested (PPWalker::_finalize),
     /// or null. Typed *void: TranslationUnit cannot name Interop. Owned by the

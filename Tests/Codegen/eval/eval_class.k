@@ -50,8 +50,9 @@ eval AREA = CFG.area()                          // 20
 // IR:     consteval Hasher(unsigned long start) noexcept;
 // IR:     consteval unsigned long mix(unsigned long b) const noexcept;
 // IR:     constexpr signed int __kairo_init_scale();
-// IR:     constexpr::eval_class::Hasher const H =
+// The compile-time bodies come before the eval bindings that run them.
 // IR:     inline constexpr signed int Cfg::__kairo_init_scale() {
+// IR:     inline constexpr::eval_class::Hasher const H =
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

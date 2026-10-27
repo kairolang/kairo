@@ -793,6 +793,12 @@ class StringLiteralExpr derives Expr {
     pub var fmt_finish:  *Decl = &null;   ///< FmtBuf::finish.
     pub var fmt_len:     *Decl = &null;   ///< string::len, the FieldDecl (the capacity sum reads it).
     pub var fmt_holes:   FrozenList::<FormatHole>;
+    /// C++ reads this literal at compile time (EVAL.md 2a): it stands in an
+    /// eval context, or in an argument of an eval call made from run-time
+    /// code (an immediate invocation). Written by EvalUsageChecking. On the
+    /// byte literal StringLowering mints from it, EmitIR spells the bytes as
+    /// `__kairo_estr<...>` rather than a `"..."` that needs a cast.
+    pub var const_eval:  bool = false;
 
     static fn create(
         ctx:         *ASTContext,
@@ -812,6 +818,7 @@ class StringLiteralExpr derives Expr {
         node->fmt_finish  = &null;
         node->fmt_len     = &null;
         node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
+        node->const_eval  = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -831,6 +838,7 @@ class StringLiteralExpr derives Expr {
         node->fmt_finish  = &null;
         node->fmt_len     = &null;
         node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
+        node->const_eval  = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

@@ -248,6 +248,12 @@ class InterfaceEmitter {
             self._cg->sink->spell(self._tu_at(),
                 "template <class T, " + sz + " N> struct " + LowerTargets::eval_arr() + " { T " + LowerTargets::eval_arr_values() + "[N ? N : 1]; };");
             self._cg->sink->brk();
+            // A string literal C++ reads at compile time (EVAL.md 2a): its
+            // bytes and a NUL, keyed on the bytes, so one literal is one
+            // object wherever it is spelled.
+            self._cg->sink->spell(self._tu_at(),
+                "template <unsigned char... C> inline constexpr unsigned char " + LowerTargets::eval_str() + "[sizeof...(C) + 1] = {C..., 0};");
+            self._cg->sink->brk();
             if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
             self._cg->sink->unanchored(false);
             self.have_eval_helpers = true;
@@ -775,11 +781,31 @@ class InterfaceEmitter {
     /// those. A header skips what it includes, as run() does.
     /// An `eval for` in this TU, or an eval generator the plan declares or
     /// defines here: both spell the eval helpers.
+    /// So does a compile-time string (`__kairo_estr`, EVAL.md 2a): this TU
+    /// spelled one, or a body or constant it emits from elsewhere may (an
+    /// eval fn, an eval binding, a record with eval members). Which foreign
+    /// body holds a literal is not known here, so any eval entry counts.
     priv fn _needs_eval_helpers(self) -> bool {
-        if (self._cg->tu != &null) && self._cg->tu->has_eval_for { return true; }
+        if (self._cg->tu != &null) && (self._cg->tu->has_eval_for || self._cg->tu->has_eval_string) { return true; }
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
-            var f = dyn_cast::<FunctionDecl>(self._plan->entries[i].decl);
-            if (f != &null) && f->is_eval() && f->is_generator { return true; }
+            var d = self._plan->entries[i].decl;
+            var f = dyn_cast::<FunctionDecl>(d);
+            if (f != &null) && f->is_eval() { return true; }
+            var v = dyn_cast::<VariableDecl>(d);
+            if (v != &null) && v->is_eval() { return true; }
+            if self._has_eval_member(d) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _has_eval_member(self, d: *Decl) -> bool {
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d)       { ms = &(cast::<ClassDecl>(d)->methods); }
+        else if isa::<StructDecl>(d) { ms = &(cast::<StructDecl>(d)->methods); }
+        if ms == &null { return false; }
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m != &null) && m->is_eval() { return true; }
         }
         return false;
     }

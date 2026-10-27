@@ -31,8 +31,11 @@
 ///         also what keeps IO out;
 ///       - no pointer types or operations (`&x`, `*p`, `->`, a pointer
 ///         parameter);
-///       - a string, vector, set or map value is SC116E: eval-able by design
-///         (EVAL.md §2), with no compile-time C++ form yet;
+///       - a vector, set or map value, or an f-string, is SC116E: eval-able
+///         by design (EVAL.md §2), with no compile-time C++ form yet. A
+///         string literal has one (2a): this pass marks every literal C++
+///         reads at compile time (StringLiteralExpr::const_eval), here and
+///         in the arguments of an eval call made from run-time code;
 ///       - no `await`, `spawn`, `thread`, `panic`;
 ///       - no mutable global, static or thread variable, and no non-eval
 ///         global at all (a `const` global is initialized at run time);
@@ -86,6 +89,19 @@ class ReturnFinder derives RecursiveASTVisitor::<ReturnFinder> {
     fn ReturnFinder(self) { }
     fn visit_return_stmt(self, n: *ReturnStmt) -> bool {
         if (self.found == &null) && (n->value != &null) { self.found = n; }
+        return true;
+    }
+    fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr { return n; }
+}
+
+/// Marks every string literal under an expression as read by C++ at
+/// compile time (StringLiteralExpr::const_eval, EVAL.md 2a): the arguments
+/// of an eval call made from run-time code, an eval class's field default.
+/// A closure's body is its own context.
+class ConstEvalStrings derives RecursiveASTVisitor::<ConstEvalStrings> {
+    fn ConstEvalStrings(self) { }
+    fn visit_string_literal_expr(self, n: *StringLiteralExpr) -> bool {
+        if !n->is_format() { n->const_eval = true; }
         return true;
     }
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr { return n; }
@@ -188,6 +204,13 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
 
     fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
         if n->is_eval() && (n->init == &null) && (!n->is_implicit) && (n->init_fold == FieldFold::None) { self._needs_init(n->name, n->range); }
+        // An eval class's field default runs inside its eval constructor
+        // too, at compile time (EVAL.md 7b): its strings are compile-time
+        // strings, and the run-time constructors share the same thunk.
+        if (!n->is_eval()) && (!n->is_static()) && (n->init != &null) && self._in_eval_class(n) {
+            var m = ConstEvalStrings();
+            m.dispatch_expr(n->init);
+        }
         if n->is_eval() && (n->init != &null) {
             self._ctx += 1;
             var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_field_decl(n);
@@ -203,6 +226,25 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         var r = RecursiveASTVisitor::<EvalUsageChecking>::traverse_eval_expr(n);
         self._ctx -= 1;
         return r;
+    }
+
+    /// \p f's record has an eval constructor (an eval class, EVAL.md 7a);
+    /// the rule FieldInitLowering::_eval_class makes its defaults' thunks
+    /// `constexpr` by.
+    priv fn _in_eval_class(self, f: *FieldDecl) -> bool {
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        if owner == &null { return false; }
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(owner) { ms = &(cast::<ClassDecl>(owner)->methods); }
+        else if isa::<StructDecl>(owner) { ms = &(cast::<StructDecl>(owner)->methods); }
+        if ms == &null { return false; }
+        var on = self.tu.decl_name(owner);
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m != &null) && m->is_eval() && (!m->is_operator) && (self.tu.decl_name(static_cast::<*Decl>(m)) == on) { return true; }
+        }
+        return false;
     }
 
     /// An `eval` constant is its value: one with none (`eval K: i32`) would
@@ -271,12 +313,11 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         }
     }
 
-    /// \p t is a string or collection, which has no compile-time form yet
-    /// (EVAL.md 2a, 2b): reported at \p at.
+    /// \p t is a collection, which has no compile-time form yet (EVAL.md
+    /// 2b): reported at \p at. A string has one (2a).
     priv fn _no_eval_form(self, at: SourceRange, t: *Type) -> bool {
         var what = "";
-        if self.tu.is_string(t)           { what = "a string"; }
-        else if self.tu.is_vector_like(t) { what = "a vector"; }
+        if self.tu.is_vector_like(t)      { what = "a vector"; }
         else if self.tu.is_set_like(t)    { what = "a set"; }
         else if self.tu.is_map_like(t)    { what = "a map"; }
         if what.size() == 0 { return false; }
@@ -448,14 +489,23 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
 
     fn visit_expr(self, e: *Expr) -> bool {
         if (self._ctx == 0) || (e->type_ == &null) { return true; }
-        // Strings and the collection literals are eval-able by design (EVAL.md
-        // §2) but have no compile-time C++ form yet (2a, 2b): the builtin
-        // string is not a literal type, and vectors, sets and maps do not
-        // even compile at run time. Reported once, at the outermost one.
+        // A string literal is a compile-time string (EVAL.md 2a): its bytes
+        // are a constant array and the literal constructor is constexpr. An
+        // f-string is not: it formats into a heap buffer.
+        var sl = dyn_cast::<StringLiteralExpr>(e);
+        if (sl != &null) && sl->is_format() {
+            var fb = self.sc->diag->report(DiagID::SC116E, e->range.start, "an f-string in an eval context is not yet supported");
+            fb.first(e->range);
+            fb.emit();
+            return false;
+        }
+        if sl != &null { sl->const_eval = true; return true; }
+        // The collection literals are eval-able by design (EVAL.md §2) but
+        // have no compile-time C++ form yet (2b): vectors, sets and maps do
+        // not even compile at run time. Reported once, at the outermost one.
         var t = e->type_;
         var what = "";
-        if self.tu.is_string(t)           { what = "a string"; }
-        else if self.tu.is_vector_like(t) { what = "a vector"; }
+        if self.tu.is_vector_like(t)      { what = "a vector"; }
         else if self.tu.is_set_like(t)    { what = "a set"; }
         else if self.tu.is_map_like(t)    { what = "a map"; }
         if what.size() == 0 { return true; }
@@ -619,6 +669,12 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     fn visit_call_expr(self, n: *CallExpr) -> bool {
         if self._ctx > 0 { self._check_ctx_call(n); }
         var f = self._callee_fn(n);
+        // An eval call from run-time code is an immediate invocation: C++
+        // evaluates its arguments at compile time, strings included.
+        if (self._ctx == 0) && (f != &null) && f->is_eval() {
+            var m = ConstEvalStrings();
+            for var i: usize = 0; i < n->args.size(); ++i { m.dispatch_expr(n->args[i]); }
+        }
         if (f == &null) || (!f->is_eval()) || (!f->is_generator) { return true; }
         var e = static_cast::<*Expr>(n);
         for var i: usize = 0; i < self._ef_iters.size(); ++i {

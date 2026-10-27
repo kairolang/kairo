@@ -500,6 +500,16 @@ class LowerTargets {
     /// the function.
     static fn eval_for_gen_n(k: usize) -> string { return f"__kairo_egn{k}"; }
     static fn eval_for_gen(k: usize) -> string { return f"__kairo_eg{k}"; }
+    /// `template <unsigned char... C> inline constexpr unsigned char
+    /// __kairo_estr[] = {C..., 0};`: a string literal's bytes where C++
+    /// reads them at compile time (EVAL.md 2a). `"..."` is `const char[]`
+    /// and the builtin string holds `const unsigned char*`, so the run-time
+    /// spelling needs a `reinterpret_cast`, which is not a constant
+    /// expression. Keyed on the bytes, so one literal is one object in every
+    /// TU and header that spells it (an eval string's `data` is the same
+    /// address everywhere, and a header body naming it is no ODR hazard),
+    /// and no array has to be hoisted ahead of the body that names it.
+    static fn eval_str() -> string { return "__kairo_estr"; }
 
     // --- Extension scopes (writer: InterfaceEmitter; reader: CXXSpell) -----------------
 

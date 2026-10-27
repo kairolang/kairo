@@ -1,7 +1,8 @@
 // Every literal kind with a compile-time C++ form is eval-able (EVAL.md §2):
 // integers of every width and suffix, floats, bool, char, arrays and
-// tuples, each a `constexpr` constant. Strings, vectors, sets and maps are
-// SC116E until they have one (Tests/Sema/Eval/eval_literal_gaps.k).
+// tuples, each a `constexpr` constant. Strings are in eval_strings.k;
+// vectors, sets and maps are SC116E until they have one
+// (Tests/Sema/Eval/eval_literal_gaps.k).
 eval I8: i8 = -128
 eval U64: u64 = 18446744073709551615u64
 eval I128: i128 = 170141183460469231731687303715884105727

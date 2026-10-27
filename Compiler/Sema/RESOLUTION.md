@@ -500,7 +500,8 @@ and T's types; an enum it rejects is poisoned), `ExprTyper` (§2.9), `ValueCateg
 `CtorInitCheck`, `ConformanceChecking` -- Typed, the panic-set barrier
 (top of this file) -- `PanicEffectChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
-callee bindings), `FeatureGateCheck`, `FlagGates`,
+callee bindings; also marks every string literal C++ reads at compile time,
+`StringLiteralExpr::const_eval`, for StringLowering, EVAL.md 2a), `FeatureGateCheck`, `FlagGates`,
 `PatternCompilation`. (`ConstraintExtraction` runs in T, before
 ChainBinding, §2.6.)
 

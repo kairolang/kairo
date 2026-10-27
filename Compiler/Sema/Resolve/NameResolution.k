@@ -528,6 +528,37 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // keyword), so codegen writes it from a mark on the record.
         var nd = dyn_cast::<StructDecl>(self.sc->well_known->get(WellKnownType::NullT));
         if nd != &null { nd->is_null_type = true; }
+
+        self._literal_ctor_constexpr();
+    }
+
+    /// The string literal constructor, `string(data, len, cp_len)`, and the
+    /// empty one are C++ `constexpr` and inline (EVAL.md 2a): an eval
+    /// context builds strings from `__kairo_estr` bytes with the first, and
+    /// an eval constructor default-initializes a string field with the
+    /// second, so both must run in a constant expression, and so their
+    /// bodies must be in every TU that does. Kairo has no spelling for
+    /// "compile time and run time both", so they are marked here, by the
+    /// lang item; only by the TU that declares the record: the one writer,
+    /// before any TU's codegen reads the flags.
+    priv fn _literal_ctor_constexpr(self) {
+        var sd = self.sc->well_known->get(WellKnownType::String);
+        if sd == &null { return; }
+        if reinterpret_cast::<*DeclContext>(sd->semantic_dc) != static_cast::<*DeclContext>(self.sc->tu) { return; }
+        var dc = NameLookup::context_of(sd);
+        if dc == &null { return; }
+        var cell = self.sc->lookup.in_context(dc, DeclName::ctor());
+        if !cell.found() { return; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var m = dyn_cast::<FunctionDecl>(cell.cell->get(i));
+            if m == &null { continue; }
+            var n: usize = 0;
+            for var p: usize = 0; p < m->params.size(); ++p {
+                if (m->params[p] != &null) && (!m->params[p]->is_self) { n += 1; }
+            }
+            if (n != 0) && (n != 3) { continue; }   // the empty string and the literal.
+            m->modifiers = m->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline;
+        }
     }
 
     /// One lang item, by the name it is DECLARED with in Lib/builtin, which is

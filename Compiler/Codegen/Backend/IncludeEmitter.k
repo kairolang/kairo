@@ -100,6 +100,16 @@ class IncludedDecls {
         return true;
     }
 
+    /// True the first time eval binding \p v's definition is offered
+    /// (EmitPlan::include_eval_vars). Keyed with the bodies: a decl's
+    /// address is unique whatever its kind.
+    fn admit_eval_var(self, v: *VariableDecl) -> bool {
+        var key = reinterpret_cast::<u64>(v);
+        if self._bodies.contains(key) { return false; }
+        self._bodies.insert(key);
+        return true;
+    }
+
     /// True the first time \p e is offered: it is new to the host TU.
     fn admit(self, plan: *EmitPlan, e: *PlanEntry) -> bool {
         if e->witness != &null {
@@ -255,8 +265,13 @@ class IncludeEmitter {
         for var i: usize = 0; i < all.size(); ++i {
             if seen->admit_body(all[i]) { bodies.push_back(all[i]); }
         }
+        var vars = vec::<*VariableDecl>();
+        var allv = plan.include_eval_vars();
+        for var i: usize = 0; i < allv.size(); ++i {
+            if seen->admit_eval_var(allv[i]) { vars.push_back(allv[i]); }
+        }
         var ir = EmitIR(&cg);
-        ir.emit_bodies(bodies);
+        ir.emit_bodies(bodies, vars);
 
         for var i: usize = 0; i < sink->system_headers.size(); ++i {
             var l = "#include <" + sink->system_headers[i] + ">";

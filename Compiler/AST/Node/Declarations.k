@@ -168,9 +168,12 @@ enum FnModifier derives u16 {
     IsFinal    = 1 << 5,
     IsPanic    = 1 << 6,
     IsInline   = 1 << 7,
-    /// Compiler-minted only: C++ `constexpr` (usable at compile time AND at
+    /// Compiler-set only: C++ `constexpr` (usable at compile time AND at
     /// run time), for a field default's thunk in an eval class, which an
-    /// eval (consteval) constructor runs (EVAL.md 7b). Always with IsInline.
+    /// eval (consteval) constructor runs (EVAL.md 7b), and for the builtin
+    /// string's literal and empty constructors, which build compile-time
+    /// strings (2a; NameResolution::_literal_ctor_constexpr). Always with
+    /// IsInline.
     IsConstexpr = 1 << 8,
 }
 

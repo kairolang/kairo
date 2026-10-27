@@ -40,12 +40,14 @@ fn main() -> i32 {
 // IR-NEXT: static consteval double __kairo_init_SCALE();
 // IR:      inline constexpr const signed int Grid::W = 4;
 // IR:      consteval signed int late(signed int x) noexcept;
-// The bodies, eval ones first: late's before EARLY's definition.
+// The bodies, eval ones first (free functions, then records' methods),
+// then the eval bindings: late's body before the thunks that call it,
+// and all of them before EARLY's definition.
 // IR:      consteval signed int late(signed int x) noexcept {
-// IR:      constexpr signed int const EARLY = {{.*}}late(3);
 // IR:      consteval signed int Grid::__kairo_init_AREA() {
 // IR:      inline constexpr const signed int Grid::AREA = Grid::__kairo_init_AREA();
 // IR:      inline constexpr const double Grid::SCALE = Grid::__kairo_init_SCALE();
+// IR:      inline constexpr signed int const EARLY = {{.*}}late(3);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

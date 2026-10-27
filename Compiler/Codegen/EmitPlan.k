@@ -112,6 +112,27 @@ enum PlanMode derives u8 {
 /// (N, X); every extend block in that scope contributes. Always COMPLETE --
 /// all its blocks, priv members included -- so its text is the same in every
 /// TU and header that carries it (invariant 11).
+/// The namespace-scope variables an initializer names: the order eval
+/// bindings' definitions are written in (EmitPlan::_eval_vars).
+class EvalVarRefs derives RecursiveASTVisitor::<EvalVarRefs> {
+    pub var out: vec::<*VariableDecl>;
+    fn EvalVarRefs(self) { }
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        var v = dyn_cast::<VariableDecl>(n->resolved_decl);
+        if v != &null { self.out.push_back(v); }
+        return true;
+    }
+    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if st == &null { continue; }
+            var v = dyn_cast::<VariableDecl>(st->resolved_decl);
+            if v != &null { self.out.push_back(v); }
+        }
+        return true;
+    }
+}
+
 class ExtScope {
     pub var ns:        vec::<string>;
     pub var name:      string;                ///< `__kairo_ext_X`.
@@ -212,6 +233,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn visible_bodies(self) -> vec::<*FunctionDecl>;
     fn include_bodies(self) -> vec::<*FunctionDecl>;
     fn _bodies(self, want_own: bool) -> vec::<*FunctionDecl>;
+    fn visible_eval_vars(self) -> vec::<*VariableDecl>;
+    fn include_eval_vars(self) -> vec::<*VariableDecl>;
+    fn _eval_vars(self, want_own: bool) -> vec::<*VariableDecl>;
+    fn _place_eval_var(self, i: usize, pick: *vec::<*VariableDecl>, state: *vec::<u8>, out: *vec::<*VariableDecl>);
     fn _walk_visible(self);
     fn _find_escaping(self, tu: *TranslationUnit);
     fn _visible_record_bodies(self, d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>);
@@ -954,6 +979,7 @@ fn EmitPlan::_walk_visible() {
     // same walk is what declares the priv helpers and types an own inline
     // body names: _collect_own left them out, _admit does not.
     var walked = vec::<*FunctionDecl>();
+    var walked_vars = vec::<*VariableDecl>();
     var progressed = true;
     while progressed {
         progressed = false;
@@ -966,7 +992,69 @@ fn EmitPlan::_walk_visible() {
             self._walk_body(vis[i]);
             progressed = true;
         }
+        // An eval binding's definition is interface too (EVAL.md 1.2b):
+        // what its initializer names -- the eval fn it calls, the eval
+        // constant it reads -- is this TU's to declare and define.
+        var vv = self.visible_eval_vars();
+        for var i: usize = 0; i < vv.size(); ++i {
+            var seen = false;
+            for var k: usize = 0; k < walked_vars.size(); ++k { if walked_vars[k] == vv[i] { seen = true; break; } }
+            if seen { continue; }
+            walked_vars.push_back(vv[i]);
+            self.dispatch_decl(static_cast::<*Decl>(vv[i]));
+            progressed = true;
+        }
     }
+}
+
+/// The eval bindings (namespace scope) whose `inline constexpr`
+/// definitions this TU writes beside its own (EVAL.md 1.2b), chosen as
+/// visible_bodies chooses: the foreign ones a preamble declares, a header's
+/// own, both for an include. An importer cannot read an `extern const` in
+/// a constant expression, so the definition, like a consteval body, is part
+/// of the interface.
+fn EmitPlan::visible_eval_vars() -> vec::<*VariableDecl> {
+    if self._mode == PlanMode::Include { return self.include_eval_vars(); }
+    return self._eval_vars(self._mode == PlanMode::Header);
+}
+
+fn EmitPlan::include_eval_vars() -> vec::<*VariableDecl> {
+    var out = self._eval_vars(false);
+    var own = self._eval_vars(true);
+    for var i: usize = 0; i < own.size(); ++i { out.push_back(own[i]); }
+    return out;
+}
+
+/// In dependency order: a constant expression reads another constant only
+/// once it is defined, and declarations across files have no order of
+/// their own. A cycle is not a constant at all; C++ reports it.
+fn EmitPlan::_eval_vars(want_own: bool) -> vec::<*VariableDecl> {
+    var pick = vec::<*VariableDecl>();
+    for var i: usize = 0; i < self._set.size(); ++i {
+        var v = dyn_cast::<VariableDecl>(self._set[i]);
+        if (v == &null) || (!v->is_eval()) || (v->init == &null) || v->is_poisoned() { continue; }
+        if (CXXSpell::fid_of(static_cast::<*Decl>(v)) == self._home) != want_own { continue; }
+        pick.push_back(v);
+    }
+    var out = vec::<*VariableDecl>();
+    var state = vec::<u8>();   // 0 new, 1 on the path, 2 placed; parallel to pick.
+    for var i: usize = 0; i < pick.size(); ++i { state.push_back(u8(0)); }
+    for var i: usize = 0; i < pick.size(); ++i { self._place_eval_var(i, &pick, &state, &out); }
+    return out;
+}
+
+fn EmitPlan::_place_eval_var(i: usize, pick: *vec::<*VariableDecl>, state: *vec::<u8>, out: *vec::<*VariableDecl>) {
+    if (*state)[i] != u8(0) { return; }
+    (*state)[i] = u8(1);
+    var refs = EvalVarRefs();
+    refs.dispatch_expr((*pick)[i]->init);
+    for var r: usize = 0; r < refs.out.size(); ++r {
+        for var k: usize = 0; k < pick->size(); ++k {
+            if (*pick)[k] == refs.out[r] { self._place_eval_var(k, pick, state, out); }
+        }
+    }
+    (*state)[i] = u8(2);
+    out->push_back((*pick)[i]);
 }
 
 /// THE list of foreign bodies this TU emits, beside its own (which EmitIR

@@ -118,9 +118,12 @@ class EmitIR {
     /// returns from the lambda, with the closure's type. `_cur_fn` stays
     /// the enclosing function, which still decides what `self` is.
     priv var _closure: *ClosureExpr = &null;
-    /// emit_tu's first pass: only eval free functions are emitted, and the
-    /// second pass skips them (EVAL.md 1.1).
+    /// emit_tu's first pass: only compile-time bodies are emitted (eval free
+    /// functions, then records' eval and constexpr methods), and the second
+    /// pass skips them (EVAL.md 1.1, _eval_done).
     priv var _eval_pass: bool = false;
+    /// The eval pass's second round: records' compile-time methods.
+    priv var _eval_records: bool = false;
     /// `eval for` copies the current statement is inside (EVAL.md §5), and
     /// the runtime loops opened inside the innermost copy: a `break` /
     /// `continue` with none is the eval for's own (the copy's `return`).
@@ -129,6 +132,10 @@ class EmitIR {
     /// Eval generator iterables in the function, for unique names.
     priv var _ef_gens: usize = 0;
     priv var _eval_done: vec::<*FunctionDecl>;
+    /// The eval bindings emit_tu defined ahead of the program walk.
+    priv var _hoisted_vars: vec::<*VariableDecl>;
+    /// The namespace-scope variable whose initializer is being emitted.
+    priv var _cur_global: *VariableDecl = &null;
 
     fn EmitIR(self, cg: *CodegenContext) {
         self._cg    = cg;
@@ -151,14 +158,30 @@ class EmitIR {
         // DEFINED, and Kairo declarations have no order (EVAL.md 1.1). A
         // consteval body only names other consteval bodies and declarations,
         // so it can always go first.
+        // A constexpr body (the string literal constructor, an eval class's
+        // field default, EVAL.md 2a / 7b) goes with them: a constant
+        // expression needs it defined as much.
         var vis = plan->visible_bodies();
-        for var i: usize = 0; i < vis.size(); ++i { if vis[i]->is_eval() { self._visible_body(vis[i]); } }
+        for var i: usize = 0; i < vis.size(); ++i { if self._compile_time(vis[i]) { self._visible_body(vis[i]); } }
+        // Free functions first, then records' compile-time methods: an eval
+        // field's definition follows its thunk's body and is evaluated right
+        // there, so what the thunk calls must already be defined.
         self._eval_pass = true;
-        for var i: usize = 0; i < items->size(); ++i {
-            var item = *(items->get(i));
-            if item.kind == TopLevelKind::Decl { self.emit(item.as_decl()); }
+        for var round: u32 = 0; round < 2; ++round {
+            self._eval_records = (round == 1);
+            for var i: usize = 0; i < items->size(); ++i {
+                var item = *(items->get(i));
+                if item.kind == TopLevelKind::Decl { self.emit(item.as_decl()); }
+            }
         }
+        self._eval_records = false;
         self._eval_pass = false;
+        // Then every eval binding's definition, foreign (EVAL.md 1.2b) and
+        // own, dependencies first: each reads those bodies, and one may read
+        // another declared below it or in another file. The own ones are
+        // skipped where the program walk below reaches them.
+        self._hoisted_vars = plan->include_eval_vars();
+        self._eval_vars(self._hoisted_vars);
 
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
@@ -180,7 +203,7 @@ class EmitIR {
             }
         }
 
-        for var i: usize = 0; i < vis.size(); ++i { if !vis[i]->is_eval() { self._visible_body(vis[i]); } }
+        for var i: usize = 0; i < vis.size(); ++i { if !self._compile_time(vis[i]) { self._visible_body(vis[i]); } }
         self._panic_sites(tu);
     }
 
@@ -222,6 +245,15 @@ class EmitIR {
         self._cg->sink->brk();
     }
 
+    /// A body a constant expression may run: `consteval` or `constexpr`.
+    priv fn _compile_time(self, f: *FunctionDecl) -> bool { return f->is_eval() || f->is_constexpr(); }
+
+    /// Eval bindings' `inline constexpr` definitions, in the plan's order
+    /// (dependencies first), each in its namespace (EVAL.md 1.2b).
+    priv fn _eval_vars(self, list: vec::<*VariableDecl>) {
+        for var i: usize = 0; i < list.size(); ++i { self._global_var(list[i]); }
+    }
+
     /// Every template and inline definition visible here (EmitPlan::
     /// visible_bodies): FOREIGN ones in a preamble, the module's own in a
     /// header. A template's definition must be visible in every TU that can
@@ -230,13 +262,17 @@ class EmitIR {
     /// plan's, the same one it walked for dependencies, so nothing emitted
     /// here goes unplanned, and each body comes once.
     fn emit_visible(self, plan: *EmitPlan) {
-        self.emit_bodies(plan->visible_bodies());
+        self.emit_bodies(plan->visible_bodies(), plan->visible_eval_vars());
     }
 
-    /// Bodies from a list the plan made (EmitPlan::include_bodies, pruned by
-    /// the caller), each emitted as emit_visible emits one.
-    fn emit_bodies(self, list: vec::<*FunctionDecl>) {
-        for var i: usize = 0; i < list.size(); ++i { self._visible_body(list[i]); }
+    /// Bodies and eval bindings from lists the plan made (EmitPlan::
+    /// include_bodies / include_eval_vars, pruned by the caller), each
+    /// emitted as emit_visible emits one: the compile-time bodies, then the
+    /// eval bindings that read them, then the rest (as emit_tu orders them).
+    fn emit_bodies(self, list: vec::<*FunctionDecl>, vars: vec::<*VariableDecl>) {
+        for var i: usize = 0; i < list.size(); ++i { if self._compile_time(list[i]) { self._visible_body(list[i]); } }
+        self._eval_vars(vars);
+        for var i: usize = 0; i < list.size(); ++i { if !self._compile_time(list[i]) { self._visible_body(list[i]); } }
     }
 
     // ----------------------------------------------------------------- //
@@ -248,17 +284,20 @@ class EmitIR {
         if (d->kind == DeclKind::RecoveryDecl) { self._ice(d->range, "EmitIR: poisoned decl reached codegen; sema gate failure"); }
         if d->is_poisoned() { return; }
 
-        // The eval pass reaches free functions only, through modules and
-        // visibility groups (emit_tu).
+        // The eval pass reaches free functions and records' compile-time
+        // methods (_record_bodies), through modules and visibility groups
+        // (emit_tu): the eval bindings defined after it call them.
         if self._eval_pass {
             if d->kind == DeclKind::FunctionDecl {
-                if cast::<FunctionDecl>(d)->is_eval() {
+                if cast::<FunctionDecl>(d)->is_eval() && (!self._eval_records) {
                     self._free_fn(cast::<FunctionDecl>(d), &null);
                     self._eval_done.push_back(cast::<FunctionDecl>(d));
                 }
                 return;
             }
-            if (d->kind != DeclKind::ModuleDecl) && (d->kind != DeclKind::VisibilityGroupDecl) { return; }
+            var rec = (d->kind == DeclKind::ClassDecl) || (d->kind == DeclKind::StructDecl) || (d->kind == DeclKind::UnionDecl);
+            if (d->kind != DeclKind::ModuleDecl) && (d->kind != DeclKind::VisibilityGroupDecl) && (!rec) { return; }
+            if rec && (!self._eval_records) { return; }
         } else if (d->kind == DeclKind::FunctionDecl) && cast::<FunctionDecl>(d)->is_eval() {
             for var i: usize = 0; i < self._eval_done.size(); ++i {
                 if self._eval_done[i] == cast::<FunctionDecl>(d) { return; }
@@ -288,7 +327,13 @@ class EmitIR {
                     if m != &null { self._free_fn(m, x); }
                 }
             }
-            case DeclKind::VariableDecl { self._global_var(cast::<VariableDecl>(d)); }
+            case DeclKind::VariableDecl {
+                var gv = cast::<VariableDecl>(d);
+                for var i: usize = 0; i < self._hoisted_vars.size(); ++i {
+                    if self._hoisted_vars[i] == gv { return; }   // emit_tu wrote it, in dependency order.
+                }
+                self._global_var(gv);
+            }
             default { self._ice(d->range, f"EmitIR: decl kind {to_string(d->kind)} has no body to emit"); }
         }
     }
@@ -304,6 +349,15 @@ class EmitIR {
             if !m->has_body() {
                 var def = m->definition();
                 if (def != &null) && (!def->is_poisoned()) { m = def; }
+            }
+            // The eval pass writes the compile-time ones; the second pass
+            // the rest (emit).
+            var done = false;
+            for var k: usize = 0; k < self._eval_done.size(); ++k { if self._eval_done[k] == m { done = true; break; } }
+            if done { continue; }
+            if self._eval_pass {
+                if !self._compile_time(m) { continue; }
+                self._eval_done.push_back(m);
             }
             self._method(m, d);
         }
@@ -1008,11 +1062,17 @@ class EmitIR {
         var d = static_cast::<*Decl>(n);
         var at = CXXSpell::at(d);
         var wrap = self._open_ns(d, at);
-        var head = ("constexpr ") if (n->is_eval()) else ("");
+        // `inline` (EVAL.md 1.2b): every TU that reads an eval binding
+        // writes this same definition (EmitPlan::visible_eval_vars), since
+        // an `extern const` is no constant expression to an importer.
+        var head = ("inline constexpr ") if (n->is_eval()) else ("");
         self._cg->sink->spell(at, head + self._spell.global_var(n));
         var c: *Type = &null;
         if n->type_->canonical != &null { c = canon_unqual(n->type_->canonical); }
+        var saved = self._cur_global;
+        self._cur_global = n;
         self._var_init(n, c);
+        self._cur_global = saved;
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);
         self._close_ns(n->range, wrap);
     }
@@ -1545,6 +1605,19 @@ class EmitIR {
         if ((n->imm == &null) || (!n->imm->has_owned_text())) { self._ice(n->range, "EmitIR: byte literal with no minted bytes; LowerSynth::bytes_literal owns it"); }
         var p = n->imm->owned_ptr;
         var len = static_cast::<usize>(n->imm->owned_len);
+        // Read at compile time (EVAL.md 2a): the bytes as template
+        // arguments of `__kairo_estr`, a `const unsigned char` array with the
+        // NUL appended, which needs no cast to reach the string's `data`.
+        if n->const_eval {
+            var t = "::" + LowerTargets::eval_str() + "<";
+            for var i: usize = 0; i < len; ++i {
+                if i > 0 { t += ", "; }
+                t += f"{static_cast::<u32>(p[i])}";
+            }
+            t += ">";
+            self._cg->sink->spell(n->range, t);
+            return;
+        }
         var s = "\"";
         for var i: usize = 0; i < len; ++i {
             var b = p[i];
@@ -2117,9 +2190,12 @@ class EmitIR {
     }
 
     /// The file whose tables the body being emitted indexes: its function's,
-    /// which for a foreign template or inline body is not this TU's.
+    /// which for a foreign template or inline body is not this TU's; or the
+    /// namespace-scope variable's whose initializer is emitted (a foreign
+    /// eval binding's, EVAL.md 1.2b).
     priv fn _owning_fid(self) -> u32 {
         if self._cur_fn != &null { return CXXSpell::fid_of(static_cast::<*Decl>(self._cur_fn)); }
+        if self._cur_global != &null { return CXXSpell::fid_of(static_cast::<*Decl>(self._cur_global)); }
         return self._cg->tu->fid;
     }
 

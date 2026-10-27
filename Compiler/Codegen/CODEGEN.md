@@ -746,6 +746,27 @@ walks exactly it for dependencies, at the body strengths, to a fixed
 point -- that walk is what makes `Suspend` and `YieldPromise<T>` complete
 in a consumer whose own code names neither.
 
+Compile-time code is interface by the same rule (EVAL.md 1.1, 1.2b): a
+`consteval` body, a `constexpr` one (an eval class's field default, the
+builtin string's literal and empty constructors), and the definition of
+every namespace-scope `eval` binding, which is `inline constexpr T const N
+= init;` in every TU that reads it (`EmitPlan::visible_eval_vars`; an
+`extern const` is no constant expression to an importer). A constant
+expression needs what it calls already defined and declarations have no
+order, so EmitIR::emit_tu writes, in order: the compile-time bodies
+(foreign, then the TU's free functions, then its records' methods), then
+every eval binding, foreign and own, dependencies first
+(`EmitPlan::_eval_vars`), then the rest. A header and an include stream
+(`emit_bodies`) keep the same order.
+
+A string literal C++ reads at compile time (`StringLiteralExpr::
+const_eval`, set by EvalUsageChecking, EVAL.md 2a) passes its bytes as
+`::__kairo_estr<b0, b1, ...>`, a variable template of `const unsigned char`
+with the NUL appended (InterfaceEmitter writes it with the eval helpers):
+no `reinterpret_cast`, which no constant expression may hold, and keyed on
+the bytes, so a literal is one object in every TU and header. A run-time
+literal keeps `reinterpret_cast<const unsigned char*>("...")`.
+
 Why, rather than "the template's own TU plus every TU that homes an
 instance": clang instantiates templates Kairo never names -- a coroutine's
 promise (`YieldPromise<int>`, reached through `Yield<int>::promise_type`),
