@@ -84,6 +84,9 @@ enum RefRel derives u8 {
 /// Can an untyped integer literal of the given magnitude take builtin \p bk?
 /// \p negative is the unary-minus fold; the magnitude then may reach 2^(bits-1).
 fn literal_fits_int(lo: u64, hi: u64, big: bool, negative: bool, bk: BuiltinKind, ptr_bits: usize) -> bool {
+    // C's `char` is no integer, but takes a literal where both of its
+    // possible signednesses agree: 0..=127.
+    if bk == BuiltinKind::CChar { return (!negative) && (!big) && (hi == 0) && (lo <= 127); }
     if !builtin_info(bk)->is_integer() { return false; }
     if big { return false; }
     var bits = builtin_info(bk)->bits;
@@ -154,6 +157,10 @@ class Conversion {
         if t == BuiltinKind::Char { return (ConvClass::E) if (si) else (ConvClass::X); }
         if s == BuiltinKind::Byte { return (ConvClass::E) if (ti) else (ConvClass::X); }
         if t == BuiltinKind::Byte { return (ConvClass::E) if (si) else (ConvClass::X); }
+        // C's `char`: explicit to and from every integer, never implicit --
+        // its signedness is the target's, so no widening is portable.
+        if s == BuiltinKind::CChar { return (ConvClass::E) if (ti) else (ConvClass::X); }
+        if t == BuiltinKind::CChar { return (ConvClass::E) if (si) else (ConvClass::X); }
         return ConvClass::X;
     }
 

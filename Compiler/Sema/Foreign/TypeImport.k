@@ -412,8 +412,9 @@ class TypeImport {
         var c  = qt.getNonReferenceType().getCanonicalType().getUnqualifiedType();
         var bt = c->getAs::<clang::BuiltinType>();
         if (bt == &null) || (!bt->isInteger()) { return false; }
-        // Bool and char32_t map to their own Kairo types, not an integer.
+        // Bool, char and char32_t map to their own Kairo types, not an integer.
         if (bt->getKind() == clang::BuiltinType::Bool) || (bt->getKind() == clang::BuiltinType::Char32) { return false; }
+        if (bt->getKind() == clang::BuiltinType::Char_S) || (bt->getKind() == clang::BuiltinType::Char_U) { return false; }
         var bits = static_cast::<u32>(self.cctx->getTypeSize(c));
         var sgn: u32 = (1) if (bt->isSignedInteger()) else (0);
         var nat  = self.cctx->getIntTypeForBitwidth(bits, sgn);
@@ -429,6 +430,10 @@ class TypeImport {
         if k == clang::BuiltinType::Bool     { return self.store->builtin(BuiltinKind::Bool); }
         if k == clang::BuiltinType::NullPtr  { return &null; }                   // opaque: `nullptr_t`
         if k == clang::BuiltinType::Char32   { return self.store->builtin(BuiltinKind::Char); }
+        // Plain `char` (Char_S or Char_U by the target's signedness) is its
+        // own type, not i8/u8: `const char*` binds only `const char*`, and
+        // f(char) / f(signed char) / f(unsigned char) are three overloads.
+        if (k == clang::BuiltinType::Char_S) || (k == clang::BuiltinType::Char_U) { return self.store->builtin(BuiltinKind::CChar); }
         if k == clang::BuiltinType::Float    { return self.store->builtin(BuiltinKind::F32); }
         if k == clang::BuiltinType::Double   { return self.store->builtin(BuiltinKind::F64); }
         if k == clang::BuiltinType::Half     { return self.store->builtin(BuiltinKind::F16); }

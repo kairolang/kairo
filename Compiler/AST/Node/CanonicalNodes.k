@@ -76,7 +76,7 @@ import Token::TokenKind::*;
 ///   Three widths now carry more than one entry, and this is the invariant
 ///   most likely to be violated by accident:
 ///
-///     8 bits   `F8E4M3`, `F8E5M2`, `I8`, `U8`, `Byte`
+///     8 bits   `F8E4M3`, `F8E5M2`, `I8`, `U8`, `Byte`, `CChar`
 ///     16 bits  `F16`, `BF16`, `I16`, `U16`
 ///     32 bits  `F32`, `I32`, `U32`, `Char`
 ///
@@ -291,6 +291,18 @@ enum BuiltinKind derives u8 {
     /// yields them. A [char; N] is 4x the UTF-8 size, bought for O(1)
     /// codepoint indexing. C++: `char32_t`.
     Char,
+
+    /// `std::c_char`. C and C++'s plain `char`: neither `signed char` (I8)
+    /// nor `unsigned char` (U8) -- a third type in C++, whose signedness is
+    /// the target's (signed on x86, unsigned on AArch64 Linux) -- so a C
+    /// string is `*const std::c_char` and spells `const char*` exactly.
+    /// Like Byte it is a character, not a number: `as` to and from the
+    /// integers, no arithmetic, and only a literal in 0..=127 (where the two
+    /// signednesses agree) takes it implicitly. It has NO keyword: Kairo
+    /// spells it through the lang alias `__builtin_c_char` (Lib/builtin),
+    /// which std re-exports as `std::c_char`; TypeResolve gives that alias
+    /// this type, and TypeImport maps a C `char` here. C++: `char`.
+    CChar,
 
     COUNT,   ///< keep last.
 }
@@ -510,6 +522,9 @@ class BuiltinInfo {
 ///      TU has no way to include. BuiltinType_decl carries the decl so
 ///      EmitPlan declares it wherever `types::byte` appears.
 ///      `Char` maps to `char32_t`, distinct from U32 despite equal width.
+///      `CChar` maps to `char`, distinct from I8 and U8 (C++ has three
+///      character types at 8 bits). It is the one row with no keyword
+///      (`TkUnknown`): it is reached only through its lang alias.
 // INLINE(cxx-feature: aggregate array initializer)
 inline "c++" {
     static BuiltinInfo BuiltinTable[TOTAL_BUILTINS_COUNT] = {
@@ -544,6 +559,7 @@ inline "c++" {
         BuiltinInfo(BuiltinKind::F512,   TokenKind::AtF512,    "f512",    "::kairo::rt::f512",     512, BF_FLOAT(),               FloatLayout(FloatSem::SoftDouble8,       FloatImpl::Corelib, 0,  0,   0,     true,  false)),
         BuiltinInfo(BuiltinKind::Byte,   TokenKind::AtByte,    "byte",    "::builtin::base::byte_t::Byte", 8,   0,                        float_layout_none()),
         BuiltinInfo(BuiltinKind::Char,   TokenKind::AtChar,    "char",    "char32_t",              32,  0,                        float_layout_none()),
+        BuiltinInfo(BuiltinKind::CChar,  TokenKind::TkUnknown, "c_char",  "char",                  8,   0,                        float_layout_none()),
     };
 }
 
@@ -667,7 +683,9 @@ eval fn verify_builtin_table() -> bool {
             && (row->kind != BuiltinKind::Void)
             && (row->kind != BuiltinKind::Never)) { return false; }
 
-        // Every row round-trips through the switch above. No sentinel rows.
+        // Every row round-trips through the switch above. No sentinel rows,
+        // except CChar, which has no keyword to round-trip through.
+        if (row->kind == BuiltinKind::CChar) { if (row->tk != TokenKind::TkUnknown) { return false; } continue; }
         if (builtin_for_token(row->tk) != row->kind) { return false; }
     }
     return true;

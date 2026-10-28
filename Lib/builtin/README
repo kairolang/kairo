@@ -128,6 +128,7 @@ namespace (and CanonicalNodes.k spells Byte's: "::builtin::base::byte_t::Byte").
     NicheOf         __builtin_niche_of       module.k
     TypeIdOf        __builtin_type_id        module.k
     PanicSiteOf     __builtin_panic_site     module.k
+    CChar           __builtin_c_char         module.k (std::c_char in std/ctypes.k)
     (Array)         none: `[T; N]` stays a structural array
 
 Members found by name too (LangMembers in LangItems.k): Range's `begin`,

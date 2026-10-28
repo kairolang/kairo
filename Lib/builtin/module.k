@@ -50,6 +50,9 @@ pub import fmt::fmt_buf::*
 // so the root's own declarations are the only ones in `::builtin`.
 //   null_t, Nullable  a C++ host spells them `::builtin::null_t`,
 //                     `::builtin::null` and `::builtin::Nullable`.
+//   __builtin_c_char  C's `char`, one alias that std re-exports as
+//                     std::c_char: builtin because a lang item binds from
+//                     builtin only, and too small for a file of its own.
 //   __builtin_*       each is an expression-bodied fn, and one that ends
 //                     its file ICEs in codegen (TokenSink: "span runs past
 //                     the end of its buffer"; TICKETS.TXT), so a file of
@@ -94,6 +97,13 @@ pub eval fn <T> __builtin_type_id() -> u32 = 0
 /// `__kairo_panic_sites` table as a `panic` would be. A compiler test hook:
 /// EnumLayoutLowering replaces every call with the id.
 pub fn __builtin_panic_site() -> u32 = 0
+
+/// C and C++'s plain `char`, the third 8-bit character type beside `signed
+/// char` (i8) and `unsigned char` (u8). Users spell it `std::c_char` (std
+/// re-exports this). The CChar lang item: TypeResolve gives this alias
+/// BuiltinKind::CChar, which C++ spells `char`; the `u8` below is only what
+/// parses, never the type. Here because a lang item binds from builtin.
+pub type __builtin_c_char = u8
 
 /// `crash!()` / `crash!("why")`: end the process (PANIC.md §2.4). Not a
 /// panic -- it joins no panic set and no `try` catches it -- so a function

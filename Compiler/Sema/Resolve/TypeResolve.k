@@ -2458,6 +2458,13 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
 
         var ok = !td->aliased->is_poisoned();
         if !ok { td->poison(); }
+        // C's plain `char` has no Kairo keyword: the builtin root declares
+        // it as this lang alias, and the alias denotes BuiltinKind::CChar
+        // whatever its written body. Stamped on the body node, so a foreign
+        // TU reading `aliased->canonical` (above) gets the same type.
+        if ok && (self.sc->well_known != &null) && (self.sc->well_known->get(WellKnownType::CChar) == static_cast::<*Decl>(td)) {
+            td->aliased->canonical = self.sc->builtin(BuiltinKind::CChar);
+        }
         self.sc->rstate.finish_decl(static_cast::<*Decl>(td), ok);
         return (td->aliased->canonical) if (ok) else (&null);
     }

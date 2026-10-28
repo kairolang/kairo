@@ -803,7 +803,7 @@ class <T> OperatorTyping {
             return u;
         }
         if self._is_equality(k) || self._is_relational(k) {
-            if self._is_relational(k) && (!(dyn()->tu.is_numeric(lt) || dyn()->tu.is_builtin(lt, BuiltinKind::Char))) {
+            if self._is_relational(k) && (!(dyn()->tu.is_numeric(lt) || dyn()->tu.is_builtin(lt, BuiltinKind::Char) || dyn()->tu.is_builtin(lt, BuiltinKind::CChar))) {
                 dyn()->fail(n, DiagID::SC067E, f"ordering comparison is not defined on '{dyn()->tu.str(lt)}\x27");
                 return &null;
             }

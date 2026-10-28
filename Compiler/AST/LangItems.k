@@ -78,6 +78,7 @@ enum WellKnownType derives u8 {
     NicheOf,    ///< `__builtin_niche_of<T>()`: EnumLayoutLowering answers each call with niche_of(T).
     TypeIdOf,   ///< `__builtin_type_id<T>()`: T's panic type id (PANIC.md §1.3), answered like NicheOf.
     PanicSiteOf, ///< `__builtin_panic_site()`: the call's panic site id (PANIC.md §1.4), registered in the TU's site table.
+    CChar,      ///< `type __builtin_c_char`: the alias TypeResolve gives BuiltinKind::CChar (C's `char`); std spells it std::c_char.
 
     COUNT,      ///< keep last.
 }
@@ -115,6 +116,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::NicheOf    { return "__builtin_niche_of"; }
         case WellKnownType::TypeIdOf   { return "__builtin_type_id"; }
         case WellKnownType::PanicSiteOf { return "__builtin_panic_site"; }
+        case WellKnownType::CChar       { return "__builtin_c_char"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";

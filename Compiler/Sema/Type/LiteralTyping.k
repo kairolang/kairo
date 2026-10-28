@@ -194,6 +194,13 @@ class <T> LiteralTyping {
                 return target;
             }
             if builtin_info(tk)->is_float() { return target; }
+            // C's `char` takes an untyped literal only where both of its
+            // possible signednesses agree, 0..=127: `buf[i] == 0`, `c < 65`.
+            if tk == BuiltinKind::CChar {
+                if literal_fits_int(n->get_value_lo(), n->get_value_hi(), n->is_big(), negative, tk, pb) { return target; }
+                dyn()->fail(n, DiagID::SC075E, f"literal '{n->get_spelling()}' does not fit in 'c_char' on every target: only 0 through 127 do, whether C's char is signed or not");
+                return &null;
+            }
         }
 
         // default: i32, widening only when it does not fit.
@@ -565,6 +572,13 @@ class <T> LiteralTyping {
             return true;
         }
         var bk = dyn()->tu.kind_of(v);
+        // C's `char` prints its code, as u8 (0..=255 on every target, signed
+        // char or not): it is a C character, and Kairo's text type is string.
+        if bk == BuiltinKind::CChar {
+            h->kind    = FormatKind::U8;
+            h->cast_to = dyn()->tu.builtin(BuiltinKind::U8);
+            return true;
+        }
         if bk != BuiltinKind::COUNT {
             var fk = format_kind_of(bk);
             if fk == FormatKind::COUNT {

@@ -70,6 +70,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import Location::SourceRange::*;
+import Location::SourceLocation::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
 import AST::Context::InstantiationRegistry::*;
@@ -173,6 +174,10 @@ class Candidate {
     /// then a lower bound -- the instance can only make it worse.
     pub var assumed:      bool  = false;
     pub var reason:       string = "";
+    /// An edit that would make this candidate viable, inserted at `fix_at`;
+    /// "" for none. Only the C-string reinterpretation sets one today.
+    pub var fix_text:     string = "";
+    pub var fix_at:       SourceLocation;
     /// Which placement rule rejected this candidate, or SC001E (never emitted from here; a pure "no specific rule" sentinel) for anything
     /// else. `_report_no_viable` promotes it to the real diagnostic when there
     /// is exactly ONE candidate; with an overload set the specific rule is a
@@ -1051,6 +1056,14 @@ class OverloadResolution {
                 }
                 c->viable = false;
                 c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(shown)}\x27";
+                // A C string parameter takes C chars only: bytes (`*u8`,
+                // a string's `data`) or i8s become them by reinterpreting
+                // the pointer, which is the edit, inside `unsafe`.
+                if self._c_string_reinterpret(a->ty, pt) {
+                    c->reason += "; a C string is '*const c_char' (std::c_char), which no byte or i8 pointer converts to";
+                    c->fix_text = f" as {self.tu.str(pt)}";
+                    c->fix_at   = a->range.end;
+                }
                 return;
             }
             // An unmarked argument reaching `@inout` is TOLERATED (CallTyping
@@ -1384,6 +1397,17 @@ class OverloadResolution {
 
     // === diagnostics ========================================================
 
+    /// \p from points at u8 or i8 (or byte) and \p to at C's `char`.
+    priv fn _c_string_reinterpret(self, from: *Type, to: *Type) -> bool {
+        if (from == &null) || (to == &null) { return false; }
+        var fp = self.tu.pointee(canon_unqual(from));
+        var tp = self.tu.pointee(canon_unqual(to));
+        if (fp == &null) || (tp == &null) { return false; }
+        if !self.tu.is_builtin(canon_unqual(tp), BuiltinKind::CChar) { return false; }
+        var fk = self.tu.kind_of(canon_unqual(fp));
+        return (fk == BuiltinKind::U8) || (fk == BuiltinKind::I8) || (fk == BuiltinKind::Byte);
+    }
+
     priv fn _report_no_viable(self, cs: *vec::<Candidate>, at: SourceRange, name: string) {
         // One candidate: the rule that rejected it IS the error, named at the
         // call. "no matching overload" plus a single note says the same thing
@@ -1403,9 +1427,15 @@ class OverloadResolution {
         );
         b.first(at);
         var shown: usize = 0;
+        var fixed = false;
         for var i: usize = 0; (i < cs->size()) && (shown < 6); ++i {
             var c = &((*cs)[i]);
             b.note(c->f->range.start, f"candidate not viable: {c->reason}").first(c->f->range);
+            // One edit per call: two candidates' casts cannot both apply.
+            if (!fixed) && (c->fix_text != "") {
+                b.insert(c->fix_at, c->fix_text, "reinterpret the pointer inside an 'unsafe' block");
+                fixed = true;
+            }
             shown += 1;
         }
         if cs->size() > shown { b.note(at.start, f"and {cs->size() - shown} more candidate(s)"); }

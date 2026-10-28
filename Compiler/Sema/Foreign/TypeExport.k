@@ -574,6 +574,7 @@ class TypeExport {
             case BuiltinKind::Void { return clang::QualType(self.cctx->VoidTy); }
             case BuiltinKind::Bool { return clang::QualType(self.cctx->BoolTy); }
             case BuiltinKind::Char { return clang::QualType(self.cctx->Char32Ty); }
+            case BuiltinKind::CChar { return clang::QualType(self.cctx->CharTy); }
             case BuiltinKind::F16  { return clang::QualType(self.cctx->Float16Ty); }
             case BuiltinKind::BF16 { return clang::QualType(self.cctx->BFloat16Ty); }
             case BuiltinKind::F32  { return clang::QualType(self.cctx->FloatTy); }
