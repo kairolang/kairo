@@ -1547,6 +1547,16 @@ class CXXSpell {
             // C++, so the type is only reachable elaborated.
             var kw = decl_ffi_tag_keyword(d);
             if kw.size() > 0 { return kw + " " + decl_cxx_spelling(d); }
+            // The PRIMARY over arguments -- `array<T, 4>` in a generic
+            // signature, dependent so never filled -- is the template's name
+            // and the arguments as Kairo spells them; the name alone was
+            // `::std::array`, a template used without arguments. A filled
+            // instance's spelling already carries its own.
+            if (r->args.size() > 0) && (!decl_is_instance(d)) {
+                var v = vec::<*Type>();
+                for var i: usize = 0; i < r->args.size(); ++i { v.push_back(r->args[i]); }
+                return decl_cxx_spelling(d) + self.args_str(&v, subst, scope);
+            }
             return decl_cxx_spelling(d);
         }
 

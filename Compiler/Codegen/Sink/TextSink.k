@@ -111,6 +111,11 @@ class TextSink derives EmitSink {
         return true;
     }
 
+    override fn create_char(self, at: SourceRange, cxx: ref!(string)) -> bool {
+        self._word(cxx, false);
+        return true;
+    }
+
     /// Own line, always. The text is appended with _at_line_start still
     /// true, so without clearing it the trailing brk() is a no-op and the
     /// next directive runs onto this one (`#pragma once#include ...`).

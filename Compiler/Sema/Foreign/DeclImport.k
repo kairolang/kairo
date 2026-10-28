@@ -55,6 +55,7 @@ ffi "c++" import "clang/AST/Decl.h";
 ffi "c++" import "clang/AST/DeclBase.h";
 ffi "c++" import "clang/AST/DeclCXX.h";
 ffi "c++" import "clang/AST/DeclTemplate.h";
+ffi "c++" import "clang/AST/Expr.h";
 ffi "c++" import "clang/AST/RecordLayout.h";
 ffi "c++" import "clang/Basic/OperatorKinds.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
@@ -1000,6 +1001,24 @@ class DeclImport {
                 gp->is_const_param = true;
                 gp->is_pack        = nt->isParameterPack();
                 gp->value_type     = ti->_import(nt->getType());
+                // `template <class T, unsigned N = 3>`: a default clang can
+                // fold now is the value argument a Kairo `<.., 3>` would be,
+                // so `Buf<i32>` keys as `Buf<i32, 3>` (GenericArgs fills it).
+                // One computed from an earlier parameter (SmallVector's
+                // `N = CalculateSmallVectorDefaultInlinedElements<T>::value`)
+                // has no value until instantiation and stays required.
+                if nt->hasDefaultArgument() {
+                    var da = nt->getDefaultArgument().getArgument();
+                    if da.getKind() == clang::TemplateArgument::Integral {
+                        gp->default_type = ti->integral(da.getAsIntegral());
+                    } else if da.getKind() == clang::TemplateArgument::Expression {
+                        var ex = da.getAsExpr();
+                        if (ex != &null) && (!ex->isValueDependent()) && (!ex->isTypeDependent()) {
+                            var er = clang::Expr::EvalResult();
+                            if ex->EvaluateAsInt(er, *(self.cctx)) { gp->default_type = ti->integral(er.Val.getInt()); }
+                        }
+                    }
+                }
             }
             // Template template params: recorded as an opaque type param.
             gp->impl_bounds.from_raw(static_cast::<*InheritEdge>(&null), 0);

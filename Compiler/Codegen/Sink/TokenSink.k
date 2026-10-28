@@ -263,6 +263,11 @@ class TokenSink derives EmitSink {
         return self._arena_tok(clang::tok::string_literal, at, cxx);
     }
 
+    /// \p cxx INCLUDES the quotes.
+    override fn create_char(self, at: SourceRange, cxx: ref!(string)) -> bool {
+        return self._arena_tok(clang::tok::char_constant, at, cxx);
+    }
+
     /// Recorded, not emitted (system_headers); once per header.
     override fn unanchored(self, on: bool) { self._unanchored = on; }
 

@@ -191,11 +191,11 @@ class ForeignInstantiate {
             tx.reg       = self._reg;
             tx.psym      = self.psym;
             tx.instances = self._instances;
-            var qs: llvm::SmallVector::<clang::QualType, 8>;
+            var qs: llvm::SmallVector::<clang::TemplateArgument, 8>;
             for var i: usize = 0; i < e->args.size(); ++i {
-                var q = tx.to_clang(e->args[i]);
-                if q.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return false; }
-                qs.push_back(q);
+                var a = tx.to_clang_arg(ct, i, e->args[i], qs);
+                if a.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return false; }
+                qs.push_back(a);
             }
             ty = tx.template_id(ct, qs);
             if ty.isNull() { self._why = "clang rejected the template-id"; return false; }

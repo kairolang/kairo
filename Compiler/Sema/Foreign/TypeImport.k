@@ -46,6 +46,7 @@ ffi "c++" import "clang/AST/PrettyPrinter.h";
 ffi "c++" import "clang/AST/QualTypeNames.h";
 ffi "c++" import "clang/AST/Type.h";
 ffi "c++" import "clang/Index/USRGeneration.h";
+ffi "c++" import "llvm/ADT/APSInt.h";
 ffi "c++" import "llvm/ADT/SmallString.h";
 ffi "c++" import "llvm/Support/xxhash.h";
 
@@ -94,6 +95,12 @@ class TypeImport {
         pol.SuppressScope        = false;
         pol.SuppressUnwrittenScope = true;
         pol.AnonymousTagLocations = false;
+        // A value argument printed bare can name a different instance than
+        // the one meant: a `char`-typed one prints as a character literal, so
+        // `Narrow<255>` (unsigned char) came out `Narrow<'\xff'>`, which is
+        // the plain-char -1 and does not convert back. With its type it is
+        // `(unsigned char)'\xff'`, and an integer is `4UL` -- both exact.
+        pol.AlwaysIncludeTypeForTemplateArgument = true;
         var s = clang::TypeName::getFullyQualifiedName(qt, *(self.cctx), pol, true);
         return string(s);
     }
@@ -356,9 +363,10 @@ class TypeImport {
         return self.store->record(rep, &args);
     }
 
-    /// Template argument list -> canonicals. False if any argument is not a
-    /// type (Kairo's registry keys on types only today; a value argument
-    /// makes the whole use opaque).
+    /// Template argument list -> canonicals. False if any argument is
+    /// neither a type nor an integer (a declaration, template or unfolded
+    /// expression argument has no registry shape and makes the whole use
+    /// opaque).
     priv fn _args(self, list: llvm::ArrayRef::<clang::TemplateArgument>, out: ref!(vec::<*Type>)) -> bool {
         for var i: usize = 0; i < list.size(); ++i {
             var a = list[i];
@@ -370,9 +378,38 @@ class TypeImport {
                 if !self._args(a.pack_elements(), out) { return false; }
                 continue;
             }
-            return false;   // Integral / Declaration / Template / Expression: no canonical shape yet.
+            // `array<int, 4>`, `SmallVectorTemplateBase<T, true>`: the exact
+            // integer, the same canonical value argument a Kairo `<4>` folds
+            // to (CanonicalTypeStore::value_arg), so the instance a header
+            // names and the one the user spells are one registry entry. The
+            // parameter's type is not part of the identity on either side;
+            // TypeExport recovers it from the template when it spells one.
+            if a.getKind() == clang::TemplateArgument::Integral {
+                var va = self.integral(a.getAsIntegral());
+                if va == &null { return false; }
+                out.push_back(va);
+                continue;
+            }
+            return false;   // Declaration / Template / Expression: no canonical shape yet.
         }
         return true;
+    }
+
+    /// A C++ integer template argument (or a non-type parameter's default)
+    /// as the canonical value argument, or null for one past 64 bits of
+    /// magnitude (`__int128`), which value_arg cannot hold.
+    fn integral(self, v: llvm::APSInt) -> *Type {
+        var neg = v.isSigned() && v.isNegative();
+        var mag: u64 = 0;
+        if neg {
+            var m = v.abs();
+            if m.getActiveBits() > 64 { return &null; }
+            mag = m.getZExtValue();
+        } else {
+            if v.getActiveBits() > 64 { return &null; }
+            mag = v.getZExtValue();
+        }
+        return self.store->value_arg(neg, mag);
     }
 
     /// The Kairo decl a clang decl was imported as. Through the canonical

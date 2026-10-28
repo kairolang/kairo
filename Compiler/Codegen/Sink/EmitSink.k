@@ -68,6 +68,7 @@ class EmitSink {
     /// DIVERGENT literals: the C++ spelling differs from the Kairo bytes.
     virtual fn create_int(self, at: SourceRange, cxx: ref!(string)) -> bool { self.ice_at(at, "EmitSink::create_int: abstract"); return false; }
     virtual fn create_str(self, at: SourceRange, cxx: ref!(string)) -> bool { self.ice_at(at, "EmitSink::create_str: abstract"); return false; }
+    virtual fn create_char(self, at: SourceRange, cxx: ref!(string)) -> bool { self.ice_at(at, "EmitSink::create_char: abstract"); return false; }
 
     /// A preprocessor line (`#pragma once`, `#include "..."`). Text sinks
     /// only; a token stream has no line to put it on.
@@ -182,6 +183,24 @@ class EmitSink {
                 if (j >= n) { self.ice_at(at, f"EmitSink::spell: unterminated string literal in C++ fragment: {text}"); }
                 var lit = text.subslice(i, j + 1 - i);
                 self.create_str(at, lit);
+                after_operator = false;
+                any = true;
+                i = j + 1;
+                continue;
+            }
+
+            // A character literal, quotes and escapes kept verbatim: clang
+            // prints a `char` / `unsigned char` template argument as one, so
+            // an imported instance's spelling can hold it (`Narrow<'\xff'>`).
+            if c == '\x27' {
+                var j = i + 1;
+                while (j < n) && (text[j] != '\x27') {
+                    if text[j] == '\\' { j += 1; }
+                    j += 1;
+                }
+                if (j >= n) { self.ice_at(at, f"EmitSink::spell: unterminated character literal in C++ fragment: {text}"); }
+                var lit = text.subslice(i, j + 1 - i);
+                self.create_char(at, lit);
                 after_operator = false;
                 any = true;
                 i = j + 1;

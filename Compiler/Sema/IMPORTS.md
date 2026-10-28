@@ -676,6 +676,20 @@ spelling (a decl from another set, a Kairo record TypeExport cannot mirror),
 or a specialization clang rejects -- is sticky (`foreign_fill_failed`) and
 lookup walks the pattern, as it did before fills existed.
 
+[DONE] Value arguments (`array<i32, 4>`, `SmallVector<T, N>`). A value
+argument's canonical is the exact integer (`CanonicalTypeStore::value_arg`),
+on both sides: TypeImport reads clang's `Integral` template arguments (and a
+non-type parameter's default, when clang can fold it) into it, so the
+instance a header names and the one the user spells are ONE registry entry,
+whatever C++ type the parameter has. The type is not part of the identity;
+TypeExport recovers it from the template's parameter when it spells the
+argument for a fill (`size_t`, `bool`, an enum, `unsigned char`, a type an
+earlier argument supplies), and refuses a value the parameter cannot hold
+(clang then rejects the emitted C++ at the use). An instance's C++ spelling
+prints every value argument with its type
+(`PrintingPolicy::AlwaysIncludeTypeForTemplateArgument`): bare, an `unsigned
+char` 255 printed as the plain-char literal `'\xff'`, which is -1.
+
 [DONE] Kairo-native args (`std::vector<S>`). Phase A has never heard of `S`,
 so TypeExport declares a STAND-IN in the set's AST: a complete struct with
 S's non-static fields in order, under exactly the name EmitIR emits

@@ -71,6 +71,7 @@ ffi "c++" import "clang/AST/TemplateName.h";
 ffi "c++" import "clang/AST/Type.h";
 ffi "c++" import "clang/Sema/Sema.h";
 ffi "c++" import "llvm/ADT/APInt.h";
+ffi "c++" import "llvm/ADT/APSInt.h";
 ffi "c++" import "llvm/ADT/SmallVector.h";
 
 import AST::Node::Base::*;
@@ -205,14 +206,25 @@ class TypeExport {
     /// `ct<args...>` as a canonical clang type, or null. Declares the
     /// specialization (CheckTemplateIdType) but does NOT complete it: a
     /// nested argument only has to be nameable. PRE: sema_lock() held.
-    fn template_id(self, ct: *clang::ClassTemplateDecl, args: ref!(llvm::SmallVector::<clang::QualType, 8>)) -> clang::QualType {
+    fn template_id(self, ct: *clang::ClassTemplateDecl, args: ref!(llvm::SmallVector::<clang::TemplateArgument, 8>)) -> clang::QualType {
         if (ct == &null) || (self.sema == &null) { return clang::QualType(); }
         var loc = ct->getLocation();                     // any valid loc; the pattern's is honest.
         var ali = clang::TemplateArgumentListInfo(loc, loc);
         for var i: usize = 0; i < args.size(); ++i {
-            var qt = args[i];
-            ali.addArgument(clang::TemplateArgumentLoc(clang::TemplateArgument(qt),
-                                                       self.cctx->getTrivialTypeSourceInfo(qt, loc)));
+            var a = args[i];
+            if a.getKind() == clang::TemplateArgument::Type {
+                var qt = a.getAsType();
+                ali.addArgument(clang::TemplateArgumentLoc(a, self.cctx->getTrivialTypeSourceInfo(qt, loc)));
+                continue;
+            }
+            // A value goes in as the expression clang itself would rebuild
+            // from it, so the template-id is checked exactly as a written
+            // `ct<..., 4>` is, and a diagnostic about it has a source
+            // expression to print instead of a null one.
+            var er = self.sema->BuildExpressionFromNonTypeTemplateArgument(a, loc);
+            if er.isInvalid() || (er.get() == &null) { return clang::QualType(); }
+            var e = er.get();
+            ali.addArgument(clang::TemplateArgumentLoc(clang::TemplateArgument(e, false), e));
         }
         var diags  = &(self.sema->getDiagnostics());
         var before = diags->getNumErrors();
@@ -223,6 +235,77 @@ class TypeExport {
         var ty = self.sema->CheckTemplateIdType(clang::ElaboratedTypeKeyword::None, tn, loc, ali, &null, false);
         if ty.isNull() || (diags->getNumErrors() > before) { return clang::QualType(); }
         return ty.getCanonicalType();
+    }
+
+    /// Argument \p i of a template-id of \p ct, for canonical \p t, or a
+    /// null TemplateArgument. A type goes through to_clang. A value argument
+    /// (`4` of `array<i32, 4>`) is an exact integer with no C++ type of its
+    /// own -- the registry keys on the number alone (TypeImport::_args) --
+    /// so it takes the type of the parameter it binds: `size_t` for array's
+    /// extent, `bool` for SmallVectorTemplateBase's flag, an enum for an
+    /// enum parameter. \p prior is the arguments before it, for a parameter
+    /// typed by an earlier one (`integral_constant<T, T v>`).
+    fn to_clang_arg(self, ct: *clang::ClassTemplateDecl, i: usize, t: *Type,
+                    prior: ref!(llvm::SmallVector::<clang::TemplateArgument, 8>)) -> clang::TemplateArgument {
+        if t == &null { return clang::TemplateArgument(); }
+        if !isa::<TypeExpr>(t) {
+            var q = self.to_clang(t);
+            if q.isNull() { return clang::TemplateArgument(); }
+            return clang::TemplateArgument(q);
+        }
+        var te = cast::<TypeExpr>(t);
+        // A computed value (`N + 1` over a parameter) is dependent: there is
+        // no concrete clang argument for it, as for a dependent type.
+        if !te->is_exact() { return clang::TemplateArgument(); }
+        var pt = self._value_param_type(ct, i, prior);
+        if pt.isNull() { return clang::TemplateArgument(); }
+
+        var bits = static_cast::<u32>(self.cctx->getIntWidth(pt));
+        var uns  = !pt->isSignedIntegerOrEnumerationType();
+        // Out of the parameter's range is refused, not truncated: APInt
+        // asserts on a magnitude wider than its width, and a wrapped value
+        // would name a different specialization than the one written.
+        if (bits == 0) || (bits > 64) { return clang::TemplateArgument(); }
+        if te->vneg && uns { return clang::TemplateArgument(); }
+        var limit_bits = (bits - 1) if (!uns) else (bits);
+        if limit_bits < 64 {
+            var lim = (u64(1) << static_cast::<u64>(limit_bits));
+            // A signed minimum (`-128` of i8) is the one magnitude equal to
+            // the limit that still fits.
+            if te->vneg { if te->vmag > lim { return clang::TemplateArgument(); } }
+            else if te->vmag >= lim { return clang::TemplateArgument(); }
+        }
+        var v = llvm::APSInt(llvm::APInt(bits, te->vmag, false, true), uns);
+        if te->vneg { v.negate(); }
+        return clang::TemplateArgument(*(self.cctx), v, pt);
+    }
+
+    /// The (canonical, integral or enum) type of \p ct's \p i-th parameter
+    /// when it is a non-type one, or null. Past the end, the trailing pack's.
+    priv fn _value_param_type(self, ct: *clang::ClassTemplateDecl, i: usize,
+                              prior: ref!(llvm::SmallVector::<clang::TemplateArgument, 8>)) -> clang::QualType {
+        if ct == &null { return clang::QualType(); }
+        var tpl = ct->getTemplateParameters();
+        var n = static_cast::<usize>(tpl->size());
+        if n == 0 { return clang::QualType(); }
+        var k = i;
+        if k >= n {
+            k = n - 1;
+            if !tpl->getParam(static_cast::<u32>(k))->isParameterPack() { return clang::QualType(); }
+        }
+        var nt = llvm::dyn_cast::<clang::NonTypeTemplateParmDecl>(tpl->getParam(static_cast::<u32>(k)));
+        if nt == &null { return clang::QualType(); }
+        var pt = nt->getType().getCanonicalType();
+        if pt->isDependentType() {
+            // `template <class T, T v>`: the type is an earlier argument.
+            var tp = llvm::dyn_cast::<clang::TemplateTypeParmType>(pt.getTypePtr());
+            if (tp == &null) || (tp->getDepth() != 0) { return clang::QualType(); }
+            var j = static_cast::<usize>(tp->getIndex());
+            if (j >= prior.size()) || (prior[j].getKind() != clang::TemplateArgument::Type) { return clang::QualType(); }
+            pt = prior[j].getAsType().getCanonicalType();
+        }
+        if !pt->isIntegralOrEnumerationType() { return clang::QualType(); }
+        return pt;
     }
 
     /// The ClassTemplateDecl behind a Kairo primary, or null. DeclImport
@@ -276,11 +359,11 @@ class TypeExport {
         if decl_origin_set(prim) != self.set { return clang::QualType(); }
         var ct = TypeExport::class_template_of(reinterpret_cast::<*clang::Decl>(decl_clang(prim)));
         if ct == &null { return clang::QualType(); }
-        var qs: llvm::SmallVector::<clang::QualType, 8>;
+        var qs: llvm::SmallVector::<clang::TemplateArgument, 8>;
         for var i: usize = 0; i < rt->args.size(); ++i {
-            var q = self.to_clang(*(rt->args.get(i)));
-            if q.isNull() { return q; }
-            qs.push_back(q);
+            var a = self.to_clang_arg(ct, i, *(rt->args.get(i)), qs);
+            if a.isNull() { return clang::QualType(); }
+            qs.push_back(a);
         }
         return self.template_id(ct, qs);
     }

@@ -5,13 +5,14 @@
 // `std::array<i32, 4>` (and llvm::SmallVector<T, N>, which Compiler/
 // imports in 8 files).
 //
-// XFAIL: *
-// Waiting on codegen for an integer template argument of an imported
-// template: it type-checks and ICEs, "EmitIR: unresolved type reached
-// codegen; sema gate failure". Type arguments alone work (vector<i32>,
-// map<i32, i32>, unordered_map<u64, i32>, set<i32>).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// This used to fail twice over. The bare declaration ICEd, "EmitIR:
+// unresolved type reached codegen"; once value arguments had a canonical
+// (CanonicalTypeStore::value_arg), the instance still could not be FILLED
+// from clang -- "template argument 1 has no clang spelling in phase A" --
+// so `a[1]` was looked up on the pattern, where `operator[]` and its const
+// twin tie (SC064E). TypeExport now spells the value as a template argument
+// of the parameter's type, and TypeImport reads clang's Integral arguments
+// back. More shapes: Codegen/ffi_value_args/.
 
 ffi "c++" import "array"
 

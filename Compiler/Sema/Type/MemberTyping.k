@@ -526,6 +526,16 @@ class <T> MemberTyping {
             bt = dyn()->read_value(n->base);
             if bt == &null { dyn()->poison_only(n); dyn()->type_of(n->index, &null); return &null; }
         }
+        // A C++ reference is its referee. `m[2][1]` subscripts what the
+        // inner `op []` returned, `array<i32, 2>&`, and member lookup has no
+        // table for a reference type: unstripped, every chained subscript
+        // into an imported container was SC103E "has no subscript operator".
+        while true {
+            var u = canon_unqual(bt);
+            if isa::<CXXLValueRefType>(u) { bt = cast::<CXXLValueRefType>(u)->referee; continue; }
+            if isa::<CXXRValueRefType>(u) { bt = cast::<CXXRValueRefType>(u)->referee; continue; }
+            break;
+        }
         bt = canon_unqual(bt);
 
         var ri = dyn_cast::<RangeExpr>(dyn()->tu.strip_parens(n->index));

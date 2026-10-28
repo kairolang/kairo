@@ -590,6 +590,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             self._mark_inst_dependent(static_cast::<*Type>(n));
             return;
         }
+        // `Flag<true>`: a bool argument is the integer C++ converts it to.
+        // Only as a whole argument, not inside arithmetic or as an array
+        // length, where ConstEval keeps refusing it; the instance's identity
+        // is the number, as for any other value argument.
+        var lit = n->expr;
+        while (lit != &null) && isa::<ParenExpr>(lit) { lit = cast::<ParenExpr>(lit)->inner; }
+        if (lit != &null) && isa::<BooleanLiteralExpr>(lit) && (!lit->is_poisoned()) {
+            var one = cast::<BooleanLiteralExpr>(lit)->value;
+            n->canonical = self.sc->types->value_arg(false, (u64(1)) if (one) else (u64(0)));
+            return;
+        }
         var ce = ConstEval(self.sc);
         var c  = ce.eval_int(n->expr);
         if c.ok && (!c.overflow) && (ce.const_decl == &null) {
