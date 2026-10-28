@@ -474,6 +474,14 @@ fn prebuild_script() -> string {
     return "python3 Scripts/build_llvm.py && python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k";
 }
 
+// After kairo / kcc build: stage clang, its resource dir and Lib/ into the
+// tree (Scripts/stage_tree.py), so build/<triple>/<mode>/bin/kairo runs with
+// no root flags. Idempotent; a rebuild re-stages what changed.
+fn postbuild_script() -> string {
+    var tree = build_dir() + "/" + triple() + "/" + build_mode();
+    return "python3 Scripts/stage_tree.py " + tree;
+}
+
 // Every LLVM-linking tool shares this shape. One call site = no drift.
 fn llvm_tool(name:     string, entry:      string, ver:     string, includes: vec::<string>,
              llvm_src: string, llvm_build: string, out_lib: string) -> Target {
@@ -520,8 +528,8 @@ fn main() -> i32 {
     var kpkg_inc     = ["Extras/PackageManager", core];
     var compiler_inc = ["Compiler", core, "Extras/KaTAR", "Linker"];
     var kairo_inc    = ["Compiler", core, "Extras/KaTAR", "Linker", "."];
-    p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",                KAIRO_VERSION, kairo_inc,    llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("kcc",   "Compiler/Driver/Kcc.k",                  KCC_VERSION,   kairo_inc,    llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",                KAIRO_VERSION, kairo_inc,    llvm_src, llvm_build, out_lib).post_build(postbuild_script()));
+    p.target(llvm_tool("kcc",   "Compiler/Driver/Kcc.k",                  KCC_VERSION,   kairo_inc,    llvm_src, llvm_build, out_lib).post_build(postbuild_script()));
     p.target(llvm_tool("kbld",  "Extras/BuildTool/Driver/kbld.k",         KBLD_VERSION,  kbld_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kfmt",  "Extras/Formatter/Driver/kfmt.k",         KFMT_VERSION,  kfmt_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kld",   "Linker/Driver/kld.k",                    KLD_VERSION,   kld_inc,      llvm_src, llvm_build, out_lib));
