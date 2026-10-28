@@ -275,6 +275,10 @@ if os.path.isdir(_bundle):
         for _f in _sysroot_features(_triple or _d):
             config.available_features.add(_f)
 
+# The bare binary, no flags: for tests of what the driver does WITHOUT the
+# roots above (Tests/CLI/Driver/root_discovery.k). Before %kairo, which lit
+# would otherwise substitute inside it.
+config.substitutions.append(("%kairo_bin", _sh(kairo_bin)))
 config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + kairo_roots))
 
 # --- kcc ----------------------------------------------------------------------

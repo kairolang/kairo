@@ -337,6 +337,9 @@ class CompilerInstance {
     priv var _finst:   *ForeignInstantiate = &null; ///< fills instances of imported templates from clang; owned
     priv var _ptids:   *PanicTypeIds = &null;       ///< the Panic set order every type formation applies (PANIC.md §1.3); owned.
     priv var _builtins: *BuiltinImport     = &null; ///< clang builtins as foreign decls, build-wide; owned
+    /// P001W message/note pairs from _discover_roots and _check_sysroot,
+    /// reported by initialize() (_report_root_warnings).
+    priv var _root_warnings: vec::<string>;
     priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
     priv var _obj_tmp:     bool   = false;///< _obj_dir is a temp dir this run owns and removes
@@ -1421,6 +1424,7 @@ class CompilerInstance {
     }
 
     fn initialize(self, cwd: Path) {
+        self._report_root_warnings();
         {
             var _t = TimeRegion("ImportIndex");
             var rb = ImportResolver::Builder().cwd(cwd);
@@ -3009,6 +3013,142 @@ class CompilerInstance {
         (inv->codegen.profile_use) = Path::absolute_if_exists(inv->codegen.profile_use, base);
     }
 
+    /// The toolchain prefix: the directory above the one this binary is in
+    /// (<prefix>/bin/kairo). get_exe_path is the resolved path, so a kairo
+    /// on PATH that symlinks into a tree still finds that tree.
+    priv static fn _toolchain_prefix() -> string {
+        return Path::parent_of(Path::parent_of(std::get_exe_path()));
+    }
+
+    /// The highest-versioned directory under \p base holding the clang
+    /// builtin headers (<ver>/include/stddef.h); "" for none. Highest, the
+    /// rule lit.cfg.py and Scripts/stage_tree.py use, so a stale old version
+    /// left beside the current one is never picked. Versions compare as
+    /// numbers: longer first, then by spelling ("22" over "9").
+    priv static fn _pick_resource_dir(base: string) -> string {
+        var pick = "";
+        for name: string in LinkFS::list_dir(base) {
+            var cand = LinkText::join(base, name);
+            if !LinkFS::is_file(LinkText::join(cand, "include/stddef.h")) { continue; }
+            var better = pick.empty();
+            if !better {
+                var cur = LinkFS::filename(pick);
+                better = (name.size() > cur.size())
+                      || ((name.size() == cur.size()) && (name > cur));
+            }
+            if better { pick = cand; }
+        }
+        return pick;
+    }
+
+    /// Fills --resource-dir, --builtins-dir and --std-dir that were not
+    /// given from the toolchain layout beside this binary, so a staged tree
+    /// (Scripts/stage_tree.py) runs with no flags:
+    ///
+    ///   --resource-dir   <prefix>/lib/clang/<ver>
+    ///   --builtins-dir   <prefix>/lib/builtin
+    ///   --std-dir        <prefix>/lib/std
+    ///
+    /// A flag always wins. A GIVEN --resource-dir keeps its old meaning as
+    /// well: its builtin/ and std/ are used when they exist, before the
+    /// layout, so an install that put them there still works.
+    ///
+    /// A root that is still missing is a P001W (queued; initialize()
+    /// reports it): without the builtin tree every lang item is unbound and
+    /// `string` does not resolve, which otherwise reads as a sema bug rather
+    /// than a missing directory. No std warning under --no-stdlib, and no
+    /// builtin one under --no-prelude; --freestanding implies both.
+    priv fn _discover_roots(self) {
+        var inv    = &(self.invocation());
+        var prefix = CompilerInstance::_toolchain_prefix();
+        var lib    = LinkText::join(prefix, "lib");
+
+        var rd_given = !inv->target.resource_dir.empty();
+        if !rd_given {
+            var rd = CompilerInstance::_pick_resource_dir(LinkText::join(lib, "clang"));
+            if !rd.empty() {
+                (inv->target.resource_dir) = rd;
+            } else {
+                self._queue_root_warning(
+                    f"clang resource directory not found: searched {lib}/clang/<version>/include/stddef.h",
+                    "pass --resource-dir=<dir> naming the directory whose include/ holds clang\x27s builtin headers (stddef.h)");
+            }
+        }
+
+        // --no-prelude / --freestanding: "builtin is not linked", so none is
+        // looked for either. A found one would also bring the hosted runtime
+        // (lib/rt: stdlib.h) into a bare-metal build; --builtins-dir still
+        // adds it on purpose.
+        if inv->pp.builtins_dir.empty() && (!inv->pp.no_prelude) {
+            var legacy = "";
+            if rd_given { legacy = LinkText::join(inv->target.resource_dir, "builtin"); }
+            var dir = LinkText::join(lib, "builtin");
+            if (!legacy.empty()) && LinkFS::is_dir(legacy) {
+                (inv->pp.builtins_dir) = legacy;
+            } else if LinkFS::is_dir(dir) {
+                (inv->pp.builtins_dir) = dir;
+            } else {
+                self._queue_root_warning(
+                    f"builtin module tree not found: searched {dir}",
+                    "pass --builtins-dir=<dir> naming the directory that holds builtin\x27s module.k; without it the prelude does not load and lang items such as `string` stay unbound");
+            }
+        }
+
+        if inv->pp.std_dir.empty() && (!inv->pp.no_stdlib) {
+            var legacy = "";
+            if rd_given { legacy = LinkText::join(inv->target.resource_dir, "std"); }
+            var dir = LinkText::join(lib, "std");
+            if (!legacy.empty()) && LinkFS::is_dir(legacy) {
+                (inv->pp.std_dir) = legacy;
+            } else if LinkFS::is_dir(dir) {
+                (inv->pp.std_dir) = dir;
+            } else {
+                self._queue_root_warning(
+                    f"standard library not found: searched {dir}",
+                    "pass --std-dir=<dir> naming the standard library tree, or --no-stdlib to build without it");
+            }
+        }
+    }
+
+    /// No usable sysroot is a P001W unless --freestanding asked for none:
+    /// without one there are no C headers and no C library, and the failure
+    /// otherwise surfaces far later as a missing <stddef.h> or an unresolved
+    /// libc symbol. Runs after _use_bundled_sysroot, which has already put a
+    /// bundled <prefix>/sysroot/<target> into --sysroot when there is one.
+    /// --macos-sdk stands in for a sysroot on Darwin.
+    priv fn _check_sysroot(self) {
+        var inv = &(self.invocation());
+        if inv->lang.freestanding || inv->linker.freestanding { return; }
+        if !inv->linker.macos_sdk.empty() { return; }
+        var sr = inv->target.sysroot;
+        var note = "pass --sysroot=<dir>, or --freestanding to compile without system headers and libraries";
+        if sr.empty() {
+            var want = self._sysroot_target();
+            if want.empty() { want = self._effective_triple(); }
+            var root = LinkText::join(CompilerInstance::_toolchain_prefix(), "sysroot");
+            self._queue_root_warning(
+                f"no sysroot found for target \x27{want}\x27: searched {root}/{want}", note);
+        } else if !LinkFS::is_dir(sr) {
+            self._queue_root_warning(f"sysroot not found: {sr} is not a directory", note);
+        }
+    }
+
+    priv fn _queue_root_warning(self, msg: string, note: string) {
+        self._root_warnings.push_back(msg);
+        self._root_warnings.push_back(note);
+    }
+
+    /// The warnings _discover_roots and _check_sysroot queued, reported once
+    /// the run is really compiling: --help, --version, --explain and the
+    /// info queries never reach initialize(), and do not need the roots.
+    priv fn _report_root_warnings(self) {
+        for var i: usize = 0; (i + 1) < self._root_warnings.size(); i += 2 {
+            self._diag->report(DiagID::P001W, self._root_warnings[i]).emit();
+            self._diag->report(DiagID::P001N, self._root_warnings[i + 1]).emit();
+        }
+        self._root_warnings.clear();
+    }
+
     priv static fn _absolutize_all(list: *vec::<string>, base: string) {
         for var i: usize = 0; i < list->size(); ++i {
             ((*list)[i]) = Path::absolute_if_exists((*list)[i], base);
@@ -3099,6 +3239,13 @@ class CompilerInstance {
 
         self._absolutize_paths();
 
+        // After absolutizing: discovery fills only the roots still empty, and
+        // what it fills is already absolute (it hangs off the exe's path).
+        // Before real() below, so a discovered resource dir is made
+        // symlink-free exactly like a given one.
+        self._discover_roots();
+        self._check_sysroot();
+
         // Both roots also symlink-free from here on, on top of absolute:
         // clang reports headers under the real path, and the header set keys
         // on clang's spelling. real() leaves a path that does not exist
@@ -3106,6 +3253,14 @@ class CompilerInstance {
         var tg = &(self.invocation().target);
         if !tg->sysroot.empty()      { (tg->sysroot)      = LinkFS::real(tg->sysroot); }
         if !tg->resource_dir.empty() { (tg->resource_dir) = LinkFS::real(tg->resource_dir); }
+        // The module roots too. A builtin root reached through a symlink
+        // (a debug tree's lib/builtin -> Lib/builtin, or any --builtins-dir
+        // that is one) left the lang items unbound and ICEd in
+        // NullTestLowering; resolved, a debug run with no flags sees exactly
+        // the roots lit passes.
+        var ppo = &(self.invocation().pp);
+        if !ppo->builtins_dir.empty() { (ppo->builtins_dir) = LinkFS::real(ppo->builtins_dir); }
+        if !ppo->std_dir.empty()      { (ppo->std_dir)      = LinkFS::real(ppo->std_dir); }
 
         // Pointer width for usize/isize, off the effective triple. -m32/-m64
         // are applied as arch-variant rewrites first, matching clang: they

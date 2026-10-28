@@ -449,4 +449,37 @@ paths are relative and mutually dependent; -I does not currently reach them.
   kbld kairo --debug     (from the repo root)
   kbld kcc --debug       (when Driver/ or anything kcc links changes)
 
+Both end with a post-build hook (build.k) that turns build/<triple>/<mode>
+into a self-contained toolchain:
+
+  Scripts/stage_tree.py <tree>   bin/: clang-<ver> (+ clang, clang++,
+                                 clang-cpp, clang-cl), lld (+ ld.lld,
+                                 ld64.lld, lld-link, wasm-ld), llvm-nm,
+                                 llvm-objdump -- whatever build/llvm/bin has
+                                 of the list in the script.
+                                 lib/: clang/<ver> (the resource dir),
+                                 builtin, std, rt (Lib/'s trees).
+                                 debug: builtin/std/rt are symlinks into Lib/
+                                 (always current); release: copies.
+  Scripts/bundle.sh <tree>       copies non-system shared libs into lib/,
+                                 makes every RUNPATH $ORIGIN-relative, and
+                                 fails unless the tree is relocatable (no
+                                 dangling links, no unresolved deps, no
+                                 absolute RUNPATH). Linux only; needs
+                                 patchelf. Prints the glibc floor.
+
+By hand: `python3 Scripts/stage_tree.py --all` stages debug and release,
+`sh Scripts/bundle.sh build/<triple>/debug build/<triple>/release` bundles.
+
+A staged tree runs with no root flags:
+
+  build/x86_64-linux-gnu/debug/bin/kairo main.k -o main
+
+Without --resource-dir / --builtins-dir / --std-dir the driver takes
+<exe>/../lib/clang/<ver>, <exe>/../lib/builtin and <exe>/../lib/std
+(CompilerInstance::_discover_roots); a flag always wins. Each root it cannot
+find is a P001W naming the path searched and the flag; so is having no
+sysroot (none given, no <exe>/../sysroot/<target>) unless --freestanding.
+lit still passes every root explicitly.
+
 Stage 0 compiles all of Stage 1. Stage 1 does not yet compile itself.
