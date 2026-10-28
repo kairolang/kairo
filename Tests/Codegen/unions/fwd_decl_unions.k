@@ -2,11 +2,10 @@
 // defined: the forward declaration must emit as `union Payload;` so the
 // pointer field compiles before the definition.
 //
-// XFAIL: *
-// Waiting on: a bodiless `union U` (and `struct S`) outside `ffi` is S048E
-// "expected '{' to begin the type body"; only `class C` may be forward-declared
-// today (TICKETS: "A union or struct cannot be forward-declared"). Replace
-// the XFAIL with the run check below when it parses.
+// Was an expected failure: a bodiless `union U` (and `struct S`) outside `ffi` was S048E
+// "expected '{' to begin the type body" (TICKETS: "A union or struct cannot
+// be forward-declared"). More shapes in Codegen/fwd_decl/. The safe `&p` it
+// was written with is an unsafe pointer's field, so it is `unsafe &p`.
 union Payload    // forward declaration
 
 struct Message {
@@ -21,11 +20,12 @@ union Payload {
 
 fn main() -> i32 {
     var p = Payload{as_int: 7}
-    var m = Message{kind: 1, data: &p}
+    var m = Message{kind: 1, data: unsafe &p}
     return (m.data->as_int as i32) + (m.kind as i32)
 }
 
 // --- lit wiring ---
+// REQUIRES: clang
 // RUN: rm -rf %t.exec.d
 // RUN: %kairo %s -o %t.exec.exe --cache-dir %t.exec.d
 // RUN: %t.exec.exe; test $? -eq 8

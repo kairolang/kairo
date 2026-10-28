@@ -687,6 +687,15 @@ class InterfaceEmitter {
         s += self._spell->leaf(d);
         s += self._spell->spec_suffix(d);
 
+        // Only ever forward-declared (a nested `struct Cell;` whose body
+        // lives elsewhere): a declaration, never an empty definition, which
+        // would give it a layout it does not have. Sema has refused every
+        // by-value use (TypeCycleCheck, TypeUtil::why_no_default).
+        if decl_only_forward(d) {
+            self._cg->sink->spell(at, s + ";");
+            return;
+        }
+
         if is_class {
             var n = cast::<ClassDecl>(d);
             for var i: usize = 0; i < n->derives_list.size(); ++i {
@@ -733,8 +742,15 @@ class InterfaceEmitter {
                 // define it under, and its one declaration is the field
                 // below that holds it (_anon_union_field).
                 if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+                // A forward declaration and its definition in one body
+                // (`struct Cell;` ... `struct Cell { }`) are one entity, and
+                // its representative is the definition: emit it at the link
+                // that IS the representative, once. Every other link would
+                // define it again (clang: "redefinition of 'Cell'").
+                var rep = CXXSpell::rep(nd);
+                if (rep != nd) && (decl_ffi_tag_target(nd) == &null) { continue; }
                 cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
-                self._type_def(CXXSpell::rep(nd));
+                self._type_def(rep);
             }
 
             // Member aliases, in declaration order, before any field or

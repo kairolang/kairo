@@ -3306,7 +3306,7 @@ class <T> DeclParse {
     //  Struct
 
     /// \brief parses a struct declaration.
-    ///  Grammar:  'struct' generics? name (impl ...)? body   (no methods in-body)
+    ///  Grammar:  'struct' generics? name (impl ...)? body?  (no methods in-body; no body = forward decl)
     priv fn _parse_struct(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
 
@@ -3379,10 +3379,13 @@ class <T> DeclParse {
         }
         self._reject_where_on_type("struct");
 
-        // `ffi "c" struct timezone`: a foreign forward declaration, naming
-        // the header's tag (ImportResolution::_bind_ffi_forwards). Outside
-        // ffi a struct still needs its body.
-        if (dyn()->ffi_decl_depth > 0) && (!dyn()->check(TokenKind::OpLBrace)) {
+        // No `{`: a forward declaration (`struct Node`), like a bodiless
+        // class -- a non-definition link N(a) merges with the definition
+        // wherever it sits in the scope. Under ffi (`ffi "c" struct
+        // timezone`) it may instead name the header's tag
+        // (ImportResolution::_bind_ffi_forwards keys on the ffi linkage,
+        // not on the missing body).
+        if !dyn()->check(TokenKind::OpLBrace) {
             sd->range = start | dyn()->prev().range;
             dyn()->exit_depth();
             return static_cast::<*Decl>(sd);
@@ -3405,7 +3408,7 @@ class <T> DeclParse {
     //  Union
 
     /// \brief parses a union declaration.
-    ///  Grammar:  'union' generics? name body   (fields only, no methods)
+    ///  Grammar:  'union' generics? name body?   (fields only, no methods; no body = forward decl)
     priv fn _parse_union(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
 
@@ -3464,10 +3467,8 @@ class <T> DeclParse {
             return static_cast::<*Decl>(ud);
         }
 
-        // `ffi "c" union timezone`: a foreign forward declaration, naming
-        // the header's tag (ImportResolution::_bind_ffi_forwards). Outside
-        // ffi a union still needs its body.
-        if (dyn()->ffi_decl_depth > 0) && (!dyn()->check(TokenKind::OpLBrace)) {
+        // No `{`: a forward declaration (`union Payload`); see _parse_struct.
+        if !dyn()->check(TokenKind::OpLBrace) {
             ud->range = start | dyn()->prev().range;
             dyn()->exit_depth();
             return static_cast::<*Decl>(ud);

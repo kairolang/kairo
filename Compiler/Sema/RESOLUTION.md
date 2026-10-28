@@ -124,7 +124,15 @@ in C now, §2.8.)
 (a) Decl validation over frozen cells: link `Redeclarable` chains for the
 five type kinds + modules, retarget canonical at the definition, diagnose
 redefinition and conflicting kinds, attach `out_of_line` defs, populate
-`sc.well_known`. **Specializations are skipped**: their own chains link in
+`sc.well_known`. A record named with two of `class` / `struct` / `union`
+across a forward declaration and its definition (bodiless `struct S` /
+`union U` are forward declarations like `class C`, outside `ffi` too) is
+R001E at each disagreeing forward declaration, fix-it to the reference's
+keyword (the definition's, else the first forward declaration's), and the
+agreeing links still chain; two bodies stay R029E. A record that is only
+ever forward-declared (`decl_only_forward`) is complete nowhere: a by-value
+edge to it is TypeCycleCheck's SC001E, a default-built one TypeUtil::
+why_no_default's. **Specializations are skipped**: their own chains link in
 T on canonical spec args (#12). Function chains are R's (§2.6a).
 **Modules reopen**: every `module Foo { }` block is a definition, so two
 defining links is legal for a ModuleDecl ring (`_reopenable`) and a

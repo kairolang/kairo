@@ -704,6 +704,10 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if all_fn { return; }               // overload set; nothing to judge yet.
 
         if !kind_ok {
+            // `struct S` forward-declaring what is then `class S { }`: one
+            // entity named with two record keywords. Said as that, with the
+            // keyword fixed, rather than as two unrelated kinds of entity.
+            if self._record_kind_mismatch(e, &group) { return; }
             self._redefinition(dc, e, &group, "declared with conflicting kinds");
             return;
         }
@@ -722,6 +726,87 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
                 self._redefinition(dc, e, &group, "redefined");
             }
         }
+    }
+
+    /// `class`, `struct` or `union`, as the keyword that declares \p d;
+    /// empty for any other kind.
+    priv fn _record_keyword(self, d: *Decl) -> string {
+        if isa::<ClassDecl>(d)  { return "class"; }
+        if isa::<StructDecl>(d) { return "struct"; }
+        if isa::<UnionDecl>(d)  { return "union"; }
+        return "";
+    }
+
+    priv fn _record_defines(self, d: *Decl) -> bool {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->is_this_definition; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->is_this_definition; }
+        if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->is_this_definition; }
+        return false;
+    }
+
+    /// A group of records only, named with more than one of `class` /
+    /// `struct` / `union`, at most one of them with a body: a forward
+    /// declaration that disagrees with its definition (or with an earlier
+    /// forward declaration) about the keyword. The three are different
+    /// entities to Kairo -- the keyword decides defaults, what a body may
+    /// hold, and the C++ tag -- so the chain cannot link across them; each
+    /// disagreeing declaration is reported against the one it disagrees with
+    /// and poisoned, which leaves the agreeing ones to link as usual. The
+    /// fix-it rewrites the forward declaration's keyword, the cheap side of
+    /// the edit. False (nothing reported) for any other shape: two bodies
+    /// is a redefinition whatever the keywords, and a non-record in the
+    /// group is a conflict of kinds.
+    priv fn _record_kind_mismatch(self, e: SymbolTable::Entry, group: *vec::<*Decl>) -> bool {
+        var def: *Decl = &null;
+        for var i: usize = 0; i < group->size(); ++i {
+            var d = (*group)[i];
+            if self._record_keyword(d).empty() { return false; }
+            if self._record_defines(d) {
+                if def != &null { return false; }
+                def = d;
+            }
+        }
+        // No definition: the first forward declaration is the reference.
+        var ref_d = (def) if (def != &null) else ((*group)[0]);
+        var ref_kw = self._record_keyword(ref_d);
+        var name = e.name.describe(self.sc->ctx);
+        for var i: usize = 0; i < group->size(); ++i {
+            var d = (*group)[i];
+            if d == ref_d { continue; }
+            var kw = self._record_keyword(d);
+            if kw == ref_kw { continue; }
+            var msg = f"'{name}' is forward-declared as a {kw} but defined as a {ref_kw}";
+            var nmsg = f"'{name}' is defined here as a {ref_kw}";
+            if def == &null {
+                msg  = f"'{name}' is forward-declared as a {kw} here and as a {ref_kw} before";
+                nmsg = f"'{name}' is first forward-declared here as a {ref_kw}";
+            }
+            var b = self.sc->diag->report(DiagID::R001E, d->range.start, msg);
+            b.first(d->range);
+            b.note(DiagID::R001N, ref_d->range.start, nmsg).first(ref_d->range);
+            // Only where the declaration starts with its keyword: a leading
+            // `final` or `abstract` would put the edit on the wrong word.
+            var kr = SourceRange::from_bounds(d->range.start, static_cast::<u32>(kw.size()));
+            if self.sc->ctx->get_spelling(kr) == kw {
+                b.fix(kr, ref_kw, f"declare it as a {ref_kw}");
+            }
+            b.emit();
+            d->poison();
+        }
+        // The agreeing declarations are still one entity.
+        var rest = vec::<*Decl>();
+        for var i: usize = 0; i < group->size(); ++i {
+            var d = (*group)[i];
+            if (!d->is_poisoned()) && (self._record_keyword(d) == ref_kw) { rest.push_back(d); }
+        }
+        if rest.size() > 1 {
+            switch ref_d->kind {
+                case DeclKind::ClassDecl  { self._link_group::<ClassDecl>(e, &rest);  }
+                case DeclKind::StructDecl { self._link_group::<StructDecl>(e, &rest); }
+                default                   { self._link_group::<UnionDecl>(e, &rest);  }
+            }
+        }
+        return true;
     }
 
     /// Link a same-kind redecl group in SOURCE ORDER (cells are append-only,

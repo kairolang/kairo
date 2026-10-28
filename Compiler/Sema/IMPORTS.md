@@ -816,8 +816,9 @@ tag_hiding_ambiguous_type.k`.
 ### 5.2 Naming a tag: `ffi "c" struct T` [DONE]
 
 A bodiless `struct` / `class` / `union` under an `ffi` prefix or in an
-`ffi { }` block is a foreign forward declaration (outside ffi a struct
-still needs its body, S048E). Phase I (`_bind_ffi_forwards`) looks the
+`ffi { }` block is a foreign forward declaration (outside ffi it is a
+plain Kairo forward declaration, as a bodiless `class` always was; the ffi
+linkage is what makes it a tag probe). Phase I (`_bind_ffi_forwards`) looks the
 name up in the TU's ffi closure -- a hidden tag's internal key first, then
 a visible tag -- and stamps the match on the declaration
 (`FFILinkage::ffi_tag_target`). `NameLookup::representative` answers with

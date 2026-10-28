@@ -49,6 +49,8 @@ import AST::DeclFacts::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
+import Location::SourceLocation::*;
+import Location::SourceRange::*;
 import Diagnostic::Registry::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Code::*;
@@ -68,6 +70,11 @@ class TypeCycleCheck {
 
     /// Decls already named on a reported cycle.
     priv var _reported: vec::<*Decl>;
+
+    /// Where `unsafe *` goes to hold the record being walked through a
+    /// pointer instead: the start of a field's type when that type is the
+    /// record itself, else invalid (no fix-it).
+    priv var _fix_at: SourceLocation = SourceLocation::invalid();
 
     fn TypeCycleCheck(self, sc: *SemaContext) {
         self.sc = sc;
@@ -205,7 +212,15 @@ class TypeCycleCheck {
             // static/eval storage lives outside the object.
             if f->storage == StorageClass::Static { continue; }
             if f->storage == StorageClass::Eval   { continue; }
+            // A field typed exactly the record gets the pointer fix-it; a
+            // record buried in an array or a generic argument does not.
+            self._fix_at = SourceLocation::invalid();
+            if f->type_ != &null {
+                var fc = canon_unqual(f->type_->canonical);
+                if (fc != &null) && isa::<RecordType>(fc) { self._fix_at = f->type_->range.start; }
+            }
             self._type_edges(f->type_, f->range);
+            self._fix_at = SourceLocation::invalid();
         }
     }
 
@@ -219,6 +234,13 @@ class TypeCycleCheck {
         switch c->kind {
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
+                // The same by-value edge that would close a cycle needs the
+                // held record's layout: a forward declaration never defined
+                // has none to give (C++ "field has incomplete type").
+                if decl_only_forward(r->decl) {
+                    self._report_incomplete(r->decl, site);
+                    return;
+                }
                 self._visit(r->decl, site);
                 // Which arguments the record stores by value is a question
                 // for the PATTERN: an instance shell has no fields until M2
@@ -383,6 +405,25 @@ class TypeCycleCheck {
             self._reported.push_back(d);
             d->poison();
         }
+    }
+
+    /// \p held, only ever forward-declared, reached by value at \p site from
+    /// the record on top of the stack. Reported once per edge: each record's
+    /// edges are walked once (black), so no dedup set is needed.
+    priv fn _report_incomplete(self, held: *Decl, site: SourceRange) {
+        if self._stack.size() == 0 { return; }
+        var owner = self._stack[self._stack.size() - 1];
+        var on = self._decl_name(owner);
+        var hn = self._decl_name(held);
+        var b = self.sc->diag->report(DiagID::SC001E, site.start,
+            f"'{on}' holds '{hn}' by value, but '{hn}' is only forward-declared, so its size is unknown");
+        b.first(site);
+        b.note(DiagID::SC001N, held->range.start,
+            f"'{hn}' is forward-declared here and never defined").first(held->range);
+        if self._fix_at.is_valid() {
+            b.insert(self._fix_at, "unsafe *", f"hold a pointer to '{hn}' instead");
+        }
+        b.emit();
     }
 
     // --- Small helpers -------------------------------------------------------
