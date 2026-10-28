@@ -566,6 +566,7 @@ module Immediate {
         //   bit 2: is_big (value >128-bit)
         //   bit 3: has_suffix
         //   bit 4: has_prefix
+        //   bit 5: pointer-sized suffix (`usize` / `isize`; bit 0 tells which)
 
         fn IntData(self) {
             self.value_lo = 0;
@@ -1474,6 +1475,16 @@ fn Immediate::IntData::evaluate(sm: *SourceManager, tbl: *ImmediateTable) {
                 self.flags |= 0b00000001; // set unsigned flag
             } else {
                 self.flags &= ~(0b00000001 as u8); // clear unsigned flag
+            }
+        } else if (suffix_text == "usize") || (suffix_text == "isize") {
+            // No width of its own: the target's pointer width, which only
+            // Sema knows. Without the mark the literal fell through to the
+            // minimum-width inference below and `1usize` was an i8.
+            self.flags |= 0b00100000;
+            if suffix_text == "usize" {
+                self.flags |= 0b00000001;
+            } else {
+                self.flags &= ~(0b00000001 as u8);
             }
         }
     }

@@ -619,6 +619,13 @@ class IntegerLiteralExpr derives Expr {
         return ((self.imm->flags) & 0b00001000) != 0;
     }
 
+    /// `usize` / `isize`: suffixed, but with the target's pointer width
+    /// rather than a width of its own (is_unsigned tells which).
+    fn is_pointer_sized(self) -> bool {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::is_pointer_sized: imm pointer is null");
+        return ((self.imm->flags) & 0b00100000) != 0;
+    }
+
     fn has_prefix(self) -> bool {
         assert((self.imm != &null) && r"IntegerLiteralExpr::has_prefix: imm pointer is null");
         return ((self.imm->flags) & 0b00010000) != 0;

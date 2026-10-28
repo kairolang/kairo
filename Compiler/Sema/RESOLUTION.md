@@ -1040,10 +1040,13 @@ is never converted by one:
 **Literals** (§5). Untyped until assigned. Expected type first, fit checked
 AT the literal; default i32 -> i64 -> i128, then "too large without a
 suffix". `-lit` folds the sign into the fit. Suffixed literals are typed
-at the literal. Against a parameter, an untyped literal ranks Exact for
-any type it fits (it TAKES the type; it is not converted) and is typed
-with the parameter type after selection. The lexer's min-width guess is
-not read for unsuffixed literals.
+at the literal, from the suffix's TEXT: `iN`/`uN`, `usize`/`isize` (the
+target's pointer width), `fN` and `bf16`; a float suffix on an integer
+body (`5f32`) is that float; anything else is SC074E. Against a parameter,
+an untyped literal ranks Exact for any type it fits (it TAKES the type; it
+is not converted) and is typed with the parameter type after selection.
+The lexer's min-width guess is never read as a type: an unrecognized
+suffix left it in place, which made `1usize` and `1f32` i8.
 
 **List literals** (`LiteralTyping::type_list_literal`). A `[...]` literal
 takes its type from the TARGET, the same way a scalar literal does:

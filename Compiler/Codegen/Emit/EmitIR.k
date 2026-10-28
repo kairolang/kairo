@@ -1479,7 +1479,7 @@ class EmitIR {
 
         switch e->kind {
             case ExprKind::IntegerLiteralExpr   { self._int_lit(cast::<IntegerLiteralExpr>(e)); }
-            case ExprKind::FloatingLiteralExpr  { self._cg->sink->synth(cast::<FloatingLiteralExpr>(e)->token, clang::tok::numeric_constant); }
+            case ExprKind::FloatingLiteralExpr  { self._float_lit(cast::<FloatingLiteralExpr>(e)); }
             case ExprKind::CharacterLiteralExpr { self._cg->sink->synth(cast::<CharacterLiteralExpr>(e)->token, clang::tok::char_constant); }
             case ExprKind::BooleanLiteralExpr   { self._cg->sink->spell(e->range, (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false"))); }
             case ExprKind::NullLiteralExpr      { self._cg->sink->spell(e->range, "nullptr"); }
@@ -2442,11 +2442,20 @@ class EmitIR {
     /// constant, and the fallback below then borrowed whatever bytes the
     /// token's range covered -- `"true"` spelled as a numeric constant.
     ///
+    /// A SUFFIXED literal is spelled exactly typed, `static_cast<T>(v)`: the
+    /// suffix is a declaration (`1u8` is a u8 wherever it stands), and C++
+    /// re-reads a bare `1` as an int -- an overload set, a deduced template
+    /// argument or `auto` then picks a different entity than Sema did.
+    ///
+    /// The others borrow their bytes unless C++ cannot read them: a `_`
+    /// separator (a user-defined-literal suffix to clang), the `0o` prefix
+    /// (C++ octal is a bare leading 0), or a top-bit value (too large for a
+    /// signed literal; ULL). Those are respelled from the value, untyped, so
+    /// the contextual type still converts them where it did.
+    ///
     /// A value of 2^64 or more is never borrowed either: C++ has no integer
     /// literal wider than unsigned long long, so clang rejects the bytes
-    /// whatever the target type. It is built from its two halves in
-    /// `unsigned __int128` and cast to the literal's type. Multiplication,
-    /// not `<<`: spell() fuses `<<` only after `operator`.
+    /// whatever the target type. _int_text builds it from its halves.
     priv fn _int_lit(self, n: *IntegerLiteralExpr) {
         var t = n->token;
         if n->is_big() { self._ice(t.range, "EmitIR: integer literal wider than 128 bits; limb composition is not emitted yet"); }
@@ -2454,28 +2463,160 @@ class EmitIR {
         var hi = n->get_value_hi();
         if hi != 0 {
             if (n->type_ == &null) { self._ice(t.range, "EmitIR: untyped wide integer literal reached codegen; ExprTyper gate failure"); }
-            var lo = n->get_value_lo();
-            self._cg->sink->spell(t.range,
-                f"(static_cast<{self._spell._type(n->type_)}>("
-                + f"static_cast<unsigned __int128>({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL))");
+            self._cg->sink->spell(t.range, self._int_text(n->type_, hi, n->get_value_lo(), false));
             return;
         }
 
         var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
         if (tbl == &null) { self._ice(t.range, "EmitIR: no immediate table for the file that owns this body"); }
         var d = tbl->get::<Immediate::IntData>(t.imm);
-        // Respelled from the value when there are no bytes to borrow, or when
-        // the bytes carry a Kairo suffix (`0xFFu8`, IntData flag bit 3) that
-        // C++ cannot read. The value's own type is the literal's; a top-bit
-        // value spells ULL so clang never sees it as a too-large signed one.
-        var suffixed = (d != &null) && ((d->flags & 8) != 0);
-        if (d != &null) && ((!d->body.is_valid()) || suffixed) {
-            var cxx = f"{d->value_lo}";
-            if (d->value_lo >> 63) != 0 { cxx += "ULL"; }
+        if d == &null { self._cg->sink->synth(t, clang::tok::numeric_constant); return; }
+        // IntData flag bit 3: a Kairo suffix (`0xFFu8`).
+        var suffixed = (d->flags & 8) != 0;
+        if suffixed && (n->type_ != &null) {
+            self._cg->sink->spell(t.range, self._int_text(n->type_, 0, d->value_lo, false));
+            return;
+        }
+        if (!d->body.is_valid()) || suffixed || ((d->value_lo >> 63) != 0) || (!self._int_bytes_are_cxx(d)) {
+            var cxx = self._int_text(&null, 0, d->value_lo, false);
             self._cg->sink->create_int(t.range, cxx);
             return;
         }
         self._cg->sink->synth(t, clang::tok::numeric_constant);
+    }
+
+    /// Whether a literal's own bytes are a C++ integer literal: no `_`
+    /// separator and no `0o` prefix. Hex and binary prefixes are C++'s too.
+    priv fn _int_bytes_are_cxx(self, d: *Immediate::IntData) -> bool {
+        var sm = self._cg->ctx->sm;
+        var body = sm->get_text(d->body);
+        for var i: usize = 0; i < body.size(); ++i {
+            if body[i] == '_' { return false; }
+        }
+        if ((d->flags & 16) != 0) && d->prefix.is_valid() {
+            var pre = sm->get_text(d->prefix);
+            if (pre.size() == 2) && ((pre[1] == 'o') || (pre[1] == 'O')) { return false; }
+        }
+        return true;
+    }
+
+    /// The C++ for the integer `hi:lo` (negated when \p neg), cast to \p ty
+    /// when one is given. Every piece is a literal C++ reads at its full
+    /// width: a magnitude of 2^64 or more is composed in `unsigned
+    /// __int128` (multiplication, not `<<`: spell() fuses `<<` only after
+    /// `operator`), and a negative one is negated where that cannot
+    /// overflow -- `-2^63` as `(-9223372036854775807LL - 1)`, anything wider
+    /// in the unsigned 128-bit type, whose wrap the cast turns back into the
+    /// signed value. Negating the magnitude in the target type instead is
+    /// the signed overflow clang reported for the i128 minimum.
+    priv fn _int_text(self, ty: *Type, hi: u64, lo: u64, neg: bool) -> string {
+        var one: u64 = 1;
+        var top = one << 63;
+        var v = "";
+        if hi != 0 {
+            v = f"static_cast<unsigned __int128>({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL";
+            if neg { v = "static_cast<unsigned __int128>(0) - (" + v + ")"; }
+        } else if neg {
+            if lo < top { v = f"-{lo}"; }
+            else if lo == top { v = "(-9223372036854775807LL - 1)"; }
+            else { v = f"static_cast<unsigned __int128>(0) - {lo}ULL"; }
+        } else {
+            v = f"{lo}";
+            if (lo >> 63) != 0 { v += "ULL"; }
+        }
+        if ty == &null { return v; }
+        return f"(static_cast<{self._spell._type(ty)}>({v}))";
+    }
+
+    /// `-L` for an integer literal L that is suffixed or 2^63 or more: the
+    /// negated value itself, exactly typed, instead of a negation C++ does
+    /// in its own type. `-128i8` negated after the cast is the int 128, and
+    /// initializing an i8 with it is a constant-conversion warning; the i64
+    /// and i128 minimums overflow outright. Null when \p n is not that.
+    priv fn _negated_int_lit(self, n: *UnaryOperatorExpr) -> *IntegerLiteralExpr {
+        if (!n->is_prefix()) || (n->op_token.kind != TokenKind::OpMinus) { return &null; }
+        var opnd = n->operand;
+        while (opnd != &null) && isa::<ParenExpr>(opnd) { opnd = cast::<ParenExpr>(opnd)->inner; }
+        if (opnd == &null) || (!isa::<IntegerLiteralExpr>(opnd)) { return &null; }
+        var lit = cast::<IntegerLiteralExpr>(opnd);
+        if (lit->imm == &null) || lit->is_big() || (lit->type_ == &null) { return &null; }
+        var c = canon_unqual(lit->type_);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return &null; }
+        var info = cast::<BuiltinType>(c)->info();
+        if (!info->is_integer()) || (!info->is_signed()) { return &null; }
+        if lit->has_suffix() || (lit->get_value_hi() != 0) || ((lit->get_value_lo() >> 63) != 0) { return lit; }
+        return &null;
+    }
+
+    /// A float literal, spelled so clang parses it AT its Kairo type: the
+    /// source digits (separators dropped) with the C++ suffix of that type.
+    /// The decimal text is re-read, never printed from value_ieee, so the
+    /// rounding is clang's correctly-rounded one per format. The borrowed
+    /// bytes of `1.5f32` were "invalid suffix 'f32'", and an unsuffixed
+    /// `var q: f128 = 0.1` was the double 0.1 widened, 0.10000000000000000555.
+    ///
+    ///   f16 `f16`, f32 `f`, f64 none, f80 `L`, f128 `Q`
+    ///   bf16 has no literal suffix: `static_cast<__bf16>(<digits>f)`.
+    ///   f8* / f256 / f512 are library classes: the double literal, as before.
+    ///
+    /// An unsuffixed f64 literal with no separator keeps its own bytes.
+    priv fn _float_lit(self, n: *FloatingLiteralExpr) {
+        var t = n->token;
+        var tbl = self._cg->ctx->tcm->get_imm_table_for_fid(self._owning_fid());
+        var d: *Immediate::FloatData = &null;
+        if tbl != &null { d = tbl->get::<Immediate::FloatData>(t.imm); }
+        if (d == &null) || (!d->body.is_valid()) { self._cg->sink->synth(t, clang::tok::numeric_constant); return; }
+
+        var k = BuiltinKind::COUNT;
+        var c = canon_unqual(n->type_);
+        if (c != &null) && isa::<BuiltinType>(c) { k = cast::<BuiltinType>(c)->builtin; }
+
+        var sm = self._cg->ctx->sm;
+        var body = sm->get_text(d->body);
+        var hex = (d->flags & 4) != 0;
+        var digits = "";
+        var sep = false;
+        var point = false;
+        for var i: usize = 0; i < body.size(); ++i {
+            var ch = body[i];
+            if ch == '_' { sep = true; continue; }
+            if ch == '.' { point = true; }
+            if (!hex) && ((ch == 'e') || (ch == 'E')) { point = true; }
+            if hex && ((ch == 'p') || (ch == 'P')) { point = true; }
+            digits += ch;
+        }
+        var suffixed = (d->flags & 16) != 0;
+        if (!suffixed) && (!sep) && ((k == BuiltinKind::F64) || (k == BuiltinKind::COUNT)) {
+            self._cg->sink->synth(t, clang::tok::numeric_constant);
+            return;
+        }
+
+        // `5f32` is a float in Kairo; `5f` is not a C++ floating literal,
+        // and a hex one needs its binary exponent.
+        if hex {
+            var pre = "0x";
+            if d->prefix.is_valid() { pre = sm->get_text(d->prefix); }
+            digits = pre + digits;
+            if !point { digits += "p0"; }
+        } else if !point {
+            digits += ".0";
+        }
+
+        switch k {
+            case BuiltinKind::F16  { digits += "f16"; }
+            case BuiltinKind::F32  { digits += "f"; }
+            case BuiltinKind::F80  { digits += "L"; }
+            case BuiltinKind::F128 { digits += "Q"; }
+            case BuiltinKind::BF16 {
+                digits += "f";
+                self._cg->sink->spell(t.range, f"static_cast<{self._spell._type(n->type_)}>(");
+                self._cg->sink->create_int(t.range, digits);
+                self._cg->sink->spell(t.range, ")");
+                return;
+            }
+            default { }
+        }
+        self._cg->sink->create_int(t.range, digits);
     }
 
     priv fn _is_ctor(self, f: *FunctionDecl) -> bool {
@@ -2506,6 +2647,11 @@ class EmitIR {
             self._cg->sink->spell(n->range, "::" + LowerTargets::tmp_addr() + "(");
             self.emit(n->operand);
             self._cg->sink->spell(n->range, ")");
+            return;
+        }
+        var neg_lit = self._negated_int_lit(n);
+        if neg_lit != &null {
+            self._cg->sink->spell(n->range, self._int_text(neg_lit->type_, neg_lit->get_value_hi(), neg_lit->get_value_lo(), true));
             return;
         }
         var k = n->op_token.kind;

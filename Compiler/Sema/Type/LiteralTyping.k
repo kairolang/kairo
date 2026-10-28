@@ -157,7 +157,20 @@ class <T> LiteralTyping {
 
         // suffixed: typed at the literal.
         if n->has_suffix() {
-            var k = self._int_kind(n->get_bits(), n->is_unsigned());
+            // The lexer's width is only a width when the suffix was `iN` /
+            // `uN`: for any other text it fell back to the value's minimum
+            // width, so `1f32` was silently an i8. Read the text.
+            var sfx = n->get_suffix_text();
+            var k = BuiltinKind::COUNT;
+            if n->is_pointer_sized() {
+                k = (BuiltinKind::USize) if (n->is_unsigned()) else (BuiltinKind::ISize);
+            } else if (self._suffix_width(sfx, 'i', 'I') != 0) || (self._suffix_width(sfx, 'u', 'U') != 0) {
+                k = self._int_kind(n->get_bits(), n->is_unsigned());
+            } else {
+                // A float suffix on an integer body: `5f32` is the f32 5.
+                var fk = self._float_suffix_kind(sfx);
+                if fk != BuiltinKind::COUNT { return dyn()->tu.builtin(fk); }
+            }
             if k == BuiltinKind::COUNT {
                 dyn()->fail(n, DiagID::SC074E, f"unknown integer literal suffix '{n->get_suffix_text()}\x27");
                 return &null;
@@ -215,7 +228,9 @@ class <T> LiteralTyping {
     fn type_float_literal(self, n: *FloatingLiteralExpr, expected: *Type) -> *Type {
         if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "float literal has no immediate data"); return &null; }
         if n->has_suffix() {
-            var k = self._float_kind(n->get_bits());
+            // From the text, not the lexer's width: an unknown suffix left
+            // that at its f64 default, so `1.5bf16` and `1.5xyz` were f64.
+            var k = self._float_suffix_kind(n->get_suffix_text());
             if k == BuiltinKind::COUNT {
                 dyn()->fail(n, DiagID::SC074E, f"unknown float literal suffix '{n->get_suffix_text()}\x27");
                 return &null;
@@ -225,6 +240,30 @@ class <T> LiteralTyping {
         var target = dyn()->tu.strip_nullable(expected);
         if dyn()->tu.is_float(target) { return target; }
         return dyn()->tu.builtin(BuiltinKind::F64);
+    }
+
+    /// The N of a suffix spelled `<lead>N` (\p lead or \p up, then N, all
+    /// decimal digits), or 0 when \p sfx is not one.
+    priv fn _suffix_width(self, sfx: string, lead: char, up: char) -> u32 {
+        if sfx.size() < 2 { return 0; }
+        var c0 = sfx[0];
+        if (c0 != lead) && (c0 != up) { return 0; }
+        var w: u32 = 0;
+        for var i: usize = 1; i < sfx.size(); ++i {
+            var c = sfx[i];
+            if (c < '0') || (c > '9') { return 0; }
+            w = w * 10 + static_cast::<u32>(c - '0');
+            if w > 65535 { return 0; }
+        }
+        return w;
+    }
+
+    /// `fN` for a float width Kairo has, or `bf16`; COUNT for anything else.
+    priv fn _float_suffix_kind(self, sfx: string) -> BuiltinKind {
+        if (sfx == "bf16") || (sfx == "BF16") { return BuiltinKind::BF16; }
+        var w = self._suffix_width(sfx, 'f', 'F');
+        if w == 0 { return BuiltinKind::COUNT; }
+        return self._float_kind(w);
     }
 
     priv fn _float_kind(self, bits: u32) -> BuiltinKind {
