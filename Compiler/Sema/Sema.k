@@ -37,6 +37,7 @@ import Sema::Resolve::NameResolution::*;
 import Sema::Resolve::TypeResolve::*;
 import Sema::Resolve::ChainBinding::*;
 import Sema::Resolve::RedeclMerge::*;
+import Sema::Resolve::AccessCheck::*;
 import Sema::Expand::RequiresDesugar::*;
 import Sema::Expand::EvalIfFolding::*;
 import Sema::Verify::LoopContextCheck::*;
@@ -419,6 +420,12 @@ class Sema {
 
         // Default member initializers read only fields built before them.
         // REQUIRES N's bindings (a bare sibling in a default is a field).
+        // pub/priv/prot on every member reference, constructor and nested
+        // type (module-wide: a file's functions see its classes' privates).
+        // The emitted C++ is all public, so this is the only check.
+        // REQUIRES X's selections (the overload, the constructor).
+        { var _p = TimeRegion("AccessCheck"); AccessCheck(&self.sc).run(); }
+
         { var _p = TimeRegion("InitCheck"); InitCheck(&self.sc).run(); }
 
         // Base initializers (`Base::Base(self, ...)`): where one may be, and

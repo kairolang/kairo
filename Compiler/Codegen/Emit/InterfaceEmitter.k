@@ -749,7 +749,7 @@ class InterfaceEmitter {
                 // define it again (clang: "redefinition of 'Cell'").
                 var rep = CXXSpell::rep(nd);
                 if (rep != nd) && (decl_ffi_tag_target(nd) == &null) { continue; }
-                cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
+                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at);
                 self._type_def(rep);
             }
 
@@ -766,7 +766,7 @@ class InterfaceEmitter {
                 if (nd == &null) || (!isa::<TypeAliasDecl>(nd)) { continue; }
                 var ta = cast::<TypeAliasDecl>(nd);
                 if ta->aliased == &null { continue; }
-                cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
+                cur_access = self._access(cur_access, self._cxx_vis(nd), false, at);
                 var us = self._spell->template_head(nd);
                 us += "using " + self._spell->leaf(nd) + " = " + self._spell->_type(ta->aliased, &null, d) + ";";
                 self._cg->sink->spell(self._at(nd), us);
@@ -792,7 +792,7 @@ class InterfaceEmitter {
         for var i: usize = 0; i < fields.size(); ++i {
             var f = fields[i];
             if f == &null { continue; }
-            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(f)), is_class, at);
+            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(f)), is_class, at);
             // Before anything spells the field: it has no name.
             if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
             var fs = "";
@@ -813,7 +813,7 @@ class InterfaceEmitter {
         for var i: usize = 0; i < methods.size(); ++i {
             var m = methods[i];
             if m == &null { continue; }
-            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
+            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
         if is_class { cur_access = self._base_usings(cast::<ClassDecl>(d), cur_access, at); }
@@ -898,9 +898,8 @@ class InterfaceEmitter {
     }
 
     /// Whether class \p b or a base of it has a method spelled \p nm: 0 none,
-    /// 1 one C++ can name from a derived class, 2 one it cannot (a `priv`
-    /// method is `private:` in the class definition, and a using-declaration
-    /// naming it is an access error in clang).
+    /// 1 one. Every such method is `public:` (_cxx_vis), so the
+    /// using-declaration is always one clang accepts.
     priv fn _base_method_named(self, b: *Decl, nm: string, seen: *vec::<*Decl>, depth: u32) -> u8 {
         if (b == &null) || (depth > 64) || (!isa::<ClassDecl>(b)) { return 0; }
         for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == b { return 0; } }
@@ -911,7 +910,6 @@ class InterfaceEmitter {
             var m = cd->methods[i];
             if (m == &null) || m->is_implicit { continue; }
             if self._spell->leaf(static_cast::<*Decl>(m)) != nm { continue; }
-            if CXXSpell::vis_of(static_cast::<*Decl>(m)) == VIS_PRIV() { return 2; }
             hit = 1;
         }
         if hit != 0 { return hit; }
@@ -1136,7 +1134,7 @@ class InterfaceEmitter {
                 }
                 if mine { continue; }
                 if (k == TokenKind::OpExclaimEqual) && has_eq { continue; }
-                acc = self._access(acc, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
+                acc = self._access(acc, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
                 self._cg->sink->spell(mat, "bool operator" + syms[j] + "(" + param + ")" + quals
                                          + " { return " + call + " " + syms[j] + " 0; }");
             }
@@ -1804,10 +1802,26 @@ class InterfaceEmitter {
         return want;
     }
 
+    /// Every base is public in C++, whatever the edge says: `derives priv
+    /// Base` keeps Base's members to the deriving class's file, which a C++
+    /// access level cannot say, and AccessCheck enforces it in Kairo.
     priv fn _base_access(self, v: u8) -> string {
-        if v == VIS_PRIV() { return "private"; }
-        if v == VIS_PROT() { return "protected"; }
         return "public";
+    }
+
+    /// The access a member is written at. Every member Kairo's user wrote is
+    /// `public:`. `priv` and `prot` are module-wide (classes.mdx,
+    /// Visibility): a `priv` field is visible to every function in its
+    /// class's file, free ones included, and C++ has no access level that
+    /// means that -- `private:` made clang reject correct Kairo with CL001E.
+    /// AccessCheck enforces the rule in Kairo instead, so a C++ host that
+    /// includes the header sees these members as public too. Only members
+    /// the compiler made (a `where` group's candidates, a split
+    /// constructor's machinery) keep the access they were made with: no
+    /// Kairo code names them, and no C++ host should.
+    priv fn _cxx_vis(self, d: *Decl) -> u8 {
+        if (d != &null) && d->is_implicit { return CXXSpell::vis_of(d); }
+        return VIS_PUB();
     }
 
     priv fn _enum_def(self, en: *EnumDecl) {
@@ -1887,7 +1901,7 @@ class InterfaceEmitter {
             if (nd == &null) || (!self._is_type(nd)) { continue; }
             // Written where its field is (_anon_union_field).
             if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
-            cur_access = self._access(cur_access, CXXSpell::vis_of(nd), false, at);
+            cur_access = self._access(cur_access, self._cxx_vis(nd), false, at);
             // A pack-expanded variant's payload: a template over one element,
             // inside which the enum's pack spells as that element.
             var pps = dyn_cast::<StructDecl>(nd);
@@ -1907,7 +1921,7 @@ class InterfaceEmitter {
         for var i: usize = 0; i < lay->fields.size(); ++i {
             var f = lay->fields[i];
             if f == &null { continue; }
-            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(f)), false, at);
+            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(f)), false, at);
             if f->is_anonymous_union { self._anon_union_field(f, d); continue; }
             // A tag in the payloads' common prefix is read through the
             // union's tag-only member, not stored beside it.
@@ -1933,7 +1947,7 @@ class InterfaceEmitter {
             // Prefix-tagged: every special member is the defaulted one, so
             // the helpers that switch on the tag are never called.
             if (en->adt_tag_member != &null) && ((m->adt_role == AdtRole::Destroy) || (m->adt_role == AdtRole::ConstructFrom)) { continue; }
-            cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
+            cur_access = self._access(cur_access, self._cxx_vis(static_cast::<*Decl>(m)), false, at);
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._adt_member(en, m, nm, generic));
         }
 

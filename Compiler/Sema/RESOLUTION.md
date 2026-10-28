@@ -625,7 +625,7 @@ and T's types; an enum it rejects is poisoned), `ExprTyper` (§2.9), `ValueCateg
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
 `ReturnPathCheck`, `ControlFlowAnalysis`, JumpLabelCheck's script rule,
 `WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
-`MoveCheck`, `InitCheck`, `BaseInitCheck`,
+`MoveCheck`, `AccessCheck`, `InitCheck`, `BaseInitCheck`,
 `CtorInitCheck`, `ConformanceChecking` -- Typed, the panic-set barrier
 (top of this file) -- `PanicEffectChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
@@ -663,8 +663,7 @@ arm that can never match, SC122E for such an alternative. It writes
 `MatchExpr`. A match on a `T?` that answers null first (X's `null_arm`,
 NULLABLE.md 3.6) is checked over its other arms with the column `T`. Integer columns are cut into segments, so ranges can complete
 a type; flags enums and imported C++ enums are open and need `default`.
-`ConstChecking`, `AccessCheck`, `ExtensionOrphanCheck` are stubs /
-missing.
+`ConstChecking` and `ExtensionOrphanCheck` are stubs / missing.
 
 `ClosureCaptures` [DONE] decides what every closure captures and how
 (closures.md, Capture Modes), and records it on the ClosureExpr
@@ -701,6 +700,23 @@ it is defined `T R::s{}`). It also gates (SC116E) an earlier sibling read
 in a GENERIC record's default, which the thunk's qualified spelling
 cannot compile yet: CXXSpell gives the record no template arguments
 there.
+
+`AccessCheck` [DONE] (Resolve/AccessCheck.k) enforces pub/priv/prot on
+what X chose: every `.` / `->` / `::` step of an expression chain, the
+constructor a construction selected, the fields a named initializer fills,
+the nested types a type path names. Module-wide (classes.mdx Visibility;
+decision 2026-10-26): `priv` is the declaring file's -- every function in
+it, free ones included -- and the class's own; `prot` adds every class
+deriving the member's class, from any file. A class's variables default to
+`priv`, everything else to `pub`. An edge `derives priv Base` /
+`derives prot Base` narrows a base member reached through the derived
+class to that class's file (and, for `prot`, its subclasses). Imported
+C++ members are clang's. The emitted C++ is `public:` throughout
+(InterfaceEmitter::_cxx_vis), bases included: C++ has no access level for
+"this file", and `private:` made clang refuse correct same-file code; so
+this pass is the only check, and a C++ host sees the members public.
+SC001E (placeholder) with a fix-it to `pub`. Not checked: an overloaded
+operator's own visibility.
 
 `BaseInitCheck` [DONE] (Check/BaseInitCheck.k): `Base::Base(self, args)`
 (ChainBinding finds a record's constructors under its own name after
@@ -2120,7 +2136,7 @@ One dispatch system, and a precise meaning: "T is a C++ type; clang checks
 the body".
 
 **`needs_using`** [DONE, as above]. **Virtual dispatch** [MISSING].
-**Access control** is a late filter [MISSING].
+**Access control** [DONE]: AccessCheck, a filter after X (the checks above).
 
 ---
 
@@ -2259,7 +2275,7 @@ Type domain (each unblocks the next):
     j. PatternChecking: ctor-pattern heads, bare `case n`,       DONE
        `.Variant`, exhaustiveness
     k. ADL / free operator functions (X, OperatorTyping)     DONE
-    l. AccessCheck (+ `prot` same-library provenance)
+    l. AccessCheck (module-wide priv/prot, edge visibility)   DONE
     m. ConstChecking; PanicEffectChecking                  PARTIAL
     n. ExtensionLowering: `a.m()` -> `m(&a)`, prvalue receiver   DONE
        materialization (`__kairo_tmp`), generic extensions (receiver

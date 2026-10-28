@@ -289,8 +289,11 @@ every TU (`CXXSpell::is_main`). Qualified names are unchanged — `::stem::x`
 reaches into the unnamed namespace through C++'s implicit using-directive —
 so `qual_name` knows nothing about any of it.
 
-Walks plan entries by tier. Records: `class`/`struct` with access
-specifiers, a `using Base::m;` for every
+Walks plan entries by tier. Records: `class`/`struct`, every member the
+user wrote `public:` and every base `public` whatever its Kairo visibility
+(`_cxx_vis`: `priv`/`prot` are module-wide, which no C++ access level can
+say, and AccessCheck enforces them; only compiler-made members such as a
+`where` group's candidates keep `private:`), a `using Base::m;` for every
 method name the class shares with a base (`_base_usings`: Kairo merges
 the base's overloads, C++ would hide them), fields (a default as a C++ default member initializer: a
 constant FieldInitLowering folded as it is, `signed int n = 5;`, anything

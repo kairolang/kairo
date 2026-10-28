@@ -25,7 +25,10 @@ fn none() -> yield i32 { }
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// stderr is dropped: clang's "2 errors generated." (the yield_value ticket
+// above) is unbuffered and lands wherever the IR print happens to be,
+// mid-line in a function head included.
+// RUN: { %kairo %s --print-ir 2>/dev/null || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      upto(signed int n) noexcept {
 // CXX:      co_yield(i);
 // CXX:      early(signed int n) noexcept {
