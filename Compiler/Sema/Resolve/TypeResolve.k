@@ -61,6 +61,8 @@ import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::ResolutionState::*;
 import Sema::Resolve::GenericArgs::*;
 import Sema::Check::ConstEval::*;
+import Sema::Lower::LowerSynth::*;
+import Lexer::Immediate::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -646,6 +648,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._vx_bad = &null;
         self._vx_why = "";
         self._vx_fn  = &null;
+        self._vx_in_call = 0;
         return self._vx(e0);
     }
 
@@ -660,6 +663,20 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var c = ce.eval_int(e);
             if (!c.ok) || c.overflow { return self._vx_fail(e, "this literal does not fit 64 bits"); }
             return self.sc->types->value_arg(c.neg, c.mag);
+        }
+        // A string literal (EVAL.md 7e, §11, USER): `Widget<Config(4,
+        // "small")>`. Its node is its decoded bytes, so equal literals are
+        // one value; C++ gets the string built over `__kairo_estr<...>`
+        // (CXXSpell::value). Only as an argument: a string is no length.
+        if isa::<StringLiteralExpr>(e) {
+            var sl = cast::<StringLiteralExpr>(e);
+            if self._vx_in_call == 0 { return self._vx_fail(e, "a string is computed at compile time here only as an argument of an 'eval' call"); }
+            if (sl->imm == &null) || sl->is_format() { return self._vx_fail(e, "an f-string is not computed at compile time"); }
+            var st = ce.tu.string_type();
+            if st == &null { return self._vx_fail(e, "the string lang item is not declared"); }
+            var bytes = vec::<u8>();
+            if !self._vx_string_bytes(sl, &bytes) { return self._vx_fail(e, "this literal does not decode"); }
+            return self.sc->types->value_str(&bytes, st);
         }
         if isa::<NamedIdentExpr>(e) { return self._vx_name(e, cast::<NamedIdentExpr>(e)->resolved_decl); }
         if isa::<ChainExpr>(e) {
@@ -726,25 +743,48 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var rec = self._vx_record_callee(call);
             if rec != &null {
                 var cargs = vec::<*Type>();
+                self._vx_in_call += 1;
                 for var i: usize = 0; i < call->args.size(); ++i {
                     var a = self._vx(call->args[i]);
-                    if a == &null { return &null; }
+                    if a == &null { self._vx_in_call -= 1; return &null; }
                     cargs.push_back(a);
                 }
+                self._vx_in_call -= 1;
                 return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, rec, &cargs, &null);
             }
             var f = self._vx_callee(call);
             if f == &null { return self._vx_fail(e, "the function this calls is not known here"); }
+            // An initializer read through its eval binding (_vx_name) may be
+            // LOWERED already, when it is another module's: a string literal
+            // is then its `string(bytes, len, cp)` construction, and an eval
+            // class's construction names the constructor. Both are the nodes
+            // the written forms give, or identity would differ by module.
+            var ls = self._vx_lowered_string(call, f);
+            if ls != &null { return ls; }
+            var own = self._vx_ctor_owner(f);
+            if own != &null {
+                var oargs = vec::<*Type>();
+                self._vx_in_call += 1;
+                for var i: usize = 0; i < call->args.size(); ++i {
+                    var a = self._vx(call->args[i]);
+                    if a == &null { self._vx_in_call -= 1; return &null; }
+                    oargs.push_back(a);
+                }
+                self._vx_in_call -= 1;
+                return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, own, &oargs, &null);
+            }
             if !f->is_eval() {
                 self._vx_fn = f;
                 return self._vx_fail(e, f"'{self.sc->ctx->get_spelling(f->name)}' is not an 'eval' function");
             }
             var args = vec::<*Type>();
+            self._vx_in_call += 1;
             for var i: usize = 0; i < call->args.size(); ++i {
                 var a = self._vx(call->args[i]);
-                if a == &null { return &null; }
+                if a == &null { self._vx_in_call -= 1; return &null; }
                 args.push_back(a);
             }
+            self._vx_in_call -= 1;
             return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, static_cast::<*Decl>(f), &args, &null);
         }
         return self._vx_fail(e, "this is not computed at compile time");
@@ -769,7 +809,113 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var ce = ConstEval(self.sc);
         var c = ce.eval_decl(e, d);
         if c.ok && (!c.overflow) { return self.sc->types->value_arg(c.neg, c.mag); }
+        var seen = self._vx_through(vd);
+        if seen != &null { return seen; }
         return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null);
+    }
+
+    /// Bound while _vx_through reads an initializer: how deep, so `eval A =
+    /// B` / `eval B = A` stops (the Decl node stands then).
+    priv var _vx_through_depth: u32 = 0;
+    /// Inside the arguments of a Call node: where a string is a value.
+    priv var _vx_in_call: u32 = 0;
+
+    /// An eval binding of an eval class whose initializer is a constructor
+    /// call over literals (`eval SMALL = Config(4, "small")`) IS that
+    /// call's value (EVAL.md 7e, §11, USER): `Widget<SMALL>` and
+    /// `Widget<Config(4, "small")>` are one type, as they are one C++
+    /// specialization (a class-type template argument is its value). Only
+    /// a closed node -- literals, strings, constructor calls over those --
+    /// is seen through: a binding computed by an eval fn keeps its Decl
+    /// node, whose identity is its name (EVAL.md 0.2). Null otherwise.
+    priv fn _vx_through(self, vd: *VariableDecl) -> *Type {
+        if (vd == &null) || (vd->init == &null) || (self._vx_through_depth >= 8) { return &null; }
+        var sb = self._vx_bad;
+        var sw = self._vx_why;
+        var sf = self._vx_fn;
+        var sic = self._vx_in_call;
+        self._vx_in_call = 0;
+        self._vx_through_depth += 1;
+        var iv = self._vx(vd->init);
+        self._vx_through_depth -= 1;
+        self._vx_in_call = sic;
+        self._vx_bad = sb;
+        self._vx_why = sw;
+        self._vx_fn  = sf;
+        if iv == &null { return &null; }
+        var v = dyn_cast::<TypeExpr>(iv);
+        if (v == &null) || (!v->is_value) || (v->vop != ValueOp::Call) { return &null; }
+        if (!isa::<ClassDecl>(v->vdecl)) && (!isa::<StructDecl>(v->vdecl)) { return &null; }
+        if !self._vx_closed(iv) { return &null; }
+        return iv;
+    }
+
+    /// \p t holds nothing but literals, strings and eval constructor calls.
+    priv fn _vx_closed(self, t: *Type) -> bool {
+        var v = dyn_cast::<TypeExpr>(t);
+        if (v == &null) || (!v->is_value) { return false; }
+        if v->is_exact() || (v->vop == ValueOp::Str) { return true; }
+        if v->vop != ValueOp::Call { return false; }
+        if (!isa::<ClassDecl>(v->vdecl)) && (!isa::<StructDecl>(v->vdecl)) { return false; }
+        for var i: usize = 0; i < v->vops.size(); ++i { if !self._vx_closed(v->vops[i]) { return false; } }
+        return true;
+    }
+
+    /// The decoded bytes of string literal \p sl, every chained part, as
+    /// StringLowering would build them (a part with owned text is already
+    /// decoded). False when an escape does not decode.
+    priv fn _vx_string_bytes(self, sl: *StringLiteralExpr, out: *vec::<u8>) -> bool {
+        var synth = LowerSynth(self.sc);
+        var tcm = self.sc->ctx->tcm;
+        var tbl = (tcm->get_imm_table_for_fid(self.sc->ctx->sm->get_fid(sl->range))) if (tcm != &null) else (self.sc->imm_table());
+        var seg = sl->imm;
+        var raw = sl->is_raw();
+        while seg != &null {
+            if seg->has_owned_text() {
+                for var i: usize = 0; i < static_cast::<usize>(seg->owned_len); ++i { out->push_back(seg->owned_ptr[i]); }
+            } else if !synth.decode_text(seg->body, raw, out) {
+                return false;
+            }
+            if (seg->next == u32(-1)) || (tbl == &null) { break; }
+            seg = tbl->get::<Immediate::StringData>(seg->next);
+            raw = (static_cast::<u8>(seg->prefix_kind) & static_cast::<u8>(Immediate::TextPrefixKind::Raw)) != 0;
+        }
+        return true;
+    }
+
+    /// `string(bytes, len, cp)`, a string literal StringLowering already
+    /// rewrote (another module's initializer, read by _vx_through), as the
+    /// Str node of its bytes; null for any other call.
+    priv fn _vx_lowered_string(self, call: *CallExpr, f: *FunctionDecl) -> *Type {
+        var sd = self.sc->well_known->get(WellKnownType::String);
+        if (sd == &null) || (call->args.size() != 3) { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->owner_decl() != sd) { return &null; }
+        var a = call->args[0];
+        while (a != &null) && (isa::<ParenExpr>(a) || isa::<TypeCastExpr>(a)) {
+            if isa::<ParenExpr>(a) { a = cast::<ParenExpr>(a)->inner; } else { a = cast::<TypeCastExpr>(a)->operand; }
+        }
+        if (a == &null) || (!isa::<StringLiteralExpr>(a)) { return &null; }
+        var sl = cast::<StringLiteralExpr>(a);
+        if (sl->imm == &null) || (!sl->imm->has_owned_text()) { return &null; }
+        var st = ConstEval(self.sc).tu.string_type();
+        if st == &null { return &null; }
+        var bytes = vec::<u8>();
+        for var i: usize = 0; i < static_cast::<usize>(sl->imm->owned_len); ++i { bytes.push_back(sl->imm->owned_ptr[i]); }
+        return self.sc->types->value_str(&bytes, st);
+    }
+
+    /// The record \p f constructs, when it is an `eval` constructor (a
+    /// lowered construction names it, EVAL.md 7e); null otherwise.
+    priv fn _vx_ctor_owner(self, f: *FunctionDecl) -> *Decl {
+        if !f->is_eval() { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) { return &null; }
+        var owner = dc->owner_decl();
+        if (owner == &null) || ((!isa::<ClassDecl>(owner)) && (!isa::<StructDecl>(owner))) { return &null; }
+        var tu = ConstEval(self.sc).tu;
+        if tu.decl_name(static_cast::<*Decl>(f)) != tu.decl_name(owner) { return &null; }
+        return owner;
     }
 
     /// The function \p c calls, when names alone say: one declaration (a

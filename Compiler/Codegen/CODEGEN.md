@@ -820,7 +820,11 @@ Sema kept as an expression, `TypeExpr` with a `ValueOp`) is spelled by
 `CXXSpell::value`: each operator application parenthesized, value
 parameters as written or by their instance's value, eval constants and
 calls by qualified name, an eval class's constructor call by its class
-(`::m::Pt(2, 3)`, braced when empty). EmitPlan admits what it names (the
+(`::m::Pt(2, 3)`, braced when empty), a string as the string record's
+literal constructor over its bytes (`::builtin::string::string(
+::__kairo_estr<...>, len, cp)`, the named array past the inline limit;
+one object per content, so two spellings of one value are
+template-argument-equivalent). EmitPlan admits what it names (the
 eval fn, the eval binding, its definition with it). An instance over such
 a value gets no `template class` / `extern template` line: it may be the
 specialization another spelling names (`Buf<twice(1)>` is `Buf<2>`), and

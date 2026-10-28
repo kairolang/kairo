@@ -840,6 +840,20 @@ class TypeUtil {
                     case ValueOp::Unary { return ((("~") if (v->vtok == TokenKind::OpTilde) else ("-"))) + self.str(v->vops[0]); }
                     case ValueOp::Binary { return "(" + self.str(v->vops[0]) + " " + self._value_op(v->vtok) + " " + self.str(v->vops[1]) + ")"; }
                     case ValueOp::Cast { return "(" + self.str(v->vops[0]) + " as " + self.str(v->vty) + ")"; }
+                    case ValueOp::Str {
+                        // The bytes as a literal: printable ASCII as is, the
+                        // rest (and `"` / `\`) escaped as `\xNN`.
+                        var digits = "0123456789abcdef";
+                        var s = "\"";
+                        for var i: usize = 0; i < static_cast::<usize>(v->vmag); ++i {
+                            var b = v->vbytes[i];
+                            if (b >= u8(0x20)) && (b < u8(0x7f)) && (b != u8(0x22)) && (b != u8(0x5c)) { s += static_cast::<char>(b); continue; }
+                            s += "\\x";
+                            s += digits[static_cast::<usize>(b >> u8(4))];
+                            s += digits[static_cast::<usize>(b & u8(15))];
+                        }
+                        return s + "\"";
+                    }
                     default { return "<value>"; }
                 }
                 return "<value>";

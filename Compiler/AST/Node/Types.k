@@ -1006,6 +1006,10 @@ enum ValueOp derives u8 {
     Unary,     ///< vtok: `-` or `~`; vops[0].
     Binary,    ///< vtok: the operator; vops[0], vops[1].
     Cast,      ///< vty: the integer target; vops[0].
+    /// A string literal (EVAL.md 7e, §11): vbytes / vmag its decoded bytes
+    /// and their count, vty the string lang record. Identity is the bytes.
+    /// Only an argument of a Call: a string is no length or integer.
+    Str,
 }
 
 class TypeExpr derives Type {
@@ -1024,6 +1028,8 @@ class TypeExpr derives Type {
     pub var vdecl:    *Decl = &null;
     pub var vty:      *Type = &null;
     pub var vops:     FrozenList::<*Type>;
+    /// ValueOp::Str only: the bytes (vmag of them), owned by the store.
+    pub var vbytes:   std::ConstPtr::<u8> = &null;
 
     /// A canonical exact integer (value_arg), the only value Sema itself
     /// reads.
@@ -1048,6 +1054,7 @@ class TypeExpr derives Type {
         node->vdecl    = &null;
         node->vty      = &null;
         node->vops     = create_empty_frozen_list::<*Type>();
+        node->vbytes   = &null;
         return node;
     }
 

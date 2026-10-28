@@ -267,7 +267,7 @@ class Substitution {
                 // then folded when they all became values (`N + 1` under
                 // N := 3 is 4), so an instance's extent is the number.
                 var v = cast::<TypeExpr>(t);
-                if (!v->is_value) || v->is_exact() { return t; }
+                if (!v->is_value) || v->is_exact() || (v->vop == ValueOp::Str) { return t; }   // a string is a leaf.
                 var ops = vec::<*Type>();
                 for var i: usize = 0; i < v->vops.size(); ++i {
                     var o = self.substitute(v->vops[i]);

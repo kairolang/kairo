@@ -50,7 +50,9 @@ fn main() -> i32 {
 // IR:      struct Config {
 // IR:      template< ::class_value_param::Config C> class Widget {
 // IR:      return C.size;
-// IR:      ::class_value_param::Widget< ::class_value_param::SMALL> w =
+// SMALL is a constructor call over literals, so it is that call's value
+// (EVAL.md §11): the argument is spelled as the call.
+// IR:      ::class_value_param::Widget< ::class_value_param::Config(4, ::builtin::string::string( ::__kairo_estr<115, 109, 97, 108, 108>, 5, 5))> w =
 // IR:      ::class_value_param::Grid< ::class_value_param::Pt(2, 3)> g =
 
 // REQUIRES: clang

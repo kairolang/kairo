@@ -815,6 +815,28 @@ class CXXSpell {
             case ValueOp::Cast {
                 return "static_cast<" + self._type(v->vty, subst, scope) + ">(" + self._type(v->vops[0], subst, scope) + ")";
             }
+            case ValueOp::Str {
+                // The literal constructor over the bytes, as a compile-time
+                // literal is built in a body (EVAL.md 2a): `__kairo_estr<...>`
+                // or, past the inline limit, the named array EmitPlan
+                // collected (note_eval_str). One object per content, so two
+                // spellings of one value are template-argument-equivalent.
+                var n = static_cast::<usize>(v->vmag);
+                var data = "";
+                if n > LowerTargets::eval_str_inline_max() {
+                    data = "::" + LowerTargets::eval_str_hashed(LowerTargets::eval_str_hash(v->vbytes, n), n);
+                } else {
+                    data = "::" + LowerTargets::eval_str() + "<";
+                    for var i: usize = 0; i < n; ++i {
+                        if i > 0 { data += ", "; }
+                        data += f"{static_cast::<u32>(v->vbytes[i])}";
+                    }
+                    data += ">";
+                }
+                var cp: usize = 0;
+                for var i: usize = 0; i < n; ++i { if (v->vbytes[i] & u8(0xC0)) != u8(0x80) { cp += 1; } }
+                return self._type(v->vty, subst, scope) + "(" + data + ", " + f"{n}" + ", " + f"{cp}" + ")";
+            }
             default { return ""; }
         }
         return "";

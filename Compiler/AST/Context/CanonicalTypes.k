@@ -452,6 +452,7 @@ class CanonicalTypeStore {
         te->vtok     = TokenKind::TkUnknown;
         te->vdecl    = &null;
         te->vty      = &null;
+        te->vbytes   = &null;
         te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
         te->type_flags = Type::TypeFlags::None;
         te->init_annotations(&(self._arena));
@@ -507,6 +508,7 @@ class CanonicalTypeStore {
         te->vtok     = tok;
         te->vdecl    = decl;
         te->vty      = ty;
+        te->vbytes   = &null;
         if n > 0 {
             var buf = self._alloc_array::<*Type>(n);
             for var i: usize = 0; i < n; ++i { buf[i] = (*ops)[i]; }
@@ -521,6 +523,58 @@ class CanonicalTypeStore {
         var t = static_cast::<*Type>(te);
         t->canonical = t;
         for var i: usize = 0; i < n; ++i { self._absorb_flags(t, (*ops)[i]); }
+        if ty != &null { self._absorb_flags(t, ty); }
+        self._insert(h, t);
+        return t;
+    }
+
+    /// A string literal in a computed value (ValueOp::Str, EVAL.md 7e):
+    /// keyed on its decoded bytes, so two literals with the same bytes are
+    /// one node wherever they are written; \p ty is the string record.
+    fn value_str(self, bytes: *vec::<u8>, ty: *Type) -> *Type {
+        var n = bytes->size();
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TypeExpr)));
+        h = canon_hash_u64(h, u64(0x5354));   // apart from value_arg's and value_expr's keys.
+        h = canon_hash_u64(h, static_cast::<u64>(n));
+        for var i: usize = 0; i < n; ++i { h = canon_hash_u64(h, static_cast::<u64>((*bytes)[i])); }
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(ty));
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::TypeExpr { continue; }
+                var v = cast::<TypeExpr>(c);
+                if (!v->is_value) || (v->vop != ValueOp::Str) || (v->vty != ty) || (v->vmag != static_cast::<u64>(n)) { continue; }
+                var same = true;
+                for var k: usize = 0; k < n; ++k { if v->vbytes[k] != (*bytes)[k] { same = false; break; } }
+                if same { return c; }
+            }
+        }
+
+        var te = self._alloc::<TypeExpr>();
+        te->kind     = TypeKind::TypeExpr;
+        te->range    = SourceRange::invalid();
+        te->expr     = &null;
+        te->is_value = true;
+        te->vneg     = false;
+        te->vmag     = static_cast::<u64>(n);
+        te->vop      = ValueOp::Str;
+        te->vtok     = TokenKind::TkUnknown;
+        te->vdecl    = &null;
+        te->vty      = ty;
+        var buf = self._alloc_array::<u8>(n + 1);
+        for var i: usize = 0; i < n; ++i { buf[i] = (*bytes)[i]; }
+        buf[n] = u8(0);
+        te->vbytes   = reinterpret_cast::<std::ConstPtr::<u8>>(buf);
+        te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
+        te->type_flags = Type::TypeFlags::None;
+        te->init_annotations(&(self._arena));
+        te->init_spans(&(self._arena));
+
+        var t = static_cast::<*Type>(te);
+        t->canonical = t;
         if ty != &null { self._absorb_flags(t, ty); }
         self._insert(h, t);
         return t;

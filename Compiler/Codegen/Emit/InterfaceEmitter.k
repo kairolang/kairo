@@ -852,6 +852,7 @@ class InterfaceEmitter {
 
     priv fn _needs_eval_helpers(self) -> bool {
         if (self._cg->tu != &null) && (self._cg->tu->has_eval_for || self._cg->tu->has_eval_string) { return true; }
+        if self._plan->needs_eval_str { return true; }
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var d = self._plan->entries[i].decl;
             var f = dyn_cast::<FunctionDecl>(d);

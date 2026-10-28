@@ -231,6 +231,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     pub var big_str_bytes:  vec::<std::ConstPtr::<u8>>;
     pub var big_str_lens:   vec::<usize>;
     pub var big_str_hashes: vec::<u64>;
+    /// A type the plan admits holds a string value node (a string literal
+    /// in an eval class's value argument, EVAL.md 7e): its bytes are
+    /// `__kairo_estr<...>`, so the eval helpers are written.
+    pub var needs_eval_str: bool = false;
 
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
@@ -1552,6 +1556,14 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::TypeExpr {
             var v = cast::<TypeExpr>(c);
             if (!v->is_value) || v->is_exact() { break; }
+            // A string (EVAL.md 7e): the string record is constructed right
+            // in the argument, over `__kairo_estr<...>` or a named array.
+            if v->vop == ValueOp::Str {
+                self.needs_eval_str = true;
+                self._admit_type(v->vty, PlanNeed::Complete);
+                self.note_eval_str(v->vbytes, static_cast::<usize>(v->vmag));
+                break;
+            }
             // Not an `eval for` binding: a local, declared where it stands.
             var local = (v->vdecl != &null) && ((v->vdecl->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl));
             if (v->vdecl != &null) && (!local) { self._admit_use(v->vdecl); }

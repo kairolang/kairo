@@ -377,9 +377,17 @@ with an eval call or an eval constant in it is SC116E outside a function
 body (`_value_placeable`): a field, a signature or a namespace-scope
 binding is spelled before any consteval body or eval binding is defined.
 A call of a non-eval function is SC001E with a fix-it. An eval class value
-(7e) enters the same way: an eval binding of one (`Widget<CFG>`) is a
-`Decl` node, an eval constructor call (`Grid<Pt(2, 3)>`) a `Call` node
-naming the class.
+(7e) enters the same way: an eval constructor call (`Grid<Pt(2, 3)>`) is
+a `Call` node naming the class, and an eval binding of one (`Widget<CFG>`)
+a `Decl` node -- unless its initializer is a constructor call over
+literals, strings and such calls (a CLOSED node, `_vx_through`), when it
+IS that call's node: `Widget<SMALL>` with `eval SMALL = Config(4,
+"small")` is `Widget<Config(4, "small")>`, as it is one C++
+specialization (EVAL.md §11, USER). A string literal is a `Str` node, only
+as a call's argument, keyed on its decoded bytes
+(`CanonicalTypeStore::value_str`); a lowered initializer read from
+another module (`string(bytes, len, cp)`, a construction naming the
+constructor) gives the same nodes as the written form.
 
 **`unsafe *T` is a distinct canonical from `*T`** [DECIDED, MISSING, spec 2].
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
