@@ -3,7 +3,7 @@
 // any file, `pub` is everyone's; a class's variables are `priv` unless
 // marked. Each refusal names the member, labels the use, notes the
 // declaration, and offers `pub` as the fix-it. A subclass's own access to
-// the `prot` members, `pub` members, and a `pub` nested type stay clean.
+// the `prot` members (through its own object, not `v: *Vault`), `pub` ones and a `pub` nested type is clean.
 
 import Inputs::access_rules_lib::*
 
@@ -48,6 +48,9 @@ fn main() -> i32 { return outside() }
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
+// DIAG: {{.*}}:13:50: error [SC001E]: protected field 'shared' of 'Vault' is reached here through a 'Vault', not through 'Heir' or a class deriving from it
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{5:5-5:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:5:14: note [SC001N]: 'shared' is protected: outside the file that declares 'Vault', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
 // DIAG: {{.*}}:14:44: error [SC001E]: field 'secret' of 'Vault' is private
 // DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{4:5-4:5}:"pub "
 // DIAG-NEXT: {{.*}}/access_rules_lib.k:4:9: note [SC001N]: 'secret' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Vault'

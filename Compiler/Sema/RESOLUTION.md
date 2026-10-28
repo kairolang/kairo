@@ -727,19 +727,26 @@ there.
 `AccessCheck` [DONE] (Resolve/AccessCheck.k) enforces pub/priv/prot on
 what X chose: every `.` / `->` / `::` step of an expression chain, the
 constructor a construction selected, the fields a named initializer fills,
-the nested types a type path names. Module-wide (classes.mdx Visibility;
+the nested types a type path names, and the member operator an operator
+expression or a cast selected (reached through its left operand, as a `.`
+call would be). Module-wide (classes.mdx Visibility;
 decision 2026-10-26): `priv` is the declaring file's -- every function in
 it, free ones included -- and the class's own; `prot` adds every class
 deriving the member's class, from any file. A class's variables default to
 `priv`, everything else to `pub`. An edge `derives priv Base` /
 `derives prot Base` narrows a base member reached through the derived
 class to that class's file (and, for `prot`, its subclasses). Imported
-C++ members are clang's. The emitted C++ is `public:` throughout
-(InterfaceEmitter::_cxx_vis), bases included: C++ has no access level for
-"this file", and `private:` made clang refuse correct same-file code; so
-this pass is the only check, and a C++ host sees the members public.
-SC001E (placeholder) with a fix-it to `pub`. Not checked: an overloaded
-operator's own visibility.
+C++ members are clang's. `prot` from a subclass in another file is C++'s
+[class.protected], since the emitted member is `protected:`: an instance
+member only through an object of the subclass's own kind (`self`, another
+`Counter`, a class deriving it -- never a bare `*Base` or a sibling), and
+a `prot` constructor only as a base initializer. An extension counts as
+its target's class only in the target's own file (extends.mdx). A `priv`
+or `prot` member implements an interface requirement only for an `impl`
+declared in its own file, on the record or an `extend` there
+(ConformanceChecking::_witness_access_ok): the witness reaches it as a
+friend, which only such a declaration makes it. SC001E (placeholder) with
+a fix-it to `pub`.
 
 `BaseInitCheck` [DONE] (Check/BaseInitCheck.k): `Base::Base(self, args)`
 (ChainBinding finds a record's constructors under its own name after

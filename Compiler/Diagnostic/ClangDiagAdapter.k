@@ -105,6 +105,17 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         var code = self._map_code(lvl, info);        // C0xxx{E,W,R} / CL001x
 
+        // An access error in Kairo's own emitted C++ is never the user's:
+        // AccessCheck admitted the access, and the record's C++ access
+        // levels and friend list (InterfaceEmitter::_cxx_vis, _friends) are
+        // meant to admit exactly that. Said as the compiler bug it is, not
+        // as a clang error the user should fix. A C++ host's own access
+        // errors (kcc) are in its own file and stay clang's.
+        if (lvl == clang::DiagnosticsEngine::Error) && kloc.is_valid() && self._in_kairo_source(kloc) && self._is_access_error(msg) {
+            code = DiagCode(DiagID::I003E);
+            msg = "the emitted C++ refuses an access Kairo accepted (AccessCheck and the record's C++ access levels or friends disagree; a compiler bug): " + msg;
+        }
+
         if kloc.is_valid() {
             self._open = std::create::<DiagBuilder>(
                 self.sink, code, kloc.start, msg);
@@ -253,6 +264,37 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         return self.ksm->get_range(kb, start, end - start);
+    }
+
+    /// \p r is in a `.k` file: C++ Kairo emitted, not a host's own source.
+    priv fn _in_kairo_source(self, r: SourceRange) -> bool {
+        var nm = self.ksm->get_filename(r);
+        var n = nm.size();
+        return (n >= 2) && (nm[n - 2] == '.') && (nm[n - 1] == 'k');
+    }
+
+    /// clang's access refusals (err_access and its constructor, destructor
+    /// and base forms), by their text: their IDs are ungrouped, and the
+    /// wording is all they share.
+    priv fn _is_access_error(self, msg: string) -> bool {
+        return self._has(msg, " is a private member of ") || self._has(msg, " is a protected member of ")
+            || self._has(msg, "calling a private constructor") || self._has(msg, "calling a protected constructor")
+            || self._has(msg, "has private destructor") || self._has(msg, "has protected destructor")
+            || self._has(msg, "is a private member") || self._has(msg, "is a protected member");
+    }
+
+    priv fn _has(self, s: string, sub: string) -> bool {
+        var n = s.size();
+        var m = sub.size();
+        if m > n { return false; }
+        for var i: usize = 0; i + m <= n; ++i {
+            var hit = true;
+            for var j: usize = 0; j < m; ++j {
+                if s[i + j] != sub[j] { hit = false; break; }
+            }
+            if hit { return true; }
+        }
+        return false;
     }
 
     priv fn _map_severity(self, lvl: clang::DiagnosticsEngine::Level) -> DiagSeverity {

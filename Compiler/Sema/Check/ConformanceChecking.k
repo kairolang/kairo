@@ -985,6 +985,12 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if m != &null {
                 var k = self._iface_decl(srcs[i]);
                 w = self._implementation(x, srcs[i], k, m);
+                // A `priv` / `prot` member meets a requirement only for an
+                // `impl` declared in its own file (_witness_access_ok).
+                if (w != &null) && (!self._witness_access_ok(w, x, idecl)) {
+                    if self._hidden == &null { self._hidden = w; }
+                    w = &null;
+                }
                 // A constructor slot's witness may be the record itself (its
                 // implicit default constructor), which has no extension.
                 var wf = dyn_cast::<FunctionDecl>(w);
@@ -1046,6 +1052,85 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if (self.sc->g != &null) && self.sc->g->is_builtin_fid(fid) { return true; }
         if !self._visible_built { self._build_visible(); }
         for var i: usize = 0; i < self._visible.size(); ++i { if self._visible[i] == fid { return true; } }
+        return false;
+    }
+
+    /// Whether \p w, the member found to implement a requirement of
+    /// \p idecl on \p x, may: a `pub` one always; a `priv` or `prot` one
+    /// only when \p x's record declares `impl` of the interface (or one
+    /// deriving it) in \p w's own file -- on the record, or on an `extend`
+    /// there. The witness that forwards to it is C++ code outside the
+    /// record (`I_witness<X>::m`), which reaches a private member only as
+    /// a friend, and a record befriends the witnesses of what its own file
+    /// declares it implements (InterfaceEmitter::_friends). A structural
+    /// conformance from anywhere else would be refused by C++ -- and inside
+    /// a concept, silently: the concept turns false.
+    priv fn _witness_access_ok(self, w: *Decl, x: *Type, idecl: *InterfaceDecl) -> bool {
+        var f = dyn_cast::<FunctionDecl>(w);
+        if (f == &null) || f->is_implicit || (idecl == &null) { return true; }
+        var r = NameLookup::representative(w);
+        var v = w->visibility;
+        if (v == VisibilityKind::None) && (r != &null) { v = r->visibility; }
+        if (v != VisibilityKind::Private) && (v != VisibilityKind::Protected) { return true; }
+        var rd = self.tu.record_decl(canon_unqual(x));
+        if rd == &null { return true; }
+        var rec = NameLookup::representative(decl_pattern(NameLookup::representative(rd)));
+        var home = self.tu.fid_of(w);
+        if self.tu.fid_of(rec) == home {
+            if isa::<ClassDecl>(rec) && self._impl_edges_name(&(cast::<ClassDecl>(rec)->implements), idecl) { return true; }
+            if isa::<StructDecl>(rec) && self._impl_edges_name(&(cast::<StructDecl>(rec)->implements), idecl) { return true; }
+        }
+        var htu = NameLookup::tu_of(reinterpret_cast::<*DeclContext>(w->semantic_dc));
+        if (htu == &null) || (htu->program == &null) { return false; }
+        var items = &(htu->program->items);
+        for var i: usize = 0; i < items->size(); ++i {
+            var item = *(items->get(i));
+            if item.kind != TopLevelKind::Decl { continue; }
+            if self._ext_declares(item.as_decl(), rec, idecl, 0) { return true; }
+        }
+        return false;
+    }
+
+    /// \p d, or a decl inside it (a module block, a visibility group), is
+    /// an `extend` of \p rec that declares `impl` of \p idecl.
+    priv fn _ext_declares(self, d: *Decl, rec: *Decl, idecl: *InterfaceDecl, depth: u32) -> bool {
+        if (d == &null) || (depth > 32) { return false; }
+        if isa::<VisibilityGroupDecl>(d) {
+            var g = cast::<VisibilityGroupDecl>(d);
+            for var i: usize = 0; i < g->members.size(); ++i { if self._ext_declares(g->members[i], rec, idecl, depth + 1) { return true; } }
+            return false;
+        }
+        if isa::<ModuleDecl>(d) {
+            var dc = static_cast::<*DeclContext>(cast::<ModuleDecl>(d));
+            for var i: usize = 0; i < dc->dc_decls.size(); ++i { if self._ext_declares(*(dc->dc_decls.get(i)), rec, idecl, depth + 1) { return true; } }
+            return false;
+        }
+        var x = dyn_cast::<ExtensionDecl>(d);
+        if (x == &null) || (x->target == &null) || (x->target->canonical == &null) { return false; }
+        var td = self.tu.record_decl(canon_unqual(x->target->canonical));
+        if td == &null { return false; }
+        if NameLookup::representative(decl_pattern(NameLookup::representative(td))) != rec { return false; }
+        return self._impl_edges_name(&(x->implements), idecl);
+    }
+
+    /// An edge of \p list names \p idecl or an interface deriving it.
+    priv fn _impl_edges_name(self, list: *FrozenList::<InheritEdge>, idecl: *InterfaceDecl) -> bool {
+        for var i: usize = 0; i < list->size(); ++i {
+            var e = list->get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            if self._iface_decl_derives(self._iface_decl(canon_unqual(e->base->canonical)), idecl, 0) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _iface_decl_derives(self, have: *InterfaceDecl, want: *InterfaceDecl, depth: u32) -> bool {
+        if (have == &null) || (want == &null) || (depth > 32) { return false; }
+        if static_cast::<*Decl>(have) == static_cast::<*Decl>(want) { return true; }
+        for var i: usize = 0; i < have->derives_list.size(); ++i {
+            var e = have->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            if self._iface_decl_derives(self._iface_decl(canon_unqual(e->base->canonical)), want, depth + 1) { return true; }
+        }
         return false;
     }
 
@@ -1673,6 +1758,23 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             // name: the transfer constructor may well be implicit.
             if req->transfer == TransferKind::Copy { msg = f"'{xs}' does not conform to '{is}': '{xs}' is not a COPY type"; }
             if req->transfer == TransferKind::Move { msg = f"'{xs}' does not conform to '{is}': '{xs}' is neither COPY nor MOVE"; }
+        } else if (missing.size() > 0) && (row->hidden != &null) && self._sees(row->hidden) {
+            // Hidden by its visibility, not by an import (_witness_access_ok).
+            var hr = row->hidden;
+            var hf = cast::<FunctionDecl>(hr);
+            var hn = self._req_name(hf);
+            var b2 = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{xs}' does not conform to '{is}': its '{hn}' is not public, and its file declares no 'impl {is}\x27");
+            b2.first(at);
+            if b != &null { b2.note(b->range.start, f"required by this bound").first(b->range); }
+            if req != &null { b2.note(req->range.start, req_note).first(req->range); }
+            var hat = (hf->op_token[0].range) if (hf->is_operator && (hf->op_token.size() > 0)) else (decl_name_tok(hr).range);
+            b2.note(hat.start, f"'{hn}' is declared here: a private or protected member implements a requirement only for an 'impl' declared in its own file").first(hat);
+            var written = hr->visibility_range();
+            if written.is_valid() { b2.fix(written, "pub", f"make '{hn}' public"); }
+            if e != &null { self.chain_notes(&b2, e); }
+            b2.emit();
+            return;
         } else if (missing.size() > 0) && (row->hidden != &null) {
             msg = f"'{xs}' does not conform to '{is}' here: '{missing}' is implemented by an extension this file does not import";
         } else if missing.size() > 0 {
