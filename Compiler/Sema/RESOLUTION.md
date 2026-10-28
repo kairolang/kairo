@@ -1226,7 +1226,12 @@ their rewrite are its base, **Substitution** (`Substitution.k`), split out
 so the layer Deduction ranks with (Conversion) can substitute too.
 `substitute` rebuilds through the store and goes through the registry for
 a concrete record. `member_through(recv, mt)` reads a member type through
-the receiver's args. `derives_from(derived, base)` is derived-to-base on
+the receiver's args. `bind_from_record(rec)` binds the record's own
+parameters AND every generic base's, as the record sees them (read through
+its arguments hop by hop; `bind_own` is the first half alone): a member a
+generic base declares (`s.me()` on `class Seven derives Mixin<Seven>`)
+reads at the base instance, and OverloadResolution seeds such a call from
+the concrete receiver as it does the receiver's own members. `derives_from(derived, base)` is derived-to-base on
 TYPES (every implicit upcast, `as`, the downcast hint): an instance's bases
 are its body's declared list (`record_body`: a filled instance's own, a
 selected partial's, else the pattern's) with the instance's arguments
@@ -1344,6 +1349,10 @@ Dispatch on (source, target), first match, no fallthrough:
     3. target `*X`, source `*S`, related upcast: static, redundant lint;
                                          downcast: ASSERTING (panic site,
                                          S must be polymorphic)
+    3b. target `*X`, X a bare generic    the CRTP downcast: static_cast,
+        parameter whose `derives` bound  no vtable, no `unsafe`; under a
+        is S or reaches it               `: type` X written as is and
+                                         checked by clang per instance
     4. target `*X?`, related             checked downcast, null on miss
     5. static ladder: lattice I/W (lint) / E / U (unsafe ctx) / X (error)
        -> plain enum <-> exact underlying -> `op as` on the source ->
@@ -1376,7 +1385,18 @@ The asserting downcast `p as *D` (D below p's polymorphic pointee) sets
 fix-it appending `?`). OperatorLowering expands it: `({ var s = p; var d =
 s as *D [dynamic_only]; if s && !d { unwrap_failed(m, n) } d })`, the same
 crash entry, the message naming the cast, both types and the site
-(PANIC.md §5). A dependent pointee stays SC091E for the asserting form.
+(PANIC.md §5). A dependent pointee stays SC091E for the asserting form,
+except rung 3b (user decision 2026-10-28): inside `class <X derives
+Mixin<X>> Mixin`, `&self as *X` / `*const X` is proven by the bound
+(TypeUtil::bound_bases, Substitution::derives_from, so a mixin chain's
+`*Rav<T>` casts down through `T derives Stmts<T>` too) and lowers to
+EmitIR's default static_cast, which adjusts the pointer for a mixin at a
+nonzero offset where a reinterpret would not. A `: type` X is accepted the
+same way (D1: clang rejects an instance whose X does not derive the base).
+Dropping `const` is still SC030E; no bound, a bound on another parameter,
+an `impl` bound or an unrelated `derives` bound stay SC091E. The bound
+itself is checked at the instance's use (ConformanceChecking, `derives`
+conjuncts beside the `impl` ones: "'P' does not derive 'B'").
 Every crash message is built whole by `LowerSynth::crash_call`; the
 runtime (Lib/rt/crash.c) appends the newline.
 

@@ -57,6 +57,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::Conversion::*;
 import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
@@ -437,8 +438,50 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 }
                 if !self._push_closure(row, x, rows, at, b) { ok = false; }
             }
+            // `X derives B`: the argument is B or reaches it. Unchecked
+            // before; it matters now that the bound is what makes a CRTP
+            // base's `&self as *X` a static_cast (CastTyping 3b), and a
+            // class naming `Mixin<Other>` would otherwise compile to a cast
+            // clang rejects inside the base.
+            var ds = vec::<*ConstraintExpr>();
+            self._derives_bounds(req, &ds);
+            for var i: usize = 0; i < ds.size(); ++i {
+                var b = ds[i];
+                var gp = self._param_named(b, prim);
+                if (gp == &null) || gp->is_pack { continue; }
+                var x = self._arg_of(e, prim, gp);
+                var base = self._bound_iface(b, prim, e);
+                if (x == &null) || (base == &null) || x->is_dependent() || base->is_dependent() { continue; }
+                if !isa::<RecordType>(canon_unqual(base)) { continue; }
+                if Substitution(self.sc).derives_from(x, base) { continue; }
+                var xs = self.tu.str(x);
+                var bs = self.tu.str(base);
+                var bd = self.sc->diag->report(DiagID::SC001E, at.start, f"'{xs}' does not derive '{bs}\x27");
+                bd.first(at);
+                bd.note(b->range.start, "required by this bound").first(b->range);
+                if chain != &null { self.chain_notes(&bd, chain); }
+                bd.emit();
+                ok = false;
+            }
         }
         return ok;
+    }
+
+    /// Every `derives` conjunct of \p e, in clause order (_impl_bounds' other
+    /// half).
+    priv fn _derives_bounds(self, e: *Expr, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        if e->kind == ExprKind::BinaryOperatorExpr {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if (b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd) {
+                self._derives_bounds(b->lhs, out);
+                self._derives_bounds(b->rhs, out);
+                return;
+            }
+        }
+        if e->kind != ExprKind::ConstraintExpr { return; }
+        var c = cast::<ConstraintExpr>(e);
+        if c->is_derives() { out->push_back(c); }
     }
 
     /// Live record instance \p e's lifecycle (MONO.md G6): a rule its

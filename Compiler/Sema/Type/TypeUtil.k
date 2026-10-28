@@ -195,6 +195,31 @@ class TypeUtil {
         return out;
     }
 
+    /// The bases a generic parameter \p t's `derives` bounds promise
+    /// (`X derives Mixin<X>`), as canonicals, in clause order; none when
+    /// \p t is not a bare parameter. bound_ifaces' twin over the other half
+    /// of the bound table: what lets a CRTP base cast itself down to X.
+    fn bound_bases(self, t: *Type) -> vec::<*Type> {
+        var out = vec::<*Type>();
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
+        var g = cast::<GenericParamType>(c);
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        if it == self.sc->bounds.end() { return out; }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->derives_constraints.size(); ++i {
+            var k = _set->derives_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
+            if (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+            out.push_back(canon_unqual(k->rhs->canonical));
+        }
+        return out;
+    }
+
     /// The declaration of \p t when it is a generic parameter whose body is
     /// checked against its bounds (MONO.md D0): a bare, non-pack parameter,
     /// no `: type` (the C++-checked regime, D1), and no `derives` bound (a

@@ -1,16 +1,13 @@
 // CRTP without `unsafe`: inside `class <X derives Mixin<X>> Mixin` the bound
 // says every X is a Mixin<X>, so `&self as *const X` is a downcast whose
 // target is known statically -- no vtable needed, like C++'s static_cast in
-// CRTP.
+// CRTP (user decision 2026-10-28: allowed when the bound proves the
+// relation, lowered to static_cast; every other unrelated pointer cast
+// stays SC091E, Tests/Sema/ExprTyper/crtp_cast_errors.k).
 //
-// XFAIL: *
-// Waiting on Sema using the `derives` bound to relate X to Self: today the
-// cast is SC091E "pointer cast between unrelated types '*const Mixin<X>' and
-// '*const X'". Whether this should be allowed safely at all is a language
-// decision (casting.md requires a vtable for every downcast); if it is
-// refused by design, turn this into a diagnostic test instead.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// `s.self_ptr()` is a member of Seven's generic BASE, so its result reads
+// through the base instance Mixin<Seven> (X := Seven): `->v` binds.
+// crtp_cast_bound.k and crtp_cast_duck.k cover the wider shapes.
 
 class <X derives Mixin<X>> Mixin {
     fn self_ptr(const self) -> *const X { return &self as *const X }

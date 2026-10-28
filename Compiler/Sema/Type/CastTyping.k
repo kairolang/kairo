@@ -14,6 +14,9 @@
 ///          S/X derives-related               upcast: static, lint redundant
 ///                                            downcast: ASSERTING, crashes on a
 ///                                            miss (SC001W), S polymorphic
+///       3b. target is `*X`, X a generic      the CRTP downcast: static, no
+///           parameter whose `derives`        vtable, no `unsafe`; a `: type`
+///           bound reaches S                  X is C++'s to check (D1)
 ///       4. target is `*X?`, same relation    checked downcast, null on miss
 ///       5. static ladder: lattice I/W (lint) / E / U / X -> plain enum <->
 ///          exact underlying -> `op as` on the source -> one-param ctor on
@@ -68,6 +71,7 @@ import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -197,6 +201,20 @@ class <T> CastTyping {
                 // is its error there).
                 if to_nullable && (sp->is_dependent() || tp->is_dependent()) {
                     n->checked_downcast = true;
+                    return target;
+                }
+                // 3b. the CRTP downcast: `&self as *X` in a base whose X is
+                //     bounded `derives Mixin<X>`. The bound proves every X
+                //     is a Mixin<X>, so the target is known statically and
+                //     the cast is C++'s static_cast (EmitIR's default kind),
+                //     with no vtable and no `unsafe`. A reinterpret there is
+                //     wrong, not just unsafe: a mixin that is not the first
+                //     base sits at a nonzero offset.
+                if (!to_nullable) && (sd != &null) && self._bound_downcast(sp, tp) {
+                    if (canon_quals(sp) & (~canon_quals(tp))) != 0 {
+                        self._qual_cast_error(n, src, target);
+                        return &null;
+                    }
                     return target;
                 }
                 if dyn()->tu.is_void(tp) {
@@ -515,6 +533,30 @@ class <T> CastTyping {
     /// Two pointers of one safety whose chains meet on one canonical once
     /// every level's cv is stripped: the only thing a cast between them can
     /// change is qualifiers.
+    /// Pointee \p tp is a bare generic parameter X that every instance makes
+    /// a class derived from record pointee \p sp: one of X's `derives`
+    /// bounds is \p sp or reaches it (`X derives Stmts<X>` with `Stmts<T>
+    /// derives Rav<T>` casts a `*Rav<X>` down too). A `: type` X is C++'s to
+    /// check (MONO.md D1): the static_cast is written as is and clang
+    /// rejects an instance whose X is not derived from the base, at that
+    /// instance, never as a reinterpret. Nothing else relates a parameter
+    /// to a record, so every other pointee stays SC091E.
+    priv fn _bound_downcast(self, sp: *Type, tp: *Type) -> bool {
+        var g = dyn_cast::<GenericParamType>(canon_unqual(tp));
+        if (g == &null) || g->is_pack || (g->owner == &null) { return false; }
+        var gps = decl_generic_params(g->owner);
+        if static_cast::<usize>(g->param_index) >= gps.size() { return false; }
+        var gp = gps[static_cast::<usize>(g->param_index)];
+        if gp == &null { return false; }
+        if gp->kind_bound == GenericParamKindBound::Duck { return true; }
+        var src = canon_unqual(sp);
+        var bs = dyn()->tu.bound_bases(tp);
+        for var i: usize = 0; i < bs.size(); ++i {
+            if Substitution(dyn()->sc).derives_from(bs[i], src) { return true; }
+        }
+        return false;
+    }
+
     priv fn _same_pointer_shape(self, a: *Type, b: *Type) -> bool {
         var au = canon_unqual(a);
         var bu = canon_unqual(b);

@@ -940,8 +940,15 @@ class OverloadResolution {
         var owner = dc->owner_decl();
         if owner == &null { return false; }
         var r = dyn_cast::<RecordType>(canon_unqual(receiver));
-        if (r == &null) || (r->args.size() == 0) || r->is_dependent() || r->is_instantiation_dependent() { return false; }
-        return NameLookup::representative(owner) == NameLookup::representative(self.tu.pattern_of(r->decl));
+        if (r == &null) || r->is_dependent() || r->is_instantiation_dependent() { return false; }
+        var own = NameLookup::representative(owner);
+        if (r->args.size() > 0) && (own == NameLookup::representative(self.tu.pattern_of(r->decl))) { return true; }
+        // A member of a generic BASE the concrete receiver derives an
+        // instance of (CRTP: `s.me()` on `class Seven derives
+        // Mixin<Seven>`): bind_from_record reads the receiver's bases too,
+        // so Mixin's X is Seven before any argument is ranked.
+        if decl_generic_params(own).size() == 0 { return false; }
+        return own != NameLookup::representative(self.tu.pattern_of(r->decl));
     }
 
     /// The instance of \p c's declaring interface that a bound of the

@@ -183,8 +183,21 @@ class Substitution {
 
     /// Seed from an instance: `Foo<i32>` binds Foo's params positionally,
     /// and a pack parameter takes every argument from its position on
-    /// (InstanceEntry::args keeps packs flat, at the tail).
+    /// (InstanceEntry::args keeps packs flat, at the tail). Its bases'
+    /// parameters too, as the instance sees them: a member a generic BASE
+    /// declares (`class Seven derives Mixin<Seven>`, Mixin's `fn me(self)
+    /// -> *X`) reads through the receiver as X := Seven, where it used to
+    /// stay X and reach codegen unbound. Bindings are keyed by the declaring
+    /// pattern, so a base's never collide with the record's own; the same
+    /// template reached twice at different arguments keeps the first (C++
+    /// finds such a member ambiguous anyway).
     fn bind_from_record(self, rec: *Type) {
+        self.bind_own(rec);
+        self._bind_bases(rec, 0);
+    }
+
+    /// \p rec's own parameters only (bind_from_record without the bases).
+    fn bind_own(self, rec: *Type) {
         var d = self.tu.record_decl(rec);
         if d == &null { return; }
         var pat  = NameLookup::representative(self.tu.pattern_of(d));
@@ -208,6 +221,31 @@ class Substitution {
         var part = self.sc->record_partial(rec, &pargs);
         if part != &null {
             for var i: usize = 0; i < pargs.size(); ++i { self.bind(part, static_cast::<u32>(i), pargs[i]); }
+        }
+    }
+
+    /// Every generic base of record \p rec, read through \p rec's arguments
+    /// hop by hop (derives_from's walk), binds its pattern's parameters.
+    priv fn _bind_bases(self, rec: *Type, depth: u32) {
+        if depth > 32 { return; }
+        var r = canon_unqual(rec);
+        if (r == &null) || (!isa::<RecordType>(r)) { return; }
+        var body = self.sc->record_body(r);
+        if body == &null { return; }
+        var bases = self._bases_of(NameLookup::representative(body));
+        for var i: usize = 0; i < bases.size(); ++i {
+            var e = bases.get(i);
+            if (e == &null) || (e->base == &null) { continue; }
+            var c = canon_unqual(e->base->canonical);
+            if (c == &null) || (!isa::<RecordType>(c)) { continue; }
+            if c->is_dependent() {
+                var s = Substitution(self.sc);
+                s.bind_own(r);
+                var sub = s.substitute(c);
+                if (sub != &null) && isa::<RecordType>(canon_unqual(sub)) { c = canon_unqual(sub); }
+            }
+            if self.tu.record_args(c).size() > 0 { self.bind_own(c); }
+            self._bind_bases(c, depth + 1);
         }
     }
 
@@ -652,7 +690,7 @@ class Substitution {
                 // record's enclosing one) leaves the base as written, which
                 // still names the right entity.
                 var s = Substitution(self.sc);
-                s.bind_from_record(d);
+                s.bind_own(d);
                 var sub = s.substitute(c);
                 if (sub != &null) && isa::<RecordType>(canon_unqual(sub)) { c = canon_unqual(sub); }
             }
