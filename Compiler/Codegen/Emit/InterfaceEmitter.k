@@ -1141,7 +1141,7 @@ class InterfaceEmitter {
     /// declaration `int main(...) noexcept;` the friend line needs before
     /// it: the definition's own head (EmitIR::_free_fn).
     priv fn _main_decl_text(self, f: *FunctionDecl, qualified: bool) -> string {
-        var s = ("int ::main(") if (qualified) else ("int main(");
+        var s = ("int ::" + entry_point_name() + "(") if (qualified) else ("int " + entry_point_name() + "(");
         s += self._params(f, false, &null);
         s += ")";
         if f->no_unwind { s += " noexcept"; }
