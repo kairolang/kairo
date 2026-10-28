@@ -614,7 +614,7 @@ class InterfaceEmitter {
         switch d->kind {
             case DeclKind::ClassDecl  { s += "class ";  }
             case DeclKind::StructDecl { s += "struct "; }
-            case DeclKind::UnionDecl  { self._ice(self._at(d), "InterfaceEmitter: union emission is not implemented yet"); }
+            case DeclKind::UnionDecl  { s += "union ";  }
             case DeclKind::EnumDecl {
                 var en = cast::<EnumDecl>(d);
                 // An ADT is written as a record (_adt_def), so it is declared
@@ -661,7 +661,7 @@ class InterfaceEmitter {
             case DeclKind::ClassDecl  { self._record_def(d, "class");  }
             case DeclKind::StructDecl { self._record_def(d, "struct"); }
             case DeclKind::EnumDecl   { self._enum_def(cast::<EnumDecl>(d)); }
-            case DeclKind::UnionDecl  { self._ice(self._at(d), "InterfaceEmitter: union emission is not implemented yet"); }
+            case DeclKind::UnionDecl  {  self._record_def(d, "union"); }
             default { self._ice(self._at(d), "InterfaceEmitter: not a type decl"); }
         }
     }
@@ -680,6 +680,7 @@ class InterfaceEmitter {
     priv fn _record_def(self, d: *Decl, kw: string) {
         var at = self._at(d);
         var is_class = (d->kind == DeclKind::ClassDecl);
+        var is_union = (d->kind == DeclKind::UnionDecl);
         var s = self._spell->record_head(d);
         s += kw;
         s += " ";
@@ -749,9 +750,22 @@ class InterfaceEmitter {
             }
         }
 
-        var fields  = (cast::<ClassDecl>(d)->fields)  if (is_class) else (cast::<StructDecl>(d)->fields);
-        var methods = (cast::<ClassDecl>(d)->methods) if (is_class) else (cast::<StructDecl>(d)->methods);
+        var fields:  FrozenList::<*FieldDecl>;
+        var methods: FrozenList::<*FunctionDecl>;
 
+        if is_class {
+            fields  = cast::<ClassDecl>(d)->fields;
+            methods = cast::<ClassDecl>(d)->methods;
+        } else if is_union {
+            fields  = cast::<UnionDecl>(d)->fields;
+            methods = cast::<UnionDecl>(d)->methods;
+        } else {
+            fields  = cast::<StructDecl>(d)->fields;
+            methods = cast::<StructDecl>(d)->methods;
+        }
+
+
+        
         for var i: usize = 0; i < fields.size(); ++i {
             var f = fields[i];
             if f == &null { continue; }
@@ -3018,7 +3032,10 @@ class InterfaceEmitter {
             if (ext == &null) && f->is_method() && f->is_const() { s += " const"; }
             s += ";";
         } else {
-            s += ("class ") if (d->kind == DeclKind::ClassDecl) else ("struct ");
+            var kw: string = "struct ";
+            if d->kind == DeclKind::ClassDecl { kw = "class "; }
+            if d->kind == DeclKind::UnionDecl { kw = "union "; }
+            s += kw;
             s += self._spell->qual_name(d);
             s += self._spell->args_str(&(ie->args));
             s += ";";
