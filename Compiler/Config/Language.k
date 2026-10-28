@@ -50,9 +50,9 @@ class LangOptions {
     pub var unwind:              i32 = -1;
     /// -fduck-generics: `<T: type>` is accepted, its body typed as written
     /// and emitted as an unconstrained template that clang checks per
-    /// instance (MONO.md D1). Unset or -fno-duck-generics: `: type` is an
-    /// error. Transitional: it goes when the self-host corpus no longer
-    /// needs it.
+    /// instance (MONO.md D1). Unset means ON until self-hosting is done;
+    /// -fno-duck-generics makes `: type` an error. Transitional: removal is
+    /// MONO.md G14 (flip this default, then delete the regime and the flag).
     pub var duck_generics:       i32 = -1;
 
     // -- hard kill-switches ------------------------------------------------

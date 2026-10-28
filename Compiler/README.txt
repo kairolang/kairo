@@ -101,6 +101,15 @@ the explicit instantiation; every other TU using it emits `extern template`,
 so Clang compiles a known instance once. What differs per instance is
 selected by C++ itself (a specialization, `requires`, a `static_assert` pin),
 because C++ also instantiates Kairo templates at types Kairo never sees.
+
+Transitional: duck generics. `<T: type>` (the C++-checked regime, MONO.md
+D1) is ON by default until the compiler hosts itself, because the bootstrap
+corpus is written in it: its body is typed as written and clang checks each
+instance. `-fno-duck-generics` turns it off (every `: type` is then SC001E).
+Permanent removal is MONO.md G14: flip the default (FlagRegistry.k's help
+text, Config/Language.k, SemaContext::duck_generics), then delete the regime
+branch (FlagGates' `: type` gate, ChainBinding's `b.duck`, EmitIR's
+as-written member chain) and the flag.
 Lowering stays ABI-stable with C++ throughout; Kairo stays the richer
 language above that line, but the boundary is clean and stable.
 

@@ -81,8 +81,8 @@ bare `panic`. `fn op panic (const self) -> string` is an operator like
     Unsafe). Only `is_unsafe` is recorded today; `as static` / `as const`
     parse but are not distinguishable by sema.                        (spec 3)
     [DONE] `<T: type>` -> `GenericParamKindBound::Duck`, with the
-    written `: type` range in `kind_bound_range`. Accepted only under
-    -fduck-generics (MONO.md D1; FlagGates, §2.10 "The `: type` regime").
+    written `: type` range in `kind_bound_range`. Accepted unless
+    -fno-duck-generics (on by default until self-hosting; MONO.md D1; FlagGates, §2.10 "The `: type` regime").
     [MISSING] `PointerType::is_unsafe` stamped from the `unsafe` qual. (spec 2)
 
 ### 2.2 I ImportResolution [DONE, IMPORTS.md §4]
@@ -541,7 +541,7 @@ conjuncts, read from `sc->bounds`):
                    nothing else. Definition-side
                    checking: the error lands on the template, not on the
                    40th instantiation.
-    <T: type>      duck, behind -fduck-generics. Every step Dependent and
+    <T: type>      duck (on unless -fno-duck-generics). Every step Dependent and
                    left unbound; codegen spells it as written and clang
                    checks each instance. Kairo never re-checks the body.
 
@@ -1316,7 +1316,7 @@ const-correctness, including assignment to const and const-cast validity
 beyond "adds const" (ConstChecking); panic effects (PanicEffectChecking,
 past the Typed barrier); access control (AccessCheck); `yield` vs `yield T`;
 the context-binding protocol; the `: type` gate (FlagGates: an error
-without -fduck-generics).
+under -fno-duck-generics).
 
 **Depends on** (blocking, spec items 1-7): `BuiltinKind::Never`;
 `PointerType::is_unsafe` in the store key; `TypeCastExpr::cast_mode`;
@@ -1725,8 +1725,9 @@ unbound, its call unknown), emitted as an unconstrained template, and
 clang checks each instance: EmitIR spells a member chain rooted at the
 parameter, and its call, as written (`x.f(args)`, `p->f(args)`, `T::f(args)`,
 `.template f<A>` with generic arguments). An unbound step NOT rooted at a
-`: type` parameter still ICEs: a bounded body is Kairo's to check (D0). The regime is transitional and opt-in: without
--fduck-generics, FlagGates rejects every `: type` in a program file
+`: type` parameter still ICEs: a bounded body is Kairo's to check (D0). The regime is transitional and ON by default
+until the compiler hosts itself (USER 2026-10-27); with
+-fno-duck-generics, FlagGates rejects every `: type` in a program file
 (SC001E, labelled at the bound; the fix-it deletes `: type` only when no
 member step went through the parameter, else a note points at the first
 one). Library files are exempt like every other gate, and use none.
@@ -1736,7 +1737,8 @@ and operators, `===`, null tests and patterns on the parameter defer as on
 any dependent operand (none of G11's definition-time errors above); its
 `as string` / f-string are still refused (SC027E / SC080E). Removal: flip the default, delete the regime
 branch (ChainBinding `b.duck`), the gate and the flag, after the mixin
-migration (MONO.md G13/G14).
+migration (MONO.md G13/G14): first flip the default back (FlagRegistry,
+Config/Language.k, SemaContext::duck_generics), then delete.
 
 ---
 
@@ -2084,7 +2086,7 @@ A pass that needs one asks that file; it never spells the string itself.
     conversion ordering; `-fno-implicit-conv` can therefore remove a
     candidate but never select a different one (lattice §7).
 17. **A generic parameter's regime is its declaration's.** `<T>` opaque,
-    `<T impl I>` bounded, `<T: type>` duck (only under -fduck-generics).
+    `<T impl I>` bounded, `<T: type>` duck (on unless -fno-duck-generics).
     No inference of regime from use.
 18. **A class definition is closed at its file.** Its friends are its
     same-file extension scopes; nothing in another file changes the

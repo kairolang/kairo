@@ -1,10 +1,10 @@
-// `<T: type>` is the transitional C++-checked regime (MONO.md D1) and is
-// off by default: without -fduck-generics every `: type` in a program file
-// is an error, labelled at the bound. When the body uses no member of the
+// `<T: type>` is the transitional C++-checked regime (MONO.md D1). It is on
+// by default until the compiler hosts itself; with -fno-duck-generics every
+// `: type` in a program file is an error, labelled at the bound. When the body uses no member of the
 // parameter the fix-it deletes `: type` (an unbounded `T` accepts the same
 // body); when it does, deleting it would only trade this error for R051E,
-// so a note points at the first member use instead. With the flag the file
-// is clean.
+// so a note points at the first member use instead. With the regime on
+// (the default, or -fduck-generics spelled out) the file is clean.
 
 fn <T: type> uses(t: T) -> i32 { return t.value() }
 
@@ -19,7 +19,7 @@ fn <T: type> static_use(n: i32) -> bool { return T::classof(n) }
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
+// RUN: { %kairo %s --type-check-only -fno-duck-generics 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
 // OFF: duck_generics_gate.k:9:6: error [SC001E]: 'T: type' needs -fduck-generics: a generic body is checked against its bounds, not per instance
 // OFF-NEXT: duck_generics_gate.k:9:43: note [{{.*}}]: the body uses a member of 'T' here; declare an interface with the members it needs and bound the parameter 'T impl <Interface>'
 // OFF-NOT: fix-it
@@ -35,6 +35,5 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --type-check-only -fduck-generics 2>&1 || true; } | %FileCheck %s --check-prefix=ON --allow-empty
 // ON-NOT: {{error|warning}}
 
-// -fno-duck-generics is the default spelled out.
-// RUN: { %kairo %s --type-check-only -fno-duck-generics 2>&1 || true; } | %FileCheck %s --check-prefix=NO
-// NO-COUNT-4: error [SC001E]: '{{[TX]}}: type' needs -fduck-generics
+// No flag is the regime on: the default until self-hosting.
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=ON --allow-empty

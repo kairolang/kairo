@@ -186,8 +186,9 @@ class FlagGates derives RecursiveASTVisitor::<FlagGates> {
     /// as written and clang checks each instance, which is the opposite of
     /// the language's rule (checked once, against the bounds). It exists for
     /// the self-host corpus until the mixin migration gives every such
-    /// parameter a real bound, so it is opt-in and this gate is shut unless
-    /// -fduck-generics opens it.
+    /// parameter a real bound. The gate is open by default until the
+    /// compiler hosts itself (SemaContext::duck_generics); -fno-duck-generics
+    /// shuts it, and then every `: type` in a program file is this error.
     ///
     /// The regime itself is unchanged when the gate fires (ChainBinding still
     /// defers every member step), so the one error is all the user sees.
@@ -385,8 +386,8 @@ class FlagGates derives RecursiveASTVisitor::<FlagGates> {
 
     priv fn _anything_enabled(self) -> bool {
         var o = &(self.sc->opts);
-        // Closed by default: without -fduck-generics every program file is
-        // walked for `: type`.
+        // Shut by -fno-duck-generics: every program file is then walked
+        // for `: type`.
         if !o->duck_generics { return true; }
         if o->no_unsafe || o->no_fp || o->no_ffi || o->no_cxx || o->no_yield || o->no_modules { return true; }
         if (o->max_struct_fields > 0) || (o->max_function_params > 0) || (o->max_enum_variants > 0) { return true; }

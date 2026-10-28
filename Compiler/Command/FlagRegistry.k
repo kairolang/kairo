@@ -270,7 +270,9 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks (-fno-unsafe makes them an error)");
     // MONO.md D1: the transitional C++-checked regime. Off, `<T: type>` is an
     // error; on, its body is typed as written and clang checks each instance.
-    cmd->define::<FlagKind::Feature>("duck-generics",      "accept `<T: type>`: the body is checked by C++ per instance, not by Kairo (transitional; off by default)");
+    // On by default until the compiler hosts itself (SemaContext reads an
+    // unset flag as on); -fno-duck-generics turns it off.
+    cmd->define::<FlagKind::Feature>("duck-generics",      "accept `<T: type>`: the body is checked by C++ per instance, not by Kairo (transitional; on by default until self-hosting, -fno-duck-generics turns it off)");
 
     // codegen / optimization (off by default unless noted) -----------------
     cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");

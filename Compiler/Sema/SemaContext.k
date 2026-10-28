@@ -143,9 +143,11 @@ class SemaOptions {
     pub var cxx_exceptions: bool = true;
     pub var unwind_all: bool = false;  ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
     /// -fduck-generics: `<T: type>` is the C++-checked regime rather than an
-    /// error (FlagGates; MONO.md D1). Off by default, on purpose: a hand-built
-    /// SemaOptions rejects `: type` the way the driver does.
-    pub var duck_generics: bool = false;
+    /// error (FlagGates; MONO.md D1). ON by default until the compiler hosts
+    /// itself (USER 2026-10-27): the bootstrap corpus is written in it.
+    /// -fno-duck-generics turns it off. A hand-built SemaOptions agrees
+    /// with the driver.
+    pub var duck_generics: bool = true;
     pub var no_fp:      bool = false;  ///< --no-fp.
     pub var no_ffi:     bool = false;  ///< --no-ffi.
     pub var no_cxx:     bool = false;  ///< --no-cxx.
@@ -192,7 +194,7 @@ class SemaOptions {
         // rather than making the pass know two spellings.
         self.no_unsafe  = ci->lang.no_unsafe || (ci->lang.unsafe_feature == 0);
         self.unwind_all = (ci->lang.unwind == 1);
-        self.duck_generics = (ci->lang.duck_generics == 1);
+        self.duck_generics = (ci->lang.duck_generics != 0);   // unset = on (see above)
         // FlagTranslator's test of a hosted target, on the resolved triple.
         var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode);
         if ci->target.resolved && (!ci->target.has_os) { hosted = false; }

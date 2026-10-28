@@ -1247,7 +1247,8 @@ group = "member-lookup"
 
     `: type` (`fn <T: type> render(x: T)`) is the c++ rule: every access through the parameter is
     accepted here and checked by the c++ compiler in each instantiation. it is a transitional
-    regime, off unless the build passes `-fduck-generics`, and is going away; a bound is the fix.
+    regime, on by default until the compiler hosts itself (`-fno-duck-generics` turns it off), and is
+    going away; a bound is the fix.
     """
 
     [R051.N]
