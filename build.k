@@ -475,11 +475,14 @@ fn prebuild_script() -> string {
 }
 
 // After kairo / kcc build: stage clang, its resource dir and Lib/ into the
-// tree (Scripts/stage_tree.py), so build/<triple>/<mode>/bin/kairo runs with
-// no root flags. Idempotent; a rebuild re-stages what changed.
+// tree (Scripts/stage_tree.py), then make it relocatable (Scripts/bundle.sh,
+// Linux only: ldd + patchelf), so build/<triple>/<mode>/bin/kairo runs with
+// no root flags. Both are idempotent; a rebuild re-stages what changed.
 fn postbuild_script() -> string {
     var tree = build_dir() + "/" + triple() + "/" + build_mode();
-    return "python3 Scripts/stage_tree.py " + tree;
+    var stage = "python3 Scripts/stage_tree.py " + tree;
+    if platform() == "linux" { return stage + " && sh Scripts/bundle.sh " + tree; }
+    return stage;
 }
 
 // Every LLVM-linking tool shares this shape. One call site = no drift.
