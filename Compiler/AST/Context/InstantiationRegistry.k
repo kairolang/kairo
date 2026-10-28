@@ -120,6 +120,23 @@ class ConformanceRow {
     /// admits that row's partial specialization in place of a full one.
     pub var covered_by: *ConformanceRow = &null;
     pub var ok:        bool  = false;
+    /// The TUs (fids) this row is USABLE in, as far as any has asked: its
+    /// implementing decls are in that TU's transitive import set, the
+    /// extension-visibility rule (RESOLUTION.md §2b, Visibility; MONO.md
+    /// D7). The row itself is a program-wide fact -- codegen emits it in
+    /// every TU holding an instance that binds it, whatever that TU imports
+    /// -- and this is the per-TU filter Sema's lookup applies to it. The
+    /// declaring TU first, then each one that found it visible, in the
+    /// order they asked. Writer: row_mark_visible, under the lock.
+    pub var seen_by:   vec::<u32>;
+    /// A DETACHED row only (row_detached, never in the table): the
+    /// requirement match for one TU that could not use the table's row.
+    /// `hidden` is an implementing decl the match skipped because the TU
+    /// cannot see it (the reason it is not ok), `clash` the table's row when
+    /// the match found a DIFFERENT implementation that this TU can see -- one
+    /// conformance with two implementations, which C++ cannot hold (ODR).
+    pub var hidden:    *Decl = &null;
+    pub var clash:     *ConformanceRow = &null;
     fn ConformanceRow(self) { }
 
     /// Witness \p i's extension arguments, appended to \p out.
@@ -146,11 +163,19 @@ class InstanceEntry {
     /// One per `P impl I` bound of the primary, in bound order, then the
     /// rows of each bound interface's `derives` closure: every witness
     /// specialization this instance's body can name (CODEGEN.md §7b.6).
-    /// Written once, by ConformanceChecking at the instantiation site
-    /// (set_rows); `rows_done` says it ran, so an instance with no bound
-    /// and one not yet checked are told apart.
+    /// PROGRAM-WIDE (MONO.md D7): the union of what every TU that checked
+    /// the instance found, each row once, in first-found order -- TU (DAG)
+    /// order, then bound order -- so every TU holding the instance emits the
+    /// same rows in the same order (ODR), whichever TU wrote it first or
+    /// what that TU imports. Which rows a TU's own Sema may USE is
+    /// ConformanceRow::seen_by. Writer: add_rows; `rows_done` says some TU
+    /// checked it, so an instance with no bound and one not yet checked are
+    /// told apart.
     pub var rows:              vec::<*ConformanceRow>;
     pub var rows_done:         bool  = false;
+    /// Its bounds failed where it first became live (reported there, once
+    /// per build): a later TU's use reports nothing again (MONO.md D6).
+    pub var failed:            bool  = false;
     /// The partial specialization whose BODY an implicit instance takes, or
     /// null for the primary's. `decl`'s `instantiated_from` stays the
     /// primary either way: every reader of that link asks "which template
@@ -586,6 +611,41 @@ class InstantiationRegistry {
         var lock = std::LockGuard(self._mu);
         var hit = self._row_probe(r->conformer, r->iface);
         if hit != &null { return hit; }
+        var row = self._row_copy(r);
+        self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
+        return row;
+    }
+
+    /// A copy of \p r that is NOT recorded: one TU's requirement match that
+    /// must not become the table's row (it failed, or it clashes with the
+    /// table's; ConformanceRow::hidden / clash). Lives as long as the table.
+    fn row_detached(self, r: *ConformanceRow) -> *ConformanceRow {
+        if r == &null { return &null; }
+        var lock = std::LockGuard(self._mu);
+        var row = self._row_copy(r);
+        row->hidden = r->hidden;
+        row->clash  = r->clash;
+        return row;
+    }
+
+    /// \p row is usable in TU \p fid (ConformanceRow::seen_by), once.
+    fn row_mark_visible(self, row: *ConformanceRow, fid: u32) {
+        if row == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = 0; i < row->seen_by.size(); ++i { if row->seen_by[i] == fid { return; } }
+        row->seen_by.push_back(fid);
+    }
+
+    /// TU \p fid is already known to be able to use \p row.
+    fn row_visible_in(self, row: *ConformanceRow, fid: u32) -> bool {
+        if row == &null { return false; }
+        var rlock = std::SharedLock(self._mu);
+        for var i: usize = 0; i < row->seen_by.size(); ++i { if row->seen_by[i] == fid { return true; } }
+        return false;
+    }
+
+    /// Caller holds the lock.
+    priv fn _row_copy(self, r: *ConformanceRow) -> *ConformanceRow {
         var mem: *void = self._arena.alloc(sizeof(ConformanceRow), alignof(ConformanceRow));
         var row = self._placement::<ConformanceRow>(mem);
         row->conformer  = r->conformer;
@@ -599,7 +659,7 @@ class InstantiationRegistry {
         for var i: usize = 0; i < r->ext_args.size(); ++i { row->ext_args.push_back(r->ext_args[i]); }
         for var i: usize = 0; i < r->ext_arg_count.size(); ++i { row->ext_arg_count.push_back(r->ext_arg_count[i]); }
         for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }
-        self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
+        for var i: usize = 0; i < r->seen_by.size(); ++i { row->seen_by.push_back(r->seen_by[i]); }
         return row;
     }
 
@@ -641,14 +701,27 @@ class InstantiationRegistry {
         for var i: usize = 0; i < e->reached.size(); ++i { out->push_back(e->reached[i]); }
     }
 
-    /// Write \p e's rows, once: the first TU to check the instance wins, and
-    /// every later one computed the same list from the same table.
-    fn set_rows(self, e: *InstanceEntry, rows: *vec::<*ConformanceRow>) {
+    /// Union \p rows, what one TU's check of \p e found, into its
+    /// program-wide list (InstanceEntry::rows, MONO.md D7): each row once,
+    /// a new one after every earlier one, so the order is first-found order
+    /// and the same on every run. Never a first-writer: a TU that checks
+    /// the instance after another adds what it found, however it differs.
+    fn add_rows(self, e: *InstanceEntry, rows: *vec::<*ConformanceRow>) {
         if (e == &null) || (rows == &null) { return; }
         var lock = std::LockGuard(self._mu);
-        if e->rows_done { return; }
-        for var i: usize = 0; i < rows->size(); ++i { e->rows.push_back((*rows)[i]); }
+        for var i: usize = 0; i < rows->size(); ++i {
+            var r = (*rows)[i];
+            var have = false;
+            for var k: usize = 0; k < e->rows.size(); ++k { if e->rows[k] == r { have = true; break; } }
+            if !have { e->rows.push_back(r); }
+        }
         e->rows_done = true;
+    }
+
+    fn mark_failed(self, e: *InstanceEntry) {
+        if e == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        e->failed = true;
     }
 
     // === Enumeration (M1 / EmitPlan) ===========================================

@@ -1304,8 +1304,12 @@ Witnesses add no registry entry and no tier-3 line: the members are inline,
 the primary is instantiated implicitly per Self wherever a body uses it,
 and a specialization is complete on its own. The registry feeds them
 instead: the instance -> rows map ConformanceChecking writes at the
-instantiation site (`set_rows`, RESOLUTION.md §2b) is the
-whole input of the specialization edge. A generic REQUIREMENT called with
+instantiation site (`add_rows`, RESOLUTION.md §2b) is the
+whole input of the specialization edge. The map is PROGRAM-WIDE (MONO.md
+D7): an instance's rows are the union over every TU that checked it, in
+first-found order, so every TU holding the instance emits the same
+specializations in the same order, whatever that TU itself imports; which
+rows a TU's Sema may use is a per-TU filter that codegen never applies. A generic REQUIREMENT called with
 arguments registers a CallExpr instance whose primary is the requirement
 (CallTyping registers every generic callee); it names no C++ function, and
 EmitPlan must never write a tier-3 line for it (today's guard is the

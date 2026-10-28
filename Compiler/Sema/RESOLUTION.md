@@ -1703,11 +1703,17 @@ calls `ForeignInstantiate::fill` (IMPORTS.md §5), after which it is
 `instantiated` and walks its own table like any filled instance. A failed
 fill is sticky and leaves it on the pattern.
 
-**Extension visibility is import-scoped** [DECIDED, MISSING]. Today the
-index is build-global: `import std::Vec` does nothing except get the file
-into the build, and two libraries in the build both adding `push` make
-every `v.push` ambiguous. An extension contributes to a TU's lookup iff
-its fid is in that TU's transitive import set. One filter on `_index_decl`.
+**Extension visibility is import-scoped** [DECIDED; BUILT for conformance
+rows only, MONO.md D7]. Member lookup's index is still build-global: `import
+std::Vec` does nothing except get the file into the build, and two libraries
+in the build both adding `push` make every `v.push` ambiguous. It is also
+ORDER-dependent: the index skips a TU whose T has not run yet, so whether a
+non-imported extension is found depends on DAG order (ticketed). An
+extension contributes to a TU's lookup iff its fid is in that TU's
+transitive import set (its own, the builtin subtree's, and every fid its
+import edges reach). One filter on `_index_decl`. For conformance it is
+applied already, in ConformanceChecking (`_usable` / `_sees`, below: "The
+conformance table", Visibility).
 
 **The orphan rule** [DECIDED, MISSING -> `ExtensionOrphanCheck`, Checks
 stage, after T]. A plain `extend X` must be in X's file. `extend X impl
@@ -1883,8 +1889,25 @@ Who fills it:
   here" at the use in the body that needed it, capped at
   `--cmax-generic-backtrace` (5: the first 3, a count, the last 2)
   (`ConformanceChecking::chain_notes`, MONO.md D6).
-- **Visibility.** A row is usable in a TU iff its implementing decls are in
-  that TU's transitive import set (the extension-visibility rule).
+- **Visibility** [BUILT, MONO.md D7]. A row is a program-wide fact and a
+  per-TU filter. Usable in a TU iff each implementing decl that is an
+  EXTENSION member is in that TU's transitive import set (an own member is
+  visible wherever its type is); `ConformanceRow::seen_by` remembers the
+  TUs that found it usable. `conforms` returns the table's row only where
+  it is usable; otherwise it matches again over what this TU sees and
+  returns a DETACHED row (never recorded): not ok with `hidden` (the
+  extension member it cannot see: "implemented by an extension this file
+  does not import", note at the member), or, when this TU sees a
+  DIFFERENT implementation, not ok with `clash` -- one conformance with two
+  implementations is an error at the second use (every TU's C++ holds one
+  witness specialization per conformance). A row that is not ok is never
+  recorded: it was one TU's view. A TU's direct use of an instance another
+  TU made live is checked again against this TU's view (`_recheck`, once
+  per instance per TU, at this use, no chain); a REACHED instance is not,
+  its rows being implied by its root's bounds. An instance's rows
+  (`InstanceEntry::rows`) are the union over every TU that checked it,
+  first-found order (`add_rows`; the first-writer `set_rows` is gone), and
+  codegen reads the union.
 
 EmitPlan reads `InstanceEntry::rows` for the specialization edge; EmitIR
 reads the witness ExtensionLowering records on the call (CODEGEN.md

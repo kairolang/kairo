@@ -24,7 +24,14 @@
 ///     X's own constructors are, named after X (_ctor_implementation).
 ///
 ///     A row is shared build-wide (the registry's table): a row TU A found
-///     is the one every TU holding the same instance reads. The row is
+///     is the one every TU holding the same instance reads, and an
+///     instance's rows are the union over every TU that checked it (MONO.md
+///     D7), so every TU's C++ carries the same ones. Which rows a TU's own
+///     checks may USE is a per-TU filter, the extension-visibility rule: a
+///     row whose extension members are outside the TU's transitive import
+///     set is not this TU's (`_usable`; ConformanceRow::seen_by), and a use
+///     here is checked against what this TU sees, even of an instance
+///     another TU made live first (`_recheck`). The row is
 ///     STRUCTURAL -- found at this use -- or DECLARED, found at the `impl`
 ///     declaration (`class X impl I`, `extend X impl I`) and recorded
 ///     under it for EmitPlan (visit_decl). A generic declared conformance
@@ -55,6 +62,8 @@ import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::ASTContext::*;
+import AST::Context::GlobalDisambigTable::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -347,7 +356,8 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// reported at its first use, however many times it is named -- and
     /// what its body reaches is walked by discover.
     priv fn _check_instance(self, e: *InstanceEntry, site: SourceRange) {
-        if (e == &null) || (e->depth > 0) { return; }
+        if e == &null { return; }
+        if e->depth > 0 { self._recheck(e, site); return; }
         if !site.start.is_valid() {
             // A written use usually follows (`var b = Box<M>(...)` visits the
             // decl's inferred type before its initializer): wait for it, and
@@ -365,11 +375,47 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// Fill live \p e's rows from its primary's `impl` bounds, reporting at
     /// its use (InstanceEntry::use_at, a reached one's root's) a bound its
     /// argument does not meet. False when one did not: such an instance's
-    /// body is not walked (it is marked walked here).
+    /// body is not walked (it is marked walked here). The rows found are
+    /// unioned into the instance's program-wide list (add_rows, D7).
     priv fn _check_bounds(self, e: *InstanceEntry) -> bool {
-        var at = e->use_at;
-        var prim = e->primary;
         var rows = vec::<*ConformanceRow>();
+        var ok = self._bound_rows(e, e->use_at, e, &rows);
+        if !ok {
+            rows.clear();
+            self.sc->instances->set_checked(e);
+            self.sc->instances->mark_failed(e);
+        }
+        self.sc->instances->add_rows(e, &rows);
+        if ok { self._check_facts(e); }
+        return ok;
+    }
+
+    /// Instances another TU (or an earlier use here) made live, already
+    /// checked once for the build, that THIS TU uses directly: their bounds
+    /// asked again against what this TU can see (MONO.md D7, the per-TU
+    /// filter), reported at this use with no chain -- it is a root here.
+    /// Once per instance per TU. Not for an instance that failed where it
+    /// became live (reported there, D6), and not for a reached one: a
+    /// reached instance's rows are implied by its root's bounds, which its
+    /// root's own use checks here.
+    priv var _rechecked: vec::<*InstanceEntry>;
+    priv fn _recheck(self, e: *InstanceEntry, site: SourceRange) {
+        if e->failed { return; }
+        var at = site;
+        if !at.start.is_valid() { at = self._cur_at; }
+        if !at.start.is_valid() { return; }
+        for var i: usize = 0; i < self._rechecked.size(); ++i { if self._rechecked[i] == e { return; } }
+        self._rechecked.push_back(e);
+        var rows = vec::<*ConformanceRow>();
+        if self._bound_rows(e, at, &null, &rows) { self.sc->instances->add_rows(e, &rows); }
+    }
+
+    /// \p e's rows from its primary's `impl` bounds as this TU sees them,
+    /// appended to \p rows; a bound not met is reported at \p at, with
+    /// \p chain's instantiation chain when non-null. False when one was not.
+    priv fn _bound_rows(self, e: *InstanceEntry, at: SourceRange, chain: *InstanceEntry,
+                        rows: *vec::<*ConformanceRow>) -> bool {
+        var prim = e->primary;
         var ok = true;
         if prim != &null {
             var req = decl_requires_clause(prim);
@@ -384,19 +430,13 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 if (x == &null) || (iface == &null) { continue; }
                 var row = self.conforms(x, iface);
                 if (row == &null) || (!row->ok) {
-                    self._report(at, b, x, iface, row, e);
+                    self._report(at, b, x, iface, row, chain);
                     ok = false;
                     continue;
                 }
-                if !self._push_closure(row, x, &rows, at, b) { ok = false; }
+                if !self._push_closure(row, x, rows, at, b) { ok = false; }
             }
         }
-        if !ok {
-            rows.clear();
-            self.sc->instances->set_checked(e);
-        }
-        self.sc->instances->set_rows(e, &rows);
-        if ok { self._check_facts(e); }
         return ok;
     }
 
@@ -731,11 +771,22 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// \p declared is the `impl` that declares it, for a GENERIC row (\p x
     /// over that decl's own parameters): the row is born with it, since
     /// codegen spells the partial specialization's head from it.
+    ///
+    /// Per TU (MONO.md D7): the table's row only where this TU can use it
+    /// (_usable). Otherwise the match runs again over what this TU sees, and
+    /// its result is DETACHED, never the table's: not ok with
+    /// ConformanceRow::hidden naming the member this TU cannot see, or, when
+    /// it found a different implementation this TU can see, not ok with
+    /// `clash` -- one conformance cannot have two (every TU's C++ carries
+    /// the same witness). A row that is not ok is never recorded either: it
+    /// was one TU's view (or one moment's: the extension index skips a TU
+    /// whose types have not been resolved yet), not a fact of the program.
     fn conforms(self, x: *Type, iface: *Type, declared: *Decl = &null) -> *ConformanceRow {
         var hit = self.sc->instances->row_find(x, iface);
-        if hit != &null { return hit; }
+        if (hit != &null) && self._usable(hit) { return hit; }
         var idecl = self._iface_decl(iface);
         if idecl == &null { return &null; }
+        self._hidden = &null;
 
         var row = ConformanceRow();
         row.conformer  = x;
@@ -767,8 +818,84 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             row.ext_arg_count.push_back(ea.size());
             for var k2: usize = 0; k2 < ea.size(); ++k2 { row.ext_args.push_back(ea[k2]); }
         }
-        if row.ok { row.covered_by = self._covering(x, iface, &row); }
+        row.hidden = self._hidden;
+        if hit != &null {
+            if row.ok {
+                row.ok    = false;
+                row.clash = hit;
+            }
+            return self.sc->instances->row_detached(&row);
+        }
+        if !row.ok { return self.sc->instances->row_detached(&row); }
+        row.covered_by = self._covering(x, iface, &row);
+        row.seen_by.push_back(self.sc->ctx->fid);
         return self.sc->instances->row_add(&row);
+    }
+
+    // --- visibility (the extension-visibility rule, per TU) ------------------------
+
+    /// The member _implementation skipped last because this TU cannot see
+    /// it, though it matched: why a detached row is not ok.
+    priv var _hidden: *Decl = &null;
+    /// This TU's fid, the builtin subtree's, and every fid its imports
+    /// reach, transitively: what its checks may use an extension from.
+    /// Built on first need.
+    priv var _visible:       vec::<u32>;
+    priv var _visible_built: bool = false;
+
+    /// Table row \p row is usable in this TU: each implementing decl that is
+    /// an extension member is in this TU's transitive import set (an own
+    /// member is visible wherever its type is). Remembered on the row
+    /// (seen_by), so a second ask is one lookup.
+    priv fn _usable(self, row: *ConformanceRow) -> bool {
+        var fid = self.sc->ctx->fid;
+        if self.sc->instances->row_visible_in(row, fid) { return true; }
+        for var i: usize = 0; i < row->witnesses.size(); ++i {
+            var w = row->witnesses[i];
+            if (w != &null) && (!self._sees(w)) { return false; }
+        }
+        self.sc->instances->row_mark_visible(row, fid);
+        return true;
+    }
+
+    /// \p d may implement a requirement here: not an extension member, or
+    /// one in a file this TU (transitively) imports.
+    priv fn _sees(self, d: *Decl) -> bool {
+        if decl_extension_of(d) == &null { return true; }
+        var fid = self.tu.fid_of(d);
+        if fid == self.sc->ctx->fid { return true; }
+        if (self.sc->g != &null) && self.sc->g->is_builtin_fid(fid) { return true; }
+        if !self._visible_built { self._build_visible(); }
+        for var i: usize = 0; i < self._visible.size(); ++i { if self._visible[i] == fid { return true; } }
+        return false;
+    }
+
+    priv fn _build_visible(self) {
+        self._visible_built = true;
+        var root = self.sc->tu;
+        if root == &null { return; }
+        self._visible.push_back(self.sc->ctx->fid);
+        var work = vec::<*TranslationUnit>();
+        work.push_back(root);
+        while work.size() > 0 {
+            var t = work[work.size() - 1];
+            work.pop_back();
+            for var i: usize = 0; i < t->import_edges.size(); ++i {
+                var ed = t->import_edges.get(i);
+                if ed == &null { continue; }
+                var f = ed->target_fid;
+                if (f == 0) || (f == u32(-1)) { continue; }   // ffi or unresolved: no Kairo extension behind it.
+                var have = false;
+                for var k: usize = 0; k < self._visible.size(); ++k { if self._visible[k] == f { have = true; break; } }
+                if have { continue; }
+                self._visible.push_back(f);
+                if self.sc->g == &null { continue; }
+                var c = self.sc->g->get_context(f);
+                if c == &null { continue; }
+                var ot = reinterpret_cast::<*TranslationUnit>(c->tu);
+                if ot != &null { work.push_back(ot); }
+            }
+        }
     }
 
     /// The GENERIC declared row that covers concrete \p row of instance \p x:
@@ -822,7 +949,11 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if d.unify(gx, x, false) == ImplicitRank::None { return &null; }
         var at = d.substitute(bi);
         if (at == &null) || (canon_unqual(at) != iface) { return &null; }
-        var g = self.conforms(gx, bi, by);
+        // The table's generic row whoever can see it: coverage decides which
+        // C++ specialization is THE witness, a program-wide fact (D7), not a
+        // per-TU one.
+        var g = self.sc->instances->row_find(gx, bi);
+        if g == &null { g = self.conforms(gx, bi, by); }
         if (g == &null) || (!g->ok) || (g->witnesses.size() != row->witnesses.size()) { return &null; }
         for var i: usize = 0; i < g->witnesses.size(); ++i {
             if self._entity(g->witnesses[i]) != self._entity(row->witnesses[i]) { return &null; }
@@ -896,7 +1027,14 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             var f = dyn_cast::<FunctionDecl>(cands[i]);
             if (f == &null) || f->is_poisoned() { continue; }
             if self._owned_by_interface(static_cast::<*Decl>(f)) { continue; }   // a bound's own requirement, never a witness.
-            if self._signature_matches(f, m, x, iface, idecl) { return NameLookup::representative(static_cast::<*Decl>(f)); }
+            if !self._signature_matches(f, m, x, iface, idecl) { continue; }
+            // An extension this TU does not import implements nothing here
+            // (the extension-visibility rule); kept for the diagnostic.
+            if !self._sees(static_cast::<*Decl>(f)) {
+                if self._hidden == &null { self._hidden = NameLookup::representative(static_cast::<*Decl>(f)); }
+                continue;
+            }
+            return NameLookup::representative(static_cast::<*Decl>(f));
         }
         return &null;
     }
@@ -1199,6 +1337,10 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 break;
             }
         }
+        if (row != &null) && (row->clash != &null) {
+            self._report_clash(at, b, xs, is, row, e);
+            return;
+        }
         var msg = f"'{xs}' does not conform to '{is}\x27";
         var req_note = f"'{missing}' is required here";
         if (req != &null) && decl_is_ctor_requirement(req) {
@@ -1211,6 +1353,8 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             // name: the transfer constructor may well be implicit.
             if req->transfer == TransferKind::Copy { msg = f"'{xs}' does not conform to '{is}': '{xs}' is not a COPY type"; }
             if req->transfer == TransferKind::Move { msg = f"'{xs}' does not conform to '{is}': '{xs}' is neither COPY nor MOVE"; }
+        } else if (missing.size() > 0) && (row->hidden != &null) {
+            msg = f"'{xs}' does not conform to '{is}' here: '{missing}' is implemented by an extension this file does not import";
         } else if missing.size() > 0 {
             msg = f"'{xs}' does not conform to '{is}': no member '{missing}' with the requirement's signature";
         }
@@ -1218,6 +1362,34 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         d.first(at);
         if b != &null { d.note(b->range.start, f"required by this bound").first(b->range); }
         if req != &null { d.note(req->range.start, req_note).first(req->range); }
+        if (missing.size() > 0) && (row->hidden != &null) {
+            d.note(row->hidden->range.start,
+                "this extension member implements it, in a file this one does not import; import its module here to use the conformance"
+            ).first(row->hidden->range);
+        }
+        if e != &null { self.chain_notes(&d, e); }
+        d.emit();
+    }
+
+    /// Detached \p row found an implementation of (\p xs, \p is) that this
+    /// TU sees and that differs from the table's (ConformanceRow::clash):
+    /// one conformance with two implementations, which no TU's C++ can hold
+    /// both of (one witness specialization per conformance, ODR).
+    priv fn _report_clash(self, at: SourceRange, b: *ConstraintExpr, xs: string, is: string,
+                          row: *ConformanceRow, e: *InstanceEntry) {
+        var other = row->clash;
+        var d = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"'{xs}' conforms to '{is}' through a different implementation here than elsewhere in the program; a conformance has one implementation");
+        d.first(at);
+        if b != &null { d.note(b->range.start, f"required by this bound").first(b->range); }
+        for var i: usize = 0; (i < row->witnesses.size()) && (i < other->witnesses.size()); ++i {
+            var mine   = row->witnesses[i];
+            var theirs = other->witnesses[i];
+            if (mine == &null) || (theirs == &null) || (self._entity(mine) == self._entity(theirs)) { continue; }
+            d.note(mine->range.start, "this implementation is the one visible here").first(mine->range);
+            d.note(theirs->range.start, "this one implements it for another file of the program").first(theirs->range);
+            break;
+        }
         if e != &null { self.chain_notes(&d, e); }
         d.emit();
     }
