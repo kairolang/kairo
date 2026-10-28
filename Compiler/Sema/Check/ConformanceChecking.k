@@ -1159,6 +1159,10 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if (c == &null) || (!c->is_dependent()) { return c; }
         var d = Deduction(self.sc, &null);
         if !d.bind_from_extension(f, x) { return c; }
+        // A member of a generic record (`class <T> Holder { fn first() ->
+        // T }`) reached through an instance reads T at its argument, as a
+        // call on that instance does.
+        if (decl_extension_of(static_cast::<*Decl>(f)) == &null) && isa::<RecordType>(canon_unqual(x)) { d.bind_from_record(canon_unqual(x)); }
         var frep = NameLookup::representative(static_cast::<*Decl>(f));
         for var i: usize = 0; i < f->generic_params.size(); ++i {
             var gp = f->generic_params[i];
