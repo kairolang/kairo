@@ -59,9 +59,18 @@
 ///   \par What V guarantees
 ///     LoopContextCheck rejected `return`, `break`, `continue`, `yield` and
 ///     `panic` in a finally body and JumpLabelCheck a `jump!` out of one,
-///     so the body is a destructor body. A `finally` in a closure ICEs:
-///     EmitIR has no lambda emission, and a guard inside one would not be
-///     emitted either.
+///     so the body is a destructor body.
+///
+///   \par In a closure
+///     A `finally` in a closure body is the same record, declared in the
+///     lambda's body (a C++ local class may sit in one) and homed in the
+///     enclosing function for its name. What differs is what its names
+///     are THERE: a closure's own parameters are captured like the
+///     function's, and a binding the closure holds by pointer (`|*x|`,
+///     `|*|`; ClosureCaptures) is that pointer inside it, so the guard's
+///     field points at the pointer and a use reads back the `*T` the body
+///     was typed with. `self` is the enclosing method's, which the lambda
+///     captured as `this`.
 ///
 ///   \par Codegen
 ///     EmitIR emits the DeclStmt(StructDecl) in place as `struct N {
@@ -89,6 +98,7 @@ import Sema::Lower::LowerSynth::*;
 import Sema::Check::CaptureAnalysis::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::LangItems::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
@@ -148,9 +158,10 @@ class FinallyLowering derives ASTWriter::<FinallyLowering> {
     pub var sc: *SemaContext;
     priv var tu:    TypeUtil;
     priv var synth: LowerSynth;
-    /// Enclosing functions, innermost last. A closure pushes null: a
-    /// `finally` inside one has no function to home its record in.
+    /// Enclosing functions and closures, innermost last, parallel: a
+    /// function frame has a null closure, a closure frame a null function.
     priv var _fns:   vec::<*FunctionDecl>;
+    priv var _cls:   vec::<*ClosureExpr>;
     priv var _count: u32 = 0;
 
     fn FinallyLowering(self, sc: *SemaContext) {
@@ -170,16 +181,64 @@ class FinallyLowering derives ASTWriter::<FinallyLowering> {
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
         self._fns.push_back(n);
+        self._cls.push_back(&null);
         var out = ASTWriter::<FinallyLowering>::transform_function_decl(n);
         self._fns.pop_back();
+        self._cls.pop_back();
         return out;
     }
 
     fn transform_closure_expr(self, n: *ClosureExpr) -> *Expr {
         self._fns.push_back(&null);
+        self._cls.push_back(n);
         var out = ASTWriter::<FinallyLowering>::transform_closure_expr(n);
         self._fns.pop_back();
+        self._cls.pop_back();
         return out;
+    }
+
+    /// The innermost enclosing function: the guard record's home.
+    priv fn _home_fn(self) -> *FunctionDecl {
+        var i = self._fns.size();
+        while i > 0 {
+            i = i - 1;
+            if self._fns[i] != &null { return self._fns[i]; }
+        }
+        return &null;
+    }
+
+    /// \p p is a parameter of a closure between the home function and here.
+    priv fn _closure_param(self, p: *ParamDecl) -> bool {
+        var i = self._cls.size();
+        while i > 0 {
+            i = i - 1;
+            var c = self._cls[i];
+            if c == &null { return false; }   // the home function's frame.
+            for var k: usize = 0; k < c->params.size(); ++k { if c->params[k] == p { return true; } }
+        }
+        return false;
+    }
+
+    /// Inside a closure that holds \p d by pointer (or sees it as one), the
+    /// name is that pointer: the type the body's first use \p at_use was
+    /// typed with. Null where \p d is the binding itself.
+    priv fn _closure_view(self, d: *Decl, at_use: *NamedIdentExpr) -> *Type {
+        var i = self._cls.size();
+        while i > 0 {
+            i = i - 1;
+            var c = self._cls[i];
+            if c == &null { return &null; }
+            if !c->caps_resolved { continue; }
+            for var k: usize = 0; k < c->cap_decls.size(); ++k {
+                if c->cap_decls[k] != d { continue; }
+                var m = c->cap_modes[k];
+                var ptr = (m == CaptureMode::Ptr) || (m == CaptureMode::ConstPtr) || c->cap_via_ptr[k];
+                if !ptr { return &null; }
+                ICE_IF((at_use == &null) || (at_use->type_ == &null), "FinallyLowering: a pointer capture used untyped in a finally body; X gate failure");
+                return canon_unqual(at_use->type_);
+            }
+        }
+        return &null;
     }
 
     // --- the rewrite ----------------------------------------------------------------
@@ -189,9 +248,8 @@ class FinallyLowering derives ASTWriter::<FinallyLowering> {
         // this body is scanned (file header, Nested).
         var out = ASTWriter::<FinallyLowering>::transform_finally_stmt(n);
         if n->body == &null { return out; }
-        ICE_IF(self._fns.empty(), "FinallyLowering: `finally` outside a function body; the parser admits it in statement position only");
-        var f = self._fns[self._fns.size() - 1];
-        ICE_IF(f == &null, "FinallyLowering: `finally` inside a closure; closures are not emitted yet (EmitIR), and a guard in one would not be either");
+        var f = self._home_fn();
+        ICE_IF(f == &null, "FinallyLowering: `finally` outside a function body; the parser admits it in statement position only");
 
         var at = n->range;
         var k  = static_cast::<usize>(self._count);
@@ -219,9 +277,16 @@ class FinallyLowering derives ASTWriter::<FinallyLowering> {
             var pointee: *Type = &null;
             var value:   *Expr = &null;
             var name = "";
-            if isa::<ParamDecl>(d) {
+            var view = self._closure_view(d, scan.free_at[i]);
+            if view != &null {
+                // Held by pointer in an enclosing closure: the guard points
+                // at that pointer (In a closure, above).
+                pointee = view;
+                value   = self._addr(d, decl_name_tok(d), at, pointee);
+                name    = self.tu.decl_name(d);
+            } else if isa::<ParamDecl>(d) {
                 var p = cast::<ParamDecl>(d);
-                ICE_IF(!self._param_of(f, p), "FinallyLowering: a parameter of another function is free in a finally body; FreeVarScan missed a declaration");
+                ICE_IF((!self._param_of(f, p)) && (!self._closure_param(p)), "FinallyLowering: a parameter of another function is free in a finally body; FreeVarScan missed a declaration");
                 if p->is_self {
                     pointee = self._self_pointee(f, p);
                     value   = self._self_ptr(p, at, pointee);

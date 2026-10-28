@@ -80,11 +80,48 @@ class CallExpr derives Expr {
     /// CallTyping::_ctor_call at Selected.
     pub var ctor_decl: *Decl = &null;
 
-    /// The record a static-member callee is named THROUGH: set by CallLowering
-    /// on a default-thunk call whose owner is generic, so EmitIR spells
-    /// `Box<int>::__kairo_default_m_x()` rather than an unqualified template
-    /// name. Null everywhere else.
+    /// The record a static-member callee is named THROUGH, when that record
+    /// is a generic one's instance, so EmitIR spells `Box<int>::zero()`
+    /// rather than the bare class template `Box::zero()`, which names no
+    /// class. Two writers: CallTyping on a `::` call through `Box<i32>`
+    /// (the instance's arguments are on the qualifier and nowhere else), and
+    /// CallLowering on a default-thunk call whose owner is generic
+    /// (`Box<int>::__kairo_default_m_x()`). Null everywhere else.
     pub var qualifier: *Type = &null;
+
+    /// A call bound to an interface REQUIREMENT (its callee's `semantic_dc`
+    /// owner an InterfaceDecl) goes through that interface's witness,
+    /// `::N::I_witness<Self, A...>::m(recv, ...)` (CODEGEN.md §7b.5).
+    /// Written by ExtensionLowering when it puts the receiver in front:
+    /// `witness_iface` is the canonical instance of the DECLARING interface,
+    /// `witness_self` the canonical Self (a dependent `T` in a generic body).
+    /// EmitIR spells the witness from both. Null on every other call.
+    /// A qualified call (`Container<i32>::m(x)`) has `witness_iface` earlier:
+    /// CallTyping writes the qualifier there, the only place a generic
+    /// interface's arguments are, and ConformanceChecking narrows it to the
+    /// bound it names before ExtensionLowering reads it.
+    pub var witness_iface: *Type = &null;
+    pub var witness_self:  *Type = &null;
+    /// A qualified requirement call on a CONCRETE Self (`I::m(x)` with x a
+    /// Metric) names no instance to carry its row, so the call carries it:
+    /// `*ConformanceRow`, as `*void` like `instance`. Written by
+    /// ConformanceChecking; EmitPlan admits its specialization from it.
+    pub var witness_row:   *void = &null;
+
+    /// A generic callee's arguments when they are still DEPENDENT, so no
+    /// instance exists yet (`inner(Wrap<T>{...})` inside `outer<T>`): what
+    /// ConformanceChecking substitutes with each instance of the enclosing
+    /// generic, to reach the instances its body needs (M1's transitive
+    /// registry, for the witness rows). Written by CallTyping; empty
+    /// whenever `instance` is set.
+    pub var dep_args: FrozenList::<*Type>;
+
+    /// `x?.f(args)` (NULLABLE.md 2.5): the call's OWN result `R`, while the
+    /// node is typed what the whole expression is (`R?`, or `R` when it is
+    /// already nullable; `void` for a `void` or `-> !` method). Written by
+    /// CallTyping; read by CoalesceLowering, whose then-arm is the call
+    /// typed `R`. Null on every other call.
+    pub var safe_result: *Type = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -100,6 +137,11 @@ class CallExpr derives Expr {
         node->instance = &null;
         node->ctor_decl = &null;
         node->qualifier = &null;
+        node->witness_iface = &null;
+        node->witness_self  = &null;
+        node->witness_row   = &null;
+        node->dep_args      = create_empty_frozen_list::<*Type>();
+        node->safe_result   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -118,6 +160,10 @@ class CallExpr derives Expr {
         node->instance      = &null;
         node->ctor_decl     = &null;
         node->qualifier     = &null;
+        node->witness_iface = &null;
+        node->witness_self  = &null;
+        node->witness_row   = &null;
+        node->dep_args      = create_empty_frozen_list::<*Type>();
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -211,6 +257,10 @@ class SubscriptExpr derives Expr {
     /// read by OperatorLowering, which rewrites the node into the call.
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    /// The registry entry of a GENERIC `op []`'s instance (a member
+    /// template's, or a bound's generic requirement), as on
+    /// BinaryOperatorExpr. `*InstanceEntry`, stored as `*void`.
+    pub var op_instance: *void = &null;
 
     static fn create(
         ctx:   *ASTContext,
@@ -225,6 +275,7 @@ class SubscriptExpr derives Expr {
         node->index = index;
         node->resolved_op = &null;
         node->op_via_free = false;
+        node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -241,6 +292,7 @@ class SubscriptExpr derives Expr {
         node->index         = &null;
         node->resolved_op   = &null;
         node->op_via_free   = false;
+        node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -345,6 +397,14 @@ class InitListExpr derives Expr {
 ///
 class StmtExpr derives Expr {
     pub var body: *CompoundStmt;
+    /// A `try` expression's arm that LEAVES instead of producing a value:
+    /// `catch => return v`, `=> break`, `=> continue` (PANIC.md §3.2). The
+    /// body is exactly that one jump statement, with no trailing value; the
+    /// expression has type `!`, so it fits beside arms of any type. The
+    /// parser writes it (ExprParse::_parse_jump_arm); PanicLowering renders
+    /// it (a `return` inside a GNU statement expression returns from the
+    /// enclosing function, §4.5a E).
+    pub var is_jump: bool = false;
 
     static fn create(
         ctx:   *ASTContext,
@@ -374,7 +434,8 @@ class StmtExpr derives Expr {
 ///  declaration order; `source_order[i]` is the position field i was written
 ///  at. One writer: VariantInitLowering, which mints it, typed as the enum and
 ///  an rvalue, in place of the construction X checked. EmitIR spells it as the
-///  tagged constructor taking a lambda that returns the payload struct. A
+///  tagged constructor the variant's AdtCtorForm names: the fields passed
+///  in order, or a lambda that returns the payload struct. A
 ///  plain enum's variant never becomes one: it is a value, and its `.V` is
 ///  lowered to the enumerator's name.
 ///
@@ -384,6 +445,21 @@ class VariantInitExpr derives Expr {
     pub var variant:      u32   = 0;               ///< position in en->variants.
     pub var fields:       FrozenList::<*Expr>;     ///< declaration order; empty for a nullary variant.
     pub var source_order: FrozenList::<u32>;       ///< parallel to fields.
+    /// A generic ADT's variant (AdtCtorForm::Both): this site's instance is
+    /// concrete and every field moves, so the field constructor is called.
+    /// Otherwise the lambda one, which every such variant has. One writer:
+    /// EnumLayoutLowering.
+    pub var field_ctor:   bool = false;
+    /// A pack-expanded variant's construction: the pack element built
+    /// (`variant`'s expanded index is variant + pack_index) and its type,
+    /// what the payload's pack-typed fields hold. -1 / null otherwise.
+    pub var pack_index:   i32   = -1;
+    pub var pack_elem:    *Type = &null;
+    /// A lang item with a site slot (EnumDecl::adt_site_field: the Panic
+    /// lang item's u32 beside the tag, PANIC.md §1.4): the site id this
+    /// construction stores there, in the same word as the tag. 0 stores
+    /// none. One writer: PanicLowering (a `panic X`).
+    pub var site:         u32   = 0;
 
     static fn create(
         ctx:     *ASTContext,
@@ -398,6 +474,7 @@ class VariantInitExpr derives Expr {
         node->variant      = variant;
         node->fields       = create_empty_frozen_list::<*Expr>();
         node->source_order = create_empty_frozen_list::<u32>();
+        node->field_ctor   = false;
         node->init_annotations(&(ctx->ast_alloc));
         return node;
     }
@@ -589,6 +666,9 @@ class NamedInitializerExpr derives Expr {
     /// construction that failed. One writer: X (ControlTyping); read through
     /// variant_decl_of. VariantInitLowering replaces the node.
     pub var variant_decl: *Decl = &null;
+    /// variant_decl is pack-expanded: the element its payload's type picked
+    /// (ControlTyping::_check_variant); -1 otherwise.
+    pub var variant_pack: i32 = -1;
 
     static fn create(
         ctx:       *ASTContext,
@@ -788,7 +868,7 @@ class UnaryOperatorExpr derives Expr {
 enum OpRewrite derives u8 {
     None = 0,   ///< resolved_op is the operator itself.
     Not,        ///< `a != b` from `op ==`:  `!(a.op==(b))`.
-    Cmp,        ///< `a < b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
+    Cmp,        ///< `a < b`, `a == b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
 }
 
 ///
@@ -892,6 +972,11 @@ class AssignOperatorExpr derives Expr {
     /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
     /// call it mints, and EmitIR spells the instance's arguments from it.
     pub var op_instance: *void = &null;
+    /// `self.f[k] = e` in a constructor that builds array field f element by
+    /// element: this write constructs element k (it did not exist before),
+    /// so S_pre spells it `init_at(k, e)` on f's slot, not an assignment.
+    /// One writer: CtorInitCheck. Read by EmitIR.
+    pub var ci_elem_init: bool = false;
 
     static fn create(
         ctx:      *ASTContext,
@@ -1075,6 +1160,83 @@ class IfExpr derives Expr {
 }
 
 ///
+///  PanicOpExpr
+///  Lowering-only: never parsed. The C++ PanicLowering needs that no Kairo
+///  expression spells (PANIC.md §4.3, §4.4):
+///
+///    Fwd      `::__kairo_fwd<R>(operand)`: the error `operand` (a panic
+///             result that is not Ok) as the panic result R, the node's
+///             type: the tag and site word copied, the payload moved. Bit
+///             for bit when the two layouts agree, else one case per type.
+///    FwdAll   the same with Ok forwarded too (a tail `return g()` whose
+///             value type is the caller's).
+///    SlotPut  the raw slot `slot` (a local marked raw_slot) built from the
+///             prvalue `operand`, in place: `new (&slot.b) box{operand}`.
+///             void.
+///    SlotTake the slot's value moved out into the result and the slot
+///             destroyed, a prvalue of the slot's type. Read once, at the
+///             `try`'s dispatch.
+///    Holds    `operand` holds error `elem` (a bool), where the result's
+///             set is dependent (a generic body, PANIC.md P10): the tag
+///             against `elem`'s type id, which only the instance knows.
+///    ErrorRef an lvalue of `elem`, the error `operand` holds, read at
+///             `elem`'s place in the set C++ ordered (P10), where Sema
+///             cannot say which place that is.
+///
+///  `operand` is an lvalue for Fwd / FwdAll when it names a held result
+///  (`__kairo_p0`), which it moves from. EmitIR spells every name through
+///  LowerTargets.
+///
+enum PanicOp derives u8 {
+    Fwd,
+    FwdAll,
+    SlotPut,
+    SlotTake,
+    Holds,
+    ErrorRef,
+}
+
+fn panic_op_name(k: PanicOp) -> string {
+    switch k {
+        case PanicOp::Fwd      { return "fwd"; }
+        case PanicOp::FwdAll   { return "fwd_all"; }
+        case PanicOp::SlotPut  { return "slot_put"; }
+        case PanicOp::SlotTake { return "slot_take"; }
+        case PanicOp::Holds    { return "holds"; }
+        case PanicOp::ErrorRef { return "error_ref"; }
+    }
+    return "?";
+}
+
+class PanicOpExpr derives Expr {
+    pub var which:   PanicOp = PanicOp::Fwd;
+    pub var operand: *Expr   = &null;
+    pub var slot:    *Expr   = &null;
+    /// Holds / ErrorRef: the error type asked about (dependent).
+    pub var elem:    *Type   = &null;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, which: PanicOp, operand: *Expr, slot: *Expr) -> *PanicOpExpr {
+        var node     = ctx->alloc::<PanicOpExpr>();
+        node->kind    = ExprKind::PanicOpExpr;
+        node->range   = range;
+        node->which   = which;
+        node->operand = operand;
+        node->slot    = slot;
+        node->elem    = &null;
+        node->init_annotations(&(ctx->ast_alloc));
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::PanicOpExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::PanicOpExpr;
+    }
+}
+
+///
 ///  TryCatchExpr
 ///  Grammar:  'try' '{' expr '}'
 ///            ('catch' ('var'|'const')? identifier ':' type '{' expr '}')*
@@ -1103,10 +1265,16 @@ class TryCatchExpr derives Expr {
         /// Declaration introduced by `binding`; see Statements.k Binding::decl.
         /// Null when !has_binding.
         var decl:        *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
+        /// The arm never runs (Statements.k CatchArm::is_dead).
+        var is_dead:     bool = false;
+        /// A C++ exception arm (Statements.k CatchArm::is_cxx).
+        var is_cxx:      bool = false;
     }
 
     pub var try_expr:   *Expr;
     pub var catch_arms: FrozenList::<CatchArm>;
+    /// The operand's panic set (Statements.k TryCatchStmt::reach).
+    pub var reach:      FrozenList::<*Type>;
 
     static fn create(ctx: *ASTContext, range: SourceRange, try_expr: *Expr) -> *TryCatchExpr {
         var node       = ctx->alloc::<TryCatchExpr>();
@@ -1154,6 +1322,12 @@ class MatchExpr derives Expr {
     pub var covering_arm:  i32  = -1;
     pub var open_tail:     bool = false;
     pub var decision:      *void = &null; ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
+    /// A match on a `T?` whose first arm is `case null` (NULLABLE.md 3.6):
+    /// every later arm matches the unwrapped `T`. One writer: X (the match
+    /// typing, which also reports a `T?` match without it); read by
+    /// PatternChecking and PatternCompilation (arm 0 is no row; the column
+    /// is `T`), CoalesceLowering (which splits arm 0 off) and SemaDump.
+    pub var null_arm:      bool  = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchExpr {
         var node        = ctx->alloc::<MatchExpr>();
@@ -1230,6 +1404,105 @@ class RangeExpr derives Expr {
 
     static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::RangeExpr; }
     static fn expr_kind() -> ExprKind { return ExprKind::RangeExpr; }
+}
+
+///
+///  UnwrapExpr
+///  unwrap!(expr)
+///
+///  The value of a nullable, or the program aborts with a message naming
+///  the expression and where it is (NULLABLE.md 2.6). Not a panic. `range`
+///  covers `unwrap!(...)`; the operand's own range is the text the message
+///  quotes.
+///
+class UnwrapExpr derives Expr {
+    pub var operand: *Expr;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, operand: *Expr) -> *UnwrapExpr {
+        var node      = ctx->alloc::<UnwrapExpr>();
+        node->kind    = ExprKind::UnwrapExpr;
+        node->range   = range;
+        node->operand = operand;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *UnwrapExpr {
+        var node            = ctx->alloc::<UnwrapExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::UnwrapExpr;
+        node->range         = range;
+        node->operand       = &null;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::UnwrapExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::UnwrapExpr; }
+}
+
+///
+///  DefinedExpr
+///  `defined!(NAME)` the preprocessor could not answer from Kairo's macro
+///  table: a clang macro (predefined, or from an ffi header) or none.
+///  EvalIfFolding folds it to a bool literal (EVAL.md §4.3).
+///
+class DefinedExpr derives Expr {
+    pub var name: Token;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, name: Token) -> *DefinedExpr {
+        var node   = ctx->alloc::<DefinedExpr>();
+        node->kind  = ExprKind::DefinedExpr;
+        node->range = range;
+        node->name  = name;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::DefinedExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::DefinedExpr; }
+}
+
+///
+///  AttributedExpr
+///  `@name operand` / `@name(args) operand`: an attribute applied to an
+///  expression (`var *cfg = @create Config(8080)`). `name` is the identifier
+///  after `@`; `args` the attribute's argument list, empty when none was
+///  written (`has_args` tells `@a()` from `@a`); `operand` the unary
+///  expression it applies to. `range` covers all three.
+///
+class AttributedExpr derives Expr {
+    pub var name:     Token;
+    pub var args:     FrozenList::<*Expr>;
+    pub var has_args: bool = false;
+    pub var operand:  *Expr;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, name: Token, operand: *Expr) -> *AttributedExpr {
+        var node      = ctx->alloc::<AttributedExpr>();
+        node->kind    = ExprKind::AttributedExpr;
+        node->range   = range;
+        node->name    = name;
+        node->args    = create_empty_frozen_list::<*Expr>();
+        node->has_args = false;
+        node->operand = operand;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AttributedExpr {
+        var node            = ctx->alloc::<AttributedExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::AttributedExpr;
+        node->range         = range;
+        node->args          = create_empty_frozen_list::<*Expr>();
+        node->has_args      = false;
+        node->operand       = &null;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::AttributedExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::AttributedExpr; }
 }
 
 ///
@@ -1625,6 +1898,32 @@ class TypeCastExpr derives Expr {
     /// overload resolution picks the parameter -- to decide the
     /// redundant-cast lint there.
     pub var widening: bool = false;
+
+    /// `p as (*D)?` from a `*B` with D below B: the CHECKED downcast
+    /// (casting.md), null when the dynamic type is not a D. Written by
+    /// CastTyping; EmitIR spells it as a dynamic_cast whose null pointer
+    /// becomes the null nullable (a static_cast to `Nullable<D*>` would
+    /// neither check nor map null).
+    pub var checked_downcast: bool = false;
+
+    /// `p as *D` from a `*B` with D below B: the ASSERTING downcast
+    /// (PANIC.md §5), which crashes when the dynamic type is not a D.
+    /// Written by CastTyping; OperatorLowering expands it into a
+    /// statement expression over a `dynamic_only` cast and a crash call,
+    /// and clears it.
+    pub var asserting_downcast: bool = false;
+
+    /// The bare `dynamic_cast<D*>(p)`, a null pointer on a miss: only
+    /// OperatorLowering's expansion of an asserting downcast makes one.
+    /// EmitIR spells it as is.
+    pub var dynamic_only: bool = false;
+
+    /// E, for `v as E` (or `v as E?`) into a CLOSED plain enum (not
+    /// `@open`) from an operand that is not a constant, else null: the value
+    /// is checked against E's variants at run time and a miss crashes (the crash family, PANIC.md §2.8). Written
+    /// by CastTyping once the operand is known not to fold (a constant is
+    /// checked there, at compile time); OperatorLowering builds the check.
+    pub var enum_check: *Decl = &null;
 
     static fn create(
         ctx:       *ASTContext,

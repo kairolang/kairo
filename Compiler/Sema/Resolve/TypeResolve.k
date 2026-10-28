@@ -60,6 +60,9 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::ResolutionState::*;
 import Sema::Resolve::GenericArgs::*;
+import Sema::Check::ConstEval::*;
+import Sema::Lower::LowerSynth::*;
+import Lexer::Immediate::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -79,13 +82,17 @@ import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
+import AST::Kind::ExprKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 import AST::Context::InstantiationRegistry::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::PanicSets::*;
 import AST::ParamMode::*;
+import Sema::Type::TypeUtil::*;
+import Sema::Check::EffectPropagation::*;
 
 ///
 /// \class GenericFrame
@@ -160,6 +167,34 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
 
     fn TypeResolution(self, sc: *SemaContext) {
         self.sc = sc;
+    }
+
+    /// > 0 while a generic ARGUMENT is resolved: there a generic value
+    /// parameter (`Buf<N>` inside `class <eval N: usize>`) is an argument,
+    /// not a misused type (EVAL.md 3).
+    priv var _arg_depth: u32 = 0;
+
+    fn traverse_generic_arg(self, a: *ChainType::GenericArg) {
+        self._arg_depth += 1;
+        RecursiveASTVisitor::<TypeResolution>::traverse_generic_arg(a);
+        self._arg_depth -= 1;
+    }
+
+    fn traverse_chain_type(self, n: *ChainType) -> *ChainType {
+        if self.dyn()->walkup_chain_type(n) == false { return n; }
+        for var i: usize = 0; i < n->segments.size(); i++ {
+            if self.stop { break; }
+            var seg = n->segments.get(i);
+            for var j: usize = 0; j < seg->generic_args.size(); j++ {
+                if self.stop { break; }
+                var arg = seg->generic_args.get(j);
+                if arg->ty == &null { continue; }
+                self._arg_depth += 1;
+                self.dyn()->dispatch_type(arg->ty);
+                self._arg_depth -= 1;
+            }
+        }
+        return n;
     }
 
     /// Entry point. PRE: NamesResolved (redecl chains linked, out-of-line
@@ -238,7 +273,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             case TypeKind::QualifiedType         { 0; }   // canonical by construction.
             case TypeKind::InferredType          { 0; }   // TypeInference owns; no canonical here.
             case TypeKind::TypeOfType            { self._mark_inst_dependent(t); }   // needs expr typing.
-            case TypeKind::TypeExpr              { self._mark_inst_dependent(t); }   // const arg; evaluator.
+            case TypeKind::TypeExpr              { self._resolve_value_arg(cast::<TypeExpr>(t)); }
             default                              { 0; }
         }
 
@@ -401,12 +436,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         n->canonical = t;
     }
 
-    /// `[T; N]` has an identity only once N is a known constant. The parser
-    /// accepts any expression there, but the evaluator does not exist yet, so
-    /// the one case T can settle is a literal. Anything else is marked
-    /// instantiation-dependent and left -- NOT an error: `[u8; SIZE]` with a
-    /// `const SIZE` is legal, just not decidable here. `[T;]` (incomplete, C
-    /// interop) never has an extent and canonicalizes as extent 0 with the
+    /// `[T; N]` has an identity only once N is a known constant. A literal,
+    /// or anything ConstEval folds: an `eval` name, arithmetic over those
+    /// (EVAL.md 0.1: an extent is type identity, so Sema computes it). A
+    /// length that names a generic value parameter, an eval call or an eval
+    /// constant that does not fold is C++'s to compute: its canonical is the
+    /// interned expression (EVAL.md 0.2), and EmitPlan defines what it
+    /// names ahead of any declaration spelling it (EVAL.md §11). Anything
+    /// else is an error here: a `const` name (not eval-able, EVAL.md 3;
+    /// fix-it to `eval`), a call of a non-eval fn, or a run-time value. A foreign
+    /// header's array is left as it was. `[T;]` (incomplete, C interop)
+    /// never has an extent and canonicalizes as extent 0 with the
     /// is_incomplete flag preserved on the SYNTAX node.
     priv fn _resolve_array(self, n: *FixedArrayType) {
         if !self._component_ok(n, n->element) { return; }
@@ -437,11 +477,566 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             }
         }
 
+        if (!known) && (n->size_expr != &null) && (self.sc->tu != &null) && (!self.sc->tu->is_foreign) {
+            var ce = ConstEval(self.sc);
+            var c  = ce.eval_int(n->size_expr);
+            if c.ok && (!c.overflow) && (!c.neg) && (ce.const_decl == &null) {
+                n->canonical = self.sc->types->array(elem, c.mag);
+                return;
+            }
+            // A value (a `const` read, a negative one) is wrong, not unknown.
+            if c.ok || ce.quiet {
+                self._bad_extent(n, &ce, c, "an array length");
+                n->poison();
+                return;
+            }
+            if self._own_class_constant(n, &ce) {
+                n->poison();
+                return;
+            }
+            // Not Sema's to compute (EVAL.md 0.2): a value parameter (`[T;
+            // N]`, substituted per instance, EVAL.md 3), an expression over
+            // them (`N + 1`), an eval constant that does not fold, an eval
+            // call. Its canonical is the interned expression; C++ computes
+            // it.
+            var vx = self._value_expr(n->size_expr);
+            if vx == &null {
+                self._report_value(n->size_expr, &ce, c, "an array length");
+                n->poison();
+                return;
+            }
+            var vt = dyn_cast::<TypeExpr>(vx);
+            if (vt != &null) && vt->is_exact() {
+                // Folded here where ConstEval stops (`/`, `%`): a number.
+                if vt->vneg {
+                    self.sc->diag->report(DiagID::SC001E, n->size_expr->range.start,
+                        f"an array length must be a non-negative constant that fits 64 bits; this one is -{vt->vmag}, which is negative"
+                    ).first(n->size_expr->range).emit();
+                    n->poison();
+                    return;
+                }
+                n->canonical = self.sc->types->array(elem, vt->vmag);
+                return;
+            }
+            if vx->is_dependent() { self._mark_dependent(n); }
+            n->canonical = self.sc->types->array_of_param(elem, vx);
+            return;
+        }
+
         if !known {
             self._mark_inst_dependent(n);
             return;
         }
         n->canonical = self.sc->types->array(elem, extent);
+    }
+
+    /// `[i32; K]` as a field of K's own class, where K's value does not fold
+    /// and C++ must compute it (EVAL.md 1.2a): inside its class body K is
+    /// declared but the class is incomplete, so it is no constant expression
+    /// there, in any C++ version. Reported (SC116E) with a fix-it hoisting K
+    /// to module scope. One that folds is spelled as its value and is fine;
+    /// a method body is a complete-class context and is fine too.
+    priv fn _own_class_constant(self, n: *FixedArrayType, ce: *ConstEval) -> bool {
+        if (self._cur_field == &null) || (ce->bad_decl == &null) { return false; }
+        var k = dyn_cast::<FieldDecl>(ce->bad_decl);
+        if (k == &null) || (!k->is_eval()) { return false; }
+        if k->semantic_dc != self._cur_field->semantic_dc { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(k->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        var kn = self.sc->ctx->get_spelling(k->name);
+        var on = ("its class") if (owner == &null) else (f"'{ce->tu.decl_name(owner)}\x27");
+        var b = self.sc->diag->report(DiagID::SC116E, n->size_expr->range.start,
+            f"an array length computed by C++ from '{kn}', an 'eval' constant of the field\x27s own class, is not supported: {on} is incomplete inside its own body");
+        b.first(n->size_expr->range);
+        b.note(DiagID::SC001N, k->name.range.start,
+            f"'{kn}' is declared here; its value is computed by C++, which reads it only once the class is complete").first(k->name.range);
+        if (owner != &null) && (k->type_ != &null) && (k->init != &null) && (!self._foreign(static_cast::<*Decl>(k))) {
+            var sm = self.sc->ctx->sm;
+            var hoist = f"eval {kn}: {sm->get_text(k->type_->range)} = {sm->get_text(k->init->range)}\n";
+            b.insert(self._with_vis(owner->range.start), hoist, f"move '{kn}' to module scope, where it is complete before the class");
+            b.remove(SourceRange::from_bounds(self._with_vis(k->range.start), k->range.end), f"and remove it from the class");
+        }
+        b.emit();
+        return true;
+    }
+
+    /// \p at, or the visibility keyword written right before it: a
+    /// declaration's range starts after `pub`, and a fix-it that moves the
+    /// declaration must take the keyword along.
+    priv fn _with_vis(self, at: SourceLocation) -> SourceLocation {
+        var sm = self.sc->ctx->sm;
+        var kws = vec::<string>();
+        kws.push_back("pub ");
+        kws.push_back("priv ");
+        kws.push_back("prot ");
+        var off = sm->get_offset(at);
+        for var i: usize = 0; i < kws.size(); ++i {
+            var n = kws[i].size();
+            if off < n { continue; }   // nothing before it in the file.
+            var st = at.retreat(n);
+            if sm->get_text(SourceRange::from_bounds(st, static_cast::<u32>(n))) == kws[i] { return st; }
+        }
+        return at;
+    }
+
+    /// A generic VALUE argument (`4` of `Buf<4>`, `N` of `Buf<N>` written as
+    /// an expression): folded like an array length (EVAL.md 0.1: an
+    /// instance's identity), to a canonical value_arg. One that stops at a
+    /// value parameter is that parameter; anything else is reported as an
+    /// array length is.
+    priv fn _resolve_value_arg(self, n: *TypeExpr) {
+        if n->is_value { return; }
+        if (n->expr == &null) || (self.sc->tu == &null) || self.sc->tu->is_foreign {
+            self._mark_inst_dependent(static_cast::<*Type>(n));
+            return;
+        }
+        var ce = ConstEval(self.sc);
+        var c  = ce.eval_int(n->expr);
+        if c.ok && (!c.overflow) && (ce.const_decl == &null) {
+            n->canonical = self.sc->types->value_arg(c.neg, c.mag);
+            return;
+        }
+        if c.ok || ce.quiet {
+            self._bad_value(n->expr, &ce, c, "a generic value argument");
+            n->poison();
+            return;
+        }
+        // As an array length (_resolve_array): a value parameter, an
+        // expression over them, an eval constant or call C++ computes; the
+        // instance's identity is the interned expression (EVAL.md 0.2).
+        var vx = self._value_expr(n->expr);
+        if vx == &null {
+            self._report_value(n->expr, &ce, c, "a generic value argument");
+            n->poison();
+            return;
+        }
+        if vx->is_dependent() { self._mark_dependent(static_cast::<*Type>(n)); }
+        n->canonical = vx;
+    }
+
+    // === Computed values (EVAL.md 0.2) ======================================
+
+    /// Why _value_expr failed: the sub-expression and a phrase, and a
+    /// callee that is not `eval` (a fix-it target).
+    priv var _vx_bad: *Expr = &null;
+    priv var _vx_why: string;
+    priv var _vx_fn:  *FunctionDecl = &null;
+
+    priv fn _vx_fail(self, e: *Expr, why: string) -> *Type {
+        if self._vx_bad == &null {
+            self._vx_bad = e;
+            self._vx_why = why;
+        }
+        return &null;
+    }
+
+    /// The canonical value node of \p e0, an array length or generic value
+    /// argument ConstEval could not fold: literals, value parameters, eval
+    /// constants (folded when their initializer folds), the binding of an
+    /// enclosing `eval for`, calls of eval fns, the builtin integer
+    /// operators and `as` to an integer type, over those. Null when \p e0
+    /// is none of that (_vx_bad says where). Every operand is interned, so
+    /// the node's identity is the expression's structure.
+    priv fn _value_expr(self, e0: *Expr) -> *Type {
+        self._vx_bad = &null;
+        self._vx_why = "";
+        self._vx_fn  = &null;
+        self._vx_in_call = 0;
+        return self._vx(e0);
+    }
+
+    priv fn _vx(self, e0: *Expr) -> *Type {
+        if (e0 == &null) || e0->is_poisoned() { return self._vx_fail(e0, "it does not resolve"); }
+        var e = e0;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if (e == &null) || e->is_poisoned() { return self._vx_fail(e0, "it does not resolve"); }
+        var ce = ConstEval(self.sc);
+
+        if isa::<IntegerLiteralExpr>(e) {
+            var c = ce.eval_int(e);
+            if (!c.ok) || c.overflow { return self._vx_fail(e, "this literal does not fit 64 bits"); }
+            return self.sc->types->value_arg(c.neg, c.mag);
+        }
+        // A string literal (EVAL.md 7e, §11, USER): `Widget<Config(4,
+        // "small")>`. Its node is its decoded bytes, so equal literals are
+        // one value; C++ gets the string built over `__kairo_estr<...>`
+        // (CXXSpell::value). Only as an argument: a string is no length.
+        if isa::<StringLiteralExpr>(e) {
+            var sl = cast::<StringLiteralExpr>(e);
+            if self._vx_in_call == 0 { return self._vx_fail(e, "a string is computed at compile time here only as an argument of an 'eval' call"); }
+            if (sl->imm == &null) || sl->is_format() { return self._vx_fail(e, "an f-string is not computed at compile time"); }
+            var st = ce.tu.string_type();
+            if st == &null { return self._vx_fail(e, "the string lang item is not declared"); }
+            var bytes = vec::<u8>();
+            if !self._vx_string_bytes(sl, &bytes) { return self._vx_fail(e, "this literal does not decode"); }
+            return self.sc->types->value_str(&bytes, st);
+        }
+        if isa::<NamedIdentExpr>(e) { return self._vx_name(e, cast::<NamedIdentExpr>(e)->resolved_decl); }
+        if isa::<ChainExpr>(e) {
+            var ch = cast::<ChainExpr>(e);
+            var d: *Decl = &null;
+            if ch->steps.size() > 0 { d = ch->steps.get(ch->steps.size() - 1)->resolved_decl; }
+            if d == &null { d = ce.scope_path(ch); }
+            return self._vx_name(e, d);
+        }
+        if isa::<UnaryOperatorExpr>(e) {
+            var u = cast::<UnaryOperatorExpr>(e);
+            var k = u->op_token.kind;
+            if k == TokenKind::KwCompl { k = TokenKind::OpTilde; }
+            if (!u->is_prefix()) || (u->resolved_op != &null) || ((k != TokenKind::OpMinus) && (k != TokenKind::OpPlus) && (k != TokenKind::OpTilde)) {
+                return self._vx_fail(e, f"'{self.sc->ctx->get_spelling(u->op_token)}' is not computed at compile time here");
+            }
+            var x = self._vx(u->operand);
+            if x == &null { return &null; }
+            if k == TokenKind::OpPlus { return x; }
+            var ops = vec::<*Type>();
+            ops.push_back(x);
+            return ce.value_node(ValueOp::Unary, k, &null, &ops, &null);
+        }
+        if isa::<BinaryOperatorExpr>(e) {
+            var b = cast::<BinaryOperatorExpr>(e);
+            var k = b->op_token.kind;
+            if k == TokenKind::KwBitor  { k = TokenKind::OpPipe; }
+            if k == TokenKind::KwBitand { k = TokenKind::OpAmp; }
+            if k == TokenKind::KwXor    { k = TokenKind::OpCaret; }
+            var known = (k == TokenKind::OpPlus) || (k == TokenKind::OpMinus) || (k == TokenKind::OpStar)
+                     || (k == TokenKind::OpSlash) || (k == TokenKind::OpPercent)
+                     || (k == TokenKind::OpPipe) || (k == TokenKind::OpAmp) || (k == TokenKind::OpCaret)
+                     || (k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater);
+            if (b->resolved_op != &null) || (!known) {
+                return self._vx_fail(e, f"'{self.sc->ctx->get_spelling(b->op_token)}' is not computed at compile time here");
+            }
+            var l = self._vx(b->lhs);
+            if l == &null { return &null; }
+            var r = self._vx(b->rhs);
+            if r == &null { return &null; }
+            var ops = vec::<*Type>();
+            ops.push_back(l);
+            ops.push_back(r);
+            return ce.value_node(ValueOp::Binary, k, &null, &ops, &null);
+        }
+        if isa::<TypeCastExpr>(e) {
+            var c = cast::<TypeCastExpr>(e);
+            var t: *Type = &null;
+            if c->target != &null { t = self.resolve(c->target); }
+            var ut = (canon_unqual(t)) if (t != &null) else (&null);
+            if (c->resolved_op != &null) || (ut == &null) || (!ce.tu.is_integer(ut)) {
+                return self._vx_fail(e, "only a cast to an integer type is computed at compile time here");
+            }
+            var x = self._vx(c->operand);
+            if x == &null { return &null; }
+            var ops = vec::<*Type>();
+            ops.push_back(x);
+            return ce.value_node(ValueOp::Cast, TokenKind::TkUnknown, &null, &ops, ut);
+        }
+        if isa::<CallExpr>(e) {
+            var call = cast::<CallExpr>(e);
+            // An eval class's constructor (`Widget<Config(4)>`, EVAL.md 7e):
+            // the node names the class, as C++ spells the call.
+            var rec = self._vx_record_callee(call);
+            if rec != &null {
+                var cargs = vec::<*Type>();
+                self._vx_in_call += 1;
+                for var i: usize = 0; i < call->args.size(); ++i {
+                    var a = self._vx(call->args[i]);
+                    if a == &null { self._vx_in_call -= 1; return &null; }
+                    cargs.push_back(a);
+                }
+                self._vx_in_call -= 1;
+                return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, rec, &cargs, &null);
+            }
+            var f = self._vx_callee(call);
+            if f == &null { return self._vx_fail(e, "the function this calls is not known here"); }
+            // An initializer read through its eval binding (_vx_name) may be
+            // LOWERED already, when it is another module's: a string literal
+            // is then its `string(bytes, len, cp)` construction, and an eval
+            // class's construction names the constructor. Both are the nodes
+            // the written forms give, or identity would differ by module.
+            var ls = self._vx_lowered_string(call, f);
+            if ls != &null { return ls; }
+            var own = self._vx_ctor_owner(f);
+            if own != &null {
+                var oargs = vec::<*Type>();
+                self._vx_in_call += 1;
+                for var i: usize = 0; i < call->args.size(); ++i {
+                    var a = self._vx(call->args[i]);
+                    if a == &null { self._vx_in_call -= 1; return &null; }
+                    oargs.push_back(a);
+                }
+                self._vx_in_call -= 1;
+                return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, own, &oargs, &null);
+            }
+            if !f->is_eval() {
+                self._vx_fn = f;
+                return self._vx_fail(e, f"'{self.sc->ctx->get_spelling(f->name)}' is not an 'eval' function");
+            }
+            var args = vec::<*Type>();
+            self._vx_in_call += 1;
+            for var i: usize = 0; i < call->args.size(); ++i {
+                var a = self._vx(call->args[i]);
+                if a == &null { self._vx_in_call -= 1; return &null; }
+                args.push_back(a);
+            }
+            self._vx_in_call -= 1;
+            return ce.value_node(ValueOp::Call, TokenKind::TkUnknown, static_cast::<*Decl>(f), &args, &null);
+        }
+        return self._vx_fail(e, "this is not computed at compile time");
+    }
+
+    /// A name in a computed value.
+    priv fn _vx_name(self, e: *Expr, d: *Decl) -> *Type {
+        if d == &null { return self._vx_fail(e, "this name does not resolve here"); }
+        var gp = dyn_cast::<GenericParamDecl>(d);
+        if gp != &null {
+            if (!gp->is_const_param) || (gp->owner == &null) { return self._vx_fail(e, f"'{self.sc->ctx->get_spelling(gp->name)}' is a type parameter, not a value"); }
+            return self.sc->types->generic_param(gp->owner, gp->index, false);
+        }
+        // An `eval for` binding is a constant in each copy (EVAL.md §5).
+        for var i: usize = 0; i < self._ef_binds.size(); ++i {
+            if self._ef_binds[i] == d { return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null); }
+        }
+        var vd = dyn_cast::<VariableDecl>(d);
+        var fd = dyn_cast::<FieldDecl>(d);
+        var ev = ((vd != &null) && vd->is_eval()) || ((fd != &null) && fd->is_eval());
+        if !ev { return self._vx_fail(e, f"'{ConstEval(self.sc).tu.decl_name(d)}' is not an 'eval' constant"); }
+        var ce = ConstEval(self.sc);
+        var c = ce.eval_decl(e, d);
+        if c.ok && (!c.overflow) { return self.sc->types->value_arg(c.neg, c.mag); }
+        var seen = self._vx_through(vd);
+        if seen != &null { return seen; }
+        return self.sc->types->value_expr(ValueOp::Decl, TokenKind::TkUnknown, d, &null, &null);
+    }
+
+    /// Bound while _vx_through reads an initializer: how deep, so `eval A =
+    /// B` / `eval B = A` stops (the Decl node stands then).
+    priv var _vx_through_depth: u32 = 0;
+    /// Inside the arguments of a Call node: where a string is a value.
+    priv var _vx_in_call: u32 = 0;
+
+    /// An eval binding of an eval class whose initializer is a constructor
+    /// call over literals (`eval SMALL = Config(4, "small")`) IS that
+    /// call's value (EVAL.md 7e, §11, USER): `Widget<SMALL>` and
+    /// `Widget<Config(4, "small")>` are one type, as they are one C++
+    /// specialization (a class-type template argument is its value). Only
+    /// a closed node -- literals, strings, constructor calls over those --
+    /// is seen through: a binding computed by an eval fn keeps its Decl
+    /// node, whose identity is its name (EVAL.md 0.2). Null otherwise.
+    priv fn _vx_through(self, vd: *VariableDecl) -> *Type {
+        if (vd == &null) || (vd->init == &null) || (self._vx_through_depth >= 8) { return &null; }
+        var sb = self._vx_bad;
+        var sw = self._vx_why;
+        var sf = self._vx_fn;
+        var sic = self._vx_in_call;
+        self._vx_in_call = 0;
+        self._vx_through_depth += 1;
+        var iv = self._vx(vd->init);
+        self._vx_through_depth -= 1;
+        self._vx_in_call = sic;
+        self._vx_bad = sb;
+        self._vx_why = sw;
+        self._vx_fn  = sf;
+        if iv == &null { return &null; }
+        var v = dyn_cast::<TypeExpr>(iv);
+        if (v == &null) || (!v->is_value) || (v->vop != ValueOp::Call) { return &null; }
+        if (!isa::<ClassDecl>(v->vdecl)) && (!isa::<StructDecl>(v->vdecl)) { return &null; }
+        if !self._vx_closed(iv) { return &null; }
+        return iv;
+    }
+
+    /// \p t holds nothing but literals, strings and eval constructor calls.
+    priv fn _vx_closed(self, t: *Type) -> bool {
+        var v = dyn_cast::<TypeExpr>(t);
+        if (v == &null) || (!v->is_value) { return false; }
+        if v->is_exact() || (v->vop == ValueOp::Str) { return true; }
+        if v->vop != ValueOp::Call { return false; }
+        if (!isa::<ClassDecl>(v->vdecl)) && (!isa::<StructDecl>(v->vdecl)) { return false; }
+        for var i: usize = 0; i < v->vops.size(); ++i { if !self._vx_closed(v->vops[i]) { return false; } }
+        return true;
+    }
+
+    /// The decoded bytes of string literal \p sl, every chained part, as
+    /// StringLowering would build them (a part with owned text is already
+    /// decoded). False when an escape does not decode.
+    priv fn _vx_string_bytes(self, sl: *StringLiteralExpr, out: *vec::<u8>) -> bool {
+        var synth = LowerSynth(self.sc);
+        var tcm = self.sc->ctx->tcm;
+        var tbl = (tcm->get_imm_table_for_fid(self.sc->ctx->sm->get_fid(sl->range))) if (tcm != &null) else (self.sc->imm_table());
+        var seg = sl->imm;
+        var raw = sl->is_raw();
+        while seg != &null {
+            if seg->has_owned_text() {
+                for var i: usize = 0; i < static_cast::<usize>(seg->owned_len); ++i { out->push_back(seg->owned_ptr[i]); }
+            } else if !synth.decode_text(seg->body, raw, out) {
+                return false;
+            }
+            if (seg->next == u32(-1)) || (tbl == &null) { break; }
+            seg = tbl->get::<Immediate::StringData>(seg->next);
+            raw = (static_cast::<u8>(seg->prefix_kind) & static_cast::<u8>(Immediate::TextPrefixKind::Raw)) != 0;
+        }
+        return true;
+    }
+
+    /// `string(bytes, len, cp)`, a string literal StringLowering already
+    /// rewrote (another module's initializer, read by _vx_through), as the
+    /// Str node of its bytes; null for any other call.
+    priv fn _vx_lowered_string(self, call: *CallExpr, f: *FunctionDecl) -> *Type {
+        var sd = self.sc->well_known->get(WellKnownType::String);
+        if (sd == &null) || (call->args.size() != 3) { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->owner_decl() != sd) { return &null; }
+        var a = call->args[0];
+        while (a != &null) && (isa::<ParenExpr>(a) || isa::<TypeCastExpr>(a)) {
+            if isa::<ParenExpr>(a) { a = cast::<ParenExpr>(a)->inner; } else { a = cast::<TypeCastExpr>(a)->operand; }
+        }
+        if (a == &null) || (!isa::<StringLiteralExpr>(a)) { return &null; }
+        var sl = cast::<StringLiteralExpr>(a);
+        if (sl->imm == &null) || (!sl->imm->has_owned_text()) { return &null; }
+        var st = ConstEval(self.sc).tu.string_type();
+        if st == &null { return &null; }
+        var bytes = vec::<u8>();
+        for var i: usize = 0; i < static_cast::<usize>(sl->imm->owned_len); ++i { bytes.push_back(sl->imm->owned_ptr[i]); }
+        return self.sc->types->value_str(&bytes, st);
+    }
+
+    /// The record \p f constructs, when it is an `eval` constructor (a
+    /// lowered construction names it, EVAL.md 7e); null otherwise.
+    priv fn _vx_ctor_owner(self, f: *FunctionDecl) -> *Decl {
+        if !f->is_eval() { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) { return &null; }
+        var owner = dc->owner_decl();
+        if (owner == &null) || ((!isa::<ClassDecl>(owner)) && (!isa::<StructDecl>(owner))) { return &null; }
+        var tu = ConstEval(self.sc).tu;
+        if tu.decl_name(static_cast::<*Decl>(f)) != tu.decl_name(owner) { return &null; }
+        return owner;
+    }
+
+    /// The function \p c calls, when names alone say: one declaration (a
+    /// call's overloads are X's to pick, and a computed value is resolved
+    /// before X).
+    priv fn _vx_callee(self, c: *CallExpr) -> *FunctionDecl {
+        var e = c->callee;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return &null; }
+        var d: *Decl = &null;
+        if isa::<NamedIdentExpr>(e) {
+            var ni = cast::<NamedIdentExpr>(e);
+            d = ni->resolved_decl;
+            if (d == &null) && (ni->candidate_cell != &null) && (ni->candidate_cell->size() == 1) { d = ni->candidate_cell->get(0); }
+        } else if isa::<ChainExpr>(e) {
+            var ch = cast::<ChainExpr>(e);
+            if ch->steps.size() > 0 { d = ch->steps.get(ch->steps.size() - 1)->resolved_decl; }
+            if d == &null { d = ConstEval(self.sc).scope_path(ch); }
+        }
+        return dyn_cast::<FunctionDecl>(d);
+    }
+
+    /// The class \p c constructs, when it names a record with an `eval`
+    /// constructor taking that many arguments (EVAL.md 7e); null otherwise.
+    priv fn _vx_record_callee(self, c: *CallExpr) -> *Decl {
+        var e = c->callee;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if (e == &null) || (!isa::<NamedIdentExpr>(e)) { return &null; }
+        var d = cast::<NamedIdentExpr>(e)->resolved_decl;
+        if (d == &null) || ((!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))) { return &null; }
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d) { ms = &(cast::<ClassDecl>(d)->methods); } else { ms = &(cast::<StructDecl>(d)->methods); }
+        var ce = ConstEval(self.sc);
+        var on = ce.tu.decl_name(d);
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m == &null) || m->is_operator || (!m->is_eval()) { continue; }
+            if ce.tu.decl_name(static_cast::<*Decl>(m)) != on { continue; }
+            var n: usize = 0;
+            for var p: usize = 0; p < m->params.size(); ++p { if (m->params[p] != &null) && (!m->params[p]->is_self) { n += 1; } }
+            if n == c->args.size() { return d; }
+        }
+        return &null;
+    }
+
+    /// Why a computed value has no node: a non-eval callee (with a fix-it),
+    /// else ConstEval's reason, else _vx's.
+    priv fn _report_value(self, e: *Expr, ce: *ConstEval, c: IntConst, what: string) {
+        if self._vx_fn != &null {
+            var f  = self._vx_fn;
+            var nm = self.sc->ctx->get_spelling(f->name);
+            var at = (self._vx_bad->range) if (self._vx_bad != &null) else (e->range);
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"{what} can call only 'eval' functions; '{nm}' is not 'eval\x27");
+            b.first(at);
+            b.note(DiagID::SC001N, f->range.start, f"'{nm}' is declared here").first(f->name.range);
+            if (!self._foreign(static_cast::<*Decl>(f))) && (!f->is_implicit) && (f->body_kind == FnBodyKind::Block) {
+                b.insert(f->range.start, "eval ", f"make '{nm}' an 'eval fn\x27");
+            }
+            b.emit();
+            return;
+        }
+        if (ce->bad != &null) && (!isa::<CallExpr>(ce->bad)) {
+            self._bad_value(e, ce, c, what);
+            return;
+        }
+        var at2 = (self._vx_bad) if (self._vx_bad != &null) else (e);
+        self.sc->diag->report(DiagID::SC001E, at2->range.start,
+            f"{what} must be computed at compile time: {self._vx_why}"
+        ).first(at2->range).emit();
+    }
+
+    /// Why `[T; e]` has no extent, at the part of `e` that is at fault.
+    priv fn _bad_extent(self, n: *FixedArrayType, ce: *ConstEval, c: IntConst, what: string) {
+        self._bad_value(n->size_expr, ce, c, what);
+    }
+
+    /// Why \p e is no compile-time value where \p what must be one (an
+    /// array length, a generic value argument), at the part at fault.
+    priv fn _bad_value(self, e: *Expr, ce: *ConstEval, c: IntConst, what: string) {
+        if ce->quiet { return; }
+        if c.ok && (ce->const_decl != &null) {
+            var vd  = ce->const_decl;
+            var nm  = self.sc->ctx->get_spelling(vd->name);
+            var at  = (ce->const_at->range) if (ce->const_at != &null) else (e->range);
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"{what} must be an 'eval' constant; '{nm}' is 'const', which is not evaluated at compile time");
+            b.first(at);
+            b.note(DiagID::SC001N, vd->name.range.start, f"'{nm}' is declared 'const' here").first(vd->name.range);
+            var kw = vd->storage_kw;
+            if kw.is_valid() && (vd->storage == StorageClass::Const) && (!vd->const_binding) && (!self._foreign(static_cast::<*Decl>(vd))) {
+                b.fix(kw, "eval", f"declare '{nm}' as 'eval\x27");
+            }
+            b.emit();
+            return;
+        }
+        if c.ok {
+            var why = ("a value wider than 64 bits") if (c.overflow) else (f"{ce->str(c)}, which is negative");
+            self.sc->diag->report(DiagID::SC001E, e->range.start,
+                f"{what} must be a non-negative constant that fits 64 bits; this one is {why}"
+            ).first(e->range).emit();
+            return;
+        }
+        var bad = (ce->bad) if (ce->bad != &null) else (e);
+        var bvd = (dyn_cast::<VariableDecl>(ce->bad_decl)) if (ce->bad_decl != &null) else (&null);
+        if (bvd != &null) && (!bvd->is_const()) && (!bvd->is_eval()) {
+            var vn = self.sc->ctx->get_spelling(bvd->name);
+            var vb = self.sc->diag->report(DiagID::SC001E, bad->range.start,
+                f"{what} must be an 'eval' constant; '{vn}' is a variable");
+            vb.first(bad->range);
+            vb.note(DiagID::SC001N, bvd->name.range.start, f"'{vn}' is declared here").first(bvd->name.range);
+            vb.emit();
+            return;
+        }
+        if isa::<CallExpr>(bad) {
+            self.sc->diag->report(DiagID::SC116E, bad->range.start,
+                f"{what} computed by a call is not yet supported"
+            ).first(bad->range).emit();
+            return;
+        }
+        var b = self.sc->diag->report(DiagID::SC001E, bad->range.start,
+            f"{what} must be a compile-time constant: {ce->bad_why}");
+        b.first(bad->range);
+        if ce->bad_decl != &null {
+            var dn = ce->tu.decl_name(ce->bad_decl);
+            b.note(DiagID::SC001N, ce->bad_decl->range.start, f"'{dn}' is declared here").first(ce->bad_decl->range);
+        }
+        b.emit();
     }
 
     /// An unprototyped `fn()` from a C header canonicalizes as a zero-param
@@ -471,8 +1066,21 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         } else {
             ret = self.sc->builtin(BuiltinKind::Void);
         }
+        // A declared `panic(E1, E2)`: its elements are types and resolve
+        // like the parameters, and a bad one poisons the `fn` type with
+        // them. The effect is in the key (PANIC.md §2.2): `panic` and its
+        // set, canonical, so `fn() panic(A, B)` and `fn() panic(B, A)` are
+        // one type and `fn() panic(A)` another.
+        for var i: usize = 0; i < n->panic_set.size(); ++i {
+            if !self._component_ok(n, n->panic_set[i]) { ok = false; }
+        }
         if !ok { return; }
-        n->canonical = self.sc->types->func(&params, &modes, ret);
+        var pset = vec::<*Type>();
+        if n->is_panic() {
+            var tu = TypeUtil(self.sc);
+            canonical_set(&tu, &(n->panic_set), &pset);
+        }
+        n->canonical = self.sc->types->func(&params, &modes, ret, n->is_panic(), &pset);
     }
 
     priv fn _resolve_opaque(self, n: *OpaqueFFIType) {
@@ -558,6 +1166,20 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         return self._selfs[self._selfs.size() - 1];
     }
 
+    /// The record whose members a bare name inside the innermost type body
+    /// reaches: Self's decl, or the body an instance Self selects (as
+    /// _lookup_in_selfs walks it). Null outside a type body and for a
+    /// non-record Self.
+    priv fn _self_owner(self) -> *Decl {
+        var t = self._current_self();
+        if t == &null { return &null; }
+        var d = self._self_decl_of(t);
+        if d == &null { return &null; }
+        var b = self.sc->record_body(t);
+        if b != &null { return b; }
+        return d;
+    }
+
     /// The decl a Self type's members live in: its record's. Null for a
     /// non-record Self (`extend i32`), which has no scope to look into.
     priv fn _self_decl_of(self, t: *Type) -> *Decl {
@@ -587,6 +1209,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// carries that flag through the store's flag absorption.
     priv fn _self_record(self, owner: *Decl) -> *Type {
         var canon = NameLookup::representative(owner);
+        var spec = self._spec_self_record(canon);
+        if spec != &null { return spec; }
         var gps   = decl_generic_params(canon);
         var args  = vec::<*Type>();
         for var i: usize = 0; i < gps.size(); ++i {
@@ -595,6 +1219,30 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             args.push_back(self.sc->types->generic_param(canon, gp->index, gp->is_pack));
         }
         return self.sc->types->record(canon, &args);
+    }
+
+    /// Self inside a registered specialization is the instance it stands
+    /// for, spelled through the primary as every other mention of it is:
+    /// `<P> Store<*P>` is `Store<*P>` (dependent, the primary's; member
+    /// lookup selects the partial back from the pattern) and `<> Store<bool>`
+    /// is `Store<bool>`, the very canonical a use names. A record over the
+    /// spec's own parameters instead would substitute into `Store<i32>` for
+    /// `Store<*i32>` -- the partial's P against the primary's slot -- and
+    /// spell `Store<P>` in C++, the primary. Null for anything else, or for
+    /// a spec whose pattern did not resolve.
+    priv fn _spec_self_record(self, canon: *Decl) -> *Type {
+        var k = decl_spec_kind(canon);
+        if (k != SpecKind::Partial) && (k != SpecKind::Explicit) { return &null; }
+        var primary = decl_instantiated_from(canon);
+        if primary == &null { return &null; }
+        var sargs = decl_spec_args(canon);
+        var args  = vec::<*Type>();
+        for var i: usize = 0; i < sargs.size(); ++i {
+            if (sargs[i] == &null) || (sargs[i]->canonical == &null) { return &null; }
+            args.push_back(sargs[i]->canonical);
+        }
+        if k == SpecKind::Explicit { return self.sc->types->record(canon, &args); }
+        return self.sc->types->record(NameLookup::representative(primary), &args);
     }
 
     // === Generic params =======================================================
@@ -654,6 +1302,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // until instantiation. Dependent, unexpanded-pack bit CLEARED (this
         // node consumed it), exactly as create() set up.
         self._mark_dependent(n);
+        // A bare pack, `T...`, the one form an argument list takes today:
+        // its canonical is the pack parameter, which stands for its
+        // expansion wherever it is an argument (Deduction::substitute
+        // splices the elements in; CXXSpell spells `T...`). A pattern over
+        // the pack (`Box<T>...`) has none yet.
+        var pc = canon_unqual(n->pattern->canonical);
+        if (pc != &null) && isa::<GenericParamType>(pc) && cast::<GenericParamType>(pc)->is_pack {
+            n->canonical = pc;
+        }
     }
 
     /// \class GenericHit
@@ -848,8 +1505,8 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // dependent spelling, not clang's `unsigned long`.
             head = owner_decl;
             MemberLookup::ensure_filled(self.sc, owner_decl);
-            var pat = decl_instantiated_from(owner_decl);
-            if (pat != &null) && self._is_unfilled_instance(owner_decl) { head = pat; }
+            var body = self.sc->record_body(owner);   // unfilled instance, or a partial's dependent Self.
+            if body != &null { head = body; }
         } else {
             // --- 2. head: generic frames, then the DC chain + overlay --------
             var imm = self._name_imm(tok);
@@ -879,8 +1536,53 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                         ct->poison();
                         return;
                     }
+                    // The use-site half of a header-only collision
+                    // (ImportResolution::_add), as N does for a value.
+                    if r.via_overlay
+                    && MemberLookup::report_lazy_ambiguity(self.sc, r.found_in, imm,
+                                                           self.sc->ctx->get_spelling(tok), seg0->name->range) {
+                        ct->poison();
+                        return;
+                    }
+                    // A generic VALUE argument written as a name (`Ring<CAP>`)
+                    // parses as a type: an `eval` variable here is its value
+                    // (EVAL.md 3), anything else that is a value is reported
+                    // as one that is not eval-able.
+                    if (self._arg_depth > 0) && (n == 1) && seg0->generic_args.is_empty() && (r.cell->size() == 1)
+                    && (isa::<VariableDecl>(r.cell->get(0)) || isa::<FieldDecl>(r.cell->get(0))) {
+                        var at = static_cast::<*Expr>(seg0->name);
+                        var ce = ConstEval(self.sc);
+                        var c  = ce.eval_decl(at, r.cell->get(0));
+                        if c.ok && (!c.overflow) && (ce.const_decl == &null) {
+                            seg0->resolved_decl = r.cell->get(0);
+                            ct->canonical = self.sc->types->value_arg(c.neg, c.mag);
+                            return;
+                        }
+                        // An eval constant C++ computes (one that calls an
+                        // eval fn, or an eval class's object, EVAL.md 0.2 /
+                        // 7e): its value node.
+                        if (!c.ok) && (!ce.quiet) {
+                            self._vx_bad = &null;
+                            self._vx_fn  = &null;
+                            var vx = self._vx_name(at, r.cell->get(0));
+                            if vx != &null {
+                                seg0->resolved_decl = r.cell->get(0);
+                                ct->canonical = vx;
+                                return;
+                            }
+                        }
+                        self._bad_value(at, &ce, c, "a generic value argument");
+                        ct->poison();
+                        return;
+                    }
                     head = self._pick_type_candidate(r, seg0->name);
                     if head == &null { ct->poison(); return; }   // diagnosed inside.
+                    // The scope exception's readability lint: `-> Node`
+                    // resolves, and says `Self::Node` would read better.
+                    var so = self._self_owner();
+                    if MemberLookup::is_member_type_of(head, so) {
+                        MemberLookup::warn_unqualified_member_type(self.sc, seg0->name->range, head, so);
+                    }
                     self._append_module_scopes(r, &mods);
                 }
             }
@@ -901,6 +1603,11 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // invariant #5: dependent = deferred, not failed).
             var prev = ct->segments.get(i - 1);
             if isa::<GenericParamDecl>(cur) {
+                // `T::Node` with T bounded: the associated type its bound
+                // declares, checked here once against the bounds (MONO.md
+                // D0). Only a `: type` parameter, or one with a `derives`
+                // bound (a C++ base's nested type), keeps today's deferral.
+                if self._assoc_through_param(ct, cast::<GenericParamDecl>(cur), cur_owner, i) { return; }
                 seg->seg_kind = ChainType::SegmentKind::Dependent;
                 went_dependent = true;
                 break;
@@ -945,6 +1652,18 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // decls happened to share this TU's index for `Aaa`.
             var sspell = self.sc->ctx->get_spelling(seg->name->name);
             var sr = self.sc->lookup.in_context(scope, DeclName::ident(simm), sspell);
+            // `Self::Node` inside `interface Big derives Graph`: an associated
+            // type is a member of every interface that derives its own.
+            if (!sr.found()) && isa::<InterfaceDecl>(cur) && (mods.size() <= 1) {
+                var inh = self._find_assoc(cast::<InterfaceDecl>(cur), simm, sspell, 0);
+                if inh != &null {
+                    cur = static_cast::<*Decl>(inh);
+                    cur_owner = &null;
+                    seg->resolved_decl = cur;
+                    mods.clear();
+                    continue;
+                }
+            }
             var next_mods = vec::<*DeclContext>();
             if mods.size() > 1 {
                 // Every reopening. The first that has the name answers: a
@@ -985,6 +1704,267 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var last = ct->segments.get(n - 1);
         ct->canonical = self._type_of_decl(ct, cur, cur_owner, last);
         if last->resolved_type == &null { last->resolved_type = ct->canonical; }
+    }
+
+    // === Associated types (interfaces.md, Associated Types) =================
+
+    /// The associated type whose DEFAULT is being resolved right now, or
+    /// null: the order rule (a default sees only associated types declared
+    /// before it) is checked against it.
+    priv var _assoc_default: *TypeAliasDecl = &null;
+
+    /// `Self::Node` (or bare `Node`) naming associated type \p td: the
+    /// abstract AssocType over the innermost Self, which must be an
+    /// interface -- outside one there is no Self for it to belong to.
+    priv fn _assoc_in_iface(self, ct: *ChainType, td: *TypeAliasDecl, seg: *ChainType::ChainSegment) -> *Type {
+        var nm = self.sc->ctx->get_spelling(td->name);
+        if (!seg->generic_args.is_empty()) || (td->generic_params.size() > 0) {
+            var b = self.sc->diag->report(DiagID::SC116E, seg->range.start,
+                f"generic associated type '{nm}' is not supported yet");
+            b.first(seg->range);
+            b.note(DiagID::SC116N, td->range.start, "declared here").first(td->range);
+            b.emit();
+            ct->poison();
+            return &null;
+        }
+        var self_t = canon_unqual(self._current_self());
+        var sd = self._self_decl_of(self_t);
+        var sdp: *Decl = &null;
+        if sd != &null { sdp = NameLookup::representative(decl_pattern(sd)); }
+        if (sdp == &null) || (!isa::<InterfaceDecl>(sdp)) {
+            var home: *Decl = &null;
+            if td->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(td->semantic_dc)->owner_decl(); }
+            var hn = "its interface";
+            if (home != &null) && isa::<InterfaceDecl>(home) { hn = self.sc->ctx->get_spelling(cast::<InterfaceDecl>(home)->name); }
+            var b = self.sc->diag->report(DiagID::R001E, seg->range.start,
+                f"associated type '{nm}' of '{hn}' is named outside the interface; name it through a type parameter bounded by '{hn}' ('T::{nm}\x27)");
+            b.first(seg->range);
+            b.note(td->range.start, "declared here").first(td->range);
+            b.emit();
+            ct->poison();
+            return &null;
+        }
+        // The order rule: a default sees only associated types declared
+        // before it (so no cycle can form), and never itself.
+        var cur = self._assoc_default;
+        if (cur != &null) && (td->semantic_dc == cur->semantic_dc) && (!self._declared_before(td, cur)) {
+            var cn = self.sc->ctx->get_spelling(cur->name);
+            var b = self.sc->diag->report(DiagID::R001E, seg->range.start,
+                f"the default of associated type '{cn}' names '{nm}', which is not declared before it; defaults resolve in declaration order");
+            b.first(seg->range);
+            b.note(td->range.start, f"'{nm}' is declared here").first(td->range);
+            b.emit();
+            ct->poison();
+            return &null;
+        }
+        var tu = TypeUtil(self.sc);
+        var ai = tu.assoc_iface(self_t, static_cast::<*Decl>(td));
+        if ai == &null { self._assoc_inherited_generic(ct, td, seg->range); return &null; }
+        self._mark_dependent(ct);
+        return self.sc->types->assoc(self_t, ai, NameLookup::representative(static_cast::<*Decl>(td)));
+    }
+
+    /// An associated type inherited from a GENERIC interface: its interface's
+    /// arguments as the deriving one sees them are not computed yet.
+    priv fn _assoc_inherited_generic(self, ct: *ChainType, td: *TypeAliasDecl, at: SourceRange) {
+        var nm = self.sc->ctx->get_spelling(td->name);
+        var b = self.sc->diag->report(DiagID::SC116E, at.start,
+            f"associated type '{nm}' is inherited from a generic interface, which is not supported yet");
+        b.first(at);
+        b.note(DiagID::SC116N, td->range.start, "declared here").first(td->range);
+        b.emit();
+        ct->poison();
+    }
+
+    /// `type Node = X` in `interface D derives G` where G declares Node: the
+    /// spec's "a derived interface may give an inherited associated type a
+    /// default" is not built (the composed requirement keeps G's, without
+    /// it), so it is SC116E here rather than a second, unrelated Node.
+    priv fn _redeclares_inherited_assoc(self, td: *TypeAliasDecl) -> bool {
+        if td->semantic_dc == &null { return false; }
+        var id = dyn_cast::<InterfaceDecl>(reinterpret_cast::<*DeclContext>(td->semantic_dc)->owner_decl());
+        if id == &null { return false; }
+        var imm = self._name_imm(td->name);
+        if imm == u32(-1) { return false; }
+        var sp = self.sc->ctx->get_spelling(td->name);
+        for var k: usize = 0; k < id->derives_list.size(); ++k {
+            var e = id->derives_list.get(k);
+            if (e == &null) || (e->base == &null) { continue; }
+            if !self.sc->rstate.type_done(e->base) { self.dispatch_type(e->base); }
+            if e->base->canonical == &null { continue; }
+            var bt = canon_unqual(e->base->canonical);
+            if !isa::<RecordType>(bt) { continue; }
+            var bd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(bt)->decl)));
+            var inh = self._find_assoc(bd, imm, sp, 0);
+            if inh == &null { continue; }
+            var b = self.sc->diag->report(DiagID::SC116E, td->name.range.start,
+                f"redeclaring inherited associated type '{sp}' (to give it a default) is not supported yet");
+            b.first(td->name.range);
+            b.note(DiagID::SC116N, inh->range.start, "the inherited associated type is declared here").first(inh->range);
+            b.emit();
+            td->poison();
+            return true;
+        }
+        return false;
+    }
+
+    /// \p a is declared strictly before \p b in their (one) interface body.
+    priv fn _declared_before(self, a: *TypeAliasDecl, b: *TypeAliasDecl) -> bool {
+        if a == b { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(b->semantic_dc);
+        if dc == &null { return false; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if d == static_cast::<*Decl>(a) { return true; }
+            if d == static_cast::<*Decl>(b) { return false; }
+        }
+        return false;
+    }
+
+    /// `T::Node` (segment \p i names Node) on generic parameter \p gp of
+    /// \p owner: resolved through T's interface bounds, or diagnosed. False
+    /// for the cases that keep the old deferral: a `: type` parameter (C++
+    /// checks it, MONO.md D1) and one with a `derives` bound (a C++ base
+    /// class's nested type is C++'s to find).
+    priv fn _assoc_through_param(self, ct: *ChainType, gp: *GenericParamDecl, owner: *Decl, i: usize) -> bool {
+        if gp->kind_bound == GenericParamKindBound::Duck { return false; }
+        var seg = ct->segments.get(i);
+        var simm = self._name_imm(seg->name->name);
+        if simm == u32(-1) { return false; }
+        var sspell = self.sc->ctx->get_spelling(seg->name->name);
+        var gname  = self.sc->ctx->get_spelling(gp->name);
+
+        var conj = vec::<*ConstraintExpr>();
+        if owner != &null { self._param_conjuncts(decl_requires_clause(owner), gp, owner, &conj); }
+        var has_derives = false;
+        var bounds = vec::<*ConstraintExpr>();
+        for var k: usize = 0; k < conj.size(); ++k {
+            if conj[k]->is_derives() { has_derives = true; continue; }
+            bounds.push_back(conj[k]);
+        }
+        if has_derives { return false; }
+
+        // Every bound declaring the name; one entity found twice (a bound and
+        // an interface deriving it) is one hit.
+        var hit: *TypeAliasDecl = &null;
+        var hit_iface: *Type = &null;
+        for var k: usize = 0; k < bounds.size(); ++k {
+            var c = bounds[k];
+            if c->rhs == &null { continue; }
+            if !self.sc->rstate.type_done(c->rhs) { self.dispatch_type(c->rhs); }
+            if c->rhs->canonical == &null { continue; }
+            var bt = canon_unqual(c->rhs->canonical);
+            if !isa::<RecordType>(bt) { continue; }
+            var bd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(bt)->decl)));
+            if bd == &null { continue; }
+            var td = self._find_assoc(bd, simm, sspell, 0);
+            if td == &null { continue; }
+            if hit == &null { hit = td; hit_iface = bt; continue; }
+            if NameLookup::representative(static_cast::<*Decl>(td)) == NameLookup::representative(static_cast::<*Decl>(hit)) { continue; }
+            // interfaces.md, Name collisions between bounds: two bounds'
+            // `Node`s are different types, and T::Node names neither.
+            var b = self.sc->diag->report(DiagID::R028E, seg->name->range.start,
+                f"'{gname}::{sspell}' is ambiguous: more than one bound of '{gname}' declares an associated type '{sspell}\x27");
+            b.first(seg->name->range);
+            b.note(DiagID::R028N, hit->range.start, "one is declared here").first(hit->range);
+            b.note(DiagID::R028N, td->range.start, "another is declared here").first(td->range);
+            b.emit();
+            ct->poison();
+            return true;
+        }
+        if hit == &null {
+            var b = self.sc->diag->report(DiagID::R025E, seg->name->range.start,
+                f"no associated type named '{sspell}' in the bounds of '{gname}\x27");
+            b.first(seg->name->range);
+            if bounds.size() == 0 {
+                b.note(gp->range.start, f"'{gname}' has no interface bound; a generic body may use only what its bounds declare").first(gp->range);
+            } else {
+                for var k: usize = 0; k < bounds.size(); ++k { b.note(bounds[k]->range.start, "bound here").first(bounds[k]->range); }
+            }
+            b.emit();
+            ct->poison();
+            return true;
+        }
+        if (!seg->generic_args.is_empty()) || (hit->generic_params.size() > 0) {
+            var b = self.sc->diag->report(DiagID::SC116E, seg->range.start,
+                f"generic associated type '{sspell}' is not supported yet");
+            b.first(seg->range);
+            b.note(DiagID::SC116N, hit->range.start, "declared here").first(hit->range);
+            b.emit();
+            ct->poison();
+            return true;
+        }
+        if i + 1 < ct->segments.size() {
+            var nx = ct->segments.get(i + 1);
+            var b = self.sc->diag->report(DiagID::SC116E, nx->range.start,
+                f"a member of associated type '{gname}::{sspell}' cannot be named yet");
+            b.first(nx->range);
+            b.note(DiagID::SC116N, hit->range.start, "the associated type is declared here").first(hit->range);
+            b.emit();
+            ct->poison();
+            return true;
+        }
+        seg->resolved_decl = static_cast::<*Decl>(hit);
+        var tu = TypeUtil(self.sc);
+        var ai = tu.assoc_iface(hit_iface, static_cast::<*Decl>(hit));
+        if ai == &null { self._assoc_inherited_generic(ct, hit, seg->range); return true; }
+        var base = self.sc->types->generic_param(owner, gp->index, gp->is_pack);
+        self._mark_dependent(ct);
+        ct->canonical = self.sc->types->assoc(base, ai, NameLookup::representative(static_cast::<*Decl>(hit)));
+        seg->resolved_type = ct->canonical;
+        return true;
+    }
+
+    /// The `impl` / `derives` conjuncts of \p e that constrain \p gp, in
+    /// clause order (RequiresDesugar hoisted the inline bounds in).
+    /// ConstraintExtraction's partition, read early: it runs after T.
+    priv fn _param_conjuncts(self, e: *Expr, gp: *GenericParamDecl, owner: *Decl, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        if e->kind == ExprKind::BinaryOperatorExpr {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if (b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd) {
+                self._param_conjuncts(b->lhs, gp, owner, out);
+                self._param_conjuncts(b->rhs, gp, owner, out);
+            }
+            return;
+        }
+        if e->kind != ExprKind::ConstraintExpr { return; }
+        var c = cast::<ConstraintExpr>(e);
+        var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+        if id == &null { return; }
+        if id->resolved_decl == static_cast::<*Decl>(gp) { out->push_back(c); return; }
+        // The clause is the OWNER's (its representative's), whose parameter
+        // objects need not be the ones the walk is in (another redecl's):
+        // the same position among the owner's own parameters is the same T.
+        var g2 = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+        if (g2 == &null) || (g2->index != gp->index) || (owner == &null) { return; }
+        var gps = decl_generic_params(owner);
+        for var i: usize = 0; i < gps.size(); ++i {
+            if gps[i] == g2 { out->push_back(c); return; }
+        }
+    }
+
+    /// Associated type \p imm declared by interface \p id or one it derives
+    /// (its bases' already-resolved types), or null.
+    priv fn _find_assoc(self, id: *InterfaceDecl, imm: u32, spelling: string, depth: u32) -> *TypeAliasDecl {
+        if (id == &null) || (depth > 32) { return &null; }
+        var r = self.sc->lookup.in_context(static_cast::<*DeclContext>(id), DeclName::ident(imm), spelling);
+        if r.found() {
+            for var k: usize = 0; k < r.cell->size(); ++k {
+                var ta = dyn_cast::<TypeAliasDecl>(r.cell->get(k));
+                if (ta != &null) && ta->is_associated { return ta; }
+            }
+        }
+        for var k: usize = 0; k < id->derives_list.size(); ++k {
+            var e = id->derives_list.get(k);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var bt = canon_unqual(e->base->canonical);
+            if !isa::<RecordType>(bt) { continue; }
+            var bd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(bt)->decl)));
+            var f = self._find_assoc(bd, imm, spelling, depth + 1);
+            if f != &null { return f; }
+        }
+        return &null;
     }
 
     /// An implicit instantiation M2 has not filled: empty table, empty base
@@ -1121,12 +2101,18 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 ct->poison();
                 return &null;
             }
+            // A value parameter as a generic argument (`Buf<N>`): the
+            // parameter itself stands in, as a type parameter does.
+            if gp->is_const_param && (self._arg_depth > 0) {
+                self._mark_dependent(ct);
+                return self.sc->types->generic_param(gowner, gp->index, false);
+            }
             if gp->is_const_param {
                 var nm = self.sc->ctx->get_spelling(gp->name);
                 self.sc->diag->report(DiagID::R023E, seg->range.start,
                     f"'{nm}' is a value parameter and cannot be used as a type"
                 ).first(seg->range)
-                 .note(DiagID::R023N, gp->range.start, "declared as a const generic parameter here")
+                 .note(DiagID::R023N, gp->range.start, "declared as a generic value parameter here")
                  .first(gp->range).emit();
                 ct->poison();
                 return &null;
@@ -1163,16 +2149,42 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             return &null;
         }
 
+        // -- associated type ---------------------------------------------------
+        // `Self::Node` / bare `Node` inside the interface. Never expanded:
+        // `aliased` is the DEFAULT, which only an explicit conformer takes;
+        // inside the interface the type is abstract.
+        if isa::<TypeAliasDecl>(d) && cast::<TypeAliasDecl>(d)->is_associated {
+            return self._assoc_in_iface(ct, cast::<TypeAliasDecl>(d), seg);
+        }
+
         // -- alias --------------------------------------------------------------
         if isa::<TypeAliasDecl>(d) {
             var td  = cast::<TypeAliasDecl>(d);
             var gps = td->generic_params;
             if gps.size() > 0 {
-                // Generic alias APPLICATION needs substitution of the aliased
-                // body -- M2's machinery. Check arity now (that is T's), then
-                // hand off as instantiation-dependent. Not an error.
+                // Generic alias APPLICATION: the aliased body with the
+                // arguments substituted in, so `Mat<i32>` of `type <T> Mat =
+                // [[T]]` IS `[[i32]]` -- the same canonical, the same
+                // instance, as if written out. `Mat<U>` in a generic body is
+                // `[[U]]`, dependent like any other use of U.
                 if !self._check_arity(d, gps, seg, ct) { return &null; }
-                if !self._resolve_args(seg, ct) { return &null; }
+                var args = vec::<*Type>();
+                if !self._collect_args(seg, ct, d, gps, &args) { return &null; }
+                var body = self._expand_alias(td, seg->range);
+                if (body == &null) && (td->is_poisoned() || (self.sc->rstate.decl_state(td) == ResolveState::Errored)) {
+                    ct->poison();
+                    return &null;
+                }
+                var applied = self._apply_alias(td, gps, &args, body);
+                if applied != &null {
+                    ct->type_flags = static_cast::<Type::TypeFlags>(
+                        static_cast::<u8>(ct->type_flags) | static_cast::<u8>(applied->type_flags));
+                    return applied;
+                }
+                // A body substitution cannot rewrite (a raw dependent
+                // composite with no canonical): the use stays
+                // instantiation-dependent, as every application was before.
+                // Not an error.
                 self._mark_inst_dependent(ct);
                 return &null;
             }
@@ -1215,6 +2227,27 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { dep = true; }
         }
 
+        // The Panic lang item (PANIC.md §1.1): the compiler forms every
+        // instance; source names one only under the test hook, and then its
+        // set is formed as the compiler forms one -- canonical, and checked
+        // for colliding type ids (PanicSets).
+        var psets = PanicSets(self.sc);
+        if psets.is_panic(canon) {
+            if (!self.sc->opts.test_panic_type) && (!self.sc->g->is_builtin_fid(self.sc->ctx->fid)) {
+                var b = self.sc->diag->report(DiagID::SC116E, seg->range.start,
+                    "a panic result type cannot be named yet; a panicking call is handled with 'try' or propagated");
+                b.first(seg->range, "'Panic' is the result type of a 'panic' function, written by the compiler");
+                b.note(DiagID::SC116N, canon->range.start, "the builtin result type, declared here").first(canon->range);
+                b.emit();
+                ct->poison();
+                return &null;
+            }
+            if (!dep) && psets.canonicalize(&args) && (!psets.check_collisions(seg->range, &args)) {
+                ct->poison();
+                return &null;
+            }
+        }
+
         // #12. A CONCRETE instance points at the decl that IS the instance:
         // the explicit spec if one was registered for these args, else the
         // implicit node minted on this first mention. A dependent use keeps
@@ -1224,8 +2257,45 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var e = self.sc->instances->instance_for(canon, &args, self.sc->ctx->fid,
                                                      NameLookup::ctx_of(canon));
             if e != &null { inst = e->decl; }
+            if (e != &null) && (e->ambiguous_a != &null) && (!e->ambiguity_reported) {
+                self._ambiguous_partials(e, seg->range);
+            }
         }
-        return self.sc->types->record(inst, &args);
+        var rt = self.sc->types->record(inst, &args);
+        if psets.is_panic(canon) && (!dep) { psets.note_formed(seg->range, rt); }
+        return rt;
+    }
+
+    /// \p body (an alias's canonical, over its own parameters) with \p args
+    /// bound to them; null when substitution cannot say. A pack parameter
+    /// takes every argument from its position on, as an instance's do
+    /// (Substitution::bind_from_record). Both the alias and its
+    /// representative own the parameters a redeclared alias's body names.
+    priv fn _apply_alias(self, td: *TypeAliasDecl, gps: FrozenList::<*GenericParamDecl>,
+                         args: *vec::<*Type>, body: *Type) -> *Type {
+        if body == &null { return &null; }
+        var ded = Deduction(self.sc, &null);
+        var owners = vec::<*Decl>();
+        owners.push_back(static_cast::<*Decl>(td));
+        var rep = NameLookup::representative(static_cast::<*Decl>(td));
+        if rep != static_cast::<*Decl>(td) { owners.push_back(rep); }
+        for var o: usize = 0; o < owners.size(); ++o {
+            var at: usize = 0;
+            for var i: usize = 0; i < gps.size(); ++i {
+                var gp = gps[i];
+                if gp == &null { continue; }
+                if gp->is_pack {
+                    ded.open_pack(owners[o], gp->index);
+                    for var k: usize = at; k < args->size(); ++k { ded.push_pack(owners[o], gp->index, (*args)[k]); }
+                    at = args->size();
+                    continue;
+                }
+                if at >= args->size() { return &null; }
+                ded.bind(owners[o], gp->index, (*args)[at]);
+                at += 1;
+            }
+        }
+        return ded.substitute(body);
     }
 
     // === Generic arguments ====================================================
@@ -1375,9 +2445,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // `T` in `class <T> Box { type Elem = T }` is Box's whoever demands
         // Elem first. Self inside an alias body is its ENCLOSING type.
         var saved = self._enter_decl_scope(static_cast::<*Decl>(td));
+        var saved_default = self._assoc_default;
+        if td->is_associated { self._assoc_default = td; }
         ++(self._alias_depth);
         self.dispatch_type(td->aliased);
         --(self._alias_depth);
+        self._assoc_default = saved_default;
         self._leave_decl_scope(&saved);
 
         var ok = !td->aliased->is_poisoned();
@@ -1582,6 +2655,35 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
 
     // === Scope cursor management (mirrors NameResolution) =====================
 
+    /// The field whose type is being resolved, for EVAL.md 1.2a
+    /// (_own_class_constant); null elsewhere.
+    priv var _cur_field: *FieldDecl = &null;
+    /// Eval fn bodies around the walk: an `eval for` there is a plain loop,
+    /// whose binding is no constant.
+    priv var _eval_fns: u32 = 0;
+    /// Bindings of the unrolled `eval for`s around the walk: each copy's
+    /// constant (EVAL.md §5), usable in a computed value.
+    priv var _ef_binds: vec::<*Decl>;
+
+    fn traverse_ranged_for_stmt(self, n: *RangedForStmt) -> *RangedForStmt {
+        var pushed = false;
+        if (n != &null) && n->is_eval && (self._eval_fns == 0) && (n->bindings.size() == 1) && (n->bindings[0].decl != &null) {
+            self._ef_binds.push_back(static_cast::<*Decl>(n->bindings[0].decl));
+            pushed = true;
+        }
+        var r = RecursiveASTVisitor::<TypeResolution>::traverse_ranged_for_stmt(n);
+        if pushed { self._ef_binds.pop_back(); }
+        return r;
+    }
+
+    fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {
+        var saved = self._cur_field;
+        self._cur_field = n;
+        var r = RecursiveASTVisitor::<TypeResolution>::traverse_field_decl(n);
+        self._cur_field = saved;
+        return r;
+    }
+
     fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
         if n == &null { return n; }
 
@@ -1624,7 +2726,9 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // and must not be looked up. Pre-mark them done so dispatch skips.
         self._premark_primary_spec_args(n->spec_kind, n->generic_params, n->spec_args);
 
+        if n->is_eval() { self._eval_fns += 1; }
         var out = RecursiveASTVisitor::<TypeResolution>::traverse_function_decl(n);
+        if n->is_eval() { self._eval_fns -= 1; }
 
         self._refine_spec_kind(static_cast::<*Decl>(n), n->generic_params, n->spec_args);
 
@@ -1751,6 +2855,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self._push_frame(NameLookup::representative(static_cast::<*Decl>(n)), n->generic_params);
         var out = RecursiveASTVisitor::<TypeResolution>::traverse_enum_decl(n);
         self._check_enum_underlying(n);
+        self._merge_enum_open(n);
         self._pop_frame();
         self._selfs.pop_back();
         self.cur_dc = saved;
@@ -1818,6 +2923,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
         self._pop_frame();
+        if n->is_associated && self._redeclares_inherited_assoc(n) { return n; }
         self._expand_alias(n, n->range);
         self._check_alias_visibility(n);
         return n;
@@ -2005,14 +3111,80 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
 
     // === Enum underlying ========================================================
 
+    /// `@open` on any declaration of an enum opens all of them: the forward
+    /// declaration `@open enum E derives u8` and the definition are one
+    /// enum, and whichever decl a reader reaches must answer alike. Every
+    /// link is visited, so the last visit leaves the whole ring agreed.
+    priv fn _merge_enum_open(self, n: *EnumDecl) {
+        var head = n->first_decl();
+        if head == &null { return; }
+        var any = false;
+        var cur = head;
+        while true {
+            if cur->is_open { any = true; }
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
+        if !any { return; }
+        // `@open enum E` forward-declares what turns out to be an ADT: the
+        // parser saw no body, so it could not reject it there.
+        var def = n->definition();
+        if (def != &null) && def->is_adt {
+            if n->is_open {
+                var k  = self.sc->imm_table()->find_ident(LangAttrs::open_enum());
+                var ar = (n->attribute_range(k)) if (k != u32(-1)) else (n->range);
+                if !ar.is_valid() { ar = n->range; }
+                var an = "\x27@" + LangAttrs::open_enum() + "\x27";
+                var b = self.sc->diag->report(DiagID::SC001E, ar.start,
+                    an + " does not apply to an ADT enum: no cast makes its tag, so it is always closed");
+                b.first(ar);
+                b.note(def->name.range.start, "its definition has payload variants");
+                b.remove(ar, "remove " + an);
+                b.emit();
+                n->is_open = false;
+            }
+            return;
+        }
+        cur = head;
+        while true {
+            cur->is_open = true;
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
+    }
+
     priv fn _check_enum_underlying(self, n: *EnumDecl) {
         if n->underlying == &null { return; }
         var c = canon_unqual(n->underlying->canonical);
         if c == &null { return; }   // poisoned or dependent; already handled.
-        if isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() { return; }
+        if isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() {
+            if n->is_adt { self._check_adt_tag_fits(n, builtin_info(cast::<BuiltinType>(c)->builtin)); }
+            return;
+        }
         self.sc->diag->report(DiagID::R046E, n->underlying->range.start,
             "an enum's underlying type must be a primitive integer type"
         ).first(n->underlying->range).emit();
+        n->underlying->poison();
+    }
+
+    /// An ADT's `derives` type is its tag's (EnumLayoutLowering), and its
+    /// tags are the variant positions `0..N-1`: a type with fewer than N
+    /// non-negative values cannot hold them. A plain enum's values are
+    /// checked as literals of the type instead (LiteralTyping).
+    priv fn _check_adt_tag_fits(self, n: *EnumDecl, bi: *BuiltinInfo) {
+        var bits = bi->bits;
+        if bi->is_signed() && (bits > 0) { bits = bits - 1; }
+        if (bits == 0) || (bits >= 32) { return; }   // the target-width pair is at least 32 bits.
+        var cap = usize(1) << bits;
+        var count = n->variants.size();
+        if count <= cap { return; }
+        var want = ("u16") if (count <= 65536) else ("u32");
+        var b = self.sc->diag->report(DiagID::R001E, n->underlying->range.start,
+            f"an enum's underlying type is its tag's, and '{bi->spelling}' cannot hold its {count} variants");
+        b.first(n->underlying->range, f"holds {cap} tag values");
+        b.note(n->name.range.start, f"'{self._decl_name_str(static_cast::<*Decl>(n))}' declares {count} variants, tagged 0 to {count - 1}");
+        b.fix(n->underlying->range, want, f"declare it 'derives {want}\x27");
+        b.emit();
         n->underlying->poison();
     }
 
@@ -2049,8 +3221,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             var d = self._self_decl_of(self._selfs[(n - 1) - i]);
             if d == &null { continue; }   // `extend i32`: no scope to look in.
             MemberLookup::ensure_filled(self.sc, d);
-            var pat = decl_instantiated_from(d);
-            if (pat != &null) && self._is_unfilled_instance(d) { d = pat; }
+            // An unfilled instance, or a dependent `Store<*P>` (a partial's
+            // own Self, `extend <P> Store<*P>`): the body the args select.
+            var b = self.sc->record_body(self._selfs[(n - 1) - i]);
+            if b != &null { d = b; }
             var dc = NameLookup::context_of(d);
             if dc == &null { continue; }
             var r = self.sc->lookup.in_context(dc, DeclName::ident(imm), spelling);
@@ -2141,7 +3315,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if isa::<ModuleDecl>(d) { self._register_specs_in(NameLookup::context_of(d)); return; }
 
         var k = decl_spec_kind(d);
-        if ((k == SpecKind::Explicit) || (k == SpecKind::Partial)) && !isa::<FunctionDecl>(d) {
+        // `extend <> Store<bool>` / `extend <P> Store<*P>` are extensions
+        // whose TARGET is the specialization; they specialize nothing
+        // themselves. Registered, they found no primary and were poisoned
+        // silently, which hid their members from codegen (lookup ignores
+        // the poison; EmitPlan's scope walk does not).
+        if ((k == SpecKind::Explicit) || (k == SpecKind::Partial)) && (!isa::<FunctionDecl>(d)) && (!isa::<ExtensionDecl>(d)) {
             self._register_type_spec(d);            // function specs: OverloadResolution's.
         }
         var child = NameLookup::context_of(d);
@@ -2171,6 +3350,11 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if a == &null { ok = false; continue; }
             self.dispatch_type(a);                    // memoized; the main walk's dispatch is then a no-op.
             if a->is_poisoned() || (a->canonical == &null) { ok = false; continue; }
+            // `Traits<Box<T>, Args...>`: the registry never matches a pack
+            // pattern (InstantiationRegistry::_match), so the partial could
+            // never be selected here while C++ would select it per instance.
+            // Dropped, as it was before `Args...` had a canonical (ticketed).
+            if isa::<PackExpansionType>(a) { ok = false; continue; }
             if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }
             args.push_back(a->canonical);
         }
@@ -2179,8 +3363,21 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if !ok { d->poison(); return; }
 
         if (decl_spec_kind(d) == SpecKind::Partial) || dep {
-            // A pattern: matched against concrete args by M2. Never a RecordType::decl.
-            self.sc->instances->register_partial(primary, d);
+            // Selection by a `requires` clause needs the clause evaluated per
+            // instance (requires-dispatch, eval lowering), and neither
+            // exists: registered, the pattern alone would select it whether
+            // or not the clause holds. Refused, so the primary keeps every
+            // instance and nothing is silently misselected.
+            if decl_requires_clause(d) != &null {
+                self._requires_partial_unsupported(d);
+                d->poison();
+                return;
+            }
+            // A pattern: the registry matches it against each concrete
+            // instance's args as the instance is minted. Never a
+            // RecordType::decl. The representative, because its params'
+            // GenericParamType owner is, and matching binds by owner.
+            self.sc->instances->register_partial(primary, NameLookup::representative(d));
             return;
         }
 
@@ -2246,6 +3443,34 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
          .note(DiagID::R045N, d->range.start,
             "write it at module scope to make that visible")
          .emit();
+    }
+
+    /// `struct <P> X<*P> requires pred<P>()`. NameResolution reports the
+    /// same thing for the form whose pattern is only its own parameters
+    /// (`<P> X<P> requires ...`), which the parser files as a second primary.
+    priv fn _requires_partial_unsupported(self, d: *Decl) {
+        var rc = decl_requires_clause(d);
+        var b = self.sc->diag->report(DiagID::SC001E, d->range.start,
+            "a partial specialization selected by 'requires' is not supported yet; the primary is used for every instance");
+        b.first(rc->range);
+        b.note(DiagID::SC001N, d->range.start,
+            "partial specializations are selected by their argument pattern alone (`<P> X<*P>`); write the pattern instead");
+        b.emit();
+    }
+
+    /// Two partial specializations match \p e's args and neither is more
+    /// specialized than the other: C++ rejects the instance, so Kairo does,
+    /// at the first written mention of it (one report per instance; later
+    /// mentions and unwritten ones -- a substitution -- stay quiet).
+    priv fn _ambiguous_partials(self, e: *InstanceEntry, at: SourceRange) {
+        e->ambiguity_reported = true;
+        var nm = self._decl_name_str(e->primary);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"ambiguous partial specializations of '{nm}' for these arguments");
+        b.first(at);
+        b.note(DiagID::SC001N, e->ambiguous_a->range.start, "matches this partial specialization");
+        b.note(DiagID::SC001N, e->ambiguous_b->range.start, "and this one, and neither is more specialized than the other");
+        b.emit();
     }
 
     /// The primary this spec specializes: same name, same kind, not itself a

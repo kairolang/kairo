@@ -759,6 +759,37 @@ class RecordType derives Type {
     fn is_generic_instance(self) -> bool { return self.args.size() > 0; }
 }
 
+///
+///  AssocType
+///  `T::Node` through a bound, `Self::Node` inside the interface.
+///
+///  `base` is what the associated type belongs to: a GenericParamType, or
+///  the interface's own Self record (`record(Graph)`, `Container<V>` over
+///  its own parameters) while inside the interface. `iface` is the
+///  interface INSTANCE it was named through -- the bound (`Container<i32>`),
+///  or the interface whose Self `base` is -- and is what codegen spells the
+///  witness with. `assoc` is the requirement, the interface's associated
+///  TypeAliasDecl (its redecl representative), which may be declared in a
+///  base interface of `iface`. Uniqued on all three.
+///
+///  Always dependent: nothing about it is known until `base` is a conformer,
+///  and then it is not an AssocType at all but the conformer's alias
+///  (Substitution::assoc_witness).
+///
+class AssocType derives Type {
+    pub var base:  *Type = &null;
+    pub var iface: *Type = &null;
+    pub var assoc: *Decl = &null;
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::AssocType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::AssocType;
+    }
+}
+
 /// QualifiedType::quals bits. A bitset, not a bool: `volatile` is in real
 /// headers (std::atomic members, MMIO wrappers) and retrofitting it would
 /// be this whole sweep a second time.

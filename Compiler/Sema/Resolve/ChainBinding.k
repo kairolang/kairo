@@ -114,6 +114,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     pub var n_errored:   usize = 0;
 
     priv var _self_imm: u32 = u32(-1);
+    /// _bind_step is running for ExprTyper (bind_step), not for run().
+    priv var _from_typer: bool = false;
 
     /// Default ctor so ChainBinding can be a MEMBER of a pass that builds it
     /// in its own body (ExprTyper holds one). Leaves sc null: every entry
@@ -358,6 +360,13 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 // the canonical is what the bound lookup keys on, so a
                 // Dependent anchor carries it exactly as a Value anchor does.
                 var gp = cast::<GenericParamDecl>(d);
+                // A value parameter of an eval class (`<eval C: Config>`,
+                // EVAL.md 7e) is a value of that class: `C.size` is Config's
+                // field, as for any Config value.
+                if gp->is_const_param && (gp->value_type != &null) && (gp->value_type->canonical != &null)
+                && isa::<RecordType>(canon_unqual(gp->value_type->canonical)) && (!gp->value_type->canonical->is_dependent()) {
+                    return self._value_anchor(d, gp->value_type);
+                }
                 a.kind = AnchorKind::Dependent;
                 a.decl = d;
                 if gp->owner != &null {
@@ -509,7 +518,10 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     /// Bind one `::`/`.` step against \p a, exactly as run() would.
     /// PRE: prepare() has been called on this instance.
     fn bind_step(self, chain: *ChainExpr, st: *ChainExpr::Step, a: Anchor) -> Anchor {
-        return self._bind_step(chain, st, a);
+        self._from_typer = true;
+        var r = self._bind_step(chain, st, a);
+        self._from_typer = false;
+        return r;
     }
 
     /// Anchor for a value of canonical type \p canonical. \p d is optional and
@@ -662,6 +674,24 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
         }
 
+        // `.` / `->` on a declared NULLABLE value: whether it reads the value
+        // depends on whether the nullness analysis proves it non-null at
+        // this use (NULLABLE.md §4), which only MemberTyping knows; it binds
+        // the step on the narrowed type, or reports the nullness error.
+        // Left for it, as an inferred anchor is. Not when MemberTyping is
+        // the caller: its anchor is already what the analysis left, and an
+        // unproven nullable there is the error below ("no member in 'T?'").
+        if (!self._from_typer)
+        && ((st->access_kind == ChainExpr::AccessKind::Dot) || (st->access_kind == ChainExpr::AccessKind::Arrow)) {
+            var vc = canon_unqual(self.ml.peel_ref(a.ty));
+            if (vc != &null) && isa::<NullableType>(vc) {
+                self._record(loc, MemberOutcome::NeedsInference, &null, 0, a.decl);
+                self.n_inference += 1;
+                var r = Anchor{}; r.kind = AnchorKind::NeedsInference; r.decl = a.decl;
+                return r;
+            }
+        }
+
         // Value. Peel the separator's expected wrapper off the canonical.
         // Null means the separator does not fit the value; re-derive which
         // way only here, on the error path, so _receiver_of stays silent for
@@ -736,9 +766,9 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     }
 
     /// `?.`/`?->` peel the nullable they guard. `T?` may have been lowered to
-    /// `Null<T>` (lang item), so that spelling peels too. `?.` on a
-    /// non-nullable is a warning's worth, not an error; the nullable checker
-    /// owns it, and the type proceeds as-is.
+    /// `Nullable<T>` (lang item), so that spelling peels too. `?.` on a
+    /// non-nullable proceeds as-is here; MemberTyping reports it (SC001E,
+    /// NULLABLE.md 2.5).
     priv fn _peel_maybe(self, t: *Type, st: *ChainExpr::Step) -> *Type {
         var maybe = (st->access_kind == ChainExpr::AccessKind::QuestionDot)
                  || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
@@ -746,7 +776,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if isa::<NullableType>(t) { return cast::<NullableType>(t)->inner; }
         if isa::<RecordType>(t) {
             var rt = cast::<RecordType>(t);
-            var null_decl = self.sc->well_known->get(WellKnownType::Null);
+            var null_decl = self.sc->well_known->get(WellKnownType::Nullable);
             if (null_decl != &null) && (rt->decl == null_decl) && (rt->args.size() == 1) {
                 return rt->args[0];
             }
@@ -763,6 +793,12 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     ///                          name reached through different bases.
     priv fn _commit(self, st: *ChainExpr::Step, loc: u32, cands: *vec::<*Decl>,
                     owner: *Decl, frozen: *OverloadCell, through: *Type = &null) -> Anchor {
+        // C++ tag hiding between header decls (`struct timezone` beside
+        // `extern long timezone`): an aliased ffi import unions every
+        // closure header's scope, so the two can meet in one step. The set
+        // shrinks, so the frozen cell no longer is it.
+        var exact = frozen;
+        if ffi_hide_tags(cands) { exact = &null; }
         var n = cands->size();
         if n == 1 {
             var d = NameLookup::representative((*cands)[0]);
@@ -841,8 +877,8 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         // Overload set. Reuse the frozen cell when it is exactly the set;
         // otherwise union into a sema-owned cell (dies with sema_alloc).
         var cell: *OverloadCell = &null;
-        if (frozen != &null) && (frozen->size() == n) {
-            cell = frozen;
+        if (exact != &null) && (exact->size() == n) {
+            cell = exact;
         } else {
             cell = self.sc->ctx->alloc_init_sema_cleanup::<OverloadCell>();
             for var i: usize = 0; i < n; ++i { cell->append((*cands)[i]); }
@@ -963,6 +999,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         // `: type` -- the C++ regime. Not a hole we failed to fill: a hole the
         // author asked for.
         if b.duck {
+            self._note_duck_use(gp, at);
             self._record(loc, MemberOutcome::Dependent, &null, 0, a.decl);
             self.n_dependent += 1;
             return a;
@@ -1046,7 +1083,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     priv fn _is_scope_member(self, d: *Decl) -> bool {
         if d == &null { return false; }
         var f = dyn_cast::<FieldDecl>(d);
-        if f != &null { return f->storage == StorageClass::Static; }
+        if f != &null { return f->is_static(); }
         var v = dyn_cast::<VariableDecl>(d);
         if v != &null { return v->is_static(); }
         var fn_ = dyn_cast::<FunctionDecl>(d);
@@ -1081,6 +1118,17 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             }
         }
         return owner;
+    }
+
+    /// The first member step through `: type` parameter \p gp. Its presence
+    /// is what tells FlagGates that deleting the bound would turn this body
+    /// into an R051E (an opaque `T` has no members), so the fix-it is off.
+    priv fn _note_duck_use(self, gp: *GenericParamDecl, at: SourceRange) {
+        for var i: usize = 0; i < self.sc->duck_member_params.size(); ++i {
+            if self.sc->duck_member_params[i] == gp { return; }
+        }
+        self.sc->duck_member_params.push_back(gp);
+        self.sc->duck_member_at.push_back(at);
     }
 
     priv fn _record(self, loc: u32, o: MemberOutcome, d: *Decl, ncand: usize, owner: *Decl) {
@@ -1133,7 +1181,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if isa::<BuiltinType>(t) { return cast::<BuiltinType>(t)->spelling(); }
         if isa::<RecordType>(t)  { return self._decl_name_str(cast::<RecordType>(t)->decl); }
         if isa::<PointerType>(t) { return f"*{self._type_name_str(cast::<PointerType>(t)->pointee)}"; }
-        if isa::<NullableType>(t){ return f"{self._type_name_str(cast::<NullableType>(t)->inner)}?"; }
+        if isa::<NullableType>(t){
+            var inner = cast::<NullableType>(t)->inner;
+            if isa::<NullableType>(inner) { return f"({self._type_name_str(inner)})?"; }   // `T??` is the operator.
+            return f"{self._type_name_str(inner)}?";
+        }
         if isa::<CXXLValueRefType>(t) {
             var lr = cast::<CXXLValueRefType>(t);
             return f"{self._type_name_str(lr->referee)}&";

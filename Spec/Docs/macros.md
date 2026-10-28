@@ -1,8 +1,6 @@
 # Macros
 
-Macros in Kairo are token-level substitutions they operate on raw tokens before parsing, similar to
-C/C++ `#define` but with scoping and balanced-delimiter requirements. Macros are identified by the `!`
-suffix on their name.
+Macros in Kairo are token-level substitutions they operate on raw tokens before parsing, similar to C/C++ `#define` but with scoping and balanced-delimiter requirements. Macros are identified by the `!` suffix on their name.
 
 For AST-level transformations with type awareness, see [Attributes](/docs/language/attributes/).
 
@@ -14,8 +12,7 @@ For AST-level transformations with type awareness, see [Attributes](/docs/langua
 
 ## Defining Macros
 
-A macro is defined with the `macro` keyword, a name ending in `!`, optional parameters, and a body.
-The body must have balanced delimiters:
+A macro is defined with the `macro` keyword, a name ending in `!`, optional parameters, and a body. The body must have balanced delimiters:
 
 ```kairo
 macro double!(x) {
@@ -27,8 +24,7 @@ macro greeting! {
 }
 ```
 
-At every use site, the preprocessor replaces the macro invocation with the body, substituting
-parameters:
+At every use site, the preprocessor replaces the macro invocation with the body, substituting parameters:
 
 ```kairo
 var a = double!(5)     // replaced with: 5 + 5
@@ -37,8 +33,7 @@ var b = greeting!      // replaced with: "hello, world"
 
 ### Parameters
 
-Parameters are typeless they accept any sequence of tokens. Multiple parameters are
-comma-separated:
+Parameters are typeless they accept any sequence of tokens. Multiple parameters are comma-separated:
 
 ```kairo
 macro clamp!(value, lo, hi) {
@@ -50,8 +45,7 @@ var x = clamp!(temperature, 0, 100)
 
 #### Default values
 
-A parameter may declare a default token run with `=`. When the caller omits the argument, the
-default tokens substitute instead. Defaulted parameters must come after required ones:
+A parameter may declare a default token run with `=`. When the caller omits the argument, the default tokens substitute instead. Defaulted parameters must come after required ones:
 
 ```kairo
 macro log!(msg, level = "info") {
@@ -64,8 +58,7 @@ log!("failed", "error")
 
 #### Ignoring extra arguments
 
-A bare `...` (no name) as the last parameter accepts any number of extra arguments and discards
-them. Useful for macros that mirror a wider signature:
+A bare `...` (no name) as the last parameter accepts any number of extra arguments and discards them. Useful for macros that mirror a wider signature:
 
 ```kairo
 macro trace!(msg, ...) { std::println(msg) }
@@ -77,10 +70,7 @@ A `...` parameter (named or bare) must be last, and cannot follow defaulted para
 
 ### Variadic macros and pack expansion
 
-The `...` prefix on the last parameter declares a token pack: it captures any number of
-comma-separated arguments. Inside the body, the pack expands with a **postfix** `...`. This is the same
-declaration-prefix / expansion-postfix split used by [variadic functions](/docs/language/functions-parameters/#variadic-functions) and [pack expansion](/docs/language/functions-parameters/#pack-expansion-and-forwarding)
-expressions:
+The `...` prefix on the last parameter declares a token pack: it captures any number of comma-separated arguments. Inside the body, the pack expands with a **postfix** `...`. This is the same declaration-prefix / expansion-postfix split used by [variadic functions](/docs/language/functions-parameters/#variadic-functions) and [pack expansion](/docs/language/functions-parameters/#pack-expansion-and-forwarding) expressions:
 
 ```kairo
 macro list!(...xs) { [ xs... ] }
@@ -90,13 +80,11 @@ list!(1)         // [ 1 ]
 list!(1, 2, 3)   // [ 1, 2, 3 ]
 ```
 
-A bare splat `xs...` emits the pack's elements joined by commas. An empty pack consumes the splat
-and emits nothing.
+A bare splat `xs...` emits the pack's elements joined by commas. An empty pack consumes the splat and emits nothing.
 
 #### Pattern expansion
 
-A parenthesized token run followed by `...` replicates the whole pattern once per pack element,
-substituting the pack name with that element each time. Instances are comma-joined:
+A parenthesized token run followed by `...` replicates the whole pattern once per pack element, substituting the pack name with that element each time. Instances are comma-joined:
 
 ```kairo
 macro wrap_all!(...xs) { [ (box(xs))... ] }
@@ -112,8 +100,7 @@ macro call_each!(f, ...xs) { (f(xs))... }
 call_each!(log, a, b)   // log(a), log(b)
 ```
 
-The outer parentheses are grouping syntax and are not emitted. To emit parentheses around each
-instance, double them:
+The outer parentheses are grouping syntax and are not emitted. To emit parentheses around each instance, double them:
 
 ```kairo
 macro pairs!(k, ...xs) { [ ((k, xs))... ] }
@@ -121,10 +108,7 @@ macro pairs!(k, ...xs) { [ ((k, xs))... ] }
 pairs!(id, 7, 8)   // [ (id, 7), (id, 8) ]
 ```
 
-Two rules keep macro expansion from colliding with expression-level pack expansion in the output:
-a postfix `...` after an identifier that is not the macro's pack, or after a parenthesized run
-that never mentions the pack, passes through verbatim as target-language code. Expansion is
-single-level: a nested `...` inside a pattern is emitted verbatim.
+Two rules keep macro expansion from colliding with expression-level pack expansion in the output: a postfix `...` after an identifier that is not the macro's pack, or after a parenthesized run that never mentions the pack, passes through verbatim as target-language code. Expansion is single-level: a nested `...` inside a pattern is emitted verbatim.
 
 ### Macros as arguments
 
@@ -145,8 +129,7 @@ Built-in macros are covered in [Built-in Macros](/docs/language/macros-builtin/)
 
 ## Scoping
 
-Unlike C/C++ `#define`, Kairo macros respect scope. A macro defined inside a [module](/docs/language/modules/) or block is
-only visible within that scope:
+Unlike C/C++ `#define`, Kairo macros respect scope. A macro defined inside a [module](/docs/language/modules/) or block is only visible within that scope:
 
 ```kairo
 module internal {
@@ -177,8 +160,7 @@ priv macro INTERNAL_FLAG! { true }     // file-scoped
 | Syntax | `name!(args)` | `@name` on declarations |
 | Hygiene | Scoped, balanced delimiters | Full AST hygiene |
 
-Use macros for simple substitutions, constants, and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for
-code transformations that need type information or structural awareness.
+Use macros for simple substitutions, constants, and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for code transformations that need type information or structural awareness.
 
 See [Attributes](/docs/language/attributes/) for the AST-level transformation system.
 
@@ -204,7 +186,7 @@ eval ICON = embed!("icon.png")
 var n = count!(a, b, c, d)   // 4
 
 // Diagnostics
-eval if sizeof usize < 8 {
+eval if !defined!(__LP64__) {
     compile_error!("64-bit platform required")
 }
 

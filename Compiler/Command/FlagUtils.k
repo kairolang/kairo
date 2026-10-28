@@ -208,6 +208,15 @@ class FlagDef {
         return d;
     }
 
+    /// repeatable string list whose every item is one of \p choices; a
+    /// comma-separated value is several items
+    static fn list_c(key: string, short_: string, long_: string,
+                     help: string, choices: vec::<string>) -> FlagDef {
+        var d = FlagDef::list_(key, short_, long_, help);
+        d.choices = choices;
+        return d;
+    }
+
     /// positional file arguments (required - at least one)
     static fn files_(key: string, help: string) -> FlagDef {
         var d = FlagDef{};

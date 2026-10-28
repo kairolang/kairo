@@ -40,6 +40,7 @@ import Parser::Shared::MacroHeaderGrammar::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Diagnostic::BufferedDiagSink::*;
@@ -87,6 +88,10 @@ class PPWalker
     /// Every deeper hop of a runaway chain trips the same limit; one R008E per
     /// chain says it, the rest are noise that buries the real error.
     priv var _depth_reported:    set::<u32>;
+    /// `defined!` invocations passed through to the parser (by the name
+    /// token's location), so the rescan of their own output does not take
+    /// them for an invocation again.
+    priv var _defined_raw:       set::<u32>;
     priv var _unique_counter:    u32 = 0;
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
@@ -112,6 +117,11 @@ class PPWalker
     //   which is the exact cost sampling exists to avoid.
     priv var _t_detect: *kairo::KTimeRecord = &null;
     priv var _t_emit:   *kairo::KTimeRecord = &null;
+    /// The builtin module's scope, searched after this file's own imports
+    /// (PreProcessor::_walk_one sets it on every file outside the builtin
+    /// root). Unset for the builtin files and with the prelude off.
+    priv var _prelude:     ModulePath;
+    priv var _has_prelude: bool = false;
     priv var _c_detect: u32 = 0;
     priv var _c_emit:   u32 = 0;
 
@@ -150,6 +160,15 @@ class PPWalker
         self._imports = std::create::<FileImportIndex>(sym, sm, tcm, resolver, macros, diag, fid);
         self._tracker = std::create::<ScopeTracker>(sym, sm, self._imm, tcm, module_base);
         self._sink    = self._out;
+    }
+
+    /// \brief the prelude for macros: the file behaves as though it wrote
+    ///        `import builtin::*` (PANIC.md §2.4: `crash!` is a plain macro
+    ///        in Lib/builtin), searched after its own imports so an explicit
+    ///        import, or the file's own macro, of the same name wins.
+    fn set_prelude_scope(self, scope: ModulePath) {
+        self._prelude     = scope;
+        self._has_prelude = true;
     }
 
     fn op delete (self) {
@@ -740,13 +759,17 @@ class PPWalker
 
         var name_tok = path_toks[path_toks.size() - 1];
 
-        // label!/jump! are PARSER intrinsics, not macros: leave the raw
-        // tokens in the stream untouched; StmtParse owns the grammar
-        // (`label` `!` `(` ident `)`). Qualified forms (`a::label!`) are
-        // NOT intrinsics and still resolve as ordinary macros.
+        // label!/jump!/unwrap! are PARSER intrinsics, not macros: leave the
+        // raw tokens in the stream untouched; the parser owns the grammar
+        // (`label` `!` `(` ident `)` in StmtParse, `unwrap` `!` `(` expr `)`
+        // in ExprParse, whose operand must stay an ordinary expression).
+        // Qualified forms (`a::label!`) are NOT intrinsics and still resolve
+        // as ordinary macros.
         if path_toks.size() == 1 {
             var sp = TokenText::spelling(name_tok, self._tcm);
-            if (sp == "label") || (sp == "jump") { return result; }
+            if (sp == "label") || (sp == "jump") || (sp == "unwrap") { return result; }
+            // A `defined!` _builtin_defined already passed through raw.
+            if (sp == "defined") && self._defined_raw.contains(name_tok.range.start.raw()) { return result; }
         }
 
         result.found   = true;
@@ -1231,6 +1254,13 @@ class PPWalker
         return tok;
     }
 
+    priv fn _punct(self, k: TokenKind, range: SourceRange) -> Token {
+        var tok = Token();
+        tok.kind  = k;
+        tok.range = range;
+        return tok;
+    }
+
     priv fn make_ident_token(self, name: string, range: SourceRange) -> Token {
         var tok = Token();
         tok.kind  = TokenKind::LitIdentifier;
@@ -1322,7 +1352,8 @@ class PPWalker
             // parser intrinsics (no _try_builtin entry: _detect_invocation
             // passes them through raw): reserved so a user macro named
             // label/jump can never be reached at an unqualified call site.
-            || (name == "label")       || (name == "jump");
+            || (name == "label")       || (name == "jump")
+            || (name == "unwrap");
     }
 
     //  Builtin helpers
@@ -1991,6 +2022,7 @@ class PPWalker
             var name_tok = args[0]->get(0);
 
             if name_tok->kind == TokenKind::LitIdentifier {
+                var raw_name = *name_tok;
                 var name_sym = self._sym->intern(
                     self._builtin_token_text(name_tok)
                 );
@@ -2005,14 +2037,27 @@ class PPWalker
 
                 if self._resolve(probe) != &null {
                     found = 1;
+                } else {
+                    // Not a Kairo macro: it may be clang's (predefined, or
+                    // from an ffi header), which only Sema can ask, after
+                    // the headers are built. Passed on as written for the
+                    // parser's DefinedExpr (EVAL.md §4.3).
+                    self._defined_raw.insert(invoke->name.range.start.raw());
+                    out->append(invoke->name);
+                    out->append(self._punct(TokenKind::OpExclaim, invoke->name.range));
+                    out->append(self._punct(TokenKind::OpLParen, invoke->name.range));
+                    out->append(raw_name);
+                    out->append(self._punct(TokenKind::OpRParen, invoke->name.range));
+                    return out;
                 }
             }
         }
 
-        out->append(self.make_int_token(
-            found,
-            invoke->name.range
-        ));
+        // A condition: `true` / `false`, not 1 / 0 (EVAL.md 4.3a).
+        var b = Token();
+        b.kind  = (TokenKind::KwTrue) if (found == u64(1)) else (TokenKind::KwFalse);
+        b.range = invoke->name.range;
+        out->append(b);
 
         return out;
     }
@@ -2313,6 +2358,12 @@ class PPWalker
             if w != &null { return w; }
         }
 
+        // the prelude's own `import builtin::*`, last of the imports
+        if self._has_prelude {
+            var pm = self._macros->find(self._prelude, inv.name_sym, self._fid);
+            if pm != &null { return pm; }
+        }
+
         // global scope (empty ModulePath)
         return self._macros->find(ModulePath(), inv.name_sym, self._fid);
     }
@@ -2372,6 +2423,12 @@ class PreProcessor {
     /// each walk, read by the next scan.
     priv var _scanned:   DepGraph;
     priv var _walked_mu: std::SharedMutex;     // wave tasks are parallel
+    /// The builtin module's scope and fid, and every fid in its own import
+    /// closure (the builtin files): the macro prelude. Set by preprocess()
+    /// when the real builtin root is folded in; read by _walk_one.
+    priv var _prelude_scope: ModulePath;
+    priv var _prelude_fid:   u32 = 0;
+    priv var _prelude_files: set::<u32>;
     priv var _define_storage: vec::<libcxx::string>; ///< -D value bytes; load_virtual
                                                        ///  needs them stable for the
                                                        ///  whole compile. reserved
@@ -2632,6 +2689,9 @@ class PreProcessor {
             fid, lexer, ctx, tu, self._macros, self._resolver,
             self._sym, self._sm, self._tcm, self._diag, self._opts, mod_path, self._headers);
         finally { std::destroy(walker); }
+        if (self._prelude_fid != 0) && (!self._prelude_files.contains(fid)) {
+            walker->set_prelude_scope(self._prelude_scope);
+        }
 
         walker->run();
         return true;
@@ -2704,12 +2764,16 @@ class PreProcessor {
                 }
             } else {
                 var segs = vec::<string>();
-                segs.push_back("builtin");
+                segs.push_back(builtin_root_name());
                 p_fid = scanner.add_module_dependency(segs, &graph);
                 // Only the real builtin module is reported: a custom --prelude
                 // is a file, not the lang-item root, and sema must not read
                 // lang items out of it.
-                if (p_fid != 0) && (p_fid != u32(-1)) { out.builtin_fid = p_fid; }
+                if (p_fid != 0) && (p_fid != u32(-1)) {
+                    out.builtin_fid = p_fid;
+                    self._prelude_fid   = p_fid;
+                    self._prelude_scope = graph.mod_paths[p_fid];
+                }
             }
             if (p_fid != 0) && (p_fid != u32(-1)) && (p_fid != entry_fid) {
                 graph.add_edge(entry_fid, p_fid);
@@ -2727,6 +2791,30 @@ class PreProcessor {
 
             scanner.add_root_dependency(fi_fid, &graph);
             graph.add_edge(entry_fid, fi_fid);
+        }
+
+        // The macro prelude needs the builtin root WALKED before any file
+        // that may expand one of its macros, and the graph above only has
+        // the entry's edge to it. Every other file outside the builtin
+        // root's own closure gets one too; a builtin file never does, or a
+        // builtin import of it would close a cycle.
+        if (self._prelude_fid != 0) && graph.all_fids.contains(self._prelude_fid) {
+            self._prelude_files.clear();
+            var work = vec::<u32>();
+            work.push_back(self._prelude_fid);
+            while !work.empty() {
+                var f = work.back();
+                work.pop_back();
+                if self._prelude_files.contains(f) { continue; }
+                self._prelude_files.insert(f);
+                if graph.deps.contains(f) {
+                    for d in graph.deps[f] { work.push_back(d); }
+                }
+            }
+            for fid in graph.all_fids {
+                if self._prelude_files.contains(fid) { continue; }
+                graph.add_edge(fid, self._prelude_fid);
+            }
         }
 
         var executor = WaveExecutor(self._pool);

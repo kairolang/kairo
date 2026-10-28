@@ -27,7 +27,7 @@ fn main() -> i32 {
 // return a nested type by value.
 // CXX: class Tree {
 // CXX: struct __kairo_ext_Tree {
-// CXX-NEXT: static::nested::Tree::Node root(const::nested::Tree * self);
+// CXX-NEXT: static::nested::Tree::Node root(const::nested::Tree * self) noexcept;
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

@@ -28,7 +28,8 @@
 ///     A call whose result is an lvalue (an imported `T&` return) or a record
 ///     value: a statement expression yields a prvalue, which would change the
 ///     category or force a copy the type may not have. Those calls keep C++'s
-///     order. Primitive operators (`a + b` with two impure operands) are not
+///     order. A panic result is the exception: it is always movable, so a
+///     panicking call's arguments are ordered too. Primitive operators (`a + b` with two impure operands) are not
 ///     calls and are not covered here.
 ///
 ///   \par Variant payloads
@@ -56,6 +57,7 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Type::PanicSets::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
@@ -194,7 +196,13 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         if t == &null { return true; }                  // void-typed calls have no slot to read.
         if isa::<CXXLValueRefType>(t) || isa::<CXXRValueRefType>(t) { return false; }
         var c = canon_unqual(t);
-        if (c != &null) && (c->kind == TypeKind::RecordType) { return false; }
+        // A panic result (PanicLowering's held call, `var __kairo_p = f(..)`)
+        // is always movable -- its payloads must be (PANIC.md §1.5) -- and is
+        // moved out of the block once: the order of its arguments is worth
+        // that, and it is the one record result PanicLowering mints a call for.
+        if (c != &null) && (c->kind == TypeKind::RecordType) {
+            return PanicSets(self.sc).is_panic(cast::<RecordType>(c)->decl);
+        }
         return true;
     }
 

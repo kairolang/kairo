@@ -1,5 +1,5 @@
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+// RUN: { %kairo %s -fduck-generics --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo %s -fduck-generics --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 //
 // Member access through a generic parameter, the cases that RESOLVE. Which
 // regime applies is a property of the parameter's DECLARATION, never of the
@@ -9,8 +9,8 @@
 //                  here, once, at the template. An interface member's `Self`
 //                  is the receiver, so `-> Self` reads back as T.
 //   <T derives B>  bounded nominally. B's fields and methods, same deal.
-//   <T: type>      duck. Every access deferred to instantiation - the C++
-//                  rule, opted into explicitly. Never a diagnostic here.
+//   <T: type>      duck, behind -fduck-generics. Every access deferred to
+//                  clang per instance. Never a diagnostic here.
 //
 // The point of the first two is that the answer is reached WITHOUT an
 // instantiation: nothing below is monomorphized, and the file is clean.

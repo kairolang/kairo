@@ -2,6 +2,9 @@
 // falls through to the binding/eval-block productions when no `fn` follows.
 // RUN: { %kairo %s --syntax-only 2>&1 || true; } | %FileCheck %s --check-prefix=OK --allow-empty
 // OK-NOT: error
+// And each one names-resolves and types, not only parses.
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=TC --allow-empty
+// TC-NOT: error
 eval fn at_top() -> bool = false
 
 module m {

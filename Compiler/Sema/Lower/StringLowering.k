@@ -13,6 +13,10 @@
 ///     bytes are a C++ literal in static storage. The constructor is the one
 ///     X bound (`string_ctor`); nothing is looked up.
 ///
+///     A literal C++ reads at compile time (StringLiteralExpr::const_eval,
+///     EVAL.md 2a) passes its bytes uncast: EmitIR spells them as
+///     `__kairo_estr<...>`, a `const unsigned char` array.
+///
 ///     Only a literal typed `string` is rewritten. The byte literals this
 ///     pass and FStringLowering mint are pointer-typed and pass through to
 ///     EmitIR, which spells them from their bytes.
@@ -85,7 +89,17 @@ class StringLowering derives ASTWriter::<StringLowering> {
         var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
         var pu8  = self.sc->types->pointer(u8t);
         var lit  = self.synth.bytes_literal(n->range, &bytes, pu8);
-        var data = self.synth.cast_to(n->range, lit, pu8, CastMode::Unsafe);   // `"..."` is const char*; the parameter is const unsigned char*.
+        var data = lit;
+        if n->const_eval {
+            // C++ reads it at compile time (EVAL.md 2a): the bytes become
+            // `__kairo_estr<...>`, already `const unsigned char`, and the
+            // literal constructor is constexpr. No cast, which a constant
+            // expression could not contain.
+            cast::<StringLiteralExpr>(lit)->const_eval = true;
+            self.sc->tu->has_eval_string = true;
+        } else {
+            data = self.synth.cast_to(n->range, lit, pu8, CastMode::Unsafe);   // `"..."` is const char*; the parameter is const unsigned char*.
+        }
 
         var args = self.list_builder::<*Expr>();
         args.push(data);

@@ -20,7 +20,7 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      template<class T>::generic_init::Box<T> boxed(T x) {
+// CXX:      template<class T>::generic_init::Box<T> boxed(T x) noexcept {
 // CXX-NEXT: return::generic_init::Box<T> {
 // CXX-NEXT: .v = x,.n = 1
 // CXX:      template::generic_init::Box<signed int>({{ *}}::generic_init::boxed<signed int>)(signed int);

@@ -40,14 +40,15 @@
 ///     of it (IMPORTS.md §7). Extension members: out-of-line definitions
 ///     of their scope's static members, in its namespace, receiver first.
 ///
-///   \par Constructors that initialize a const field
-///     C++ wants a const member's value at the mem-initializer list, so a
+///   \par Constructors that initialize a field in place
+///     C++ wants a const member's value at the mem-initializer list, and a
+///     member with no default constructor built there too, so a
 ///     constructor CtorInitCheck split (FunctionDecl::ci_split; the body is
 ///     `{ {S_pre} {S_post} }` after CtorInitLowering) becomes four
 ///     definitions (_split_ctor):
 ///
 ///       struct R::__kairo_ciK { ::__kairo_slot<T> x; ... };
-///       auto R::__kairo_ctor_preK(__kairo_ciK&& __kairo_s, P& p) -> __kairo_ciK& { S_pre; return __kairo_s; }
+///       auto R::__kairo_ctor_preK(__kairo_ciK&& __kairo_s, P& p) -> __kairo_ciK& { S_pre; return static_cast<__kairo_ciK&>(__kairo_s); }
 ///       R::R(__kairo_ciK& __kairo_s, P& p) : x(__kairo_s.x.take()) { S_post }
 ///       R::R(P p) : R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}
 ///
@@ -100,6 +101,7 @@ import AST::ParamMode::*;
 import Location::SourceRange::*;
 import Codegen::CodegenICE::*;
 import Token::TokenKind::*;
+import Token::TokenText::*;
 import Lexer::Immediate::*;
 
 class EmitIR {
@@ -112,6 +114,31 @@ class EmitIR {
     /// this is its S_pre, where there is no object and `self.x` is a slot.
     priv var _ci_fn:  *FunctionDecl = &null;
     priv var _ci_pre: bool = false;
+    /// The closure whose body is being emitted, innermost: a `return` in it
+    /// returns from the lambda, with the closure's type. `_cur_fn` stays
+    /// the enclosing function, which still decides what `self` is.
+    priv var _closure: *ClosureExpr = &null;
+    /// emit_tu's first pass: only compile-time bodies are emitted (eval free
+    /// functions, then records' eval and constexpr methods), and the second
+    /// pass skips them (EVAL.md 1.1, _eval_done).
+    priv var _eval_pass: bool = false;
+    /// The eval pass's second round: records' compile-time methods.
+    priv var _eval_records: bool = false;
+    /// `eval for` copies the current statement is inside (EVAL.md §5), and
+    /// the runtime loops opened inside the innermost copy: a `break` /
+    /// `continue` with none is the eval for's own (the copy's `return`).
+    priv var _ef_depth: u32 = 0;
+    priv var _ef_loops: u32 = 0;
+    /// Eval generator iterables in the function, for unique names.
+    priv var _ef_gens: usize = 0;
+    priv var _eval_done: vec::<*FunctionDecl>;
+    /// The eval bindings emit_tu defined ahead of the program walk.
+    priv var _hoisted_vars: vec::<*VariableDecl>;
+    /// The eval bindings InterfaceEmitter had defined as early items
+    /// (EmitPlan::early, EVAL.md §11); their bodies are in _eval_done.
+    priv var _early_vars: vec::<*VariableDecl>;
+    /// The namespace-scope variable whose initializer is being emitted.
+    priv var _cur_global: *VariableDecl = &null;
 
     fn EmitIR(self, cg: *CodegenContext) {
         self._cg    = cg;
@@ -128,6 +155,37 @@ class EmitIR {
         var tu = self._cg->tu;
         ICE_IF(tu == &null, "EmitIR: no TU");
         var items = &(tu->program->items);
+
+        // Every consteval body first, foreign then own: a constant
+        // expression may call a consteval function only where it is already
+        // DEFINED, and Kairo declarations have no order (EVAL.md 1.1). A
+        // consteval body only names other consteval bodies and declarations,
+        // so it can always go first.
+        // A constexpr body (the string literal constructor, an eval class's
+        // field default, EVAL.md 2a / 7b) goes with them: a constant
+        // expression needs it defined as much.
+        var vis = plan->visible_bodies();
+        for var i: usize = 0; i < vis.size(); ++i { if self._compile_time(vis[i]) && (!self._done(vis[i])) { self._visible_body(vis[i]); } }
+        // Free functions first, then records' compile-time methods: an eval
+        // field's definition follows its thunk's body and is evaluated right
+        // there, so what the thunk calls must already be defined.
+        self._eval_pass = true;
+        for var round: u32 = 0; round < 2; ++round {
+            self._eval_records = (round == 1);
+            for var i: usize = 0; i < items->size(); ++i {
+                var item = *(items->get(i));
+                if item.kind == TopLevelKind::Decl { self.emit(item.as_decl()); }
+            }
+        }
+        self._eval_records = false;
+        self._eval_pass = false;
+        // Then every eval binding's definition, foreign (EVAL.md 1.2b) and
+        // own, dependencies first: each reads those bodies, and one may read
+        // another declared below it or in another file. The own ones are
+        // skipped where the program walk below reaches them.
+        self._hoisted_vars = plan->include_eval_vars();
+        self._eval_vars(self._hoisted_vars);
+
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
             switch item.kind {
@@ -136,17 +194,86 @@ class EmitIR {
                     // File-scope `var`/`const`/`static`/`eval` parse as a
                     // DeclStmt (ASTParse::_build_symbols); the decl is the
                     // namespace-scope variable. Nothing else at file scope
-                    // has a C++ form.
+                    // has a C++ form: ScriptLowering moves a script's
+                    // statements into its `main`, and Sema rejects them in
+                    // any other file, so reaching here means it did not run.
                     var s = item.as_stmt();
                     var ds = dyn_cast::<DeclStmt>(s);
-                    if ((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl))) { self._ice(s->range, f"EmitIR: top-level {to_string(s->kind)} is not emittable C++ (only variable declarations are)"); }
+                    if ((ds == &null) || (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl))) { self._ice(s->range, f"EmitIR: a top-level {to_string(s->kind)} reached codegen; ScriptLowering should have moved it into the script's 'main' (only variable declarations stay at file scope)"); }
                     self.emit(ds->decl);
                 }
-                default { self._ice(item.as_expr()->range, "EmitIR: top-level expressions are not emittable C++"); }
+                default { self._ice(item.as_expr()->range, "EmitIR: a top-level expression reached codegen; ScriptLowering should have moved it into the script's \x27main\x27"); }
             }
         }
 
-        self.emit_visible(plan);
+        for var i: usize = 0; i < vis.size(); ++i { if !self._compile_time(vis[i]) { self._visible_body(vis[i]); } }
+        self._panic_sites(tu);
+    }
+
+    /// The TU's panic site table (PANIC.md §1.4; TranslationUnit::
+    /// panic_sites): one `__kairo_panic_site {id, line, col, file}` per site
+    /// in the linker-collected `__kairo_panic_sites` section, which the
+    /// lookup searches by id. Internal and `used`: every TU keeps its own
+    /// records, so a `.k` that kcc includes into several TUs has its sites
+    /// written once per TU, as identical records -- the lookup treats equal
+    /// records as one site, and only differing records with one id as the
+    /// ambiguity it prints in full.
+    priv fn _panic_sites(self, tu: *TranslationUnit) {
+        if tu->panic_sites.size() == 0 { return; }
+        var at  = self._cg->ctx->sm->get_range(tu->fid, 0, 1);   // a TU with a site has a byte 0.
+        var st  = LowerTargets::panic_site_type();   // InterfaceEmitter defines it.
+        var sec = LowerTargets::panic_sites_section();
+        var ci  = self._cg->ctx->ci;
+        if (ci != &null) && (ci->target.object_format == "Mach-O") { sec = LowerTargets::panic_sites_section_macho(); }
+        var sm = self._cg->ctx->sm;
+        for var i: usize = 0; i < tu->panic_sites.size(); ++i {
+            var r = tu->panic_sites[i];
+            var lc = sm->get_line_col(r.at);
+            var lit = CXXSpell::c_string(sm->get_filename(r.at));
+            self._cg->sink->spell(at, "[[gnu::used, gnu::section(\"" + sec + "\")]] static const ::" + st + " " + LowerTargets::panic_site_record(r.key)
+                + " = { " + f"{r.id}" + "u, " + f"{lc.line}" + "u, " + f"{lc.column}" + "u, " + lit + " };");
+        }
+        self._cg->sink->brk();
+    }
+
+    /// A body a constant expression may run: `consteval` or `constexpr`.
+    priv fn _compile_time(self, f: *FunctionDecl) -> bool { return f->is_eval() || f->is_constexpr(); }
+
+    /// Eval bindings' `inline constexpr` definitions, in the plan's order
+    /// (dependencies first), each in its namespace (EVAL.md 1.2b).
+    priv fn _eval_vars(self, list: vec::<*VariableDecl>) {
+        for var i: usize = 0; i < list.size(); ++i {
+            var early = false;
+            for var k: usize = 0; k < self._early_vars.size(); ++k { if self._early_vars[k] == list[i] { early = true; break; } }
+            if !early { self._global_var(list[i]); }
+        }
+    }
+
+    /// Whether compile-time body \p f is already written (the eval pass, or
+    /// an early item).
+    priv fn _done(self, f: *FunctionDecl) -> bool {
+        for var i: usize = 0; i < self._eval_done.size(); ++i { if self._eval_done[i] == f { return true; } }
+        return false;
+    }
+
+    /// One early item (EmitPlan::early, EVAL.md §11), defined where
+    /// InterfaceEmitter's tier 1 stands: a compile-time body (in its
+    /// owner's wrapper, a method out of line, an eval field's definition
+    /// after its thunk), or an eval binding's `inline constexpr`
+    /// definition. Recorded, so emit_tu / emit_bodies do not write it again.
+    fn early(self, d: *Decl) {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f != &null {
+            if self._done(f) { return; }
+            self._eval_done.push_back(f);
+            self._visible_body(f);
+            return;
+        }
+        var v = dyn_cast::<VariableDecl>(d);
+        if v == &null { return; }
+        for var k: usize = 0; k < self._early_vars.size(); ++k { if self._early_vars[k] == v { return; } }
+        self._early_vars.push_back(v);
+        self._global_var(v);
     }
 
     /// Every template and inline definition visible here (EmitPlan::
@@ -157,13 +284,17 @@ class EmitIR {
     /// plan's, the same one it walked for dependencies, so nothing emitted
     /// here goes unplanned, and each body comes once.
     fn emit_visible(self, plan: *EmitPlan) {
-        self.emit_bodies(plan->visible_bodies());
+        self.emit_bodies(plan->visible_bodies(), plan->visible_eval_vars());
     }
 
-    /// Bodies from a list the plan made (EmitPlan::include_bodies, pruned by
-    /// the caller), each emitted as emit_visible emits one.
-    fn emit_bodies(self, list: vec::<*FunctionDecl>) {
-        for var i: usize = 0; i < list.size(); ++i { self._visible_body(list[i]); }
+    /// Bodies and eval bindings from lists the plan made (EmitPlan::
+    /// include_bodies / include_eval_vars, pruned by the caller), each
+    /// emitted as emit_visible emits one: the compile-time bodies, then the
+    /// eval bindings that read them, then the rest (as emit_tu orders them).
+    fn emit_bodies(self, list: vec::<*FunctionDecl>, vars: vec::<*VariableDecl>) {
+        for var i: usize = 0; i < list.size(); ++i { if self._compile_time(list[i]) && (!self._done(list[i])) { self._visible_body(list[i]); } }
+        self._eval_vars(vars);
+        for var i: usize = 0; i < list.size(); ++i { if !self._compile_time(list[i]) { self._visible_body(list[i]); } }
     }
 
     // ----------------------------------------------------------------- //
@@ -174,6 +305,26 @@ class EmitIR {
         ICE_IF(d == &null, "EmitIR: null decl reached codegen");
         if (d->kind == DeclKind::RecoveryDecl) { self._ice(d->range, "EmitIR: poisoned decl reached codegen; sema gate failure"); }
         if d->is_poisoned() { return; }
+
+        // The eval pass reaches free functions and records' compile-time
+        // methods (_record_bodies), through modules and visibility groups
+        // (emit_tu): the eval bindings defined after it call them.
+        if self._eval_pass {
+            if d->kind == DeclKind::FunctionDecl {
+                if cast::<FunctionDecl>(d)->is_eval() && (!self._eval_records) && (!self._done(cast::<FunctionDecl>(d))) {
+                    self._free_fn(cast::<FunctionDecl>(d), &null);
+                    self._eval_done.push_back(cast::<FunctionDecl>(d));
+                }
+                return;
+            }
+            var rec = (d->kind == DeclKind::ClassDecl) || (d->kind == DeclKind::StructDecl) || (d->kind == DeclKind::UnionDecl);
+            if (d->kind != DeclKind::ModuleDecl) && (d->kind != DeclKind::VisibilityGroupDecl) && (!rec) { return; }
+            if rec && (!self._eval_records) { return; }
+        } else if (d->kind == DeclKind::FunctionDecl) && cast::<FunctionDecl>(d)->is_eval() {
+            for var i: usize = 0; i < self._eval_done.size(); ++i {
+                if self._eval_done[i] == cast::<FunctionDecl>(d) { return; }
+            }
+        }
 
         switch d->kind {
             case DeclKind::FunctionDecl  { self._free_fn(cast::<FunctionDecl>(d), &null); }
@@ -198,7 +349,13 @@ class EmitIR {
                     if m != &null { self._free_fn(m, x); }
                 }
             }
-            case DeclKind::VariableDecl { self._global_var(cast::<VariableDecl>(d)); }
+            case DeclKind::VariableDecl {
+                var gv = cast::<VariableDecl>(d);
+                for var i: usize = 0; i < self._hoisted_vars.size(); ++i {
+                    if self._hoisted_vars[i] == gv { return; }   // emit_tu wrote it, in dependency order.
+                }
+                self._global_var(gv);
+            }
             default { self._ice(d->range, f"EmitIR: decl kind {to_string(d->kind)} has no body to emit"); }
         }
     }
@@ -214,6 +371,15 @@ class EmitIR {
             if !m->has_body() {
                 var def = m->definition();
                 if (def != &null) && (!def->is_poisoned()) { m = def; }
+            }
+            // The eval pass writes the compile-time ones; the second pass
+            // the rest (emit).
+            var done = false;
+            for var k: usize = 0; k < self._eval_done.size(); ++k { if self._eval_done[k] == m { done = true; break; } }
+            if done { continue; }
+            if self._eval_pass {
+                if !self._compile_time(m) { continue; }
+                self._eval_done.push_back(m);
             }
             self._method(m, d);
         }
@@ -296,6 +462,8 @@ class EmitIR {
         // every TU that declares it defines it, its own TU included, with the
         // same text, and the linker keeps one.
         if n->is_inline() && (!is_main) { head += "inline "; }
+        // EVAL.md 1.1: the definition repeats the interface's `consteval`.
+        if n->is_eval() && (!is_main) { head += "consteval "; }
         head += (("int") if (is_main) else (self._ret(n)));
         head += " ";
         if ext != &null { head += self._spell.ext_scope_name(ext) + "::"; }
@@ -324,6 +492,8 @@ class EmitIR {
         // Out of line, so the class definition stays the same bytes in every
         // TU (invariant 11); see _free_fn.
         if m->is_inline() { head += "inline "; }
+        if m->is_eval()   { head += "consteval "; }   // EVAL.md 1.1
+        else if m->is_constexpr() { head += "constexpr "; }   // an eval class's field default (7b).
         var is_ctor = (self._spell.leaf(m) == self._spell.leaf(owner));
         var nm = self._spell.leaf(m);
         // `op as` spells `operator T`; C++ gives a conversion no return type.
@@ -348,10 +518,37 @@ class EmitIR {
         self._cg->sink->spell(at, head);
 
         self._body(m, &null);
+        self._eval_field_def(m, owner, at);
         self._close_ns(m->range, wrap);
     }
 
-    // --- Constructors that initialize a const field (file header) ----------------
+    /// `inline constexpr T const R::k = R::__kairo_init_k();` for the eval
+    /// field whose consteval thunk \p m is, right after the thunk's body: a
+    /// constant expression may call a consteval function only once it is
+    /// defined, so InterfaceEmitter, which writes the other statics after
+    /// the class, leaves this one here. The thunk is an eval fn, so its body
+    /// (and with it this definition) is in every TU that sees the class.
+    priv fn _eval_field_def(self, m: *FunctionDecl, owner: *Decl, at: SourceRange) {
+        if (!m->is_eval()) || (!m->is_implicit) { return; }
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        if isa::<ClassDecl>(owner)       { fields = &(cast::<ClassDecl>(owner)->fields);  }
+        else if isa::<StructDecl>(owner) { fields = &(cast::<StructDecl>(owner)->fields); }
+        if fields == &null { return; }
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = (*fields)[i];
+            if (f == &null) || (!f->is_eval()) || (f->init_fold != FieldFold::Thunk) { continue; }
+            if f->init_thunk != static_cast::<*Decl>(m) { continue; }
+            var q  = self._owner_qual(owner);
+            var nm = q + "::" + self._spell.leaf(static_cast::<*Decl>(f));
+            var s  = self._owner_template_head(owner) + "inline constexpr const ";
+            s += self._spell.decl(f->type_, nm);
+            s += " = " + q + "::" + self._spell.leaf(m) + "();";
+            self._cg->sink->spell(at, s);
+            return;
+        }
+    }
+
+    // --- Constructors that initialize a field in place (file header) ------------
 
     /// The slot record's definition, the pre-function, the slot constructor
     /// and the public constructor that delegates to it, for \p m, whose body
@@ -374,6 +571,16 @@ class EmitIR {
         var ps   = self._lref_params(m);
         var args = self._param_names(m);
 
+        // Before anything below: _slot_name and _slot_type read the slots
+        // through _ci_fn, and the slot record is the first thing they spell.
+        var saved_fn  = self._cur_fn;
+        var saved_ext = self._cur_ext;
+        var saved_ci  = self._ci_fn;
+        var saved_pre = self._ci_pre;
+        self._cur_fn  = m;
+        self._cur_ext = &null;
+        self._ci_fn   = m;
+
         // The slot record. Its members' types are complete here, which they
         // need not be where only the class is (InterfaceEmitter declares it).
         var r = oh + "struct " + q + "::" + ci + " {";
@@ -384,21 +591,16 @@ class EmitIR {
         self._cg->sink->spell(at, r);
         self._cg->sink->brk();
 
-        var saved_fn  = self._cur_fn;
-        var saved_ext = self._cur_ext;
-        var saved_ci  = self._ci_fn;
-        var saved_pre = self._ci_pre;
-        self._cur_fn  = m;
-        self._cur_ext = &null;
-        self._ci_fn   = m;
-
         // S_pre, against the slots.
         self._cg->sink->spell(at, oh + inl + "auto " + q + "::" + LowerTargets::ctor_pre(m->ci_index)
             + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&");
         self._ci_pre = true;
         self._cg->sink->synth_at_start(pre->range, clang::tok::l_brace);
         for var i: usize = 0; i < pre->body.size(); ++i { self.emit(pre->body[i]); }
-        self._cg->sink->spell(pre->range, "return " + sa + ";");
+        // Cast, not `return __kairo_s;`: since C++23 a returned rvalue
+        // reference parameter is an xvalue (P2266), which the `&` return
+        // type cannot bind.
+        self._cg->sink->spell(pre->range, "return static_cast<" + ci + "&>(" + sa + ");");
         self._cg->sink->synth_at_end(pre->range, clang::tok::r_brace);
         self._ci_pre = false;
         self._cg->sink->brk();
@@ -411,7 +613,20 @@ class EmitIR {
             if (f == &null) || (!m->ci_dense[i]) { continue; }
             h += (" : ") if (first) else (", ");
             first = false;
-            h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + sa + "." + self._slot_name(i) + ".take())";
+            var take = sa + "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "()";
+            var ext  = self._array_extent(f->type_);
+            if ext == usize(-1) {
+                h += self._spell.leaf(static_cast::<*Decl>(f)) + "(" + take + ")";
+            } else {
+                // A member array cannot be initialized from an array, only
+                // from its elements, each moved out of the slot's.
+                h += self._spell.leaf(static_cast::<*Decl>(f)) + "{";
+                for var k: usize = 0; k < ext; ++k {
+                    if k > 0 { h += ", "; }
+                    h += take + f"[{k}]";
+                }
+                h += "}";
+            }
         }
         self._cg->sink->spell(at, h);
         self._cg->sink->synth_at_start(post->range, clang::tok::l_brace);
@@ -421,7 +636,7 @@ class EmitIR {
             var f = dyn_cast::<FieldDecl>(m->ci_slots[i]);
             if (f == &null) || m->ci_dense[i] { continue; }
             var nm = self._slot_name(i);
-            self._cg->sink->spell(post->range, "if (" + sa + "." + nm + ".set) { this->" + self._spell.leaf(static_cast::<*Decl>(f)) + " = " + sa + "." + nm + ".take(); }");
+            self._cg->sink->spell(post->range, "if (" + sa + "." + nm + "." + LowerTargets::ctor_slot_set() + ") { this->" + self._spell.leaf(static_cast::<*Decl>(f)) + " = " + sa + "." + nm + "." + LowerTargets::ctor_slot_take() + "(); }");
         }
         for var i: usize = 0; i < post->body.size(); ++i { self.emit(post->body[i]); }
         self._cg->sink->synth_at_end(post->range, clang::tok::r_brace);
@@ -439,6 +654,18 @@ class EmitIR {
         pub_h += " : " + leaf + "(" + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "()" + args + ")" + args + ") {}";
         self._cg->sink->spell(at, pub_h);
         self._close_ns(m->range, wrap);
+    }
+
+    /// The length of \p t when it is a fixed array of known length (the one
+    /// kind of field whose slot hands its value over element by element),
+    /// else usize(-1). CtorInitCheck gated a generic length.
+    priv fn _array_extent(self, t: *Type) -> usize {
+        if (t == &null) || (t->canonical == &null) { return usize(-1); }
+        var c = canon_unqual(t->canonical);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return usize(-1); }
+        var a = cast::<FixedArrayType>(c);
+        if a->is_incomplete || (a->extent_param != &null) { return usize(-1); }
+        return static_cast::<usize>(a->size_bits);
     }
 
     /// Index of \p d in the live split constructor's slots, or usize(-1). A
@@ -472,7 +699,7 @@ class EmitIR {
     /// `var n: T` alone is `T{}`, the default every local gets (_var_init).
     priv fn _slot_local_init(self, v: *VariableDecl) {
         var si = self._slot_of(static_cast::<*Decl>(v), false);
-        self._cg->sink->spell(v->name.range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + ".init(");
+        self._cg->sink->spell(v->name.range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + "." + LowerTargets::ctor_slot_init() + "(");
         if v->init == &null {
             self._cg->sink->spell(v->name.range, self._spell._type(v->type_) + "{}");
         } else {
@@ -530,16 +757,7 @@ class EmitIR {
         var s = "";
         for var i: usize = 0; i < chain.size(); ++i {
             if i > 0 { s += "::"; }
-            s += self._spell.leaf(chain[i]);
-            var gps = decl_generic_params(chain[i]);
-            if gps.size() > 0 {
-                s += "<";
-                for var j: usize = 0; j < gps.size(); ++j {
-                    if j > 0 { s += ", "; }
-                    s += self._spell.imm_name(gps[j]->name.imm, CXXSpell::fid_of(chain[i]));
-                }
-                s += ">";
-            }
+            s += self._spell.owner_segment(chain[i]);
         }
         return s;
     }
@@ -559,6 +777,7 @@ class EmitIR {
     }
 
     priv fn _ret(self, f: *FunctionDecl) -> string {
+        if f->panic_result != &null { return self._spell._type(f->panic_result); }
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
         return self._spell.return_spelling(f, &null);
     }
@@ -578,7 +797,7 @@ class EmitIR {
                 // An extension operator takes its receiver by reference (see
                 // InterfaceEmitter::_params); _body rebinds `self` from it.
                 s += self._spell.ext_receiver(f, ext);
-                s += (" " + LowerTargets::ext_self()) if (f->is_operator) else (" self");
+                s += (" " + LowerTargets::ext_self()) if (f->is_operator) else (" " + LowerTargets::ext_receiver_name());
                 continue;
             }
             if !first { s += ", "; }
@@ -607,15 +826,35 @@ class EmitIR {
         self._cg->sink->synth_at_start(b->range, clang::tok::l_brace);
         if (ext != &null) && f->is_operator {
             var pro = ("const ") if (f->is_const()) else ("");
-            pro += self._spell._type(ext->target) + "* self = &" + LowerTargets::ext_self() + ";";
+            pro += self._spell._type(ext->target) + "* " + LowerTargets::ext_receiver_name() + " = &" + LowerTargets::ext_self() + ";";
             self._cg->sink->spell(b->range, pro);
+        }
+        // The value predicates of the function's `requires` (EVAL.md §8,
+        // E10): asserted where C++ can evaluate them, per instance in a
+        // template. EvalUsageChecking already refused a run-time one.
+        var vps = vec::<*Expr>();
+        CXXSpell::value_predicates(f->requires_clause, &vps);
+        for var i: usize = 0; i < vps.size(); ++i {
+            self._cg->sink->spell(vps[i]->range, "static_assert(");
+            self.emit(vps[i]);
+            self._cg->sink->spell(vps[i]->range, ", \"requires clause of \x27" + self._spell.leaf(static_cast::<*Decl>(f)) + "' not satisfied\");");
+        }
+        var egen = f->is_generator && f->is_eval();
+        var saved_gens = self._ef_gens;
+        self._ef_gens = 0;
+        if egen {
+            var et = self._yield_elem(f);
+            if (et == &null) { self._ice(f->range, "EmitIR: an eval generator with no element type"); }
+            self._cg->sink->spell(b->range, "::" + LowerTargets::eval_buf() + "<" + self._spell._type(et) + "> " + LowerTargets::eval_yield_buf() + ";");
         }
         for var i: usize = 0; i < b->body.size(); ++i { self.emit(b->body[i]); }
         // A function is a coroutine only when its body holds a coroutine
         // keyword, and a generator with no `yield` (or only a bare `return`
         // the emitter already spelled `co_return`) may have none. X's
         // has_yield says which; EmitIR does not walk the body to find out.
-        if f->is_generator && (!f->has_yield) { self._cg->sink->spell(b->range, "co_return;"); }
+        if egen { self._cg->sink->spell(b->range, "return " + LowerTargets::eval_yield_buf() + ";"); }
+        else if f->is_generator && (!f->has_yield) { self._cg->sink->spell(b->range, "co_return;"); }
+        self._ef_gens = saved_gens;
         self._cg->sink->synth_at_end(b->range, clang::tok::r_brace);
         self._cur_fn  = saved_fn;
         self._cur_ext = saved_ext;
@@ -649,31 +888,47 @@ class EmitIR {
             }
             case StmtKind::DeclStmt        { self._decl(cast::<DeclStmt>(s)); }
             case StmtKind::ConditionalStmt { self._if(cast::<ConditionalStmt>(s)); }
-            case StmtKind::WhileLoopStmt   { self._while(cast::<WhileLoopStmt>(s)); }
+            case StmtKind::WhileLoopStmt   { self._ef_loops += 1; self._while(cast::<WhileLoopStmt>(s)); self._ef_loops -= 1; }
             case StmtKind::LoopStmt {
                 var n = cast::<LoopStmt>(s);
                 self._cg->sink->spell(n->range, "for (;;)");
+                self._ef_loops += 1;
                 self.emit_block(n->body);
+                self._ef_loops -= 1;
             }
-            case StmtKind::IndexedForStmt  { self._for(cast::<IndexedForStmt>(s)); }
+            case StmtKind::IndexedForStmt  { self._ef_loops += 1; self._for(cast::<IndexedForStmt>(s)); self._ef_loops -= 1; }
             case StmtKind::BreakStmt {
                 var n = cast::<BreakStmt>(s);
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled break; LabelLowering must have rewritten it"); }
-                self._cg->sink->spell(n->range, "break;");
+                // An `eval for`'s own break ends the `&&` fold (EVAL.md §5).
+                if (self._ef_depth > 0) && (self._ef_loops == 0) { self._cg->sink->spell(n->range, "return false;"); }
+                else { self._cg->sink->spell(n->range, "break;"); }
             }
             case StmtKind::ContinueStmt {
                 var n = cast::<ContinueStmt>(s);
                 if (n->has_label) { self._ice(s->range, "EmitIR: labeled continue; LabelLowering must have rewritten it"); }
-                self._cg->sink->spell(n->range, "continue;");
+                if (self._ef_depth > 0) && (self._ef_loops == 0) { self._cg->sink->spell(n->range, "return true;"); }
+                else { self._cg->sink->spell(n->range, "continue;"); }
             }
             case StmtKind::UnsafeBlockStmt        { self.emit_block(cast::<UnsafeBlockStmt>(s)->body); }
-            case StmtKind::RangedForStmt          { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
+            case StmtKind::RangedForStmt {
+                var rf = cast::<RangedForStmt>(s);
+                if rf->iter_kind == IterKind::Pack { self._pack_for(rf); }
+                else {
+                    if (!rf->is_eval) { self._ice(s->range, "EmitIR: ranged for; IterLowering owns it"); }
+                    self._eval_for(rf);
+                }
+            }
             case StmtKind::MatchStmt              { self._ice(s->range, "EmitIR: match MatchLowering left in place"); }
-            case StmtKind::TryCatchStmt           { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
+            case StmtKind::TryCatchStmt {
+                var t = cast::<TryCatchStmt>(s);
+                if !t->cxx { self._ice(s->range, "EmitIR: try/catch; PanicLowering owns it"); }
+                self._cxx_try(t);
+            }
             case StmtKind::FinallyStmt            { self._ice(s->range, "EmitIR: finally; FinallyLowering owns it"); }
             case StmtKind::PanicStmt              { self._ice(s->range, "EmitIR: panic; PanicLowering owns it"); }
             case StmtKind::YieldStmt              { self._yield(cast::<YieldStmt>(s)); }
-            case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; PanicLowering owns it"); }
+            case StmtKind::RuntimeAssertStmt      { self._ice(s->range, "EmitIR: assert; not emitted yet (a crash-family check, PANIC.md §2.4a)"); }
             case StmtKind::StaticAssertStmt       { self._ice(s->range, "EmitIR: static assert; the Evaluator owns it"); }
             case StmtKind::ContextBindingStmt     { self._ice(s->range, "EmitIR: context binding; ContextLowering owns it"); }
             case StmtKind::DestructuringDeclStmt  { self._ice(s->range, "EmitIR: destructuring; TupleLowering owns a tuple's, FeatureGateCheck rejects a struct's"); }
@@ -691,8 +946,32 @@ class EmitIR {
             }
             case StmtKind::SwitchDispatchStmt { self._switch_dispatch(cast::<SwitchDispatchStmt>(s)); }
             case StmtKind::InlineBlockStmt        { self._ice(s->range, "EmitIR: inline foreign block; not emitted yet"); }
-            case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: eval block; EvalLowering owns it"); }
+            case StmtKind::EvalBlockStmt          { self._ice(s->range, "EmitIR: an eval block in a function body; FeatureGateCheck rejects it"); }
             default { self._ice(s->range, f"EmitIR: statement kind {to_string(s->kind)} is not in the core"); }
+        }
+    }
+
+    /// PanicLowering's C++ `try` (PANIC.md §3.5, §4.5a H): `try { body }
+    /// catch (T& e) { arm } ...`, each arm's binding a reference to the
+    /// exception (PanicLowering typed it), or the type alone when the arm
+    /// binds nothing.
+    priv fn _cxx_try(self, n: *TryCatchStmt) {
+        self._cg->sink->spell(n->range, "try");
+        self.emit_block(n->try_body);
+        for var i: usize = 0; i < n->arms.size(); ++i {
+            var a = n->arms.get(i);
+            self._cg->sink->spell(a->range, "catch (");
+            // Not _var_decl: a handler's parameter has no initializer, and a
+            // local without one is value-initialized there.
+            var vd = dyn_cast::<VariableDecl>(a->decl);
+            if vd != &null {
+                self._cg->sink->spell(vd->name.range, self._spell._type(vd->type_));
+                self._name(vd->name);
+            } else {
+                self._cg->sink->spell(a->range, self._spell._type(a->filter->canonical) + "&");
+            }
+            self._cg->sink->spell(a->range, ")");
+            self.emit_block(a->body);
         }
     }
 
@@ -725,12 +1004,28 @@ class EmitIR {
     /// pre-X fallback and is a bug if it ever prints for real code.
     priv fn _var_decl(self, n: *VariableDecl) {
         if (n->kind == DeclKind::RecoveryDecl) { self._ice(n->range, "EmitIR: poisoned VariableDecl reached codegen"); }
+        // A `try`'s raw slot (PanicLowering): storage only, built by a
+        // SlotPut and read once by a SlotTake. No initializer: nothing is
+        // built until a failing site builds it.
+        if n->raw_slot {
+            if ((n->type_ == &null) || (n->init != &null)) { self._ice(n->range, "EmitIR: a raw slot with no type or with an initializer; PanicLowering mints neither"); }
+            self._cg->sink->spell(n->name.range, "::" + LowerTargets::raw_slot() + "<" + self._spell._type(n->type_) + ">");
+            self._name(n->name);
+            return;
+        }
         switch n->storage {
             case StorageClass::Const  { self._cg->sink->kw_const(n->name);     }
             case StorageClass::Static { self._cg->sink->kw_static(n->name);    }
             case StorageClass::Eval   { self._cg->sink->kw_constexpr(n->name); }
             default { }
         }
+        // A function-local `thread` is `static thread_local`: one instance
+        // per thread that keeps its value across calls (variables.mdx).
+        // Left as plain `static`, every thread would share it.
+        if n->is_thread { self._cg->sink->kw_thread_local(n->name); }
+        // `static const x` (either order): the const is the binding's, so
+        // C++ gets `static const T x`, which is what a const local would add.
+        if n->const_binding { self._cg->sink->kw_const(n->name); }
         var c: *Type = &null;
         if (n->type_ != &null) && (n->type_->canonical != &null) { c = canon_unqual(n->type_->canonical); }
         if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
@@ -817,11 +1112,17 @@ class EmitIR {
         var d = static_cast::<*Decl>(n);
         var at = CXXSpell::at(d);
         var wrap = self._open_ns(d, at);
-        var head = ("constexpr ") if (n->is_eval()) else ("");
+        // `inline` (EVAL.md 1.2b): every TU that reads an eval binding
+        // writes this same definition (EmitPlan::visible_eval_vars), since
+        // an `extern const` is no constant expression to an importer.
+        var head = ("inline constexpr ") if (n->is_eval()) else ("");
         self._cg->sink->spell(at, head + self._spell.global_var(n));
         var c: *Type = &null;
         if n->type_->canonical != &null { c = canon_unqual(n->type_->canonical); }
+        var saved = self._cur_global;
+        self._cur_global = n;
         self._var_init(n, c);
+        self._cur_global = saved;
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);
         self._close_ns(n->range, wrap);
     }
@@ -829,6 +1130,35 @@ class EmitIR {
     /// The `return` keyword borrows the statement's first six bytes; correct
     /// only because Kairo spells it `return` too. TODO(ast): retain the token.
     priv fn _return(self, n: *ReturnStmt) {
+        // In a closure: the lambda's own return, to the closure's type.
+        if self._closure != &null {
+            self._cg->sink->synth(SourceRange::from_bounds(n->range.start, u32(6)), clang::tok::kw_return);
+            var crt = self._closure->return_type;
+            if self._closure->panic_result != &null { crt = self._closure->panic_result; }
+            if n->value != &null { self._value(n->value, crt); }
+            self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+            return;
+        }
+        // Out of an `eval for` copy: the function's return slot, then stop
+        // the fold; the code after the expansion returns (EVAL.md §5).
+        if self._ef_depth > 0 {
+            self._cg->sink->spell(n->range, "{ " + LowerTargets::eval_for_ret_flag() + " = true;");
+            if n->value != &null {
+                self._cg->sink->spell(n->range, LowerTargets::eval_for_ret_val() + " =");
+                var vrt: *Type = &null;
+                if self._cur_fn != &null { vrt = self._cur_fn->return_type; }
+                if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { vrt = self._cur_fn->panic_result; }
+                self._value(n->value, vrt);
+                self._cg->sink->spell(n->range, ";");
+            }
+            self._cg->sink->spell(n->range, "return false; }");
+            return;
+        }
+        // An eval generator's `return` hands back what it yielded.
+        if (self._cur_fn != &null) && self._cur_fn->is_generator && self._cur_fn->is_eval() {
+            self._cg->sink->spell(n->range, "return " + LowerTargets::eval_yield_buf() + ";");
+            return;
+        }
         // A generator's `return` is bare (X rejects a value) and ends the
         // sequence: `co_return;`. A plain `return` in a coroutine is ill-formed.
         if (self._cur_fn != &null) && self._cur_fn->is_generator {
@@ -841,6 +1171,9 @@ class EmitIR {
         if n->value != &null {
             var rt: *Type = &null;
             if self._cur_fn != &null { rt = self._cur_fn->return_type; }
+            // A panicking function returns its Panic result (PanicLowering
+            // built every returned value as one).
+            if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { rt = self._cur_fn->panic_result; }
             // A place operator's decl still says `*T` (importers' X reads it),
             // but the C++ function returns `T&`: `return x;` binds the
             // reference, and a conversion to `T*` here would be wrong.
@@ -860,6 +1193,13 @@ class EmitIR {
     priv fn _yield(self, n: *YieldStmt) {
         if ((self._cur_fn == &null) || (!self._cur_fn->is_generator)) { self._ice(n->range, "EmitIR: yield outside a generator; X gate failure"); }
         if (n->value == &null) { self._ice(n->range, "EmitIR: yield with no value reached codegen"); }
+        // An eval generator pushes into its buffer (EVAL.md §5).
+        if self._cur_fn->is_eval() {
+            self._cg->sink->spell(n->range, LowerTargets::eval_yield_buf() + "." + LowerTargets::eval_buf_push() + "(");
+            self._value(n->value, self._yield_elem(self._cur_fn));
+            self._cg->sink->spell(n->range, ");");
+            return;
+        }
         self._cg->sink->spell(n->range, "co_yield");
         self._cg->sink->spell(n->range, "(");
         self._value(n->value, self._yield_elem(self._cur_fn));
@@ -879,7 +1219,10 @@ class EmitIR {
 
     priv fn _if(self, n: *ConditionalStmt) {
         var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
-        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), ("if") if (own) else ("if ("));
+        // An `eval if` EvalIfFolding could not fold (a function body only):
+        // C++ chooses, and discards the other branch in a template.
+        var kw = ("if constexpr") if (n->is_eval) else ("if");
+        self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), (kw) if (own) else (kw + " ("));
         self.emit(n->cond);
         if !own { self._cg->sink->spell(n->cond->range, ")"); }
         self.emit_block(n->then_);
@@ -887,6 +1230,167 @@ class EmitIR {
             self._cg->sink->spell(n->else_->range, "else");
             self.emit(n->else_);   // a ConditionalStmt (else-if) or a CompoundStmt.
         }
+    }
+
+    /// `eval for i in X { body }` (EVAL.md §5): the body expanded once per
+    /// value with an index pack, so in each copy `i` is a constant:
+    ///
+    ///   { [&]<usize... K>(::__kairo_iseq<usize, K...>) {
+    ///       (... && [&]<usize I>() -> bool { constexpr T i = VAL(I); body; return true; }
+    ///                .template operator()<K>());
+    ///     }(__make_integer_seq<::__kairo_iseq, usize, COUNT>{}); }
+    ///
+    /// The `&&` fold is the unrolled loop: `continue` is `return true` from a
+    /// copy, `break` `return false`, which stops the fold. A `return` sets
+    /// the function's flag (and value slot) and stops it, and the code after
+    /// the outermost expansion returns; an inner one stops its enclosing
+    /// copy. VAL / COUNT: a range is `LO + I` and `HI - LO` (`+ 1` when
+    /// inclusive); an array its elements; an eval generator's values are
+    /// computed once, into `static constexpr` locals, ahead of the expansion.
+    priv fn _eval_for(self, n: *RangedForStmt) {
+        var sz   = "decltype(sizeof(0))";
+        var at   = n->range;
+        var elem = n->iter_elem;
+        if (elem == &null) { self._ice(at, "EmitIR: an eval for with no element type; X gate failure"); }
+        if (n->bindings.size() != 1) { self._ice(at, "EmitIR: an eval for with other than one binding; EvalUsageChecking rejects it"); }
+        var bd = n->bindings[0];
+        var vd = dyn_cast::<VariableDecl>(bd.decl);
+        var et = self._spell._type(elem);
+        var outer = (self._ef_depth == 0);
+        var rt: *Type = &null;
+        if (self._cur_fn != &null) && (!self._cur_fn->is_noreturn) { rt = self._cur_fn->return_type; }
+        if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { rt = self._cur_fn->panic_result; }   // what its `return`s now carry.
+        var has_val = (rt != &null) && (rt->canonical != &null) && (!self.tu_is_void(rt->canonical));
+
+        self._cg->sink->spell(at, "{");
+        if outer {
+            self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;");
+            if has_val { self._cg->sink->spell(at, self._spell._type(rt) + " " + LowerTargets::eval_for_ret_val() + "{};"); }
+        }
+
+        var gk: usize = 0;
+        var is_range = (n->ev_lo != &null) && (n->ev_hi != &null);
+        var is_gen   = (!is_range) && (n->iter_kind == IterKind::User);
+        if is_gen {
+            gk = self._ef_gens;
+            self._ef_gens += 1;
+            var gn = LowerTargets::eval_for_gen_n(gk);
+            self._cg->sink->spell(at, "static constexpr " + sz + " " + gn + " = (");
+            self.emit(n->iterable);
+            self._cg->sink->spell(at, ")." + LowerTargets::eval_buf_count() + ";");
+            self._cg->sink->spell(at, "static constexpr auto " + LowerTargets::eval_for_gen(gk) + " = []() consteval { ::"
+                + LowerTargets::eval_arr() + "<" + et + ", " + gn + "> a{}; auto b = (");
+            self.emit(n->iterable);
+            self._cg->sink->spell(at, "); for (" + sz + " k = 0; k < " + gn + "; ++k) a." + LowerTargets::eval_arr_values() + "[k] = b." + LowerTargets::eval_buf_data() + "[k]; return a; }();");
+        }
+
+        var K = LowerTargets::eval_for_pack(self._ef_depth);
+        var I = LowerTargets::eval_for_index(self._ef_depth);
+        self._cg->sink->spell(at, "[&]<" + sz + "... " + K + ">(::" + LowerTargets::eval_iseq() + "<" + sz + ", " + K + "...>) { (... && [&]<" + sz + " " + I + ">() -> bool {");
+        // The binding: a constant in each copy.
+        var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
+        self._cg->sink->spell(at, "[[maybe_unused]] constexpr " + et + " " + nm + " = ");
+        if is_range {
+            self._cg->sink->spell(at, "static_cast<" + et + ">((");
+            self.emit(n->ev_lo);
+            self._cg->sink->spell(at, ") + static_cast<" + et + ">(" + I + "));");
+        } else if is_gen {
+            self._cg->sink->spell(at, LowerTargets::eval_for_gen(gk) + "." + LowerTargets::eval_arr_values() + "[" + I + "];");
+        } else {
+            self._cg->sink->spell(at, "(");
+            self.emit(n->iterable);
+            self._cg->sink->spell(at, ")[" + I + "];");
+        }
+
+        var sd = self._ef_depth;
+        var sl = self._ef_loops;
+        self._ef_depth += 1;
+        self._ef_loops = 0;
+        for var i: usize = 0; i < n->body->body.size(); ++i { self.emit(n->body->body[i]); }
+        self._ef_depth = sd;
+        self._ef_loops = sl;
+
+        self._cg->sink->spell(at, "return true; }.template operator()<" + K + ">()); }(__make_integer_seq<::" + LowerTargets::eval_iseq() + ", " + sz + ", ");
+        if is_range {
+            self._cg->sink->spell(at, "static_cast<" + sz + ">((");
+            self.emit(n->ev_hi);
+            self._cg->sink->spell(at, ") - (");
+            self.emit(n->ev_lo);
+            self._cg->sink->spell(at, ")" + ((" + 1") if (n->ev_incl) else ("")) + ")");
+        } else if is_gen {
+            self._cg->sink->spell(at, LowerTargets::eval_for_gen_n(gk));
+        } else {
+            var arr = dyn_cast::<FixedArrayType>(canon_unqual(n->iterable->type_));
+            if (arr == &null) { self._ice(at, "EmitIR: an eval for over something that is not a range, an array or an eval generator; EvalUsageChecking rejects it"); }
+            var ext = (self._spell._type(arr->extent_param)) if (arr->extent_param != &null) else (f"{arr->size_bits}");
+            self._cg->sink->spell(at, ext);
+        }
+        self._cg->sink->spell(at, ">{});");
+
+        var flag = LowerTargets::eval_for_ret_flag();
+        if outer {
+            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "; }"); }
+            else       { self._cg->sink->spell(at, "if (" + flag + ") { return; }"); }
+        } else {
+            self._cg->sink->spell(at, "if (" + flag + ") { return false; }");
+        }
+        self._cg->sink->spell(at, "}");
+    }
+
+    /// `for x in xs` over a type pack (`...xs: T`): the body once per
+    /// element, each copy a lambda the `&&` fold calls with that element,
+    ///
+    ///   { (... && [&](auto& x) -> bool { body; return true; }(xs)); }
+    ///
+    /// under `_eval_for`'s protocol, which this shares: `continue` is
+    /// `return true` from a copy, `break` `return false`, a `return` sets
+    /// the function's flag (and value slot) and stops the fold, and the
+    /// code after the outermost expansion returns.
+    priv fn _pack_for(self, n: *RangedForStmt) {
+        var at = n->range;
+        if (n->bindings.size() != 1) { self._ice(at, "EmitIR: a for over a pack with other than one binding; X gate failure"); }
+        var pk = dyn_cast::<NamedIdentExpr>(n->iterable);
+        if (pk == &null) { self._ice(at, "EmitIR: a for over a pack whose iterable is not the pack's name; StmtTyping classifies only that"); }
+        var vd = dyn_cast::<VariableDecl>(n->bindings[0].decl);
+        var outer = (self._ef_depth == 0);
+        var rt: *Type = &null;
+        if (self._cur_fn != &null) && (!self._cur_fn->is_noreturn) { rt = self._cur_fn->return_type; }
+        if (self._cur_fn != &null) && (self._cur_fn->panic_result != &null) { rt = self._cur_fn->panic_result; }   // what its `return`s now carry.
+        var has_val = (rt != &null) && (rt->canonical != &null) && (!self.tu_is_void(rt->canonical));
+
+        self._cg->sink->spell(at, "{");
+        if outer {
+            self._cg->sink->spell(at, "bool " + LowerTargets::eval_for_ret_flag() + " = false;");
+            if has_val { self._cg->sink->spell(at, self._spell._type(rt) + " " + LowerTargets::eval_for_ret_val() + "{};"); }
+        }
+        var nm = (self._spell.imm_name(vd->name.imm, self._owning_fid())) if (vd != &null) else (LowerTargets::eval_for_unused());
+        self._cg->sink->spell(at, "(... && [&]([[maybe_unused]] auto& " + nm + ") -> bool {");
+        var sd = self._ef_depth;
+        var sl = self._ef_loops;
+        self._ef_depth += 1;
+        self._ef_loops = 0;
+        for var i: usize = 0; i < n->body->body.size(); ++i { self.emit(n->body->body[i]); }
+        self._ef_depth = sd;
+        self._ef_loops = sl;
+        self._cg->sink->spell(at, "return true; }(");
+        self.emit(n->iterable);
+        self._cg->sink->spell(at, "));");
+
+        var flag = LowerTargets::eval_for_ret_flag();
+        if outer {
+            if has_val { self._cg->sink->spell(at, "if (" + flag + ") { return " + LowerTargets::eval_for_ret_val() + "; }"); }
+            else       { self._cg->sink->spell(at, "if (" + flag + ") { return; }"); }
+        } else {
+            self._cg->sink->spell(at, "if (" + flag + ") { return false; }");
+        }
+        self._cg->sink->spell(at, "}");
+    }
+
+    priv fn tu_is_void(self, t: *Type) -> bool {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
+        var k = cast::<BuiltinType>(c)->builtin;
+        return (k == BuiltinKind::Void) || (k == BuiltinKind::Never);
     }
 
     priv fn _while(self, n: *WhileLoopStmt) {
@@ -928,7 +1432,7 @@ class EmitIR {
     }
 
     priv fn _for(self, n: *IndexedForStmt) {
-        if (n->is_eval) { self._ice(n->range, "EmitIR: eval for; EvalLowering owns it"); }
+        if (n->is_eval) { self._ice(n->range, "EmitIR: a C-style eval for; EvalUsageChecking rejects it"); }
         self._cg->sink->spell(SourceRange::from_bounds(n->range.start, u32(3)), "for (");
         if n->init != &null {
             var ds = dyn_cast::<DeclStmt>(n->init);
@@ -994,12 +1498,27 @@ class EmitIR {
             case ExprKind::MatchExpr            { self._ice(e->range, "EmitIR: match MatchLowering left in place"); }
             case ExprKind::TryCatchExpr         { self._ice(e->range, "EmitIR: try expression; PanicLowering owns it"); }
             case ExprKind::RangeExpr            { self._ice(e->range, "EmitIR: range; RangeLowering owns it (IterLowering for a loop's iterable)"); }
-            case ExprKind::ClosureExpr          { self._ice(e->range, "EmitIR: closure; lambda emission is not written yet"); }
+            case ExprKind::ClosureExpr          { self._closure_expr(cast::<ClosureExpr>(e)); }
             case ExprKind::AwaitExpr            { self._ice(e->range, "EmitIR: await; the async lowering owns it"); }
+            case ExprKind::UnwrapExpr           { self._ice(e->range, "EmitIR: unwrap!; CoalesceLowering owns it"); }
+            case ExprKind::DefinedExpr          { self._ice(e->range, "EmitIR: defined!; EvalIfFolding owns it"); }
+            case ExprKind::AttributedExpr       { self._ice(e->range, "EmitIR: expression attribute; FeatureGateCheck gates every one"); }
+            case ExprKind::PanicOpExpr          { self._panic_op(cast::<PanicOpExpr>(e)); }
             case ExprKind::SpawnExpr            { self._ice(e->range, "EmitIR: spawn; the async lowering owns it"); }
             case ExprKind::ThreadExpr           { self._ice(e->range, "EmitIR: thread; the async lowering owns it"); }
-            case ExprKind::EvalExpr             { self._ice(e->range, "EmitIR: eval; EvalLowering owns it"); }
-            case ExprKind::PackExpansionExpr    { self._ice(e->range, "EmitIR: pack expansion; not emitted yet"); }
+            // `eval e`: computed by C++ at compile time, in place (EVAL.md
+            // §0); EvalUsageChecking made sure `e` can be.
+            case ExprKind::EvalExpr {
+                self._cg->sink->spell(e->range, "[&]() consteval { return (");
+                self.emit(cast::<EvalExpr>(e)->operand);
+                self._cg->sink->spell(e->range, "); }()");
+            }
+            // `xs...` (or `...xs`): C++'s own pack expansion, in an argument
+            // list.
+            case ExprKind::PackExpansionExpr {
+                self.emit(cast::<PackExpansionExpr>(e)->operand);
+                self._cg->sink->spell(e->range, "...");
+            }
             case ExprKind::ListLiteralExpr      { self._ice(e->range, "EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
             case ExprKind::VariantInitExpr      { self._variant_init(cast::<VariantInitExpr>(e)); }
@@ -1027,6 +1546,7 @@ class EmitIR {
     /// through here.
     priv fn _value(self, e: *Expr, want: *Type, subst: *InstanceEntry = &null) {
         if self._array_view(e, want, subst) { return; }
+        if self._fn_effect_value(e, want) { return; }
         if self._needs_cast(e, want, subst) {
             self._cast_to(want, e, "static_cast", subst);
             return;
@@ -1066,6 +1586,40 @@ class EmitIR {
         return canon_unqual(have) != canon_unqual(w);
     }
 
+    /// A `fn` value converted to a `fn` type with a wider panic effect (P4:
+    /// a set S into S' with S a subset, or no set into one; PANIC.md
+    /// §2.10). The two C++ results differ, so the value is wrapped: a
+    /// lambda holding it, whose result is `__kairo_pcall<R'>` of the call
+    /// (the panic result forwarded, or the plain value as Ok). True when it
+    /// emitted.
+    ///
+    ///   ::__kairo_fn<R'(A)>::own(new auto([__kairo_w = ::__kairo_fn<R(A)>(e)]
+    ///       (A __kairo_a0) noexcept -> R' { return ::__kairo_pcall<R'>(__kairo_w, a0); }))
+    priv fn _fn_effect_value(self, e: *Expr, want: *Type) -> bool {
+        if (e == &null) || (want == &null) || (e->type_ == &null) || (want->canonical == &null) { return false; }
+        var w = dyn_cast::<FunctionPointerType>(canon_unqual(want->canonical));
+        var h = dyn_cast::<FunctionPointerType>(canon_unqual(e->type_));
+        if (w == &null) || (h == &null) || (w == h) || (w->panic_result == &null) { return false; }
+        if h->panic_result == w->panic_result { return false; }
+        var rw = self._spell._type(w->panic_result);
+        var ps = "";
+        var fa = "";
+        for var i: usize = 0; i < w->params.size(); ++i {
+            var m = (w->modes[i]) if (i < w->modes.size()) else (ParamMode::Value);
+            var an = LowerTargets::panic_wrap_arg(i);
+            if i > 0 { ps += ", "; }
+            ps += self._spell.param_named(w->params[i], m, an);
+            fa += ", static_cast<decltype(" + an + ")&&>(" + an + ")";
+        }
+        var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+        var fv = "::" + LowerTargets::fn_value();
+        var wn = LowerTargets::panic_wrapped();
+        self._cg->sink->spell(e->range, fv + "<" + self._spell.fn_signature(w) + ">::" + LowerTargets::fn_value_own() + "(new auto([" + wn + " = " + fv + "<" + self._spell.fn_signature(h) + ">(");
+        self.emit(e);
+        self._cg->sink->spell(e->range, ")](" + ps + ") mutable" + nx + " -> " + rw + " { return ::" + LowerTargets::panic_call_as() + "<" + rw + ">(" + wn + fa + "); }))");
+        return true;
+    }
+
     /// `[T; N]` where a record is wanted: Sema's array -> slice view
     /// (Conversion::array_views_as), the only way an array meets a record.
     /// Spelled as the record's `(data, len)` construction over the array's
@@ -1101,6 +1655,26 @@ class EmitIR {
         if ((n->imm == &null) || (!n->imm->has_owned_text())) { self._ice(n->range, "EmitIR: byte literal with no minted bytes; LowerSynth::bytes_literal owns it"); }
         var p = n->imm->owned_ptr;
         var len = static_cast::<usize>(n->imm->owned_len);
+        // Read at compile time (EVAL.md 2a): the bytes as template
+        // arguments of `__kairo_estr`, a `const unsigned char` array with the
+        // NUL appended, which needs no cast to reach the string's `data`.
+        if n->const_eval {
+            // A long one is a named array instead (EVAL.md §11), which
+            // InterfaceEmitter defined at global scope ahead of every body
+            // (EmitPlan::big_strs collected it from this body).
+            if len > LowerTargets::eval_str_inline_max() {
+                self._cg->sink->spell(n->range, "::" + LowerTargets::eval_str_hashed(LowerTargets::eval_str_hash(p, len), len));
+                return;
+            }
+            var t = "::" + LowerTargets::eval_str() + "<";
+            for var i: usize = 0; i < len; ++i {
+                if i > 0 { t += ", "; }
+                t += f"{static_cast::<u32>(p[i])}";
+            }
+            t += ">";
+            self._cg->sink->spell(n->range, t);
+            return;
+        }
         var s = "\"";
         for var i: usize = 0; i < len; ++i {
             var b = p[i];
@@ -1137,7 +1711,7 @@ class EmitIR {
         // field (named bare) only in S_pre, where the object does not exist.
         var si = self._slot_of(d, self._ci_pre);
         if si != usize(-1) {
-            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + ".get()");
+            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + "." + LowerTargets::ctor_slot_get() + "()");
             return;
         }
         if self._ci_pre && self._is_self_decl(d) { self._ice(n->range, "EmitIR: `self` before every const field is initialized; CtorInitCheck gate failure"); }
@@ -1156,7 +1730,7 @@ class EmitIR {
     /// `self` as C++ has it: `this` in a method, the receiver parameter in an
     /// extension member. Always the pointer.
     priv fn _self_ptr(self, n: *NamedIdentExpr) {
-        self._cg->sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
+        self._cg->sink->spell(n->range, ((LowerTargets::ext_receiver_name()) if (self._cur_ext != &null) else ("this")));
     }
 
     priv fn _is_self_decl(self, d: *Decl) -> bool {
@@ -1193,7 +1767,16 @@ class EmitIR {
         var k = self._last_scope_step(n, upto);
         var i: usize = 0;
         var is_ptr = false;
-        if k != usize(-1) {
+        if (k != usize(-1)) && (n->base != &null) && (n->steps.get(k)->resolved_decl == &null) && self._dependent_step(n, n->steps.get(k)) {
+            // `T::classof(n)` under `<T: type>`: a static member of a type
+            // only the instance knows, written through the parameter. As
+            // written, `T::f`, and clang looks it up per instance.
+            self.emit(n->base);
+            for var j: usize = 0; j <= k; ++j {
+                self._dependent_member_named(n->steps.get(j), "::");
+            }
+            i = k + 1;
+        } else if k != usize(-1) {
             var st = n->steps.get(k);
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure"); }
             self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
@@ -1209,7 +1792,7 @@ class EmitIR {
                 var st0 = n->steps.get(0);
                 var s0 = self._slot_of(st0->resolved_decl, true);
                 if s0 == usize(-1) { self._ice(st0->range, "EmitIR: a field S_pre never assigns read before the object exists; CtorInitCheck gate failure"); }
-                self._cg->sink->spell(st0->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(s0) + ".get()");
+                self._cg->sink->spell(st0->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(s0) + "." + LowerTargets::ctor_slot_get() + "()");
                 is_ptr = self._type_is_pointer(st0->resolved_type);
                 i = 1;
             } else {
@@ -1224,7 +1807,7 @@ class EmitIR {
         for var j: usize = i; j < upto; ++j {
             var st = n->steps.get(j);
             if (st->access_kind == ChainExpr::AccessKind::ColonColon) { self._ice(st->range, "EmitIR: `::` after a value step"); }
-            if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; NullTestLowering owns it"); }
+            if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; CoalesceLowering owns it"); }
             if st->is_operator() {
                 self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
                 is_ptr = false;
@@ -1232,12 +1815,128 @@ class EmitIR {
             }
             if (st->is_tuple_index()) { self._ice(st->range, "EmitIR: tuple index step; TupleLowering owns it"); }
             if (self._is_extension_member(st->resolved_decl)) { self._ice(st->range, "EmitIR: extension member used as a value; ExtensionLowering rewrites the call form"); }
+            if (st->resolved_decl == &null) && self._dependent_step(n, st) {
+                self._dependent_member(st, is_ptr);
+                is_ptr = false;
+                continue;
+            }
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound member step reached codegen; gate failure"); }
             self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")));
             self._name(st->name->name);
+            // A pack-expanded variant's member holds one payload per element:
+            // element K is its getter's (EnumLayoutQuery::payload_ref).
+            if st->pack_index >= 0 {
+                self._cg->sink->spell(st->range, ".template " + LowerTargets::adt_pack_get() + "<" + f"{st->pack_index}" + ">()");
+            }
             is_ptr = self._type_is_pointer(st->resolved_type);
         }
         return is_ptr;
+    }
+
+    /// A member step Sema left unbound ON PURPOSE: the chain is dependent
+    /// and its first unbound step goes through a `<T: type>` parameter, so
+    /// the step names a member of a type only the instance knows (MONO.md
+    /// D1). Anything else unbound still ICEs: a bounded body is Kairo's to
+    /// check (D0), and an unbound step there (a bound call's dependent
+    /// result, `c.get(1).w`) is a Sema gap, not a request for clang.
+    priv fn _dependent_step(self, n: *ChainExpr, st: *ChainExpr::Step) -> bool {
+        if !n->is_instantiation_dependent() { return false; }
+        if (st->candidate_cell != &null) || (st->name == &null) || st->name->is_poisoned() { return false; }
+        var k = st->access_kind;
+        if (k != ChainExpr::AccessKind::Dot) && (k != ChainExpr::AccessKind::Arrow) && (k != ChainExpr::AccessKind::ColonColon) { return false; }
+        return self._duck_rooted(n);
+    }
+
+    /// Whether \p n's first unbound step is reached through a `: type`
+    /// parameter: the base names the parameter itself (`T::f`), or the
+    /// receiver of that step has the parameter's type, or points to it
+    /// (`t.f`, `d->f`). Steps after it hang off a result only the instance
+    /// knows, so they go with it.
+    priv fn _duck_rooted(self, n: *ChainExpr) -> bool {
+        var recv: *Type = &null;
+        if n->base != &null {
+            var ni = dyn_cast::<NamedIdentExpr>(n->base);
+            if (ni != &null) && (ni->resolved_decl != &null) && isa::<GenericParamDecl>(ni->resolved_decl) {
+                return cast::<GenericParamDecl>(ni->resolved_decl)->kind_bound == GenericParamKindBound::Duck;
+            }
+            recv = n->base->type_;
+        }
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if st->resolved_decl == &null {
+                // `t.inner().w`: the base is itself an unknown duck call, so
+                // `.w` hangs off it like a later step of one chain.
+                if (i == 0) && (recv == &null) && (n->base != &null) { return self._duck_rooted_expr(n->base); }
+                return self._is_duck_param_type(recv);
+            }
+            recv = st->resolved_type;
+        }
+        return false;
+    }
+
+    /// An unknown expression that is a duck chain, or a call through one.
+    priv fn _duck_rooted_expr(self, e: *Expr) -> bool {
+        var c = dyn_cast::<CallExpr>(e);
+        if c != &null { e = c->callee; }
+        var ch = dyn_cast::<ChainExpr>(e);
+        if ch == &null { return false; }
+        return ch->is_instantiation_dependent() && self._duck_rooted(ch);
+    }
+
+    /// \p t is a `: type` parameter, or a pointer to one.
+    priv fn _is_duck_param_type(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        c = canon_unqual(c);
+        if (c != &null) && (c->kind == TypeKind::PointerType) {
+            var pt = cast::<PointerType>(c)->pointee;
+            if pt == &null { return false; }
+            c = pt->canonical;
+            if c == &null { c = pt; }
+            c = canon_unqual(c);
+        }
+        if c == &null { return false; }
+        var g = dyn_cast::<GenericParamType>(c);
+        if (g == &null) || (g->owner == &null) { return false; }
+        var gps = decl_generic_params(g->owner);
+        if static_cast::<usize>(g->param_index) >= gps.size() { return false; }
+        var gp = gps[static_cast::<usize>(g->param_index)];
+        return (gp != &null) && (gp->kind_bound == GenericParamKindBound::Duck);
+    }
+
+    /// A dependent member step spelled as written, for clang to look up in
+    /// each instance (MONO.md D1): `.f` / `->f`, and `.template f<A...>` when
+    /// it carries generic arguments, since the object's type is dependent.
+    /// The separator is the receiver's when its type is known to be a
+    /// pointer, else the one the user wrote; past the first unbound step the
+    /// type is the instance's, so a later step can only go by the spelling.
+    priv fn _dependent_member(self, st: *ChainExpr::Step, is_ptr: bool) {
+        var arrow = is_ptr || (st->access_kind == ChainExpr::AccessKind::Arrow);
+        self._dependent_member_named(st, (("->") if (arrow) else (".")));
+    }
+
+    /// \p sep, then the step's name as written, `template name<A...>` when it
+    /// carries generic arguments (the scope is dependent, so C++ needs the
+    /// keyword to read `<` as an argument list).
+    priv fn _dependent_member_named(self, st: *ChainExpr::Step, sep: string) {
+        self._cg->sink->spell(st->range, sep);
+        if (st->name == &null) { self._ice(st->range, "EmitIR: a dependent member step with no name"); }
+        if st->generic_args.size() == 0 {
+            self._name(st->name->name);
+            return;
+        }
+        self._cg->sink->spell(st->range, "template ");
+        self._name(st->name->name);
+        var s = "<";
+        for var i: usize = 0; i < st->generic_args.size(); ++i {
+            if i > 0 { s += ", "; }
+            var ga = st->generic_args.get(i);
+            if (ga->ty == &null) { self._ice(st->range, "EmitIR: a dependent member's generic argument with no type"); }
+            s += self._spell._type(ga->ty);
+        }
+        s += ">";
+        self._cg->sink->spell(st->range, s);
     }
 
     /// Index of the last `::` step before \p upto, or usize(-1).
@@ -1271,25 +1970,77 @@ class EmitIR {
 
     priv fn _call(self, n: *CallExpr) {
         var callee = self._callee_decl(n->callee);
-        if (callee == &null) { self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure"); }
+        // A call through a `fn` value: a local, a parameter, a field, or any
+        // expression of `fn` type (`make()(4)`). Its parameters are the
+        // type's; an operand that names a function is a plain call below.
+        var fv = self._fn_value_type(n->callee, callee);
+        if fv != &null {
+            self.emit(n->callee);
+            self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+            self._fn_value_args(n, fv);
+            self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            return;
+        }
+        if callee == &null {
+            // A member call on a dependent receiver (`t.value()` under
+            // `<T: type>`): Sema typed it as written and bound nothing, by
+            // decision (MONO.md D1). It goes out as written, receiver chain
+            // and arguments untouched, and clang resolves and checks it in
+            // each instance. No parameter to convert to, no arity to check.
+            if self._dependent_member_call(n) {
+                self.emit(n->callee);
+                self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+                self._args(n, &null, true, &null);
+                self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+                return;
+            }
+            self._ice(n->range, "EmitIR: unbound callee reached codegen; ExprTyper gate failure");
+        }
 
         var ch = dyn_cast::<ChainExpr>(n->callee);
         var last: *ChainExpr::Step = &null;
         if (ch != &null) && (ch->steps.size() > 0) { last = ch->steps.get(ch->steps.size() - 1); }
         if ((last != &null) && self._is_extension_member(last->resolved_decl)) { self._ice(n->range, "EmitIR: an extension member called through a chain reached codegen; ExtensionLowering rewrites it to a free call"); }
+        // A requirement is no C++ function: the call goes through its
+        // interface's witness, which ExtensionLowering records (CODEGEN.md
+        // §7b.5). `T::make()` and `I::m(a)` are not rewritten yet.
+        if self._is_requirement(callee) && (n->witness_iface == &null) {
+            self._ice(n->range, "EmitIR: a call bound to an interface requirement with no recorded witness; ExtensionLowering rewrites `a.m()` through a bound (a `::` form is not built)");
+        }
 
         // The constructor, not the type the callee names: its parameters are
         // what the arguments are cast to.
         var f = dyn_cast::<FunctionDecl>(callee);
         if n->ctor_decl != &null { f = dyn_cast::<FunctionDecl>(n->ctor_decl); }
         var inst  = reinterpret_cast::<*InstanceEntry>(n->instance);
-        var bound = (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f)
+        // `T::Node(args)`: the callee is the requirement, the type is the
+        // witness's member type, constructed as any type is (CallTyping
+        // admitted it through a constructor bound).
+        var assoc_ctor = isa::<TypeAliasDecl>(callee) && (n->type_ != &null) && isa::<AssocType>(canon_unqual(n->type_));
+        var bound = (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f) || assoc_ctor
                  || ((last != &null) && (last->access_kind != ChainExpr::AccessKind::ColonColon));
         self._check_arity(n, f, bound);
 
-        if self._is_ctor(f) || self._is_type_decl(callee) {
+        if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
             self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
+        } else if n->witness_iface != &null {
+            // `::ring::Scalable_witness<T>::scale(`: the receiver is argument
+            // zero already, in the form the witness member takes it.
+            var wi = canon_unqual(n->witness_iface);
+            if (!isa::<RecordType>(wi)) { self._ice(n->range, "EmitIR: a witness that is not an interface instance"); }
+            var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(wi)->decl)));
+            var s = self._spell.witness_name(idecl) + self._spell.witness_args(self._spell._type(n->witness_self), wi);
+            s += "::";
+            // A generic requirement's arguments, when the call has concrete
+            // ones, spelled with `template`: the witness is a dependent type.
+            // A dependent call (no instance) leaves them to deduction.
+            if (f->generic_params.size() > 0) && (inst != &null) {
+                s += "template " + self._spell.witness_member_name(f) + self._spell.args_str(&(inst->args));
+            } else {
+                s += self._spell.witness_member_name(f);
+            }
+            self._cg->sink->spell(n->callee->range, s);
         } else if n->qualifier != &null {
             // A default thunk of a generic type's method: a static member of a
             // class template, named through the receiver's record so the
@@ -1323,6 +2074,17 @@ class EmitIR {
         self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
     }
 
+    /// \p n calls a member Sema left unbound because its receiver is
+    /// dependent (_dependent_step): the callee is a value chain whose LAST
+    /// step is that member.
+    priv fn _dependent_member_call(self, n: *CallExpr) -> bool {
+        var ch = dyn_cast::<ChainExpr>(n->callee);
+        if (ch == &null) || (ch->steps.size() == 0) { return false; }
+        var last = ch->steps.get(ch->steps.size() - 1);
+        if last->resolved_decl != &null { return false; }
+        return self._dependent_step(ch, last);
+    }
+
     /// CallLowering's postcondition, checked where it matters: every
     /// parameter has an argument. The one exception is decision 6: trailing
     /// imported C++ defaults are omitted and clang supplies them -- the one
@@ -1343,6 +2105,10 @@ class EmitIR {
         // declared by no Kairo parameter (CXXSpell::op_is_postfix).
         if CXXSpell::op_is_postfix(f) { want += 1; }
         var have = n->args.size();
+        // A type pack takes any number of arguments, none included.
+        var tpack = false;
+        for var i: usize = 0; i < f->params.size(); ++i { if param_is_type_pack(f->params[i]) { tpack = true; break; } }
+        if tpack { want -= 1; if have >= want { return; } }
         if (have + tail < want) { self._ice(n->range, "EmitIR: a call short of arguments reached codegen; CallLowering owns defaults"); }
         if ((have > want) && (!f->ffi_c_variadic)) { self._ice(n->range, "EmitIR: a call with more arguments than parameters reached codegen"); }
     }
@@ -1361,11 +2127,24 @@ class EmitIR {
     /// \p bound: the callee carries its receiver, so `self` takes no argument.
     priv fn _args(self, n: *CallExpr, f: *FunctionDecl, bound: bool, inst: *InstanceEntry) {
         var params = self._call_params(f, bound);
+        // A type pack's run (CallLowering leaves it one argument per
+        // element): every argument from the pack's slot to the surplus is the
+        // pack's, and goes as written -- the instance's elements ARE those
+        // arguments' types (CallTyping), so there is nothing to convert to.
+        var pk  = usize(-1);
+        var run: usize = 0;
+        for var i: usize = 0; i < params.size(); ++i {
+            if param_is_type_pack(params[i]) { pk = i; break; }
+        }
+        if (pk != usize(-1)) && (n->args.size() + 1 >= params.size()) { run = n->args.size() + 1 - params.size(); }
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
             if i > 0 { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
+            if (pk != usize(-1)) && (i >= pk) && (i < pk + run) { self.emit(a); continue; }
             var p: *ParamDecl = &null;
-            if i < params.size() { p = params[i]; }
+            var pi = i;
+            if (pk != usize(-1)) && (i >= pk + run) { pi = (i + 1) - run; }
+            if pi < params.size() { p = params[pi]; }
             self._arg(a, p, inst);
         }
     }
@@ -1398,6 +2177,149 @@ class EmitIR {
         self._value(a, pt, inst);
     }
 
+    /// The `fn` type of a callee that is a VALUE, not a function: one whose
+    /// decl (if any) is not a function or a type and whose canonical is a
+    /// `fn(...)`. Null otherwise.
+    priv fn _fn_value_type(self, c: *Expr, d: *Decl) -> *FunctionPointerType {
+        if (d != &null) && (isa::<FunctionDecl>(d) || self._is_type_decl(d)) { return &null; }
+        if (c == &null) || (c->type_ == &null) { return &null; }
+        var t = canon_unqual(c->type_);
+        if (t == &null) || (!isa::<FunctionPointerType>(t)) { return &null; }
+        return cast::<FunctionPointerType>(t);
+    }
+
+    /// Arguments of a call through a `fn` value, each as its parameter in
+    /// the type: `@inout` bare, `@move` cast to `T&&` from an lvalue, the
+    /// rest through the exactness cast, as for a function's (_arg).
+    priv fn _fn_value_args(self, n: *CallExpr, f: *FunctionPointerType) {
+        for var i: usize = 0; i < n->args.size(); ++i {
+            var a = n->args[i];
+            if i > 0 { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
+            if i >= f->params.size() { self.emit(a); continue; }
+            var pt = *(f->params.get(i));
+            var m  = *(f->modes.get(i));
+            var u = dyn_cast::<UnaryOperatorExpr>(a);
+            if (u != &null) && u->is_mode_marker { self.emit(u->operand); continue; }
+            if m == ParamMode::Inout { self.emit(a); continue; }
+            if (m == ParamMode::Move) && a->is_lvalue() {
+                self._cg->sink->spell(a->range, "static_cast<" + self._spell._type(pt) + "&&>(");
+                self.emit(a);
+                self._cg->sink->spell(a->range, ")");
+                continue;
+            }
+            self._value(a, pt);
+        }
+    }
+
+    // --- Closures ------------------------------------------------------------------
+
+    /// A closure is a C++ lambda (CODEGEN.md §6, Closures), wrapped in the
+    /// `fn` value its type is:
+    ///   captures nothing  `::__kairo_fn<R(A)>(+[](A a) -> R { ... })`
+    ///   captures          `::__kairo_fn<R(A)>::own(new auto([c...](A a) mutable -> R { ... }))`
+    /// The capture list is ClosureCaptures' decision (_capture_list). A
+    /// capturing lambda is `mutable`: a by-copy capture is the closure's
+    /// own variable, which its body may assign and which keeps its value
+    /// from one call to the next. `new auto(prvalue)` builds the lambda in
+    /// its heap slot directly, so no temporary lambda copies a capture.
+    priv fn _closure_expr(self, n: *ClosureExpr) {
+        if (!n->caps_resolved) { self._ice(n->range, "EmitIR: a closure with no capture decision; ClosureCaptures must run"); }
+        if (n->body_block == &null) { self._ice(n->range, "EmitIR: an expression-bodied closure; ExprBodyDesugar wraps it in a block"); }
+        if (n->generic_params.size() > 0) { self._ice(n->range, "EmitIR: a generic closure; FeatureGateCheck rejects it"); }
+        var fp: *FunctionPointerType = &null;
+        if n->type_ != &null {
+            var t = canon_unqual(n->type_);
+            if (t != &null) && isa::<FunctionPointerType>(t) { fp = cast::<FunctionPointerType>(t); }
+        }
+        if (fp == &null) { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: a closure with no fn type; ExprTyper gate failure"); }
+
+        var caps = self._capture_list(n);
+        var head = "[" + caps + "](";
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var p = n->params[i];
+            if i > 0 { head += ", "; }
+            head += self._spell.param_decl(p, self._spell.imm_name(p->name.imm, self._owning_fid()));
+        }
+        head += ")";
+        if caps.size() > 0 { head += " mutable"; }
+        // A closure is a Kairo frame like any function: noexcept unless
+        // -funwind. A closure cannot carry `@unwind` yet (an attribute
+        // before `fn` in expression position is an expression attribute).
+        if !self._cg->opts.unwind { head += " noexcept"; }
+        var ret = "void";
+        if (!n->is_noreturn) && (n->return_type != &null) { ret = self._spell._type(n->return_type); }
+        if n->panic_result != &null { ret = self._spell._type(n->panic_result); }
+        head += " -> " + ret;
+
+        var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(fp) + ">";
+        if caps.size() == 0 {
+            self._cg->sink->spell(n->range, wrap + "(+" + head);
+        } else {
+            self._cg->sink->spell(n->range, wrap + "::" + LowerTargets::fn_value_own() + "(new auto(" + head);
+        }
+
+        var saved = self._closure;
+        var sd = self._ef_depth;
+        var sl = self._ef_loops;
+        self._closure = n;
+        self._ef_depth = 0;      // a closure's statements are its own, not a copy's.
+        self._ef_loops = 0;
+        self.emit_block(n->body_block);
+        self._closure = saved;
+        self._ef_depth = sd;
+        self._ef_loops = sl;
+
+        if caps.size() == 0 { self._cg->sink->spell(n->range, ")"); }
+        else                { self._cg->sink->spell(n->range, "))"); }
+    }
+
+    /// The lambda's capture list, from ClosureCaptures' modes:
+    ///   Copy      `x`                                (the closure's own copy)
+    ///   Move      `x = static_cast<T&&>(x)`          (a MOVE value, moved in)
+    ///   Ptr       `x = &x`                           (`x` IS the `*T` the body reads)
+    ///   ConstPtr  `x = static_cast<const T*>(&x)`    (`x` when it is a pointer already)
+    ///   Self      `this`, or `self` in an extension member (a pointer already)
+    /// Init-captures keep the Kairo name, so the body is emitted unchanged:
+    /// a `|*x|` closure's `*x = 1` is C++'s `*x = 1` on the captured pointer.
+    priv fn _capture_list(self, n: *ClosureExpr) -> string {
+        var s = "";
+        for var i: usize = 0; i < n->cap_decls.size(); ++i {
+            var d   = n->cap_decls[i];
+            var m   = n->cap_modes[i];
+            var via = n->cap_via_ptr[i];
+            if s.size() > 0 { s += ", "; }
+            if m == CaptureMode::Self {
+                s += (LowerTargets::ext_receiver_name()) if (self._cur_ext != &null) else ("this");
+                continue;
+            }
+            var nm = self._spell.imm_name(decl_name_tok(d).imm, self._owning_fid());
+            switch m {
+                case CaptureMode::Copy { s += nm; }
+                case CaptureMode::Move {
+                    s += nm + " = static_cast<" + self._spell._type(self._capture_type(d)) + "&&>(" + nm + ")";
+                }
+                case CaptureMode::Ptr { s += nm + " = &" + nm; }
+                case CaptureMode::ConstPtr {
+                    var src = (nm) if (via) else ("&" + nm);
+                    s += nm + " = static_cast<const " + self._spell._type(self._capture_type(d)) + "*>(" + src + ")";
+                }
+                default { self._ice(n->range, "EmitIR: a capture mode with no spelling"); }
+            }
+        }
+        return s;
+    }
+
+    /// The captured binding's own type, top-level cv dropped (a capture's
+    /// spelling adds what it needs).
+    priv fn _capture_type(self, d: *Decl) -> *Type {
+        var t: *Type = &null;
+        var p = dyn_cast::<ParamDecl>(d);
+        if p != &null { t = (p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_); }
+        else          { t = cast::<VariableDecl>(d)->type_; }
+        if ((t == &null) || (t->canonical == &null)) { self._ice(d->range, "EmitIR: a captured binding with no type; X gate failure"); }
+        return canon_unqual(t->canonical);
+    }
+
     /// The parameters an argument list maps onto: `self` excluded only when
     /// \p bound -- an extension call passes its receiver as argument zero.
     priv fn _call_params(self, f: *FunctionDecl, bound: bool) -> vec::<*ParamDecl> {
@@ -1427,6 +2349,13 @@ class EmitIR {
         return &null;   // a fn-pointer expression; no decl to consult.
     }
 
+    /// \p d is declared in an interface: a requirement, never a C++ function.
+    priv fn _is_requirement(self, d: *Decl) -> bool {
+        if (d == &null) || (!isa::<FunctionDecl>(d)) || (d->semantic_dc == &null) { return false; }
+        var home = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+        return (home != &null) && isa::<InterfaceDecl>(home);
+    }
+
     priv fn _is_extension_member(self, d: *Decl) -> bool {
         return decl_extension_of(d) != &null;
     }
@@ -1442,6 +2371,15 @@ class EmitIR {
     /// indexes the table of the file that owns the body being emitted, which
     /// for a foreign template homed here is not this TU's.
     priv fn _name(self, t: Token) {
+        // A name that came through a macro (a `crash!(why)` argument) is a
+        // TkMacroExpand token: its imm is the expansion record, and read as
+        // an identifier against the owning file's table it is some other
+        // name (`why` printed as `io`). Unwrap the chain to the spelling.
+        if static_cast::<u32>(t.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            var txt = TokenText::resolve(t, self._cg->ctx->tcm).text;
+            self._cg->sink->create_ident(t.range, txt);
+            return;
+        }
         var spelled = self._spell.imm_name(t.imm, self._owning_fid());
         if (spelled == "<?>") { self._ice(t.range, "EmitIR: identifier token with no spelling in its owning file's table"); }
         self._cg->sink->create_ident(t.range, spelled);
@@ -1458,9 +2396,12 @@ class EmitIR {
     }
 
     /// The file whose tables the body being emitted indexes: its function's,
-    /// which for a foreign template or inline body is not this TU's.
+    /// which for a foreign template or inline body is not this TU's; or the
+    /// namespace-scope variable's whose initializer is emitted (a foreign
+    /// eval binding's, EVAL.md 1.2b).
     priv fn _owning_fid(self) -> u32 {
         if self._cur_fn != &null { return CXXSpell::fid_of(static_cast::<*Decl>(self._cur_fn)); }
+        if self._cur_global != &null { return CXXSpell::fid_of(static_cast::<*Decl>(self._cur_global)); }
         return self._cg->tu->fid;
     }
 
@@ -1549,7 +2490,7 @@ class EmitIR {
     }
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
-        if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; NullTestLowering owns it"); }
+        if (n->op_token.kind == TokenKind::OpEqualEqualEqual) { self._ice(n->range, "EmitIR: `===`; CoalesceLowering owns it"); }
         if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: user operator; OperatorLowering must rewrite it into a call"); }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
@@ -1562,12 +2503,34 @@ class EmitIR {
         // S_pre's `self.x = e` fills x's slot: `init` for a const field (its
         // one assignment, CtorInitCheck), `put` for a `var` one, which S_pre
         // may assign again.
+        if self._ci_pre && (n->op_token.kind == TokenKind::OpEqual) && n->ci_elem_init {
+            // `self.f[k] = e` that builds element k of an array field built
+            // element by element (CtorInitCheck): the element does not exist
+            // yet, so it is constructed in the slot, not assigned. In place,
+            // so e runs exactly where it is written.
+            var sub = dyn_cast::<SubscriptExpr>(n->lhs);
+            var esi = usize(-1);
+            if sub != &null {
+                var ef = self._self_field(sub->base);
+                if ef != &null { esi = self._slot_of(static_cast::<*Decl>(ef), true); }
+            }
+            if esi == usize(-1) { self._ice(n->range, "EmitIR: an element write that builds a field with no slot; CtorInitCheck gate failure"); return; }
+            self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(esi) + "." + LowerTargets::ctor_slot_init_at() + "(");
+            self.emit(sub->index);
+            self._cg->sink->spell(n->range, ", ");
+            self._value(n->rhs, n->lhs->type_);
+            self._cg->sink->spell(n->range, ")");
+            return;
+        }
         if self._ci_pre && (n->op_token.kind == TokenKind::OpEqual) {
             var f = self._self_field(n->lhs);
             if f != &null {
                 var si = self._slot_of(static_cast::<*Decl>(f), true);
                 if si == usize(-1) { self._ice(n->range, "EmitIR: S_pre assigns a field with no slot; CtorInitCheck gate failure"); }
-                var put_fn = (".init(") if (f->is_const()) else (".put(");
+                // An array is written once (CtorInitCheck), and its slot has
+                // no `put`: an array has no `=`.
+                var once   = f->is_const() || (self._array_extent(f->type_) != usize(-1));
+                var put_fn = "." + ((LowerTargets::ctor_slot_init()) if (once) else (LowerTargets::ctor_slot_put())) + "(";
                 self._cg->sink->spell(n->range, LowerTargets::ctor_slot_arg() + "." + self._slot_name(si) + put_fn);
                 self._value(n->rhs, f->type_);
                 self._cg->sink->spell(n->range, ")");
@@ -1588,10 +2551,15 @@ class EmitIR {
 
     /// The written target is the result type (invariant 15). Which C++ cast:
     /// `as const` -> const_cast, `as unsafe` -> reinterpret_cast (a C-style
-    /// cast when it drops a pointee qualifier), otherwise static_cast. A
-    /// checked/asserting downcast is PanicLowering's; a user
-    /// `op as` or a converting ctor is OperatorLowering's.
+    /// cast when it drops a pointee qualifier), otherwise static_cast. The
+    /// checked downcast is _checked_downcast's; the asserting one arrives
+    /// expanded by OperatorLowering (PANIC.md §5) around a `dynamic_only`
+    /// cast, spelled `dynamic_cast` as is; a user `op as` or a converting
+    /// ctor is OperatorLowering's.
     priv fn _cast(self, n: *TypeCastExpr) {
+        if n->checked_downcast { self._checked_downcast(n); return; }
+        if n->asserting_downcast { self._ice(n->range, "EmitIR: an asserting downcast reached codegen unexpanded; OperatorLowering owns its check"); return; }
+        if n->dynamic_only { self._cast_to(n->target, n->operand, "dynamic_cast"); return; }
         // A lowering's move: `x as T&&`. Never written by the user (Kairo has
         // no reference types), always a record, always static_cast.
         if (n->target != &null) && (n->target->canonical != &null) && isa::<CXXRValueRefType>(n->target->canonical) {
@@ -1622,6 +2590,29 @@ class EmitIR {
             return;
         }
         self._cast_to(n->target, n->operand, kind);
+    }
+
+    /// `p as (*D)?` (casting.md, the checked downcast): `dynamic_cast<D*>`,
+    /// and its null pointer is the NULL nullable, not a present one holding
+    /// nullptr (Stage 1 storage is tagged, NULLABLE.md 1.2). A lambda called
+    /// on the spot binds the result once and is an expression everywhere a
+    /// cast is, a namespace-scope initializer included:
+    ///
+    ///   [](D* __kairo_dc) noexcept -> N { return __kairo_dc ? N(__kairo_dc) : N(); }(dynamic_cast<D*>(p))
+    ///
+    /// `N()` is Nullable's null (AdtRole::NullDefault). With the pointer
+    /// niche (G2b) this becomes the dynamic_cast alone.
+    priv fn _checked_downcast(self, n: *TypeCastExpr) {
+        var tc = n->target->canonical;
+        var nt = (cast::<NullableType>(canon_unqual(tc))) if ((tc != &null) && (canon_unqual(tc) != &null) && isa::<NullableType>(canon_unqual(tc))) else (&null);
+        if (nt == &null) { self._ice(n->range, "EmitIR: a checked downcast whose target is no nullable; CastTyping gate failure"); return; }
+        var big = self._spell._type(n->target, &null);
+        var ptr = self._spell._type(nt->inner, &null);
+        var v   = LowerTargets::checked_downcast_value();
+        var nx  = ("") if (self._cg->opts.unwind) else (" noexcept");
+        self._cg->sink->spell(n->range, "[](" + ptr + " " + v + ")" + nx + " -> " + big + " { return " + v + " ? " + big + "(" + v + ") : " + big + "(); }(dynamic_cast<" + ptr + ">(");
+        self.emit(n->operand);
+        self._cg->sink->spell(n->range, "))");
     }
 
     /// True when some pointee level of \p src carries a qualifier the same
@@ -1701,7 +2692,8 @@ class EmitIR {
         if bare {
             self._cg->sink->spell(n->range, "{");
         } else {
-            self._cg->sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + f"{at->size_bits}" + ">{");
+            var ext = (self._spell._type(at->extent_param)) if (at->extent_param != &null) else (f"{at->size_bits}");
+            self._cg->sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + ext + ">{");
         }
         for var i: usize = 0; i < n->elements.size(); ++i {
             if i > 0 { self._cg->sink->spell(n->range, ","); }
@@ -1724,6 +2716,12 @@ class EmitIR {
         }
         if e->type_ == &null { self._ice_untyped(e, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure"); }
         var c = canon_unqual(e->type_);
+        // `T::Node { }`: ControlTyping admits it with no fields only, through
+        // a constructor bound; C++ value-initializes the witness's member type.
+        if c->kind == TypeKind::AssocType {
+            self._cg->sink->spell(e->range, self._spell._type(e->type_) + "{}");
+            return;
+        }
         if (c->kind != TypeKind::RecordType) { self._ice(e->range, "EmitIR: initializer of a non-record type"); }
         var rd = CXXSpell::rep(cast::<RecordType>(c)->decl);
         var layout = self._layout_of(rd);
@@ -1759,10 +2757,61 @@ class EmitIR {
         self._cg->sink->spell(e->range, "}");
     }
 
+    /// PanicLowering's C++ with no Kairo spelling (PanicOpExpr):
+    ///   Fwd / FwdAll  `::__kairo_fwd<R, A>(operand)`, R the node's type;
+    ///   SlotPut       `new (&slot.__kairo_b) ::__kairo_rbox<T>{operand}`,
+    ///                 the slot built from the prvalue in place;
+    ///   SlotTake      `slot.__kairo_take()`: the value moved out, the
+    ///                 slot destroyed.
+    /// The slot is a raw_slot local, read by its name.
+    priv fn _panic_op(self, n: *PanicOpExpr) {
+        if (n->which == PanicOp::Fwd) || (n->which == PanicOp::FwdAll) {
+            if ((n->type_ == &null) || (n->operand == &null)) { self._ice(n->range, "EmitIR: a panic fwd with no result type or operand; PanicLowering mints both"); }
+            var all = ("true") if (n->which == PanicOp::FwdAll) else ("false");
+            self._cg->sink->spell(n->range, "::" + LowerTargets::panic_fwd() + "<" + self._spell._type(n->type_) + ", " + all + ">(");
+            self.emit(n->operand);
+            self._cg->sink->spell(n->range, ")");
+            return;
+        }
+        switch n->which {
+            case PanicOp::SlotPut {
+                if ((n->slot == &null) || (n->operand == &null) || (n->slot->type_ == &null)) { self._ice(n->range, "EmitIR: a slot put with no slot or value; PanicLowering mints both"); }
+                self._cg->sink->spell(n->range, "new (&");
+                self.emit(n->slot);
+                self._cg->sink->spell(n->range, "." + LowerTargets::raw_box_member() + ") ::" + LowerTargets::raw_box() + "<" + self._spell._type(n->slot->type_) + ">{");
+                self._value(n->operand, n->slot->type_);
+                self._cg->sink->spell(n->range, "}");
+            }
+            case PanicOp::SlotTake {
+                if (n->slot == &null) { self._ice(n->range, "EmitIR: a slot take with no slot; PanicLowering mints it"); }
+                self.emit(n->slot);
+                self._cg->sink->spell(n->range, "." + LowerTargets::raw_take() + "()");
+            }
+            // A dependent set's test and read (PANIC.md P10): the C++ view's
+            // `is<E>` / `error<E>`, which find E's id and its place in the
+            // set C++ ordered at the instance.
+            case PanicOp::Holds {
+                if ((n->operand == &null) || (n->elem == &null)) { self._ice(n->range, "EmitIR: a panic holds-test with no value or type; EnumLayoutQuery mints both"); }
+                self._cg->sink->spell(n->range, "::" + LowerTargets::panic_api_ns() + "::" + LowerTargets::panic_api_is() + "<" + self._spell._type(n->elem) + ">(");
+                self.emit(n->operand);
+                self._cg->sink->spell(n->range, ")");
+            }
+            case PanicOp::ErrorRef {
+                if ((n->operand == &null) || (n->elem == &null)) { self._ice(n->range, "EmitIR: a panic error read with no value or type; EnumLayoutQuery mints both"); }
+                self._cg->sink->spell(n->range, "::" + LowerTargets::panic_api_ns() + "::" + LowerTargets::panic_api_error() + "<" + self._spell._type(n->elem) + ">(");
+                self.emit(n->operand);
+                self._cg->sink->spell(n->range, ")");
+            }
+            default { 0; }
+        }
+    }
+
     /// An ADT variant built in place: the enum's tagged constructor,
-    /// `T(::__kairo_vt<I>{})` for a variant without a payload, and otherwise
+    /// `T(::__kairo_vt<I>{})` for a variant without a payload, the field
+    /// constructor `T{::__kairo_vt<I>{}, f0, f1}` where the variant's
+    /// AdtCtorForm gives one, and otherwise
     ///
-    ///   T(::__kairo_vt<I>{}, [&]() -> P { return { f0, f1 }; })
+    ///   T(::__kairo_vt<I>{}, [&]() noexcept -> P { return { f0, f1 }; })
     ///
     /// with P the variant's payload struct named through T. The union member
     /// is initialized from the lambda's prvalue, so the payload is built in
@@ -1781,9 +2830,45 @@ class EmitIR {
             self._cg->sink->spell(n->range, t + "(" + tag + ")");
             return;
         }
+        // The field constructor, braced: a braced list runs its clauses left
+        // to right even when it calls a constructor, so the payload's order
+        // is the lambda form's (SequenceLowering's contract).
+        if (v->adt_ctor == AdtCtorForm::Fields) || ((v->adt_ctor == AdtCtorForm::Both) && n->field_ctor) {
+            self._cg->sink->spell(n->range, t + "{" + tag);
+            for var i: usize = 0; i < n->fields.size(); ++i {
+                self._cg->sink->spell(n->range, ",");
+                self._value(n->fields[i], v->payload[i]->type_);
+            }
+            self._cg->sink->spell(n->range, "}");
+            return;
+        }
         var leaf = LowerTargets::adt_payload_type(self._spell.leaf(static_cast::<*Decl>(v)));
         var pt   = self._spell.dependent_member_type(n->type_, leaf);
-        self._cg->sink->spell(n->range, t + "(" + tag + ", [&]() -> " + pt + " { return {");
+        // A pack-expanded variant's element K: the constructor takes the
+        // variant's tag, then K's, and the payload is the member template at
+        // the element (InterfaceEmitter writes both). Always at a concrete
+        // instance (ControlTyping refuses a dependent one).
+        if n->pack_index >= 0 {
+            if (n->pack_elem == &null) { self._ice(n->range, "EmitIR: a pack-expanded variant built with no element type; VariantInitLowering records it"); }
+            var el = self._spell._type(n->pack_elem);
+            if n->type_->is_dependent() || n->type_->is_instantiation_dependent() {
+                // An error built at a dependent panic result (a generic body,
+                // PANIC.md P10): its place in the set is the one C++ ordered
+                // at the instance, `__kairo_pidx<E>`, never Sema's.
+                tag += ", ::" + LowerTargets::adt_variant_tag() + "<::" + LowerTargets::panic_elem_index() + "<" + el + ">(static_cast<" + t + "*>(nullptr))>{}";
+                pt = "typename " + t + "::template " + leaf + "<" + el + ">";
+            } else {
+                tag += ", ::" + LowerTargets::adt_variant_tag() + "<" + f"{n->pack_index}" + ">{}";
+                pt = t + "::" + leaf + "<" + el + ">";
+            }
+            // A site slot's pack constructor takes the site id (PANIC.md
+            // §1.4; InterfaceEmitter writes it): 0 for none.
+            if en->adt_site_field != &null { tag += ", " + f"{n->site}" + "u"; }
+        }
+        // noexcept unless -funwind, as the constructor it is passed to is
+        // (InterfaceEmitter::_adt_noexcept): the lambda is a Kairo frame.
+        var nx = ("") if (self._cg->opts.unwind) else (" noexcept");
+        self._cg->sink->spell(n->range, t + "(" + tag + ", [&]()" + nx + " -> " + pt + " { return {");
         for var i: usize = 0; i < n->fields.size(); ++i {
             if i > 0 { self._cg->sink->spell(n->range, ","); }
             var fd = v->payload[i];
@@ -1792,8 +2877,11 @@ class EmitIR {
             var fc: *Type = &null;
             if (fd->type_ != &null) && (fd->type_->canonical != &null) { fc = canon_unqual(fd->type_->canonical); }
             var il = dyn_cast::<InitListExpr>(f);
+            var pg = dyn_cast::<GenericParamType>(fc);
             if (il != &null) && (fc != &null) && (fc->kind == TypeKind::FixedArrayType) {
                 self._init_list(il, true);
+            } else if (n->pack_index >= 0) && (pg != &null) && pg->is_pack {
+                self._value(f, n->pack_elem);   // the pack field holds the element.
             } else {
                 self._value(f, fd->type_);
             }

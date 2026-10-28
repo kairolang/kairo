@@ -37,6 +37,8 @@ import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
+import AST::Node::Expressions::*;
+import AST::Node::PrimaryExpressions::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
@@ -59,6 +61,28 @@ eval fn VIS_INTERNAL() -> u8 { return 4; }
 
 class CXXSpell {
     priv var _cg: obs::<CodegenContext>;
+
+    /// While EmitWitness spells a witness member: the interface whose bare
+    /// `Self` (an argument-less record of it) is spelled \c self_spelling --
+    /// `__kairo_Self` in the primary, the conformer in a specialization.
+    /// Null everywhere else, where an interface type is still an ICE.
+    pub var self_iface:    *Decl  = &null;
+    /// While EmitWitness writes a CONCEPT: the witness an associated type
+    /// over Self is a member of, spelled (`::ns::I_witness<__kairo_Self>`).
+    /// Empty inside a specialization, whose own `using Node = ...;` the
+    /// bare name finds.
+    pub var assoc_self_qual: string = "";
+    pub var self_spelling: string = "";
+    /// While InterfaceEmitter writes a pack-expanded variant's payload struct
+    /// (a template over one element): the enum's pack parameter, which
+    /// spells there as that element, LowerTargets::adt_pack_elem(). Null
+    /// everywhere else.
+    pub var pack_alias:    *GenericParamDecl = &null;
+    /// While InterfaceEmitter writes the payload structs of an ADT whose
+    /// layout holds a `void` argument as an empty struct (EnumDecl::
+    /// adt_void_unit, the Panic lang item): that enum, whose own non-pack
+    /// parameters spell as `::__kairo_nv<T>` there. Null everywhere else.
+    pub var void_unit_owner: *Decl = &null;
 
     fn CXXSpell(self) { self._cg = &null; }
     fn CXXSpell(self, cg: *CodegenContext) { self._cg = cg; }
@@ -142,6 +166,25 @@ class CXXSpell {
         return tu->fid;
     }
 
+    /// \p s as a C++ narrow string literal, quotes included: printable ASCII
+    /// as it is, a quote and a backslash escaped, every other byte octal (three digits,
+    /// so a following digit is never read into it).
+    static fn c_string(s: string) -> string {
+        var lit = "\"";
+        for var j: usize = 0; j < s.size(); ++j {
+            var b = u8(s[j]);
+            if b == 0x22 { lit += "\\\""; continue; }
+            if b == 0x5c { lit += "\\\\"; continue; }
+            if (b >= 0x20) && (b < 0x7f) { lit += static_cast::<char>(b); continue; }
+            lit += "\\";
+            lit += static_cast::<char>('0' + ((b >> 6) & 7));
+            lit += static_cast::<char>('0' + ((b >> 3) & 7));
+            lit += static_cast::<char>('0' + (b & 7));
+        }
+        lit += "\"";
+        return lit;
+    }
+
     /// Where a declaration's C++ tokens are anchored: its name token, or for
     /// an operator (whose `name` is a default Token) the span of its operator
     /// tokens, `[` through `]` for `op []`. op_token always has an element.
@@ -201,6 +244,23 @@ class CXXSpell {
         return "operator" + sym;
     }
 
+    /// A witness member's name for requirement \p f: its leaf, or for an
+    /// operator the name an extension member of the same operator has --
+    /// a witness member is static, so it cannot be an `operator==` either
+    /// (CODEGEN.md §7b.3).
+    fn witness_member_name(self, f: *FunctionDecl) -> string {
+        if !f->is_operator { return self.leaf(static_cast::<*Decl>(f)); }
+        var sym = self._op_symbol(f);
+        var named = CXXSpell::named_operator(sym, f);
+        if named.size() > 0 { return named; }
+        if sym == "[]" { return LowerTargets::witness_subscript(); }
+        var key = sym;
+        if (sym == "++") || (sym == "--") { key = (("r") if (CXXSpell::op_is_postfix(f)) else ("l")) + sym; }
+        var m = LowerTargets::ext_op(key);
+        if (m.size() == 0) { self._ice(f->range, f"CXXSpell: requirement 'op {sym}' has no static-member name; OperatorSignatureCheck should reject it"); }
+        return m;
+    }
+
     /// The namespace-scope `operator<sym>` an extension operator is forwarded
     /// from, or "" when it has none: the operators named by LowerTargets
     /// (`in`, `^^`, ...) are not C++ operators, and are only static members.
@@ -228,6 +288,7 @@ class CXXSpell {
         if sym == "await"  { return LowerTargets::op_await(); }
         if sym == "spawn"  { return LowerTargets::op_spawn(); }
         if sym == "thread" { return LowerTargets::op_thread(); }
+        if sym == "panic"  { return LowerTargets::op_panic(); }
         return "";
     }
 
@@ -262,7 +323,18 @@ class CXXSpell {
     /// else, a value `op []` included, is the declared type. The pointee of `*const T` is the `const T`
     /// canonical, so _type already spells the const and `&` goes on the end.
     fn return_spelling(self, f: *FunctionDecl, subst: *InstanceEntry, scope: *Decl = &null) -> string {
+        // A panicking function returns its Panic result (PANIC.md §4.1);
+        // return_type stays the value type an importer's typing reads.
+        if f->panic_result != &null { return self._type(f->panic_result, subst, scope); }
         if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst, scope); }
+        // An eval generator runs at compile time, where nothing suspends: it
+        // returns the buffer its `yield`s push into (EVAL.md §5).
+        if f->is_eval() && f->is_generator {
+            var gr = dyn_cast::<RecordType>(canon_unqual(f->return_type->canonical));
+            if (gr != &null) && (gr->args.size() > 0) {
+                return "::" + LowerTargets::eval_buf() + "<" + self._type(gr->args[0], subst, scope) + ">";
+            }
+        }
         if !CXXSpell::is_place_operator(f) { return self._type(f->return_type, subst, scope); }
         var c = canon_unqual(f->return_type->canonical);
         if ((c == &null) || (!isa::<PointerType>(c))) { self._ice(f->range, "CXXSpell: is_place_operator accepted a non-pointer result"); }
@@ -658,29 +730,56 @@ class CXXSpell {
                 var a = cast::<FixedArrayType>(t);
                 var ext = "";
                 if !a->is_incomplete { ext = f"{a->size_bits}"; }
+                // `[T; N]` for a generic value parameter: the parameter, or
+                // its instance's value (EVAL.md 3).
+                if a->extent_param != &null { ext = self._type(a->extent_param, subst, scope); }
                 // `[]` binds tighter than `*` and `&`: a pointer or reference
                 // TO an array parenthesizes its declarator.
                 var nm = name;
                 if (nm.size() > 0) && ((nm[0] == '*') || (nm[0] == '&')) { nm = "(" + nm + ")"; }
                 return self.decl(a->element, f"{nm}[{ext}]", subst, scope);
             }
+            // A Kairo `fn(A) -> R` holds a capturing closure as well as a
+            // function (closures.md: "no separate closure type"), so it is
+            // the `::__kairo_fn<R(A...)>` value type, never a raw pointer:
+            // a lambda with captures has no `R(*)(A...)`. It converts from a
+            // function and back to one (for a C callee) on its own. Only a C
+            // no-prototype pointer stays raw: no Kairo value has that type.
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
-                var ps = "";
-                for var i: usize = 0; i < f->params.size(); ++i {
-                    if i > 0 { ps += ", "; }
-                    ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope);
-                }
-                return self.decl(f->return_type, f"(*{name})({ps})", subst, scope);
+                if f->is_unprototyped { return self.decl(f->return_type, f"(*{name})()", subst, scope); }
+                return self._join("::" + LowerTargets::fn_value() + "<" + self.fn_signature(f, subst, scope) + ">", name);
             }
             case TypeKind::GenericParamType {
                 return self._join(self._gparam(cast::<GenericParamType>(t), subst), name);
+            }
+            // `T::Node` is the witness's member type: `typename
+            // ::ns::Graph_witness<T>::Node`. One template body, every
+            // instance: each conformance's specialization declares it
+            // (EmitWitness), so C++ selects the type per instance (MONO.md
+            // D2). Inside a witness, a base that is the interface's Self is
+            // spelled as Self is there. `typename` always: it is allowed on
+            // a qualified name that turns out not to be dependent.
+            case TypeKind::AssocType {
+                return self._join(self.assoc_spelling(cast::<AssocType>(t), subst, scope), name);
+            }
+            // A generic VALUE argument (`4` of `Buf<4>`): the integer.
+            case TypeKind::TypeExpr {
+                var v = cast::<TypeExpr>(t);
+                if !v->is_value { self._ice(t_in->range, "CXXSpell: an unfolded generic value argument reached codegen; TypeResolve folds every one"); return ""; }
+                return self._join(self.value(v, subst, scope), name);
             }
             case TypeKind::OpaqueFFIType {
                 var o = cast::<OpaqueFFIType>(t);
                 return self._join(self.imm_name(o->name, self._cg->tu->fid), name);
             }
-            case TypeKind::NullableType { self._ice(t_in->range, "CXXSpell: T? reached codegen; NullableTypeLowering must reduce it first"); return ""; }
+            // `T?` is spelled as the record NullableTypeLowering gave it; with
+            // none, that pass never saw this canonical.
+            case TypeKind::NullableType {
+                var lw = cast::<NullableType>(t)->lowered;
+                if lw == &null { self._ice(t_in->range, "CXXSpell: T? reached codegen with no lowered record; NullableTypeLowering must run first"); return ""; }
+                return self.decl(lw, name, subst, scope);
+            }
             case TypeKind::TupleType  { self._ice(t_in->range, "CXXSpell: TupleType canonical reached codegen; TypeResolve canonicalizes every tuple to its TupleN record"); return ""; }
             default {
                 self._ice(t_in->range, f"CXXSpell: {to_string(t->kind)} is not a canonical kind");
@@ -690,9 +789,126 @@ class CXXSpell {
         return "";
     }
 
+    /// A canonical value (EVAL.md 0.2, 3) as the C++ expression that
+    /// computes it: the integer, or the expression Sema kept (`(N + 1)`,
+    /// `::m::f(3)`, `::m::K`), each operand spelled as a type argument is
+    /// (a value parameter, or its instance's value under \p subst). Every
+    /// operator application is parenthesized, so the text means the same as
+    /// an array bound and as a template argument, where a bare `>>` would
+    /// close the list.
+    fn value(self, v: *TypeExpr, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        if v->is_exact() { return (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}"); }
+        switch v->vop {
+            case ValueOp::Decl {
+                // An `eval for` binding is a local with no scope home: its
+                // name, read from the table of the file it is written in.
+                var vd = dyn_cast::<VariableDecl>(v->vdecl);
+                if (vd != &null) && ((vd->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl)) {
+                    return self.imm_name(vd->name.imm, self._cg->ctx->sm->get_fid(vd->name.range));
+                }
+                return self.qual_name(v->vdecl);
+            }
+            case ValueOp::Call {
+                // An eval class's constructor (EVAL.md 7e) is named by its
+                // class; with no arguments, braced, or `X()` reads as a type.
+                var isrec = isa::<ClassDecl>(v->vdecl) || isa::<StructDecl>(v->vdecl);
+                if isrec && (v->vops.size() == 0) { return self.qual_name(v->vdecl) + "{}"; }
+                var s = self.qual_name(v->vdecl) + "(";
+                for var i: usize = 0; i < v->vops.size(); ++i {
+                    if i > 0 { s += ", "; }
+                    s += self._type(v->vops[i], subst, scope);
+                }
+                return s + ")";
+            }
+            case ValueOp::Unary {
+                var sym = ("~") if (v->vtok == TokenKind::OpTilde) else ("-");
+                return "(" + sym + self._type(v->vops[0], subst, scope) + ")";
+            }
+            case ValueOp::Binary {
+                return "(" + self._type(v->vops[0], subst, scope) + " " + CXXSpell::value_op(v->vtok) + " " + self._type(v->vops[1], subst, scope) + ")";
+            }
+            case ValueOp::Cast {
+                return "static_cast<" + self._type(v->vty, subst, scope) + ">(" + self._type(v->vops[0], subst, scope) + ")";
+            }
+            case ValueOp::Str {
+                // The literal constructor over the bytes, as a compile-time
+                // literal is built in a body (EVAL.md 2a): `__kairo_estr<...>`
+                // or, past the inline limit, the named array EmitPlan
+                // collected (note_eval_str). One object per content, so two
+                // spellings of one value are template-argument-equivalent.
+                var n = static_cast::<usize>(v->vmag);
+                var data = "";
+                if n > LowerTargets::eval_str_inline_max() {
+                    data = "::" + LowerTargets::eval_str_hashed(LowerTargets::eval_str_hash(v->vbytes, n), n);
+                } else {
+                    data = "::" + LowerTargets::eval_str() + "<";
+                    for var i: usize = 0; i < n; ++i {
+                        if i > 0 { data += ", "; }
+                        data += f"{static_cast::<u32>(v->vbytes[i])}";
+                    }
+                    data += ">";
+                }
+                var cp: usize = 0;
+                for var i: usize = 0; i < n; ++i { if (v->vbytes[i] & u8(0xC0)) != u8(0x80) { cp += 1; } }
+                return self._type(v->vty, subst, scope) + "(" + data + ", " + f"{n}" + ", " + f"{cp}" + ")";
+            }
+            default { return ""; }
+        }
+        return "";
+    }
+
+    /// The C++ operator for a computed value's binary operator; Kairo's
+    /// keyword forms were normalized to these by TypeResolve.
+    static fn value_op(k: TokenKind) -> string {
+        switch k {
+            case TokenKind::OpPlus           { return "+"; }
+            case TokenKind::OpMinus          { return "-"; }
+            case TokenKind::OpStar           { return "*"; }
+            case TokenKind::OpSlash          { return "/"; }
+            case TokenKind::OpPercent        { return "%"; }
+            case TokenKind::OpPipe           { return "|"; }
+            case TokenKind::OpAmp            { return "&"; }
+            case TokenKind::OpCaret          { return "^"; }
+            case TokenKind::OpLessLess       { return "<<"; }
+            case TokenKind::OpGreaterGreater { return ">>"; }
+            default                          { return "?"; }
+        }
+        return "?";
+    }
+
+    /// `R(A...)`, the function type a `fn(A) -> R` value wraps: each
+    /// parameter in its mode's abstract spelling, `!` as `void`.
+    fn fn_signature(self, f: *FunctionPointerType, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        var ps = "";
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if i > 0 { ps += ", "; }
+            ps += self._param_type(f->params[i], f->modes[i], false, "", subst, scope);
+        }
+        // A panicking `fn` type's value returns its panic result (§4.1).
+        var canon = (cast::<FunctionPointerType>(canon_unqual(f->canonical))) if ((f->canonical != &null) && isa::<FunctionPointerType>(canon_unqual(f->canonical))) else (f);
+        if canon->panic_result != &null { return self.decl(canon->panic_result, f"({ps})", subst, scope); }
+        return self.decl(f->return_type, f"({ps})", subst, scope);
+    }
+
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as
     /// EmitIR documents them). \p is_const is the `const x: T` marker.
     fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        // A type pack is `T...` (the C++ parameter pack); under an instance it
+        // is that instance's elements, one parameter each.
+        if param_is_type_pack(p) {
+            var g = cast::<GenericParamType>(canon_unqual(p->type_->canonical));
+            var cq = ("const ") if (p->is_const) else ("");
+            var els = vec::<*Type>();
+            if self.subst_pack(g, subst, &els) {
+                var ps = "";
+                for var i: usize = 0; i < els.size(); ++i {
+                    if i > 0 { ps += ", "; }
+                    ps += cq + self._type(els[i], &null, scope);
+                }
+                return ps;
+            }
+            return cq + self._gparam(g, &null);
+        }
         if p->is_pack {
             if (p->pack_type == &null) { self._ice(p->range, "CXXSpell: pack parameter with no slice type; CallLowering stamps it"); }
             return (("const ") if (p->is_const) else ("")) + self._type(p->pack_type, subst, scope);
@@ -726,6 +942,12 @@ class CXXSpell {
     /// The mode's reference and the const marker folded into decl(), so a
     /// name lands inside the declarator: `@inout` on a function pointer is
     /// `U (*&f)(T)`, which decl() brackets as it does any `*`/`&` declarator.
+    /// A `fn` type's parameter \p t in mode \p mode, declared as \p name
+    /// (a wrapper lambda's parameter, EmitIR::_fn_effect_value).
+    fn param_named(self, t: *Type, mode: ParamMode, name: string) -> string {
+        return self._param_type(t, mode, false, name, &null, &null);
+    }
+
     priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, name: string, subst: *InstanceEntry, scope: *Decl) -> string {
         // `const T&` only from a stamped `@copy fn X(self, const other: Self)`
         // (ClassLifecycle); nothing else sets Inout together with `const`.
@@ -789,6 +1011,35 @@ class CXXSpell {
         return CXXSpell::_member_type(self._type(q, subst, scope), q->is_dependent(), leaf, targs);
     }
 
+    /// \p t names an associated type anywhere inside it (`Self::Node`,
+    /// `[Self::Node]`): a witness member whose signature does is served by
+    /// the specializations alone (EmitWitness).
+    static fn mentions_assoc(t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        switch c->kind {
+            case TypeKind::AssocType       { return true; }
+            case TypeKind::QualifiedType   { return CXXSpell::mentions_assoc(cast::<QualifiedType>(c)->inner); }
+            case TypeKind::PointerType     { return CXXSpell::mentions_assoc(cast::<PointerType>(c)->pointee); }
+            case TypeKind::NullableType    { return CXXSpell::mentions_assoc(cast::<NullableType>(c)->inner); }
+            case TypeKind::FixedArrayType  { return CXXSpell::mentions_assoc(cast::<FixedArrayType>(c)->element); }
+            case TypeKind::CXXLValueRefType { return CXXSpell::mentions_assoc(cast::<CXXLValueRefType>(c)->referee); }
+            case TypeKind::CXXRValueRefType { return CXXSpell::mentions_assoc(cast::<CXXRValueRefType>(c)->referee); }
+            case TypeKind::RecordType {
+                var r = cast::<RecordType>(c);
+                for var i: usize = 0; i < r->args.size(); ++i { if CXXSpell::mentions_assoc(*(r->args.get(i))) { return true; } }
+                return false;
+            }
+            case TypeKind::FunctionPointerType {
+                var f = cast::<FunctionPointerType>(c);
+                for var i: usize = 0; i < f->params.size(); ++i { if CXXSpell::mentions_assoc(*(f->params.get(i))) { return true; } }
+                return CXXSpell::mentions_assoc(f->return_type);
+            }
+            default { return false; }
+        }
+    }
+
     /// The text of dependent_member_type from an already-spelled qualifier.
     static fn _member_type(q: string, dependent: bool, leaf: string, targs: string) -> string {
         if !dependent { return q + "::" + leaf + targs; }
@@ -814,6 +1065,25 @@ class CXXSpell {
     /// the GenericParamDecl's identity in the primary's template_params, so
     /// an extension's T, a member's own U and a default thunk's borrowed
     /// list (the callee's GenericParamDecls) all resolve the same way.
+    /// A pack parameter's elements under \p subst, appended to \p out: every
+    /// instance argument from the pack's position on (InstanceEntry::args
+    /// keeps packs flat, so the pack is the tail). False when \p subst does
+    /// not bind \p g.
+    fn subst_pack(self, g: *GenericParamType, subst: *InstanceEntry, out: *vec::<*Type>) -> bool {
+        if (g == &null) || (g->owner == &null) || (subst == &null) || (!g->is_pack) { return false; }
+        var own = decl_generic_params(CXXSpell::rep(g->owner));
+        var idx = static_cast::<usize>(g->param_index);
+        if idx >= own.size() { return false; }
+        var gp = own[idx];
+        var tps = CXXSpell::template_params(CXXSpell::rep(subst->primary));
+        for var k: usize = 0; k < tps.size(); ++k {
+            if tps[k] != gp { continue; }
+            for var j: usize = k; j < subst->args.size(); ++j { out->push_back(subst->args[j]); }
+            return true;
+        }
+        return false;
+    }
+
     fn subst_for(self, g: *GenericParamType, subst: *InstanceEntry) -> *Type {
         if (g == &null) || (g->owner == &null) || (subst == &null) { return &null; }
         var own = decl_generic_params(CXXSpell::rep(g->owner));
@@ -839,6 +1109,277 @@ class CXXSpell {
         return s;
     }
 
+    // --- Witnesses (CODEGEN.md §7b) ----------------------------------------------
+
+    /// `::ns::I_witness`: the class template a bound call goes through.
+    fn witness_name(self, iface: *Decl) -> string {
+        return self._iface_qual(iface) + LowerTargets::witness_suffix();
+    }
+
+    /// `::ns::I_c`: the concept an interface bound renders as.
+    fn concept_name(self, iface: *Decl) -> string {
+        return self._iface_qual(iface) + LowerTargets::concept_suffix();
+    }
+
+    /// `::ns::I`, the prefix both names share. An interface nested in a
+    /// type would put its witness inside a class, where a specialization
+    /// cannot be declared; none reaches here yet.
+    priv fn _iface_qual(self, iface: *Decl) -> string {
+        var r = CXXSpell::rep(iface);
+        if (self.owner_types(r).size() > 0) { self._ice(r->range, "CXXSpell: a witness for an interface nested in a type; no naming rule for it yet"); }
+        var s = "";
+        var ns = self.ns_segments(r);
+        for var i: usize = 0; i < ns.size(); ++i { s += "::"; s += ns[i]; }
+        return s + "::" + self.leaf(r);
+    }
+
+    /// `typename ::ns::I_witness<B, A...>::Node` for associated type \p a.
+    ///
+    /// The witness is the BOUND's (`G impl Big`, Big derives Graph:
+    /// `Big_witness<G>::Node`), since rows -- and so specializations -- exist
+    /// for the bound, not for the interface that declares the requirement.
+    /// A base that is an interface's Self is only ever spelled inside a
+    /// witness: there the bare member name (a specialization) or
+    /// assoc_self_qual (a concept).
+    fn assoc_spelling(self, a: *AssocType, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        var leaf = self.leaf(a->assoc);
+        var b = canon_unqual(a->base);
+        if isa::<RecordType>(b) && isa::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(b)->decl)))) {
+            if self.assoc_self_qual.size() == 0 { return leaf; }
+            return "typename " + self.assoc_self_qual + "::" + leaf;
+        }
+        var via = a->iface;
+        var g = dyn_cast::<GenericParamType>(b);
+        if g != &null {
+            var bt = self._assoc_bound(g, a);
+            if bt != &null { via = bt; }
+        }
+        var ic = canon_unqual(via);
+        if (ic == &null) || (!isa::<RecordType>(ic)) { self._ice(a->range, "CXXSpell: an associated type through a non-interface"); return ""; }
+        var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(ic)->decl)));
+        var q = self.witness_name(idecl) + self.witness_args(self._type(a->base, subst, scope), via, subst);
+        return CXXSpell::_member_type(q, true, leaf, "");
+    }
+
+    /// The bound of \p g whose interface requires \p a's associated type
+    /// (itself or through what it derives), or null.
+    priv fn _assoc_bound(self, g: *GenericParamType, a: *AssocType) -> *Type {
+        if g->owner == &null { return &null; }
+        var cs = vec::<*ConstraintExpr>();
+        CXXSpell::impl_bounds(decl_requires_clause(CXXSpell::rep(g->owner)), &cs);
+        var want = CXXSpell::rep(a->assoc);
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var bt = canon_unqual(c->rhs->canonical);
+            if !isa::<RecordType>(bt) { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(bt)->decl))));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                if CXXSpell::rep(idecl->requirements.get(j)->decl) == want { return bt; }
+            }
+        }
+        return &null;
+    }
+
+    /// `<Self, A...>`: a witness's or concept's arguments for interface
+    /// instance \p iface, Self already spelled as \p self_s.
+    fn witness_args(self, self_s: string, iface: *Type, subst: *InstanceEntry = &null) -> string {
+        var s = "<" + self_s;
+        var v = self.iface_args(iface);
+        for var i: usize = 0; i < v.size(); ++i { s += ", "; s += self._type(v[i], subst); }
+        return s + ">";
+    }
+
+    /// The arguments of interface instance \p iface, in parameter order.
+    fn iface_args(self, iface: *Type) -> vec::<*Type> {
+        var v = vec::<*Type>();
+        var c = canon_unqual(iface);
+        if (c == &null) || (!isa::<RecordType>(c)) { return v; }
+        var r = cast::<RecordType>(c);
+        var d = r->decl;
+        if decl_is_instance(d) {
+            var e = self._cg->instances->entry_of(d);
+            if (e == &null) { self._ice(d->range, "CXXSpell: interface instance with no registry entry"); }
+            for var i: usize = 0; i < e->args.size(); ++i { v.push_back(e->args[i]); }
+            return v;
+        }
+        for var i: usize = 0; i < r->args.size(); ++i { v.push_back(r->args[i]); }
+        return v;
+    }
+
+    /// ` requires (::ns::I_c<T> && ...)` for \p d's interface bounds, one
+    /// conjunct per `P impl I<A...>` in clause order, or "". Only bounds on
+    /// \p d's OWN template parameters (template_params: an extension
+    /// member's extension's, then its own), read off \p d's clause and, for
+    /// an extension member, its extension's: a class's bound is the class
+    /// head's, never repeated on a member that adds no parameter. Every
+    /// declaration of the entity -- forward declaration, definition, an
+    /// out-of-line member's owner head -- comes through template_head, so
+    /// the heads agree, as [temp.over.link] and the mangled constraint need.
+    /// Concepts are tier 0 (EmitPlan), ahead of every head that names one.
+    fn requires_clause(self, d: *Decl) -> string {
+        var tps = CXXSpell::template_params(d);
+        if tps.size() == 0 { return ""; }
+        var cs = vec::<*ConstraintExpr>();
+        var x = decl_extension_of(d);
+        if x != &null { CXXSpell::impl_bounds(decl_requires_clause(static_cast::<*Decl>(x)), &cs); }
+        CXXSpell::impl_bounds(decl_requires_clause(d), &cs);
+        var s = "";
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var gp = CXXSpell::_bound_param(c);
+            if gp == &null { continue; }
+            var mine = false;
+            for var k: usize = 0; k < tps.size(); ++k { if tps[k] == gp { mine = true; break; } }
+            if !mine { continue; }
+            var rhs = canon_unqual(c->rhs->canonical);
+            if !isa::<RecordType>(rhs) { continue; }
+            var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
+            if !isa::<InterfaceDecl>(idecl) { continue; }
+            s += (" requires (") if (s.size() == 0) else (" && ");
+            s += self.concept_name(idecl) + self.witness_args(self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner))), rhs);
+        }
+        // A record's VALUE predicates (`class <T> B requires sizeof T <= 128`)
+        // as C++ constraints, so clang rejects a bad instance where it is
+        // named (EVAL.md §8, E10). Only one that names nothing but the
+        // record's own parameters, literals and sizeof / alignof is
+        // spelled: the head is written before every other declaration, and
+        // a constant or function it named would not be declared yet. The
+        // rest stay unchecked until M2 (ticketed). A function's predicates
+        // are its body's static_asserts instead (EmitIR::_body).
+        if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) {
+            var vps = vec::<*Expr>();
+            CXXSpell::value_predicates(decl_requires_clause(d), &vps);
+            for var i: usize = 0; i < vps.size(); ++i {
+                var t = self._pred_text(vps[i]);
+                if t.size() == 0 { continue; }
+                s += (" requires (") if (s.size() == 0) else (" && ");
+                s += "(" + t + ")";
+            }
+        }
+        // Parenthesized: what follows the head is often a return type that
+        // starts with `::` (`::builtin::Tuple2<...> f(...)`), and C++ reads a
+        // `::` after `I_c<T>` as continuing the concept's qualified name --
+        // no spacing separates them, only the closing paren.
+        if s.size() > 0 { s += ")"; }
+        return s;
+    }
+
+    /// Every VALUE predicate of requires clause \p e (conjuncts that are not
+    /// `T impl I` / `T derives B`), in clause order.
+    static fn value_predicates(e: *Expr, out: *vec::<*Expr>) {
+        if e == &null { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            CXXSpell::value_predicates(b->lhs, out);
+            CXXSpell::value_predicates(b->rhs, out);
+            return;
+        }
+        if isa::<ConstraintExpr>(e) { return; }
+        out->push_back(e);
+    }
+
+    /// C++ text of a self-contained predicate (requires_clause), or "".
+    priv fn _pred_text(self, e0: *Expr) -> string {
+        if e0 == &null { return ""; }
+        var e = e0;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return ""; }
+        if isa::<IntegerLiteralExpr>(e) {
+            var lit = cast::<IntegerLiteralExpr>(e);
+            if (lit->imm == &null) || (lit->get_value_hi() != u64(0)) { return ""; }
+            return f"{lit->get_value_lo()}";
+        }
+        if isa::<BooleanLiteralExpr>(e) { return (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false")); }
+        if isa::<SizeOfExpr>(e) {
+            var t = cast::<SizeOfExpr>(e)->type_arg;
+            if (t == &null) || (t->canonical == &null) { return ""; }
+            return "sizeof(" + self._type(t) + ")";
+        }
+        if isa::<AlignOfExpr>(e) {
+            var t = cast::<AlignOfExpr>(e)->type_arg;
+            if (t == &null) || (t->canonical == &null) { return ""; }
+            return "alignof(" + self._type(t) + ")";
+        }
+        if isa::<NamedIdentExpr>(e) {
+            var gp = dyn_cast::<GenericParamDecl>(cast::<NamedIdentExpr>(e)->resolved_decl);
+            if (gp == &null) || (!gp->is_const_param) || (gp->owner == &null) { return ""; }
+            return self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner)));
+        }
+        if isa::<UnaryOperatorExpr>(e) {
+            var u = cast::<UnaryOperatorExpr>(e);
+            if u->resolved_op != &null { return ""; }
+            var k = u->op_token.kind;
+            var o = "";
+            if (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) { o = "!"; }
+            else if k == TokenKind::OpMinus { o = "-"; }
+            else if k == TokenKind::OpTilde { o = "~"; }
+            else { return ""; }
+            var x = self._pred_text(u->operand);
+            if x.size() == 0 { return ""; }
+            return o + "(" + x + ")";
+        }
+        if isa::<BinaryOperatorExpr>(e) {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if b->resolved_op != &null { return ""; }
+            var o = CXXSpell::_pred_op(b->op_token.kind);
+            if o.size() == 0 { return ""; }
+            var l = self._pred_text(b->lhs);
+            var r = self._pred_text(b->rhs);
+            if (l.size() == 0) || (r.size() == 0) { return ""; }
+            return "(" + l + ") " + o + " (" + r + ")";
+        }
+        return "";
+    }
+
+    static fn _pred_op(k: TokenKind) -> string {
+        if k == TokenKind::OpPlus { return "+"; }
+        if k == TokenKind::OpMinus { return "-"; }
+        if k == TokenKind::OpStar { return "*"; }
+        if k == TokenKind::OpSlash { return "/"; }
+        if k == TokenKind::OpPercent { return "%"; }
+        if k == TokenKind::OpLess { return "<"; }
+        if k == TokenKind::OpLessEqual { return "<="; }
+        if k == TokenKind::OpGreater { return ">"; }
+        if k == TokenKind::OpGreaterEqual { return ">="; }
+        if k == TokenKind::OpEqualEqual { return "=="; }
+        if k == TokenKind::OpExclaimEqual { return "!="; }
+        if (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd) { return "&&"; }
+        if (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr) { return "||"; }
+        if (k == TokenKind::OpAmp) || (k == TokenKind::KwBitand) { return "&"; }
+        if (k == TokenKind::OpPipe) || (k == TokenKind::KwBitor) { return "|"; }
+        if (k == TokenKind::OpCaret) || (k == TokenKind::KwXor) { return "^"; }
+        if k == TokenKind::OpLessLess { return "<<"; }
+        if k == TokenKind::OpGreaterGreater { return ">>"; }
+        return "";
+    }
+
+    /// The generic parameter a conjunct constrains, or null.
+    static fn _bound_param(c: *ConstraintExpr) -> *GenericParamDecl {
+        var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+        if id == &null { return &null; }
+        return dyn_cast::<GenericParamDecl>(id->resolved_decl);
+    }
+
+    /// Every `impl` conjunct of requires clause \p e, in clause order.
+    static fn impl_bounds(e: *Expr, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if (b != &null) && ((b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd)) {
+            CXXSpell::impl_bounds(b->lhs, out);
+            CXXSpell::impl_bounds(b->rhs, out);
+            return;
+        }
+        var c = dyn_cast::<ConstraintExpr>(e);
+        if (c != &null) && (!c->is_derives()) { out->push_back(c); }
+    }
+
     /// `template <class T, class... Ts, int N>` for a generic decl; "" otherwise.
     fn template_head(self, d: *Decl) -> string {
         var gps = CXXSpell::template_params(d);
@@ -856,7 +1397,69 @@ class CXXSpell {
             s += " ";
             s += self.imm_name(gp->name.imm, CXXSpell::fid_of(d));
         }
-        s += "> ";
+        s += ">";
+        s += self.requires_clause(d);
+        s += " ";
+        return s;
+    }
+
+    // --- Specializations of a generic record ----------------------------------
+
+    /// \p d is a registered explicit or partial specialization of a record
+    /// (TypeResolve sets `instantiated_from` to the primary). A function
+    /// spec is OverloadResolution's and never a C++ specialization here.
+    static fn is_record_spec(d: *Decl) -> bool {
+        if (d == &null) || (!(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d))) { return false; }
+        var k = decl_spec_kind(d);
+        if (k != SpecKind::Explicit) && (k != SpecKind::Partial) { return false; }
+        return decl_instantiated_from(d) != &null;
+    }
+
+    /// The head of a record's own declaration and definition: an explicit
+    /// specialization's `template <>`, else template_head. Not for an
+    /// out-of-line MEMBER of one: [temp.expl.spec]/5 writes those with no
+    /// `template <>` at all, and _owner_template_head's template_head gives
+    /// exactly that, since an explicit spec has no parameters.
+    fn record_head(self, d: *Decl) -> string {
+        if CXXSpell::is_record_spec(d) && (decl_spec_kind(d) == SpecKind::Explicit) {
+            return "template <> " + self.requires_clause(d);
+        }
+        return self.template_head(d);
+    }
+
+    /// `<P*>` / `<bool>`: a specialization's pattern, the arguments it
+    /// specializes the primary at, with a partial's own parameters by name.
+    /// "" for anything that is not a record spec. Appended to the leaf
+    /// wherever the spec itself is named -- its declarations and the
+    /// qualifier of its out-of-line members -- because C++ has no other way
+    /// to say which specialization of `Store` is meant.
+    fn spec_suffix(self, d: *Decl) -> string {
+        if !CXXSpell::is_record_spec(d) { return ""; }
+        var sargs = decl_spec_args(d);
+        var args  = vec::<*Type>();
+        for var i: usize = 0; i < sargs.size(); ++i {
+            ICE_IF((sargs[i] == &null) || (sargs[i]->canonical == &null),
+                "CXXSpell: a specialization's pattern reached codegen unresolved");
+            args.push_back(sargs[i]->canonical);
+        }
+        return self.args_str(&args);
+    }
+
+    /// One segment of an out-of-line member's qualifier: the leaf, then a
+    /// specialization's pattern or a generic owner's own parameters as its
+    /// arguments (`Store<P*>`, `Store<bool>`, `Box<T>`).
+    fn owner_segment(self, d: *Decl) -> string {
+        var s = self.leaf(d);
+        if CXXSpell::is_record_spec(d) { return s + self.spec_suffix(d); }
+        var gps = decl_generic_params(d);
+        if gps.size() == 0 { return s; }
+        s += "<";
+        for var j: usize = 0; j < gps.size(); ++j {
+            if j > 0 { s += ", "; }
+            s += self.imm_name(gps[j]->name.imm, CXXSpell::fid_of(d));
+            if gps[j]->is_pack { s += "..."; }
+        }
+        s += ">";
         return s;
     }
 
@@ -870,12 +1473,47 @@ class CXXSpell {
         return ty + " " + name;
     }
 
+    /// \p r's arguments are exactly \p iface's own parameters, in order.
+    priv fn _own_args(self, r: *RecordType, iface: *Decl) -> bool {
+        var gps = decl_generic_params(iface);
+        if gps.size() != r->args.size() { return false; }
+        for var i: usize = 0; i < r->args.size(); ++i {
+            var g = dyn_cast::<GenericParamType>(canon_unqual(r->args[i]));
+            if (g == &null) || (g->param_index != static_cast::<u32>(i)) { return false; }
+            if CXXSpell::rep(g->owner) != iface { return false; }
+        }
+        return true;
+    }
+
     priv fn _record(self, r: *RecordType, subst: *InstanceEntry, scope: *Decl) -> string {
         var d = r->decl;
         ICE_IF(d == &null, "CXXSpell: RecordType with no decl");
-        if (isa::<InterfaceDecl>(d)) { self._ice(d->range, "CXXSpell: an interface has no C++ type; witnesses are not emitted yet"); }
-        if decl_is_imported(d) { return decl_cxx_spelling(d); }
+        if isa::<InterfaceDecl>(d) {
+            var mine = (self.self_iface != &null) && (CXXSpell::rep(decl_pattern(CXXSpell::rep(d))) == self.self_iface);
+            // Self is `I` bare, or in a GENERIC interface `I<T...>` over its
+            // own parameters (TypeResolve::_self_record) -- unsubstituted
+            // here, the member's substitution applying only below it.
+            if mine && ((r->args.size() == 0) || self._own_args(r, self.self_iface)) { return self.self_spelling; }
+            self._ice(d->range, "CXXSpell: an interface has no C++ type; only its Self inside a witness is spelled");
+        }
+        if decl_is_imported(d) {
+            // A tag hidden by an ordinary name (`struct timezone` beside
+            // `extern long timezone`): bare `::timezone` is the variable in
+            // C++, so the type is only reachable elaborated.
+            var kw = decl_ffi_tag_keyword(d);
+            if kw.size() > 0 { return kw + " " + decl_cxx_spelling(d); }
+            return decl_cxx_spelling(d);
+        }
 
+        // A panic result whose set names a type parameter (a generic body,
+        // PANIC.md P10): C++ orders the set at each instance through the
+        // sorting alias, so the template's result and a concrete caller's
+        // `Panic<T, A, B>` are one type however the parameters land.
+        if self._dependent_panic_set(r) {
+            var s = "::" + LowerTargets::panic_set_alias() + "<" + self.qual_name(CXXSpell::rep(d));
+            for var i: usize = 0; i < r->args.size(); ++i { s += ", " + self._type(r->args[i], subst, scope); }
+            return s + ">";
+        }
         // An instance shell names its PRIMARY plus the registry's args.
         if decl_is_instance(d) {
             var e = self._cg->instances->entry_of(d);
@@ -889,6 +1527,19 @@ class CXXSpell {
             targs = self.args_str(&v, subst, scope);
         }
         return self._record_name(d, targs, scope);
+    }
+
+    /// \p r is the Panic lang item (a type-id-tagged ADT) with an element
+    /// past its value type that names a type parameter.
+    priv fn _dependent_panic_set(self, r: *RecordType) -> bool {
+        if r->args.size() < 2 { return false; }
+        var en = dyn_cast::<EnumDecl>(CXXSpell::rep(r->decl));
+        if (en == &null) || (!en->adt_explicit_tags) || (adt_pack_param(en) == usize(-1)) { return false; }
+        for var i: usize = 1; i < r->args.size(); ++i {
+            var a = r->args[i];
+            if (a != &null) && (a->is_dependent() || a->is_instantiation_dependent()) { return true; }
+        }
+        return false;
     }
 
     /// A record's name with its own template arguments \p targs ("" for
@@ -971,11 +1622,33 @@ class CXXSpell {
     priv fn _gparam(self, g: *GenericParamType, subst: *InstanceEntry) -> string {
         ICE_IF(g->owner == &null, "CXXSpell: canonical generic param with no owner");
         var owner = CXXSpell::rep(g->owner);
-        var t = self.subst_for(g, subst);
-        if t != &null { return self._type(t, &null); }
-        if (g->is_pack) { self._ice(owner->range, "CXXSpell: pack parameter in a non-expansion position"); }
+        // A pack is only ever spelled expanded: a canonical pack parameter
+        // stands for its expansion (`R<i32, E...>`'s argument, `...xs: T`'s
+        // type), so it is `E...`, or under an instance its elements.
+        if g->is_pack && (self.pack_alias != &null) {
+            var ags = decl_generic_params(owner);
+            if (usize(g->param_index) < ags.size()) && (ags[usize(g->param_index)] == self.pack_alias) { return LowerTargets::adt_pack_elem(); }
+        }
+        if g->is_pack {
+            var els = vec::<*Type>();
+            if self.subst_pack(g, subst, &els) {
+                var ps = "";
+                for var i: usize = 0; i < els.size(); ++i {
+                    if i > 0 { ps += ", "; }
+                    ps += self._type(els[i], &null);
+                }
+                return ps;
+            }
+        } else {
+            var t = self.subst_for(g, subst);
+            if t != &null { return self._type(t, &null); }
+        }
         var gps = decl_generic_params(owner);
         if (static_cast::<usize>(g->param_index) >= gps.size()) { self._ice(owner->range, "CXXSpell: generic param index out of range"); }
-        return self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
+        var nm = self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
+        if (!g->is_pack) && (self.void_unit_owner != &null) && (CXXSpell::rep(self.void_unit_owner) == owner) {
+            return "::" + LowerTargets::void_unit() + "<" + nm + ">";
+        }
+        return (nm + "...") if (g->is_pack) else (nm);
     }
 }

@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -46,7 +46,7 @@
 // AST-NEXT: |   `-StringLiteralExpr "rest!(1, 2)"
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var d
-// AST-NEXT: |   `-IntegerLiteralExpr 1
+// AST-NEXT: |   `-BooleanLiteralExpr true
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var w
 // AST-NEXT: |   `-ListLiteralExpr (2)
@@ -87,7 +87,7 @@
 // -- diagnostics (order matches emission order) --
 // AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found ','
 // AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found ','
-// END-GENERATED-CHECKS
+// END-GENERATED-CHECKS(AST)
 
 macro list!(...xs) { [ xs... ] }
 
@@ -108,7 +108,7 @@ var g2 = paste!(get_, first!(alpha, beta))   // get_alpha
 
 // stringify!/defined! stay RAW (quoting/name position)
 var s = stringify!(rest!(1, 2))   // "rest!(1, 2)" spelling, NOT "2"
-var d = defined!(list)            // 1
+var d = defined!(list)            // true
 
 // pattern splat: replicate the parenthesized pattern per pack element
 macro wrap_all!(...xs)  { [ (box(xs))... ] }        // [ box(1), box(2) ]

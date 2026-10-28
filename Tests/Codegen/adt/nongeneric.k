@@ -2,7 +2,8 @@
 // carries exactly the one form of each special member its payloads allow,
 // with nothing left for C++ to choose: Note owns a string, so every one has
 // a body that copies, moves or destroys the live payload; Point holds only
-// integers, so every one is the defaulted, trivial one.
+// integers, so every one is the defaulted, trivial one -- and its tag sits in
+// its payloads' common prefix, so it has no helper switching on one.
 
 enum Note { Text { s: string, n: i32 }, Code { c: i32 }, Blank }
 enum Point { At { x: i32, y: i32 }, Origin }
@@ -36,35 +37,39 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // Each record's special members are consecutive, one of each, and nothing
-// in this file's records is constrained. Point comes first: Note waits for
+// in this file's records is constrained (the niche trait's helpers, ahead
+// of them, are). Point comes first: Note waits for
 // the string record it holds.
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}nongeneric.k
+// CXX:       struct __kairo_niche<T> {
 // CXX-NOT:   requires
 // CXX:       struct Point {
-// CXX:       Point(::__kairo_vt<1>) : __kairo_tag(__kairo_Tag::Origin) {
+// CXX:       Point(::__kairo_vt<1>) noexcept : __kairo_t {
+// CXX-NEXT:  __kairo_Tag::Origin }
+// CXX-NEXT:  {
 // CXX-NEXT:  }
 // CXX-NEXT:  Point(const Point&) = default;
 // CXX-NEXT:  Point(Point&&) = default;
 // CXX-NEXT:  Point& operator=(const Point&) = default;
 // CXX-NEXT:  Point& operator=(Point&&) = default;
 // CXX-NEXT:  ~Point() = default;
-// CXX-NEXT:  private{{ ?}}:
+// CXX-NEXT:  static constexpr unsigned long __kairo_niche_count = 254;
 // CXX-NOT:   requires
 // CXX:       struct Note {
-// CXX:       Note(::__kairo_vt<2>) : __kairo_tag(__kairo_Tag::Blank) {
+// CXX:       Note(::__kairo_vt<2>) noexcept : __kairo_tag(__kairo_Tag::Blank) {
 // CXX-NEXT:  }
-// CXX-NEXT:  Note(const Note& o) : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
+// CXX-NEXT:  Note(const Note& o) noexcept : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
 // CXX-NEXT:  __kairo_construct_from(o);
 // CXX-NEXT:  }
-// CXX-NEXT:  Note(Note&& o) : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
+// CXX-NEXT:  Note(Note&& o) noexcept : __kairo_tag(o{{ ?}}.{{ ?}}__kairo_tag) {
 // CXX-NEXT:  __kairo_construct_from(static_cast<Note&&>(o));
 // CXX-NEXT:  }
-// CXX-NEXT:  Note& operator=(const Note& o) {
+// CXX-NEXT:  Note& operator=(const Note& o) noexcept {
 // CXX-NOT:   {{requires|= default|= delete|Note\(}}
-// CXX:       Note& operator=(Note&& o) {
+// CXX:       Note& operator=(Note&& o) noexcept {
 // CXX-NOT:   {{requires|= default|= delete|Note\(}}
-// CXX:       ~Note() {
+// CXX:       ~Note() noexcept {
 // CXX-NEXT:  __kairo_destroy();
 // CXX-NEXT:  }
 // CXX-NEXT:  private{{ ?}}:

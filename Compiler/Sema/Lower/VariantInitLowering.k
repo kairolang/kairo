@@ -50,6 +50,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::VariadicEnum::*;
 import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
@@ -137,6 +138,16 @@ class VariantInitLowering derives ASTWriter::<VariantInitLowering> {
         }
         fl.freeze_into(&(vi->fields));
         ol.freeze_into(&(vi->source_order));
+        // A pack-expanded variant: the element X picked, and its type.
+        var ni = dyn_cast::<NamedInitializerExpr>(n);
+        if v->is_pack_expansion {
+            ICE_IF((ni == &null) || (ni->variant_pack < 0), "VariantInitLowering: a pack-expanded variant built with no element picked; ControlTyping::_pick_element records one");
+            var es = vec::<*Type>();
+            var ok = VariadicEnum(self.sc).elems(n->type_, &es);
+            ICE_IF((!ok) || (usize(ni->variant_pack) >= es.size()), "VariantInitLowering: the picked element is not one of the instance's");
+            vi->pack_index = ni->variant_pack;
+            vi->pack_elem  = es[usize(ni->variant_pack)];
+        }
         vi->adopt_sema(n);
         return static_cast::<*Expr>(vi);
     }

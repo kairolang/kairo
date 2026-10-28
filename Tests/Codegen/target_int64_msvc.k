@@ -21,5 +21,5 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --target=x86_64-pc-windows-msvc --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // LLONG-NOT: signed long x
 // LLONG: signed long long exp;
-// LLONG: signed long long f(signed long long x, unsigned long long y);
+// LLONG: signed long long f(signed long long x, unsigned long long y) noexcept;
 // LLONG-NOT: signed long x

@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -54,7 +54,10 @@
 // AST-NEXT:               |-NamedIdentExpr self
 // AST-NEXT:               `-Step .y
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+//
+// -- diagnostics (order matches emission order) --
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R025E]:
+// END-GENERATED-CHECKS(AST)
 
 // EXPECT: 0 errors. `self.items` binds to field (dependent record still looks up).
 // EXPECT: `Self::origin()` step `::origin` binds; `Self` in type position canonical = Stack<T> (dependent).

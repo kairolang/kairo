@@ -42,6 +42,7 @@ import Parser::PatternParse::*;
 import Parser::Shared::ImportGrammar::*;
 import Parser::Shared::MacroHeaderGrammar::*;
 import AST::ParamMode::*;
+import AST::LangItems::*;
 
 struct PendingComment {
     var kind:  AnnotationKind = AnnotationKind::DocComment;
@@ -96,6 +97,11 @@ class ASTParse
     // --- Recovery state -----------------------------------------------------
     pub var _fatal_sentinels:  u32 = 0;      ///< special marker type used to signal unrecoverable errors during type parsing.
     pub var depth:             u32  = 0;     ///< current recursion depth.
+    /// >0 while parsing the declaration(s) an `ffi "..."` prefix or block
+    /// applies to: there a bodiless `struct S` / `union U` is a foreign
+    /// forward declaration (it names the header's tag, IMPORTS.md §5.2)
+    /// instead of a missing body.
+    pub var ffi_decl_depth:    u32  = 0;
     pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input (--cmax-scope-depth).
     pub var expr_depth:        u32  = 0;     ///< current expression recursion depth.
     pub var max_expr_depth:    u32  = 512;   ///< expression nesting cap (--cmax-expr-depth); separate from max_depth so each flag governs what it names.
@@ -125,6 +131,23 @@ class ASTParse
     }
 
     pub var mode: ParseMode = ParseMode::Full; ///< see ParseMode.
+    /// The last closure signature's `|...|` / `||`, as written (invalid when
+    /// it had none): DeclParse::_parse_closure_sig sets it and
+    /// ExprParse::_parse_closure_expr moves it onto the node, before the body
+    /// (where a nested closure would overwrite it) is parsed.
+    pub var closure_cap_range: SourceRange = SourceRange::invalid();
+    /// The last closure signature's declared `panic(E1, E2)` set, empty when
+    /// it had none: handed over the same way as closure_cap_range.
+    pub var closure_panic_set: FrozenList::<*Type>;
+    /// The same signature's `panic` specifier (set included) and its
+    /// parameter list's `)`, invalid when absent: fix-it anchors.
+    pub var closure_panic_range: SourceRange = SourceRange::invalid();
+    pub var closure_params_end:  SourceRange = SourceRange::invalid();
+    /// the module whose body holds the `eval if` / `eval for` being parsed
+    /// (DeclParse::_parse_eval_stmt_decl). Declarations in its branches are
+    /// branch-local, so StmtParse::_attach_local_decl must not add them to
+    /// this context as it would for a local in a module-scope block.
+    pub var eval_branch_dc: *DeclContext = &null;
 
     /// True in normal AST-building mode. Used by mixin parsers (which cannot
     /// name the nested ParseMode enum directly) to gate Full-only behavior such
@@ -286,7 +309,7 @@ class ASTParse
             }
 
             var annot: PendingAnnotations;
-            self.consume_leading_annotations(&annot);
+            self.consume_leading_annotations(&annot, true);
             if self.is_eof() { break; }
 
             // A leading comment binds to the NEXT construct, but the PP deletes
@@ -480,13 +503,28 @@ class ASTParse
 
     /// \brief decl-vs-stmt routing for the top-level loop.
     ///
-    /// \details var/const always take the stmt path (it owns the plain-decl vs
-    ///          destructuring split). `eval` is a decl only when followed by
-    ///          `{`; `eval for/if/var` are statements.
+    /// \details var/const take the stmt path (it owns the plain-decl vs
+    ///          destructuring split), except `const static` / `const thread`
+    ///          / `const eval`: those are the same declaration as `static
+    ///          const` (DeclParse::_parse_storage_head), so they route where
+    ///          `static` does and both orders build the same tree. `thread`
+    ///          and `eval` are decls only when they open one (see below).
     priv fn _routes_to_decl(self, k: TokenKind) -> bool {
+        if k == TokenKind::KwConst {
+            return self.check_peek(TokenKind::KwStatic) || self.check_peek(TokenKind::KwThread)
+                || self.check_peek(TokenKind::KwEval);
+        }
+        // `thread n: T` is a declaration, `thread work()` a spawn expression.
+        if k == TokenKind::KwThread { return self._storage_binding_ahead(); }
         if !self._starts_decl_kw(k) { return false; }
-        if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) { return false; }
-        if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) { return false; }
+        if k == TokenKind::KwVar { return false; }
+        // `eval { }`, `eval fn f()` and `eval N = e` are declarations, the
+        // same nodes a module body builds for them; `eval if` / `eval for`
+        // and an `eval f(3)` expression are statements.
+        if k == TokenKind::KwEval {
+            return self.check_peek(TokenKind::OpLBrace) || self._mods_lead_to_fn()
+                || self._storage_binding_ahead();
+        }
         return true;
     }
 
@@ -686,6 +724,11 @@ class ASTParse
                     continue;
                 }
 
+                if isa::<ConditionalStmt>(s) {
+                    self._index_eval_branches(s, tu_dc, tu_dc, u32(-1));
+                    continue;
+                }
+
                 // `var (a, b) = t` at file scope. A destructuring decl declares
                 // into its ENCLOSING scope (it is a decl statement, not a scope
                 // of its own), so at top level its binders belong in the TU
@@ -710,6 +753,39 @@ class ASTParse
 
         for var i: usize = 0; i < self._sym_tables.size(); ++i {
             self._sym_tables[i]->freeze();
+        }
+    }
+
+    /// \brief indexes EVERY branch of a declaration-scope `eval if` into the
+    ///        enclosing table, as if hoisted. Which branch is taken is
+    ///        Sema's (EvalIfFolding, phase E), and a table is frozen here:
+    ///        so the parser records them all -- member tables, dc links and
+    ///        all -- and the fold builds the scope a new table without the
+    ///        untaken ones (EVAL.md §4.1). A nested `eval if` in a branch
+    ///        is indexed the same way; anything else in a branch is not a
+    ///        declaration.
+    priv fn _index_eval_branches(self, s: *Stmt, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        if (s == &null) || (!isa::<ConditionalStmt>(s)) { return; }
+        var c = cast::<ConditionalStmt>(s);
+        if !c->is_eval { return; }
+        self._index_eval_block(static_cast::<*Stmt>(c->then_), walk_dc, table_dc, owner_name_imm);
+        if c->else_ == &null { return; }
+        if isa::<ConditionalStmt>(c->else_) { self._index_eval_branches(c->else_, walk_dc, table_dc, owner_name_imm); return; }
+        self._index_eval_block(c->else_, walk_dc, table_dc, owner_name_imm);
+    }
+
+    priv fn _index_eval_block(self, s: *Stmt, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        if (s == &null) || (!isa::<CompoundStmt>(s)) { return; }
+        var b = cast::<CompoundStmt>(s);
+        for var i: usize = 0; i < b->body.size(); ++i {
+            var st = b->body[i];
+            if st == &null { continue; }
+            if isa::<DeclStmt>(st) {
+                var ds = cast::<DeclStmt>(st);
+                if ds->decl != &null { self._index_symbol_decl(ds->decl, walk_dc, table_dc, owner_name_imm); }
+                continue;
+            }
+            self._index_eval_branches(st, walk_dc, table_dc, owner_name_imm);
         }
     }
 
@@ -1024,6 +1100,7 @@ class ASTParse
                 var m = n->body[i];
                 if m != &null { self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm, tabled); }
             }
+            if n->stmt != &null { self._index_eval_branches(n->stmt, walk_dc, table_dc, owner_name_imm); }
             return;
         }
         if isa::<FFIBlockDecl>(d) {
@@ -1110,7 +1187,7 @@ class ASTParse
             if self.is_eof() { break; }
 
             var k = self.resolve_kind_deep(self._current);
-            if self._starts_decl_kw(k) {
+            if self._starts_decl_here(k) {
                 var d = self.parse_decl(true);
                 if d == &null {
                     // closure IIFE fallback (cursor rolled back to `fn`) or a
@@ -1929,6 +2006,64 @@ class ASTParse
 
     //  Annotation consumption
 
+    /// \brief at an `@` that starts a statement: true when the attribute (or
+    ///        a same-line run of them) applies to an expression, so the
+    ///        statement is an expression statement over an AttributedExpr.
+    ///  Lookahead:  ( '@' name ( '(' ... ')' )? )+  X
+    ///  true iff X is on the same line and begins an expression: not a
+    ///  newline / `;` / EOF, not `{` or `}`, not a declaration lead, not a
+    ///  statement keyword (`if`, `for`, `match`, `return`, `try`, `default`,
+    ///  ...), not `unsafe {`, and not a loop label (`name:`).
+    ///
+    /// \details `@destroy p` and `@create T()` are expression attributes
+    ///          (attributes.mdx, tether-promotion.mdx); before this rule the
+    ///          annotation pass took them as statement attributes named
+    ///          `destroy` / `create` on the statement `p` / `T()`, and they
+    ///          were accepted silently. What stays a statement attribute is
+    ///          what has no expression to attach to: a declaration (`@copy
+    ///          fn`, `@deprecated var`), a keyword statement (`@likely if`),
+    ///          a block (`@repeat(3) { }`), and an attribute on a line of its
+    ///          own, which attaches to whatever follows (`@always_inline` NL
+    ///          `fn`). Only a plain name: the expression grammar reads no
+    ///          `a::b` attribute path. The guard rolls back unconditionally.
+    pub fn _attr_opens_expr_stmt(self) -> bool {
+        var t = TentativeGuard(&self);
+        while self.check(TokenKind::OpAt) {
+            self.advance();                       // `@`
+            if !self.check(TokenKind::LitIdentifier) { return false; }
+            self.advance();                       // the name
+            if self.check(TokenKind::OpColonColon) { return false; }
+            if self.check(TokenKind::OpLParen) {
+                var depth: u32 = 0;
+                while !self.is_eof() {
+                    var pk = self.resolve_kind_deep(self._current);
+                    if pk == TokenKind::OpLParen { depth += 1; }
+                    else if pk == TokenKind::OpRParen {
+                        depth -= 1;
+                        if depth == 0 { self.advance(); break; }
+                    }
+                    self.advance_raw();
+                }
+            }
+        }
+        if self.is_eof() || self._is_terminator_tok(self._current) { return false; }
+        var k = self.resolve_kind_deep(self._current);
+        if (k == TokenKind::OpLBrace) || (k == TokenKind::OpRBrace) { return false; }
+        if self._starts_decl_here(k) { return false; }
+        if (k == TokenKind::KwIf)     || (k == TokenKind::KwWhile)   || (k == TokenKind::KwLoop)
+        || (k == TokenKind::KwFor)    || (k == TokenKind::KwMatch)   || (k == TokenKind::KwReturn)
+        || (k == TokenKind::KwBreak)  || (k == TokenKind::KwContinue) || (k == TokenKind::KwPanic)
+        || (k == TokenKind::KwYield)  || (k == TokenKind::KwAssert)  || (k == TokenKind::KwTry)
+        || (k == TokenKind::KwFinally) || (k == TokenKind::KwDefault) || (k == TokenKind::KwCase)
+        || (k == TokenKind::KwElse)   || (k == TokenKind::KwCatch) {
+            return false;
+        }
+        if (k == TokenKind::KwUnsafe) && self.check_peek(TokenKind::OpLBrace) { return false; }
+        if (k == TokenKind::LitIdentifier) && self.check_peek(TokenKind::OpColon) { return false; }
+        return true;
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
     /// \brief consumes doc-comments, @attributes, and visibility keywords
     ///        before a production into a PendingAnnotations buffer.
     ///
@@ -1937,7 +2072,12 @@ class ASTParse
     ///          distinguishes named/positional exactly like call sema does.
     ///          A visibility keyword followed by `{` is NOT consumed it
     ///          is the lead-in of a visibility group decl, owned by DeclParse.
-    pub fn consume_leading_annotations(self, out: *PendingAnnotations) {
+    ///
+    /// \param stmt_pos the production is a statement (a function body, or
+    ///        file scope), where an `@name` may instead open an expression
+    ///        statement: _attr_opens_expr_stmt decides, and when it does the
+    ///        `@` is left for the expression parser (AttributedExpr).
+    pub fn consume_leading_annotations(self, out: *PendingAnnotations, stmt_pos: bool = false) {
         out->clear();
 
         var prev_flag = self._no_comment_skip;
@@ -1959,6 +2099,9 @@ class ASTParse
             }
 
             // -- @attribute ( args? ) ------------------------------------
+            if (resolved.kind == TokenKind::OpAt) && stmt_pos && self._attr_opens_expr_stmt() {
+                break;
+            }
             if resolved.kind == TokenKind::OpAt {
                 var at_range = tok->range;
                 self.advance(); // consume `@`
@@ -2098,14 +2241,38 @@ class ASTParse
         // transfer ctor is an ordinary method and the lifecycle rules are blind.
         if isa::<FunctionDecl>(decl) {
             var fd     = cast::<FunctionDecl>(decl);
-            var k_copy = self.ctx->hoisted->intern("copy");
-            var k_move = self.ctx->hoisted->intern("move");
+            var k_copy = self.ctx->hoisted->intern(LangAttrs::transfer_copy());
+            var k_move = self.ctx->hoisted->intern(LangAttrs::transfer_move());
             for var i: usize = 0; i < annot->entries.size(); ++i {
                 var e = &annot->entries[i];
                 if e->kind != AnnotationKind::Attribute { continue; }
                 if e->name == k_copy { fd->transfer = TransferKind::Copy; }
                 if e->name == k_move { fd->transfer = TransferKind::Move; }
             }
+        }
+
+        // `@open enum E`: EnumDecl::is_open, the one field the niche, the
+        // checked `as` and match lowering read. Anywhere else the attribute
+        // means nothing, and silently ignoring it would let a reader believe
+        // an ADT or a struct had been opened.
+        var k_open = self.ctx->hoisted->intern(LangAttrs::open_enum());
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            if (e->kind != AnnotationKind::Attribute) || (e->name != k_open) { continue; }
+            var oe = dyn_cast::<EnumDecl>(decl);
+            if (oe != &null) && (!oe->is_adt) {
+                oe->is_open = true;
+                continue;
+            }
+            if self.mode != ParseMode::Full { continue; }   // the Full parse reports it once.
+            var what = ("an ADT enum: no cast makes its tag, so it is always closed") if (oe != &null) else ("this declaration; only a plain enum can be open");
+            var an   = "\x27@" + LangAttrs::open_enum() + "\x27";
+            var b = self.diag->report(DiagID::SC001E, e->range.start,
+                an + " does not apply to " + what);
+            b.first(e->range);
+            b.note(decl->range.start, "the attribute is on this declaration");
+            b.remove(e->range, "remove " + an);
+            b.emit();
         }
 
         if annot->visibility != VisibilityKind::None {

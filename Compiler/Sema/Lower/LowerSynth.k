@@ -4,8 +4,8 @@
 ///          file's table, integer literals with a fresh Immediate::IntData
 ///          slot, byte literals over decoded text with a fresh StringData
 ///          slot, fresh `__kairo_` locals and the names that read them,
-///          member calls, statement expressions, and the purity test
-///          SequenceLowering orders arguments by.
+///          member and free-function calls, statement expressions, and
+///          the purity test SequenceLowering orders arguments by.
 ///
 ///   One copy. Three passes each carried their own `_ident_token`, and the
 ///   `Token` invariant (16 bytes, an imm index into the owning file's table,
@@ -28,6 +28,7 @@
 ffi "c++" import "Native/UTF8Decode.hh";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Resolve::NameLookup::*;
 import AST::LangItems::*;
 import AST::Visitor::ASTWriter::*;
 import AST::Node::Base::*;
@@ -137,6 +138,14 @@ class LowerSynth {
         return vd;
     }
 
+    /// local(), placed: its DeclStmt pushed on \p stmts. The bind-once step
+    /// of an expansion that reads an operand more than once.
+    fn bind(self, range: SourceRange, hint: string, ty: *Type, init: *Expr, stmts: *ListBuilder::<*Stmt>) -> *VariableDecl {
+        var vd = self.local(range, hint, ty, init);
+        stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.sc->ctx, range, static_cast::<*Decl>(vd))));
+        return vd;
+    }
+
     /// A read of a local this pass minted. One node per use: a node has one
     /// parent, and two parents sharing one is a rewrite waiting to happen.
     fn use_of(self, vd: *VariableDecl, range: SourceRange, cat: Expr::ValueCategory) -> *Expr {
@@ -239,6 +248,46 @@ class LowerSynth {
         call->type_          = ty;
         call->value_category = Expr::ValueCategory::RValue;
         return static_cast::<*Expr>(call);
+    }
+
+    /// `f(args)`, a call of the free function \p f (a lang item a lowering
+    /// calls) typed \p ty: the node shape of ctor_call, the callee naming
+    /// \p f by its own name.
+    fn free_call(self, range: SourceRange, f: *Decl, args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        return self.ctor_call(range, f, tu.decl_name(f), args, ty);
+    }
+
+    /// `unwrap_failed("<text>", <len>)`, typed `!`: the crash family's one
+    /// compiler entry (the UnwrapFailed lang item over rt/crash.c, PANIC.md
+    /// §2.8). \p text is the whole message -- what failed and its
+    /// file:line:col -- because nothing may be formatted at crash time: the
+    /// runtime writes these bytes and a newline and aborts. No newline here;
+    /// the runtime owns it. \p who names the calling pass in the ICE.
+    fn crash_call(self, range: SourceRange, text: string, who: string) -> *Expr {
+        var d = self.sc->well_known->get(WellKnownType::UnwrapFailed);
+        ICE_IF(d == &null, who + ": the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is unbound; Lib/builtin/module.k declares it");
+        var f = dyn_cast::<FunctionDecl>(NameLookup::representative(d));
+        ICE_IF(f == &null, who + ": the \x27" + to_string(WellKnownType::UnwrapFailed) + "\x27 lang item is not a function");
+
+        var bytes = vec::<u8>();
+        LowerSynth::push_string(text, &bytes);
+        var u8t  = self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST());
+        var pu8  = self.sc->types->pointer(u8t);
+        var lit  = self.bytes_literal(range, &bytes, pu8);
+        var args = ListBuilder::<*Expr>(self.sc->ctx);
+        args.push(self.cast_to(range, lit, pu8, CastMode::Unsafe));   // `"..."` is const char*; the parameter is const unsigned char*.
+        args.push(self.int_literal(range, static_cast::<u64>(bytes.size()), BuiltinKind::USize));
+        return self.free_call(range, static_cast::<*Decl>(f), &args, self.sc->builtin(BuiltinKind::Never));
+    }
+
+    /// `if cond { <call> }`, \p call a `-> !` call (crash_call's).
+    fn crash_if(self, range: SourceRange, cond: *Expr, call: *Expr) -> *Stmt {
+        var blk  = CompoundStmt::create(self.sc->ctx, range);
+        var body = ListBuilder::<*Stmt>(self.sc->ctx);
+        body.push(static_cast::<*Stmt>(ExpressionStmt::create(self.sc->ctx, range, call)));
+        body.freeze_into(&(blk->body));
+        return static_cast::<*Stmt>(ConditionalStmt::create(self.sc->ctx, range, cond, blk, &null));
     }
 
     /// `({ stmts })` in place of \p orig, a prvalue of \p ty.

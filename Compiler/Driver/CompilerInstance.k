@@ -138,12 +138,15 @@ import AST::Printer::PrintCore::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
+import Sema::Type::PanicSets::*;
 import Sema::Sema::*;
 import Sema::SemaDump::*;
 import Sema::SemaContext::*;
+import Sema::Check::EffectPropagation::*;
 import AST::Context::ImportOverlay::*;
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::ClangJobs::*;
@@ -252,6 +255,9 @@ class FrontendAction {
         Path::make_parent_dirs(path);
     }
 
+    /// --print-panic-sets (FrontendAction::_dump_panic_sets).
+    priv fn _dump_panic_sets(self);
+
     priv fn _fatal(self, id: DiagID, msg: string) -> bool;
     priv fn _load(self)        -> bool;
     priv fn _preprocess(self)  -> bool;
@@ -259,6 +265,7 @@ class FrontendAction {
     priv fn _sema(self)        -> bool;
     priv fn _attach_ffi_edges(self, tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet);
     priv fn _import_order(self) -> vec::<u32>;
+    priv fn _sema_group(self, fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions);
     priv fn _codegen(self)     -> bool;
     priv fn _tu_is_empty(self, fid: u32) -> bool;
     priv fn _dump_tokens(self);
@@ -328,6 +335,7 @@ class CompilerInstance {
     priv var _hindex:  *HeaderIndex     = &null; ///< header set -> Kairo TUs; owned
     priv var _freg:    *ForeignRegistry = &null; ///< USR -> imported decl, build-wide; owned
     priv var _finst:   *ForeignInstantiate = &null; ///< fills instances of imported templates from clang; owned
+    priv var _ptids:   *PanicTypeIds = &null;       ///< the Panic set order every type formation applies (PANIC.md §1.3); owned.
     priv var _builtins: *BuiltinImport     = &null; ///< clang builtins as foreign decls, build-wide; owned
     priv var _link_out:    string = "";   ///< executable/library path; "" = this run does not link
     priv var _obj_dir:     string = "";   ///< where objects go; always set by _plan_outputs
@@ -510,6 +518,14 @@ class CompilerInstance {
         // Borrows _hindex's target, _freg and the backend's oracle: first out.
         if self._builtins != &null { std::destroy(self._builtins); self._builtins = &null; }
         if self._finst  != &null { std::destroy(self._finst);  self._finst  = &null; }   // borrows _hindex.
+        if self._ptids  != &null {
+            if self._g_scope != &null {
+                self._g_scope->types()->pack_order     = &null;
+                self._g_scope->instances()->pack_order = &null;
+            }
+            std::destroy(self._ptids);
+            self._ptids = &null;
+        }
         if self._hindex != &null { std::destroy(self._hindex); self._hindex = &null; }
         if self._freg   != &null { std::destroy(self._freg);   self._freg   = &null; }
 
@@ -560,6 +576,7 @@ class CompilerInstance {
     fn headers(self)      -> *HeaderSetCache          { return self._headers; }
     fn header_index(self) -> *HeaderIndex             { return self._hindex;  }
     fn foreign_instantiate(self) -> *ForeignInstantiate { return self._finst; }
+    fn panic_type_ids(self) -> *PanicTypeIds { return self._ptids; }
     fn foreign_registry(self) -> *ForeignRegistry     { return self._freg;    }
     fn builtins(self)     -> *BuiltinImport           { return self._builtins; }
 
@@ -1423,7 +1440,7 @@ class CompilerInstance {
             if broot.empty() && (!self.invocation().target.resource_dir.empty()) {
                 broot = (Path(self.invocation().target.resource_dir) / "builtin").full_path();
             }
-            if !broot.empty() { rb.add_include(Path(broot), "builtin"); }
+            if !broot.empty() { rb.add_include(Path(broot), builtin_root_name()); }
 
             // The std root, NAMED `kairo::std` and SPELLED `std`. The name is
             // its identity: `Lib/std/io.k` is `kairo::std::io` and emits into
@@ -1440,7 +1457,7 @@ class CompilerInstance {
                 if sroot.empty() && (!self.invocation().target.resource_dir.empty()) {
                     sroot = (Path(self.invocation().target.resource_dir) / "std").full_path();
                 }
-                if !sroot.empty() { rb.add_include(Path(sroot), "kairo::std", "std"); }
+                if !sroot.empty() { rb.add_include(Path(sroot), std_root_name(), std_root_spelling()); }
             }
 
             self._imp = rb.create_ptr(self._pool);
@@ -1481,6 +1498,12 @@ class CompilerInstance {
             self._sm, self._tcm, self._imp, self._pool,
             self._diag, self._g_scope, &self.invocation(), self.invocation().pp, self._headers);
         self._finst->psym = self._pp->get_symbol_table();
+        // Panic<i32, B, A> IS Panic<i32, A, B> wherever a type is formed
+        // (PANIC.md §1.3): one stateless orderer for the build's type store
+        // and registry, before any Sema pass forms one.
+        self._ptids = std::create::<PanicTypeIds>(self._finst->psym, self._g_scope->well_known(), self.invocation().lang.test_panic_id_bits);
+        self._g_scope->types()->pack_order     = static_cast::<*PackSetOrder>(self._ptids);
+        self._g_scope->instances()->pack_order = static_cast::<*PackSetOrder>(self._ptids);
     }
 
     /// Compiles all input files described by the invocation.
@@ -1911,6 +1934,27 @@ class CompilerInstance {
         return dir + "/" + exe;
     }
 
+    /// The second script of a link is an error at its first statement,
+    /// with a note at the first script's (TUResult::script_at). One error
+    /// per extra script; the first one found in input order is the one the
+    /// others are measured against.
+    priv fn _reject_second_script(self, result: ref!(BatchResult)) {
+        var first: isize = -1;
+        for var i: usize = 0; i < result.tu_results.size(); ++i {
+            var r = result.tu_results[i];
+            if !r.script_at.is_valid() { continue; }
+            if first < 0 { first = static_cast::<isize>(i); continue; }
+            var p = result.tu_results[static_cast::<usize>(first)];
+            var a = Path(p.path).filename();
+            var b = Path(r.path).filename();
+            var d = self._diag->report(DiagID::SC001E, r.script_at.start,
+                f"two script files in one program: '{b}' and '{a}' each run top-level statements as 'main\x27");
+            d.first(r.script_at);
+            d.note(DiagID::SC001N, p.script_at.start, f"'{a}' is a script: its first top-level statement is here").first(p.script_at);
+            d.emit();
+        }
+    }
+
     /// Plans, echoes under -v, runs. The object list is exactly what this
     /// run emitted, never a directory glob: a reused --cache-dir can hold
     /// objects from modules that no longer exist.
@@ -2208,6 +2252,12 @@ class CompilerInstance {
             if action->result.had_fatal { result.aborted = true; }
             result.tu_results.push_back(action->result);
         }
+
+        // Each input may be a script (SCRIPT.md 1.1), and each script is a
+        // `main`: two in one link are two programs, which the linker would
+        // reject as a duplicate symbol naming neither file. Only a link joins
+        // them, so `-c` and --type-check-only of several scripts stay legal.
+        if !self._link_out.empty() { self._reject_second_script(result); }
 
         // C/C++ inputs follow the run's action (_compile_sources); the
         // runtime compiles to objects, and only when Kairo objects were
@@ -3110,6 +3160,7 @@ class CompilerInstance {
         (t->object_format)    = objfmt;
         (t->is_little_endian) = tt.isLittleEndian();
         (t->is_x86)           = tt.isX86();
+        (t->has_os)           = (tt.getOS() != llvm::Triple::UnknownOS);
         self._fill_clang_type_facts(tt);
         (t->resolved)         = true;
 
@@ -3514,6 +3565,191 @@ fn FrontendAction::_parse() -> bool {
 
 /// Semantic analysis stage: runs the pipeline to its current end (N) over
 /// every fid of this TU's graph, then honors the sema dump flags.
+/// One group of the sema loop (FrontendAction::_sema): every Kairo TU of
+/// \p fids to SemaPhase::Typed, the group's panic sets solved, then each
+/// on to Checked, the lowerings and mono, in \p fids's order.
+///
+/// The group's Semas live until the second pass is done, at addresses that
+/// never move: Sema keeps `&self.sc` (and the context `&self.lifecycle`)
+/// from its constructor on, so a growing vector of them by value would
+/// break both. The arena runs their destructors when the group ends, which
+/// for a group of one is where the loop's `sem` used to die.
+fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_sema: bool, print_lowered: bool, sema_opts: PrintOptions) {
+    var sema_arena: llvm::SpecificBumpPtrAllocator::<Sema>;
+    var sems = vec::<*Sema>();
+    for var i: usize = 0; i < fids->size(); ++i {
+        var fid = (*fids)[i];
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null { continue; }
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null { continue; }
+        if tu->is_foreign { continue; }   // decls came from clang, already resolved; nothing to run.
+        var sem = sema_arena.Allocate(1);
+        libcxx::construct_at(sem, ctx, self._global_scope);
+        sem->sc.foreign  = self._ci->foreign_instantiate();   // before any pass captures &sem->sc.
+        sem->sc.builtins = self._ci->builtins();
+        sem->sc.effects  = reinterpret_cast::<*void>(effects);
+        // The file this action was asked to compile is a root, and may be a
+        // script (SCRIPT.md 1.1); a fid reached through its imports, or a
+        // `.k` a C++ input includes (discovered), is a module, whose
+        // top-level statement nothing would run. The same answer for kcc and
+        // every --emit mode: it depends on the command line, not the output.
+        sem->sc.script_root = (fid == self._file_id) && (!self.discovered);
+        { var _ts = TimeRegion("Sema"); sem->run_to(SemaPhase::Typed); }
+        sems.push_back(sem);
+    }
+
+    // The barrier. A TU that stopped short of Typed (a hard stop in I/N/T)
+    // is not registered: its bodies were never typed, and a call into it
+    // says nothing about panics (EffectPropagation, "a set that cannot be
+    // known"). A TU that reached Typed with errors is: its poisoned nodes
+    // are skipped like everywhere else.
+    {
+        var _te = TimeRegion("PanicSets");
+        effects->reset();
+        for var i: usize = 0; i < sems.size(); ++i {
+            if static_cast::<u8>(sems[i]->sc.phase) >= static_cast::<u8>(SemaPhase::Typed) {
+                effects->add_tu(&(sems[i]->sc));
+            }
+        }
+        effects->solve();
+    }
+
+    for var i: usize = 0; i < sems.size(); ++i {
+        var sem = sems[i];
+        var ctx: *ASTContext = sem->sc.ctx;
+        // Through L, not just the checks: OperatorLowering rewrites every user
+        // operator into the call it is, and codegen ICEs on any operator node
+        // that reaches it. --type-check-only stops here too, so the lowering
+        // schedule runs under it and is exercised by the sema tests.
+        // The dump is PINNED at Checked: X's output is what --print-sema is
+        // about, and a lowering replaces the very nodes it names (a list
+        // literal becomes a ctor call, a cast becomes a construction). Run
+        // the rest afterwards; --print-lowered is the same dump on the far
+        // side, for asserting what a lowering produced.
+        // Splitting the run must not lose the hard stop: a stage that
+        // returned false has already halted the pipeline, and re-entering
+        // would carry on past it -- running the checks and the lowerings over
+        // a tree whose names or types never resolved, which is cascade noise
+        // by the schedule's own policy (Sema.k::_hard_stop). A TU that
+        // stopped before Typed is not continued at all; one that reached it
+        // runs the late checks whatever errors it had, as one run did.
+        var reached = false;
+        if static_cast::<u8>(sem->sc.phase) >= static_cast::<u8>(SemaPhase::Typed) {
+            var _ts = TimeRegion("Sema");
+            reached = sem->run_to(SemaPhase::Checked);
+        }
+        if print_sema { SemaDump(&(sem->sc), sema_opts).run(); }
+        // Two continuations instead of one run(), only so the timing tree can
+        // tell lowering from mono. run_to is re-entrant and _done() is pure,
+        // so stopping at Lowered and resuming is the same schedule.
+        if reached {
+            { var _tl = TimeRegion("Lower"); sem->run_to(SemaPhase::Lowered); }
+            { var _tm = TimeRegion("Mono");  sem->run(); }
+        }
+        ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
+        // Kept past `sem`: the batch rejects two scripts in one link.
+        if sem->sc.script_at.is_valid() { self.result.script_at = sem->sc.script_at; }
+
+        // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
+        // live on this fid's SemaContext and die with the arena.
+        if print_lowered {
+            std::print(f"-- lowered: {self.path.full_path()} --");
+            SemaDump(&(sem->sc), sema_opts).run();
+        }
+    }
+}
+
+/// The import graph of one action cut into the groups the sema loop runs
+/// together: its strongly connected components, each placed after every
+/// component it imports, in the order the loop already used (`order`,
+/// _import_order) wherever that order holds. With no import cycle every
+/// component is one fid and the groups are `order` itself.
+class ImportGroups {
+    pub var fids:   vec::<u32>;     ///< every fid, group by group.
+    pub var starts: vec::<usize>;   ///< group g is fids[starts[g] .. starts[g + 1]).
+    priv var _order: vec::<u32>;
+    priv var _adj:   vec::<usize>;  ///< the imports of order[i], as indices: _adj[_adj_at[i] .. _adj_at[i + 1]).
+    priv var _adj_at: vec::<usize>;
+    priv var _reach: vec::<bool>;   ///< n*n: order[i] reaches order[j] through imports.
+    priv var _done:  vec::<bool>;
+
+    fn ImportGroups(self) { }
+
+    fn build(self, order: *vec::<u32>, gs: *GlobalDisambigTable) {
+        var n = order->size();
+        self._order = *order;
+        // Index by fid, WIDENED: an edge's target can be u32(-1), DenseMap's
+        // empty key (_import_order has the same note).
+        var at = llvm::DenseMap::<u64, u64>();
+        for var i: usize = 0; i < n; ++i { at[static_cast::<u64>((*order)[i])] = static_cast::<u64>(i); }
+        for var i: usize = 0; i < n; ++i {
+            self._adj_at.push_back(self._adj.size());
+            var ctx = gs->get_context((*order)[i]);
+            var tu: *TranslationUnit = &null;
+            if ctx != &null { tu = reinterpret_cast::<*TranslationUnit>(ctx->tu); }
+            if tu == &null { continue; }
+            for var j: usize = 0; j < tu->import_edges.size(); ++j {
+                var e = tu->import_edges.get(j);
+                if e == &null { continue; }
+                var it = at.find(static_cast::<u64>(e->target_fid));
+                if it == at.end() { continue; }
+                var k = static_cast::<usize>(it->second);
+                if k != i { self._adj.push_back(k); }
+            }
+        }
+        self._adj_at.push_back(self._adj.size());
+
+        // Reachability by one walk from each fid: graphs are small, and a
+        // component is then "reaches and is reached by".
+        for var i: usize = 0; i < n * n; ++i { self._reach.push_back(false); }
+        for var i: usize = 0; i < n; ++i {
+            var stack = vec::<usize>();
+            stack.push_back(i);
+            while stack.size() > 0 {
+                var v = stack[stack.size() - 1];
+                stack.pop_back();
+                for var a: usize = self._adj_at[v]; a < self._adj_at[v + 1]; ++a {
+                    var w = self._adj[a];
+                    if self._reach[i * n + w] { continue; }
+                    self._reach[i * n + w] = true;
+                    stack.push_back(w);
+                }
+            }
+        }
+        for var i: usize = 0; i < n; ++i { self._done.push_back(false); }
+        for var i: usize = 0; i < n; ++i { self._place(i); }
+        self.starts.push_back(self.fids.size());
+    }
+
+    priv fn _same(self, i: usize, j: usize) -> bool {
+        if i == j { return true; }
+        var n = self._order.size();
+        return self._reach[i * n + j] && self._reach[j * n + i];
+    }
+
+    /// Place \p i's component after every component it imports. Its members
+    /// are marked first: no import of another component can lead back into
+    /// this one (it would be in it), so the recursion ends.
+    priv fn _place(self, i: usize) {
+        if self._done[i] { return; }
+        var n = self._order.size();
+        var members = vec::<usize>();
+        for var j: usize = 0; j < n; ++j {
+            if self._same(i, j) { members.push_back(j); self._done[j] = true; }
+        }
+        for var m: usize = 0; m < members.size(); ++m {
+            var v = members[m];
+            for var a: usize = self._adj_at[v]; a < self._adj_at[v + 1]; ++a {
+                var w = self._adj[a];
+                if !self._same(i, w) { self._place(w); }
+            }
+        }
+        self.starts.push_back(self.fids.size());
+        for var m: usize = 0; m < members.size(); ++m { self.fids.push_back(self._order[members[m]]); }
+    }
+}
+
 fn FrontendAction::_sema() -> bool {
     // Timed per piece, not as one region: this function also runs the FFI
     // header join, the lowerings and mono, none of which is semantic
@@ -3604,7 +3840,7 @@ fn FrontendAction::_sema() -> bool {
     // reports the item missing from inside Lib/builtin itself.
     var bfid = self._global_scope->builtin_fid();
     if bfid != 0 {
-        var bsym   = self._ci->pp()->get_symbol_table()->intern("builtin");
+        var bsym   = self._ci->pp()->get_symbol_table()->intern(builtin_root_name());
         var inject = !self._ci->invocation().pp.no_builtins;
         self._global_scope->mark_builtin_fid(bfid);   // the loop skips the root below.
         {
@@ -3707,55 +3943,34 @@ fn FrontendAction::_sema() -> bool {
     // signature/layout checks) across every fid of this TU's graph. Run in
     // REVERSE tree order so leaf modules build their overlays before
     // importers fold re-exports (DAG order guarantees source-overlay
-    // completeness, RESOLUTION.md #2). run_to stops at Checked; the
-    // lowering / M1 / M2 stubs are not reached.
+    // completeness, RESOLUTION.md #2). Each TU runs to Typed, then (past
+    // the panic-set barrier) through the late checks, the lowerings and
+    // M1 / M2 (_sema_group).
     var n     = self._fids.size();
     var order = self._import_order();
-    for var i: usize = 0; i < order.size(); ++i {
-        var fid = order[i];
-        var ctx = self._global_scope->get_context(fid);
-        if ctx == &null { continue; }
-        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-        if tu == &null { continue; }
-        if tu->is_foreign { continue; }   // decls came from clang, already resolved; nothing to run.
-        var sem = Sema(ctx, self._global_scope);
-        sem.sc.foreign  = self._ci->foreign_instantiate();   // before any pass captures &sem.sc.
-        sem.sc.builtins = self._ci->builtins();
-        // Through L, not just the checks: OperatorLowering rewrites every user
-        // operator into the call it is, and codegen ICEs on any operator node
-        // that reaches it. --type-check-only stops here too, so the lowering
-        // schedule runs under it and is exercised by the sema tests.
-        // The dump is PINNED at Checked: X's output is what --print-sema is
-        // about, and a lowering replaces the very nodes it names (a list
-        // literal becomes a ctor call, a cast becomes a construction). Run
-        // the rest afterwards; --print-lowered is the same dump on the far
-        // side, for asserting what a lowering produced.
-        // Splitting the run must not lose the hard stop: a stage that
-        // returned false has already halted the pipeline, and re-entering
-        // would carry on past it -- running the checks and the lowerings over
-        // a tree whose names or types never resolved, which is cascade noise
-        // by the schedule's own policy (Sema.k::_hard_stop).
-        var reached = false;
-        { var _ts = TimeRegion("Sema"); reached = sem.run_to(SemaPhase::Checked); }
-        if fe.print_sema { SemaDump(&(sem.sc), sema_opts).run(); }
-        // Two continuations instead of one run(), only so the timing tree can
-        // tell lowering from mono. run_to is re-entrant and _done() is pure,
-        // so stopping at Lowered and resuming is the same schedule.
-        if reached {
-            { var _tl = TimeRegion("Lower"); sem.run_to(SemaPhase::Lowered); }
-            { var _tm = TimeRegion("Mono");  sem.run(); }
-        }
-        ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
 
-        // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
-        // live on this fid's SemaContext and die with `sem` at loop exit.
-        if fe.print_lowered {
-            std::print(f"-- lowered: {self.path.full_path()} --");
-            SemaDump(&(sem.sc), sema_opts).run();
-        }
+    // The panic-set barrier (PANIC.md §2.2, RESOLUTION.md "The Typed
+    // barrier"). A set is the union of its callees' sets, and a callee is
+    // only ever in the caller's import closure, so a TU's sets are final
+    // once every TU it reaches through imports is typed. In import order
+    // that holds for free -- except inside an import CYCLE (a.k and b.k
+    // importing each other type-check today), which has no order in which
+    // every callee is finished first. So the graph runs in groups, one per
+    // strongly connected component of the import graph: every TU of a group
+    // goes to SemaPhase::Typed, the group's sets are solved at once, and
+    // then each goes on. A group is one TU everywhere there is no cycle, and
+    // that is exactly the loop as it was.
+    var groups = ImportGroups();
+    groups.build(&order, self._global_scope);
+    var effects: EffectTable;
+    for var g: usize = 0; g + 1 < groups.starts.size(); ++g {
+        var members = vec::<u32>();
+        for var k: usize = groups.starts[g]; k < groups.starts[g + 1]; ++k { members.push_back(groups.fids[k]); }
+        self._sema_group(&members, &effects, fe.print_sema, fe.print_lowered, sema_opts);
     }
 
     if fe.print_imports { self._dump_overlays(); }
+    if fe.print_panic_sets { self._dump_panic_sets(); }
 
     // The EmitPlan is codegen's, but it reads only sema's resolved links, so
     // it can be built and dumped here without a backend. That is what makes
@@ -4238,6 +4453,38 @@ fn _overlay_vis_str(v: OverlayVisibility) -> string {
     return "?";
 }
 
+/// --print-panic-sets: every Panic<T, E...> instance the build formed
+/// (PANIC.md §1.3, §1.1a), by its C++ spelling: the canonical set in
+/// order with each type id, then the layout Sema predicted (size 0:
+/// not known before C++ lays it out). Sorted, for golden tests: the
+/// registry's own order is mint order, which moves when an unrelated TU
+/// mints first.
+fn FrontendAction::_dump_panic_sets() {
+    var ids = self._ci->panic_type_ids();
+    if ids == &null { return; }
+    var all = vec::<*InstanceEntry>();
+    self._global_scope->instances()->collect(all);
+    var rows = vec::<string>();
+    for var i: usize = 0; i < all.size(); ++i {
+        var e = all[i];
+        if (!ids->is_panic(e->primary)) || (e->type_ids.size() == 0) { continue; }
+        var p = e->args.size() - e->type_ids.size();
+        var t = ids->spelling(e->args[0]);
+        var r = f"Panic<{t}";
+        for var k: usize = p; k < e->args.size(); ++k { r += ", " + ids->spelling(e->args[k]); }
+        r += f">: size {e->adt_size}, payload offset {e->payload_offset}";
+        for var k: usize = 0; k < e->type_ids.size(); ++k {
+            r += "\n  " + ids->spelling(e->args[p + k]) + " = 0x" + hex32(e->type_ids[k]);
+        }
+        var at = rows.size();
+        rows.push_back(r);
+        while (at > 0) && (r < rows[at - 1]) { rows[at] = rows[at - 1]; at -= 1; }
+        rows[at] = r;
+    }
+    std::print("-- panic sets --");
+    for var i: usize = 0; i < rows.size(); ++i { std::print(rows[i]); }
+}
+
 /// Dump the built import overlays (phase I output): per fid, each folded name
 /// key and its targets (kind, source fid, visibility, origin import shape).
 /// Runs AFTER ImportResolution in _sema, so the overlay is populated. Pairs
@@ -4277,10 +4524,12 @@ fn FrontendAction::_dump_overlays() {
             var row  = rows[i];
             var name = ("<?>") if (imms == &null) else (imms->get_ident(row.key));
             var amb  = (" [AMBIGUOUS]") if (row.entry->is_ambiguous()) else ("");
+            if row.entry->is_ambiguous() && row.entry->lazy { amb += " (reported at use)"; }
             std::print(f"  {name}: {row.entry->targets.size()} target(s){amb}");
             for var t: usize = 0; t < row.entry->targets.size(); ++t {
                 var tg = row.entry->targets[t];
-                std::print(f"    - {_overlay_kind_str(tg.kind)} src=fid {tg.src_fid} vis={_overlay_vis_str(tg.vis)}");
+                var hid = (" hidden") if (tg.hidden) else ("");
+                std::print(f"    - {_overlay_kind_str(tg.kind)} src=fid {tg.src_fid} vis={_overlay_vis_str(tg.vis)}{hid}");
             }
         }
     }

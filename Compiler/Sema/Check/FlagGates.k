@@ -2,7 +2,9 @@
 ///
 ///   \brief Enforces the language gate flags and the declaration-size limits
 ///          the command line can set (--no-unsafe / -fno-unsafe, --no-fp,
-///          --no-ffi, --no-cxx, --no-yield, --no-modules, --cmax-*).
+///          --no-ffi, --no-cxx, --no-yield, --no-modules, --cmax-*), and the
+///          one gate that is CLOSED by default: `<T: type>` needs
+///          -fduck-generics.
 ///
 ///   \detail
 ///     Every rule here is a plain walk over the tree the user wrote: a gate
@@ -178,6 +180,45 @@ class FlagGates derives RecursiveASTVisitor::<FlagGates> {
         return true;
     }
 
+    // === `: type` (MONO.md D1) ================================================
+
+    /// `<T: type>` is the transitional C++-checked regime: its body is typed
+    /// as written and clang checks each instance, which is the opposite of
+    /// the language's rule (checked once, against the bounds). It exists for
+    /// the self-host corpus until the mixin migration gives every such
+    /// parameter a real bound, so it is opt-in and this gate is shut unless
+    /// -fduck-generics opens it.
+    ///
+    /// The regime itself is unchanged when the gate fires (ChainBinding still
+    /// defers every member step), so the one error is all the user sees.
+    /// The fix-it deletes `: type` only when no member step went through the
+    /// parameter: then the opaque `<T>` it leaves accepts the same body. With
+    /// a member use, deleting it would trade this error for R051E and naming
+    /// an interface would invent one, so the way out is a note instead.
+    fn visit_generic_param_decl(self, n: *GenericParamDecl) -> bool {
+        if self.sc->opts.duck_generics { return true; }
+        if n->kind_bound != GenericParamKindBound::Duck { return true; }
+        var name  = self.sc->ctx->get_spelling(n->name);
+        var at    = n->kind_bound_range;
+        if !at.is_valid() { at = n->range; }
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"'{name}: type\x27 needs -fduck-generics: a generic body is checked against its bounds, not per instance");
+        b.first(at, "C++-checked `: type` bound");
+
+        var use_at = SourceRange::invalid();
+        for var i: usize = 0; i < self.sc->duck_member_params.size(); ++i {
+            if self.sc->duck_member_params[i] == n { use_at = self.sc->duck_member_at[i]; break; }
+        }
+        if use_at.is_valid() {
+            b.note(use_at.start, f"the body uses a member of '{name}\x27 here; declare an interface with the members it needs and bound the parameter '{name} impl <Interface>\x27");
+        } else {
+            b.remove(at, f"remove ': type\x27; the body uses no member of '{name}\x27, so an unbounded '{name}\x27 accepts it");
+        }
+        b.note("`: type` is the transitional regime clang checks per instance; -fduck-generics enables it");
+        b.emit();
+        return true;
+    }
+
     // === floating point =======================================================
 
     /// Returning false after a report stops the walk below this node, so a
@@ -344,6 +385,9 @@ class FlagGates derives RecursiveASTVisitor::<FlagGates> {
 
     priv fn _anything_enabled(self) -> bool {
         var o = &(self.sc->opts);
+        // Closed by default: without -fduck-generics every program file is
+        // walked for `: type`.
+        if !o->duck_generics { return true; }
         if o->no_unsafe || o->no_fp || o->no_ffi || o->no_cxx || o->no_yield || o->no_modules { return true; }
         if (o->max_struct_fields > 0) || (o->max_function_params > 0) || (o->max_enum_variants > 0) { return true; }
         if (o->max_match_arms > 0) || (o->max_union_width > 0) || (o->max_interface_impls > 0) { return true; }

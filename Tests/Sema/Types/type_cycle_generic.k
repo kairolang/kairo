@@ -4,7 +4,7 @@
 //
 // `Box<UsesBox>` stores its argument by value, so `UsesBox` contains itself
 // and has no finite layout -- exactly the error TypeCycleCheck exists to
-// report (see type_cycle.k for the non-generic half).
+// report (see type_cycle_direct.k for the other edge kinds).
 //
 // This was deferred to M2 on the reading that deciding whether `Box<X>`
 // stores X by value needs the INSTANTIATED layout. It does not: whether a

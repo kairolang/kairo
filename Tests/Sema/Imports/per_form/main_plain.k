@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -25,7 +25,7 @@
 // AST-NEXT:           |-NamedIdentExpr d
 // AST-NEXT:           `-Step .value
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+// END-GENERATED-CHECKS(AST)
 
 // CASE 1/11 (plain): `import bar` binds the module handle; bar::foo is
 // qualified. Also case 11: bare `<` after a qualified segment disambiguates

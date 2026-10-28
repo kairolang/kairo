@@ -27,6 +27,7 @@ import AST::Context::ImportOverlay::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::DeclFacts::*;
 
 /// \class SemaLookupResult
 /// \brief One lookup's outcome: the frozen cell + where it was found.
@@ -348,6 +349,11 @@ class NameLookup {
     /// canonical (the definition once N(a) retargeted it), else `d` itself.
     /// THE identity every canonical type keys on. Use nothing else.
     static fn representative(d: *Decl) -> *Decl {
+        // `ffi "c" struct timezone`: a forward declaration of the HEADER's
+        // tag. It denotes that entity, so every type and binding keyed on
+        // the representative is the header's (IMPORTS.md §5.2).
+        var ft = decl_ffi_tag_target(d);
+        if ft != &null { return ft; }
         var c = NameLookup::chain_canonical(d);
         if c == &null { return d; }
         return c;

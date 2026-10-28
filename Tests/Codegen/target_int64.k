@@ -24,7 +24,7 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --target=x86_64-linux-gnu --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LP64
 // RUN: { %kairo %s --target=aarch64-linux-musl --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LP64
 // LP64: signed long exp;
-// LP64: signed long f(signed long x, unsigned long y);
+// LP64: signed long f(signed long x, unsigned long y) noexcept;
 // LP64-NOT: long long
 
 // LLP64 and 32-bit targets spell `long long`, and never a bare `long`.
@@ -32,5 +32,5 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --target=i686-linux-musl --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // LLONG-NOT: signed long x
 // LLONG: signed long long exp;
-// LLONG: signed long long f(signed long long x, unsigned long long y);
+// LLONG: signed long long f(signed long long x, unsigned long long y) noexcept;
 // LLONG-NOT: signed long x

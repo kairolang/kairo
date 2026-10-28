@@ -18,10 +18,10 @@ fn main() -> i32 {
 // A builtin target: scope named by the Kairo spelling. `self` as a VALUE
 // is `(*self)`, never the pointer, or `self * 2` is pointer arithmetic.
 // CXX: struct __kairo_ext_i32 {
-// CXX: __kairo_ext_i32::twice(const signed int * self) {
+// CXX: __kairo_ext_i32::twice(const signed int * self) noexcept {
 // CXX-NEXT: return((* self) * 2);
 // CXX: ((* self) += 1);
-// CXX: int main() {
+// CXX: int main() noexcept {
 // CXX: __kairo_ext_i32::bump((& x));
 // CXX: __kairo_ext_i32::twice( ::__kairo_tmp(21))
 

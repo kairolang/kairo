@@ -44,6 +44,16 @@ class LangOptions {
     pub var union_inference:     i32 = -1;
     pub var exceptions:          i32 = -1;
     pub var unsafe_feature:      i32 = -1;
+    /// -funwind: Kairo functions are not `noexcept`, so a C++ exception may
+    /// pass through every Kairo frame. Unset or -fno-unwind: each is
+    /// `noexcept` unless marked `@unwind`.
+    pub var unwind:              i32 = -1;
+    /// -fduck-generics: `<T: type>` is accepted, its body typed as written
+    /// and emitted as an unconstrained template that clang checks per
+    /// instance (MONO.md D1). Unset or -fno-duck-generics: `: type` is an
+    /// error. Transitional: it goes when the self-host corpus no longer
+    /// needs it.
+    pub var duck_generics:       i32 = -1;
 
     // -- hard kill-switches ------------------------------------------------
     pub var no_assert:       bool = false;
@@ -61,9 +71,13 @@ class LangOptions {
     pub var no_fp:           bool = false;
     pub var freestanding:    bool = false;
 
+    // -- compiler test hooks (PANIC.md §7, P1) -------------------------------
+    pub var test_panic_type:    bool = false;  ///< --test-panic-type: source may name Panic<...>.
+    pub var test_panic_id_bits: i32  = 32;     ///< --test-panic-id-bits: type ids masked to this many bits.
+
     // -- sema / type system limits (from --c* config flags) ----------------
-    pub var max_generic_depth:     i32 = 256;
-    pub var max_generic_backtrace: i32 = 16;
+    pub var max_generic_depth:     i32 = 128;
+    pub var max_generic_backtrace: i32 = 5;
     pub var max_const_eval_steps:  i32 = 1000000;
     pub var max_const_eval_depth:  i32 = 512;
     pub var max_const_backtrace:   i32 = 8;
@@ -75,6 +89,15 @@ class LangOptions {
     pub var max_type_alias_depth:  i32 = 64;
     pub var max_interface_impls:   i32 = 0;    ///< 0 = unlimited
     pub var max_extend_chain:      i32 = 64;
+
+    /// Whether the C++ a build writes and compiles has exceptions: -fexceptions,
+    /// or by default a hosted target (\p hosted: the triple names an OS, not
+    /// --freestanding, not kernel mode), which has an unwinder; -fno-exceptions
+    /// turns them off anywhere. The one rule: FlagTranslator passes it to
+    /// clang, Sema rejects a C++ exception arm without it (PANIC.md §3.5).
+    fn cxx_exceptions(self, hosted: bool) -> bool {
+        return (self.exceptions == 1) || ((self.exceptions == -1) && hosted);
+    }
 
     static fn from_args(args: ref!(ParsedArgs)) -> LangOptions {
         var o = LangOptions();
@@ -108,6 +131,8 @@ class LangOptions {
         // no-default-libs in LinkerOptions, where their consumers read them;
         // a second copy here had no reader and could only drift.
         (o.freestanding)    = args.get_bool("freestanding");
+        (o.test_panic_type)    = args.get_bool("test-panic-type");
+        (o.test_panic_id_bits) = args.get_i32("test-panic-id-bits");
 
         // -- feature toggles -----------------------------------------------
         (o.verify_interfaces)   = (args.get_feature("verify-interfaces"));
@@ -118,6 +143,8 @@ class LangOptions {
         (o.rtti)                = (args.get_feature("rtti"));
         (o.union_inference)     = (args.get_feature("union-inference"));
         (o.exceptions)          = (args.get_feature("exceptions"));
+        (o.unwind)              = (args.get_feature("unwind"));
+        (o.duck_generics)       = (args.get_feature("duck-generics"));
         (o.unsafe_feature)      = (args.get_feature("unsafe"));
 
         // -- sema / type system limits -------------------------------------

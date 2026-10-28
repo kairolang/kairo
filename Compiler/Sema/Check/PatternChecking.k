@@ -63,6 +63,7 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
+import AST::DeclFacts::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::ASTSupport::*;
@@ -129,7 +130,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     fn visit_match_stmt(self, n: *MatchStmt) -> bool {
         if n == &null { return true; }
-        var v = self._check(n->scrutinee, &(n->cases), n->range, true);
+        var v = self._check(n->scrutinee, &(n->cases), n->range, true, n->null_arm);
         n->is_exhaustive = v.is_exhaustive;
         n->covering_arm  = v.covering_arm;
         n->open_tail     = v.open_tail;
@@ -138,7 +139,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     fn visit_match_expr(self, n: *MatchExpr) -> bool {
         if n == &null { return true; }
-        var v = self._check(n->scrutinee, &(n->cases), n->range, false);
+        var v = self._check(n->scrutinee, &(n->cases), n->range, false, n->null_arm);
         n->is_exhaustive = v.is_exhaustive;
         n->covering_arm  = v.covering_arm;
         n->open_tail     = v.open_tail;
@@ -150,8 +151,12 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
     // === one match ========================================================
 
+    /// \p null_arm: a match on `T?` whose arm 0 is `case null` (NULLABLE.md
+    /// 3.6). That arm is no row: it answers the null the other arms never
+    /// see, and they were typed against `T`, so the column is `T` (a
+    /// `bool?` with `case null`, `true`, `false` is exhaustive).
     priv fn _check(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>,
-                   at: SourceRange, stmt_form: bool) -> MatchVerdict {
+                   at: SourceRange, stmt_form: bool, null_arm: bool) -> MatchVerdict {
         var v = MatchVerdict{};
         if (scrutinee == &null) || (scrutinee->type_ == &null) || scrutinee->is_poisoned() { return v; }
         if canon_unqual(scrutinee->type_) == &null { return v; }
@@ -166,7 +171,8 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
         // One row per case-level alternative; `default` is one wildcard row.
         var rows = vec::<PatRow>();
-        for var i: usize = 0; i < cases->size(); ++i {
+        var first = match_first_row(null_arm);
+        for var i: usize = first; i < cases->size(); ++i {
             var mc = cases->get(i);
             if mc->is_default || (mc->patterns.size() == 0) {
                 var r = PatRow{};
@@ -350,7 +356,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
 
         switch d.kind {
             case DomainKind::ClosedEnum {
-                var n = d.en->variants.size();
+                var n = usize(d.nctors);   // a pack-expanded variant counts once per element.
                 var seen = vec::<bool>();
                 for var k: usize = 0; k < n; ++k { seen.push_back(false); }
                 for var i: usize = 0; i < rows.size(); ++i {
@@ -366,7 +372,7 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
                         var c = Ctor{};
                         c.kind  = CtorKind::Variant;
                         c.index = u32(k);
-                        c.arity = u32(d.en->variants[k]->payload.size());
+                        c.arity = u32(adt_variant_at(d.en, k)->payload.size());
                         var r = self._useful_ctor(&rows, q, c, d, closed, want);
                         if r.useful { return r; }
                     }

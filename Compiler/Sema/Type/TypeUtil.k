@@ -36,6 +36,15 @@ import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Kind::ExprKind::*;
 import AST::ParamMode::*;
+import Token::TokenKind::*;
+
+/// The pointer levels of a canonical type (TypeUtil::pointer_shape): how
+/// many, whether the outermost is `unsafe`, and what is under the last.
+struct PointerShape {
+    var depth:        u32   = 0;
+    var outer_unsafe: bool  = false;
+    var leaf:         *Type = &null;
+}
 
 class TypeUtil {
     pub var sc: *SemaContext;
@@ -115,6 +124,33 @@ class TypeUtil {
         return (i) if (i != &null) else (t);
     }
 
+    /// \p t's pointer levels, each pointee read canonical and unqualified:
+    /// `unsafe **i32` is {2, true, i32}, a non-pointer {0, false, \p t}. What
+    /// a pointer shorthand (`var *y = e`, NULLABLE.md 1.7) states, so its
+    /// check and its lint count the same stars.
+    fn pointer_shape(self, t: *Type) -> PointerShape {
+        var out = PointerShape{};
+        var p = t;
+        while (p != &null) && isa::<PointerType>(p) {
+            if out.depth == 0 { out.outer_unsafe = cast::<PointerType>(p)->is_unsafe; }
+            out.depth += 1;
+            p = canon_unqual(cast::<PointerType>(p)->pointee);
+        }
+        out.leaf = p;
+        return out;
+    }
+
+    /// Whether `a === b` compares POINTEES (NULLABLE.md 2.3): when a
+    /// nullable operand holds a pointer, `==` would compare addresses, and
+    /// `===` goes one level down. Asked by OperatorTyping, which types the
+    /// compare, and CoalesceLowering, which builds it: one rule for both.
+    fn identity_derefs(self, a: *Type, b: *Type) -> bool {
+        var an = self.nullable_inner(self.as_value(a));
+        var bn = self.nullable_inner(self.as_value(b));
+        if (an != &null) && (self.pointee(an) != &null) { return true; }
+        return (bn != &null) && (self.pointee(bn) != &null);
+    }
+
     /// A type read as a VALUE: a C++ reference is its referee ([expr.type]/1,
     /// the lvalue-to-rvalue read), and top-level cv is gone. What every
     /// operator classification wants; Conversion::implicit already does the
@@ -131,6 +167,128 @@ class TypeUtil {
         var u = canon_unqual(t);
         if (u == &null) || (!isa::<RecordType>(u)) { return &null; }
         return cast::<RecordType>(u)->decl;
+    }
+
+    /// The interfaces a bounded generic parameter \p t promises, as their
+    /// canonical instances (`T impl Same`, `T impl Container<U>`), or none
+    /// when \p t is not a bare parameter or has no interface bound. Here and
+    /// not in a typer because overload resolution needs it too: a call
+    /// through the bound reads the requirement at the bound's arguments.
+    fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
+        var out = vec::<*Type>();
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
+        var g = cast::<GenericParamType>(c);
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        if it == self.sc->bounds.end() { return out; }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+            var k = _set->impl_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
+            if (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+            out.push_back(canon_unqual(k->rhs->canonical));
+        }
+        return out;
+    }
+
+    /// The interface instance an AssocType for requirement \p td carries
+    /// when it is named through \p through (a bound, or the Self of the
+    /// interface it is named in): its DECLARING interface, so one entity has
+    /// one canonical however it was reached -- `G::Node` through `G impl
+    /// Big`, `Big derives Graph`, and Graph's `first() -> Self::Node`
+    /// through the same G are the same type. \p through itself when it is
+    /// the declaring interface (its arguments are then exact); the plain
+    /// record of a non-generic declaring interface; null for one inherited
+    /// from a GENERIC interface, whose arguments as seen from \p through
+    /// are not computed (SC116E at the use).
+    fn assoc_iface(self, through: *Type, td: *Decl) -> *Type {
+        if (through == &null) || (td == &null) || (td->semantic_dc == &null) { return &null; }
+        var home = reinterpret_cast::<*DeclContext>(td->semantic_dc)->owner_decl();
+        if (home == &null) || (!isa::<InterfaceDecl>(home)) { return &null; }
+        home = NameLookup::representative(home);
+        var td0 = self.record_decl(canon_unqual(through));
+        if (td0 != &null) && (NameLookup::representative(self.pattern_of(td0)) == home) { return canon_unqual(through); }
+        if decl_generic_params(home).size() > 0 { return &null; }
+        var none = vec::<*Type>();
+        return self.sc->types->record(home, &none);
+    }
+
+    /// `T::name` in expression position (`T::Node { }`, `T::Node()`): the
+    /// associated type the first of \p t's interface bounds that declares
+    /// \p name gives, or null. Type position resolves it in T, which also
+    /// reports the ambiguity of two bounds declaring it; this reads the same
+    /// composed requirement lists.
+    fn assoc_named(self, t: *Type, name: string) -> *Type {
+        var bs = self.bound_ifaces(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var d = self.record_decl(bs[i]);
+            if d == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.pattern_of(d)));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(j)->decl);
+                if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
+                if self.decl_name(static_cast::<*Decl>(ta)) != name { continue; }
+                var ai = self.assoc_iface(bs[i], static_cast::<*Decl>(ta));
+                if ai == &null { return &null; }
+                return self.sc->types->assoc(canon_unqual(t), ai, NameLookup::representative(static_cast::<*Decl>(ta)));
+            }
+        }
+        return &null;
+    }
+
+    /// Associated type \p t's own bounds (`type Node impl Default`) promise a
+    /// constructor taking \p arity arguments: the one thing that lets a
+    /// generic body build a value of it (interfaces.md, Generic Bodies).
+    fn assoc_has_ctor(self, t: *Type, arity: usize) -> bool {
+        var a = dyn_cast::<AssocType>(canon_unqual(t));
+        if a == &null { return false; }
+        var ta = dyn_cast::<TypeAliasDecl>(a->assoc);
+        if ta == &null { return false; }
+        var cs = vec::<*ConstraintExpr>();
+        self._conjuncts(ta->requires_clause, &cs);
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            if c->is_derives() || (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var d = self.record_decl(canon_unqual(c->rhs->canonical));
+            if d == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.pattern_of(d)));
+            if idecl == &null { continue; }
+            var ms = vec::<*FunctionDecl>();
+            if idecl->compose_state == 2 {
+                for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                    var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
+                    if m != &null { ms.push_back(m); }
+                }
+            } else {
+                for var j: usize = 0; j < idecl->methods.size(); ++j { ms.push_back(idecl->methods[j]); }
+            }
+            for var j: usize = 0; j < ms.size(); ++j {
+                var m = ms[j];
+                if !decl_is_ctor_requirement(m) { continue; }
+                var n: usize = 0;
+                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { n += 1; } }
+                if n == arity { return true; }
+            }
+        }
+        return false;
+    }
+
+    priv fn _conjuncts(self, e: *Expr, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        if e->kind == ExprKind::BinaryOperatorExpr {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if (b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd) {
+                self._conjuncts(b->lhs, out);
+                self._conjuncts(b->rhs, out);
+            }
+            return;
+        }
+        if e->kind == ExprKind::ConstraintExpr { out->push_back(cast::<ConstraintExpr>(e)); }
     }
 
     fn record_args(self, t: *Type) -> FrozenList::<*Type> {
@@ -225,41 +383,68 @@ class TypeUtil {
     }
 
     // === inheritance ========================================================
+    //
+    // Derived-to-base is Substitution::derives_from: it is a question about
+    // TYPES, since an instance's bases are its pattern's read through its
+    // arguments, and the substitution that reads them sits above this file.
 
-    /// True when \p derived is \p base or reaches it through `derives`
-    /// edges. Works on representatives; instances walk their pattern.
-    fn derives_from(self, derived: *Decl, base: *Decl) -> bool {
-        if (derived == &null) || (base == &null) { return false; }
-        var d = NameLookup::representative(derived);
-        var b = NameLookup::representative(base);
-        var seen = vec::<*Decl>();
-        return self._derives_walk(d, b, &seen, 0);
+    /// The first pure virtual method (FnBodyKind::Virtual: a bodyless
+    /// `virtual fn`, or an imported C++ `= 0`) that `d` or one of its bases
+    /// declares and nothing between it and `d` overrides; null when `d` is
+    /// not abstract. A derived class that overrides some but not all of its
+    /// base's pure methods stays abstract, as in C++. An override is matched
+    /// by name and arity: overload resolution on the receiver is not this
+    /// question's, and two same-named, same-arity methods in one chain are
+    /// an override in practice (C++ would make a differing one a hide).
+    fn first_pure_left(self, d: *Decl) -> *FunctionDecl {
+        if d == &null { return &null; }
+        var chain  = vec::<*Decl>();
+        var depths = vec::<u32>();
+        self._chain_walk(NameLookup::representative(d), &chain, &depths, 0);
+        for var i: usize = 0; i < chain.size(); ++i {
+            var cd = dyn_cast::<ClassDecl>(chain[i]);
+            if cd == &null { continue; }
+            for var j: usize = 0; j < cd->methods.size(); ++j {
+                var p = cd->methods[j];
+                if (p == &null) || (p->body_kind != FnBodyKind::Virtual) { continue; }
+                if !self._overridden_below(p, &chain, &depths, depths[i]) { return p; }
+            }
+        }
+        return &null;
     }
 
-    priv fn _derives_walk(self, d: *Decl, b: *Decl, seen: *vec::<*Decl>, depth: u32) -> bool {
-        if d == b { return true; }
-        if depth > 64 { return false; }
-        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == d { return false; } }
-        seen->push_back(d);
-        var bases = self._bases_of(d);
-        for var i: usize = 0; i < bases.size(); ++i {
-            var e = bases.get(i);
-            if (e == &null) || (e->base == &null) { continue; }
-            var c = e->base->canonical;
-            var bd = self.record_decl(c);
-            if bd == &null { continue; }
-            if self._derives_walk(NameLookup::representative(bd), b, seen, depth + 1) { return true; }
+    priv fn _overridden_below(self, p: *FunctionDecl, chain: *vec::<*Decl>, depths: *vec::<u32>, depth: u32) -> bool {
+        var pname = self.decl_name(static_cast::<*Decl>(p));
+        for var i: usize = 0; i < chain->size(); ++i {
+            if (*depths)[i] >= depth { continue; }
+            var cd = dyn_cast::<ClassDecl>((*chain)[i]);
+            if cd == &null { continue; }
+            for var j: usize = 0; j < cd->methods.size(); ++j {
+                var m = cd->methods[j];
+                if (m == &null) || (m->body_kind == FnBodyKind::Virtual) { continue; }
+                if m->params.size() != p->params.size() { continue; }
+                if self.decl_name(static_cast::<*Decl>(m)) == pname { return true; }
+            }
         }
-        // an instance inherits its pattern's bases.
-        var pat = self.pattern_of(d);
-        if pat != d { return self._derives_walk(pat, b, seen, depth + 1); }
         return false;
     }
 
-    priv fn _bases_of(self, d: *Decl) -> FrozenList::<InheritEdge> {
-        if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->derives_list;     }
-        if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->derives_list; }
-        return create_empty_frozen_list::<InheritEdge>();
+    priv fn _chain_walk(self, d: *Decl, out: *vec::<*Decl>, depths: *vec::<u32>, depth: u32) {
+        if depth > 64 { return; }
+        for var i: usize = 0; i < out->size(); ++i { if (*out)[i] == d { return; } }
+        out->push_back(d);
+        depths->push_back(depth);
+        var cd = dyn_cast::<ClassDecl>(d);
+        if cd == &null { return; }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) { continue; }
+            var bd = self.record_decl(e->base->canonical);
+            if bd != &null { self._chain_walk(NameLookup::representative(bd), out, depths, depth + 1); }
+        }
+        // an instance's methods and bases are its pattern's.
+        var pat = self.pattern_of(d);
+        if pat != d { self._chain_walk(pat, out, depths, depth); }
     }
 
     /// Any virtual/override/pure method here or in a base: a vtable exists.
@@ -538,6 +723,98 @@ class TypeUtil {
         return t->is_unsafe();
     }
 
+    // === default values =====================================================
+
+    /// Empty when a value of \p t can be built from nothing; otherwise why
+    /// not, phrased to follow "and" ("'x' is declared without an
+    /// initializer, and ..."). variables.mdx: a number or a pointer is 0 /
+    /// null, a nullable is null, a record with a usable constructor callable
+    /// on `self` alone is that, an array is its elements'. `bool` has no zero
+    /// state to assume, a record without such a constructor -- none at all,
+    /// or one deleted -- is never built, and an enum with payloads has no
+    /// variant to pick. Imported C++ types and dependent ones answer empty:
+    /// clang and instantiation decide them. One answer for every binding
+    /// that has no initializer: a local, a static (InitCheck) and a field a
+    /// constructor must build (CtorInitCheck).
+    fn why_no_default(self, t: *Type) -> string {
+        var el = self.element_of(t);
+        if el != &null { return self.why_no_default(canon_unqual(el)); }
+        if self.is_bool(t) { return "'bool' has no zero state: a default would have to guess true or false"; }
+        if self.nullable_inner(t) != &null { return ""; }
+        var en = self.payload_enum(t);
+        if en != &null {
+            var en_nm = self.sc->ctx->get_spelling(en->name);
+            return f"'{en_nm}' is an enum with payloads, so no variant is its default";
+        }
+        var rd = self.default_record(t);
+        if rd == &null { return ""; }
+        var nm = self.decl_name(rd);
+        var dc = self.default_ctor_of(rd);
+        if dc == &null { return f"'{nm}' has no default constructor (declare 'fn {nm}(self)')"; }
+        if dc->body_kind == FnBodyKind::Delete { return f"the default constructor of '{nm}' is deleted"; }
+        return "";
+    }
+
+    /// The Kairo enum with payloads \p t names (its pattern), else null.
+    fn payload_enum(self, t: *Type) -> *EnumDecl {
+        var rd = self.record_decl(t);
+        if rd == &null { return &null; }
+        if decl_is_instance(rd) { rd = decl_pattern(rd); }
+        if (rd == &null) || (!isa::<EnumDecl>(rd)) || decl_is_imported(rd) { return &null; }
+        var en = cast::<EnumDecl>(rd);
+        return (en) if (en->is_adt) else (&null);
+    }
+
+    /// A Kairo class or struct, pattern side, as the default-value question
+    /// sees it. Null for an imported C++ record (clang decides), an enum, a
+    /// dependent type.
+    fn default_record(self, t: *Type) -> *Decl {
+        var rd = self.record_decl(t);
+        if rd == &null { return &null; }
+        if decl_is_instance(rd) { rd = decl_pattern(rd); }
+        if (rd == &null) || decl_is_imported(rd) { return &null; }
+        if (!isa::<ClassDecl>(rd)) && (!isa::<StructDecl>(rd)) { return &null; }
+        return rd;
+    }
+
+    /// The constructor of class or struct \p d callable with no arguments:
+    /// not an operator, not a transfer (`@copy`/`@move` build from another
+    /// value, not from none), every parameter but `self` defaulted.
+    fn default_ctor_of(self, d: *Decl) -> *FunctionDecl {
+        var nm = self.decl_name(d);
+        var ms = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
+            if (m == &null) || m->is_operator || (m->adt_role != AdtRole::None) { continue; }
+            if (m->transfer != TransferKind::NotTransfer) || (self.decl_name(static_cast::<*Decl>(m)) != nm) { continue; }
+            var ok = true;
+            for var j: usize = 0; j < m->params.size(); ++j {
+                var p = m->params[j];
+                if p->is_self { continue; }
+                if (p->default_val == &null) && (!p->has_default) && (!p->is_pack) { ok = false; break; }
+            }
+            if ok { return m; }
+        }
+        return &null;
+    }
+
+    /// The list literal an instance array field is initialized with, when
+    /// FieldInitLowering lowers it one element at a time (a thunk each);
+    /// null for every other initializer, which keeps the SC116E gate: a
+    /// static (defined out of the class, where no element list helps), an
+    /// array of arrays (an element cannot be initialized from an array),
+    /// anything but a list literal.
+    fn array_field_list(self, f: *FieldDecl) -> *ListLiteralExpr {
+        if (f == &null) || (f->init == &null) || f->is_static() || (f->type_ == &null) { return &null; }
+        var c = canon_unqual(f->type_->canonical);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return &null; }
+        var el = canon_unqual(cast::<FixedArrayType>(c)->element);
+        if (el == &null) || (el->kind == TypeKind::FixedArrayType) { return &null; }
+        var e = self.strip_parens(f->init);
+        if (e == &null) || (!isa::<ListLiteralExpr>(e)) { return &null; }
+        return cast::<ListLiteralExpr>(e);
+    }
+
     // === expr helpers =======================================================
 
     fn strip_parens(self, e: *Expr) -> *Expr {
@@ -547,6 +824,22 @@ class TypeUtil {
     }
 
     // === rendering ==========================================================
+
+    /// A computed value's binary operator, as written (TypeResolve keeps the
+    /// symbol form).
+    priv fn _value_op(self, k: TokenKind) -> string {
+        if k == TokenKind::OpPlus  { return "+"; }
+        if k == TokenKind::OpMinus { return "-"; }
+        if k == TokenKind::OpStar  { return "*"; }
+        if k == TokenKind::OpSlash { return "/"; }
+        if k == TokenKind::OpPercent { return "%"; }
+        if k == TokenKind::OpPipe  { return "|"; }
+        if k == TokenKind::OpAmp   { return "&"; }
+        if k == TokenKind::OpCaret { return "^"; }
+        if k == TokenKind::OpLessLess { return "<<"; }
+        if k == TokenKind::OpGreaterGreater { return ">>"; }
+        return "?";
+    }
 
     fn str(self, t: *Type) -> string {
         if t == &null { return "<unknown>"; }
@@ -572,7 +865,7 @@ class TypeUtil {
                     var ma = self.record_args(t);
                     if ma.size() >= 2 { return "{" + self.str(ma[0]) + ": " + self.str(ma[1]) + "}"; }
                 }
-                if self.is_string(t) { return "string"; }
+                if self.is_string(t) { return to_string(WellKnownType::String); }
                 // A tuple prints as it is written, `(i32, f64)`: every
                 // golden and every message that quotes one reads so.
                 if self.is_tuple(t) {
@@ -600,9 +893,18 @@ class TypeUtil {
             case TypeKind::PointerType {
                 var p = cast::<PointerType>(t);
                 var pre = ("unsafe *") if (p->is_unsafe) else ("*");
+                // `*T?` reads as a nullable pointer, so a pointer TO a
+                // nullable is written the only way that parses back to it.
+                if isa::<NullableType>(p->pointee) { return pre + "(" + self.str(p->pointee) + ")"; }
                 return pre + self.str(p->pointee);
             }
-            case TypeKind::NullableType   { return self.str(cast::<NullableType>(t)->inner) + "?"; }
+            // `T??` is the `??` operator, so a nested nullable is written
+            // the only way that parses back to it.
+            case TypeKind::NullableType {
+                var inner = cast::<NullableType>(t)->inner;
+                if isa::<NullableType>(canon_unqual(inner)) { return "(" + self.str(inner) + ")?"; }
+                return self.str(inner) + "?";
+            }
             case TypeKind::VectorType     { return "[" + self.str(cast::<VectorType>(t)->element) + "]"; }
             case TypeKind::SetType        { return "{" + self.str(cast::<SetType>(t)->element) + "}"; }
             case TypeKind::MapType {
@@ -612,7 +914,45 @@ class TypeUtil {
             case TypeKind::FixedArrayType {
                 var a = cast::<FixedArrayType>(t);
                 if a->is_incomplete { return "[" + self.str(a->element) + ";]"; }
+                if a->extent_param != &null { return "[" + self.str(a->element) + "; " + self.str(a->extent_param) + "]"; }
                 return f"[{self.str(a->element)}; {a->size_bits}]";
+            }
+            // A generic VALUE argument (`4` of `Ring<4, i32>`).
+            case TypeKind::TypeExpr {
+                var v = cast::<TypeExpr>(t);
+                if !v->is_value { return "<value>"; }
+                if v->is_exact() { return (f"-{v->vmag}") if (v->vneg) else (f"{v->vmag}"); }
+                // A computed value (EVAL.md 0.2), as Kairo would write it.
+                switch v->vop {
+                    case ValueOp::Decl { return self.decl_name(v->vdecl); }
+                    case ValueOp::Call {
+                        var s = self.decl_name(v->vdecl) + "(";
+                        for var i: usize = 0; i < v->vops.size(); ++i {
+                            if i > 0 { s += ", "; }
+                            s += self.str(v->vops[i]);
+                        }
+                        return s + ")";
+                    }
+                    case ValueOp::Unary { return ((("~") if (v->vtok == TokenKind::OpTilde) else ("-"))) + self.str(v->vops[0]); }
+                    case ValueOp::Binary { return "(" + self.str(v->vops[0]) + " " + self._value_op(v->vtok) + " " + self.str(v->vops[1]) + ")"; }
+                    case ValueOp::Cast { return "(" + self.str(v->vops[0]) + " as " + self.str(v->vty) + ")"; }
+                    case ValueOp::Str {
+                        // The bytes as a literal: printable ASCII as is, the
+                        // rest (and `"` / `\`) escaped as `\xNN`.
+                        var digits = "0123456789abcdef";
+                        var s = "\"";
+                        for var i: usize = 0; i < static_cast::<usize>(v->vmag); ++i {
+                            var b = v->vbytes[i];
+                            if (b >= u8(0x20)) && (b < u8(0x7f)) && (b != u8(0x22)) && (b != u8(0x5c)) { s += static_cast::<char>(b); continue; }
+                            s += "\\x";
+                            s += digits[static_cast::<usize>(b >> u8(4))];
+                            s += digits[static_cast::<usize>(b & u8(15))];
+                        }
+                        return s + "\"";
+                    }
+                    default { return "<value>"; }
+                }
+                return "<value>";
             }
             // No TupleType arm: a tuple canonical is its record (above);
             // a syntax TupleType falls to the default and prints its canonical.
@@ -627,6 +967,18 @@ class TypeUtil {
                     s += self.str(f->params[i]);
                 }
                 s += ")";
+                // The effect is part of the type: `fn () panic(E1, E2)`.
+                if f->canon_panics {
+                    s += " panic";
+                    if f->panic_set.size() > 0 {
+                        s += "(";
+                        for var i: usize = 0; i < f->panic_set.size(); ++i {
+                            if i > 0 { s += ", "; }
+                            s += self.str(f->panic_set[i]);
+                        }
+                        s += ")";
+                    }
+                }
                 if (f->return_type != &null) && (!self.is_void(f->return_type)) {
                     s += " -> " + self.str(f->return_type);
                 }
@@ -642,6 +994,14 @@ class TypeUtil {
                 return "<T>";
             }
             case TypeKind::OpaqueFFIType  { return "<ffi type>"; }
+            // `T::Node`; `Self::Node` while the base is the interface's own
+            // Self (it is then the interface record itself).
+            case TypeKind::AssocType {
+                var a = cast::<AssocType>(t);
+                var nm = self.decl_name(a->assoc);
+                if a->base == a->iface { return "Self::" + nm; }
+                return self.str(a->base) + "::" + nm;
+            }
             case TypeKind::QualifiedType {
                 var q = cast::<QualifiedType>(t);
                 var s = "";

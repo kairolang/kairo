@@ -58,6 +58,7 @@
 import Codegen::CodegenContext::*;
 import Codegen::CodegenICE::*;
 import Codegen::Emit::CXXSpell::*;
+import Codegen::Emit::EmitWitness::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -66,6 +67,8 @@ import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::ParamMode::*;
 import AST::DeclFacts::*;
+import AST::LangItems::*;
+import Lexer::Immediate::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Types::*;
@@ -111,12 +114,199 @@ enum PlanMode derives u8 {
 /// (N, X); every extend block in that scope contributes. Always COMPLETE --
 /// all its blocks, priv members included -- so its text is the same in every
 /// TU and header that carries it (invariant 11).
+/// What one compile-time item needs before C++ evaluates it (EVAL.md
+/// §11): an `eval` / `constexpr` body, or an eval binding's initializer.
+/// `items`: the compile-time bodies it calls (eval fns, eval and constexpr
+/// constructors and operators, an eval field's thunk) and the eval bindings
+/// it reads, each needed DEFINED before the item is evaluated. `const_items`:
+/// the subset C++ evaluates where the item is DEFINED (what a type inside
+/// it computes, an eval local's initializer), each needed defined before
+/// the item's own definition. `recs`: the records it lays out or looks
+/// into, needed COMPLETE before its definition. EmitPlan::_early reads
+/// these on the lowered tree; EvalUsageChecking::EvalNeeds is the Sema
+/// side, which reports what no order satisfies.
+class EarlyNeeds derives RecursiveASTVisitor::<EarlyNeeds> {
+    pub var items:       vec::<*Decl>;
+    pub var const_items: vec::<*Decl>;
+    pub var recs:        vec::<*Decl>;
+    /// > 0 inside an eval local's initializer: what it reads is a const item.
+    priv var _const: u32 = 0;
+
+    fn EarlyNeeds(self) { }
+
+    /// A compile-time body or an eval binding, as an item: the defining
+    /// link of a function (what EmitIR emits), an eval field as its thunk;
+    /// null for anything else.
+    static fn item_of(d: *Decl) -> *Decl {
+        if d == &null { return &null; }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f != &null {
+            if (!f->is_eval()) && (!f->is_constexpr()) { return &null; }
+            var def = f;
+            if !def->has_body() { def = f->definition(); }
+            if (def == &null) || def->is_poisoned() || (def->body_kind != FnBodyKind::Block) { return &null; }
+            return static_cast::<*Decl>(def);
+        }
+        var v = dyn_cast::<VariableDecl>(d);
+        if (v != &null) && v->is_eval() && (v->init != &null) && (!v->is_poisoned()) {
+            var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
+            if (dc != &null) && ((dc->dc_kind == DeclContextKind::TranslationUnit) || (dc->dc_kind == DeclContextKind::Module)) { return d; }
+            return &null;
+        }
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (fd != &null) && fd->is_eval() && (fd->init_fold == FieldFold::Thunk) { return EarlyNeeds::item_of(fd->init_thunk); }
+        return &null;
+    }
+
+    fn named(self, d: *Decl) {
+        if d == &null { return; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) && (dc->owner_decl() != &null) {
+            self._rec(dc->owner_decl());
+        }
+        var it = EarlyNeeds::item_of(d);
+        if it == &null { return; }
+        EarlyNeeds::_once(&(self.items), it);
+        if self._const > 0 { EarlyNeeds::_once(&(self.const_items), it); }
+    }
+
+    static fn _once(v: *vec::<*Decl>, d: *Decl) {
+        for var i: usize = 0; i < v->size(); ++i { if (*v)[i] == d { return; } }
+        v->push_back(d);
+    }
+
+    priv fn _rec(self, d: *Decl) {
+        if d != &null { EarlyNeeds::_once(&(self.recs), d); }
+    }
+
+    /// The records \p t holds by value (raw: EmitPlan maps each to its
+    /// plan entry), and the items its computed values name.
+    fn rec_type(self, t: *Type) {
+        if t == &null { return; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        switch c->kind {
+            case TypeKind::QualifiedType { self.rec_type(cast::<QualifiedType>(c)->inner); }
+            case TypeKind::RecordType {
+                var rt = cast::<RecordType>(c);
+                self._rec(rt->decl);
+                for var i: usize = 0; i < rt->args.size(); ++i { self.values(*(rt->args.get(i))); }
+            }
+            case TypeKind::FixedArrayType {
+                self.rec_type(cast::<FixedArrayType>(c)->element);
+                self.values(cast::<FixedArrayType>(c)->extent_param);
+            }
+            case TypeKind::NullableType {
+                var lw = cast::<NullableType>(c)->lowered;
+                if lw != &null { self.rec_type(lw); } else { self.rec_type(cast::<NullableType>(c)->inner); }
+            }
+            case TypeKind::TypeExpr { self.values(c); }
+            default { break; }
+        }
+    }
+
+    /// The items a computed value (EVAL.md 0.2) names: C++ evaluates it
+    /// where it is spelled, so they are const items. An eval class it
+    /// constructs is needed complete, with every compile-time member (its
+    /// constructor, its field defaults' thunks).
+    fn values(self, t: *Type) {
+        var v = dyn_cast::<TypeExpr>(t);
+        if (v == &null) || (!v->is_value) || v->is_exact() { return; }
+        self._const += 1;
+        if v->vop == ValueOp::Str {
+            self.rec_type(v->vty);
+            var sr = dyn_cast::<RecordType>(canon_unqual(v->vty));
+            if sr != &null { self._members(sr->decl); }
+        } else if (v->vdecl != &null) && ((v->vop == ValueOp::Call) || (v->vop == ValueOp::Decl)) {
+            if isa::<ClassDecl>(v->vdecl) || isa::<StructDecl>(v->vdecl) {
+                self._rec(v->vdecl);
+                self._members(v->vdecl);
+            } else {
+                var local = (v->vdecl->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl);
+                if !local { self.named(v->vdecl); }
+            }
+        }
+        for var i: usize = 0; i < v->vops.size(); ++i { self.values(v->vops[i]); }
+        self._const -= 1;
+    }
+
+    /// Every compile-time member of record \p d with a body, as items.
+    priv fn _members(self, d: *Decl) {
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d)       { ms = &(cast::<ClassDecl>(d)->methods); }
+        else if isa::<StructDecl>(d) { ms = &(cast::<StructDecl>(d)->methods); }
+        if ms == &null { return; }
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if m == &null { continue; }
+            var it = EarlyNeeds::item_of(static_cast::<*Decl>(m));
+            if it == &null { continue; }
+            EarlyNeeds::_once(&(self.items), it);
+            if self._const > 0 { EarlyNeeds::_once(&(self.const_items), it); }
+        }
+    }
+
+    fn visit_expr(self, e: *Expr) -> bool {
+        if e == &null { return true; }
+        if e->type_ != &null { self.rec_type(e->type_); }
+        switch e->kind {
+            case ExprKind::NamedIdentExpr { self.named(cast::<NamedIdentExpr>(e)->resolved_decl); }
+            case ExprKind::ChainExpr {
+                var ch = cast::<ChainExpr>(e);
+                for var i: usize = 0; i < ch->steps.size(); ++i {
+                    var st = ch->steps.get(i);
+                    if st != &null { self.named(st->resolved_decl); }
+                }
+            }
+            case ExprKind::CallExpr { self.named(cast::<CallExpr>(e)->ctor_decl); }
+            case ExprKind::BinaryOperatorExpr { self.named(cast::<BinaryOperatorExpr>(e)->resolved_op); }
+            case ExprKind::UnaryOperatorExpr { self.named(cast::<UnaryOperatorExpr>(e)->resolved_op); }
+            case ExprKind::SizeOfExpr { self.rec_type(cast::<SizeOfExpr>(e)->type_arg); }
+            case ExprKind::AlignOfExpr { self.rec_type(cast::<AlignOfExpr>(e)->type_arg); }
+            default { break; }
+        }
+        return true;
+    }
+
+    fn visit_decl(self, d: *Decl) -> bool {
+        if d == &null { return true; }
+        switch d->kind {
+            case DeclKind::VariableDecl { self.rec_type(cast::<VariableDecl>(d)->type_); }
+            case DeclKind::ParamDecl {
+                var p = cast::<ParamDecl>(d);
+                if !p->is_self { self.rec_type(p->type_); }
+            }
+            case DeclKind::FunctionDecl { self.rec_type(cast::<FunctionDecl>(d)->return_type); }
+            default { break; }
+        }
+        return true;
+    }
+
+    /// An eval local's initializer is a constant expression C++ evaluates
+    /// at the definition (`constexpr T k = g(1);`).
+    fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
+        var ev = n->is_eval() && (n->semantic_dc != &null) && CXXSpell::in_function_scope(static_cast::<*Decl>(n));
+        if ev { self._const += 1; }
+        var r = RecursiveASTVisitor::<EarlyNeeds>::traverse_variable_decl(n);
+        if ev { self._const -= 1; }
+        return r;
+    }
+
+    fn visit_type(self, t: *Type) -> bool {
+        if (t != &null) && (t->canonical != &null) { self.values(t->canonical); }
+        return true;
+    }
+}
+
 class ExtScope {
     pub var ns:        vec::<string>;
     pub var name:      string;                ///< `__kairo_ext_X`.
     /// The target's layout decl for a record (a generic one's primary), or
     /// null for a builtin, which is keyed by `target_ty` instead.
     pub var target:    *Decl = &null;
+    /// The record target's TEMPLATE (EmitPlan::_scope_key): what scopes are
+    /// matched on, so every specialization's extensions share one struct.
+    pub var key:       *Decl = &null;
     pub var target_ty: *Type = &null;
     /// The first extend block in source order: where the scope sits.
     pub var anchor:    *ExtensionDecl = &null;
@@ -148,6 +338,16 @@ class PlanEntry {
     /// Tiers 0 and 1: the extension scope this entry declares or defines,
     /// or null. `decl` is then the scope's anchor, for position only.
     pub var scope:   *ExtScope      = &null;
+    /// Tiers 0 and 1: the witness piece this entry declares or defines
+    /// (CODEGEN.md §7b.6), or null. `decl` is then its InterfaceDecl.
+    pub var witness: *WitnessPiece  = &null;
+    /// Tier 0 only, with `witness` a primary: this entry defines its
+    /// concept, not its forward declaration.
+    pub var is_concept: bool        = false;
+    /// Tier 1 only: an early item (EmitPlan::early, EVAL.md §11) -- a
+    /// compile-time body or an eval binding this entry DEFINES, ahead of
+    /// the records whose types need it. `decl` is the item too.
+    pub var eval_item: *Decl        = &null;
 
     fn PlanEntry(self) { }
 }
@@ -162,9 +362,15 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     priv var _need:  vec::<PlanNeed>;
     priv var _queue: vec::<usize>;
     priv var _insts: vec::<*InstanceEntry>;
+    /// Member-template instances admitted (no tier-3 line, so not _insts):
+    /// their reach is followed once.
+    priv var _members: vec::<*InstanceEntry>;
     /// Every extension scope the plan touches. Indexed while the closure
     /// runs (it grows); PlanEntry::scope points in only once it is done.
     priv var _scopes:   vec::<ExtScope>;
+    /// Every witness piece the plan holds: interface primaries and row
+    /// specializations. Index-based while the closure runs, as _scopes.
+    priv var _witnesses: vec::<WitnessPiece>;
 
     /// Memo for param_by_value: (primary, index) -> answer. Pairs, linear
     /// scan; a build has tens of generic primaries, not thousands.
@@ -174,8 +380,52 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
 
     pub var entries: vec::<PlanEntry>;
 
+    /// Some type the plan admits is a Kairo `fn(A) -> R` value (a
+    /// signature, a field, a local, a closure in a body): the preamble
+    /// must define `::__kairo_fn` (InterfaceEmitter::_fn_value_helper).
+    /// Only then, so a TU that names none keeps its text.
+    pub var needs_fn_value: bool = false;
+    /// A body holds a `try`'s raw-storage slot (PanicLowering) with no Panic
+    /// result in sight: a `try` with only C++ exception arms whose value is
+    /// put in a slot. The preamble must define `::__kairo_raw`, which it
+    /// otherwise writes with the Panic lang item's helpers.
+    pub var needs_raw_slot: bool = false;
+    /// Compile-time string literals too long for `__kairo_estr<...>`
+    /// (LowerTargets::eval_str_inline_max, EVAL.md §11), once each by
+    /// content: InterfaceEmitter defines each as a named `inline constexpr`
+    /// array at global scope, ahead of every body and type that spells it.
+    /// Parallel: the bytes, their count, their eval_str_hash.
+    pub var big_str_bytes:  vec::<std::ConstPtr::<u8>>;
+    pub var big_str_lens:   vec::<usize>;
+    pub var big_str_hashes: vec::<u64>;
+    /// A type the plan admits holds a string value node (a string literal
+    /// in an eval class's value argument, EVAL.md 7e): its bytes are
+    /// `__kairo_estr<...>`, so the eval helpers are written.
+    pub var needs_eval_str: bool = false;
+
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
+
+    /// The early items (EVAL.md §11): every compile-time body (eval fn,
+    /// eval or constexpr method, eval field thunk) and eval binding that a
+    /// DECLARATION's type names through a computed value (`[i32; f(3)]`,
+    /// `Buf<twice(1)>`, `Grid<Pt(2, 3)>`), and everything those read,
+    /// transitively. C++ evaluates such a type where the declaration is
+    /// written, in the interface, so each item is defined in tier 1 ahead of
+    /// the records needing it (an entry with eval_item), and declared ahead
+    /// of all of tier 1 (InterfaceEmitter); EmitIR then skips them.
+    pub var early: vec::<*Decl>;
+    /// Order edges among tier-1 entries that involve an early item:
+    /// _eo_who[i] is written after _eo_dep[i].
+    priv var _eo_who: vec::<*Decl>;
+    priv var _eo_dep: vec::<*Decl>;
+    /// EarlyNeeds per item, flattened: for item _en_key[i], _en_val[i] is an
+    /// item it reads (kind 0), one it evaluates at its definition (1), or a
+    /// record it needs complete (2).
+    priv var _en_done: vec::<*Decl>;
+    priv var _en_key:  vec::<*Decl>;
+    priv var _en_kind: vec::<u8>;
+    priv var _en_val:  vec::<*Decl>;
 
     fn EmitPlan(self, cg: *CodegenContext, mode: PlanMode = PlanMode::Preamble) {
         self._cg    = cg;
@@ -193,6 +443,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn visible_bodies(self) -> vec::<*FunctionDecl>;
     fn include_bodies(self) -> vec::<*FunctionDecl>;
     fn _bodies(self, want_own: bool) -> vec::<*FunctionDecl>;
+    fn visible_eval_vars(self) -> vec::<*VariableDecl>;
+    fn include_eval_vars(self) -> vec::<*VariableDecl>;
+    fn _eval_vars(self, want_own: bool) -> vec::<*VariableDecl>;
+    fn _place_eval_var(self, i: usize, pick: *vec::<*VariableDecl>, state: *vec::<u8>, out: *vec::<*VariableDecl>);
     fn _walk_visible(self);
     fn _find_escaping(self, tu: *TranslationUnit);
     fn _visible_record_bodies(self, d: *Decl, in_template: bool, out: *vec::<*FunctionDecl>);
@@ -203,6 +457,15 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn spell(self) -> *CXXSpell;
     fn _close(self);
     fn _order(self);
+    fn _early(self);
+    fn _early_needs(self, x: *Decl);
+    fn _early_close(self, seeds: *vec::<*Decl>, kind: u8, out: *vec::<*Decl>);
+    fn _decl_type_items(self, d: *Decl, out: *vec::<*Decl>);
+    fn _type_items(self, t: *Type, out: *vec::<*Decl>);
+    fn _eo_add(self, who: *Decl, dep: *Decl);
+    fn _eo_has(self, who: *Decl, dep: *Decl) -> bool;
+    fn _layout_key(self, d: *Decl) -> *Decl;
+    fn is_early(self, d: *Decl) -> bool;
     fn _collect_uses(self);
     fn friend_scopes_of(self, d: *Decl, out: *vec::<*ExtScope>);
     fn dump(self, path: string);
@@ -218,7 +481,15 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _scope_dep(self, k: usize, t: *Type);
     fn _scope_sig_dep(self, k: usize, t: *Type);
     fn _scope_add_dep(self, k: usize, d: *Decl);
+    fn _witness_primary(self, iface: *Decl) -> usize;
+    fn _witness_row(self, row: *ConformanceRow);
+    fn _witness_declared(self, d: *Decl);
+    fn _witness_bounds(self, f: *Decl);
+    fn _witness_sig(self, k: usize, f: *FunctionDecl);
+    fn _witness_dep(self, k: usize, t: *Type);
+    fn _witness_scope(self, k: usize, x: *ExtensionDecl);
     fn visit_expr(self, e: *Expr) -> bool;
+    fn note_eval_str(self, p: std::ConstPtr::<u8>, n: usize);
     fn visit_type(self, t: *Type) -> bool;
     fn visit_decl(self, d: *Decl) -> bool;
     fn _admit_use(self, d: *Decl);
@@ -226,7 +497,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _member_owner(self, d: *Decl) -> *Decl;
     fn _admit(self, d: *Decl, need: PlanNeed);
     fn _admit_instance(self, e: *InstanceEntry, need: PlanNeed);
+    fn _admit_reached(self, e: *InstanceEntry);
     fn _admit_type(self, t: *Type, need: PlanNeed);
+    fn _nullable_record(self, c: *Type) -> *Type;
     fn _expand(self, d: *Decl, need: PlanNeed);
     fn _expand_fn(self, n: *FunctionDecl);
     fn _expand_member_sig(self, n: *FunctionDecl);
@@ -238,8 +511,12 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _collect_ext_in(self, cand: *Decl, target: *Decl);
     fn _ext_target(self, x: *ExtensionDecl) -> *Decl;
     fn layout_decl(self, d: *Decl) -> *Decl;
+    fn _scope_key(self, d: *Decl) -> *Decl;
+    fn _admit_specs(self, c: *Decl, need: PlanNeed);
+    fn _specs_after_primary(self, v: *vec::<PlanEntry>);
     fn adt_record(self, d: *Decl) -> *Decl;
     fn anon_union_of(self, f: *FieldDecl) -> *UnionDecl;
+    fn _arg_by_value(self, prim: *Decl, i: usize) -> bool;
     fn param_by_value(self, prim: *Decl, idx: u32) -> bool;
     fn _param_by_value_walk(self, prim: *Decl, idx: u32) -> bool;
     fn _edges_reach_param(self, list: *FrozenList::<InheritEdge>, prim: *Decl, idx: u32) -> bool;
@@ -252,7 +529,10 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _toposort(self, v: *vec::<PlanEntry>);
     fn _entry_needs(self, who: *PlanEntry, dep: *PlanEntry) -> bool;
     fn _needs_complete(self, who: *Decl, dep: *Decl) -> bool;
+    fn value_param_record(self, who: *Decl, dep: *Decl) -> bool;
     fn _plannable(self, d: *Decl) -> bool;
+    fn _is_requirement(self, d: *Decl) -> bool;
+    fn _member_of_template(self, d: *Decl) -> bool;
     fn _is_global_var(self, d: *Decl) -> bool;
     fn _is_type_decl(self, d: *Decl) -> bool;
     fn _outermost_type(self, d: *Decl) -> *Decl;
@@ -306,6 +586,8 @@ class LayoutSpine {
         if c == &null { c = t; }
         switch c->kind {
             case TypeKind::QualifiedType { return self.reaches(cast::<QualifiedType>(c)->inner); }
+            // `T?` holds its record by value (NullableTypeLowering).
+            case TypeKind::NullableType  { return self.reaches(cast::<NullableType>(c)->lowered); }
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
                 var d = self._plan->layout_decl(r->decl);
@@ -361,6 +643,7 @@ fn EmitPlan::run() {
     self._empty = true;
     for var i: usize = 0; i < self.entries.size(); ++i {
         var e = &(self.entries[i]);
+        if e->witness != &null { continue; }   // own everywhere, and only ever there for this TU's own code.
         if e->own { self._empty = false; break; }
         if (e->tier == PlanTier::Instantiations) && e->is_home { self._empty = false; break; }
     }
@@ -400,9 +683,10 @@ fn EmitPlan::is_empty() -> bool { return self._empty; }
 /// closed at the file.
 fn EmitPlan::friend_scopes_of(d: *Decl, out: *vec::<*ExtScope>) {
     var c = self.layout_decl(d);
+    var key = self._scope_key(d);
     for var i: usize = 0; i < self._scopes.size(); ++i {
         var s = &(self._scopes[i]);
-        if (s->target == &null) || (s->target != c) { continue; }
+        if (s->target == &null) || (s->key != key) { continue; }
         if CXXSpell::fid_of(static_cast::<*Decl>(s->anchor)) != CXXSpell::fid_of(c) { continue; }
         out->push_back(s);
     }
@@ -506,6 +790,7 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
             visible = true;
         }
         if visible { self._scope_for(x, true); }
+        self._witness_declared(d);
         return;
     }
     if !self._plannable(d) { return; }
@@ -514,6 +799,7 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
         // A definition here means every own type is Complete; its own
         // dependencies come in through _expand.
         self._admit(d, PlanNeed::Complete);
+        self._witness_declared(d);
     } else {
         self._admit(d, PlanNeed::Fwd);
     }
@@ -565,6 +851,7 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
     var c = canon_unqual(x->target->canonical);
     if isa::<RecordType>(c) {
         fresh.target = self.layout_decl(cast::<RecordType>(c)->decl);
+        fresh.key    = self._scope_key(cast::<RecordType>(c)->decl);
     } else {
         fresh.target_ty = c;
     }
@@ -596,8 +883,13 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
     var nm = self._scopes[k].members.size();
     for var i: usize = 0; i < nm; ++i {
         var m = self._scopes[k].members[i];
+        // Each block's own target: one scope holds the blocks of every
+        // specialization (`extend <> Store<bool>` beside `extend <T>
+        // Store<T>`), and a member's receiver names its block's.
+        self._scope_dep(k, self._scopes[k].exts[i]->target);
         self._expand_fn(m);
         self._scope_sig_dep(k, m->return_type);
+        if m->panic_result != &null { self._scope_sig_dep(k, m->panic_result); }
         for var j: usize = 0; j < m->params.size(); ++j {
             var p = m->params[j];
             if (p == &null) || p->is_self { continue; }
@@ -605,6 +897,7 @@ fn EmitPlan::_scope_for(x: *ExtensionDecl, reach: bool) -> usize {
         }
         if (!m->is_operator) || (self._spell.ext_forwarder_name(m).size() == 0) { continue; }
         self._scope_dep(k, m->return_type);
+        if m->panic_result != &null { self._scope_dep(k, m->panic_result); }
         for var j: usize = 0; j < m->params.size(); ++j {
             var p = m->params[j];
             if (p == &null) || p->is_self || (p->mode != ParamMode::Value) { continue; }
@@ -653,7 +946,7 @@ fn EmitPlan::_fill_scope(k: usize, cand: *Decl) {
 fn EmitPlan::_same_scope(k: usize, x: *ExtensionDecl) -> bool {
     var c = canon_unqual(x->target->canonical);
     var s = &(self._scopes[k]);
-    if isa::<RecordType>(c) { return (s->target != &null) && (self.layout_decl(cast::<RecordType>(c)->decl) == s->target); }
+    if isa::<RecordType>(c) { return (s->target != &null) && (self._scope_key(cast::<RecordType>(c)->decl) == s->key); }
     return (s->target == &null) && (s->target_ty == c);
 }
 
@@ -662,11 +955,20 @@ fn EmitPlan::_same_scope(k: usize, x: *ExtensionDecl) -> bool {
 fn EmitPlan::_scope_dep(k: usize, t: *Type) {
     if (t == &null) || (t->canonical == &null) { return; }
     var c = canon_unqual(t->canonical);
+    if isa::<NullableType>(c) { self._scope_dep(k, self._nullable_record(c)); return; }
     if !isa::<RecordType>(c) { return; }
     var d = self.layout_decl(cast::<RecordType>(c)->decl);
     if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
     self._admit_type(t, PlanNeed::Complete);
     self._scope_add_dep(k, self._outermost_type(d));
+}
+
+/// The record a canonical `T?` is to C++ (NullableType::lowered). None means
+/// NullableTypeLowering never saw it: the same ICE CXXSpell raises.
+fn EmitPlan::_nullable_record(c: *Type) -> *Type {
+    var lw = cast::<NullableType>(c)->lowered;
+    if lw == &null { self._ice(c->range, "EmitPlan: T? reached codegen with no lowered record; NullableTypeLowering must run first"); }
+    return lw;
 }
 
 /// A NESTED record anywhere in a member signature \p t -- behind pointers,
@@ -682,7 +984,7 @@ fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
         case TypeKind::PointerType      { self._scope_sig_dep(k, cast::<PointerType>(c)->pointee); }
         case TypeKind::CXXLValueRefType { self._scope_sig_dep(k, cast::<CXXLValueRefType>(c)->referee); }
         case TypeKind::CXXRValueRefType { self._scope_sig_dep(k, cast::<CXXRValueRefType>(c)->referee); }
-        case TypeKind::NullableType     { self._scope_sig_dep(k, cast::<NullableType>(c)->inner); }
+        case TypeKind::NullableType     { self._scope_sig_dep(k, self._nullable_record(c)); }
         case TypeKind::FixedArrayType   { self._scope_sig_dep(k, cast::<FixedArrayType>(c)->element); }
         case TypeKind::TupleType {
             var tp = cast::<TupleType>(c);
@@ -716,6 +1018,184 @@ fn EmitPlan::_scope_add_dep(k: usize, d: *Decl) {
     self._scopes[k].deps.push_back(d);
 }
 
+// --- Witnesses (CODEGEN.md §7b.6) --------------------------------------------------
+
+/// \p iface's primary and concept, created on first touch. Its deps are the
+/// by-value records its forwarders' signatures name (an inline definition
+/// lays them out); a concept conjoins its bases' concepts, so their
+/// primaries come first.
+fn EmitPlan::_witness_primary(iface_in: *Decl) -> usize {
+    var iface = CXXSpell::rep(decl_pattern(CXXSpell::rep(iface_in)));
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if (self._witnesses[i].iface == iface) && (self._witnesses[i].row == &null) { return i; }
+    }
+    var fresh = WitnessPiece();
+    fresh.iface = iface;
+    fresh.key   = self._spell.witness_name(iface);
+    self._witnesses.push_back(fresh);
+    var k = self._witnesses.size() - 1;
+
+    // Every requirement it derives is its own member (InterfaceComposition),
+    // and its concept conjoins no base's: no base primary is needed first.
+    var ms = EmitWitness(self._cg, &(self._spell)).members(cast::<InterfaceDecl>(iface));
+    for var i: usize = 0; i < ms.size(); ++i {
+        var m = ms[i];
+        if (m == &null) || m->is_poisoned() { continue; }
+        self._witness_sig(k, m);
+    }
+    return k;
+}
+
+/// \p row's specialization, when the primary does not serve it (§7b.4):
+/// after the primary, the conformer complete, and every extension scope
+/// it forwards to defined.
+fn EmitPlan::_witness_row(row: *ConformanceRow) {
+    if (row == &null) || (row->iface_decl == &null) { return; }
+    var iface = CXXSpell::rep(row->iface_decl);
+    self._witness_primary(iface);
+    var ew = EmitWitness(self._cg, &(self._spell));
+    // A generic declared row's partial specialization is this row's witness
+    // already (§7b.3): admitting it, never a full one beside it, keeps one
+    // definition per conformance. Only when it is emitted at all -- were the
+    // primary to serve the generic row but not this one, the full one is
+    // still the only witness this row has.
+    var g = row->covered_by;
+    if (g != &null) && ew.needs_specialization(g) { self._witness_row(g); return; }
+    if !ew.needs_specialization(row) { return; }
+    for var i: usize = 0; i < self._witnesses.size(); ++i { if self._witnesses[i].row == row { return; } }
+
+    var fresh = WitnessPiece();
+    fresh.iface = iface;
+    fresh.row   = row;
+    fresh.key   = self._spell.witness_name(iface) + self._spell.witness_args(self._spell._type(row->conformer), row->iface);
+    fresh.after.push_back(iface);
+    self._witnesses.push_back(fresh);
+    var k = self._witnesses.size() - 1;
+
+    self._witness_dep(k, row->conformer);
+    if EmitWitness::is_generic_row(row) && isa::<RecordType>(row->conformer) {
+        // A partial specialization names the conformer's template, which
+        // _witness_dep leaves alone as dependent: the primary must be
+        // declared, and is defined first, as a full specialization's is.
+        var cd = self.layout_decl(cast::<RecordType>(row->conformer)->decl);
+        if (cd != &null) && (!decl_is_imported(cd)) {
+            var o = self._outermost_type(cd);
+            self._admit(o, PlanNeed::Complete);
+            var have = false;
+            for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == o { have = true; } }
+            if !have { self._witnesses[k].deps.push_back(o); }
+        }
+    }
+    var ms = ew.members(cast::<InterfaceDecl>(iface));
+    for var i: usize = 0; i < ms.size(); ++i {
+        var m = ms[i];
+        if (m == &null) || m->is_poisoned() { continue; }
+        self._witness_sig(k, m);
+    }
+    for var i: usize = 0; i < row->witnesses.size(); ++i {
+        var w = row->witnesses[i];
+        if w == &null { continue; }
+        // An associated type's witness is an alias (or the requirement, for
+        // a default): what the specialization needs is the TYPE, complete,
+        // since its inline members return it by value.
+        if isa::<TypeAliasDecl>(w) {
+            if (i < row->assoc_types.size()) && (row->assoc_types[i] != &null) { self._witness_dep(k, row->assoc_types[i]); }
+            continue;
+        }
+        // A constructor slot is forwarded to by nothing: the bounded body
+        // constructs `T(args)` itself, wherever the conformer is complete.
+        if (i < ms.size()) && (ms[i] != &null) && decl_is_ctor_requirement(ms[i]) { continue; }
+        var x = decl_extension_of(w);
+        if x != &null { self._witness_scope(k, x); continue; }
+        self._admit_use(w);   // an own member: its owner complete.
+    }
+}
+
+/// The rows \p d DECLARES (`class X impl I`, `extend X impl I`), where \p d
+/// is emitted: there both X and I are complete -- \p d defines or extends
+/// X and names I -- and a C++ host instantiating a bounded template with X
+/// finds the specialization in the header that defines X, though no Kairo
+/// instance ever paired them (§7b.6). A header leaves out a row whose X or
+/// I it does not carry: the host cannot name either.
+fn EmitPlan::_witness_declared(d: *Decl) {
+    var rows = vec::<*ConformanceRow>();
+    self._cg->instances->declared_rows(d, &rows);
+    for var i: usize = 0; i < rows.size(); ++i {
+        var row = rows[i];
+        if self._mode != PlanMode::Preamble {
+            if _hidden_in_header(CXXSpell::vis_of(row->iface_decl)) { continue; }
+            if isa::<RecordType>(row->conformer) && _hidden_in_header(CXXSpell::vis_of(cast::<RecordType>(row->conformer)->decl)) { continue; }
+        }
+        self._witness_row(row);
+    }
+}
+
+/// The primaries of every interface \p f's bounds name: its template head
+/// carries their concepts (CXXSpell::requires_clause), so its declaration
+/// needs them, not only its body.
+fn EmitPlan::_witness_bounds(f: *Decl) {
+    if f == &null { return; }
+    if self._spell.requires_clause(f).size() == 0 { return; }
+    var cs = vec::<*ConstraintExpr>();
+    var x = decl_extension_of(f);
+    if x != &null { CXXSpell::impl_bounds(decl_requires_clause(static_cast::<*Decl>(x)), &cs); }
+    CXXSpell::impl_bounds(decl_requires_clause(f), &cs);
+    for var i: usize = 0; i < cs.size(); ++i {
+        var c = cs[i];
+        if (c->rhs == &null) || (c->rhs->canonical == &null) || (!isa::<RecordType>(canon_unqual(c->rhs->canonical))) { continue; }
+        var d = cast::<RecordType>(canon_unqual(c->rhs->canonical))->decl;
+        if isa::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(d)))) { self._admit(d, PlanNeed::Complete); }
+    }
+}
+
+/// Requirement \p f's by-value records, as a forwarder's are.
+fn EmitPlan::_witness_sig(k: usize, f: *FunctionDecl) {
+    self._witness_dep(k, f->return_type);
+    if f->panic_result != &null { self._witness_dep(k, f->panic_result); }
+    for var j: usize = 0; j < f->params.size(); ++j {
+        var p = f->params[j];
+        if (p == &null) || p->is_self || (p->mode != ParamMode::Value) { continue; }
+        self._witness_dep(k, p->type_);
+    }
+}
+
+/// A by-value record \p t is a Complete dependency of witness \p k. An
+/// interface (the requirement's own `Self`) is spelled as Self, never laid
+/// out; an imported record is the header's.
+fn EmitPlan::_witness_dep(k: usize, t: *Type) {
+    if (t == &null) || (t->canonical == &null) { return; }
+    var c = canon_unqual(t->canonical);
+    if !isa::<RecordType>(c) { self._admit_type(t, PlanNeed::Complete); return; }
+    var d = self.layout_decl(cast::<RecordType>(c)->decl);
+    if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
+    if c->is_dependent() {
+        // A generic interface's panic result names its parameters (PANIC.md
+        // P10): a full specialization's body returns it at the row's
+        // arguments, which C++ instantiates right there -- from the Panic
+        // template, defined first, over elements complete by then.
+        var en = dyn_cast::<EnumDecl>(CXXSpell::rep(cast::<RecordType>(c)->decl));
+        if (en == &null) || (!en->adt_explicit_tags) { return; }
+        self._admit(d, PlanNeed::Complete);
+        var po = self._outermost_type(d);
+        var seen = false;
+        for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == po { seen = true; } }
+        if !seen { self._witnesses[k].deps.push_back(po); }
+        var r = cast::<RecordType>(c);
+        for var i: usize = 0; i < r->args.size(); ++i { self._witness_dep(k, r->args[i]); }
+        return;
+    }
+    self._admit_type(t, PlanNeed::Complete);
+    var o = self._outermost_type(d);
+    for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == o { return; } }
+    self._witnesses[k].deps.push_back(o);
+}
+
+fn EmitPlan::_witness_scope(k: usize, x: *ExtensionDecl) {
+    var s = self._scope_for(x, true);
+    for var i: usize = 0; i < self._witnesses[k].scopes.size(); ++i { if self._witnesses[k].scopes[i] == s { return; } }
+    self._witnesses[k].scopes.push_back(s);
+}
+
 // --- Roots: uses (preamble only) -------------------------------------------------
 
 fn EmitPlan::_collect_uses() {
@@ -744,6 +1224,7 @@ fn EmitPlan::_walk_visible() {
     // same walk is what declares the priv helpers and types an own inline
     // body names: _collect_own left them out, _admit does not.
     var walked = vec::<*FunctionDecl>();
+    var walked_vars = vec::<*VariableDecl>();
     var progressed = true;
     while progressed {
         progressed = false;
@@ -756,7 +1237,266 @@ fn EmitPlan::_walk_visible() {
             self._walk_body(vis[i]);
             progressed = true;
         }
+        // An eval binding's definition is interface too (EVAL.md 1.2b):
+        // what its initializer names -- the eval fn it calls, the eval
+        // constant it reads -- is this TU's to declare and define.
+        var vv = self.visible_eval_vars();
+        for var i: usize = 0; i < vv.size(); ++i {
+            var seen = false;
+            for var k: usize = 0; k < walked_vars.size(); ++k { if walked_vars[k] == vv[i] { seen = true; break; } }
+            if seen { continue; }
+            walked_vars.push_back(vv[i]);
+            self.dispatch_decl(static_cast::<*Decl>(vv[i]));
+            progressed = true;
+        }
     }
+}
+
+/// The eval bindings (namespace scope) whose `inline constexpr`
+/// definitions this TU writes beside its own (EVAL.md 1.2b), chosen as
+/// visible_bodies chooses: the foreign ones a preamble declares, a header's
+/// own, both for an include. An importer cannot read an `extern const` in
+/// a constant expression, so the definition, like a consteval body, is part
+/// of the interface.
+fn EmitPlan::visible_eval_vars() -> vec::<*VariableDecl> {
+    if self._mode == PlanMode::Include { return self.include_eval_vars(); }
+    return self._eval_vars(self._mode == PlanMode::Header);
+}
+
+fn EmitPlan::include_eval_vars() -> vec::<*VariableDecl> {
+    var out = self._eval_vars(false);
+    var own = self._eval_vars(true);
+    for var i: usize = 0; i < own.size(); ++i { out.push_back(own[i]); }
+    return out;
+}
+
+/// In dependency order: a constant expression reads another constant only
+/// once it is defined, and declarations across files have no order of
+/// their own. A cycle is not a constant at all; C++ reports it.
+fn EmitPlan::_eval_vars(want_own: bool) -> vec::<*VariableDecl> {
+    var pick = vec::<*VariableDecl>();
+    for var i: usize = 0; i < self._set.size(); ++i {
+        var v = dyn_cast::<VariableDecl>(self._set[i]);
+        if (v == &null) || (!v->is_eval()) || (v->init == &null) || v->is_poisoned() { continue; }
+        if (CXXSpell::fid_of(static_cast::<*Decl>(v)) == self._home) != want_own { continue; }
+        pick.push_back(v);
+    }
+    var out = vec::<*VariableDecl>();
+    var state = vec::<u8>();   // 0 new, 1 on the path, 2 placed; parallel to pick.
+    for var i: usize = 0; i < pick.size(); ++i { state.push_back(u8(0)); }
+    for var i: usize = 0; i < pick.size(); ++i { self._place_eval_var(i, &pick, &state, &out); }
+    return out;
+}
+
+fn EmitPlan::_place_eval_var(i: usize, pick: *vec::<*VariableDecl>, state: *vec::<u8>, out: *vec::<*VariableDecl>) {
+    if (*state)[i] != u8(0) { return; }
+    (*state)[i] = u8(1);
+    // What the initializer reads, through the eval fns it calls too: `eval
+    // A = f()` with f returning B needs B defined first, though A's
+    // initializer never names it.
+    var me = static_cast::<*Decl>((*pick)[i]);
+    self._early_needs(me);
+    var seeds = vec::<*Decl>();
+    for var r: usize = 0; r < self._en_key.size(); ++r {
+        if (self._en_key[r] == me) && (self._en_kind[r] == u8(0)) { seeds.push_back(self._en_val[r]); }
+    }
+    var refs = vec::<*Decl>();
+    self._early_close(&seeds, u8(0), &refs);
+    for var r: usize = 0; r < refs.size(); ++r {
+        for var k: usize = 0; k < pick->size(); ++k {
+            if static_cast::<*Decl>((*pick)[k]) == refs[r] { self._place_eval_var(k, pick, state, out); }
+        }
+    }
+    (*state)[i] = u8(2);
+    out->push_back((*pick)[i]);
+}
+
+// --- Early items (EVAL.md §11) -----------------------------------------------
+
+/// Which compile-time items a declaration's type needs defined ahead of it
+/// (EmitPlan::early), and the order edges that put them in tier 1. Seeds:
+/// the computed values in the type of every record this plan defines
+/// (fields, bases, method signatures, nested types), of every function it
+/// declares and of every namespace-scope variable. Closed over what each
+/// item reads. A record follows every item its own types reach; an item
+/// follows the records its definition needs complete, and a binding every
+/// item it evaluates (a body only the items it evaluates at its definition:
+/// what it merely calls is defined by the time anything evaluates it, and
+/// mutual recursion stays free of cycles).
+fn EmitPlan::_early() {
+    for var i: usize = 0; i < self._set.size(); ++i {
+        var d = self._set[i];
+        var seeds = vec::<*Decl>();
+        var rec = self._is_type_decl(d);
+        if rec {
+            if self._need[i] != PlanNeed::Complete { continue; }
+            self._decl_type_items(d, &seeds);
+        } else if isa::<FunctionDecl>(d) {
+            var f = cast::<FunctionDecl>(d);
+            for var p: usize = 0; p < f->params.size(); ++p {
+                var pd = f->params[p];
+                if (pd != &null) && (!pd->is_self) { self._type_items(pd->type_, &seeds); }
+            }
+            self._type_items(f->return_type, &seeds);
+        } else if isa::<VariableDecl>(d) {
+            self._type_items(cast::<VariableDecl>(d)->type_, &seeds);
+        }
+        if seeds.size() == 0 { continue; }
+        var cl = vec::<*Decl>();
+        self._early_close(&seeds, u8(0), &cl);
+        for var k: usize = 0; k < cl.size(); ++k {
+            EarlyNeeds::_once(&(self.early), cl[k]);
+            if rec { self._eo_add(d, cl[k]); }
+        }
+    }
+    for var k: usize = 0; k < self.early.size(); ++k {
+        var x = self.early[k];
+        self._early_needs(x);
+        var defs = vec::<*Decl>();
+        var want = (u8(0)) if (isa::<VariableDecl>(x)) else (u8(1));
+        for var i: usize = 0; i < self._en_key.size(); ++i {
+            if self._en_key[i] != x { continue; }
+            if self._en_kind[i] == u8(2) {
+                var r = self._layout_key(self._en_val[i]);
+                if (r != &null) && (r != x) {
+                    var at = self._index_of(r);
+                    if (at != usize(-1)) && (self._need[at] == PlanNeed::Complete) { self._eo_add(x, r); }
+                }
+            } else if self._en_kind[i] == want {
+                defs.push_back(self._en_val[i]);
+            }
+        }
+        var cl = vec::<*Decl>();
+        self._early_close(&defs, u8(0), &cl);
+        for var i: usize = 0; i < cl.size(); ++i { if cl[i] != x { self._eo_add(x, cl[i]); } }
+    }
+}
+
+/// \p x's EarlyNeeds, computed once into the _en_ tables.
+fn EmitPlan::_early_needs(x: *Decl) {
+    for var i: usize = 0; i < self._en_done.size(); ++i { if self._en_done[i] == x { return; } }
+    self._en_done.push_back(x);
+    var n = EarlyNeeds();
+    var f = dyn_cast::<FunctionDecl>(x);
+    if f != &null {
+        // A member's definition is out of line: its class is complete first.
+        n.named(x);
+        n.dispatch_decl(x);
+    }
+    var v = dyn_cast::<VariableDecl>(x);
+    if v != &null {
+        n.rec_type(v->type_);
+        if v->init != &null { n.dispatch_expr(v->init); }
+    }
+    for var i: usize = 0; i < n.items.size(); ++i {
+        if n.items[i] == x { continue; }
+        self._en_key.push_back(x); self._en_kind.push_back(u8(0)); self._en_val.push_back(n.items[i]);
+    }
+    for var i: usize = 0; i < n.const_items.size(); ++i {
+        if n.const_items[i] == x { continue; }
+        self._en_key.push_back(x); self._en_kind.push_back(u8(1)); self._en_val.push_back(n.const_items[i]);
+    }
+    for var i: usize = 0; i < n.recs.size(); ++i {
+        self._en_key.push_back(x); self._en_kind.push_back(u8(2)); self._en_val.push_back(n.recs[i]);
+    }
+}
+
+/// \p seeds and every item they read (kind 0), transitively, into \p out.
+fn EmitPlan::_early_close(seeds: *vec::<*Decl>, kind: u8, out: *vec::<*Decl>) {
+    for var i: usize = 0; i < seeds->size(); ++i { EarlyNeeds::_once(out, (*seeds)[i]); }
+    for var k: usize = 0; k < out->size(); ++k {
+        var it = (*out)[k];
+        self._early_needs(it);
+        for var i: usize = 0; i < self._en_key.size(); ++i {
+            if (self._en_key[i] == it) && (self._en_kind[i] == kind) { EarlyNeeds::_once(out, self._en_val[i]); }
+        }
+    }
+}
+
+/// The items the types written in record \p d's definition compute from:
+/// fields, bases, method signatures, nested records' (they are defined
+/// inside it).
+fn EmitPlan::_decl_type_items(d: *Decl, out: *vec::<*Decl>) {
+    var rec = self.adt_record(d);
+    var fields: *FrozenList::<*FieldDecl> = &null;
+    var methods: *FrozenList::<*FunctionDecl> = &null;
+    if isa::<ClassDecl>(rec) {
+        var c = cast::<ClassDecl>(rec);
+        fields = &(c->fields); methods = &(c->methods);
+        for var i: usize = 0; i < c->derives_list.size(); ++i {
+            var e = c->derives_list.get(i);
+            if e != &null { self._type_items(e->base, out); }
+        }
+    } else if isa::<StructDecl>(rec) { fields = &(cast::<StructDecl>(rec)->fields); methods = &(cast::<StructDecl>(rec)->methods); }
+    else if isa::<UnionDecl>(rec)  { fields = &(cast::<UnionDecl>(rec)->fields);  methods = &(cast::<UnionDecl>(rec)->methods); }
+    if fields != &null {
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = (*fields)[i];
+            if f != &null { self._type_items(f->type_, out); }
+        }
+    }
+    if methods != &null {
+        for var i: usize = 0; i < methods->size(); ++i {
+            var m = (*methods)[i];
+            if m == &null { continue; }
+            for var p: usize = 0; p < m->params.size(); ++p {
+                var pd = m->params[p];
+                if (pd != &null) && (!pd->is_self) { self._type_items(pd->type_, out); }
+            }
+            self._type_items(m->return_type, out);
+        }
+    }
+    var dc = CXXSpell::dc_of(rec);
+    if dc == &null { return; }
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var nd = *(dc->dc_decls.get(i));
+        if (nd == &null) || (!self._is_type_decl(nd)) { continue; }
+        if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+        self._decl_type_items(CXXSpell::rep(nd), out);
+    }
+}
+
+/// The items computed values in \p t name.
+fn EmitPlan::_type_items(t: *Type, out: *vec::<*Decl>) {
+    if t == &null { return; }
+    var n = EarlyNeeds();
+    n.rec_type(t);
+    for var i: usize = 0; i < n.items.size(); ++i { EarlyNeeds::_once(out, n.items[i]); }
+}
+
+fn EmitPlan::_eo_add(who: *Decl, dep: *Decl) {
+    if (who == &null) || (dep == &null) || (who == dep) { return; }
+    if self._eo_has(who, dep) { return; }
+    self._eo_who.push_back(who);
+    self._eo_dep.push_back(dep);
+}
+
+fn EmitPlan::_eo_has(who: *Decl, dep: *Decl) -> bool {
+    for var i: usize = 0; i < self._eo_who.size(); ++i {
+        if (self._eo_who[i] == who) && (self._eo_dep[i] == dep) { return true; }
+    }
+    return false;
+}
+
+/// The tier-1 decl whose definition lays out record \p d: its primary for
+/// an instance, its outermost record for a nested one.
+fn EmitPlan::_layout_key(d: *Decl) -> *Decl {
+    var c = CXXSpell::rep(d);
+    if c == &null { return &null; }
+    if decl_is_instance(c) {
+        var e = self._cg->instances->entry_of(c);
+        if e == &null { return &null; }
+        c = CXXSpell::rep(e->primary);
+        if c == &null { return &null; }
+    }
+    if !self._is_type_decl(c) { return &null; }
+    return self._outermost_type(c);
+}
+
+/// \p d (a defining link) is defined in tier 1 as an early item.
+fn EmitPlan::is_early(d: *Decl) -> bool {
+    for var i: usize = 0; i < self.early.size(); ++i { if self.early[i] == d { return true; } }
+    return false;
 }
 
 /// THE list of foreign bodies this TU emits, beside its own (which EmitIR
@@ -833,7 +1573,7 @@ fn EmitPlan::_bodies(want_own: bool) -> vec::<*FunctionDecl> {
             continue;
         }
         if d->kind != DeclKind::FunctionDecl { continue; }
-        if (CXXSpell::template_params(d).size() == 0) && (!cast::<FunctionDecl>(d)->is_inline()) { continue; }
+        if (CXXSpell::template_params(d).size() == 0) && (!cast::<FunctionDecl>(d)->is_inline()) && (!cast::<FunctionDecl>(d)->is_eval()) { continue; }
         self._push_body(cast::<FunctionDecl>(d), &out);
     }
 
@@ -845,7 +1585,7 @@ fn EmitPlan::_bodies(want_own: bool) -> vec::<*FunctionDecl> {
             var m = sc->members[k];
             if m == &null { continue; }
             if (CXXSpell::fid_of(static_cast::<*Decl>(m)) == self._home) != want_own { continue; }
-            if (CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0) && (!m->is_inline()) { continue; }
+            if (CXXSpell::template_params(static_cast::<*Decl>(m)).size() == 0) && (!m->is_inline()) && (!m->is_eval()) { continue; }
             self._push_body(m, &out);
         }
     }
@@ -866,7 +1606,7 @@ fn EmitPlan::_visible_record_bodies(d: *Decl, in_template: bool, out: *vec::<*Fu
             var m = (*methods)[i];
             if m == &null { continue; }
             // Neither template nor inline: linked from its own TU.
-            if (!templ) && (m->generic_params.size() == 0) && (!m->is_inline()) { continue; }
+            if (!templ) && (m->generic_params.size() == 0) && (!m->is_inline()) && (!m->is_eval()) { continue; }
             self._push_body(m, out);
         }
     }
@@ -924,6 +1664,16 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
                 self._admit_use(s->resolved_decl);
                 self._admit_cell(s->candidate_cell);
             }
+        } case ExprKind::ClosureExpr {
+            // A panicking closure's lambda returns its Panic result.
+            self._admit_type(cast::<ClosureExpr>(e)->panic_result, PlanNeed::Complete);
+        } case ExprKind::StringLiteralExpr {
+            // A byte literal C++ reads at compile time (EVAL.md 2a): a long
+            // one is a named array this plan's interface defines.
+            var sl = cast::<StringLiteralExpr>(e);
+            if sl->const_eval && (sl->imm != &null) && sl->imm->has_owned_text() {
+                self.note_eval_str(sl->imm->owned_ptr, static_cast::<usize>(sl->imm->owned_len));
+            }
         } case ExprKind::SizeOfExpr {
             // The operand is laid out, not just named: Complete, whatever
             // visit_type (Fwd, for a type merely spelled) would say.
@@ -937,9 +1687,29 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
             // so it never comes through _admit's instance-shell path.
             var ie = reinterpret_cast::<*InstanceEntry>(cast::<CallExpr>(e)->instance);
             if ie != &null { self._admit_instance(ie, PlanNeed::Fwd); }
+            // `Box<int>::zero()`: the member is looked up in the class, so
+            // the instance is complete here, and homed like any named one.
+            self._admit_type(cast::<CallExpr>(e)->qualifier, PlanNeed::Complete);
+            // `I::m(x)` on a concrete x: its row rides on the call.
+            var wr = reinterpret_cast::<*ConformanceRow>(cast::<CallExpr>(e)->witness_row);
+            if wr != &null { self._witness_row(wr); }
         } default { break; }
     }
     return true;
+}
+
+/// A compile-time literal's bytes, \p n of them at \p p: one past the
+/// inline limit is recorded for its named definition, once per content
+/// (the name is the content's, so equal bytes are one definition).
+fn EmitPlan::note_eval_str(p: std::ConstPtr::<u8>, n: usize) {
+    if n <= LowerTargets::eval_str_inline_max() { return; }
+    var h = LowerTargets::eval_str_hash(p, n);
+    for var i: usize = 0; i < self.big_str_hashes.size(); ++i {
+        if (self.big_str_hashes[i] == h) && (self.big_str_lens[i] == n) { return; }
+    }
+    self.big_str_bytes.push_back(p);
+    self.big_str_lens.push_back(n);
+    self.big_str_hashes.push_back(h);
 }
 
 /// Naming a type in syntax declares it; layout strength comes from the
@@ -957,13 +1727,19 @@ fn EmitPlan::visit_type(t: *Type) -> bool {
 fn EmitPlan::visit_decl(d: *Decl) -> bool {
     if d == &null { return true; }
     switch d->kind {
-        case DeclKind::VariableDecl  { self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Complete); }
+        case DeclKind::VariableDecl  {
+            if cast::<VariableDecl>(d)->raw_slot { self.needs_raw_slot = true; }
+            self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Complete);
+        }
         case DeclKind::FieldDecl     { self._admit_type(cast::<FieldDecl>(d)->type_, PlanNeed::Complete); }
         case DeclKind::ParamDecl {
             var p = cast::<ParamDecl>(d);
             self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Complete);
         }
-        case DeclKind::FunctionDecl  { self._admit_type(cast::<FunctionDecl>(d)->return_type, PlanNeed::Complete); }
+        case DeclKind::FunctionDecl  {
+            self._admit_type(cast::<FunctionDecl>(d)->return_type, PlanNeed::Complete);
+            self._admit_type(cast::<FunctionDecl>(d)->panic_result, PlanNeed::Complete);   // PANIC.md §4.1: what C++ returns.
+        }
         case DeclKind::TypeAliasDecl { self._admit_type(cast::<TypeAliasDecl>(d)->aliased, PlanNeed::Complete); }
         default { break; }
     }
@@ -1008,7 +1784,10 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
     // land here too and are skipped the same way.
     if CXXSpell::in_function_scope(c) { return; }
     if decl_is_imported(c) { return; }             // the header declares it (IMPORTS.md §5).
-    if isa::<InterfaceDecl>(c) { return; }         // no C++ entity yet (witnesses MISSING).
+    if decl_ffi_tag_target(c) != &null { return; } // `ffi "c" struct T`: the header's tag, not a Kairo type (§5.2).
+    // An interface's C++ entity is its witness: named by a call through a
+    // bound (_admit_use on the requirement), or by a bound's concept.
+    if isa::<InterfaceDecl>(c) { self._witness_primary(c); return; }
     // An extension member reached through a use (`l.pos.len()`) is not a
     // member by _member_owner, so without this it is admitted a second time
     // as an ordinary function; it is its scope's static member instead.
@@ -1040,11 +1819,30 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
         self._set.push_back(c);
         self._need.push_back(need);
         self._queue.push_back(self._set.size() - 1);
+        self._admit_specs(c, need);
         return;
     }
     if static_cast::<u8>(need) > static_cast::<u8>(self._need[at]) {
         self._need[at] = need;
         self._queue.push_back(at);
+        self._admit_specs(c, need);
+    }
+}
+
+/// A generic record's specializations ride with it at the same strength:
+/// every C++ TU that can name `Store<X>` must have seen each `Store<P*>` /
+/// `Store<bool>` before the first use that would instantiate one, or it
+/// instantiates the primary for it ([temp.expl.spec]/7, no diagnostic
+/// required). A Complete primary admits them Complete so an instance
+/// selected into a partial is laid out by it.
+fn EmitPlan::_admit_specs(c: *Decl, need: PlanNeed) {
+    if (decl_generic_params(c).size() == 0) || CXXSpell::is_record_spec(c) { return; }
+    var specs = vec::<*Decl>();
+    self._cg->instances->specs_of(c, &specs);
+    for var i: usize = 0; i < specs.size(); ++i {
+        var sd = CXXSpell::rep(specs[i]);
+        if (sd == &null) || sd->is_poisoned() { continue; }
+        self._admit(sd, need);
     }
 }
 
@@ -1054,14 +1852,66 @@ fn EmitPlan::_admit(d: *Decl, need: PlanNeed) {
 fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     var prim = CXXSpell::rep(e->primary);
     if decl_is_imported(prim) { return; }          // clang instantiates it from the PCH.
+    // A generic REQUIREMENT's instance names no C++ function: the call goes
+    // through the witness's member template, instantiated implicitly. No
+    // tier-3 line, ever (CODEGEN.md §7b.8); its arguments are still named.
+    if self._is_requirement(prim) {
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        return;
+    }
+    // A member template of a CLASS TEMPLATE: the entry holds the member's own
+    // arguments only, not the owner's, so it names no one C++ entity
+    // (`Box<A>::both<X>` and `Box<B>::both<X>` are one entry) and no tier-3
+    // line can spell it. Its body is visible wherever the owner is complete
+    // (§7), so the C++ instantiates it implicitly; its rows still apply.
+    if self._member_of_template(prim) {
+        for var i: usize = 0; i < e->rows.size(); ++i { self._witness_row(e->rows[i]); }
+        for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        // Its body is compiled wherever the owner is, so what it reaches is
+        // needed there too, rows included (no tier-3 line of its own).
+        var mseen = false;
+        for var i: usize = 0; i < self._members.size(); ++i { if self._members[i] == e { mseen = true; break; } }
+        if !mseen {
+            self._members.push_back(e);
+            self._admit_reached(e);
+            for var i: usize = 0; i < e->panic_types.size(); ++i { self._admit_type(e->panic_types[i], PlanNeed::Complete); }
+        }
+        return;
+    }
     var seen = false;
     for var i: usize = 0; i < self._insts.size(); ++i { if self._insts[i] == e { seen = true; break; } }
-    if !seen { self._insts.push_back(e); }
+    if !seen {
+        self._insts.push_back(e);
+        self._admit_reached(e);
+        // The panic results its body names at these arguments (PANIC.md
+        // P10, InstanceEntry::panic_types): C++ forms them only when it
+        // instantiates the body, so their elements' ids must be written
+        // wherever it may.
+        for var i: usize = 0; i < e->panic_types.size(); ++i { self._admit_type(e->panic_types[i], PlanNeed::Complete); }
+    }
     self._admit(prim, PlanNeed::Complete);
+    // Every TU holding the instance may compile its body (it is a visible
+    // C++ inline body), so every one needs the specializations its bounds
+    // bind, or it compiles the primary instead (CODEGEN.md §7b.6).
+    for var i: usize = 0; i < e->rows.size(); ++i { self._witness_row(e->rows[i]); }
+    // A panic result's elements are complete wherever it is named, even
+    // where a declaration only names it (a header's `Panic<T, E...> f()`):
+    // its tier-3 line asserts its size, and a C++ caller receives it by
+    // value and reads its error (PANIC.md §4.6).
+    var en = dyn_cast::<EnumDecl>(prim);
+    var whole = (en != &null) && en->adt_explicit_tags;
     for var i: usize = 0; i < e->args.size(); ++i {
-        var n = need;
-        if !self.param_by_value(prim, static_cast::<u32>(i)) { n = PlanNeed::Fwd; }
+        var n = (PlanNeed::Complete) if (whole) else (need);
+        if !self._arg_by_value(prim, i) { n = PlanNeed::Fwd; }
         self._admit_type(e->args[i], n);
+    }
+    // Laid out by a partial specialization: what IT holds by value is what
+    // the instance needs complete, read off its own parameters' bindings.
+    if e->pattern != &null {
+        var part = CXXSpell::rep(e->pattern);
+        for var i: usize = 0; i < e->pattern_args.size(); ++i {
+            if self.param_by_value(part, static_cast::<u32>(i)) { self._admit_type(e->pattern_args[i], need); }
+        }
     }
 }
 
@@ -1083,7 +1933,7 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
                 self._admit(d, need);
                 for var i: usize = 0; i < r->args.size(); ++i {
                     var n = need;
-                    if !self.param_by_value(d, static_cast::<u32>(i)) { n = PlanNeed::Fwd; }
+                    if !self._arg_by_value(d, i) { n = PlanNeed::Fwd; }
                     self._admit_type(*(r->args.get(i)), n);
                 }
             }
@@ -1091,15 +1941,49 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::PointerType      { self._admit_type(cast::<PointerType>(c)->pointee, PlanNeed::Fwd); }
         case TypeKind::CXXLValueRefType { self._admit_type(cast::<CXXLValueRefType>(c)->referee, PlanNeed::Fwd); }
         case TypeKind::CXXRValueRefType { self._admit_type(cast::<CXXRValueRefType>(c)->referee, PlanNeed::Fwd); }
-        case TypeKind::NullableType     { self._admit_type(cast::<NullableType>(c)->inner, PlanNeed::Fwd); }
+        // `T?` is its record to C++ (NullableTypeLowering), held by value.
+        case TypeKind::NullableType     { self._admit_type(self._nullable_record(c), need); }
         // No Vector/Set/Map/Tuple arms: they are RecordTypes now and admit
         // through the record path, which already walks their generic
         // arguments (a tuple's elements are by value, so at \p need).
-        case TypeKind::FixedArrayType { self._admit_type(cast::<FixedArrayType>(c)->element, need); }
+        case TypeKind::FixedArrayType {
+            self._admit_type(cast::<FixedArrayType>(c)->element, need);
+            self._admit_type(cast::<FixedArrayType>(c)->extent_param, PlanNeed::Fwd);
+        }
+        // A computed value (EVAL.md 0.2) names what C++ computes it from:
+        // the eval fn it calls (consteval, so its body comes too), the eval
+        // constant it reads (its definition comes too, visible_eval_vars),
+        // a cast's type.
+        case TypeKind::TypeExpr {
+            var v = cast::<TypeExpr>(c);
+            if (!v->is_value) || v->is_exact() { break; }
+            // A string (EVAL.md 7e): the string record is constructed right
+            // in the argument, over `__kairo_estr<...>` or a named array.
+            if v->vop == ValueOp::Str {
+                self.needs_eval_str = true;
+                self._admit_type(v->vty, PlanNeed::Complete);
+                self.note_eval_str(v->vbytes, static_cast::<usize>(v->vmag));
+                break;
+            }
+            // Not an `eval for` binding: a local, declared where it stands.
+            var local = (v->vdecl != &null) && ((v->vdecl->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl));
+            if (v->vdecl != &null) && (!local) { self._admit_use(v->vdecl); }
+            if v->vty != &null { self._admit_type(v->vty, PlanNeed::Fwd); }
+            for var i: usize = 0; i < v->vops.size(); ++i { self._admit_type(v->vops[i], PlanNeed::Fwd); }
+        }
         case TypeKind::FunctionPointerType {
             var f = cast::<FunctionPointerType>(c);
+            if !f->is_unprototyped { self.needs_fn_value = true; }
             for var i: usize = 0; i < f->params.size(); ++i { self._admit_type(*(f->params.get(i)), PlanNeed::Fwd); }
             self._admit_type(f->return_type, PlanNeed::Fwd);
+            self._admit_type(f->panic_result, PlanNeed::Complete);   // its value returns this (PANIC.md §4.1).
+        }
+        // `T::Node` names the bound's witness (its member type) and T.
+        case TypeKind::AssocType {
+            var a = cast::<AssocType>(c);
+            self._admit_type(a->base, PlanNeed::Fwd);
+            var ic = canon_unqual(a->iface);
+            if (ic != &null) && isa::<RecordType>(ic) { self._admit(cast::<RecordType>(ic)->decl, PlanNeed::Complete); }
         }
         case TypeKind::BuiltinType {
             // A builtin spelled as a Kairo declaration (`byte` -> Byte): an
@@ -1127,18 +2011,23 @@ fn EmitPlan::_expand(d: *Decl, need: PlanNeed) {
     // `extern T x;` only names T; the defining TU's own walk (visit_decl)
     // asks for Complete where the definition lays it out.
     if isa::<VariableDecl>(d) { self._admit_type(cast::<VariableDecl>(d)->type_, PlanNeed::Fwd); return; }
+    // A bounded record's head carries its concepts, and even its tier-0
+    // forward declaration is a head: at any strength.
+    self._witness_bounds(d);
     if need != PlanNeed::Complete { return; }
     self._expand_type(d);
 }
 
 /// A declaration names its types, it does not lay them out.
 fn EmitPlan::_expand_fn(n: *FunctionDecl) {
+    self._witness_bounds(static_cast::<*Decl>(n));
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
         self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Fwd);
     }
     self._admit_type(n->return_type, PlanNeed::Fwd);
+    self._admit_type(n->panic_result, PlanNeed::Fwd);
 }
 
 /// The whole definition (invariant 11): bases and by-value fields at
@@ -1148,6 +2037,12 @@ fn EmitPlan::_expand_fn(n: *FunctionDecl) {
 /// its layout record (adt_record): its fields, role functions, nested tag
 /// enum and payload structs, and the friends written on it.
 fn EmitPlan::_expand_type(d: *Decl) {
+    // A value parameter's class (EVAL.md 7e) is part of the template's head.
+    var gps = decl_generic_params(d);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var gp = gps[i];
+        if (gp != &null) && gp->is_const_param && (gp->value_type != &null) { self._admit_type(gp->value_type, PlanNeed::Complete); }
+    }
     var rec = self.adt_record(d);
     switch rec->kind {
         case DeclKind::ClassDecl {
@@ -1248,12 +2143,14 @@ fn EmitPlan::_methods(methods: *FrozenList::<*FunctionDecl>) {
 /// method returning a type that returns this one is two definitions in
 /// either order, not a tier-1 cycle.
 fn EmitPlan::_expand_member_sig(n: *FunctionDecl) {
+    self._witness_bounds(static_cast::<*Decl>(n));   // a bounded member template's head.
     for var i: usize = 0; i < n->params.size(); ++i {
         var p = *(n->params.get(i));
         if (p == &null) || p->is_self { continue; }
         self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Complete);
     }
     self._admit_type(n->return_type, PlanNeed::Complete);
+    self._admit_type(n->panic_result, PlanNeed::Complete);
 }
 
 /// Extensions targeting \p d written in d's OWN file: their scope is the
@@ -1298,6 +2195,28 @@ fn EmitPlan::_ext_target(x: *ExtensionDecl) -> *Decl {
     return self.layout_decl(cast::<RecordType>(c)->decl);
 }
 
+/// What \p e's body reaches once its arguments are known (`outer<M>`
+/// calling `inner(Wrap<T>{...})`: `inner<Wrap<M>>`, `Wrap<M>`) is named in
+/// no tree, yet this TU compiles that body or links against it: hold each
+/// reached instance too, so tier 3 writes its explicit instantiation in its
+/// home and `extern template` everywhere else, and its witness rows are
+/// admitted with it -- an instance's rows are its own bounds', never its
+/// reach's (the discovery walk checks each instance once, MONO.md D4).
+/// Callers run this once per instance, so a body that reaches itself
+/// stops. A function instance comes in as a call's does, its arguments
+/// Fwd. A record instance as a type naming it does (_admit: an interface's
+/// is its witness, an imported one clang's), Complete: its explicit
+/// instantiation lays it out.
+fn EmitPlan::_admit_reached(e: *InstanceEntry) {
+    var rs = vec::<*InstanceEntry>();
+    self._cg->instances->reached_of(e, &rs);
+    for var i: usize = 0; i < rs.size(); ++i {
+        var r = rs[i];
+        if isa::<FunctionDecl>(r->primary) { self._admit_instance(r, PlanNeed::Fwd); }
+        else if r->decl != &null { self._admit(r->decl, PlanNeed::Complete); }
+    }
+}
+
 // --- Layout queries (LayoutSpine + _admit_instance) ------------------------------
 
 /// The decl whose fields define a record's layout: an instance's pattern
@@ -1305,8 +2224,25 @@ fn EmitPlan::_ext_target(x: *ExtensionDecl) -> *Decl {
 /// record (adt_record); the representative otherwise.
 fn EmitPlan::layout_decl(d: *Decl) -> *Decl {
     var r = CXXSpell::rep(d);
-    if (r != &null) && decl_is_instance(r) { r = CXXSpell::rep(decl_pattern(r)); }
+    if (r != &null) && decl_is_instance(r) {
+        // Laid out by the partial specialization the registry selected for
+        // it, when one was: `Store<*i32>` has the partial's fields, not T's.
+        var e = self._cg->instances->entry_of(r);
+        if (e != &null) && (e->pattern != &null) { r = CXXSpell::rep(e->pattern); }
+        else { r = CXXSpell::rep(decl_pattern(r)); }
+    }
     return self.adt_record(r);
+}
+
+/// The extension scope a record-targeted extension belongs to, keyed by
+/// TEMPLATE: the primary's layout decl for every form of it. One struct
+/// per name (ext_scope_name spells the primary), so `extend <> Store<bool>`
+/// and `extend <P> Store<*P>` join `extend <T> Store<T>`'s scope, each
+/// member over its own receiver, rather than three structs named alike.
+fn EmitPlan::_scope_key(d: *Decl) -> *Decl {
+    var r = CXXSpell::rep(d);
+    if r == &null { return &null; }
+    return self.adt_record(CXXSpell::rep(decl_pattern(r)));
 }
 
 /// THE redirect from an ADT enum to the record it is written as
@@ -1344,8 +2280,29 @@ fn EmitPlan::anon_union_of(f: *FieldDecl) -> *UnionDecl {
 /// Recursion through another generic's field bottoms out at a depth cap
 /// and answers "by value", the safe direction (an over-strong edge can
 /// only trip the cycle assert, never miss a definition).
-fn EmitPlan::param_by_value(prim: *Decl, idx: u32) -> bool {
+/// param_by_value for argument \p i of an instance of \p prim, flat. An
+/// element of a pack-expanded variant's pack is held by value (a pack field
+/// is the pack itself, P0), in the variant's `__kairo_pu` union, which the
+/// field walk does not see through: a header declaring a function that
+/// returns `Panic<T, E...>` needs every E complete (PANIC.md §4.6).
+fn EmitPlan::_arg_by_value(prim: *Decl, i: usize) -> bool {
+    var en = dyn_cast::<EnumDecl>(prim);
+    if (en != &null) && en->is_adt {
+        var p = adt_pack_param(en);
+        if (p != usize(-1)) && (i >= p) { return true; }
+    }
+    return self.param_by_value(prim, static_cast::<u32>(i));
+}
+
+fn EmitPlan::param_by_value(prim: *Decl, idx_in: u32) -> bool {
     if prim == &null { return false; }
+    // An instance's arguments past a pack's position are the pack's
+    // elements (InstanceEntry::args, flat): each is held as the pack is.
+    var idx = idx_in;
+    var pgs = decl_generic_params(prim);
+    for var i: usize = 0; i < pgs.size(); ++i {
+        if (pgs[i] != &null) && pgs[i]->is_pack && (usize(idx) > i) { idx = u32(i); break; }
+    }
     // One question per record: an ADT asked as its enum or as its layout
     // record is the same one, so it gets one memo key.
     var p   = self.layout_decl(prim);
@@ -1415,6 +2372,7 @@ fn EmitPlan::_type_reaches_param(t: *Type, prim: *Decl, idx: u32) -> bool {
     if c == &null { c = t; }
     switch c->kind {
         case TypeKind::QualifiedType { return self._type_reaches_param(cast::<QualifiedType>(c)->inner, prim, idx); }
+        case TypeKind::NullableType  { return self._type_reaches_param(cast::<NullableType>(c)->lowered, prim, idx); }
         case TypeKind::GenericParamType {
             var g = cast::<GenericParamType>(c);
             // Both through layout_decl: walking an ADT's record, \p prim is
@@ -1449,6 +2407,7 @@ fn EmitPlan::_type_reaches_param(t: *Type, prim: *Decl, idx: u32) -> bool {
 // --- Ordering ----------------------------------------------------------------------
 
 fn EmitPlan::_order() {
+    self._early();
     // Tier 0: forward declarations. Namespace-scope types only; a nested
     // type cannot be forward-declared outside its owner.
     var t0: vec::<PlanEntry>;
@@ -1463,8 +2422,40 @@ fn EmitPlan::_order() {
         e.scope = &(self._scopes[i]);
         t0.push_back(e);
     }
+    // A witness primary is declared up front, so a specialization or a
+    // body can name it in any order tier 1 settles on.
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if self._witnesses[i].row != &null { continue; }
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls);
+        e.witness = &(self._witnesses[i]);
+        e.own     = true;   // written wherever it is needed; one text everywhere (§7b.6).
+        t0.push_back(e);
+    }
     self._sort(&t0);
-    for var i: usize = 0; i < t0.size(); ++i { self.entries.push_back(t0[i]); }
+    self._specs_after_primary(&t0);
+    // Three runs: every forward declaration whose head names no concept,
+    // then the concepts (a requires-parameter needs its type declared, not
+    // complete; a base's concept first), then the bounded records' forward
+    // declarations, whose heads name them (CODEGEN.md §7b.7).
+    var bounded = vec::<PlanEntry>();
+    for var i: usize = 0; i < t0.size(); ++i {
+        var e = &(t0[i]);
+        if (e->witness == &null) && (e->scope == &null) && (self._spell.requires_clause(e->decl).size() > 0) { bounded.push_back(t0[i]); continue; }
+        self.entries.push_back(t0[i]);
+    }
+    var cs = vec::<PlanEntry>();
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        if self._witnesses[i].row != &null { continue; }
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Fwd, PlanTier::FwdDecls);
+        e.witness = &(self._witnesses[i]);
+        e.is_concept = true;
+        e.own     = true;
+        cs.push_back(e);
+    }
+    self._sort(&cs);
+    self._toposort(&cs);
+    for var i: usize = 0; i < cs.size(); ++i { self.entries.push_back(cs[i]); }
+    for var i: usize = 0; i < bounded.size(); ++i { self.entries.push_back(bounded[i]); }
 
     // Tier 1: definitions, toposorted on Complete edges.
     var t1: vec::<PlanEntry>;
@@ -1481,6 +2472,20 @@ fn EmitPlan::_order() {
         if (self._mode != PlanMode::Preamble) && (!self._scopes[i].reachable) { continue; }
         var e = self._entry(static_cast::<*Decl>(self._scopes[i].anchor), PlanNeed::Complete, PlanTier::Definitions);
         e.scope = &(self._scopes[i]);
+        t1.push_back(e);
+    }
+    for var i: usize = 0; i < self._witnesses.size(); ++i {
+        var e = self._entry(self._witnesses[i].iface, PlanNeed::Complete, PlanTier::Definitions);
+        e.witness = &(self._witnesses[i]);
+        e.own     = true;
+        t1.push_back(e);
+    }
+    // The early items (EVAL.md §11), each where its edges put it: after the
+    // records its definition needs complete, before the records whose
+    // types evaluate it.
+    for var i: usize = 0; i < self.early.size(); ++i {
+        var e = self._entry(self.early[i], PlanNeed::Complete, PlanTier::Definitions);
+        e.eval_item = self.early[i];
         t1.push_back(e);
     }
     self._sort(&t1);
@@ -1591,6 +2596,15 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
             }
             if ready { picked = i; break; }
         }
+        if picked == usize(-1) {
+            // A cycle through an early item (EVAL.md §11) is EvalUsageChecking's
+            // to report; one of records alone, TypeCycleCheck's.
+            for var i: usize = 0; i < n; ++i {
+                if (!taken[i]) && ((*v)[i].eval_item != &null) {
+                    self._ice((*v)[i].decl->range, "EmitPlan: no order defines the eval items a declaration's type computes from ahead of it; EvalUsageChecking::_check_order should have reported the cycle");
+                }
+            }
+        }
         assert((picked != usize(-1))
             && r"EmitPlan: Complete-edge cycle in tier 1; TypeCycleCheck should have rejected this in sema");
         taken[picked] = true;
@@ -1602,6 +2616,28 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
 /// True when entry \p who must follow entry \p dep. A scope follows its
 /// deps; nothing waits on a scope (a friend line needs only tier 0).
 fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
+    if (who->eval_item != &null) || (dep->eval_item != &null) {
+        if (who->witness != &null) || (who->scope != &null) || (dep->witness != &null) || (dep->scope != &null) { return false; }
+        return self._eo_has(who->decl, dep->decl);
+    }
+    if who->witness != &null {
+        var w = who->witness;
+        if dep->witness != &null {
+            if dep->witness->row != &null { return false; }   // nothing waits on a specialization.
+            for var i: usize = 0; i < w->after.size(); ++i { if w->after[i] == dep->witness->iface { return true; } }
+            return false;
+        }
+        if dep->scope != &null {
+            for var i: usize = 0; i < w->scopes.size(); ++i {
+                var sp = &(self._scopes[w->scopes[i]]);   // bound first: Stage 0 drops a leading `&(...)` in a comparison.
+                if sp == dep->scope { return true; }
+            }
+            return false;
+        }
+        for var i: usize = 0; i < w->deps.size(); ++i { if w->deps[i] == dep->decl { return true; } }
+        return false;
+    }
+    if dep->witness != &null { return false; }
     if dep->scope != &null { return false; }
     if who->scope != &null {
         for var i: usize = 0; i < who->scope->deps.size(); ++i {
@@ -1609,7 +2645,40 @@ fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
         }
         return false;
     }
+    // A specialization's definition follows its primary's: a partial
+    // whose pattern instantiates the primary (`Store<Store<P>*>`) needs it
+    // defined, and keeping the pair in order costs nothing otherwise.
+    if CXXSpell::is_record_spec(who->decl) && (CXXSpell::rep(decl_instantiated_from(who->decl)) == dep->decl) { return true; }
     return self._needs_complete(who->decl, dep->decl);
+}
+
+/// Tier 0 is (fid, offset) order, which puts a specialization written
+/// above its primary, or in a file sorting before the primary's, ahead of
+/// the primary's declaration: C++ rejects a specialization of an
+/// undeclared template. Each such entry moves to just after its primary;
+/// everything else keeps its place.
+fn EmitPlan::_specs_after_primary(v: *vec::<PlanEntry>) {
+    var moved = true;
+    var guard: usize = 0;
+    while moved && (guard < v->size() + 1) {
+        moved = false;
+        guard += 1;
+        for var i: usize = 0; i < v->size(); ++i {
+            var d = (*v)[i].decl;
+            if ((*v)[i].scope != &null) || ((*v)[i].witness != &null) || (!CXXSpell::is_record_spec(d)) { continue; }
+            var prim = CXXSpell::rep(decl_instantiated_from(d));
+            var at = usize(-1);
+            for var j: usize = i + 1; j < v->size(); ++j {
+                if ((*v)[j].scope == &null) && ((*v)[j].witness == &null) && ((*v)[j].decl == prim) { at = j; break; }
+            }
+            if at == usize(-1) { continue; }
+            var e = (*v)[i];
+            for var j: usize = i; j < at; ++j { (*v)[j] = (*v)[j + 1]; }
+            (*v)[at] = e;
+            moved = true;
+            break;
+        }
+    }
 }
 
 /// True when \p who's definition requires \p dep's definition first. An
@@ -1617,6 +2686,9 @@ fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
 /// through its anonymous union and payload structs.
 fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
     if (who == &null) || (dep == &null) { return false; }
+    // A value parameter of class type (`<eval C: Config>`, EVAL.md 7e): C++
+    // needs the class complete wherever the template is declared.
+    if self.value_param_record(who, dep) { return true; }
     var probe = LayoutSpine(&self, dep);
     var rec   = self.adt_record(who);
     switch rec->kind {
@@ -1639,6 +2711,39 @@ fn EmitPlan::_needs_complete(who: *Decl, dep: *Decl) -> bool {
 }
 
 // --- Predicates ----------------------------------------------------------------------
+
+/// \p who has a generic value parameter whose type is a record (EVAL.md
+/// 7e): \p dep that record, or with \p dep null, any. C++ needs that class
+/// complete at every declaration of the template, its forward one included.
+fn EmitPlan::value_param_record(who: *Decl, dep: *Decl) -> bool {
+    if who == &null { return false; }
+    var gps = decl_generic_params(who);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var gp = gps[i];
+        if (gp == &null) || (!gp->is_const_param) || (gp->value_type == &null) || (gp->value_type->canonical == &null) { continue; }
+        var c = canon_unqual(gp->value_type->canonical);
+        if !isa::<RecordType>(c) { continue; }
+        if dep == &null { return true; }
+        if CXXSpell::rep(cast::<RecordType>(c)->decl) == dep { return true; }
+    }
+    return false;
+}
+
+/// \p d is a member of a generic record (its own generic params aside).
+fn EmitPlan::_member_of_template(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) || (d->semantic_dc == &null) { return false; }
+    var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+    if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+    var owner = dc->owner_decl();
+    return (owner != &null) && (decl_generic_params(owner).size() > 0);
+}
+
+/// \p d is declared in an interface: a requirement, never a C++ function.
+fn EmitPlan::_is_requirement(d: *Decl) -> bool {
+    if (d == &null) || (!isa::<FunctionDecl>(d)) || (d->semantic_dc == &null) { return false; }
+    var home = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+    return (home != &null) && isa::<InterfaceDecl>(home);
+}
 
 fn EmitPlan::_plannable(d: *Decl) -> bool {
     return self._is_type_decl(d) || (d->kind == DeclKind::FunctionDecl) || self._is_global_var(d);

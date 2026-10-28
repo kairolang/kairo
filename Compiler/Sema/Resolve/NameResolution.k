@@ -487,30 +487,35 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if !self.sc->g->is_builtin_fid(self.sc->ctx->fid) { return; }
 
         var root = static_cast::<*DeclContext>(self.sc->tu);
-        self._bind_lang(root, WellKnownType::Slice,      "Slice");
-        self._bind_lang(root, WellKnownType::Vector,     "Vector");
-        self._bind_lang(root, WellKnownType::HashSet,    "HashSet");
-        self._bind_lang(root, WellKnownType::HashMap,    "HashMap");
-        self._bind_lang(root, WellKnownType::String,     "string");
+        self._bind_lang(root, WellKnownType::Slice);
+        self._bind_lang(root, WellKnownType::Vector);
+        self._bind_lang(root, WellKnownType::HashSet);
+        self._bind_lang(root, WellKnownType::HashMap);
+        self._bind_lang(root, WellKnownType::String);
 
-        self._bind_lang(root, WellKnownType::Range,      "Range");
-        self._bind_lang(root, WellKnownType::RangeFrom,  "RangeFrom");
-        self._bind_lang(root, WellKnownType::RangeTo,    "RangeTo");
-        self._bind_lang(root, WellKnownType::Ordering,   "Ordering");
-        self._bind_lang(root, WellKnownType::Future,     "Future");
-        self._bind_lang(root, WellKnownType::Yield,      "Yield");
-        self._bind_lang(root, WellKnownType::Null,       "Null");
-        self._bind_lang(root, WellKnownType::Panic,      "Panic");
+        self._bind_lang(root, WellKnownType::Range);
+        self._bind_lang(root, WellKnownType::RangeFrom);
+        self._bind_lang(root, WellKnownType::RangeTo);
+        self._bind_lang(root, WellKnownType::Ordering);
+        self._bind_lang(root, WellKnownType::Future);
+        self._bind_lang(root, WellKnownType::Yield);
+        self._bind_lang(root, WellKnownType::Nullable);
+        self._bind_lang(root, WellKnownType::NullT);
+        self._bind_lang(root, WellKnownType::Panic);
 
-        self._bind_lang(root, WellKnownType::BigInt,     "BigInt");
-        self._bind_lang(root, WellKnownType::BigFloat,   "BigFloat");
+        self._bind_lang(root, WellKnownType::BigInt);
+        self._bind_lang(root, WellKnownType::BigFloat);
 
-        self._bind_lang(root, WellKnownType::PanicRaise, "PanicRaise");
-        self._bind_lang(root, WellKnownType::PanicCatch, "PanicCatch");
-        self._bind_lang(root, WellKnownType::AssertFail, "AssertFail");
-        self._bind_lang(root, WellKnownType::Pow,        "pow");
-        self._bind_lang(root, WellKnownType::FmtBuf,     "FmtBuf");
-        self._bind_lang(root, WellKnownType::Byte,       "Byte");
+        self._bind_lang(root, WellKnownType::PanicRaise);
+        self._bind_lang(root, WellKnownType::PanicCatch);
+        self._bind_lang(root, WellKnownType::AssertFail);
+        self._bind_lang(root, WellKnownType::Pow);
+        self._bind_lang(root, WellKnownType::FmtBuf);
+        self._bind_lang(root, WellKnownType::Byte);
+        self._bind_lang(root, WellKnownType::UnwrapFailed);
+        self._bind_lang(root, WellKnownType::NicheOf);
+        self._bind_lang(root, WellKnownType::TypeIdOf);
+        self._bind_lang(root, WellKnownType::PanicSiteOf);
 
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every
@@ -518,13 +523,53 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var bd = self.sc->well_known->get(WellKnownType::Byte);
         var bt = self.sc->types->builtin(BuiltinKind::Byte);
         if (bd != &null) && (bt != &null) { cast::<BuiltinType>(bt)->lang_decl = bd; }
+
+        // `null_t`'s constant has no Kairo declaration (`null` is a
+        // keyword), so codegen writes it from a mark on the record.
+        var nd = dyn_cast::<StructDecl>(self.sc->well_known->get(WellKnownType::NullT));
+        if nd != &null { nd->is_null_type = true; }
+
+        self._literal_ctor_constexpr();
     }
 
-    /// One lang item, by the name it is DECLARED with in Lib/builtin. The old
-    /// binder asked for "Map", "Set", "Int", "Float" and "String"; the tree
-    /// declares HashMap, HashSet, BigInt, BigFloat and `string`, so five of the
-    /// seventeen could never match.
-    priv fn _bind_lang(self, root: *DeclContext, k: WellKnownType, spelling: string) {
+    /// The string literal constructor, `string(data, len, cp_len)`, and the
+    /// empty one are C++ `constexpr` and inline (EVAL.md 2a): an eval
+    /// context builds strings from `__kairo_estr` bytes with the first, and
+    /// an eval constructor default-initializes a string field with the
+    /// second, so both must run in a constant expression, and so their
+    /// bodies must be in every TU that does. Kairo has no spelling for
+    /// "compile time and run time both", so they are marked here, by the
+    /// lang item; only by the TU that declares the record: the one writer,
+    /// before any TU's codegen reads the flags.
+    priv fn _literal_ctor_constexpr(self) {
+        var sd = self.sc->well_known->get(WellKnownType::String);
+        if sd == &null { return; }
+        if reinterpret_cast::<*DeclContext>(sd->semantic_dc) != static_cast::<*DeclContext>(self.sc->tu) { return; }
+        var dc = NameLookup::context_of(sd);
+        if dc == &null { return; }
+        var cell = self.sc->lookup.in_context(dc, DeclName::ctor());
+        if !cell.found() { return; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var m = dyn_cast::<FunctionDecl>(cell.cell->get(i));
+            if m == &null { continue; }
+            var n: usize = 0;
+            for var p: usize = 0; p < m->params.size(); ++p {
+                if (m->params[p] != &null) && (!m->params[p]->is_self) { n += 1; }
+            }
+            if (n != 0) && (n != 3) { continue; }   // the empty string and the literal.
+            m->modifiers = m->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline;
+        }
+    }
+
+    /// One lang item, by the name it is DECLARED with in Lib/builtin, which is
+    /// `to_string(k)` and nothing else: the diagnostics that name a missing
+    /// item quote the same function, so the name looked up and the name
+    /// reported cannot drift apart. The old binder carried its own column of
+    /// literals and asked for "Map", "Set", "Int", "Float" and "String"; the
+    /// tree declares HashMap, HashSet, BigInt, BigFloat and `string`, so five
+    /// of the seventeen could never match.
+    priv fn _bind_lang(self, root: *DeclContext, k: WellKnownType) {
+        var spelling = to_string(k);
         var im = self.sc->imm_table()->find_ident(spelling);
         if im == u32(-1) { return; }        // never interned here: absent.
         var r = self.sc->lookup.unqualified(root, DeclName::ident(im));
@@ -650,7 +695,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if all_fn { return; }               // overload set; nothing to judge yet.
 
         if !kind_ok {
-            self._redefinition(e, &group, "declared with conflicting kinds");
+            self._redefinition(dc, e, &group, "declared with conflicting kinds");
             return;
         }
 
@@ -665,7 +710,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             case DeclKind::EnumDecl      { self._link_group::<EnumDecl>(e, &group);      }
             case DeclKind::ModuleDecl    { self._link_group::<ModuleDecl>(e, &group);    }
             default {
-                self._redefinition(e, &group, "redefined");
+                self._redefinition(dc, e, &group, "redefined");
             }
         }
     }
@@ -706,6 +751,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         for var i: usize = 0; i < group->size(); ++i {
             var cur = cast::<T>((*group)[i]);
             if cur == &null { continue; }
+            if (i > 0) && self._requires_selected_partial((*group)[i]) { continue; }
             if cur->is_this_definition { defs.push_back((*group)[i]); }
         }
 
@@ -727,6 +773,28 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         } else {
             first->retarget_canonical(first->first_decl());
         }
+    }
+
+    /// `struct <P> X<P> requires pred<P>()` beside a primary `X`: a partial
+    /// specialization whose pattern is only its own parameters, selected by
+    /// the clause alone. The parser cannot tell it from a second primary, so
+    /// without this it is a redefinition, which names the wrong problem.
+    /// Requires-dispatch is not built (TypeResolve refuses the `<*P>` form
+    /// with a clause the same way); reported and poisoned, so the primary
+    /// keeps every instance. True when \p d was one.
+    priv fn _requires_selected_partial(self, d: *Decl) -> bool {
+        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) { return false; }
+        var rc = decl_requires_clause(d);
+        if (rc == &null) || (decl_spec_args(d).size() == 0) || (decl_generic_params(d).size() == 0) { return false; }
+        if d->is_poisoned() { return true; }
+        var b = self.sc->diag->report(DiagID::SC001E, d->range.start,
+            "a partial specialization selected by 'requires' is not supported yet; the primary is used for every instance");
+        b.first(rc->range);
+        b.note(DiagID::SC001N, d->range.start,
+            "partial specializations are selected by their argument pattern alone (`<P> X<*P>`); write the pattern instead");
+        b.emit();
+        d->poison();
+        return true;
     }
 
     /// `Self` names the enclosing TYPE BODY's decl: the class/struct/... or
@@ -760,7 +828,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// The sole home of the redefinition diagnostic. One error at the
     /// second decl, one note at the first, every loser poisoned so uses
     /// degrade instead of cascading.
-    priv fn _redefinition(self, e: SymbolTable::Entry, group: *vec::<*Decl>, what: string) {
+    priv fn _redefinition(self, dc: *DeclContext, e: SymbolTable::Entry, group: *vec::<*Decl>, what: string) {
         var name = e.name.describe(self.sc->ctx);
         var prev = (*group)[0];
         for var i: usize = 1; i < group->size(); ++i {
@@ -776,9 +844,34 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             b.note(DiagID::R029N, prev->range.start,
                 f"previous declaration of '{name}' is here"
             ).first(prev->range);
+            // Two file-scope bindings: in a script every one is a global,
+            // whatever keyword declares it, so `var x` after `static x` is
+            // the same name twice, and the edit is almost always a rename
+            // (SCRIPT.md 1.2). Only there: a member or local has a scope
+            // the user meant, and a rename may be the wrong fix.
+            var dv = dyn_cast::<VariableDecl>(d);
+            if (dc != &null) && dc->is_translation_unit() && (dv != &null) && isa::<VariableDecl>(prev) {
+                var fresh = self._free_name(dc, name);
+                if !fresh.empty() {
+                    b.fix(dv->name.range, fresh, f"rename this one to '{fresh}\x27");
+                }
+            }
             b.emit();
             d->poison();
         }
+    }
+
+    /// The first `<name>N` (N = 2, 3, ...) that names nothing in \p dc: a
+    /// spelling never interned is free outright. Empty after a bound no
+    /// file reaches, rather than a loop with none.
+    priv fn _free_name(self, dc: *DeclContext, name: string) -> string {
+        for var n: u32 = 2; n < 1000; ++n {
+            var cand = f"{name}{n}";
+            var imm = self.sc->imm_table()->find_ident(cand);
+            if imm == static_cast::<u32>(-1) { return cand; }
+            if dc->lookup_symbol_ident(imm) == &null { return cand; }
+        }
+        return "";
     }
 
     // --- out-of-line attachment -------------------------------------------
@@ -969,6 +1062,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             r = self.sc->lookup.in_context(self._ext_target, DeclName::ident(imm));
         }
         if !r.found() { return NameHit::miss(); }
+        r = self._prefer_ordinary_over_ffi_forward(r, imm);
 
         var h = NameHit{};
         h.found       = true;
@@ -997,6 +1091,31 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var sole = self._sole_entity(r.cell);
         if sole != &null { h.decl = sole; } else { h.cell = r.cell; }
         return h;
+    }
+
+    /// `ffi "c" struct timezone` names the header's TAG, and C keeps tags
+    /// apart from ordinary names: in a VALUE position (every head N binds)
+    /// the imported ordinary `timezone` the forward declaration would
+    /// otherwise shadow is still what the name means. Types go through T,
+    /// where the forward declaration wins (IMPORTS.md §5.2).
+    priv fn _prefer_ordinary_over_ffi_forward(self, r: SemaLookupResult, imm: u32) -> SemaLookupResult {
+        if r.via_overlay || (!r.single()) { return r; }
+        if decl_ffi_tag_target(r.first()) == &null { return r; }
+        var tu = self.sc->tu;
+        if (tu == &null) || (tu->import_overlay == &null) { return r; }
+        var cell = tu->import_overlay->lookup_ident(imm);
+        if (cell == &null) || (cell->size() == 0) { return r; }
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if decl_is_ffi(d) && (!decl_is_ffi_tag(d)) {
+                var o = SemaLookupResult{};
+                o.cell        = cell;
+                o.found_in    = static_cast::<*DeclContext>(tu);
+                o.via_overlay = true;
+                return o;
+            }
+        }
+        return r;
     }
 
     /// The one entity a multi-decl cell denotes, or null when it holds a
@@ -1787,6 +1906,18 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             return true;
         }
 
+        // Two header entities under one imported name: C++ reports that
+        // here, at the use, not at the import (ImportResolution::_add).
+        if h.via_overlay
+        && MemberLookup::report_lazy_ambiguity(self.sc, h.found_in, imm,
+                                               self.sc->ctx->get_spelling(n->name), n->range) {
+            n->poison();
+            self.sc->trace.use_site(imm, n->range, &null, TraceVia::Overlay,
+                                    h.found_in, usize(-1), 0, true,
+                                    &null, TraceVia::None, &null);
+            return true;
+        }
+
         if h.via_overlay && !self._overlay_access_ok(imm) {
             var nm = self.sc->ctx->get_spelling(n->name);
             self.sc->diag->report(DiagID::R047E, n->range.start,
@@ -1802,6 +1933,19 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if (h.member_scope != &null) && self._needs_qualifier(h) {
             self._report_unqualified_member(n, h);
             return true;
+        }
+
+        // The scope exception's readability lint: `Node { .. }` binds, and
+        // says `Self::Node` would read better (MemberLookup).
+        // Not the subject of an associated type's own bound: `type Node impl
+        // X` is parsed as the clause `Node impl X`, whose `Node` is the
+        // declaration's name token, not a use anyone wrote.
+        var own_bound = (h.decl != &null) && isa::<TypeAliasDecl>(h.decl) && (cast::<TypeAliasDecl>(h.decl)->name.range.start == n->range.start);
+        if (!h.from_local) && (!h.via_overlay) && (h.decl != &null) && (!own_bound) {
+            var so = self._self_owner();
+            if MemberLookup::is_member_type_of(h.decl, so) {
+                MemberLookup::warn_unqualified_member_type(self.sc, n->range, h.decl, so);
+            }
         }
 
         if h.decl != &null {
@@ -1876,6 +2020,24 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     // method resolves to `Self::Nested` and stays legal, because naming a type
     // is not an access through an object.
 
+    /// The record `Self` denotes here: the innermost type scope around the
+    /// use, or the target of the `extend` it is in. Null outside any type
+    /// body (and inside `extend i32`, which has no record to name).
+    priv fn _self_owner(self) -> *Decl {
+        var dc = self.cur_dc;
+        while dc != &null {
+            if dc->is_type_scope() {
+                if dc->context_kind() == DeclContextKind::Extension {
+                    if self._ext_target == &null { return &null; }
+                    return self._ext_target->owner_decl();
+                }
+                return dc->owner_decl();
+            }
+            dc = dc->parent_context();
+        }
+        return &null;
+    }
+
     /// True when the answering decl denotes a scope/type rather than a member
     /// entity -- the sole exception to the qualifier rule.
     priv fn _is_scope_name(self, d: *Decl) -> bool {
@@ -1908,7 +2070,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     priv fn _is_static_member(self, d: *Decl) -> bool {
         if d == &null { return false; }
         var f = dyn_cast::<FieldDecl>(d);
-        if f != &null { return f->storage == StorageClass::Static; }
+        if f != &null { return f->is_static(); }
         var v = dyn_cast::<VariableDecl>(d);
         if v != &null { return v->is_static(); }
         var fn_ = dyn_cast::<FunctionDecl>(d);

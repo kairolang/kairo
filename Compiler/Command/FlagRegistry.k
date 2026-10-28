@@ -76,6 +76,12 @@ fn _unwind_tables_choices() -> vec::<string> {
     return c;
 }
 
+fn _hardening_choices() -> vec::<string> {
+    var c: vec::<string>;
+    c.push_back("enum-tags");
+    return c;
+}
+
 fn _unmatched_choices() -> vec::<string> {
     var c: vec::<string>;
     c.push_back("trap"); c.push_back("unreachable");
@@ -260,7 +266,11 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
     cmd->define::<FlagKind::Feature>("union-inference",    "union type inference: x = 1; x = \"s\" -> x: i32|string");
     cmd->define::<FlagKind::Feature>("exceptions",         "C++ style exception handling");
+    cmd->define::<FlagKind::Feature>("unwind",             "let C++ exceptions pass through Kairo frames: no Kairo function is noexcept (off: each is noexcept unless @unwind)");
     cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks (-fno-unsafe makes them an error)");
+    // MONO.md D1: the transitional C++-checked regime. Off, `<T: type>` is an
+    // error; on, its body is typed as written and clang checks each instance.
+    cmd->define::<FlagKind::Feature>("duck-generics",      "accept `<T: type>`: the body is checked by C++ per instance, not by Kairo (transitional; off by default)");
 
     // codegen / optimization (off by default unless noted) -----------------
     cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");
@@ -460,6 +470,9 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-symbols",    "",  "print-symbols",    "dump the frozen per-DeclContext symbol tables (uses --print-ast style)",       false);
     cmd->define::<FlagKind::Bool>  ("preserve-comments","",  "preserve-comments","keep comments in the token stream; they reach the AST as annotations",         false);
     cmd->define::<FlagKind::Bool>  ("print-generics",   "",  "print-generics",   "dump every generic instantiation and its origin site",                        false);
+    cmd->define::<FlagKind::Bool>  ("print-panic-sets", "",  "print-panic-sets", "dump every Panic<T, E...> instance: its canonical set, each type id, and its layout",  false);
+    cmd->define::<FlagKind::Bool>  ("test-panic-type",  "",  "test-panic-type",  "compiler tests only: let source name the Panic<T, E...> lang item (SC116E otherwise)", false);
+    cmd->define::<FlagKind::I32>   ("test-panic-id-bits","", "test-panic-id-bits","compiler tests only: keep this many low bits of each panic type id, to force collisions", 32, 1, 32);
     cmd->define::<FlagKind::Bool>  ("verify-ir",        "",  "verify-ir",        "run LLVM IR verifier after codegen",                                           false);
     cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "print each macro expansion to stderr (no -v needed)",                         false);
     cmd->define::<FlagKind::String>("macro-debug-filter","",  "macro-debug-filter","requires --macro-debug; limit the trace to this macro name (without '!')",                        "");
@@ -473,8 +486,8 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("macro-trace-depth",         "needs --macro-debug; maximum depth of the expansion trace (0 = unlimited)",           0,       0,    65536);
 
     //  generic instantiation
-    cmd->define_cfg::<FlagKind::I32>("max-generic-depth",         "maximum generic instantiation nesting depth",                               256,     1,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-generic-backtrace",     "maximum frames shown in generic instantiation error backtraces",            16,      0,    64);
+    cmd->define_cfg::<FlagKind::I32>("max-generic-depth",         "maximum generic instantiation chain length; a longer chain is an error",   128,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-generic-backtrace",     "maximum instantiation-chain notes shown per error (0 = all)",               5,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations", "maximum total generic instantiations across compilation (0 = unlimited)", 16384,   0,    16777216);
 
     //  const / eval
@@ -542,8 +555,11 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define(FlagDef::str_c("thread-model", "", "thread-model", "threading model: posix|single (default: posix)",
                                "posix", _thread_model_choices(), "posix"));
     // Empty default: the policy follows -O (CodeGenOptions::unmatched_policy).
-    cmd->define(FlagDef::str_c("unmatched", "", "unmatched", "an undeclared value reaching an exhaustive match: trap|unreachable (default: trap, unreachable at -O3)",
+    cmd->define(FlagDef::str_c("unmatched", "", "unmatched", "an undeclared value reaching an exhaustive match: trap|unreachable (default: trap, unreachable at -O3; an ADT's tag: unreachable, see --hardening)",
                                "", _unmatched_choices(), ""));
+    // Repeatable and comma-separated; each item is checked against the list.
+    cmd->define(FlagDef::list_c("hardening", "", "hardening", "runtime checks the optimizer may not assume away: enum-tags (an ADT match traps on a tag no variant has)",
+                                _hardening_choices()));
     cmd->define(FlagDef::str_c("unwind-tables", "", "unwind-tables", "unwind table emission: none|sync|async (default: per target; async on x86_64)",
                                "", _unwind_tables_choices(), ""));
     cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)", "");
@@ -672,8 +688,6 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->mark_unimplemented("c:tab-width");
     cmd->mark_unimplemented("diag-cascade");
     // --c* limits nothing enforces.
-    cmd->mark_unimplemented("c:max-generic-depth");
-    cmd->mark_unimplemented("c:max-generic-backtrace");
     cmd->mark_unimplemented("c:max-generic-instantiations");
     cmd->mark_unimplemented("c:max-const-eval-steps");
     cmd->mark_unimplemented("c:max-const-eval-depth");

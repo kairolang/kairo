@@ -6,7 +6,8 @@
 ///     Replaces C++'s rule of five: every initialization, assignment, and
 ///     argument pass resolves to exactly one of the annotated
 ///     constructors, or to a trivial bitwise copy when the type permits
-///     it. Pairs with DestructorInsertion, which owns the destroy half.
+///     it. The destroy half needs no pass: the emitted C++ destroys
+///     every local at scope exit itself.
 ///
 ///     Done so far: the moves. A MOVE value passed, initialized from,
 ///     assigned or returned is moved (Doc: Ownership, Function Parameters),

@@ -217,7 +217,7 @@ class <T> StmtParse {
         if dyn()->is_eof() { return &null; }
 
         var annot: typename!(T::PendingAnnotations);
-        dyn()->consume_leading_annotations(&annot);
+        dyn()->consume_leading_annotations(&annot, true);
 
         if dyn()->is_eof() { return &null; }
 
@@ -258,6 +258,7 @@ class <T> StmtParse {
         if dc == &null { return; }
         if dc->dc_kind == DeclContextKind::TranslationUnit { return; }
         if dc->is_type_scope() { return; }
+        if dc == dyn()->eval_branch_dc { return; }
         if isa::<ClassDecl>(d)     || isa::<StructDecl>(d) || isa::<UnionDecl>(d)
         || isa::<InterfaceDecl>(d) || isa::<EnumDecl>(d)   || isa::<FunctionDecl>(d)
         || isa::<ExtensionDecl>(d) {
@@ -334,17 +335,30 @@ class <T> StmtParse {
                 // `eval for` -> compile-time unrolled loop
                 if dyn()->check_peek(TokenKind::KwFor) {
                     dyn()->advance(); // consume `eval`
+                    if dyn()->tu != &null { dyn()->tu->has_eval_for = true; }
                     return self._parse_for(true);
                 }
-                // `eval if` / `eval var` are handled by ConditionalStmt / decl
-                // with is_eval; those routes consume `eval` themselves. For `eval
-                // if` we fall into the conditional path after consuming eval:
+                // `eval if`: the conditional, marked (every `else if` of its
+                // chain too) for EvalIfFolding.
                 if dyn()->check_peek(TokenKind::KwIf) {
                     dyn()->advance(); // consume `eval`
-                    return self._parse_conditional(); // FIXME: thread is_eval once ConditionalStmt carries it
+                    if dyn()->tu != &null { dyn()->tu->has_eval_if = true; }
+                    return self._parse_conditional(false, true);
                 }
-                // `eval var` / `eval const` -> decl with is_eval (decl parser owns)
-                if dyn()->check_peek(TokenKind::KwVar) || dyn()->check_peek(TokenKind::KwConst) {
+                // `eval fn f()`: a (local) function declaration, as in a
+                // module. Left to the expression path, `eval` took the
+                // `fn` as a closure and its parameters were undeclared.
+                if dyn()->_mods_lead_to_fn() {
+                    var d = dyn()->parse_decl(true);
+                    if d != &null {
+                        if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
+                        return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
+                    }
+                }
+                // `eval N = e`, `eval N: T = e`, `eval const N = e`: the
+                // binding (DeclParse::_storage_binding_ahead tells it from
+                // an `eval f(3)` expression).
+                if dyn()->_storage_binding_ahead() {
                     return self._parse_decl_stmt();
                 }
                 // otherwise `eval expr` unary fall through to expr-stmt.
@@ -398,6 +412,11 @@ class <T> StmtParse {
 
             if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
             return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
+        }
+
+        // -- thread-local binding: `thread n: T` (not `thread work()`) --
+        if (k == TokenKind::KwThread) && dyn()->_storage_binding_ahead() {
+            return self._parse_decl_stmt();
         }
 
         // -- other declarations ---------------------------------------
@@ -910,7 +929,7 @@ class <T> StmtParse {
     ///          re-lexed or backtracked. `in_chain` is set for the `else if`
     ///          of a statement chain, where a `=>` cannot start a value form:
     ///          the chain is already a statement (S056E).
-    priv fn _parse_conditional(self, in_chain: bool = false) -> *Stmt {
+    priv fn _parse_conditional(self, in_chain: bool = false, is_eval: bool = false) -> *Stmt {
         var start_range = dyn()->current_ptr()->range;
 
         if !dyn()->enter_depth() {
@@ -970,7 +989,7 @@ class <T> StmtParse {
 
             if dyn()->check(TokenKind::KwIf) {
                 // else-if: recurse, store the ConditionalStmt directly as else_
-                else_ = self._parse_conditional(true);
+                else_ = self._parse_conditional(true, is_eval);
             } else if dyn()->check(TokenKind::OpLBrace) {
                 // final else: a block
                 else_ = static_cast::<*Stmt>(self.parse_compound());
@@ -984,6 +1003,7 @@ class <T> StmtParse {
 
         var end = (else_->range) if (else_ != &null) else (then_->range);
         var node = ConditionalStmt::create(dyn()->ctx, start_range | end, cond, then_, else_);
+        node->is_eval = is_eval;
         dyn()->exit_depth();
         return static_cast::<*Stmt>(node);
     }

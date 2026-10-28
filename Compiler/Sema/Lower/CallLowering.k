@@ -34,8 +34,9 @@
 ///
 ///     The default expression is MOVED into the thunk (`default_val` is null
 ///     afterwards) -- one node, one parent. Every later reader goes through
-///     `default_thunk` or TypeUtil::param_default. M2's re-typing meets the
-///     thunk body as it meets any lowered body.
+///     `default_thunk` or TypeUtil::param_default. Nothing re-types it per
+///     instance (MONO.md D0): a generic thunk is one C++ template like the
+///     body it came from.
 ///
 ///     An imported C++ default (`has_default`, no expression) has no thunk:
 ///     the argument is omitted and clang applies it. The one headroom this
@@ -60,7 +61,9 @@
 ///     becomes a ListLiteralExpr of that type, FullExpr storage, slice ctor
 ///     bound; ListLiteralLowering gives it its array. The array lives to the
 ///     end of the full-expression; a callee that retains the slice is AMT's
-///     escape clause. A pack over a dependent element is not lowered yet.
+///     escape clause. A TYPE pack (`fn <...T> f(...xs: T)`) is a C++
+///     parameter pack instead: its run stays in place, one argument per
+///     element, and CallTyping's instance carries each element's type.
 ///
 ///   \par Postcondition
 ///     No NamedArgExpr; every call's arguments in parameter order, `self`
@@ -511,7 +514,15 @@ class CallLowering derives ASTWriter::<CallLowering> {
                 case PlanKind::Arg   { out.push(vals[s->index]); }
                 case PlanKind::Thunk { out.push(self._thunk_call(n, f, s)); }
                 case PlanKind::Omit  { 0; }
-                case PlanKind::Pack  { out.push(self._pack(n, s, &vals)); }
+                case PlanKind::Pack  {
+                    // A type pack is a C++ parameter pack: its run stays one
+                    // argument per element, in place (param_is_type_pack).
+                    if param_is_type_pack(s->param) {
+                        for var k: usize = 0; k < s->len; ++k { out.push(vals[s->index + k]); }
+                    } else {
+                        out.push(self._pack(n, s, &vals));
+                    }
+                }
             }
         }
         for var k: usize = 0; k < vals.size(); ++k { if !used[k] { out.push(vals[k]); } }
@@ -583,6 +594,8 @@ class CallLowering derives ASTWriter::<CallLowering> {
         var owner = NameLookup::representative(dc->dc_owner);
         if decl_generic_params(owner).size() == 0 { return &null; }
         if n->ctor_decl != &null { return canon_unqual(n->type_); }
+        // `Box<i32>::make()`: CallTyping recorded the record it named.
+        if n->qualifier != &null { return n->qualifier; }
         var ch = dyn_cast::<ChainExpr>(n->callee);
         ICE_IF((ch == &null) || (!self._receiver_bound(n)),
             "CallLowering: a defaulted parameter of a generic type's method, called through `::`; the thunk's owner arguments cannot be named");
@@ -597,7 +610,7 @@ class CallLowering derives ASTWriter::<CallLowering> {
     /// The pack run as a `Slice<E>` literal; ListLiteralLowering builds it.
     priv fn _pack(self, n: *CallExpr, s: *PlanSlot, vals: *vec::<*Expr>) -> *Expr {
         var pt = self._pack_type(s->param);
-        ICE_IF(pt == &null, "CallLowering: a pack over a dependent element type; generic packs are not lowered yet");
+        ICE_IF(pt == &null, "CallLowering: a one-type pack over a dependent element (`...xs: U`, U not a pack); not lowered yet");
         var lit = ListLiteralExpr::create(self.ctx, n->range);
         var b = self.list_builder::<*Expr>();
         for var k: usize = 0; k < s->len; ++k { b.push((*vals)[s->index + k]); }

@@ -7,4 +7,4 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --type-check-only --print-cxx | %FileCheck %s
 // CHECK: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}print_cxx.k
 // CHECK: namespace print_cxx {
-// CHECK: signed int get(signed int a);
+// CHECK: signed int get(signed int a) noexcept;

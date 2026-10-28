@@ -2,12 +2,15 @@
 ///
 ///   \brief Phase I. Build this TU's import_overlay from its ImportDecls, so
 ///          every name visible in the TU is findable in a local table or the
-///          overlay. After I the TU is SELF-CONTAINED: no later phase touches
-///          another TU until M2 (RESOLUTION.md §2 "I ImportResolution").
+///          overlay. After I the TU is SELF-CONTAINED: later phases only
+///          READ other TUs; the only cross-TU writes go to the locked canonical
+///          store and instantiation registry (IMPORTS.md §2.3).
 ///
 ///   One error, one home (hard invariant #3):
 ///     - import EXISTENCE (selective miss)  -> here (R015).
-///     - import AMBIGUITY (>=2 non-fn same key) -> here (R016).
+///     - import AMBIGUITY (>=2 non-fn same key) -> here (R016), unless
+///       every colliding entity came from a header: then N / T at the
+///       use, as C++ does (IMPORTS.md §5.1).
 ///     - import ACCESS ("exists but priv/prot") -> N(b), reading the
 ///       visibility fact THIS pass records on the overlay entry. Not here.
 ///
@@ -36,6 +39,8 @@ import AST::Context::ImportOverlay::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
+import AST::DeclFacts::*;
 import AST::Node::Casting::*;
 import Token::Token::*;
 import Token::TokenKind::*;
@@ -80,6 +85,7 @@ class ImportResolution {
         if (cxx_std.size() > 0) && (ffi_orig != &null) {
             self._bind_cxx(overlay, cxx_std, ffi_orig);
         }
+        if ffi_orig != &null { self._bind_ffi_forwards(tu); }
 
         overlay->freeze();
         return true;
@@ -361,6 +367,10 @@ class ImportResolution {
             var spelling = e.name.describe(self.sc->g->get_context(fid));
             if spelling.size() == 0 { continue; }
             if skip_std && (spelling == "std") { continue; }
+            // A hidden C/C++ tag's internal key (`struct timezone`,
+            // DeclImport::_bind_named): no source spells it, so it has no
+            // business in an importer's overlay.
+            if spelling.view().find(' ') != string::npos { continue; }
             self._fold_cell(id, overlay, spelling, e.cell, fid);
         }
     }
@@ -375,6 +385,13 @@ class ImportResolution {
         if self._is_function_cell(cell) {
             t.kind = OverlayTargetKind::FunctionSet;
             t.cell = cell;
+        } else if (cell->size() > 1) && self._is_ffi_cell(cell) {
+            // A header cell holding more than one entity: two inline
+            // namespaces declaring one name, or a tag a set saw unhidden.
+            // Each is its own target, so hiding and the ambiguity count see
+            // all of them instead of only the first.
+            self._fold_ffi_cell(overlay, visible, cell, t);
+            return;
         } else {
             t.decl = cell->get(0);
             // A module named through a symbol path is still a module handle,
@@ -384,6 +401,47 @@ class ImportResolution {
                      else (OverlayTargetKind::Type);
         }
         self._add(overlay, visible, t);
+    }
+
+    /// One target per distinct entity of a mixed header cell; its functions
+    /// (if any) as one function set in a cell of their own.
+    priv fn _fold_ffi_cell(self, overlay: *ImportOverlay, visible: string,
+                           cell: *OverloadCell, proto: OverlayTarget) {
+        var fns: *OverloadCell = &null;
+        var seen = vec::<*Decl>();
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if d == &null { continue; }
+            if isa::<FunctionDecl>(d) {
+                if fns == &null { fns = self.sc->ctx->alloc_init_cleanup::<OverloadCell>(); }
+                fns->append(d);
+                continue;
+            }
+            // Never the answer to a name; M1 pairs it with its primary.
+            if NameLookup::is_specialization(d) { continue; }
+            var r = NameLookup::representative(d);
+            var dup = false;
+            for var j: usize = 0; j < seen.size(); ++j { if seen[j] == r { dup = true; break; } }
+            if dup { continue; }
+            seen.push_back(r);
+            var t = proto;
+            t.decl = d;
+            t.kind = (OverlayTargetKind::ModuleHandle) if (isa::<ModuleDecl>(d)) else (OverlayTargetKind::Type);
+            self._add(overlay, visible, t);
+        }
+        if fns != &null {
+            var t = proto;
+            t.kind = OverlayTargetKind::FunctionSet;
+            t.cell = fns;
+            self._add(overlay, visible, t);
+        }
+    }
+
+    priv fn _is_ffi_cell(self, cell: *OverloadCell) -> bool {
+        for var i: usize = 0; i < cell->size(); ++i {
+            if !decl_is_ffi(cell->get(i)) { return false; }
+        }
+        return true;
     }
 
     /// IMPORTS.md §5. `ffi import "h" as z`: ONE key, one ModuleHandle per
@@ -426,6 +484,91 @@ class ImportResolution {
             // name, not a general prefix.
             self._fold_all_cells(id, overlay, syms, fid, true);
         }
+    }
+
+    /// IMPORTS.md §5.2. A bodiless top-level `ffi "c" struct timezone` (or
+    /// `class`, `union`) in a TU with ffi imports names the header's TAG:
+    /// the one bound under the internal key a hidden tag gets (`struct
+    /// timezone`, DeclImport::_bind_named), else a visible tag of that name.
+    /// It is how source names a tag an ordinary name hides. No such tag in
+    /// the closure leaves the declaration what it always was, a Kairo
+    /// forward declaration.
+    priv fn _bind_ffi_forwards(self, tu: *TranslationUnit) {
+        var syms = tu->symbols();
+        if syms == &null { return; }
+        var rows = vec::<SymbolTable::Entry>();
+        syms->collect_entries(rows);
+        for var r: usize = 0; r < rows.size(); ++r {
+            var e = rows[r];
+            if (e.name.kind != DeclNameKind::Identifier) || (e.cell == &null) { continue; }
+            for var i: usize = 0; i < e.cell->size(); ++i {
+                var d = e.cell->get(i);
+                if !self._is_ffi_forward(d) { continue; }
+                var nm = self.sc->ctx->get_spelling(decl_name_tok(d));
+                if nm.size() == 0 { continue; }
+                var tag = self._find_header_tag(tu, nm);
+                if tag != &null { decl_set_ffi_tag_target(d, tag); }
+            }
+        }
+    }
+
+    priv fn _is_ffi_forward(self, d: *Decl) -> bool {
+        if d == &null { return false; }
+        if isa::<ClassDecl>(d) {
+            var c = cast::<ClassDecl>(d);
+            return c->has_ffi_linkage() && (!c->is_imported()) && (!c->is_this_definition)
+                && (c->generic_params.size() == 0);
+        }
+        if isa::<StructDecl>(d) {
+            var s = cast::<StructDecl>(d);
+            return s->has_ffi_linkage() && (!s->is_imported()) && (!s->is_this_definition)
+                && (s->generic_params.size() == 0);
+        }
+        if isa::<UnionDecl>(d) {
+            var u = cast::<UnionDecl>(d);
+            return u->has_ffi_linkage() && (!u->is_imported()) && (!u->is_this_definition)
+                && (u->generic_params.size() == 0);
+        }
+        return false;
+    }
+
+    /// The imported tag named \p nm in any closure header of \p tu's ffi
+    /// imports: a hidden one first (its internal key), then a visible one.
+    priv fn _find_header_tag(self, tu: *TranslationUnit, nm: string) -> *Decl {
+        var hidden_keys = vec::<string>();
+        hidden_keys.push_back("struct " + nm);
+        hidden_keys.push_back("class " + nm);
+        hidden_keys.push_back("union " + nm);
+        for var pass: usize = 0; pass < 2; ++pass {
+            for var i: usize = 0; i < tu->imports.size(); ++i {
+                var slot = tu->imports[i];
+                if slot == &null { continue; }
+                var id = dyn_cast::<ImportDecl>(*slot);
+                if (id == &null) || (!id->has_ffi_linkage()) || (id->resolved_fid == 0) { continue; }
+                for var f: usize = 0; f < id->ffi_closure_fids.size(); ++f {
+                    var fid = id->ffi_closure_fids[f];
+                    var src = self._source_tu(fid);
+                    if src == &null { continue; }
+                    var hsyms = src->symbols();
+                    var imms  = self.sc->ctx->tcm->get_imm_table_for_fid(fid);
+                    if (hsyms == &null) || (imms == &null) { continue; }
+                    if pass == 0 {
+                        for var k: usize = 0; k < hidden_keys.size(); ++k {
+                            var c = SymbolTable::lookup_foreign(hsyms, imms, hidden_keys[k]);
+                            if (c != &null) && (c->size() > 0) && decl_is_ffi_tag(c->get(0)) { return c->get(0); }
+                        }
+                        continue;
+                    }
+                    var c = SymbolTable::lookup_foreign(hsyms, imms, nm);
+                    if c == &null { continue; }
+                    for var j: usize = 0; j < c->size(); ++j {
+                        var d = c->get(j);
+                        if decl_is_ffi_tag(d) && (!isa::<EnumDecl>(d)) { return d; }
+                    }
+                }
+            }
+        }
+        return &null;
     }
 
     /// Append every top-level `std` ModuleDecl of one closure header. Probed
@@ -481,7 +624,7 @@ class ImportResolution {
         var tok   = Token{};
         tok.kind  = TokenKind::LitIdentifier;
         tok.range = at;
-        tok.imm   = self.sc->imm_table()->intern_ident_copy("cxx");
+        tok.imm   = self.sc->imm_table()->intern_ident_copy(cxx_root_name());
 
         var tbl  = self.sc->ctx->alloc_init_cleanup::<SymbolTable>(self.sc->ctx);
         var skey = self.sc->imm_table()->intern_ident_copy("std");
@@ -502,12 +645,13 @@ class ImportResolution {
         t.origin  = origin;
         t.vis     = OverlayVisibility::Public;
         t.src_fid = self.sc->ctx->fid;
-        self._add(overlay, "cxx", t);
+        self._add(overlay, cxx_root_name(), t);
     }
 
     /// Intern the visible name into THIS TU's imm space (overlay key), add the
     /// target, rebuild the merged candidate cell, and diagnose a fresh
-    /// non-function collision exactly once (R016, sole home).
+    /// non-function collision exactly once (R016; a header-only collision
+    /// is marked lazy instead, IMPORTS.md §5.1).
     priv fn _add(self, overlay: *ImportOverlay, visible: string, t: OverlayTarget) {
         var key = self.sc->imm_table()->intern_ident_copy(visible);
         var entry = overlay->entry_for(key);
@@ -533,9 +677,13 @@ class ImportResolution {
             self._drop_prelude_handles(entry);
         }
 
-        var was_ambiguous = entry->is_ambiguous();
-
         entry->add_target(t);
+
+        // C++ tag hiding across headers: a tag one header declares and an
+        // ordinary name another declares (glibc: `struct timezone` in
+        // <sys/time.h>, `timezone` in <time.h>) meet here, not in any one
+        // header's table.
+        self._apply_hiding(entry);
 
         // Rebuild the merged view: union every function-set target's decls, and
         // include a single non-function target's decl. (On ambiguity the merged
@@ -543,15 +691,65 @@ class ImportResolution {
         // is the authoritative signal.)
         self._rebuild_merged(entry);
 
-        if (!was_ambiguous) && entry->is_ambiguous() {
-            // First time this key tipped into >=2 non-function targets.
-            var d = dyn_cast::<ImportDecl>(t.origin);
-            if d != &null {
-                self.sc->diag->report(DiagID::R016E, d->range.start,
-                    f"ambiguous import: '{visible}' names more than one non-function symbol"
-                ).first(d->range).emit();
+        if !entry->is_ambiguous() { entry->lazy = false; return; }
+
+        // Every colliding entity from a header: C++ only objects where the
+        // name is used, and a header set routinely declares names nobody
+        // uses. N / T report it at the use (MemberLookup::report_lazy_ambiguity).
+        if self._collision_is_ffi_only(entry) { entry->lazy = true; return; }
+        entry->lazy = false;
+
+        // A Kairo import takes part: the import itself is the mistake.
+        if entry->reported { return; }
+        var d = dyn_cast::<ImportDecl>(t.origin);
+        if d != &null {
+            entry->reported = true;
+            self.sc->diag->report(DiagID::R016E, d->range.start,
+                f"ambiguous import: '{visible}' names more than one non-function symbol"
+            ).first(d->range).emit();
+        }
+    }
+
+    /// Mark every Type target C++ would hide: an imported tag beside an
+    /// imported ordinary name (another Type target, or an imported function
+    /// set), and a `typedef struct X X` beside its own tag (one entity).
+    /// Recomputed from scratch on every add; targets only ever accumulate.
+    priv fn _apply_hiding(self, entry: *OverlayEntry) {
+        var n = entry->targets.size();
+        for var i: usize = 0; i < n; ++i {
+            var ti = &(entry->targets[i]);
+            ti->hidden = false;
+            if ti->kind != OverlayTargetKind::Type { continue; }
+            var d = ti->decl;
+            if (d == &null) || (!decl_is_ffi(d)) { continue; }
+            for var j: usize = 0; j < n; ++j {
+                if i == j { continue; }
+                var o = entry->targets[j];
+                if o.kind == OverlayTargetKind::FunctionSet {
+                    if decl_is_ffi_tag(d) && (o.cell != &null) && (o.cell->size() > 0)
+                    && decl_is_ffi(o.cell->get(0)) {
+                        ti->hidden = true; break;
+                    }
+                    continue;
+                }
+                if o.kind != OverlayTargetKind::Type { continue; }
+                if (o.decl == &null) || (o.decl == d) { continue; }
+                if decl_is_ffi_tag(d) && decl_ffi_hides_tag(o.decl, d) { ti->hidden = true; break; }
+                if decl_is_ffi_tag(o.decl) && decl_is_ffi_typedef_of(d, o.decl) { ti->hidden = true; break; }
             }
         }
+    }
+
+    /// True when every entity in an ambiguous entry's collision came from
+    /// a header.
+    priv fn _collision_is_ffi_only(self, entry: *OverlayEntry) -> bool {
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            var t = entry->targets[i];
+            if t.kind != OverlayTargetKind::Type { continue; }
+            if t.hidden || (t.decl == &null) { continue; }
+            if !decl_is_ffi(t.decl) { return false; }
+        }
+        return true;
     }
 
     /// A module handle bound by an injected prelude import, as opposed to one
@@ -580,6 +778,7 @@ class ImportResolution {
         entry->merged = OverloadCell{};
         for var i: usize = 0; i < entry->targets.size(); ++i {
             var t = entry->targets[i];
+            if t.hidden { continue; }
             if t.kind == OverlayTargetKind::FunctionSet {
                 if t.cell == &null { continue; }
                 for var k: usize = 0; k < t.cell->size(); ++k {

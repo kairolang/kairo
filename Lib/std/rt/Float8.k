@@ -59,6 +59,12 @@ pub fn bits_f32(b: u32) -> f32 {
     return b as f32;                 // TODO(stage1): bit_cast, not numeric.
 }
 
+class F {
+    const x: i32
+
+    fn F(self, x: i32) { if x < 0 { self.x = 0; } else { self.x = x; } }
+}
+
 // === F8E4M3 ================================================================
 
 /// \class F8E4M3

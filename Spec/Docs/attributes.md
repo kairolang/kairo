@@ -1,9 +1,6 @@
 # Attributes
 
-Attributes are compile-time AST transformations. They modify the structure of declarations
-renaming fields, injecting code, adding members with full access to the parsed syntax tree and
-type information. Unlike [macros](/docs/language/macros/), which operate on raw tokens before parsing,
-attributes run after parsing and can inspect and modify typed AST nodes.
+Attributes are compile-time AST transformations. They modify the structure of declarations renaming fields, injecting code, adding members with full access to the parsed syntax tree and type information. Unlike [macros](/docs/language/macros/), which operate on raw tokens before parsing, attributes run after parsing and can inspect and modify typed AST nodes.
 
 | Property | Guarantee |
 |---|---|
@@ -18,8 +15,7 @@ attributes run after parsing and can inspect and modify typed AST nodes.
 
 ## Defining Attributes
 
-Attributes are defined with the `macro` keyword followed by `@name` and a parameter list. The first
-parameter is always a pointer to the AST node being transformed:
+Attributes are defined with the `macro` keyword followed by `@name` and a parameter list. The first parameter is always a pointer to the AST node being transformed:
 
 ```kairo
 import std::AST
@@ -54,13 +50,9 @@ fn process_data(x: i32) -> i32 {
 
 ### Node preservation rule
 
-Attributes must preserve the node type. An attribute attached to a function declaration receives a
-`*AST::FunctionDecl` and must leave it as a function declaration it cannot replace it with a
-class or a variable. This ensures the expansion process is deterministic and the AST remains
-structurally consistent.
+Attributes must preserve the node type. An attribute attached to a function declaration receives a `*AST::FunctionDecl` and must leave it as a function declaration it cannot replace it with a class or a variable. This ensures the expansion process is deterministic and the AST remains structurally consistent.
 
-To add new nodes, create them with `@create AST::NodeType()` and attach them to the existing
-node (e.g., appending statements to a function body, adding members to a class).
+To add new nodes, create them with `@create AST::NodeType()` and attach them to the existing node (e.g., appending statements to a function body, adding members to a class).
 
 ---
 
@@ -71,7 +63,7 @@ Attributes can take additional arguments beyond the implicit node parameter:
 ```kairo
 macro @repeat(block: *AST::Block, times: i32) {
     var original = block->clone()
-    var expanded = @create AST::Block()
+    var *expanded = @create AST::Block()
 
     for i in 0..times {
         expanded->body.append(original.clone())
@@ -96,15 +88,13 @@ After expansion:
 }
 ```
 
-Arguments are passed in parentheses after the attribute name at the use site. The node parameter is
-implicit it is always the declaration or block the attribute is attached to.
+Arguments are passed in parentheses after the attribute name at the use site. The node parameter is implicit it is always the declaration or block the attribute is attached to.
 
 ---
 
 ## Overloading
 
-Attribute definitions can be overloaded by node type or argument types. The compiler selects the
-correct overload based on what the attribute is attached to:
+Attribute definitions can be overloaded by node type or argument types. The compiler selects the correct overload based on what the attribute is attached to:
 
 ```kairo
 macro @serialize(node: *AST::ClassDecl) {
@@ -128,8 +118,7 @@ struct Point { ... }    // calls the StructDecl overload
 
 ## Expansion Order
 
-When multiple attributes are stacked on a single declaration, they expand inner to outer the
-attribute closest to the declaration runs first:
+When multiple attributes are stacked on a single declaration, they expand inner to outer the attribute closest to the declaration runs first:
 
 ```kairo
 @deserialize    // runs second, on the result of @serializable
@@ -140,8 +129,7 @@ class Config {
 }
 ```
 
-This allows attributes to compose `@serializable` can add serialization methods, and
-`@deserialize` can then inspect those methods to generate the inverse.
+This allows attributes to compose `@serializable` can add serialization methods, and `@deserialize` can then inspect those methods to generate the inverse.
 
 ---
 
@@ -171,6 +159,10 @@ struct SimdData { ... }
 var old_config: Config
 ```
 
+An attribute can also be applied to an expression: `@name operand`, or `@name(args) operand`. The operand is one unary expression, including its calls, member accesses and initializers, so `@create Config(8080)` applies to the whole constructor call. Binary operators bind looser (`@a x + 1` is `(@a x) + 1`), and a member access on the result needs parentheses: `(@create Config(8080))->port`. At the start of a statement, an `@name` is an expression attribute when an expression follows it on the same line (`@destroy p`, `@create Config(8080)`); it attaches to the statement or declaration instead when what follows is a declaration (`@deprecated var`, `@copy fn`), a keyword statement (`@likely if`), a block (`@repeat(3) { ... }`), a loop label, or a line break.
+
+> Expression attributes parse, but none has a meaning yet: `@create` and every other one are rejected with [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported). See [Status](/docs/status/).
+
 ---
 
 ## Built-in Attributes
@@ -184,8 +176,7 @@ Kairo provides built-in attributes that are handled directly by the compiler:
 | `@packed` | Remove padding between members | Classes, structs, unions |
 | `@align(N)` | Set minimum alignment to N bytes | Classes, structs, unions |
 
-See [Classes](/docs/language/classes/#memory-layout-and-allocation) and
-[Structures](/docs/language/structures/#memory-layout) for layout details.
+See [Classes](/docs/language/classes/#memory-layout-and-allocation) and [Structures](/docs/language/structures/#memory-layout) for layout details.
 
 ### Branch hints
 
@@ -208,30 +199,38 @@ See [Control Flow](/docs/language/control-flow/#branch-hints) for branch predict
 
 | Attribute | Description | Applies to |
 |---|---|---|
-| `@no_unwind` | Promise that the function never unwinds | Functions |
+| `@unwind` | Let a C++ exception pass through this function | Functions, methods |
+| `@no_unwind` | Keep the function `noexcept`, even under `-funwind` | Functions, methods |
 
-`@no_unwind` marks the function's generated C++ declaration and definition `noexcept`. That is all it
-does: nothing checks the promise. If a `@no_unwind` function does unwind, for example because a C++
-exception passes through it, the program terminates (`std::terminate`).
+Every Kairo function is `noexcept` in its generated C++ declaration and definition: a C++ exception that reaches a Kairo frame terminates the program (`std::terminate`). `@unwind` removes the `noexcept` from one function, so a C++ exception thrown by a C++ callee unwinds through it to the next frame up. The `-funwind` flag removes it from every Kairo function, closures included; `@no_unwind` keeps it on one function even then. Marking one function both is an error.
 
 ```kairo
-@no_unwind
-fn add(a: i32, b: i32) -> i32 { return a + b }   // C++: int add(int a, int b) noexcept
+fn add(a: i32, b: i32) -> i32 { return a + b }        // C++: int add(int a, int b) noexcept
+@unwind fn relay(x: i32) -> i32 { return cxx_may_throw(x) }   // C++: int relay(int x)
 ```
 
-Writing `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the
-declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
+Writing `@unwind` or `@no_unwind` on any one declaration of a function covers all of them: a [forward declaration](/docs/language/functions-declarations/#forward-declarations), the declaration inside a class, or the [out-of-line definition](/docs/language/classes-out-of-line/).
 
 ```kairo
 class Counter {
     var n: i32
-    @no_unwind fn get(const self) -> i32     // declared here...
+    @unwind fn get(const self) -> i32     // declared here...
 }
 
-fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition is noexcept too
+fn Counter::get(const self) -> i32 { return self.n }   // ...so this definition is not noexcept either
 ```
 
+A closure cannot carry `@unwind` yet: written before a closure, it is an expression attribute, which is not supported. A closure follows `-funwind`.
+
 See [Exceptions](/docs/language/c-cpp-exceptions/#exceptions) for how C++ exceptions move through Kairo code.
+
+### Enums
+
+| Attribute | Description | Applies to |
+|---|---|---|
+| `@open` | The enum may hold any value of its underlying type: no checked `as`, no niche | Plain enums |
+
+A plain enum is closed by default; see [Closed and open enums](/docs/language/enums-plain/#closed-and-open-enums). `@open` on anything else is an error.
 
 ### Conversions
 
@@ -253,14 +252,10 @@ See [Where Clauses](/docs/language/where/) for the where handler system.
 
 ## The `std::AST` API
 
-Attribute definitions interact with the AST through the `std::AST` module. This module provides
-types representing each kind of AST node (`FunctionDecl`, `ClassDecl`, `StructDecl`, `Block`,
-`VariableDecl`, etc.) and methods for inspecting and modifying them.
+Attribute definitions interact with the AST through the `std::AST` module. This module provides types representing each kind of AST node (`FunctionDecl`, `ClassDecl`, `StructDecl`, `Block`, `VariableDecl`, etc.) and methods for inspecting and modifying them.
 
 > [!IMPORTANT]
-> The `std::AST` API is under development. The full set of node types, their fields, and available
-> methods will be documented once the API is finalized. The examples on this page demonstrate the
-> intended usage patterns.
+> The `std::AST` API is under development. The full set of node types, their fields, and available methods will be documented once the API is finalized. The examples on this page demonstrate the intended usage patterns.
 
 Key operations available on AST nodes:
 
@@ -287,8 +282,7 @@ Key operations available on AST nodes:
 | Syntax | `name!(args)` | `@name` on declarations |
 | Must preserve node type | N/A | Yes |
 
-Use macros for simple substitutions and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for structural
-transformations that need to inspect or modify declarations.
+Use macros for simple substitutions and [conditional compilation](/docs/language/macros-builtin/#conditional). Use attributes for structural transformations that need to inspect or modify declarations.
 
 See [Macros](/docs/language/macros/) for the token-level macro system.
 

@@ -111,12 +111,27 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
             }
         }
 
+        // The builtin root IS the implementation the C++ rule reserves these
+        // names for: a `__builtin_` intrinsic it declares (__builtin_niche_of)
+        // is answered by the compiler, and spelled that way on purpose.
+        if (self.sc->g != &null) && self.sc->g->is_builtin_fid(self.sc->ctx->fid) && self._is_intrinsic_name(s) { return; }
+
         var why = cxx_reserved_reason(s);
         if !why.empty() {
             self.sc->diag->report(DiagID::SC005W, name.range.start,
                 f"{what} name is reserved for the implementation in C++: {why}"
             ).first(name.range).emit();
         }
+    }
+
+    /// \p s starts `__builtin_`. MIGRATE(raw_string): a char loop.
+    priv fn _is_intrinsic_name(self, s: string) -> bool {
+        var p = "__builtin_";
+        if s.length() < p.length() { return false; }
+        for var i: usize = 0; i < p.length(); ++i {
+            if s[i] != p[i] { return false; }
+        }
+        return true;
     }
 
     /// Operators carry no user identifier   `op_token` is the spelling and

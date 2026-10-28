@@ -25,10 +25,12 @@
 ///     no lowering from the braces to it. SC088E.
 ///
 ///     A `var x: T` with no initializer is default-constructed, so T must
-///     have a default: a number or a pointer (0, null), a record with a
-///     usable constructor callable on `self` alone, an array of either.
-///     `bool` has no zero state to assume, and a record without such a
-///     constructor -- none at all, or one deleted -- is never built.
+///     have a default: a number or a pointer (0, null), a nullable, a
+///     record with a usable constructor callable on `self` alone, an
+///     array of any of those (TypeUtil::why_no_default). `bool` has no
+///     zero state to assume, a record without such a constructor -- none
+///     at all, or one deleted -- is never built, and an enum with
+///     payloads has no variant to pick.
 ///     Kairo has no uninitialized variable. Imported C++ types and
 ///     dependent ones are left to clang and to instantiation. A default
 ///     reached only through defaulted arguments is legal but not compiled
@@ -257,29 +259,15 @@ class InitCheck derives RecursiveASTVisitor::<InitCheck> {
     }
 
     /// Empty when \p t has a default value; otherwise the reason, phrased
-    /// to follow "and" in _check_default_init's message.
+    /// to follow "and" in _check_default_init's message. TypeUtil owns the
+    /// answer: CtorInitCheck asks the same question of a field.
     priv fn _why_no_default(self, t: *Type) -> string {
-        var el = self._tu.element_of(t);
-        if el != &null { return self._why_no_default(canon_unqual(el)); }
-        if self._tu.is_bool(t) { return "'bool' has no zero state: a default would have to guess true or false"; }
-        var rd = self._user_record(t);
-        if rd == &null { return ""; }
-        var nm = self._record_name(rd);
-        var dc = self._default_ctor(rd);
-        if dc == &null { return f"'{nm}' has no default constructor (declare 'fn {nm}(self)')"; }
-        if dc->body_kind == FnBodyKind::Delete { return f"the default constructor of '{nm}' is deleted"; }
-        return "";
+        return self._tu.why_no_default(t);
     }
 
-    /// A Kairo class or struct, pattern side. Null for an imported C++
-    /// record (clang decides), an ADT's layout, a dependent type.
+    /// A Kairo class or struct, pattern side (TypeUtil::default_record).
     priv fn _user_record(self, t: *Type) -> *Decl {
-        var rd = self._tu.record_decl(t);
-        if rd == &null { return &null; }
-        if decl_is_instance(rd) { rd = decl_pattern(rd); }
-        if (rd == &null) || decl_is_imported(rd) { return &null; }
-        if (!isa::<ClassDecl>(rd)) && (!isa::<StructDecl>(rd)) { return &null; }
-        return rd;
+        return self._tu.default_record(t);
     }
 
     priv fn _record_name(self, d: *Decl) -> string {
@@ -317,22 +305,8 @@ class InitCheck derives RecursiveASTVisitor::<InitCheck> {
         return false;
     }
 
-    /// The constructor callable with no arguments: every parameter but
-    /// `self` has a default.
+    /// The constructor callable with no arguments (TypeUtil::default_ctor_of).
     priv fn _default_ctor(self, d: *Decl) -> *FunctionDecl {
-        var nm = self._record_name(d);
-        var ms = self._methods(d);
-        for var i: usize = 0; i < ms->size(); ++i {
-            var m = (*ms)[i];
-            if (!self._is_ctor(m, nm)) || (m->transfer != TransferKind::NotTransfer) { continue; }
-            var ok = true;
-            for var j: usize = 0; j < m->params.size(); ++j {
-                var p = m->params[j];
-                if p->is_self { continue; }
-                if (p->default_val == &null) && (!p->has_default) && (!p->is_pack) { ok = false; break; }
-            }
-            if ok { return m; }
-        }
-        return &null;
+        return self._tu.default_ctor_of(d);
     }
 }

@@ -53,6 +53,9 @@ class BuiltinsSet {
     /// instead of holding a second copy, and id_of probes with a StringRef
     /// rather than building a std::string per lookup.
     priv var _ids:    llvm::StringMap::<u32>;
+    /// The target's predefined macros (`__linux__`, `__x86_64__`), by name:
+    /// what `defined!` answers in a file with no ffi header (EVAL.md §4.3).
+    priv var _predef: llvm::StringMap::<u32>;
     /// Every builtin the target and language register, sorted by name;
     /// keys view _ids' entries.
     priv var _sorted: libcxx::vector::<libcxx::pair::<llvm::StringRef, u32>>;
@@ -101,6 +104,27 @@ class BuiltinsSet {
         var pp = &(self._ci->getPreprocessor());
         pp->getBuiltinInfo().initializeBuiltins(pp->getIdentifierTable(), self._ci->getLangOpts());
 
+        // createPreprocessor wrote the predefines buffer (`#define __linux__
+        // 1` ...) but no main file is entered, so none is defined in the
+        // preprocessor: read the names off the buffer instead.
+        var pd   = pp->getPredefines();
+        var all  = llvm::StringRef(pd.data(), pd.size());
+        // The spellings outlive their views: sref of a temporary dangles.
+        var def_s  = string("#define ");
+        var nl_s   = string("\n");
+        var stop_s = string(" (");
+        var def  = sref(def_s);
+        var nl   = sref(nl_s);
+        var stop = sref(stop_s);
+        while !all.empty() {
+            var pr = all.split(nl);
+            var line = pr.first;
+            all = pr.second;
+            if !line.starts_with(def) { continue; }
+            var rest = line.drop_front(def.size());
+            self._predef.try_emplace(rest.substr(0, rest.find_first_of(stop)), u32(1));
+        }
+
         // Read back what got an ID. Iterating the table rather than the ID
         // space keeps this independent of how a clang version shards its
         // builtin tables: only supported builtins were stamped.
@@ -121,6 +145,12 @@ class BuiltinsSet {
         self._ready = true;
         Logger::info(Logger::Stage::Driver, f"BuiltinsSet: {self._sorted.size()} builtin(s) for this target");
         return true;
+    }
+
+    /// Is \p name one of the target's predefined macros. Read-only; any thread.
+    fn predefined(self, name: string) -> bool {
+        if !self._ready { return false; }
+        return self._predef.find(sref(name)) != self._predef.end();
     }
 
     /// The builtin ID \p name has here, or 0. Read-only; any thread.

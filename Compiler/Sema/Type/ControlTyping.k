@@ -38,10 +38,13 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
+import Sema::Check::EffectPropagation::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::NullnessFlow::*;
+import Sema::Type::VariadicEnum::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -87,25 +90,47 @@ class <T> ControlTyping {
         var t = dyn()->type_of(e, dyn()->tu.builtin(BuiltinKind::Bool));
         if t == &null { return !e->is_poisoned(); }
         if dyn()->tu.is_bool(t) { return true; }
+        // A `bool?` place as the condition reads its value (NULLABLE.md §4).
+        if dyn()->tu.is_bool(dyn()->tu.strip_nullable(t)) {
+            t = dyn()->read_value(e);
+            if t == &null { return false; }
+            if dyn()->tu.is_bool(t) { return true; }
+        }
         dyn()->fail(e, DiagID::SC084E, f"{what} must be 'bool', not '{dyn()->tu.str(t)}\x27");
         return false;
     }
 
     // === if / match / try as expressions ====================================
 
+    /// Each arm is typed under its condition's true set, the next
+    /// condition under the false sets before it (NULLABLE.md 3.3); after
+    /// the expression, the join of every arm's end.
     fn type_if_expr(self, n: *IfExpr, expected: *Type) -> *Type {
         self.require_bool(n->condition, "the 'if' condition");
+        var c = dyn()->flow.cond_of(n->condition);
         var acc: *Type = &null;
         var ok = true;
-        var t = dyn()->type_of(n->then_expr, expected);
+        dyn()->flow.env = c.t;
+        var t = self._arm_value(n->then_expr, expected);
+        var out = dyn()->flow.env;
+        var rest = c.f;
         ok = self._join_into(&acc, t, n->then_expr, "the 'if' branch") && ok;
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             var arm = n->else_ifs.get(i);
+            dyn()->flow.env = rest;
             self.require_bool(arm->condition, "the 'else if' condition");
-            var at = dyn()->type_of(arm->body, (expected) if (expected != &null) else (acc));
+            var ac = dyn()->flow.cond_of(arm->condition);
+            dyn()->flow.env = ac.t;
+            var at = self._arm_value(arm->body, (expected) if (expected != &null) else (acc));
+            var arm_end = dyn()->flow.env;
+            out  = dyn()->flow.join(&out, &arm_end);
+            rest = ac.f;
             ok = self._join_into(&acc, at, arm->body, "this 'else if' branch") && ok;
         }
-        var et = dyn()->type_of(n->else_expr, (expected) if (expected != &null) else (acc));
+        dyn()->flow.env = rest;
+        var et = self._arm_value(n->else_expr, (expected) if (expected != &null) else (acc));
+        var else_end = dyn()->flow.env;
+        dyn()->flow.env = dyn()->flow.join(&out, &else_end);
         ok = self._join_into(&acc, et, n->else_expr, "the 'else' branch") && ok;
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
@@ -116,14 +141,147 @@ class <T> ControlTyping {
         return acc;
     }
 
+    /// An arm of a value-producing `if`: a nullable place its condition
+    /// proved is its value (`if a? => a else 0` is an `i32`, the `??`
+    /// expansion of NULLABLE.md 2.4); one not proven stays the nullable,
+    /// which the join may well want.
+    priv fn _arm_value(self, e: *Expr, expected: *Type) -> *Type {
+        return dyn()->value_if_proven(e, dyn()->type_of(e, expected));
+    }
+
+    // === match on a nullable (NULLABLE.md 3.6) ===============================
+
+    /// \p p is the `null` literal pattern.
+    priv fn _null_pattern(self, p: *Pattern) -> bool {
+        if (p == &null) || (p->kind != PatternKind::LiteralPattern) { return false; }
+        return null_literal_of(cast::<LiteralPattern>(p)->value) != &null;
+    }
+
+    /// \p p is, or has as an alternative, the `null` literal pattern.
+    priv fn _has_null_pattern(self, p: *Pattern) -> bool {
+        if self._null_pattern(p) { return true; }
+        if (p == &null) || (p->kind != PatternKind::AlternationPattern) { return false; }
+        var a = cast::<AlternationPattern>(p);
+        for var i: usize = 0; i < a->alternatives.size(); ++i { if self._has_null_pattern(a->alternatives[i]) { return true; } }
+        return false;
+    }
+
+    priv fn _arm_has_null(self, mc: *MatchCase) -> bool {
+        for var j: usize = 0; j < mc->patterns.size(); ++j { if self._has_null_pattern(mc->patterns[j]) { return true; } }
+        return false;
+    }
+
+    /// The `null_arm` of a match on \p st: whether its first arm is `case
+    /// null`, alone and unguarded, so every later arm, `default` included,
+    /// matches only a value. A match on a `T?` that does not answer null
+    /// first is an error (DECIDED, NULLABLE.md 3.6): with a fix-it inserting
+    /// the arm when the match has none (statement form; an expression arm
+    /// needs a value the fix-it cannot invent), else a note at the
+    /// `case null` that is out of place. The scrutinee is then poisoned, so
+    /// the pattern checks after typing do not judge a match whose arms were
+    /// typed for a shape it does not have.
+    fn match_null_first(self, scrutinee: *Expr, cases: *FrozenList::<MatchCase>, st: *Type,
+                        at: SourceRange, stmt_form: bool) -> bool {
+        if st == &null { return false; }
+        var nt = dyn()->tu.as_value(st);
+        if dyn()->tu.nullable_inner(nt) == &null { return false; }
+        if cases->size() == 0 { return false; }
+        var first = cases->get(0);
+        if (!first->is_default) && (first->patterns.size() == 1) && self._null_pattern(first->patterns[0]) && (first->guard == &null) {
+            return true;
+        }
+        var ts = dyn()->tu.str(nt);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, at.start, f"a match on '{ts}' must answer null first");
+        b.first(scrutinee->range);
+        var late: usize = cases->size();
+        for var i: usize = 0; i < cases->size(); ++i {
+            if self._arm_has_null(cases->get(i)) { late = i; break; }
+        }
+        if (late == 0) && (first->guard != &null) {
+            b.note(first->guard->range.start, "'case null' takes no 'where' guard: null is answered once, by the first arm");
+        } else if late == 0 {
+            b.note(first->range.start, "write 'case null' as an arm of its own: every arm after it matches only a value");
+        } else if late < cases->size() {
+            b.note(cases->get(late)->range.start, "move this arm to the top: every arm after the first matches only a value");
+        } else if stmt_form {
+            var lc = dyn()->sc->ctx->sm->get_line_col(first->range.start);
+            var pad = "";
+            for var c: u32 = 1; c < lc.column; ++c { pad = pad + " "; }
+            b.insert(first->range.start, "case null { }\n" + pad, "answer null in the first arm");
+        } else {
+            b.note(first->range.start, "add 'case null => <value>' as the first arm");
+        }
+        b.emit();
+        return false;
+    }
+
+    /// The match on \p st is on a `T?` and does not answer null first: the
+    /// error match_null_first reported. Its scrutinee is poisoned once the
+    /// arms are typed.
+    fn match_null_missed(self, null_arm: bool, st: *Type) -> bool {
+        return (!null_arm) && (st != &null) && (dyn()->tu.nullable_inner(dyn()->tu.as_value(st)) != &null);
+    }
+
+    /// Arm \p i of a match on \p st enters: sets the nullness state its body
+    /// starts from (out of \p entry) and returns the column its patterns are
+    /// typed against. A `T?` scrutinee: the `case null` arm sees the place
+    /// Null and matches the `T?`; every other arm sees it NonNull and matches
+    /// the unwrapped `T` (`case var v` binds a `T`, `1..=3` is an integer
+    /// range). A `case null` after the first arm is an error when \p null_arm
+    /// already answered null (unless `T` is itself nullable: then it is
+    /// `T`'s own null).
+    fn match_arm_enter(self, null_arm: bool, scrutinee: *Expr, mc: *MatchCase, i: usize, st: *Type,
+                       entry: *NullEnv) -> *Type {
+        dyn()->flow.env = *entry;
+        if st == &null { return st; }
+        var nt = dyn()->tu.as_value(st);
+        var inner = dyn()->tu.nullable_inner(nt);
+        if inner == &null { return st; }
+        if self._arm_has_null(mc) {
+            if null_arm && (i > 0) && (dyn()->tu.nullable_inner(inner) == &null) {
+                for var j: usize = 0; j < mc->patterns.size(); ++j {
+                    var p = mc->patterns[j];
+                    if !self._has_null_pattern(p) { continue; }
+                    dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                        f"'null' is answered by the first arm; this arm matches only a '{dyn()->tu.str(inner)}' value"
+                    ).first(p->range).emit();
+                    p->poison();
+                }
+                dyn()->flow.put_state(&(dyn()->flow.env), scrutinee, Nullness::NonNull, mc->range);
+                return inner;
+            }
+            if (i == 0) && null_arm { dyn()->flow.put_state(&(dyn()->flow.env), scrutinee, Nullness::Null, mc->range); }
+            return st;
+        }
+        dyn()->flow.put_state(&(dyn()->flow.env), scrutinee, Nullness::NonNull, mc->range);
+        return inner;
+    }
+
+    /// A `where` guard: bool, and its true set refines the arm (3.6).
+    fn match_guard(self, mc: *MatchCase) {
+        if mc->guard == &null { return; }
+        self.require_bool(mc->guard, "a 'where' guard");
+        dyn()->flow.env = dyn()->flow.cond_of(mc->guard).t;
+    }
+
     fn type_match_expr(self, n: *MatchExpr, expected: *Type) -> *Type {
         var st = dyn()->type_of(n->scrutinee, &null);
         var acc: *Type = &null;
         var ok = true;
+        // As the statement form (StmtTyping::traverse_match_stmt).
+        var entry = dyn()->flow.env;
+        n->null_arm = self.match_null_first(n->scrutinee, &(n->cases), st, n->range, false);
+        var bad_null = self.match_null_missed(n->null_arm, st);
+        var fl = dyn()->flow.dead_env();
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);
-            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], st); }
-            if mc->guard != &null { self.require_bool(mc->guard, "a 'where' guard"); }
+            if i > 0 {
+                var end = dyn()->flow.env;
+                fl = dyn()->flow.join(&fl, &end);
+            }
+            var col = self.match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry);
+            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], col); }
+            self.match_guard(mc);
             if mc->expression != &null {
                 var t = dyn()->type_of(mc->expression, (expected) if (expected != &null) else (acc));
                 ok = self._join_into(&acc, t, mc->expression, "this 'case' value") && ok;
@@ -131,6 +289,12 @@ class <T> ControlTyping {
                 dyn()->dispatch_stmt(static_cast::<*Stmt>(mc->body));
             }
         }
+        if n->cases.size() > 0 {
+            var last = dyn()->flow.env;
+            fl = dyn()->flow.join(&fl, &last);
+        }
+        dyn()->flow.env = fl;
+        if bad_null { n->scrutinee->poison(); }
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
         for var i: usize = 0; i < n->cases.size(); ++i {
@@ -143,7 +307,12 @@ class <T> ControlTyping {
     fn type_try_expr(self, n: *TryCatchExpr, expected: *Type) -> *Type {
         var acc: *Type = &null;
         var ok = true;
+        // A catch arm may start after any part of the `try` value ran: from
+        // the state before it, with every global forgotten (calls).
+        var entry = dyn()->flow.env;
+        var arm_entry = dyn()->flow.try_entry(&entry, &null, n->try_expr);
         var t = dyn()->type_of(n->try_expr, expected);
+        var fl = dyn()->flow.env;
         ok = self._join_into(&acc, t, n->try_expr, "the 'try' value") && ok;
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var arm = n->catch_arms.get(i);
@@ -159,9 +328,13 @@ class <T> ControlTyping {
                     if ft != &null { vd->type_ = canon_unqual(ft); }
                 }
             }
+            dyn()->flow.env = arm_entry;
             var at = dyn()->type_of(arm->body, (expected) if (expected != &null) else (acc));
+            var arm_end = dyn()->flow.env;
+            fl = dyn()->flow.join(&fl, &arm_end);
             ok = self._join_into(&acc, at, arm->body, "this 'catch' value") && ok;
         }
+        dyn()->flow.env = fl;
         if !ok { dyn()->poison_only(n); return &null; }
         if acc == &null { dyn()->mark_unknown(n); return &null; }
         dyn()->check_convertible(n->try_expr, acc);
@@ -229,7 +402,7 @@ class <T> ControlTyping {
         if dyn()->propagate(n, n->operand) { return &null; }
         if ot == &null { return &null; }
         if !dyn()->tu.is_lang(ot, WellKnownType::Future) {
-            if dyn()->sc->well_known->get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
+            if dyn()->sc->well_known->get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Future)); return &null; }
             dyn()->fail(n, DiagID::SC086E, f"'await' requires a 'Future', not '{dyn()->tu.str(ot)}\x27");
             return &null;
         }
@@ -244,7 +417,7 @@ class <T> ControlTyping {
         if ot == &null { return &null; }
         var a = vec::<*Type>(); a.push_back(ot);
         var f = dyn()->tu.lang_record(WellKnownType::Future, &a);
-        if f == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
+        if f == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Future)); return &null; }
         return f;
     }
 
@@ -273,8 +446,13 @@ class <T> ControlTyping {
         }
         for var i: usize = 0; i < n->captures.size(); ++i {
             var c = n->captures.get(i);
-            if c->name != &null { dyn()->type_of(static_cast::<*Expr>(c->name), &null); }
+            if c->name != &null {
+                dyn()->type_of(static_cast::<*Expr>(c->name), &null);
+                dyn()->flow.consumed(static_cast::<*Expr>(c->name));   // the closure holds it: closure_made.
+            }
         }
+        // What calling it may write (NULLABLE.md 3.7).
+        dyn()->flow.closure_made(n);
 
         var declared: *Type = &null;
         if n->return_type != &null { declared = n->return_type->canonical; }
@@ -302,7 +480,13 @@ class <T> ControlTyping {
             dyn()->mark_unknown(n);
             return &null;
         }
-        return dyn()->sc->types->func(&params, &modes, canon_unqual(ret));
+        // The effect is part of the type (PANIC.md §2.2): the declared set,
+        // which a closure must write (P4); a bare `panic` closure is the
+        // error PanicEffectChecking reports, and its type has no set.
+        var panics = (static_cast::<u16>(n->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0;
+        var pset = vec::<*Type>();
+        if panics { canonical_set(&(dyn()->tu), &(n->panic_set), &pset); }
+        return dyn()->sc->types->func(&params, &modes, canon_unqual(ret), panics, &pset);
     }
 
     // === initializers =======================================================
@@ -346,6 +530,7 @@ class <T> ControlTyping {
     /// `T::Inner`, a duck-typed `T`) stays unknown; codegen ICEs on an
     /// untyped initializer, so this is the line between the two.
     priv fn _init_fields(self, n: *Expr, rec: *Type, fields: FrozenList::<InitField>) -> *Type {
+        if isa::<AssocType>(canon_unqual(rec)) { return self._assoc_init(n, rec, fields); }
         var d = dyn()->tu.record_decl(rec);
         if (d == &null) && rec->is_dependent() {
             for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
@@ -353,7 +538,14 @@ class <T> ControlTyping {
             return &null;
         }
         if d == &null { dyn()->fail(n, DiagID::SC088E, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
-        var body = dyn()->tu.pattern_of(d);
+        if (!rec->is_dependent()) && dyn()->reject_abstract(n, d) {
+            for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
+            return &null;
+        }
+        // The table the fields live in: a partial specialization's, for an
+        // instance (or a dependent `Pair<X, i32>`) its args select.
+        var body = dyn()->sc->record_body(rec);
+        if body == &null { body = dyn()->tu.pattern_of(d); }
         var dc   = NameLookup::context_of(body);
         var ok   = true;
         for var i: usize = 0; i < fields.size(); ++i {
@@ -385,6 +577,38 @@ class <T> ControlTyping {
             if (ft != &null) && (!dyn()->check_convertible(f->value, ft)) { ok = false; }
         }
         if !ok { dyn()->poison_only(n); return &null; }
+        return rec;
+    }
+
+    /// `T::Node { }`: a generic body builds an associated type only through
+    /// a constructor its bounds promise (interfaces.md, Generic Bodies: a
+    /// body uses exactly what the bounds declare), so `{ }` needs a bound
+    /// with a no-argument constructor requirement, `type Node impl Default`.
+    /// Its fields are no bound's, so a field list is never allowed.
+    priv fn _assoc_init(self, n: *Expr, rec: *Type, fields: FrozenList::<InitField>) -> *Type {
+        for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
+        var a  = cast::<AssocType>(canon_unqual(rec));
+        var ts = dyn()->tu.str(rec);
+        var an = dyn()->tu.decl_name(a->assoc);
+        if fields.size() > 0 {
+            var b = dyn()->sc->diag->report(DiagID::SC088E, n->range.start,
+                f"'{ts}' is an associated type: a generic body knows none of its fields");
+            b.first(n->range);
+            b.note(a->assoc->range.start, f"'{an}' is declared here; build it through a constructor bound ('type {an} impl ...')").first(a->assoc->range);
+            b.emit();
+            dyn()->poison_only(n);
+            return &null;
+        }
+        if !dyn()->tu.assoc_has_ctor(rec, 0) {
+            var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"cannot construct '{ts}': no bound of associated type '{an}' requires a constructor taking no arguments");
+            b.first(n->range);
+            b.note(a->assoc->range.start, f"'{an}' is declared here; bound it with an interface that declares a constructor requirement").first(a->assoc->range);
+            b.emit();
+            dyn()->poison_only(n);
+            return &null;
+        }
+        n->value_category = Expr::ValueCategory::RValue;
         return rec;
     }
 
@@ -522,6 +746,34 @@ class <T> ControlTyping {
             return &null;
         }
 
+        // A pack-expanded variant is one variant per element at a concrete
+        // instance; which one is built is the payload's type (VariadicEnum).
+        var ve = VariadicEnum(dyn()->sc);
+        var pes = vec::<*Type>();
+        if v->is_pack_expansion {
+            var vn = dyn()->tu.decl_name(static_cast::<*Decl>(v));
+            if (rec == &null) || (!ve.elems(rec, &pes)) {
+                self._type_fields_unknown(fields);
+                var b = dyn()->sc->diag->report(DiagID::SC116E, n->range.start,
+                    f"building pack-expanded variant '{nm}' at a type that depends on a generic parameter is not supported yet");
+                b.first(n->range, "which element this builds is known only per instance");
+                b.note(DiagID::SC116N, v->range.start, "the variant is expanded over the pack here").first(v->range);
+                b.emit();
+                dyn()->poison_only(n);
+                return &null;
+            }
+            if pes.size() == 0 {
+                self._type_fields_unknown(fields);
+                var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    f"'{dyn()->tu.str(rec)}' has no '{vn}' variant: its pack is empty");
+                b.first(n->range);
+                b.note(v->range.start, "one variant per element of the pack").first(v->range);
+                b.emit();
+                dyn()->poison_only(n);
+                return &null;
+            }
+        }
+
         // Per payload field: the initializer written for it.
         var given = vec::<*InitField>();
         for var k: usize = 0; k < np; ++k { given.push_back(&null); }
@@ -556,6 +808,9 @@ class <T> ControlTyping {
             given[uk] = f;
 
             var fd = v->payload[uk];
+            // A field naming the pack is typed on its own; its type picks the
+            // element, against which it is checked below.
+            if v->is_pack_expansion && ve.is_pack_field(fd) { dyn()->type_of(f->value, &null); continue; }
             var ft = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
             if ft != &null { ft = dyn()->ded_scratch()->member_through(rec, ft); }
             dyn()->type_of(f->value, ft);
@@ -580,12 +835,73 @@ class <T> ControlTyping {
         }
         if !ok { dyn()->poison_only(n); return &null; }
 
+        var pick: i32 = -1;
+        if v->is_pack_expansion {
+            pick = self._init_pick_element(n, v, rec, nm, &given, &ve, &pes);
+            if pick < 0 { dyn()->poison_only(n); return &null; }
+        }
+
         // Only now, every field matched exactly once: a failed construction
         // carries no fact for a later pass to build from.
         for var k: usize = 0; k < np; ++k { given[k]->field_decl = static_cast::<*Decl>(v->payload[k]); }
         self._set_variant_decl(n, static_cast::<*Decl>(v));
+        if isa::<NamedInitializerExpr>(n) { cast::<NamedInitializerExpr>(n)->variant_pack = pick; }
         n->value_category = Expr::ValueCategory::RValue;
         return rec;
+    }
+
+    /// The element of pack-expanded \p v a construction builds: the one
+    /// whose type every pack-typed field's value has exactly, else the one
+    /// they all convert to; -1 after reporting none or several. Each value
+    /// is then checked against the element picked.
+    priv fn _init_pick_element(self, n: *Expr, v: *EnumVariantDecl, rec: *Type, nm: string,
+                          given: *vec::<*InitField>, ve: *VariadicEnum, pes: *vec::<*Type>) -> i32 {
+        var pick: i32 = -1;
+        var vals = vec::<*Expr>();
+        for var k: usize = 0; k < v->payload.size(); ++k {
+            if !ve->is_pack_field(v->payload[k]) { continue; }
+            var e = (*given)[k]->value;
+            if e->is_poisoned() { return -1; }
+            if e->type_ == &null {
+                dyn()->sc->diag->report(DiagID::SC001E, e->range.start,
+                    f"the type of this value decides which '{nm}' is built, and it is not known here"
+                ).first(e->range).emit();
+                return -1;
+            }
+            vals.push_back(e);
+        }
+        if vals.size() == 0 { return (0) if (pes->size() == 1) else (-1); }   // PackChecking: a pack-expanded payload names the pack.
+        // Exact: every value's own type is the one element.
+        for var i: usize = 0; i < vals.size(); ++i {
+            var k = ve->exact(rec, vals[i]->type_);
+            if (k < 0) || ((pick >= 0) && (k != pick)) { pick = -1; break; }
+            pick = k;
+        }
+        // Else the one element every value converts to.
+        if pick < 0 {
+            var hits: usize = 0;
+            for var k: usize = 0; k < pes->size(); ++k {
+                var all = true;
+                for var i: usize = 0; i < vals.size(); ++i {
+                    if !dyn()->conv.convertible(vals[i]->type_, (*pes)[k]) { all = false; break; }
+                }
+                if all { hits += 1; pick = i32(k); }
+            }
+            if hits != 1 {
+                var what = dyn()->tu.str(vals[0]->type_);
+                var msg = (f"no '{nm}' of '{dyn()->tu.str(rec)}' holds a '{what}\x27") if (hits == 0)
+                          else (f"a '{what}' fits more than one '{nm}' of '{dyn()->tu.str(rec)}'; the payload's type must pick one");
+                var b = dyn()->sc->diag->report(DiagID::SC001E, vals[0]->range.start, msg);
+                b.first(vals[0]->range, "the payload's type picks the variant");
+                b.note(v->range.start, f"its variants here: {ve->describe(rec, v)}").first(v->range);
+                b.emit();
+                return -1;
+            }
+        }
+        for var i: usize = 0; i < vals.size(); ++i {
+            if !dyn()->check_convertible(vals[i], (*pes)[usize(pick)]) { return -1; }
+        }
+        return pick;
     }
 
     /// The one writer of `variant_decl`, on whichever node the construction
@@ -677,6 +993,14 @@ class <T> ControlTyping {
     fn type_stmt_expr(self, n: *StmtExpr, expected: *Type) -> *Type {
         var body = n->body;
         var count = (body->body.size()) if (body != &null) else (0);
+        // A `try` arm that leaves (`=> return v`, PANIC.md §3.2): the jump is
+        // typed as the statement it is, and the arm is `!`, so it fits beside
+        // arms of any type and the flow after it is dead.
+        if n->is_jump {
+            for var i: usize = 0; i < count; ++i { dyn()->dispatch_stmt(body->body[i]); }
+            n->value_category = Expr::ValueCategory::RValue;
+            return dyn()->tu.builtin(BuiltinKind::Never);
+        }
         // The parser guarantees a trailing ExpressionStmt for source forms and
         // SequenceLowering builds one; anything else is a malformed tree.
         var last_stmt: *Stmt = (body->body[count - 1]) if (count > 0) else (&null);

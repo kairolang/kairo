@@ -99,6 +99,10 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::RangeExpr                { return "RangeExpr";                }
         case ExprKind::ClosureExpr              { return "ClosureExpr";              }
         case ExprKind::AwaitExpr                { return "AwaitExpr";                }
+        case ExprKind::UnwrapExpr               { return "UnwrapExpr";               }
+        case ExprKind::DefinedExpr              { return "DefinedExpr";              }
+        case ExprKind::AttributedExpr           { return "AttributedExpr";           }
+        case ExprKind::PanicOpExpr              { return "PanicOpExpr";              }
         case ExprKind::SpawnExpr                { return "SpawnExpr";                }
         case ExprKind::ThreadExpr               { return "ThreadExpr";               }
         case ExprKind::ConstraintExpr           { return "ConstraintExpr";           }
@@ -208,16 +212,36 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     //  TYPES  source-faithful  (UNCHANGED)
 
     fn _quals(self, ty: *Type) {
+        self._data_quals(ty);
         type TQ = TypeQual::<Type>;
-        var f = static_cast::<u8>(ty->flags);
-        if (f & static_cast::<u8>(TQ::Flags::IsConst))    != 0 { self.p.paint(Color::Keyword, "const ");    }
-        if (f & static_cast::<u8>(TQ::Flags::IsVolatile)) != 0 { self.p.paint(Color::Keyword, "volatile "); }
-        if (f & static_cast::<u8>(TQ::Flags::IsAtomic))   != 0 { self.p.paint(Color::Keyword, "atomic ");   }
-        if (f & static_cast::<u8>(TQ::Flags::IsUnsafe))   != 0 { self.p.paint(Color::Keyword, "unsafe ");   }
-        if (f & static_cast::<u8>(TQ::Flags::IsEval))     != 0 { self.p.paint(Color::Keyword, "eval ");     }
-        if (f & static_cast::<u8>(TQ::Flags::IsAsync))    != 0 { self.p.paint(Color::Keyword, "async ");    }
-        if (f & static_cast::<u8>(TQ::Flags::IsYield))    != 0 { self.p.paint(Color::Keyword, "yield ");    }
-        if (f & static_cast::<u8>(TQ::Flags::IsPanic))    != 0 { self.p.paint(Color::Keyword, "panic ");    }
+        // u16: IsPanic is bit 8, and a u8 view dropped it from every type.
+        var f = static_cast::<u16>(ty->flags);
+        if (f & static_cast::<u16>(TQ::Flags::IsAsync))    != 0 { self.p.paint(Color::Keyword, "async ");    }
+        if (f & static_cast::<u16>(TQ::Flags::IsYield))    != 0 { self.p.paint(Color::Keyword, "yield ");    }
+        if (f & static_cast::<u16>(TQ::Flags::IsPanic))    != 0 { self.p.paint(Color::Keyword, "panic ");    }
+    }
+
+    fn _data_quals(self, ty: *Type) {
+        type TQ = TypeQual::<Type>;
+        var f = static_cast::<u16>(ty->flags);
+        if (f & static_cast::<u16>(TQ::Flags::IsConst))    != 0 { self.p.paint(Color::Keyword, "const ");    }
+        if (f & static_cast::<u16>(TQ::Flags::IsVolatile)) != 0 { self.p.paint(Color::Keyword, "volatile "); }
+        if (f & static_cast::<u16>(TQ::Flags::IsAtomic))   != 0 { self.p.paint(Color::Keyword, "atomic ");   }
+        if (f & static_cast::<u16>(TQ::Flags::IsUnsafe))   != 0 { self.p.paint(Color::Keyword, "unsafe ");   }
+        if (f & static_cast::<u16>(TQ::Flags::IsEval))     != 0 { self.p.paint(Color::Keyword, "eval ");     }
+    }
+
+    /// ` panic` and, when declared, its set `(E1, E2)` -- the one spelling
+    /// for a function header, a closure and a `fn` type.
+    fn _panic_spec(self, set: FrozenList::<*Type>) {
+        self.p.paint(Color::Keyword, " panic");
+        if set.is_empty() { return; }
+        self.p.paint(Color::Punct, "(");
+        for var i: usize = 0; i < set.size(); ++i {
+            if i > 0 { self.p.paint(Color::Punct, ", "); }
+            self.src_type(set[i]);
+        }
+        self.p.paint(Color::Punct, ")");
     }
 
     fn src_type(self, ty: *Type) {
@@ -230,8 +254,23 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<TypeOfType>(ty)            { self._quals(ty); self.p.paint(Color::Keyword, "typeof"); self.p.paint(Color::Punct, "(...)"); return; }
         if isa::<VariadicPackType>(ty)      { self.p.paint(Color::Punct, "..."); self.src_type(cast::<VariadicPackType>(ty)->param); return; }
         if isa::<PackExpansionType>(ty)     { self.src_type(cast::<PackExpansionType>(ty)->pattern); self.p.paint(Color::Punct, "..."); return; }
-        if isa::<PointerType>(ty)           { self._quals(ty); self.p.paint(Color::Punct, "*"); self.src_type(cast::<PointerType>(ty)->pointee); return; }
-        if isa::<NullableType>(ty)          { self._quals(ty); self.src_type(cast::<NullableType>(ty)->inner); self.p.paint(Color::Punct, "?"); return; }
+        if isa::<PointerType>(ty) {
+            // `*(T?)`: unparenthesized it would read back as `(*T)?`.
+            var pte = cast::<PointerType>(ty)->pointee;
+            self._quals(ty); self.p.paint(Color::Punct, "*");
+            if isa::<NullableType>(pte) { self.p.paint(Color::Punct, "("); self.src_type(pte); self.p.paint(Color::Punct, ")"); return; }
+            self.src_type(pte);
+            return;
+        }
+        if isa::<NullableType>(ty) {
+            // `(T?)?`: `T??` would read back as the `??` operator.
+            var inner = cast::<NullableType>(ty)->inner;
+            self._quals(ty);
+            if isa::<NullableType>(inner) { self.p.paint(Color::Punct, "("); self.src_type(inner); self.p.paint(Color::Punct, ")"); }
+            else { self.src_type(inner); }
+            self.p.paint(Color::Punct, "?");
+            return;
+        }
         if isa::<TupleType>(ty)             { self._t_tuple(cast::<TupleType>(ty));                       return; }
         if isa::<FixedArrayType>(ty)        { self._t_fixed_array(cast::<FixedArrayType>(ty));            return; }
         if isa::<VectorType>(ty)            { self._quals(ty); self.p.paint(Color::Punct, "["); self.src_type(cast::<VectorType>(ty)->element); self.p.paint(Color::Punct, "]"); return; }
@@ -300,7 +339,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _t_fn_ptr(self, ty: *FunctionPointerType) {
-        self._quals(ty);
+        // Effects follow the parameter list, where they are written
+        // (`fn(i32) async panic(E) -> T`); printed in front, `fn() panic`
+        // read back as a panic-qualified... nothing.
+        self._data_quals(ty);
         self.p.paint(Color::Keyword, "fn");
         self.p.paint(Color::Punct, "(");
         if ty->is_unprototyped {
@@ -315,6 +357,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             }
         }
         self.p.paint(Color::Punct, ")");
+        if ty->is_async() { self.p.paint(Color::Keyword, " async"); }
+        if ty->is_yield() { self.p.paint(Color::Keyword, " yield"); }
+        if ty->is_panic() { self._panic_spec(ty->panic_set); }
         if ty->return_type != &null {
             self.p.paint(Color::Punct, " -> ");
             self.src_type(ty->return_type);
@@ -343,6 +388,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ListLiteralExpr>(e)      { self._expr_list("[", "]", cast::<ListLiteralExpr>(e)->elements);  return; }
         if isa::<InitListExpr>(e)         { self._expr_list("{", "}", cast::<InitListExpr>(e)->elements);    return; }
         if isa::<StmtExpr>(e) {
+            // A `try` arm that leaves (`=> return v`) prints as written: the
+            // one jump, no block around it.
+            var se = cast::<StmtExpr>(e);
+            if se->is_jump && (se->body != &null) && (se->body->body.size() == 1) {
+                self.src_stmt(se->body->body[0]);
+                return;
+            }
             // `({ ... })`: the parens are what make the block a value, so they
             // round-trip like ParenExpr's.
             self.p.paint(Color::Punct, "(");
@@ -362,6 +414,38 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<RangeExpr>(e)            { self._e_range(cast::<RangeExpr>(e));   return; }
         if isa::<ClosureExpr>(e)          { self._e_closure(cast::<ClosureExpr>(e)); return; }
         if isa::<AwaitExpr>(e)            { self._kw_operand("await ",  cast::<AwaitExpr>(e)->operand);  return; }
+        if isa::<PanicOpExpr>(e) {
+            var po = cast::<PanicOpExpr>(e);
+            self.p.paint(Color::Keyword, "__panic_" + panic_op_name(po->which));
+            self.p.put("(");
+            if po->slot != &null { self.src_expr(po->slot); }
+            if (po->slot != &null) && (po->operand != &null) { self.p.put(", "); }
+            if po->operand != &null { self.src_expr(po->operand); }
+            self.p.put(")");
+            return;
+        }
+        if isa::<AttributedExpr>(e) {
+            var ae = cast::<AttributedExpr>(e);
+            self.p.paint(Color::Keyword, "@" + self.tok(ae->name));
+            if ae->has_args { self._expr_list("(", ")", ae->args); }
+            self.p.put(" ");
+            self.src_expr(ae->operand);
+            return;
+        }
+        if isa::<DefinedExpr>(e) {
+            self.p.paint(Color::Keyword, "defined!");
+            self.p.paint(Color::Punct, "(");
+            self.p.put(self.ctx->get_spelling(cast::<DefinedExpr>(e)->name));
+            self.p.paint(Color::Punct, ")");
+            return;
+        }
+        if isa::<UnwrapExpr>(e) {
+            self.p.paint(Color::Keyword, "unwrap!");
+            self.p.paint(Color::Punct, "(");
+            self.src_expr(cast::<UnwrapExpr>(e)->operand);
+            self.p.paint(Color::Punct, ")");
+            return;
+        }
         if isa::<SpawnExpr>(e)            { self._kw_operand("spawn ",  cast::<SpawnExpr>(e)->operand);  return; }
         if isa::<ThreadExpr>(e)           { self._kw_operand("thread ", cast::<ThreadExpr>(e)->operand); return; }
         if isa::<EvalExpr>(e)             { self._kw_operand("eval ",   cast::<EvalExpr>(e)->operand);   return; }
@@ -669,7 +753,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
 
         if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0 {
-            self.p.paint(Color::Keyword, " panic");
+            self._panic_spec(e->panic_set);
         }
         if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsVolatile)) != 0 {
             self.p.paint(Color::Keyword, " volatile");
@@ -1223,6 +1307,34 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Punct, "]");
     }
 
+    /// An interface's `derives`: the expression as written when it uses `-`
+    /// or `&`; a plain union prints as the list it is (`A, B` == `A + B`).
+    fn _derives_clause(self, id: *InterfaceDecl) {
+        if (id->derives_expr == &null) || (!id->derives_composed) { self._inherit_list("derives", id->derives_list); return; }
+        self.p.put(" ");
+        self.p.paint(Color::Keyword, "derives");
+        self.p.put(" ");
+        self._derives_src(id->derives_expr, 0, false);
+    }
+
+    /// The derives expression with the parentheses its tree needs (the parser
+    /// keeps none): a child is wrapped when it mixes `&` with `+`/`-` (the
+    /// form the parser warns about unparenthesized), or sits on the right of
+    /// its own operator class (both are left-associative).
+    fn _derives_src(self, e: *Expr, parent: u8, rhs: bool) {
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if b == &null { self.src_expr(e); return; }
+        var mine: u8 = (1) if (b->op_token.kind == TokenKind::OpAmp) else (2);
+        var wrap = (parent > 0) && ((mine != parent) || rhs);
+        if wrap { self.p.paint(Color::Punct, "("); }
+        self._derives_src(b->lhs, mine, false);
+        self.p.put(" ");
+        self.p.paint(Color::Punct, (("&") if (mine == 1) else ((("+") if (b->op_token.kind == TokenKind::OpPlus) else ("-")))));
+        self.p.put(" ");
+        self._derives_src(b->rhs, mine, true);
+        if wrap { self.p.paint(Color::Punct, ")"); }
+    }
+
     fn _inherit_list(self, kw: string, edges: FrozenList::<InheritEdge>) {
         if edges.is_empty() { return; }
         self.p.put(" ");
@@ -1263,6 +1375,16 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         return "var";
     }
 
+    /// The binding keywords as one canonical spelling: `thread` for Static
+    /// storage with is_thread, then `const` when the binding is const
+    /// (`static const` / `thread const`, whichever order was written).
+    fn _binding_kw(self, s: StorageClass, is_thread: bool, const_binding: bool) -> string {
+        var kw = self._storage_kw(s);
+        if (s == StorageClass::Static) && is_thread { kw = "thread"; }
+        if const_binding { kw += " const"; }
+        return kw;
+    }
+
     // -- FunctionDecl -------------------------------------------------------
 
     fn _fn_modifiers(self, fd: *FunctionDecl) {
@@ -1277,7 +1399,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if fd->is_eval()   { self.p.paint(Color::Keyword, " eval");   }
         if fd->is_async()  { self.p.paint(Color::Keyword, " async");  }
         if fd->is_final()  { self.p.paint(Color::Keyword, " final");  }
-        if fd->is_panic()  { self.p.paint(Color::Keyword, " panic");  }
+        if fd->is_panic()  { self._panic_spec(fd->panic_set);         }
         if fd->is_inline() { self.p.paint(Color::Keyword, " inline"); }
     }
 
@@ -1301,10 +1423,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _fn_body(self, fd: *FunctionDecl) {
         if      fd->body_kind == FnBodyKind::Default { self.p.paint(Color::Punct, " = "); self.p.paint(Color::Keyword, "default"); }
         else if fd->body_kind == FnBodyKind::Delete  { self.p.paint(Color::Punct, " = "); self.p.paint(Color::Keyword, "delete");  }
-        else if fd->body_kind == FnBodyKind::Virtual { self.p.paint(Color::Punct, " = "); self.p.paint(Color::Keyword, "virtual"); }
         else if fd->body_kind == FnBodyKind::Expr    { self.p.paint(Color::Punct, " = "); self.src_expr(fd->body_expr); }
         else if fd->body_kind == FnBodyKind::Block   { self.p.put(" "); self.src_stmt(static_cast::<*Stmt>(fd->body_block)); }
-        // FnBodyKind::None: signature only, nothing trailing.
+        // FnBodyKind::None: signature only, nothing trailing. Virtual (pure)
+        // too: it is a `virtual fn` with no body, and the modifier prints.
     }
 
     fn _d_function(self, fd: *FunctionDecl) {
@@ -1355,9 +1477,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     // -- VariableDecl / FieldDecl / ParamDecl -------------------------------
 
     fn _d_variable(self, vd: *VariableDecl) {
-        self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(vd->storage, vd->is_thread, vd->const_binding));
         self.p.put(" ");
+        if vd->pointer_unsafe { self.p.paint(Color::Keyword, "unsafe "); }
+        for var i: u32 = 0; i < vd->pointer_depth; ++i { self.p.paint(Color::Punct, "*"); }
         self.p.paint(Color::Ident, self.tok(vd->name));
+        if vd->nullable_shorthand { self.p.paint(Color::Punct, "?"); }
         if vd->type_ != &null {
             self.p.paint(Color::Punct, ": ");
             self.src_type(vd->type_);
@@ -1370,7 +1495,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     fn _d_field(self, fd: *FieldDecl) {
         if fd->is_mutable { self.p.paint(Color::Keyword, "mutable "); }
-        self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(fd->storage, fd->is_thread, fd->const_binding));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(fd->name));
         if fd->type_ != &null {
@@ -1422,7 +1547,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     fn _d_generic_param(self, gp: *GenericParamDecl) {
         if gp->is_const_param {
-            self.p.paint(Color::Keyword, "const ");
+            self.p.paint(Color::Keyword, "eval ");
             self.p.paint(Color::Ident, self.tok(gp->name));
             self.p.paint(Color::Punct, ": ");
             self.src_type(gp->value_type);
@@ -1506,7 +1631,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._generic_params(id->generic_params);
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(id->name));
-        self._inherit_list("derives", id->derives_list);
+        self._derives_clause(id);
         self._requires(id->requires_clause);
         self._member_body(empty_fields, id->methods);
     }
@@ -1556,6 +1681,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Punct, " = ");
             self.src_expr(v->discriminant);
         }
+        if v->is_pack_expansion { self.p.paint(Color::Punct, "..."); }
     }
 
     fn _d_union(self, ud: *UnionDecl) {
@@ -1574,8 +1700,35 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._generic_params(ta->generic_params);
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ta->name));
+        self._alias_rest(ta);
+    }
+
+    /// ` = T`, or for an associated type its bounds and optional default:
+    /// `type N impl X, Y = D` (the bounds are its requires clause's conjuncts).
+    fn _alias_rest(self, ta: *TypeAliasDecl) {
+        if ta->is_associated && (ta->requires_clause != &null) {
+            self.p.put(" ");
+            self.p.paint(Color::Keyword, "impl");
+            self.p.put(" ");
+            self._assoc_bounds(ta->requires_clause, true);
+        }
+        if (ta->aliased == &null) && ta->is_associated { return; }
         self.p.paint(Color::Punct, " = ");
         self.src_type(ta->aliased);
+    }
+
+    /// The interfaces of an `N impl X && N impl Y` conjunction, comma-separated.
+    fn _assoc_bounds(self, e: *Expr, first: bool) -> bool {
+        var b = dyn_cast::<BinaryOperatorExpr>(e);
+        if b != &null {
+            var f = self._assoc_bounds(b->lhs, first);
+            return self._assoc_bounds(b->rhs, f);
+        }
+        var c = dyn_cast::<ConstraintExpr>(e);
+        if c == &null { return first; }
+        if !first { self.p.paint(Color::Punct, ", "); }
+        self.src_type(c->rhs);
+        return false;
     }
 
     fn _d_module(self, md: *ModuleDecl) {
@@ -1674,6 +1827,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _d_eval_block(self, eb: *EvalBlockDecl) {
+        // member-position `eval if` / `eval for`. A for loop prints its own
+        // `eval`; ConditionalStmt does not carry it yet (StmtParse FIXME).
+        if eb->stmt != &null {
+            if isa::<ConditionalStmt>(eb->stmt) { self.p.paint(Color::Keyword, "eval "); }
+            self.src_stmt(eb->stmt);
+            return;
+        }
         self.p.paint(Color::Keyword, "eval");
         if eb->body.is_empty() { self.p.paint(Color::Punct, " {}"); return; }
         self.p.paint(Color::Punct, " { ");
@@ -2112,7 +2272,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         // falls all the way through to `<unknown-expr>`.
         if isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e)
         || isa::<BooleanLiteralExpr>(e) || isa::<NullLiteralExpr>(e)
-        || isa::<CharacterLiteralExpr>(e) {
+        || isa::<CharacterLiteralExpr>(e) || isa::<DefinedExpr>(e) {
             self._head(self._expr_kind_name(e), is_last);
             self._inline_expr(e);
             self.p.newline();
@@ -2156,6 +2316,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<RangeExpr>(e)            { self._dx_range(cast::<RangeExpr>(e), is_last);             return; }
         if isa::<ClosureExpr>(e)          { self._dx_closure(cast::<ClosureExpr>(e), is_last);         return; }
         if isa::<AwaitExpr>(e)            { self._dx_kw("AwaitExpr",  cast::<AwaitExpr>(e)->operand,  is_last); return; }
+        if isa::<UnwrapExpr>(e)           { self._dx_kw("UnwrapExpr", cast::<UnwrapExpr>(e)->operand, is_last); return; }
+        if isa::<AttributedExpr>(e)       { self._dx_attributed(cast::<AttributedExpr>(e), is_last); return; }
+        if isa::<PanicOpExpr>(e)          { self._dx_panic_op(cast::<PanicOpExpr>(e), is_last);      return; }
         if isa::<SpawnExpr>(e)            { self._dx_kw("SpawnExpr",  cast::<SpawnExpr>(e)->operand,  is_last); return; }
         if isa::<ThreadExpr>(e)           { self._dx_kw("ThreadExpr", cast::<ThreadExpr>(e)->operand, is_last); return; }
         if isa::<EvalExpr>(e)             { self._dx_kw("EvalExpr",   cast::<EvalExpr>(e)->operand,   is_last); return; }
@@ -2541,6 +2704,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     /// \brief Renders the structure hierarchy of ClosureExpr nodes for tree dumps.
     fn _dx_closure(self, e: *ClosureExpr, is_last: bool) {
         self._head("ClosureExpr", is_last);
+        if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0 {
+            self._panic_spec(e->panic_set);
+        }
         if e->return_type != &null {
             self.p.put(" -> ");
             self._inline_type(e->return_type);
@@ -2637,9 +2803,33 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.leave();
     }
 
+    /// `AttributedExpr @name (N args)`: the arguments, then the operand.
+    fn _dx_attributed(self, e: *AttributedExpr, is_last: bool) {
+        self._head("AttributedExpr", is_last);
+        self.p.put(" ");
+        self.p.paint(Color::Keyword, "@" + self.tok(e->name));
+        if e->has_args { self._dim(f"({e->args.size()} args)"); }
+        self.p.newline();
+        self.p.enter(is_last);
+        for var i: usize = 0; i < e->args.size(); ++i { self._child_expr(e->args[i], false); }
+        self._child_expr(e->operand, true);
+        self.p.leave();
+    }
+
+    /// `PanicOpExpr <op>`, then the slot and the operand it has.
+    fn _dx_panic_op(self, e: *PanicOpExpr, is_last: bool) {
+        self._head("PanicOpExpr", is_last);
+        self.p.put(" " + panic_op_name(e->which));
+        self.p.newline();
+        self.p.enter(is_last);
+        if e->slot != &null { self._child_expr(e->slot, e->operand == &null); }
+        if e->operand != &null { self._child_expr(e->operand, true); }
+        self.p.leave();
+    }
+
     /// One child, and it is a block: the value is its last statement.
     fn _dx_stmt_expr(self, n: *StmtExpr, is_last: bool) {
-        self._head("StmtExpr", is_last);
+        self._head(("StmtExpr (jump)") if (n->is_jump) else ("StmtExpr"), is_last);
         self.p.newline();
         self.p.enter(is_last);
         self._child_stmt(static_cast::<*Stmt>(n->body), true);
@@ -3020,6 +3210,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dd_spec(fd->spec_kind, fd->spec_args); // specialization tag + pattern (#68)
         // signature (params + return) inline; full declarations explode as children.
         self._param_list(fd->params);
+        if fd->is_panic() { self._panic_spec(fd->panic_set); }
         if fd->is_noreturn {
             self.p.paint(Color::Punct, " -> ");
             self.p.paint(Color::Operator, "!");
@@ -3027,6 +3218,11 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Punct, " -> ");
             self.src_type(fd->return_type);
         }
+        // a bodyless `virtual fn` (or an imported `= 0`) has no body to show
+        if fd->body_kind == FnBodyKind::Virtual { self.p.paint(Color::Keyword, " pure"); }
+        // The guard is a child row like the requires clause, and nothing on
+        // that row says which of the two it is; the head does.
+        if fd->where_clause != &null { self.p.paint(Color::Keyword, " where"); }
         self.p.newline();
 
         var has_attrs    = self._has_annotations(static_cast::<*Decl>(fd));
@@ -3081,9 +3277,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_vis(static_cast::<*Decl>(vd));
         self._dump_ffi_linkage(static_cast::<*Decl>(vd));
         self.p.put(" ");
-        self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(vd->storage, vd->is_thread, vd->const_binding));
         self.p.put(" ");
+        if vd->pointer_unsafe { self.p.paint(Color::Keyword, "unsafe "); }
+        for var i: u32 = 0; i < vd->pointer_depth; ++i { self.p.paint(Color::Punct, "*"); }
         self.p.paint(Color::Ident, self.tok(vd->name));
+        if vd->nullable_shorthand { self.p.paint(Color::Punct, "?"); }
         // a generic-bearing type becomes its own child subtree; a leaf type
         // stays inline on this row.
         var ty_child = (vd->type_ != &null) && self._type_is_expandable(vd->type_);
@@ -3107,7 +3306,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(fd));
         self.p.put(" ");
         if fd->is_mutable { self.p.paint(Color::Keyword, "mutable "); }
-        self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
+        self.p.paint(Color::Keyword, self._binding_kw(fd->storage, fd->is_thread, fd->const_binding));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(fd->name));
         var ty_child = (fd->type_ != &null) && self._type_is_expandable(fd->type_);
@@ -3262,7 +3461,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(id));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(id->name));
-        self._inherit_list("derives", id->derives_list);
+        self._derives_clause(id);
         self.p.newline();
         var empty_fields: FrozenList::<*FieldDecl>;
         var members = vec::<*Decl>();
@@ -3357,6 +3556,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(v));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(v->name));
+        if v->is_pack_expansion { self.p.paint(Color::Punct, " pack-expansion"); }
         self.p.newline();
 
         var has_attrs = self._has_annotations(static_cast::<*Decl>(v));
@@ -3388,8 +3588,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(ta));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ta->name));
-        self.p.paint(Color::Punct, " = ");
-        self.src_type(ta->aliased);
+        self._alias_rest(ta);
         self.p.newline();
         if self._has_annotations(static_cast::<*Decl>(ta)) {
             self.p.enter(is_last);
@@ -3439,12 +3638,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.newline();
         var has_attrs = self._has_annotations(static_cast::<*Decl>(eb));
         var n = eb->body.size();
-        if (!has_attrs) && (n == 0) { return; }
+        var has_stmt = (eb->stmt != &null);
+        if (!has_attrs) && (n == 0) && (!has_stmt) { return; }
         self.p.enter(is_last);
-        if has_attrs { self._dump_annotations(static_cast::<*Decl>(eb), n == 0); }
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(eb), (n == 0) && (!has_stmt)); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(eb->body[i], (i == (n - 1)));
+            self._child_decl(eb->body[i], (i == (n - 1)) && (!has_stmt));
         }
+        if has_stmt { self._child_stmt(eb->stmt, true); }
         self.p.leave();
     }
 
@@ -3544,6 +3745,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             case TypeKind::OpaqueFFIType         { return "OpaqueFFIType";         }
             case TypeKind::QualifiedType         { return "QualifiedType";         }
             case TypeKind::TypeExpr              { return "TypeExpr";              }
+            case TypeKind::AssocType             { return "AssocType";             }
             default                              { return "<type>";               }
         }
     }

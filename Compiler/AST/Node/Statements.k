@@ -104,6 +104,15 @@ struct CatchArm {
     /// Declaration introduced by `binding`; see Binding::decl. Null when the
     /// arm binds no name.
     var decl:    *Decl = &null;
+    /// Its type is not in the `try` body's set: the arm never runs, and
+    /// PanicLowering emits no tag compare for it (PANIC.md §3.1). A C++
+    /// exception arm (its type is not in the set and is a C++ type) is
+    /// never dead. One writer: PanicEffectChecking.
+    var is_dead: bool = false;
+    /// The arm catches a C++ exception (PANIC.md §3.5): its type is a C++
+    /// type not in the set. PanicLowering keeps it as a C++ `catch`. One
+    /// writer: PanicEffectChecking.
+    var is_cxx:  bool = false;
 }
 
 ///
@@ -314,6 +323,12 @@ class ContinueStmt derives Stmt {
 ///
 class PanicStmt derives Stmt {
     pub var payload: *Expr;
+    /// `panic e` of a catch arm's binding: a re-panic of the caught error,
+    /// which keeps its ORIGINAL site (PANIC.md §3.4) -- PanicLowering
+    /// forwards word 0 as it is instead of writing a new site. The arm's
+    /// binding decl; null for a fresh panic. One writer:
+    /// PanicEffectChecking.
+    pub var repanic: *Decl = &null;
 
     static fn create(ctx: *ASTContext, range: SourceRange, payload: *Expr) -> *PanicStmt {
         var node     = ctx->alloc::<PanicStmt>();
@@ -593,6 +608,9 @@ class ConditionalStmt derives Stmt {
     pub var cond:  *Expr;
     pub var then_: *CompoundStmt;
     pub var else_: *Stmt; ///< null, a ConditionalStmt (else-if), or a CompoundStmt.
+    /// `eval if`, and every `else if` of its chain: folded by EvalIfFolding
+    /// where its condition folds, else C++ `if constexpr` (EVAL.md §4).
+    pub var is_eval: bool;
 
     static fn create(
         ctx:   *ASTContext,
@@ -608,6 +626,7 @@ class ConditionalStmt derives Stmt {
         node->cond  = cond;
         node->then_ = then_;
         node->else_ = else_;
+        node->is_eval = false;
         return node;
     }
 
@@ -615,6 +634,7 @@ class ConditionalStmt derives Stmt {
         var node            = ctx->alloc::<ConditionalStmt>();
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ConditionalStmt;
+        node->is_eval       = false;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
@@ -714,6 +734,7 @@ enum IterKind derives u8 {
     String,       ///< `string`, by `char`.
     User,         ///< a record's `fn op in (self) -> yield T`, or a Yield<T> value itself (iter_op null).
     Cxx,          ///< an imported C++ class, by C++'s range protocol ([stmt.ranged]).
+    Pack,         ///< a type pack parameter (`fn <...T> f(...xs: T)`): unrolled, one copy per element; iter_elem is the pack.
 }
 
 ///
@@ -739,6 +760,12 @@ class RangedForStmt derives Stmt {
     pub var iterable: *Expr;
     pub var body:     *CompoundStmt;
     pub var is_eval:  bool;
+    /// An `eval for` over `lo..hi` / `lo..=hi`: the bounds, moved here by
+    /// IterLowering (the RangeExpr would otherwise become a Range record),
+    /// for EmitIR's expansion (EVAL.md §5). Null otherwise.
+    pub var ev_lo:   *Expr;
+    pub var ev_hi:   *Expr;
+    pub var ev_incl: bool;
     pub var iter_kind: IterKind = IterKind::None;
     pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`; null when the iterable is a Yield<T> itself.
     pub var iter_elem: *Type    = &null;   ///< the element type, canonical and unqualified.
@@ -769,6 +796,9 @@ class RangedForStmt derives Stmt {
         node->iterable = iterable;
         node->body     = body;
         node->is_eval  = is_eval;
+        node->ev_lo    = &null;
+        node->ev_hi    = &null;
+        node->ev_incl  = false;
         node->iter_kind = IterKind::None;
         node->iter_op   = &null;
         node->iter_elem = &null;
@@ -872,6 +902,12 @@ class MatchStmt derives Stmt {
     pub var covering_arm:  i32  = -1;
     pub var open_tail:     bool = false;
     pub var decision:      *void = &null; ///< PatternCompilation's *DecisionTree. One writer: PatternCompilation; read by MatchLowering and SemaDump.
+    /// A match on a `T?` whose first arm is `case null` (NULLABLE.md 3.6):
+    /// every later arm matches the unwrapped `T`. One writer: X (the match
+    /// typing, which also reports a `T?` match without it); read by
+    /// PatternChecking and PatternCompilation (arm 0 is no row; the column
+    /// is `T`), CoalesceLowering (which splits arm 0 off) and SemaDump.
+    pub var null_arm:      bool  = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchStmt {
         var node       = ctx->alloc::<MatchStmt>();
@@ -957,6 +993,14 @@ class LabeledStmt derives Stmt {
 class TryCatchStmt derives Stmt {
     pub var try_body: *CompoundStmt;
     pub var arms:     FrozenList::<CatchArm>;
+    /// The body's panic set (PANIC.md §3.1): everything that reaches this
+    /// `try` from its body, canonical. The arms discharge it; PanicLowering
+    /// sizes the slot from it. One writer: PanicEffectChecking.
+    pub var reach:    FrozenList::<*Type>;
+    /// PanicLowering's C++ `try` (PANIC.md §3.5, §4.5a H): every arm is a C++
+    /// exception arm, its body the lowered `try` body. EmitIR writes it as
+    /// `try { } catch (T& e) { }`; any other TryCatchStmt is PanicLowering's.
+    pub var cxx:      bool = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, try_body: *CompoundStmt) -> *TryCatchStmt {
         var node      = ctx->alloc::<TryCatchStmt>();

@@ -43,6 +43,9 @@ class EmitOptions {
     /// of its scope from Kairo and C++ alike. Kept as a switch, not deleted, so the surface can be
     /// reopened without re-deriving where the wrapper would go.
     pub var extension_member_wrappers: bool = false;
+    /// -funwind: closures and `__kairo_fn`'s call path are not `noexcept`
+    /// (a function's own spelling is FunctionDecl::no_unwind, decided in X).
+    pub var unwind: bool = false;
 
     fn EmitOptions(self) { }
 }
@@ -79,6 +82,7 @@ class CodegenContext {
         self.instances = instances;
         self.phase     = CodegenPhase::Ready;
         if sink != &null { sink->ice_ctx = ctx; }
+        if (ctx->ci != &null) && (ctx->ci->lang.unwind == 1) { self.opts.unwind = true; }
     }
 
     fn require_phase(self, min: CodegenPhase) {

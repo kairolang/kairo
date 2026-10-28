@@ -11,7 +11,7 @@
 ///       positional calls, and CallLowering never sees them.
 ///     - Arity follows the table in the Operators reference: `+`/`-` unary
 ///       or binary, `in` containment (one) or iteration (none), `as`,
-///       `delete`, `await`, `spawn`, `thread`, `~` unary, `->` unary,
+///       `delete`, `await`, `spawn`, `thread`, `panic`, `~` unary, `->` unary,
 ///       everything else binary.
 ///       A free operator's first parameter is the receiver.
 ///     - Results: comparisons and `in` containment return bool, `<=>` returns
@@ -163,7 +163,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
     priv fn _arity_ok(self, sym: string, n: usize) -> bool {
         if (sym == "+") || (sym == "-") || (sym == "in") { return n <= 1; }
         if (sym == "~") || (sym == "compl") || (sym == "as") || (sym == "delete") || (sym == "->")
-        || (sym == "await") || (sym == "spawn") || (sym == "thread")
+        || (sym == "await") || (sym == "spawn") || (sym == "thread") || (sym == "panic")
         || (sym == "++") || (sym == "--") { return n == 0; }
         return n == 1;
     }
@@ -182,6 +182,13 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         if f->return_type != &null { rt = f->return_type->canonical; }
         if (f->return_type != &null) && ((rt == &null) || rt->is_dependent()) { return; }
 
+        // `fn op panic (const self) -> string` (PANIC.md §1.5): the display
+        // path reads the message from a const caught error and through a C++
+        // `const&`, so the receiver is const; and the message is a string.
+        if sym == "panic" {
+            self._check_op_panic(f, rt);
+            return;
+        }
         if sym == "->" {
             var p = (self._tu.pointee(rt)) if (rt != &null) else (&null);
             if (p == &null) || self._tu.is_unsafe_ptr(rt) {
@@ -224,20 +231,60 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         }
     }
 
+    /// `op panic`'s two rules, each with the edit that makes it hold. A free
+    /// operator's first parameter is its receiver and is not a `self`, so
+    /// only a member's (or an extension member's) `self` is judged.
+    priv fn _check_op_panic(self, f: *FunctionDecl, rt: *Type) {
+        var recv: *ParamDecl = &null;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if (f->params[i] != &null) && f->params[i]->is_self { recv = f->params[i]; break; }
+        }
+        if (recv != &null) && (!recv->is_const) {
+            var b = self.sc->diag->report(DiagID::SC001E, recv->range.start,
+                "'op panic' takes 'const self': the message is read from a const caught error");
+            b.first(recv->range, "not const");
+            b.note(DiagID::SC001N, f->range.start, "the operator is declared here").first(f->range);
+            b.insert(recv->range.start, "const ", "make the receiver 'const self\x27");
+            b.emit();
+        }
+        if (rt != &null) && self._tu.is_string(rt) { return; }
+        var at = (f->return_type->range) if ((f->return_type != &null) && f->return_type->range.is_valid()) else (f->range);
+        var rb = self.sc->diag->report(DiagID::SC001E, at.start, "'op panic' must return 'string', the error's message");
+        rb.first(at);
+        rb.note(DiagID::SC001N, f->range.start, "the operator is declared here").first(f->range);
+        if (f->return_type != &null) && f->return_type->range.is_valid() {
+            rb.fix(f->return_type->range, "string", "return 'string\x27");
+        } else if f->params_end.is_valid() {
+            rb.insert(f->params_end.end, " -> string", "return 'string\x27");
+        }
+        rb.emit();
+    }
+
     // === one definition per pair ===========================================
 
-    fn visit_class_decl(self, n: *ClassDecl) -> bool   { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
-    fn visit_struct_decl(self, n: *StructDecl) -> bool { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
-    fn visit_union_decl(self, n: *UnionDecl) -> bool   { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+    fn visit_class_decl(self, n: *ClassDecl) -> bool   { self._table(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+    fn visit_struct_decl(self, n: *StructDecl) -> bool { self._table(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+    fn visit_union_decl(self, n: *UnionDecl) -> bool   { self._table(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }
+
+    priv fn _table(self, dc: *DeclContext, at: *Decl) {
+        self._pairs(dc, at);
+        self._cmp_shadows(dc, dc);
+    }
 
     /// An extension's table against itself and against the target's own body.
     fn visit_extension_decl(self, n: *ExtensionDecl) -> bool {
         var dc = static_cast::<*DeclContext>(n);
-        self._pairs(dc, static_cast::<*Decl>(n));
+        self._table(dc, static_cast::<*Decl>(n));
         if (n->target != &null) && (n->target->canonical != &null) && isa::<RecordType>(canon_unqual(n->target->canonical)) {
             var td = cast::<RecordType>(canon_unqual(n->target->canonical))->decl;
             var tdc = NameLookup::context_of(decl_pattern(td));
-            if tdc != &null { self._pairs_across(dc, tdc, static_cast::<*Decl>(n)); }
+            if tdc != &null {
+                self._pairs_across(dc, tdc, static_cast::<*Decl>(n));
+                // Either side may hold the `<=>`; each warning lands on the
+                // comparison, wherever it is declared.
+                self._cmp_shadows(dc, tdc);
+                self._cmp_shadows(tdc, dc);
+            }
         }
         return true;
     }
@@ -268,6 +315,46 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
              .note(g->range.start, f"'op {bsym}' is declared here").first(g->range)
              .emit();
             f->poison();
+        }
+    }
+
+    // === comparisons beside `op <=>` ========================================
+
+    /// The comparisons OperatorTyping derives from `op <=>`.
+    priv fn _derived_from_cmp(self, k: TokenKind) -> bool {
+        return (k == TokenKind::OpLess) || (k == TokenKind::OpLessEqual)
+            || (k == TokenKind::OpGreater) || (k == TokenKind::OpGreaterEqual)
+            || (k == TokenKind::OpEqualEqual) || (k == TokenKind::OpExclaimEqual)
+            || (k == TokenKind::KwNotEq);
+    }
+
+    /// A comparison declared in \p a beside an `op <=>` in \p b. Legal --
+    /// an `op ==` cheaper than a three-way compare is a real reason to write
+    /// one -- but the declared operator wins every use (OperatorTyping looks
+    /// it up first), so the one derived from `<=>` is never reached, and a C++
+    /// host gets the declared one too (InterfaceEmitter skips it). If the two
+    /// disagree, `a < b` and `a <=> b` silently answer differently: warn, do
+    /// not poison.
+    priv fn _cmp_shadows(self, a: *DeclContext, b: *DeclContext) {
+        if (a == &null) || (b == &null) || (a->dc_symbols == &null) { return; }
+        var cmp = b->lookup_symbol(DeclName::op_name(TokenKind::OpLessEqualGreater, TokenKind::TkUnknown));
+        if (cmp == &null) || (cmp->size() == 0) { return; }
+        var g = cmp->get(0);
+        if (g == &null) || decl_is_imported(g) { return; }
+        var rows = vec::<SymbolTable::Entry>();
+        a->dc_symbols->collect_entries(rows);
+        for var i: usize = 0; i < rows.size(); ++i {
+            var cell = rows[i].cell;
+            if (cell == &null) || (cell->size() == 0) { continue; }
+            var f = dyn_cast::<FunctionDecl>(cell->get(0));
+            if (f == &null) || (!f->is_operator) || f->is_poisoned() { continue; }
+            if !self._derived_from_cmp(OperatorFacts::op_kind(f)) { continue; }
+            var sym = OperatorFacts::symbol(f);
+            self.sc->diag->report(DiagID::SC001W, f->range.start,
+                f"'op {sym}' shadows the '{sym}' derived from 'op <=>'; every '{sym}' calls this declaration instead"
+            ).first(f->range)
+             .note(g->range.start, "'op <=>' is declared here; it already derives '<', '<=', '>', '>=', '==' and '!=\x27").first(g->range)
+             .emit();
         }
     }
 

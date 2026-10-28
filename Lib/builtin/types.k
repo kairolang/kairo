@@ -20,7 +20,16 @@ pub struct <T> RangeTo {
     var inclusive: bool
 }
 
-pub struct <T> Panic   { var value: T }
+/// What a `panic` function returns (PANIC.md §1.1): `Ok` with the declared
+/// return type, else one `Err` per type in the function's panic set. The
+/// compiler forms every instance (the set is deduplicated and sorted by type
+/// id) and lays it out itself: each tag is a type id, word 0 holds the tag
+/// and the panic site, and the payloads start at `max(8, alignof(...))`.
+/// User code does not name it (SC116E).
+pub enum <T, ...E> Panic {
+    Ok  { value: T },
+    Err { error: E }...,
+}
 pub struct PanicRaise { var payload: *void }
 pub struct PanicCatch { var payload: *void }
 pub enum Ordering derives i8 {
@@ -28,16 +37,16 @@ pub enum Ordering derives i8 {
     Equal   = 0,
     Greater = 1,
 }
-pub struct <T> Null    { var value: T; var has: bool }
 pub struct <T> Future  { var state: *void }
 
 /// What `byte` is in C++: a scoped enum over u8, which is `std::byte`'s own
 /// shape (no arithmetic, explicit conversions) without needing <cstddef>.
 /// Kairo bypasses clang's preprocessor, so an emitted TU cannot #include
 /// one; a builtin declaration the plan emits like any other can. Named
-/// `Byte` because `byte` is a type keyword, not an identifier. Sema keeps
+/// `Byte` because `byte` is a type keyword, not an identifier. `@open`: a
+/// byte holds any of its 256 values, none of them a variant. Sema keeps
 /// its own `byte` rules; only the C++ spelling points here.
-pub enum Byte derives u8 {}
+@open pub enum Byte derives u8 {}
 pub struct BigInt   { var limbs: *u64; var len: usize; var neg: bool }
 pub struct BigFloat { var mant: BigInt; var exp: i64 }
 pub struct AssertFail { var message: string }

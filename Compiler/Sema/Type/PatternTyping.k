@@ -59,9 +59,11 @@ ffi "c++" import "llvm/ADT/DenseSet.h";
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
+import Sema::Type::VariadicEnum::*;
 import Sema::Check::PatternSpace::*;
 import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
@@ -280,6 +282,21 @@ class <T> PatternTyping {
         if (st == &null) || st->is_dependent() {
             if head != &null { dyn()->type_head(head); }
             self._type_subs_unknown(subs);
+            // A variadic enum's constructors are per instance: which tag a
+            // pattern tests is unknown in a generic body (M2).
+            var den = (self._enum_of(st)) if (st != &null) else (&null);
+            var pv  = (adt_pack_variant(den)) if ((den != &null) && den->is_adt) else (&null);
+            var hits = false;
+            if pv != &null {
+                if is_dotted { hits = dyn()->sc->ctx->get_spelling(dotted) == dyn()->tu.decl_name(static_cast::<*Decl>(pv)); }
+                else { hits = self._head_decl(head) == static_cast::<*Decl>(pv); }
+            }
+            if hits {
+                dyn()->sc->diag->report(DiagID::SC116E, p->range.start,
+                    f"matching pack-expanded variant '{dyn()->tu.decl_name(static_cast::<*Decl>(pv))}' at a type that depends on a generic parameter is not supported yet"
+                ).first(p->range).emit();
+                p->poison();
+            }
             return;
         }
 
@@ -399,6 +416,17 @@ class <T> PatternTyping {
             return;
         }
 
+        // A pack-expanded variant: which element this pattern matches is its
+        // payload's type, written on a binder of the pack field.
+        var ve = VariadicEnum(dyn()->sc);
+        var pick: i32 = -1;
+        var pes = vec::<*Type>();
+        if (v != &null) && v->is_pack_expansion {
+            pick = self._pat_pick_element(p, v, owner, subs, st, &ve, &pes);
+            if pick < 0 { p->poison(); self._type_subs_unknown(subs); return; }
+            p->pack_index = pick;
+        }
+
         var used = vec::<bool>();
         for var k: usize = 0; k < fields.size(); ++k { used.push_back(false); }
 
@@ -448,11 +476,76 @@ class <T> PatternTyping {
             sp->field_decl = static_cast::<*Decl>(fd);
 
             var ft: *Type = &null;
-            if (fd->type_ != &null) && (fd->type_->canonical != &null) {
+            if pick >= 0 {
+                ft = ve.field_at(st, fd, usize(pick));
+            } else if (fd->type_ != &null) && (fd->type_->canonical != &null) {
                 ft = dyn()->ded_scratch()->member_through(st, fd->type_->canonical);
             }
             self.type_pattern(sp, ft);
         }
+    }
+
+    /// The element of pack-expanded \p v a pattern matches at \p st: the one
+    /// a binder of a pack field names as its type (`.Err(var e: f64)`), or
+    /// the only one; -1 after reporting why there is none.
+    priv fn _pat_pick_element(self, p: *Pattern, v: *EnumVariantDecl, owner: string, subs: FrozenList::<*Pattern>,
+                          st: *Type, ve: *VariadicEnum, pes: *vec::<*Type>) -> i32 {
+        var stn = dyn()->tu.str(st);
+        if !ve->elems(st, pes) {
+            dyn()->sc->diag->report(DiagID::SC116E, p->range.start,
+                f"matching pack-expanded variant '{owner}' at a type that depends on a generic parameter is not supported yet"
+            ).first(p->range).emit();
+            return -1;
+        }
+        if pes->size() == 0 {
+            var b = dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                f"'{stn}' has no '{owner}' variant: its pack is empty");
+            b.first(p->range);
+            b.note(v->range.start, "one variant per element of the pack").first(v->range);
+            b.emit();
+            return -1;
+        }
+        var pick: i32 = -1;
+        var named: *BindingPattern = &null;     // a binder of a pack field, typed or not.
+        for var i: usize = 0; i < subs.size(); ++i {
+            var bp = dyn_cast::<BindingPattern>(subs[i]);
+            if bp == &null { continue; }
+            var want = dyn()->sc->ctx->get_spelling(bp->name);
+            var fd: *FieldDecl = &null;
+            for var k: usize = 0; k < v->payload.size(); ++k {
+                if dyn()->tu.decl_name(static_cast::<*Decl>(v->payload[k])) == want { fd = v->payload[k]; break; }
+            }
+            if (fd == &null) || (!ve->is_pack_field(fd)) { continue; }
+            if named == &null { named = bp; }
+            if (bp->type_ == &null) || (bp->type_->canonical == &null) { continue; }
+            var k = ve->exact(st, bp->type_->canonical);
+            if k < 0 {
+                var b = dyn()->sc->diag->report(DiagID::SC001E, bp->type_->range.start,
+                    f"no '{owner}' of '{stn}' holds a '{dyn()->tu.str(bp->type_->canonical)}\x27");
+                b.first(bp->type_->range, "the payload's type picks the variant");
+                b.note(v->range.start, f"its variants here: {ve->describe(st, v)}").first(v->range);
+                b.emit();
+                return -1;
+            }
+            if (pick >= 0) && (k != pick) {
+                dyn()->sc->diag->report(DiagID::SC001E, bp->type_->range.start,
+                    f"these binders name two different '{owner}' variants of '{stn}\x27"
+                ).first(bp->type_->range).emit();
+                return -1;
+            }
+            pick = k;
+        }
+        if pick >= 0 { return pick; }
+        if pes->size() == 1 { return 0; }
+        var b = dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+            f"'{owner}' is one variant per element of a pack in '{stn}'; name the payload's type to pick one");
+        b.first(p->range, "matches which?");
+        if named != &null {
+            b.insert(named->range.end, ": " + dyn()->tu.str((*pes)[0]), "name the payload type");
+        }
+        b.note(v->range.start, f"its variants here: {ve->describe(st, v)}").first(v->range);
+        b.emit();
+        return -1;
     }
 
     priv fn _type_subs_unknown(self, subs: FrozenList::<*Pattern>) {

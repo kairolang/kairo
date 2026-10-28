@@ -4717,6 +4717,7 @@ enum DiagID derives u32 {
   R014E = compute_hash::<r"R014E">(),
   R015E = compute_hash::<r"R015E">(),
   R016E = compute_hash::<r"R016E">(),
+  R016N = compute_hash::<r"R016N">(),
   R017E = compute_hash::<r"R017E">(),
   R018E = compute_hash::<r"R018E">(),
   R019E = compute_hash::<r"R019E">(),

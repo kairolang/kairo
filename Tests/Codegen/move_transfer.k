@@ -63,9 +63,9 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}move_transfer.k
-// IR:      ::move_transfer::Str passthrough({{ ?}}::move_transfer::Str s) {
+// IR:      ::move_transfer::Str passthrough({{ ?}}::move_transfer::Str s) noexcept {
 // IR-NEXT: return s;
-// IR:      ::move_transfer::Str first({{ ?}}::move_transfer::Pair p) {
+// IR:      ::move_transfer::Str first({{ ?}}::move_transfer::Pair p) noexcept {
 // IR-NEXT: return static_cast<{{ ?}}::move_transfer::Str &&>(p.a);
 // IR:      take(static_cast<{{ ?}}::move_transfer::Str &&>(a))
 // IR:      (a ={{ ?}}::move_transfer::passthrough(static_cast<{{ ?}}::move_transfer::Str &&>(a)));

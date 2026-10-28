@@ -22,8 +22,12 @@
 ///     No FunctionDecl with `body_kind == Expr` reaches codegen. EmitIR's
 ///     `_unsupported_body` ICEs on one, naming this pass.
 ///
-///   Closures keep their expression bodies: EmitIR has no closure path yet,
-///   and the day it does, it is this same rewrite on ClosureExpr.
+///   A closure's expression body is the same rewrite (`fn (x: i32) = x * 2`
+///   -> `{ return x * 2 }`). There the choice reads the RESOLVED return
+///   type: a closure's is inferred when omitted (ControlTyping::
+///   type_closure writes it back into `return_type`), and EmitIR spells
+///   the lambda's `-> R` from it, so `void` and `!` take `e;` and anything
+///   else `return e`.
 ///
 ///   Phase: LOWER, first of the passes that rewrite statements (only
 ///   VariantInitLowering, which replaces construction nodes in place, and
@@ -48,6 +52,9 @@ import AST::Node::Base::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
+import AST::Node::Expressions::*;
 
 class ExprBodyDesugar derives ASTWriter::<ExprBodyDesugar> {
     pub var sc: *SemaContext;
@@ -84,5 +91,37 @@ class ExprBodyDesugar derives ASTWriter::<ExprBodyDesugar> {
         n->body_expr  = &null;
         n->body_kind  = FnBodyKind::Block;
         return out;
+    }
+
+    fn transform_closure_expr(self, n: *ClosureExpr) -> *Expr {
+        var out = ASTWriter::<ExprBodyDesugar>::transform_closure_expr(n);
+        if n->body_expr == &null { return out; }
+
+        var e = n->body_expr;
+        var s: *Stmt = &null;
+        if n->is_noreturn || self._is_void(n->return_type) {
+            s = static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, e->range, e));
+        } else {
+            s = static_cast::<*Stmt>(ReturnStmt::create(self.ctx, e->range, e));
+        }
+
+        var stmts = self.list_builder::<*Stmt>();
+        stmts.push(s);
+        var body = CompoundStmt::create(self.ctx, e->range);
+        stmts.freeze_into(&(body->body));
+
+        n->body_block = body;
+        n->body_expr  = &null;
+        n->body_kind  = FnBodyKind::Block;
+        return out;
+    }
+
+    /// No return type at all, or one that is `void` / `!`.
+    priv fn _is_void(self, t: *Type) -> bool {
+        if (t == &null) || (t->canonical == &null) { return true; }
+        var c = canon_unqual(t->canonical);
+        if (c == &null) || (!isa::<BuiltinType>(c)) { return false; }
+        var k = cast::<BuiltinType>(c)->builtin;
+        return (k == BuiltinKind::Void) || (k == BuiltinKind::Never);
     }
 }

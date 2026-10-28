@@ -133,9 +133,12 @@ class ConstraintExtraction {
                 self._recurse_members(static_cast::<*DeclContext>(n));
                 self._recurse_methods(&(n->methods));
             } case DeclKind::TypeAliasDecl {
-                // is_alias=true: a conformance constraint here meaningless
+                // is_alias=true: a conformance constraint here meaningless --
+                // except on an interface's ASSOCIATED type, whose clause is
+                // its bounds (`type N impl X`): the type a conformer supplies
+                // must meet them.
                 var n = cast::<TypeAliasDecl>(d);
-                self._extract(d, n->requires_clause, true);
+                self._extract(d, n->requires_clause, !n->is_associated);
             } default {
                 break; // nothing to do
             }

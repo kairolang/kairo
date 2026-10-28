@@ -5,22 +5,10 @@
 ///
 ///   \detail
 ///     Structural, not a CFG: one question asked of the statement tree,
-///     "can control fall out of the bottom of this statement?". A block
-///     falls through unless some statement in it does not; a statement does
-///     not fall through when it is
-///
-///         return / panic / break / continue / jump!
-///         a call (or any expression) whose type is `!`
-///         `if` WITH an `else`, both arms not falling through
-///         `match` that is exhaustive, every arm not falling through
-///         `try` whose body and every catch arm do not fall through
-///         `loop {}`, `while true {}`, `for ;; {}` with no `break` out
-///         a block / `unsafe` / context binding / label whose body doesn't
-///
-///     `break` and `continue` count as "does not fall through" because they
-///     leave the BLOCK, not the function; the loop that owns them is what
-///     decides whether the function can continue past it, and the loop rule
-///     above asks exactly that.
+///     "can control fall out of the bottom of this statement?". The answer
+///     is FallThrough's (Sema/Check/ControlFlowAnalysis.k), which has the
+///     rule per statement; the unreachable-code warning asks it too, so the
+///     two can never disagree about what ends a path.
 ///
 ///   \par match counts only when it is exhaustive
 ///     Coverage is `MatchStmt::is_exhaustive`, written by PatternChecking,
@@ -32,9 +20,10 @@
 ///   \par Conservative on unknowns
 ///     A recovery node, an `inline` foreign block, `jump!`, and a match on a
 ///     scrutinee whose type is unknown are all treated as NOT falling
-///     through. Each of those either already produced an error or hides
-///     control flow this pass cannot see, and a missing-return on top of
-///     either is noise. Missing a real bug there is the chosen trade.
+///     through (FallThrough with `unknown_ends_path`). Each of those either
+///     already produced an error or hides control flow this pass cannot
+///     see, and a missing-return on top of either is noise. Missing a real
+///     bug there is the chosen trade.
 ///
 ///   \par Generators
 ///     `-> yield T` names what each `yield` produces; falling off the bottom
@@ -43,7 +32,7 @@
 ///     record return and is checked like any other.
 ///
 ///   \par What this is NOT
-///     Unreachable-code warnings (TerminatorCheck, lexical), definite
+///     Unreachable-code warnings (ControlFlowAnalysis), definite
 ///     initialization, or an exhaustiveness diagnostic (PatternChecking).
 ///     This pass reads the match facts; it reports nothing about the match
 ///     itself.
@@ -62,6 +51,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Check::ControlFlowAnalysis::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::ASTSupport::*;
@@ -85,10 +75,12 @@ import Diagnostic::Registry::*;
 class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
     pub var sc: *SemaContext;
     priv var _tu: TypeUtil;
+    priv var _ft: FallThrough;
 
     fn ReturnPathCheck(self, sc: *SemaContext) {
         self.sc  = sc;
         self._tu = TypeUtil(sc);
+        self._ft = FallThrough(sc, true);
     }
 
     fn run(self) {
@@ -163,12 +155,14 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         var never = noreturn;
         if (!never) {
             var rc = ret->canonical;
-            // Unresolved return type: T already reported it.
-            if rc == &null { return; }
-            if self._tu.is_void(rc) { return; }
-            if self._tu.is_never(rc) { never = true; }
+            // Unresolved return type: T already reported it. A DEPENDENT one
+            // with no canonical (`Foo<T>::Inner`) is still a value type --
+            // never void, never `!` -- so falling off its end is reported.
+            if (rc == &null) && (ret->is_poisoned() || (!ret->is_dependent())) { return; }
+            if (rc != &null) && self._tu.is_void(rc) { return; }
+            if (rc != &null) && self._tu.is_never(rc) { never = true; }
         }
-        if !self._falls_through(static_cast::<*Stmt>(body)) { return; }
+        if !self._ft.falls_through(static_cast::<*Stmt>(body)) { return; }
 
         // `end` is exclusive; the closing brace is the byte before it.
         var brace = SourceRange::from_bounds(body->range.end.with_offset(-1), u32(1));
@@ -185,213 +179,14 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
             return;
         }
 
-        var ty = self._tu.str(ret->canonical);
+        // A dependent type with no canonical has no spelling of its own.
+        var ty = (f"'{self._tu.str(ret->canonical)}\x27") if (ret->canonical != &null) else ("a value");
         var b = self.sc->diag->report(DiagID::SC104E, brace.start,
             f"{what} does not return a value on all control paths");
         b.first(brace);
         b.note(DiagID::SC104N, decl_at.start,
-            f"declared to return '{ty}' here; every path must end in 'return', 'panic', or a call that does not return"
+            f"declared to return {ty} here; every path must end in 'return', 'panic', or a call that does not return"
         ).first(decl_at);
         b.emit();
-    }
-
-    // === the fall-through predicate =======================================
-
-    /// Can control leave \p s at its bottom and continue with the next
-    /// statement? See the file header for the rule per statement.
-    priv fn _falls_through(self, s: *Stmt) -> bool {
-        if s == &null { return true; }
-        switch s->kind {
-            case StmtKind::RecoveryStmt       { return false; }
-            case StmtKind::ReturnStmt         { return false; }
-            case StmtKind::PanicStmt          { return false; }
-            case StmtKind::BreakStmt          { return false; }
-            case StmtKind::ContinueStmt       { return false; }
-            case StmtKind::JumpIntrinsicStmt  { return false; }
-            case StmtKind::InlineBlockStmt    { return false; }
-
-            case StmtKind::CompoundStmt {
-                return self._block_falls_through(cast::<CompoundStmt>(s));
-            }
-            case StmtKind::UnsafeBlockStmt {
-                return self._block_falls_through(cast::<UnsafeBlockStmt>(s)->body);
-            }
-            case StmtKind::ContextBindingStmt {
-                return self._block_falls_through(cast::<ContextBindingStmt>(s)->body);
-            }
-            case StmtKind::ExpressionStmt {
-                return !self._diverges(cast::<ExpressionStmt>(s)->expr);
-            }
-            case StmtKind::ConditionalStmt {
-                var c = cast::<ConditionalStmt>(s);
-                // No `else`: the false edge falls through regardless of `then`.
-                if c->else_ == &null { return true; }
-                if self._block_falls_through(c->then_) { return true; }
-                return self._falls_through(c->else_);
-            }
-            case StmtKind::MatchStmt {
-                return self._match_falls_through(cast::<MatchStmt>(s));
-            }
-            case StmtKind::TryCatchStmt {
-                var t = cast::<TryCatchStmt>(s);
-                if self._block_falls_through(t->try_body) { return true; }
-                for var i: usize = 0; i < t->arms.size(); ++i {
-                    var arm = t->arms.get(i);
-                    if self._block_falls_through(arm->body) { return true; }
-                }
-                return false;
-            }
-            case StmtKind::LabeledStmt {
-                var l = cast::<LabeledStmt>(s);
-                return self._loop_falls_through(l->inner, self._imm(l->label));
-            }
-            case StmtKind::LoopStmt       { return self._loop_falls_through(s, u32(-1)); }
-            case StmtKind::WhileLoopStmt  { return self._loop_falls_through(s, u32(-1)); }
-            case StmtKind::IndexedForStmt { return self._loop_falls_through(s, u32(-1)); }
-            default { return true; }
-        }
-    }
-
-    priv fn _block_falls_through(self, b: *CompoundStmt) -> bool {
-        if b == &null { return true; }
-        var dead = false;
-        for var i: usize = 0; i < b->body.size(); ++i {
-            var s = b->body[i];
-            if s == &null { continue; }
-            // A `label!` is a `jump!` target: whatever precedes it, control
-            // can arrive here, so the block is live again from this point.
-            if s->kind == StmtKind::LabelIntrinsicStmt { dead = false; continue; }
-            if !self._falls_through(s) { dead = true; }
-        }
-        return !dead;
-    }
-
-    /// An expression whose type is `!` -- a call to a `-> !` function is the
-    /// case that matters. Unknown type is "may return".
-    priv fn _diverges(self, e: *Expr) -> bool {
-        if e == &null { return false; }
-        if e->type_ == &null { return false; }
-        return self._tu.is_never(e->type_);
-    }
-
-    // --- loops ------------------------------------------------------------
-
-    /// \p label is the imm of a LabeledStmt wrapping \p s, or -1.
-    priv fn _loop_falls_through(self, s: *Stmt, label: u32) -> bool {
-        if s == &null { return true; }
-        var body: *CompoundStmt = &null;
-        switch s->kind {
-            case StmtKind::LoopStmt { body = cast::<LoopStmt>(s)->body; }
-            case StmtKind::WhileLoopStmt {
-                var w = cast::<WhileLoopStmt>(s);
-                if !self._is_true_literal(w->cond) { return true; }
-                body = w->body;
-            }
-            case StmtKind::IndexedForStmt {
-                var f = cast::<IndexedForStmt>(s);
-                if (f->cond != &null) && (!self._is_true_literal(f->cond)) { return true; }
-                body = f->body;
-            }
-            // A label on a finite loop (a ranged `for`, say): the loop
-            // exhausts and falls through like the unlabeled form.
-            default { return self._falls_through(s); }
-        }
-        // Infinite: the only way past it is a `break` that targets it.
-        return self._breaks_out(static_cast::<*Stmt>(body), 0, label);
-    }
-
-    /// Does \p s contain a `break` that exits the loop under inspection?
-    /// \p depth counts loops entered below that one: an unlabeled break at
-    /// depth 0 is ours, a labeled one is ours at any depth when it names us.
-    priv fn _breaks_out(self, s: *Stmt, depth: u32, label: u32) -> bool {
-        if s == &null { return false; }
-        switch s->kind {
-            case StmtKind::BreakStmt {
-                var b = cast::<BreakStmt>(s);
-                if (!b->has_label) { return depth == 0; }
-                return (label != u32(-1)) && (self._imm(b->label) == label);
-            }
-            case StmtKind::CompoundStmt {
-                var c = cast::<CompoundStmt>(s);
-                for var i: usize = 0; i < c->body.size(); ++i {
-                    if self._breaks_out(c->body[i], depth, label) { return true; }
-                }
-                return false;
-            }
-            case StmtKind::UnsafeBlockStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<UnsafeBlockStmt>(s)->body), depth, label);
-            }
-            case StmtKind::ContextBindingStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<ContextBindingStmt>(s)->body), depth, label);
-            }
-            case StmtKind::ConditionalStmt {
-                var c = cast::<ConditionalStmt>(s);
-                if self._breaks_out(static_cast::<*Stmt>(c->then_), depth, label) { return true; }
-                return self._breaks_out(c->else_, depth, label);
-            }
-            case StmtKind::MatchStmt {
-                // `break` inside a match targets the enclosing loop (StmtKind
-                // doc), so a match is not a depth step.
-                var m = cast::<MatchStmt>(s);
-                for var i: usize = 0; i < m->cases.size(); ++i {
-                    var mc = m->cases.get(i);
-                    if self._breaks_out(static_cast::<*Stmt>(mc->body), depth, label) { return true; }
-                }
-                return false;
-            }
-            case StmtKind::TryCatchStmt {
-                var t = cast::<TryCatchStmt>(s);
-                if self._breaks_out(static_cast::<*Stmt>(t->try_body), depth, label) { return true; }
-                for var i: usize = 0; i < t->arms.size(); ++i {
-                    var arm = t->arms.get(i);
-                    if self._breaks_out(static_cast::<*Stmt>(arm->body), depth, label) { return true; }
-                }
-                return false;
-            }
-            case StmtKind::LabeledStmt {
-                return self._breaks_out(cast::<LabeledStmt>(s)->inner, depth, label);
-            }
-            case StmtKind::LoopStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<LoopStmt>(s)->body), depth + 1, label);
-            }
-            case StmtKind::WhileLoopStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<WhileLoopStmt>(s)->body), depth + 1, label);
-            }
-            case StmtKind::IndexedForStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<IndexedForStmt>(s)->body), depth + 1, label);
-            }
-            case StmtKind::RangedForStmt {
-                return self._breaks_out(static_cast::<*Stmt>(cast::<RangedForStmt>(s)->body), depth + 1, label);
-            }
-            default { return false; }
-        }
-    }
-
-    priv fn _is_true_literal(self, e: *Expr) -> bool {
-        if e == &null { return false; }
-        if !isa::<BooleanLiteralExpr>(e) { return false; }
-        return cast::<BooleanLiteralExpr>(e)->value;
-    }
-
-    // --- match ------------------------------------------------------------
-
-    /// A non-exhaustive match is not falling through on purpose: it is
-    /// already PatternChecking's SC120E, and a missing return on top of it
-    /// is noise (see "Conservative on unknowns").
-    priv fn _match_falls_through(self, m: *MatchStmt) -> bool {
-        if !m->is_exhaustive { return false; }
-        for var i: usize = 0; i < m->cases.size(); ++i {
-            var mc = m->cases.get(i);
-            if mc->body != &null {
-                if self._block_falls_through(mc->body) { return true; }
-            } else if !self._diverges(mc->expression) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    priv fn _imm(self, tok: Token) -> u32 {
-        return self.sc->ctx->get_ident_imm(tok);
     }
 }

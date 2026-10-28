@@ -21,8 +21,9 @@
 ///       a < b   from op <=>  ->  ((a.op<=>(b)) as i8) < 0     the original token, against 0
 ///
 ///     An ADT's `==` (X's tag_eq: the enum declares no `op ==`) binds no
-///     operator. It is the builtin compare of the two tags, an `enum class`:
-///       a == b  on an ADT    ->  a.__kairo_tag == b.__kairo_tag     `!=` likewise
+///     operator. It compares the two values' variants, in whatever form the
+///     layout keeps them (EnumLayoutQuery::same_variant):
+///       a == b  on an ADT    ->  a's variant == b's variant     `!=` likewise
 ///
 ///     Compound assignment, one definition per pair:
 ///       a += b  with op +=   ->  a.op+=(b)
@@ -56,7 +57,9 @@ import Sema::SemaContext::*;
 import AST::OperatorFacts::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Type::TypeUtil::*;
+import AST::LangItems::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
@@ -137,7 +140,7 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         var out = ASTWriter::<OperatorLowering>::transform_binary_operator_expr(n);
         // Before the builtin test: a tag `==` binds no operator either.
         if n->tag_eq { return self._tag_eq(n); }
-        if n->resolved_op == &null { return out; }   // builtin, or `===` (the nullable trio's).
+        if n->resolved_op == &null { return out; }   // builtin (`===` is CoalesceLowering's, gone by now).
         var f = self._fn(n->resolved_op);
         var k = n->op_token.kind;
         var args = vec::<*Expr>();
@@ -207,17 +210,150 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
             c->value_category = Expr::ValueCategory::RValue;
             recv = static_cast::<*Expr>(c);
         }
-        return self._call_tokens(static_cast::<*Expr>(n), recv, self._bracket_tokens(n), n->resolved_op, n->op_via_free, &args, &null);
+        return self._call_tokens(static_cast::<*Expr>(n), recv, self._bracket_tokens(n), n->resolved_op, n->op_via_free, &args, n->op_instance);
     }
 
     fn transform_type_cast_expr(self, n: *TypeCastExpr) -> *Expr {
         var out = ASTWriter::<OperatorLowering>::transform_type_cast_expr(n);
+        if (n->enum_check != &null) && (out != &null) && isa::<TypeCastExpr>(out) {
+            // The enum was recorded at typing: the cast's own type may be a
+            // `Nullable<E>` record by now (NullableTypeLowering).
+            var oc = cast::<TypeCastExpr>(out);
+            var en = dyn_cast::<EnumDecl>(n->enum_check);
+            oc->enum_check = &null;   // checked once: a later walk must not wrap it again.
+            if en != &null { oc->operand = self._closed_enum_operand(n, en, oc->operand); }
+        }
+        if n->asserting_downcast && (out != &null) && isa::<TypeCastExpr>(out) {
+            var oc = cast::<TypeCastExpr>(out);
+            oc->asserting_downcast = false;   // checked once, as enum_check.
+            return self._asserting_downcast(oc);
+        }
         if n->resolved_ctor != &null { return self._ctor_cast(n); }
         if n->resolved_op == &null { return out; }
         var f = self._fn(n->resolved_op);
         ICE_IF(!f->is_operator, "OperatorLowering: a converting constructor arrives through resolved_ctor, not resolved_op");
         var args = vec::<*Expr>();
         return self._call_tokens(static_cast::<*Expr>(n), n->operand, f->op_token, n->resolved_op, false, &args, &null);
+    }
+
+    // --- `as` into a closed enum -------------------------------------------------
+
+    /// The operand \p v of `v as E`, E a closed plain enum (CastTyping
+    /// marked the cast: \p v is not a constant), checked against E's values
+    /// before the plain cast reads it:
+    ///
+    ///   `({ var t = v; if <t is no value of E> { unwrap_failed(m, n) }  t }) as E`
+    ///
+    /// The test is on the integer, so a value clang can see folds it away:
+    /// `t >= N` (and `t < 0` when signed) when the values are `0..N-1`, else
+    /// one `t != value` per variant. A miss crashes -- the crash family, as
+    /// a failed bounds check (PANIC.md §2.8): no set, no `try` -- through
+    /// the same write-and-abort entry `unwrap!` uses (the UnwrapFailed lang
+    /// item), whose message is whatever the caller built.
+    priv fn _closed_enum_operand(self, n: *TypeCastExpr, en: *EnumDecl, v: *Expr) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        if en->is_adt || en->is_open || (v == &null) || (v->type_ == &null) { return v; }
+        var ut = canon_unqual(tu.as_value(v->type_));
+        var uk = tu.kind_of(ut);
+        if uk == BuiltinKind::COUNT { return v; }
+        var at = n->range;
+
+        var count = u64(en->variants.size());
+        var dense = true;
+        for var i: usize = 0; i < en->variants.size(); ++i {
+            var ev = en->variants[i];
+            if (ev == &null) || (!ev->value.ok) { return v; }   // a value that failed said so.
+            if ev->value.neg || (ev->value.mag >= count) { dense = false; }
+        }
+
+        var stmts = self.list_builder::<*Stmt>();
+        var t = self.synth.bind(at, "ecast", ut, v, &stmts);
+        var miss: *Expr = &null;
+        if dense {
+            miss = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue),
+                             self.synth.int_literal(at, count, uk), TokenKind::OpGreaterEqual);
+            if builtin_info(uk)->is_signed() {
+                var neg = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue),
+                                    self.synth.int_literal(at, u64(0), uk), TokenKind::OpLess);
+                miss = self._cmp(at, neg, miss, TokenKind::OpPipePipe);
+            }
+        } else {
+            for var i: usize = 0; i < en->variants.size(); ++i {
+                var ev  = en->variants[i];
+                var lit = self.synth.int_literal(at, ev->value.mag, uk);
+                if ev->value.neg {
+                    var m = UnaryOperatorExpr::create(self.ctx, at, lit, self.synth.punct(at, TokenKind::OpMinus),
+                                                      UnaryOperatorExpr::Fix::Prefix);
+                    m->type_          = self.sc->builtin(uk);
+                    m->value_category = Expr::ValueCategory::RValue;
+                    lit = static_cast::<*Expr>(m);
+                }
+                var ne = self._cmp(at, self.synth.use_of(t, at, Expr::ValueCategory::LValue), lit, TokenKind::OpExclaimEqual);
+                miss = (ne) if (miss == &null) else (self._cmp(at, miss, ne, TokenKind::OpAmpAmp));
+            }
+        }
+
+        stmts.push(self._crash_if(n, en, miss));
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self.synth.use_of(t, at, Expr::ValueCategory::LValue))));
+        return self.synth.stmt_expr(v, &stmts, ut);
+    }
+
+    /// `p as *D`, the asserting downcast (PANIC.md §5):
+    ///
+    ///   `({ var s = p; var d = s as *D [dynamic_only]; if s && !d { unwrap_failed(m, n) }  d })`
+    ///
+    /// The inner cast is C++'s `dynamic_cast<D*>`, a null pointer on a miss
+    /// (EmitIR); a null `p` stays null, as C++'s own downcast keeps it. A
+    /// miss crashes -- the crash family (§2.8): no set, no `try` -- through
+    /// the same entry as `unwrap!`, with a message built here, whole: the
+    /// cast as written, the static and target types, and the site.
+    priv fn _asserting_downcast(self, n: *TypeCastExpr) -> *Expr {
+        var tu = TypeUtil(self.sc);
+        var at = n->range;
+        var st = n->operand->type_;
+        var dt = n->type_;
+        if (st == &null) || (dt == &null) { return static_cast::<*Expr>(n); }
+
+        var stmts = self.list_builder::<*Stmt>();
+        var s  = self.synth.bind(at, "dcs", st, n->operand, &stmts);
+        var dc = TypeCastExpr::create(self.ctx, at, self.synth.use_of(s, at, Expr::ValueCategory::LValue), n->target, false, n->mode);
+        dc->type_          = dt;
+        dc->value_category = Expr::ValueCategory::RValue;
+        dc->dynamic_only   = true;
+        var d  = self.synth.bind(at, "dcd", dt, static_cast::<*Expr>(dc), &stmts);
+
+        var nd = UnaryOperatorExpr::create(self.ctx, at, self.synth.use_of(d, at, Expr::ValueCategory::LValue),
+                                           self.synth.punct(at, TokenKind::OpExclaim), UnaryOperatorExpr::Fix::Prefix);
+        nd->type_          = self.sc->builtin(BuiltinKind::Bool);
+        nd->value_category = Expr::ValueCategory::RValue;
+        var miss = self._cmp(at, self.synth.use_of(s, at, Expr::ValueCategory::LValue), static_cast::<*Expr>(nd), TokenKind::OpAmpAmp);
+
+        var full = self.ctx->sm->get_line_col(at.start);
+        var tp   = tu.pointee(dt);
+        var tn   = (tu.str(tp)) if (tp != &null) else (tu.str(dt));
+        var text = f"{self.ctx->get_spelling(at)}: the object is not a '{tn}' (static type '{tu.str(st)}') at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
+        stmts.push(self.synth.crash_if(at, miss, self.synth.crash_call(at, text, "OperatorLowering")));
+        stmts.push(static_cast::<*Stmt>(ExpressionStmt::create(self.ctx, at, self.synth.use_of(d, at, Expr::ValueCategory::LValue))));
+        return self.synth.stmt_expr(static_cast::<*Expr>(n), &stmts, dt);
+    }
+
+    /// `l <op> r`, a builtin compare or logical operator, typed bool.
+    priv fn _cmp(self, at: SourceRange, l: *Expr, r: *Expr, k: TokenKind) -> *Expr {
+        var b = BinaryOperatorExpr::create(self.ctx, at, l, r, self.synth.punct(at, k));
+        b->type_          = self.sc->builtin(BuiltinKind::Bool);
+        b->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(b);
+    }
+
+    /// `if miss { unwrap_failed("<message>", <len>) }`: the message names
+    /// the cast as written, the enum and where.
+    priv fn _crash_if(self, n: *TypeCastExpr, en: *EnumDecl, miss: *Expr) -> *Stmt {
+        var at   = n->range;
+        var tu   = TypeUtil(self.sc);
+        var full = self.ctx->sm->get_line_col(at.start);
+        var nm   = tu.decl_name(static_cast::<*Decl>(en));
+        var text = f"{self.ctx->get_spelling(at)}: the value is no variant of the closed enum '{nm}' at {self.ctx->sm->get_filename(at.start)}:{full.line}:{full.column}";
+        return self.synth.crash_if(at, miss, self.synth.crash_call(at, text, "OperatorLowering"));
     }
 
     /// `x as T` through a converting constructor -> `T(x)`. The callee names
@@ -240,26 +376,23 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     // --- ADT `==` ----------------------------------------------------------------
 
-    /// `a == b` on an ADT with no `op ==` -> `a.__kairo_tag == b.__kairo_tag`,
-    /// and `!=` likewise, under the written token. The tags are an `enum
-    /// class`, which C++ compares natively, so the node built here is a
-    /// builtin operator: no resolved_op and no tag_eq, nothing for this pass
-    /// or EmitIR to rewrite. Each operand appears once, so it runs once; their
-    /// order is C++'s, as for every primitive operator (SequenceLowering
-    /// orders call arguments only). The tag field is the pattern's --
-    /// EnumLayoutLowering lays out the pattern and an instance shares it --
-    /// reached as MatchLowering reaches it, and a public member of the record.
+    /// `a == b` on an ADT with no `op ==`: the two variants compared, `!=`
+    /// likewise, under the written token. The query builds it from builtin
+    /// compares, so the node is no operator call: no resolved_op and no
+    /// tag_eq, nothing for this pass or EmitIR to rewrite. Each operand
+    /// appears once, so it runs once; their order is C++'s, as for every
+    /// primitive operator (SequenceLowering orders call arguments only). How
+    /// the variant is read is the layout's (EnumLayoutQuery), never spelled
+    /// here.
     priv fn _tag_eq(self, n: *BinaryOperatorExpr) -> *Expr {
         var tu = TypeUtil(self.sc);
         var d  = tu.record_decl(tu.as_value(n->lhs->type_));
         ICE_IF(d == &null, "OperatorLowering: tag_eq on an operand that is no record; OperatorTyping gate failure");
         var en = dyn_cast::<EnumDecl>(tu.pattern_of(d));
         ICE_IF((en == &null) || (!en->is_adt), "OperatorLowering: tag_eq on an operand that is no ADT enum; OperatorTyping gate failure");
-        var tag = en->adt_tag_field;
-        ICE_IF(tag == &null, "OperatorLowering: tag_eq on an ADT with no tag field; EnumLayoutLowering runs first");
-        var l   = self.synth.field_of(n->lhs->range, n->lhs, static_cast::<*Decl>(tag), tag->type_);
-        var r   = self.synth.field_of(n->rhs->range, n->rhs, static_cast::<*Decl>(tag), tag->type_);
-        var cmp = BinaryOperatorExpr::create(self.ctx, n->range, l, r, n->op_token);
+        var q = EnumLayoutQuery(self.sc);
+        ICE_IF(!q.has_layout(en), "OperatorLowering: tag_eq on an ADT with no layout; EnumLayoutLowering runs first");
+        var cmp = q.same_variant(n->range, n->lhs, n->rhs, en, n->op_token);
         cmp->adopt_sema(static_cast::<*Expr>(n));
         return static_cast::<*Expr>(cmp);
     }
@@ -279,7 +412,8 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         return static_cast::<*Expr>(no);
     }
 
-    /// `a < b` -> `((a.op<=>(b)) as i8) < 0`, the original token against 0.
+    /// `a < b` -> `((a.op<=>(b)) as i8) < 0`, the original token against 0
+    /// (`==` / `!=` from `op <=>` as well).
     /// Ordering's discriminants are -1 / 0 / 1 (Lib/builtin/lang.k), so the
     /// comparison needs no variant spelled and no lookup here.
     priv fn _derived_cmp(self, n: *BinaryOperatorExpr, f: *FunctionDecl) -> *Expr {

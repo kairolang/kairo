@@ -32,7 +32,10 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Context::CanonicalTypes::*;
 import AST::Node::Base::*;
+import Location::SourceRange::*;
 import AST::Node::CanonicalNodes::*;
+import AST::Node::Declarations::*;
+import AST::Node::Casting::*;
 import AST::LangItems::*;
 import AST::DeclFacts::*;
 import Sema::Check::ConstraintSet::*;
@@ -72,16 +75,22 @@ enum SemaPhase derives u8 {
     NamesResolved,
     /// Phase T done: every non-dependent Type node canonical.
     TypesResolved,
+    /// The checks through ConformanceChecking done: X's types and callee
+    /// bindings are final. THE barrier for panic sets (PANIC.md §2.2): the
+    /// driver takes every TU of an import cycle (just this one when there is
+    /// none) here before any of them goes on, and EffectPropagation solves
+    /// their sets at once (RESOLUTION.md, "The Typed barrier").
+    Typed,
     /// Signature/shape checks done (operator signatures, conformance
     /// declarations verified, const checks).
     Checked,
     /// Desugar/lowering passes done (extends folded+lowered, match/panic/
     /// eval lowerings applied). Tree is codegen-shaped except generics.
     Lowered,
-    /// M1 done: monomorphization usage collection complete.
+    /// M1 done: every instance minted so far is enumerated (MONO.md D4).
     MonoCollected,
-    /// M2 done: instantiation + dependent conformance. THE sync point;
-    /// nothing cross-TU mutates after this.
+    /// M2 done: this TU's instance facts computed (MONO.md D0). Not a
+    /// build-wide sync point: later TUs still mint into the registry.
     Complete,
 }
 
@@ -123,11 +132,20 @@ class SemaOptions {
     pub var max_type_alias_depth: i32 = 64;
 
     pub var unmatched: UnmatchedPolicy = UnmatchedPolicy::Trap; ///< what a match does with an undeclared value; MatchLowering reads it.
+    pub var adt_unmatched: UnmatchedPolicy = UnmatchedPolicy::Unreachable; ///< the same for an ADT tag no variant has (CodeGenOptions::adt_tag_policy).
 
     // -- language gates and declaration limits (FlagGates reads these) ------
     // Defaults are "off" / unlimited so a hand-built SemaOptions (tests that
     // skip load) never trips a gate; load() applies the real defaults.
     pub var no_unsafe:  bool = false;  ///< --no-unsafe or -fno-unsafe.
+    /// The C++ this build compiles has exceptions (LangOptions::cxx_exceptions):
+    /// a `catch e: cxx::...` arm needs them (PANIC.md §3.5).
+    pub var cxx_exceptions: bool = true;
+    pub var unwind_all: bool = false;  ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
+    /// -fduck-generics: `<T: type>` is the C++-checked regime rather than an
+    /// error (FlagGates; MONO.md D1). Off by default, on purpose: a hand-built
+    /// SemaOptions rejects `: type` the way the driver does.
+    pub var duck_generics: bool = false;
     pub var no_fp:      bool = false;  ///< --no-fp.
     pub var no_ffi:     bool = false;  ///< --no-ffi.
     pub var no_cxx:     bool = false;  ///< --no-cxx.
@@ -140,6 +158,19 @@ class SemaOptions {
     pub var max_union_width:     i32 = 0;  ///< 0 = unlimited.
     pub var max_interface_impls: i32 = 0;  ///< 0 = unlimited.
     pub var max_extend_chain:    i32 = 0;  ///< 0 = unlimited.
+    /// --cmax-generic-depth: the longest instantiation chain the discovery
+    /// fixpoint follows before it reports one (MONO.md D4).
+    pub var max_generic_depth:   i32 = 128;
+    /// --cmax-generic-backtrace: instantiation-chain notes shown per error
+    /// (MONO.md D6: 5, the first 3 and the last 2); 0 shows them all.
+    pub var max_generic_backtrace: i32 = 5;
+    /// Compiler test hooks for the Panic lang item (PANIC.md §7, P1): source
+    /// may name `Panic<...>`, and type ids keep only this many low bits.
+    pub var test_panic_type:    bool = false;
+    pub var test_panic_id_bits: i32  = 32;
+    /// The build produces a library (--shared): the `pub` inferred-panic-set
+    /// lint is on (PANIC.md §2.2). Off for an executable.
+    pub var library_build: bool = false;
 
     fn SemaOptions(self) { }
 
@@ -154,11 +185,18 @@ class SemaOptions {
         self.rtti              = ci->lang.rtti;
         self.max_type_alias_depth = ci->lang.max_type_alias_depth;
         self.unmatched         = ci->codegen.unmatched_policy();
+        self.adt_unmatched     = ci->codegen.adt_tag_policy();
 
         // Language gates and declaration limits. -fno-unsafe is the same
         // switch as --no-unsafe spelled as a feature, so both fold in here
         // rather than making the pass know two spellings.
         self.no_unsafe  = ci->lang.no_unsafe || (ci->lang.unsafe_feature == 0);
+        self.unwind_all = (ci->lang.unwind == 1);
+        self.duck_generics = (ci->lang.duck_generics == 1);
+        // FlagTranslator's test of a hosted target, on the resolved triple.
+        var hosted = !(ci->lang.freestanding || ci->codegen.kernel_mode);
+        if ci->target.resolved && (!ci->target.has_os) { hosted = false; }
+        self.cxx_exceptions = ci->lang.cxx_exceptions(hosted);
         self.no_fp      = ci->lang.no_fp;
         self.no_ffi     = ci->lang.no_ffi;
         self.no_cxx     = ci->lang.no_cxx;
@@ -171,6 +209,11 @@ class SemaOptions {
         self.max_union_width     = ci->lang.max_union_width;
         self.max_interface_impls = ci->lang.max_interface_impls;
         self.max_extend_chain    = ci->lang.max_extend_chain;
+        self.max_generic_depth   = ci->lang.max_generic_depth;
+        self.max_generic_backtrace = ci->lang.max_generic_backtrace;
+        self.test_panic_type     = ci->lang.test_panic_type;
+        self.test_panic_id_bits  = ci->lang.test_panic_id_bits;
+        self.library_build       = ci->linker.shared;
     }
 
     /// Resolve a tri-state against its profile default.
@@ -235,6 +278,12 @@ class SemaContext {
     pub var trace: ResolutionTrace;
 
     pub var lifecycle: *void = &null; ///< the Sema-owned ClassLifecycle; one writer: Sema. Untyped because ClassLifecycle imports this file.
+    /// The build-wide panic-set table (`*EffectTable`, EffectPropagation.k),
+    /// owned by the driver and solved at the Typed barrier, one import
+    /// cycle (or one TU) at a time.
+    /// Null when nothing set one up: PanicEffectChecking then solves this TU
+    /// alone. Untyped for the same import-cycle reason as `lifecycle`.
+    pub var effects: *void = &null;
 
     /// The expressions a transfer moves from (`*Expr` as u64): a MOVE value
     /// passed, initialized from or assigned. One writer, MoveCheck, which
@@ -242,6 +291,43 @@ class SemaContext {
     /// which casts each to `T&&`. So the move C++ performs is exactly the
     /// one the checker counted.
     pub var move_sites: llvm::DenseSet::<u64>;
+
+    /// Every `where` dispatch group of this TU that WhereGuardCheck passed,
+    /// flat: one group is a run of members sharing `where_lead`, in
+    /// DISPATCH order -- the guarded ones as declared, then the unguarded
+    /// fallback, wherever it was declared. A run with no fallback ends in a guarded
+    /// member whose guard the earlier ones were proven to leave nothing
+    /// for, which is called without being tested. One writer,
+    /// WhereGuardCheck; one reader, WhereDispatchLowering.
+    pub var where_groups: vec::<*FunctionDecl>;
+
+    /// The range of every function-body `eval if` EvalIfFolding folded (its
+    /// taken branch spliced in). A path one of them ends ends only on this
+    /// target and configuration, so ControlFlowAnalysis does not call the
+    /// code after it dead.
+    pub var folded_eval_ifs: vec::<SourceRange>;
+
+    /// Each `<T: type>` parameter a member step went through, with the first
+    /// such step's range, in the order ChainBinding met them. One writer,
+    /// ChainBinding (the `: type` branch of a dependent step); one reader,
+    /// FlagGates, whose error for `: type` without -fduck-generics offers to
+    /// delete the bound only when nothing here says the body needs it.
+    pub var duck_member_params: vec::<*GenericParamDecl>;
+    pub var duck_member_at:     vec::<SourceRange>;
+
+    /// This TU is the file a program starts from: a command-line input,
+    /// not one reached through an import or a C++ `#include`. Nothing in the
+    /// TU says it, so the DRIVER sets it before the run (SCRIPT.md 1.1); a
+    /// root with top-level statements and no `fn main` is a script
+    /// (ScriptRules::is_script). Every other TU's top-level statement is an
+    /// error, since nothing would run it.
+    pub var script_root: bool = false;
+
+    /// The first top-level statement of the script ScriptLowering turned
+    /// into `main`; invalid when this TU is no script, or lowering never
+    /// ran. One writer, ScriptLowering; one reader, the driver, which
+    /// rejects two scripts linked into one program by these ranges.
+    pub var script_at: SourceRange = SourceRange::invalid();
 
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).
@@ -351,7 +437,12 @@ class SemaContext {
         var gps = decl_generic_params(rep);
         var trimmed = vec::<*Type>();
         var dep = false;
-        for var i: usize = 0; (i < gps.size()) && (i < args->size()); ++i {
+        // A trailing type pack takes every argument from its position on
+        // (an instance carries its pack flat, InstanceEntry::args): trimming
+        // to the parameter count would drop all but the pack's first.
+        var take = gps.size();
+        if (take > 0) && (gps[take - 1] != &null) && gps[take - 1]->is_pack { take = args->size(); }
+        for var i: usize = 0; (i < take) && (i < args->size()); ++i {
             var a = (*args)[i];
             if a == &null { return &null; }
             if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }
@@ -363,6 +454,37 @@ class SemaContext {
             if e != &null { inst = e->decl; }
         }
         return self.types->record(inst, &trimmed);
+    }
+
+    /// The Nullable lang item's pattern, the enum every `T?` lowers to, or
+    /// null: no builtin root bound it, or what it bound is no enum (a pass
+    /// that needs it ICEs on that, with its own name). By identity, never
+    /// by name: a user may declare an enum called Nullable.
+    fn nullable_enum(self) -> *EnumDecl {
+        if self.well_known == &null { return &null; }
+        var nd = self.well_known->get(WellKnownType::Nullable);
+        if nd == &null { return &null; }
+        return dyn_cast::<EnumDecl>(NameLookup::representative(nd));
+    }
+
+    /// The member of the Nullable lang item's layout that plays \p role
+    /// (EnumLayoutLowering::_nullable_surface mints them; InterfaceEmitter
+    /// writes them in C++), or null when the layout has none. Found by role
+    /// on the PATTERN's layout, as MatchLowering finds the tag field: an
+    /// instance shares it. The caller has checked the lang item is bound;
+    /// \p pass names it in the ICEs for a lang item that is not the enum
+    /// Lib/builtin declares, or that EnumLayoutLowering has not laid out.
+    fn nullable_member(self, role: AdtRole, pass: string) -> *FunctionDecl {
+        var en = self.nullable_enum();
+        ICE_IF(en == &null, pass + ": the Nullable lang item is not an enum");
+        var lay = dyn_cast::<StructDecl>(en->adt_layout);
+        ICE_IF(lay == &null, pass + ": the Nullable lang item has no layout; EnumLayoutLowering runs first");
+        var found: *FunctionDecl = &null;
+        for var i: usize = 0; i < lay->methods.size(); ++i {
+            var m = lay->methods[i];
+            if (m != &null) && (m->adt_role == role) { found = m; }
+        }
+        return found;
     }
 
     /// The tuple pattern of \p arity (TupleRecords, minted on first use),
@@ -404,6 +526,65 @@ class SemaContext {
             if e != &null { inst = e->decl; }
         }
         return self.types->record(inst, &trimmed);
+    }
+
+    // === Specialization bodies ================================================
+    //
+    // `instantiated_from` / pattern_of answer "which template is this an
+    // instance of" -- always the primary, which deduction and every
+    // lang-item test compare against. These answer the other question,
+    // "whose TABLE are this record's members in", which a partial
+    // specialization makes different. Only table readers ask it.
+
+    /// The decl whose table holds \p d's members: \p d itself when it has
+    /// its own (a primary, a spec, a filled instance), else the partial the
+    /// registry selected for it, else its primary.
+    fn body_of(self, d: *Decl) -> *Decl {
+        if d == &null { return &null; }
+        if (!decl_is_instance(d)) || decl_instantiated(d) { return d; }
+        if self.instances != &null {
+            var e = self.instances->entry_of(d);
+            if (e != &null) && (e->pattern != &null) { return e->pattern; }
+        }
+        var p = decl_instantiated_from(d);
+        return (p) if (p != &null) else (d);
+    }
+
+    /// The decl whose table holds the members of record type \p t, or null
+    /// for a non-record. A DEPENDENT use of a primary (`Store<*P>`: an
+    /// extension's receiver, a partial's own Self) has no instance to carry
+    /// a selection, so it is matched here, its parameters opaque.
+    fn record_body(self, t: *Type) -> *Decl {
+        var u = canon_unqual(t);
+        if (u == &null) || (!isa::<RecordType>(u)) { return &null; }
+        var r = cast::<RecordType>(u);
+        var d = r->decl;
+        if d == &null { return &null; }
+        if decl_is_instance(d) { return self.body_of(d); }
+        var binds = vec::<*Type>();
+        var sel = self.record_partial(t, &binds);
+        return (sel) if (sel != &null) else (d);
+    }
+
+    /// The partial \p rec's members come from, with its parameters'
+    /// bindings in \p out; null when they come from the primary or an
+    /// explicit spec (whose parameters, if any, bind positionally).
+    fn record_partial(self, rec: *Type, out: *vec::<*Type>) -> *Decl {
+        var u = canon_unqual(rec);
+        if (u == &null) || (!isa::<RecordType>(u)) || (self.instances == &null) { return &null; }
+        var r = cast::<RecordType>(u);
+        var d = r->decl;
+        if d == &null { return &null; }
+        if decl_is_instance(d) {
+            var e = self.instances->entry_of(d);
+            if (e == &null) || (e->pattern == &null) { return &null; }
+            for var i: usize = 0; i < e->pattern_args.size(); ++i { out->push_back(e->pattern_args[i]); }
+            return e->pattern;
+        }
+        if (r->args.size() == 0) || (decl_spec_kind(d) == SpecKind::Explicit) || (decl_spec_kind(d) == SpecKind::Partial) { return &null; }
+        var args = vec::<*Type>();
+        for var i: usize = 0; i < r->args.size(); ++i { args.push_back(r->args[i]); }
+        return self.instances->select_partial(NameLookup::representative(d), &args, out);
     }
 
     /// Errors produced since sema began.

@@ -1,9 +1,6 @@
 # Enums
 
-Enums define a closed set of named variants. In their simplest form, each variant is an integer discriminant,
-equivalent to a C++ `enum class`. Variants can also carry structured data ([ADT enums](/docs/language/enums-adt/)), making them
-Kairo's mechanism for type-safe tagged unions. Dispatch on variants with `match`. See
-[Control Flow](/docs/language/pattern-matching/) for the complete `match` syntax.
+Enums define a closed set of named variants. In their simplest form, each variant is an integer discriminant, equivalent to a C++ `enum class`. Variants can also carry structured data ([ADT enums](/docs/language/enums-adt/)), making them Kairo's mechanism for type-safe tagged unions. Dispatch on variants with `match`. See [Control Flow](/docs/language/pattern-matching/) for the complete `match` syntax.
 
 ## In this section
 
@@ -14,8 +11,7 @@ Kairo's mechanism for type-safe tagged unions. Dispatch on variants with `match`
 
 ## Shorthand Syntax
 
-When the compiler can infer the enum type from context, the `.Variant` shorthand is available in
-construction, `match` cases, comparison, and assignment:
+When the compiler can infer the enum type from context, the `.Variant` shorthand is available in construction, `match` cases, comparison, and assignment:
 
 ```kairo
 enum Direction { North, East, South, West }
@@ -42,8 +38,7 @@ fn main() -> i32 {
 }
 ```
 
-The fully qualified form (`Direction::North`) always works and is required when the type cannot be
-inferred.
+The fully qualified form (`Direction::North`) always works and is required when the type cannot be inferred.
 
 `.V` takes its enum from the type expected where it is written:
 
@@ -74,11 +69,7 @@ fn main() -> i32 {
 }
 ```
 
-As an argument, `.V` matches a parameter only if that parameter's enum has a variant `V`; this is how
-an [overload](/docs/language/functions-overloading/) is chosen. If more than one overload's enum has `V`, the call is ambiguous
-([SC064E](/docs/language/diagnostics/#call-to-f-is-ambiguous-more-than-one-candidate-matches-at-the-same-rank)). A
-generic parameter `T` gives `.V` no enum to take, so no overload matches (SC063E); write the variant in
-full, `Dir::North`:
+As an argument, `.V` matches a parameter only if that parameter's enum has a variant `V`; this is how an [overload](/docs/language/functions-overloading/) is chosen. If more than one overload's enum has `V`, the call is ambiguous ([SC064E](/docs/language/diagnostics/#call-to-f-is-ambiguous-more-than-one-candidate-matches-at-the-same-rank)). A generic parameter `T` gives `.V` no enum to take, so no overload matches (SC063E); write the variant in full, `Dir::North`:
 
 ```kairo
 enum Dir { North, South }
@@ -95,16 +86,13 @@ fn main() -> i32 {
 }
 ```
 
-A `.V` with nothing to give it an enum type, against a type that is not an enum, or naming a variant the
-enum does not have is
-[SC123E](/docs/language/diagnostics/#sc123e-a-variant-name-does-not-fit-the-expected-type).
+A `.V` with nothing to give it an enum type, against a type that is not an enum, or naming a variant the enum does not have is [SC123E](/docs/language/diagnostics/#sc123e-a-variant-name-does-not-fit-the-expected-type).
 
 ---
 
 ## Comparison and Assignment
 
-Enum values support equality comparison and assignment. Ordering operators (`<`, `>`, `<=`, `>=`) are
-not available by default [extend](/docs/language/extends/#enums) them if needed:
+Enum values support equality comparison and assignment. Ordering operators (`<`, `>`, `<=`, `>=`) are not available by default [extend](/docs/language/extends/#enums) them if needed:
 
 ```kairo
 enum Direction { North, East, South, West }
@@ -120,15 +108,13 @@ fn main() -> i32 {
 }
 ```
 
-`==` and `!=` on enums are built in and compare which variant is active, ignoring payloads. They satisfy
-`Equatable` the same way integer comparison does; no operator declaration is involved.
+`==` and `!=` on enums are built in and compare which variant is active, ignoring payloads. They satisfy `Equatable` the same way integer comparison does; no operator declaration is involved.
 
 ---
 
 ## Extends
 
-Enums cannot contain methods in their body. Use `extend` blocks to add behavior, matching the same
-pattern as [structs](/docs/language/structures/#extends):
+Enums cannot contain methods in their body. Use `extend` blocks to add behavior, matching the same pattern as [structs](/docs/language/structures/#extends):
 
 ```kairo
 enum LogLevel {
@@ -195,16 +181,13 @@ extend LogLevel impl Loggable {
 }
 ```
 
-The `extend` block and the enum definition must be in the same file. See
-[Extends](/docs/language/extends/) for the full `extend` system and
-[Interfaces](/docs/language/interfaces/) for interface declarations.
+The `extend` block and the enum definition must be in the same file. See [Extends](/docs/language/extends/) for the full `extend` system and [Interfaces](/docs/language/interfaces/) for interface declarations.
 
 ---
 
 ## No Inheritance
 
-Enums do not support inheriting from other enums. The `derives` keyword on an enum is reserved
-exclusively for specifying the [underlying type](/docs/language/enums-plain/#underlying-type).
+Enums do not support inheriting from other enums. The `derives` keyword on an enum is reserved exclusively for specifying the [underlying type](/docs/language/enums-plain/#underlying-type).
 
 ---
 

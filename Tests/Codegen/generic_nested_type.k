@@ -65,13 +65,13 @@ fn main() -> i32 {
 // CXX-NEXT:   typename{{ ?}}::generic_nested_type::L<K>::P x;
 // CXX:      P a;
 // CXX-NEXT: Q q;
-// CXX:      P make(K k);
-// CXX-NEXT: P get();
-// CXX-NEXT: void put(P p);
+// CXX:      P make(K k) noexcept;
+// CXX-NEXT: P get() noexcept;
+// CXX-NEXT: void put(P p) noexcept;
 // CXX:      typename{{ ?}}::generic_nested_type::L<K>::P {
-// CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::make(K k) {
-// CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::get() {
-// CXX:      template<class K> void L<K>::put(typename{{ ?}}::generic_nested_type::L<K>::P p) {
+// CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::make(K k) noexcept {
+// CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::get() noexcept {
+// CXX:      template<class K> void L<K>::put(typename{{ ?}}::generic_nested_type::L<K>::P p) noexcept {
 
 // The argument-less qualified form must not appear anywhere.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=NOQUAL

@@ -1,7 +1,6 @@
 # Pattern Matching
 
-`match` is Kairo's multi-way dispatch construct. It handles value matching, enum variant dispatch, ADT
-destructuring, struct field extraction, and range checks all with compiler-enforced exhaustiveness.
+`match` is Kairo's multi-way dispatch construct. It handles value matching, enum variant dispatch, ADT destructuring, struct field extraction, and range checks all with compiler-enforced exhaustiveness.
 
 ```kairo
 match status_code {
@@ -47,8 +46,7 @@ The fully qualified form `Direction::North` also works. The compiler verifies al
 
 ## ADT destructuring
 
-ADT enum variants carry payloads. Destructure them in `match` with `var` or `const` bindings inside
-parentheses. Field names must match the variant declaration:
+ADT enum variants carry payloads. Destructure them in `match` with `var` or `const` bindings inside parentheses. Field names must match the variant declaration:
 
 ```kairo
 enum <K, V> LookupResult {
@@ -87,8 +85,7 @@ See [Enums](/docs/language/enums-adt/) for ADT enum declarations and constructio
 
 ## `where` guards
 
-Append [`where`](/docs/language/where/#where-in-match) followed by a boolean expression to add a condition to a case. The branch only matches
-if both the pattern and the guard are satisfied:
+Append [`where`](/docs/language/where/#where-in-match) followed by a boolean expression to add a condition to a case. The branch only matches if both the pattern and the guard are satisfied:
 
 ```kairo
 match result {
@@ -111,14 +108,11 @@ var amount = match result {
 }
 ```
 
-Guards are evaluated after the pattern matches. A case with a guard that fails falls through to the
-next case this is the only situation where control moves between cases.
+Guards are evaluated after the pattern matches. A case with a guard that fails falls through to the next case this is the only situation where control moves between cases.
 
 ## Struct matching
 
-[Structs](/docs/language/structures/) have a single shape (no variants), so `match` on a struct is [destructuring](/docs/language/structures/#destructuring) combined with
-guards. A struct `case` without a `where` guard always matches and is a compile error unless it is
-the only case or the last case (acting as a catch-all):
+[Structs](/docs/language/structures/) have a single shape (no variants), so `match` on a struct is [destructuring](/docs/language/structures/#destructuring) combined with guards. A struct `case` without a `where` guard always matches and is a compile error unless it is the only case or the last case (acting as a catch-all):
 
 ```kairo
 struct Response {
@@ -164,6 +158,30 @@ var kind = match http_status {
 }
 ```
 
+## Matching a nullable
+
+A `match` on a [nullable](/docs/language/nullables/) `T?` must answer null first: its first arm is `case null`, on its own and with no `where` guard. A first arm that is anything else is a compile error (not a warning). When the match has no `case null` at all, the fix-it inserts `case null { }` at the top (in expression form, where the arm needs a value, the error says to add `case null => <value>`); when `case null` is further down, or shares its arm with other patterns, the error points at it. Because null is answered once, at the top, every later arm, `default` included, sees the value as non-null:
+
+```kairo
+match port {                    // port: i32?
+    case null { use_default() } // port is null here
+    case 0    { pick_free() }   // a value pattern only matches a present value
+    default   { bind(port) }    // port is non-null: case null took null
+}
+```
+
+A binding pattern binds the unwrapped value, so `case var v` on an `i32?` binds `v: i32` and never matches null:
+
+```kairo
+var label = match port {
+    case null                    => "none"
+    case var p where p < 1024    => f"system port {p}"   // p: i32
+    default                      => f"port {port}"        // port reads as i32
+}
+```
+
+A `where` guard narrows its arm the same way an `if` condition does. After the `match`, the value's null state is the merge of every arm that can fall through. A second `case null` is an error: the first arm already answered null. Exhaustiveness is checked over `T`, so a `bool?` with `case null`, `case true` and `case false` needs no `default`.
+
 ## `match` as an expression
 
 ```kairo
@@ -191,19 +209,14 @@ var message = match result {
 
 Each arm is `case pattern => value` or `default => value`. All arms must produce the same type.
 
-- Arms are not separated by commas. A comma between arms is an error
-  ([S076E](/docs/language/diagnostics/#s076e-match-arms-separated-by-a-comma)).
+- Arms are not separated by commas. A comma between arms is an error ([S076E](/docs/language/diagnostics/#s076e-match-arms-separated-by-a-comma)).
 - Guards come before the arrow: `case .Found(var v) where v > 0 => v`.
 - You may break before or after `=>`.
-- A `match` closes with `}`, so it can be used directly as an operand: `var n = match k { ... } + 1`. The
-  [parentheses rule](/docs/language/control-flow/#how-far-an-arm-extends) for `if` and `try` does not apply to it.
-- All arms of one `match` use the same form, either all `=>` or all `{ }`. Mixing the two is an error
-  ([S075E](/docs/language/diagnostics/#s075e-match-arms-mix--and---forms)).
-- In statement position, a `match` whose arms are all `=>` is an expression, and exhaustiveness is
-  required as for any `match` expression. A `match` with block arms is a statement.
+- A `match` closes with `}`, so it can be used directly as an operand: `var n = match k { ... } + 1`. The [parentheses rule](/docs/language/control-flow/#how-far-an-arm-extends) for `if` and `try` does not apply to it.
+- All arms of one `match` use the same form, either all `=>` or all `{ }`. Mixing the two is an error ([S075E](/docs/language/diagnostics/#s075e-match-arms-mix--and---forms)).
+- In statement position, a `match` whose arms are all `=>` is an expression, and exhaustiveness is required as for any `match` expression. A `match` with block arms is a statement.
 
-In expression form, exhaustiveness is required every possible value must be covered. For integers
-and strings, this means `default` is mandatory.
+In expression form, exhaustiveness is required every possible value must be covered. For integers and strings, this means `default` is mandatory.
 
 ## Exhaustiveness
 
@@ -216,6 +229,7 @@ The compiler verifies that all possible values are covered:
 | Integers / strings | `default` always required |
 | Booleans | `true` + `false` covers it |
 | Structs | `default` always required |
+| Nullable `T?` | `case null` first, then the rule for `T` |
 
 A `default` case matches any value not covered by preceding cases. It must be the last case.
 
@@ -223,8 +237,7 @@ A match whose arms are all `=>` is an expression, wherever it appears.
 
 ## No fall-through
 
-Each case is an isolated block. There is no fall-through between cases and no `@fallthrough` attribute.
-If you need multiple values to execute the same code, list them in a single case separated by commas:
+Each case is an isolated block. There is no fall-through between cases and no `@fallthrough` attribute. If you need multiple values to execute the same code, list them in a single case separated by commas:
 
 ```kairo
 match priority {
@@ -236,9 +249,7 @@ match priority {
 
 ## `break` in `match` inside a loop
 
-Inside a `match` nested within a loop, [`break`](/docs/language/control-flow/#break-and-continue) exits the **loop**, not the match. Match cases are
-already isolated blocks with no fall-through, so there is nothing to "break" out of within the match
-itself.
+Inside a `match` nested within a loop, [`break`](/docs/language/control-flow/#break-and-continue) exits the **loop**, not the match. Match cases are already isolated blocks with no fall-through, so there is nothing to "break" out of within the match itself.
 
 ```kairo
 for item in items {

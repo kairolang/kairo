@@ -10,20 +10,13 @@ fn add(a: string, b: string) -> string = a + b
 
 Parameter modes also participate in overloading. See [Overloading on mode](#overloading-on-mode).
 
-A candidate either matches an argument exactly or through a conversion, and there is no ordering among
-conversions: if two candidates both need one, the call is ambiguous (`call to 'f' is ambiguous: more than
-one candidate matches at the same rank`). Before a tie at the same rank is declared ambiguous, three
-tie-breaks run, in C++'s order:
+A candidate either matches an argument exactly or through a conversion, and there is no ordering among conversions: if two candidates both need one, the call is ambiguous (`call to 'f' is ambiguous: more than one candidate matches at the same rank`). Before a tie at the same rank is declared ambiguous, three tie-breaks run, in C++'s order:
 
-1. **Reference binding.** An rvalue argument prefers a `T&&` parameter to `const T&`; a non-const lvalue
-   prefers `T&` to `const T&`; a non-const receiver prefers the non-const method.
+1. **Reference binding.** An rvalue argument prefers a `T&&` parameter to `const T&`; a non-const lvalue prefers `T&` to `const T&`; a non-const receiver prefers the non-const method.
 2. **Non-generic over generic.** A non-generic candidate beats a generic one.
-3. **Most specialized generic.** Among generic candidates still tied, the most specialized wins:
-   `fn <T> f(a: Box<T>, b: Box<T>)` beats `fn <A, B> f(a: Box<A>, b: Box<B>)` for `f(x, y)` with two
-   `Box<i32>`.
+3. **Most specialized generic.** Among generic candidates still tied, the most specialized wins: `fn <T> f(a: Box<T>, b: Box<T>)` beats `fn <A, B> f(a: Box<A>, b: Box<B>)` for `f(x, y)` with two `Box<i32>`.
 
-These tie-breaks never order conversions. For a list literal argument, a `[T; N]` parameter with the same
-element count is an exact match, while `[T;]` and `[T]` parameters both need a conversion:
+These tie-breaks never order conversions. For a list literal argument, a `[T; N]` parameter with the same element count is an exact match, while `[T;]` and `[T]` parameters both need a conversion:
 
 ```kairo
 fn f(const xs: [i32; 3]) { }
@@ -37,13 +30,11 @@ g([1, 2, 3])                // compile error: call to 'g' is ambiguous
 g([1, 2, 3] as [i32])       // ok
 ```
 
-See [Primitives](/docs/language/conversion-lattice/#list-literal-arguments)
-for the ranking rules.
+See [Primitives](/docs/language/conversion-lattice/#list-literal-arguments) for the ranking rules.
 
 ## Unsafe overloads
 
-The `unsafe` modifier creates a separate overload in its own namespace. Safe and unsafe versions of the same
-function coexist the caller explicitly selects which one to invoke:
+The `unsafe` modifier creates a separate overload in its own namespace. Safe and unsafe versions of the same function coexist the caller explicitly selects which one to invoke:
 
 ```kairo
 fn add(a: i32, b: i32) -> i32 {
@@ -59,9 +50,7 @@ var y = unsafe add(10, 20)   // calls the unsafe overload
 ```
 
 > [!NOTE]
-> `unsafe` overloads are not "unsafe memory" Tether still guarantees memory safety. The `unsafe` qualifier
-> signals that the function may not uphold other invariants that the safe version does. See
-> [Unsafe](/docs/language/unsafe/) for the full unsafe model.
+> `unsafe` overloads are not "unsafe memory" Tether still guarantees memory safety. The `unsafe` qualifier signals that the function may not uphold other invariants that the safe version does. See [Unsafe](/docs/language/unsafe/) for the full unsafe model.
 
 ## Const overloading restriction
 
@@ -83,8 +72,7 @@ class Foo {
 
 ## Overload resolution
 
-Mode resolution follows C++ ([over.ics.rank]), so an imported overload set picks the same function in Kairo
-as it does in C++:
+Mode resolution follows C++ ([over.ics.rank]), so an imported overload set picks the same function in Kairo as it does in C++:
 
 | Argument                   | `x: T` | `@inout x: T`       | `@move x: T`        |
 | -------------------------- | ------ | ------------------- | ------------------- |
@@ -103,9 +91,7 @@ v.push_back(1)     // prvalue -> push_back(int&&)
 
 ## Overloading on mode
 
-[Modes](/docs/language/functions-parameter-modes/) are part of a function's signature. `x: T`, `@inout x: T`, and `@move x: T` are three distinct
-overloads. A C++ class that declares `set(const int&)`, `set(int&)`, and `set(int&&)` gets three separate
-out-of-line definitions:
+[Modes](/docs/language/functions-parameter-modes/) are part of a function's signature. `x: T`, `@inout x: T`, and `@move x: T` are three distinct overloads. A C++ class that declares `set(const int&)`, `set(int&)`, and `set(int&&)` gets three separate out-of-line definitions:
 
 ```kairo
 // cxx.hh:
@@ -127,14 +113,9 @@ fn Widget::at(const self, i: usize) -> i32 { /* ... */ }   // int  at(size_t) co
 fn Widget::at(self, i: usize) -> *i32      { /* ... */ }   // int& at(size_t)
 ```
 
-The `at` pair shows the one exception to the [const overloading restriction](#const-overloading-restriction):
-when an imported declaration has a `const`/non-`const` pair, as standard containers do for `at`, `front`,
-`back`, `begin`, `end`, and `data`, receiver const-ness is part of the signature and both members can be
-defined out of line.
+The `at` pair shows the one exception to the [const overloading restriction](#const-overloading-restriction): when an imported declaration has a `const`/non-`const` pair, as standard containers do for `at`, `front`, `back`, `begin`, `end`, and `data`, receiver const-ness is part of the signature and both members can be defined out of line.
 
-C++ can't overload `f(T)` against `f(const T&)`, and in Kairo both are spelled `x: T`, so that ambiguity never
-arises in Kairo code. If an imported header declares both, the compiler reports an error at the import,
-naming the header, not at each call.
+C++ can't overload `f(T)` against `f(const T&)`, and in Kairo both are spelled `x: T`, so that ambiguity never arises in Kairo code. If an imported header declares both, the compiler reports an error at the import, naming the header, not at each call.
 
 Overriding an imported [virtual](/docs/language/classes-inheritance/#virtual-dispatch) uses the same spelling:
 

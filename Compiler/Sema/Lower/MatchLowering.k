@@ -54,9 +54,15 @@
 ///     `__kairo_mN_k`, and the failure dispatches on it.
 ///
 ///   \par Tests
-///       enum, tag      switch; a complete closed enum's default is
-///                      UnmatchedPolicy, so an undeclared discriminant traps
-///                      at -O0..-O2 and is unreachable at -O3.
+///       enum           switch; a complete `@open` (or imported) enum's
+///                      default is UnmatchedPolicy, so an undeclared
+///                      discriminant traps at -O0..-O2 and is unreachable at
+///                      -O3. A closed plain enum holds no undeclared value
+///                      (`as` into it is checked), so its default is the
+///                      ADT tag's policy below.
+///       ADT tag        switch on EnumLayoutQuery::tag_word; a complete
+///                      one's default is unreachable (no value holds another
+///                      tag), a trap under --hardening=enum-tags.
 ///       integer        switch with GNU `case lo ... hi:`, keys un-biased to
 ///                      typed literals; i64's minimum is `(-9223372036854775807 - 1)`.
 ///       bool           `if`.
@@ -90,8 +96,10 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::PatternSpace::*;
+import AST::DeclFacts::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::PatternCompilation::*;
+import Sema::Lower::EnumLayoutLowering::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
@@ -135,6 +143,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     priv var tu: TypeUtil;
     priv var ps: PatternSpace;
     priv var synth: LowerSynth;
+    priv var layout: EnumLayoutQuery;   ///< every read and test of an ADT value.
     priv var _fn_matches: usize = 0;   ///< matches lowered so far in this function.
 
     // --- one match ---------------------------------------------------------------
@@ -155,6 +164,10 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     priv var _cont:    *VariableDecl = &null;
     priv var _fail:    Token;
     priv var _fail_used: bool = false;
+    /// A jump to the fail block from a test that is not an ADT tag's: the
+    /// block then takes the general policy, not the ADT one (_policy).
+    priv var _fail_general: bool = false;
+    priv var _adt_ctx:   bool = false;   ///< the test now rendering is over a variant-only enum (_holds_only_variants).
     priv var _end:     Token;
     priv var _buckets: usize = 0;
     priv var _qi:      usize = 0;       ///< next queued node to emit.
@@ -165,6 +178,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         self.tu    = TypeUtil(sc);
         self.ps    = PatternSpace(sc);
         self.synth = LowerSynth(sc);
+        self.layout = EnumLayoutQuery(sc);
     }
 
     fn run(self) {
@@ -248,7 +262,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         self._shared_guards(&code);
         if self._fail_used {
             code.push_back(self._label_stmt(self._fail));
-            code.push_back(self._policy());
+            code.push_back(self._policy(!self._fail_general));
         }
 
         if self._value {
@@ -302,6 +316,8 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         self._cont      = &null;
         self._fail      = self._name(LowerTargets::match_fail(self._n));
         self._fail_used = false;
+        self._fail_general = false;
+        self._adt_ctx = false;
         self._end       = self._name(LowerTargets::match_end(self._n));
         self._buckets   = 0;
         self._qi        = 0;
@@ -408,8 +424,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             case OccKind::Field   { return self._occ_ok(u32(d.parent)); }
             case OccKind::Payload {
                 if !self._occ_ok(u32(d.parent)) { return false; }
-                var v = self._variant_of(u32(d.parent), d.index);
-                return (v != &null) && (v->adt_member != &null);
+                return self.layout.has_payload(self._enum_at(u32(d.parent)), d.index);
             }
             default { return false; }   // the root of a tuple literal: never bound, its elements are.
         }
@@ -420,7 +435,16 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var en = self._enum_at(o);
         if en == &null { return false; }
         if !en->is_adt { return true; }
-        return en->adt_tag_field != &null;
+        return self.layout.has_layout(en);
+    }
+
+    /// No value of \p en is outside its variants: an ADT (no cast writes a
+    /// tag) or a closed plain enum (`as` into it is checked, CastTyping). An
+    /// `@open` enum, and every imported one, may hold any value of its
+    /// underlying type, so its complete match keeps UnmatchedPolicy.
+    priv fn _holds_only_variants(self, en: *EnumDecl) -> bool {
+        if en == &null { return false; }
+        return en->is_adt || (!en->is_open);
     }
 
     priv fn _enum_at(self, o: u32) -> *EnumDecl {
@@ -429,8 +453,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
 
     priv fn _variant_of(self, o: u32, index: u32) -> *EnumVariantDecl {
         var en = self._enum_at(o);
-        if (en == &null) || (usize(index) >= en->variants.size()) { return &null; }
-        return en->variants[usize(index)];
+        return adt_variant_at(en, usize(index));   // \p index is expanded (EnumLayoutQuery).
     }
 
     // --- arms --------------------------------------------------------------------------
@@ -734,13 +757,15 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     priv fn _node(self, i: u32, out: *vec::<*Stmt>) {
         var n = self._t->nodes[usize(i)];
         switch n.kind {
-            case DKind::Fail   { out->push_back(self._policy()); }
+            case DKind::Fail   { out->push_back(self._policy(false)); }
             case DKind::Leaf   { self._accept(n.arm, i, out); }
             case DKind::Guard  { self._guard(i, out); }
             case DKind::Test {
                 var e = self._t->edges[usize(n.edge0)];
                 self._if_goto(self._cond(n.occ, e), i32(e.child), out);
+                self._adt_ctx = (e.kind == CtorKind::Variant) && self._holds_only_variants(self._enum_at(n.occ));
                 out->push_back(self._jump(self._target(n.other)));
+                self._adt_ctx = false;
             }
             case DKind::Switch { self._switch(i, out); }
         }
@@ -816,7 +841,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             var last = self._t->nodes[usize(a->guards[a->guards.size() - 1])].other;
             out->push_back(self._dispatch(self.synth.use_of(self._cont, self._at, Expr::ValueCategory::LValue),
-                                          &cases, last));
+                                          &cases, last, false));
         }
         self._drain(out);   // their failures may reach nodes nothing else did.
     }
@@ -854,6 +879,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var value: *Expr = &null;
         if d.kind == DomainKind::ClosedEnum {
             value = self._enum_value(n.occ, d.en);
+            if value == &null { self._chain(n, out); return; }
         } else if d.kind == DomainKind::Int {
             value = self._occ(n.occ);
         } else {
@@ -883,21 +909,43 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             cases.push_back(c);
         }
-        out->push_back(self._dispatch(value, &cases, other));
+        out->push_back(self._dispatch(value, &cases, other, (d.kind == DomainKind::ClosedEnum) && self._holds_only_variants(d.en)));
     }
 
-    /// The switch operand for an enum: the value itself, or for an ADT its
-    /// tag as `u32` (tags are the variant positions; EnumLayoutLowering).
+    /// An ADT with no tag to switch on (niche-filled; EnumLayoutQuery): an
+    /// `if` per variant, from variant_test, in edge order. When nothing but
+    /// the policy follows the last edge, the last edge is taken untested --
+    /// it is the only variant left -- which is the switch's unreachable
+    /// default spelled as control flow.
+    priv fn _chain(self, n: DNode, out: *vec::<*Stmt>) {
+        var count = n.nedge;
+        var other = n.other;
+        var open_end = (other < 0) || (self._t->nodes[usize(other)].kind == DKind::Fail);
+        var en = self._enum_at(n.occ);
+        for var k: u32 = 0; k < count; ++k {
+            var e = self._t->edges[usize(n.edge0 + k)];
+            if (k + 1 == count) && open_end && (self.sc->opts.adt_unmatched == UnmatchedPolicy::Unreachable) {
+                out->push_back(self._jump(self._target(i32(e.child))));
+                return;
+            }
+            self._if_goto(self.layout.variant_test(self._at, self._occ(n.occ), en, e.index), i32(e.child), out);
+        }
+        if open_end { out->push_back(self._policy(true)); return; }
+        out->push_back(self._jump(self._target(other)));
+    }
+
+    /// The switch operand for an enum: the value itself, or for an ADT the
+    /// word its layout dispatches on (EnumLayoutQuery::tag_word); null for
+    /// an ADT with no tag (_chain).
     priv fn _enum_value(self, occ: u32, en: *EnumDecl) -> *Expr {
         if !en->is_adt { return self._occ(occ); }
-        var tag = en->adt_tag_field;
-        var f = self.synth.field_of(self._at, self._occ(occ), static_cast::<*Decl>(tag), tag->type_);
-        return self.synth.cast_to(self._at, f, self._u32(), CastMode::Default);
+        return self.layout.tag_word(self._at, self._occ(occ), en);
     }
 
-    /// A case value: the enumerator, or for an ADT the tag's position.
+    /// A case value: the enumerator, or for an ADT the variant's stored
+    /// discriminant (EnumLayoutQuery::tag_case).
     priv fn _enum_case(self, en: *EnumDecl, index: u32, ty: *Type) -> *Expr {
-        if en->is_adt { return self.synth.int_literal(self._at, u64(index), BuiltinKind::U32); }
+        if en->is_adt { return self.layout.tag_case(self._at, ty, en, index); }
         return self._decl_ref(static_cast::<*Decl>(en->variants[usize(index)]), ty);
     }
 
@@ -936,7 +984,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             cases.push_back(c);
         }
-        out->push_back(self._dispatch(self._string_field(n.occ, "len", self._usize()), &cases, n.other));
+        out->push_back(self._dispatch(self._string_field(n.occ, LangMembers::string_len(), self._usize()), &cases, n.other, false));
 
         for var j: usize = 0; j < lens.size(); ++j {
             if lens[j] == 0 { continue; }
@@ -973,6 +1021,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
             }
             case CtorKind::Variant {
                 var en = self._enum_at(occ);
+                if en->is_adt { return self.layout.variant_test(self._at, self._occ(occ), en, e.index); }
                 return self._eq(self._enum_value(occ, en), self._enum_case(en, e.index, self._occ_type(occ)));
             }
             case CtorKind::Opaque { return self._opaque_cond(occ, e.pat); }
@@ -990,7 +1039,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         if (t != &null) && self.tu.is_string(t) {
             var b = vec::<u8>();
             ICE_IF(!pattern_string_bytes(self.sc, p, &b), "MatchLowering: a string head with no bytes; PatternCompilation gate failure");
-            var len = self._eq(self._string_field(occ, "len", self._usize()),
+            var len = self._eq(self._string_field(occ, LangMembers::string_len(), self._usize()),
                                self.synth.int_literal(self._at, u64(b.size()), BuiltinKind::USize));
             if b.size() == 0 { return len; }
             return self._and(len, self._memcmp_eq(occ, &b));
@@ -1027,7 +1076,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var f = self._builtin("__builtin_memcmp");
         var pu8 = self.sc->types->pointer(self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST()));
         var args = self.list_builder::<*Expr>();
-        args.push(self._string_field(occ, "data", pu8));
+        args.push(self._string_field(occ, LangMembers::string_data(), pu8));
         args.push(self.synth.bytes_literal(self._at, bytes, pu8));
         args.push(self.synth.int_literal(self._at, u64(bytes->size()), BuiltinKind::USize));
         var call = self._call(f, &args);
@@ -1077,10 +1126,8 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
                 return self.synth.field_of(self._at, self._occ(u32(d.parent)), static_cast::<*Decl>(d.field), self._occ_type(o));
             }
             case OccKind::Payload {
-                var v = self._variant_of(u32(d.parent), d.index);
-                var m = v->adt_member;
-                var u = self.synth.field_of(self._at, self._occ(u32(d.parent)), static_cast::<*Decl>(m), m->type_);
-                return self.synth.field_of(self._at, u, static_cast::<*Decl>(d.field), self._occ_type(o));
+                return self.layout.field_ref(self._at, self._occ(u32(d.parent)), self._enum_at(u32(d.parent)), d.index,
+                                             d.field, self._occ_type(o));
             }
             default { 0; }
         }
@@ -1105,6 +1152,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
         var n = self._t->nodes[usize(i)];
         if n.kind == DKind::Fail {
             self._fail_used = true;
+            if !self._adt_ctx { self._fail_general = true; }
             return self._fail;
         }
         if (n.kind == DKind::Leaf) && (!self._value) && (!self._arms[usize(n.arm)].slots) {
@@ -1127,23 +1175,31 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
 
     /// `switch (v) { case ...: goto ...; default: goto <other>; }`; a
     /// negative \p other, or one that is a Fail node, puts UnmatchedPolicy
-    /// in the default itself.
-    priv fn _dispatch(self, value: *Expr, cases: *vec::<DispatchCase>, other: i32) -> *Stmt {
+    /// in the default itself -- the ADT one when \p adt, the switch being
+    /// over a tag (_policy).
+    priv fn _dispatch(self, value: *Expr, cases: *vec::<DispatchCase>, other: i32, adt: bool) -> *Stmt {
         var s = SwitchDispatchStmt::create(self.ctx, self._at, value);
         var lb = self.list_builder::<DispatchCase>();
         for var i: usize = 0; i < cases->size(); ++i { lb.push((*cases)[i]); }
         lb.freeze_into(&(s->cases));
         if (other < 0) || (self._t->nodes[usize(other)].kind == DKind::Fail) {
-            s->default_stmt = self._policy();
+            s->default_stmt = self._policy(adt);
         } else {
             s->default_target = self._target(other);
         }
         return static_cast::<*Stmt>(s);
     }
 
-    /// `__builtin_trap();` or `__builtin_unreachable();`, by UnmatchedPolicy.
-    priv fn _policy(self) -> *Stmt {
-        var name = ("__builtin_unreachable") if (self.sc->opts.unmatched == UnmatchedPolicy::Unreachable) else ("__builtin_trap");
+    /// `__builtin_trap();` or `__builtin_unreachable();`, by UnmatchedPolicy:
+    /// for an ADT's tag or a closed plain enum (\p adt, _holds_only_variants)
+    /// the policy that defaults to unreachable, for anything else the one
+    /// that follows -O. Sema proved the match covers every variant, and no
+    /// value of the enum holds another, so the trap only kept a range check
+    /// in front of every table load
+    /// (CodeGenOptions::adt_tag_policy; --hardening=enum-tags restores it).
+    priv fn _policy(self, adt: bool) -> *Stmt {
+        var pol  = (self.sc->opts.adt_unmatched) if (adt) else (self.sc->opts.unmatched);
+        var name = ("__builtin_unreachable") if (pol == UnmatchedPolicy::Unreachable) else ("__builtin_trap");
         var none = self.list_builder::<*Expr>();
         return self._expr_stmt(self._call(self._builtin(name), &none));
     }

@@ -228,6 +228,13 @@ class NamedIdentExpr derives Expr {
     /// through variant_decl_of (Expressions.k).
     pub var variant_decl: *Decl = &null;
 
+    /// A narrowed read (NULLABLE.md §4): this use names a `T?` place the
+    /// nullness analysis proved non-null where the value is needed, so it
+    /// is typed `T` and this holds the `T?` it was. Null for every other
+    /// use. One writer: X (NullnessFlow::read_value); one reader that acts
+    /// on it, NarrowedAccessLowering, which makes the use `x.__value()`.
+    pub var narrowed_from: *Type = &null;
+
     fn is_bound(self)    -> bool { return self.resolved_decl != &null; }
     fn is_deferred(self) -> bool {
         return (self.resolved_decl == &null) && (self.candidate_cell != &null);
@@ -244,6 +251,7 @@ class NamedIdentExpr derives Expr {
         node->name  = name;
         node->ctx   = ctx;
         node->variant_decl = &null;
+        node->narrowed_from = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -345,6 +353,11 @@ class ChainExpr derives Expr {
         /// otherwise.
         pub var index: u32 = 0;
 
+        /// A pack-expanded variant's payload member (EnumLayoutQuery::
+        /// payload_ref): the pack element this step reads, which EmitIR
+        /// spells after the member as its getter; -1 on every other step.
+        pub var pack_index: i32 = -1;
+
         /// resolved type of this step's result. set by sema, null before.
         pub var resolved_type: *Type;
 
@@ -355,6 +368,12 @@ class ChainExpr derives Expr {
         /// SymbolTable when overload resolution needs type info to pick.
         /// Same three-state contract as NamedIdentExpr::candidate_cell.
         pub var candidate_cell: *OverloadCell = &null;
+
+        /// The step's `T?` when the field path up to and including this
+        /// step is a narrowed read (NULLABLE.md §4, as on NamedIdentExpr):
+        /// `resolved_type` is then the `T`, and NarrowedAccessLowering
+        /// splits the chain after this step around a `__value()` call.
+        pub var narrowed_from: *Type = &null;
 
         fn is_operator(self) -> bool {
             return self.target == StepTarget::Operator;
@@ -774,6 +793,12 @@ class StringLiteralExpr derives Expr {
     pub var fmt_finish:  *Decl = &null;   ///< FmtBuf::finish.
     pub var fmt_len:     *Decl = &null;   ///< string::len, the FieldDecl (the capacity sum reads it).
     pub var fmt_holes:   FrozenList::<FormatHole>;
+    /// C++ reads this literal at compile time (EVAL.md 2a): it stands in an
+    /// eval context, or in an argument of an eval call made from run-time
+    /// code (an immediate invocation). Written by EvalUsageChecking. On the
+    /// byte literal StringLowering mints from it, EmitIR spells the bytes as
+    /// `__kairo_estr<...>` rather than a `"..."` that needs a cast.
+    pub var const_eval:  bool = false;
 
     static fn create(
         ctx:         *ASTContext,
@@ -793,6 +818,7 @@ class StringLiteralExpr derives Expr {
         node->fmt_finish  = &null;
         node->fmt_len     = &null;
         node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
+        node->const_eval  = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -812,6 +838,7 @@ class StringLiteralExpr derives Expr {
         node->fmt_finish  = &null;
         node->fmt_len     = &null;
         node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
+        node->const_eval  = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1131,4 +1158,13 @@ struct MatchCase {
     var expression: *Expr;                  ///< expr only path invalidates the body.
     var range:      SourceRange;
     var is_default: bool;
+}
+
+/// The first arm of a match that is a row of its pattern matrix: 1 when
+/// arm 0 is the `case null` of a match on `T?` (MatchStmt / MatchExpr::
+/// null_arm, NULLABLE.md 3.6), which is answered before the match and so
+/// is no row; else 0. Arm numbers are kept either way.
+fn match_first_row(null_arm: bool) -> usize {
+    if null_arm { return 1; }
+    return 0;
 }

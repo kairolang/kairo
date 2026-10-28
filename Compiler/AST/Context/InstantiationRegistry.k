@@ -15,19 +15,31 @@
 ///       - an IMPLICIT instantiation node, created HERE on first mention: the
 ///         primary's DeclKind, `spec_kind = Instantiated`,
 ///         `instantiated_from = primary`, empty body, own (empty) table. M2
-///         fills it, and may repoint `instantiated_from` at a partial
-///         specialization it selected. Until then name lookup walks the
-///         pattern (MemberLookup::_walk_record).
+///         fills it. The partial specialization its args select, if any, is
+///         chosen here at mint (_select) and kept on the entry (`pattern`,
+///         `pattern_args`); `instantiated_from` stays the primary. Until M2
+///         name lookup walks that body: the partial, else the primary
+///         (MemberLookup::_walk_record, SemaContext::body_of).
 ///
 ///     Dependent uses (`Foo<T>`, `Self` in a generic body) never come here:
 ///     their RecordType::decl is the primary -- a pattern -- and that is what
 ///     "deferred" means (#5). Partial specializations never back a RecordType
-///     at all; they are patterns, kept per primary for M2's selection.
+///     at all; they are patterns, kept per primary for the selection at mint.
 ///
 ///     The node is created at NAMING time, not at instantiation time, for the
 ///     same reason Clang does it: the type needs a decl to point at the moment
 ///     it exists, and retargeting RecordType::decl later would break the
 ///     pointer identity everything after T keys on.
+///
+///   \par Order (M1, MONO.md D4)
+///     Every entry is appended to one worklist as it is minted, whoever
+///     mints it; the discovery fixpoint (ConformanceChecking::discover, run
+///     by each TU's checks and again by M1, Sema.k::_stage_mono_collect)
+///     drains its live entries, walking each one's reach. That order, not
+///     the hash table's, is the registry's iteration order. An instance a
+///     generic body reaches is linked to the instance that reached it
+///     (InstanceEntry::reached), which is how a plan holding the outer one
+///     homes or `extern`s the inner one, named in no tree.
 ///
 ///   \par Arena / threading
 ///     Own arena: an implicit node first named by fid A is referenced by every
@@ -56,7 +68,92 @@ import AST::ASTSupport::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
+import AST::DeclFacts::*;
 import AST::Kind::DeclKind::*;
+import AST::Kind::TypeKind::*;
+import Location::SourceRange::*;
+
+/// \class ConformanceRow
+/// \brief `(conformer, interface)` and, for each of the interface's OWN
+///        requirements, the decl that implements it (RESOLUTION.md §2b, "The
+///        conformance table"). Sema records the decls and nothing else;
+///        EmitWitness decides from their spellings whether the row needs a
+///        specialization (CODEGEN.md §7b.4).
+///
+///   Kept here, beside the instances, for the reason the registry is one
+///   per build: a row TU A found is the row every TU holding the same
+///   instance needs, and it is keyed on canonical pointers, which compare
+///   only inside one domain.
+class ConformanceRow {
+    pub var conformer: *Type = &null;    ///< canonical, unqualified: `Metric`, `i32`.
+    pub var iface:     *Type = &null;    ///< the canonical interface instance (a RecordType).
+    pub var iface_decl: *Decl = &null;   ///< its InterfaceDecl's representative.
+    /// The `impl` that declared it (`class X impl I`, `extend X impl I`), or
+    /// null for a STRUCTURAL row found at a use.
+    pub var declared:  *Decl = &null;
+    /// Parallel to `iface_decl`'s methods: the implementing decl, or null
+    /// where the conformer has none (then `ok` is false).
+    pub var witnesses: vec::<*Decl>;
+    /// Parallel to `witnesses`: the requirement each implements (the
+    /// interface's composed list), for the checks that hold a witness to its
+    /// requirement (PanicEffectChecking: its panic set within the
+    /// requirement's).
+    pub var reqs:      vec::<*Decl>;
+    /// A witness that is a GENERIC extension's member is called with the
+    /// extension's arguments, as the conformer binds them (`extend <E>
+    /// Wrap<E>` met by `Wrap<i32>`: E := i32): flat, `ext_arg_count[i]` of
+    /// them per witness, in witness order, zero for any other.
+    pub var ext_args:      vec::<*Type>;
+    pub var ext_arg_count: vec::<usize>;
+    /// Parallel to `witnesses`: the interface instance requirement i came
+    /// through, at THIS row's arguments (`interface <T> F derives
+    /// Container<T>` met as `F<i32>`: Container<i32>). The composed list
+    /// keeps a source in the composing interface's own parameters, which
+    /// codegen cannot substitute; a specialization spells the requirement
+    /// through this instance instead.
+    pub var sources:   vec::<*Type>;
+    /// Parallel to `witnesses`: for an associated-type requirement, the
+    /// type the conformer supplies (its alias, or the default an explicit
+    /// conformance takes; Substitution::assoc_witness), null for any other
+    /// requirement. Its witness is the alias decl, or the requirement
+    /// itself for a default. EmitWitness spells it as the specialization's
+    /// member type.
+    pub var assoc_types: vec::<*Type>;
+    /// A concrete row that a GENERIC declared row (`extend <E> Wrap<E> impl
+    /// I`, conformer over its own parameters) covers -- same witnesses, its
+    /// conformer and interface at this row's arguments -- or null. EmitPlan
+    /// admits that row's partial specialization in place of a full one.
+    pub var covered_by: *ConformanceRow = &null;
+    pub var ok:        bool  = false;
+    /// The TUs (fids) this row is USABLE in, as far as any has asked: its
+    /// implementing decls are in that TU's transitive import set, the
+    /// extension-visibility rule (RESOLUTION.md §2b, Visibility; MONO.md
+    /// D7). The row itself is a program-wide fact -- codegen emits it in
+    /// every TU holding an instance that binds it, whatever that TU imports
+    /// -- and this is the per-TU filter Sema's lookup applies to it. The
+    /// declaring TU first, then each one that found it visible, in the
+    /// order they asked. Writer: row_mark_visible, under the lock.
+    pub var seen_by:   vec::<u32>;
+    /// A DETACHED row only (row_detached, never in the table): the
+    /// requirement match for one TU that could not use the table's row.
+    /// `hidden` is an implementing decl the match skipped because the TU
+    /// cannot see it (the reason it is not ok), `clash` the table's row when
+    /// the match found a DIFFERENT implementation that this TU can see -- one
+    /// conformance with two implementations, which C++ cannot hold (ODR).
+    pub var hidden:    *Decl = &null;
+    pub var clash:     *ConformanceRow = &null;
+    fn ConformanceRow(self) { }
+
+    /// Witness \p i's extension arguments, appended to \p out.
+    fn ext_args_of(self, i: usize, out: *vec::<*Type>) {
+        var at: usize = 0;
+        for var k: usize = 0; (k < i) && (k < self.ext_arg_count.size()); ++k { at += self.ext_arg_count[k]; }
+        if i >= self.ext_arg_count.size() { return; }
+        for var k: usize = 0; k < self.ext_arg_count[i]; ++k { out->push_back(self.ext_args[at + k]); }
+    }
+}
 
 /// \class InstanceEntry
 /// \brief One concrete instance of a generic type. Both halves of "an
@@ -70,16 +167,127 @@ class InstanceEntry {
     pub var is_explicit:       bool  = false;   ///< `decl` is user-written.
     pub var home_fid:          u32   = 0;       ///< TU that first named it; EmitPlan's home.
     pub var emitted:           bool  = false;   ///< explicit instantiation directive written.
+    /// One per `P impl I` bound of the primary, in bound order, then the
+    /// rows of each bound interface's `derives` closure: every witness
+    /// specialization this instance's body can name (CODEGEN.md §7b.6).
+    /// PROGRAM-WIDE (MONO.md D7): the union of what every TU that checked
+    /// the instance found, each row once, in first-found order -- TU (DAG)
+    /// order, then bound order -- so every TU holding the instance emits the
+    /// same rows in the same order (ODR), whichever TU wrote it first or
+    /// what that TU imports. Which rows a TU's own Sema may USE is
+    /// ConformanceRow::seen_by. Writer: add_rows; `rows_done` says some TU
+    /// checked it, so an instance with no bound and one not yet checked are
+    /// told apart.
+    pub var rows:              vec::<*ConformanceRow>;
+    pub var rows_done:         bool  = false;
+    /// Its bounds failed where it first became live (reported there, once
+    /// per build): a later TU's use reports nothing again (MONO.md D6).
+    pub var failed:            bool  = false;
+    /// The partial specialization whose BODY an implicit instance takes, or
+    /// null for the primary's. `decl`'s `instantiated_from` stays the
+    /// primary either way: every reader of that link asks "which template
+    /// is this an instance of" (deduction compares it, is_lang and the
+    /// tuple tests key on it), and only the table walks want the body --
+    /// they ask Sema's body_of, which reads this.
+    pub var pattern:           *Decl = &null;
+    /// Parallel to `pattern`'s generic params: each one's binding for
+    /// `args`. `Store<*i32>` against `<P> Store<*P>` is [i32], where `args`
+    /// is [*i32]: args are in the PRIMARY's parameter space, so nothing
+    /// positional may bind a partial's parameters from them.
+    pub var pattern_args:      vec::<*Type>;
+    /// Two partials both match and neither is more specialized: `pattern`
+    /// stays null and these name the first two for Sema's diagnostic,
+    /// reported once (`ambiguity_reported`) at a naming site.
+    pub var ambiguous_a:       *Decl = &null;
+    pub var ambiguous_b:       *Decl = &null;
+    pub var ambiguity_reported: bool = false;
+    /// A generic ADT's instance: the layout Sema's niche engine predicts C++
+    /// picks (0 unknown, 1 tagged, 2 niche-filled) and its size in bytes (0
+    /// unknown). One writer, EnumLayoutQuery::sweep; InterfaceEmitter pins
+    /// both with static_asserts beside the instantiation.
+    pub var adt_shape:         u8  = 0;
+    pub var adt_size:          u64 = 0;
+    /// An ADT instance whose pack elements are tagged by type id (the Panic
+    /// lang item, PANIC.md §1.3): each element's id, and the 64-bit hash of
+    /// its C++ spelling that keys its `__kairo_tid` specialization's guard,
+    /// in element order. Empty for every other instance. One writer,
+    /// EnumLayoutQuery::sweep; InterfaceEmitter writes the specializations.
+    pub var type_ids:          vec::<u32>;
+    pub var type_keys:         vec::<u64>;
+    /// Each element's Kairo name (`ConfigError`, `i64`), the one the C++
+    /// view's `what()` prints (PANIC.md §4.6): its specialization carries it.
+    pub var type_names:        vec::<string>;
+    /// Where its payloads start (the union's alignment), 0 unknown.
+    pub var payload_offset:    u64 = 0;
+    /// Where such an instance's set was first formed, and in which TU: the
+    /// one place its register-cliff remark (PANIC.md §1.1a) is reported.
+    /// One writer, the first former (PanicSets::note_formed).
+    pub var formed_at:         SourceRange = SourceRange::invalid();
+    pub var formed_fid:        u32 = u32(-1);
+    /// A generic function's (or a generic record's methods') panic facts at
+    /// THIS instance (PANIC.md P10, MONO.md D0: by substitution, never by
+    /// re-checking the body): `panic_result` the function's `Panic<T, E...>`
+    /// at the arguments, canonical (what the explicit instantiation spells
+    /// and the C++ alias must agree with, a static_assert pinning it); and
+    /// `panic_types` every dependent panic result its body names (its
+    /// FunctionDecl::panic_deps), formed here, which EmitPlan admits so their
+    /// elements' `__kairo_tid` specializations are written. `panic_done`
+    /// once computed (PanicInstances, Sema's M2 stage, in the first TU after
+    /// the entry is live); `panic_checked` once its `try` arms were asked
+    /// for duplicates at its arguments (PanicEffectChecking).
+    pub var panic_result:      *Type = &null;
+    pub var panic_types:       vec::<*Type>;
+    pub var panic_done:        bool = false;
+    pub var panic_checked:     bool = false;
+    /// Its place in the registry's worklist: mint order, build-wide. Sema
+    /// runs one TU at a time in DAG order, so this is (TU order, mint order)
+    /// and the same on every run (MONO.md D4).
+    pub var seq:               u32 = 0;
+    /// Its reach has been walked (ConformanceChecking::discover): every
+    /// instance its body reaches is in the registry, linked by `reached`,
+    /// and bound-checked. Only a LIVE entry (`depth` > 0) is ever walked.
+    pub var checked:           bool = false;
+    /// Live: some use needs it. 1 for an instance a tree names at a use
+    /// (ConformanceChecking's instantiation site), the reacher's + 1 for one
+    /// only a generic body reaches; 0 for an entry nothing has needed yet --
+    /// minted by substitution into a losing overload candidate, say, whose
+    /// bounds must not be checked (MONO.md D4: depth is a limit, reported).
+    pub var depth:             u32 = 0;
+    /// The use site that made its chain's root live, inherited down the
+    /// chain: where every diagnostic about this instance is reported (D6),
+    /// and the range an instance minted with none of its own takes (D4).
+    pub var use_at:            SourceRange = SourceRange::invalid();
+    /// The live instance whose body made this one live, and the use in that
+    /// body (a call, a type) that did: one hop of the instantiation chain
+    /// D6's notes print. Null / invalid at a root. Unlike `reached_by` (the
+    /// first reacher, for homing) this is the hop that gave it its depth.
+    pub var via:               *InstanceEntry = &null;
+    pub var via_at:            SourceRange = SourceRange::invalid();
+    /// The instances its body reaches once its arguments are known
+    /// (ConformanceChecking's reach: `outer<M>` calling `inner(Wrap<T>
+    /// {...})` reaches `inner<Wrap<M>>` and `Wrap<M>`), in reach order,
+    /// deduplicated. None of them is named in any TU's tree, so this edge is
+    /// how EmitPlan finds them: every plan holding this instance holds these
+    /// too, their explicit instantiation in their home and `extern template`
+    /// elsewhere. Writer: add_reach, under the lock.
+    pub var reached:           vec::<*InstanceEntry>;
+    /// The first instance whose body reached this one, or null (never
+    /// reached). The chain diagnostics follow `via` instead: an instance a
+    /// tree names is a root whoever reaches it later.
+    pub var reached_by:        *InstanceEntry = &null;
     fn InstanceEntry(self) { }
 }
 
 class InstantiationRegistry {
+    /// The same PackSetOrder the CanonicalTypeStore holds (one set order for
+    /// a type's identity and its entry). Set once by the driver.
+    pub var pack_order: *PackSetOrder = &null;
     priv var _arena: ArenaAllocator = ArenaAllocator(256 * 1024);
     priv var _mu:    std::SharedMutex;
     /// bucket hash -> entries. Every hit is confirmed by a structural compare.
     /// Keys are _hash's, which keeps clear of DenseMap's reserved values.
-    /// Its order means nothing -- hashes of pointers, filled from parallel T
-    /// -- and collect() says so: ordering is the output boundary's job.
+    /// Its order means nothing -- hashes of pointers -- so nothing iterates
+    /// it for output: collect() reads _order instead.
     priv var _table: llvm::DenseMap::<u64, vec::<*InstanceEntry>>;
     /// primary -> its partial specializations, in registration order. The
     /// lists live in _partials_arena: partials_of() hands one out, and a
@@ -91,6 +299,23 @@ class InstantiationRegistry {
     /// explicit spec, and every printer reads them that way), so this is how
     /// a holder of the node alone gets back its args.
     priv var _by_node: llvm::DenseMap::<u64, *InstanceEntry>;
+    /// The conformance table: hash of (conformer, interface) -> rows. Same
+    /// arena and lock as the instances; rows are immutable once added.
+    priv var _rows: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
+    /// DECLARED rows (`class X impl I`, `extend X impl I`), keyed by the
+    /// declaring decl's address: the rows EmitPlan admits where that decl is
+    /// emitted, with no Kairo instance to reach them (CODEGEN.md §7b.6). A
+    /// row here is also in `_rows` -- the same identity a use finds -- since
+    /// `ConformanceRow::declared` is first-writer and a use may build the
+    /// row before the declaration is checked.
+    priv var _declared: llvm::DenseMap::<u64, vec::<*ConformanceRow>>;
+    /// THE worklist (MONO.md D4): every entry, in mint order. Every mint --
+    /// T and X naming one, Deduction::substitute, ConformanceChecking's
+    /// reach, the lang records, CallLowering's thunks, foreign -- goes
+    /// through _new_entry, which appends here, so nothing can mint around
+    /// it. collect() reads this, never the hash table: anything that
+    /// iterates the registry gets the same order on every run.
+    priv var _order:   vec::<*InstanceEntry>;
 
     fn InstantiationRegistry(self) {
         self._table.reserve(128);
@@ -99,7 +324,9 @@ class InstantiationRegistry {
     // === Lookup / create ======================================================
 
     /// The entry for (primary, args), or null if none was ever named.
-    fn find(self, primary: *Decl, args: *vec::<*Type>) -> *InstanceEntry {
+    fn find(self, primary: *Decl, args_in: *vec::<*Type>) -> *InstanceEntry {
+        var dd = vec::<*Type>();
+        var args = self._set_args(primary, args_in, &dd);
         var rlock = std::SharedLock(self._mu);
         return self._probe(self._hash(primary, args), primary, args);
     }
@@ -118,9 +345,11 @@ class InstantiationRegistry {
     /// node's names are the primary's names, interned in the primary's TU.
     /// PRE: every arg canonical and non-dependent. Callers that cannot
     /// promise that (T on a dependent use) must not call this.
-    fn instance_for(self, primary: *Decl, args: *vec::<*Type>, fid: u32,
+    fn instance_for(self, primary: *Decl, args_in: *vec::<*Type>, fid: u32,
                     ctx: *ASTContext) -> *InstanceEntry {
-        if (primary == &null) || (args == &null) || (ctx == &null) { return &null; }
+        if (primary == &null) || (args_in == &null) || (ctx == &null) { return &null; }
+        var dd = vec::<*Type>();
+        var args = self._set_args(primary, args_in, &dd);
         var h = self._hash(primary, args);
 
         var lock = std::LockGuard(self._mu);
@@ -132,6 +361,7 @@ class InstantiationRegistry {
         var e = self._new_entry(primary, args, node, false, fid);
         self._table[h].push_back(e);
         self._by_node[reinterpret_cast::<u64>(node)] = e;
+        self._select_into(e);
         return e;
     }
 
@@ -144,9 +374,11 @@ class InstantiationRegistry {
     ///   !entry->is_explicit          an implicit node already exists: some
     ///                                use named these args before the spec
     ///                                was seen. T diagnoses.
-    fn register_explicit(self, primary: *Decl, args: *vec::<*Type>, spec: *Decl,
+    fn register_explicit(self, primary: *Decl, args_in: *vec::<*Type>, spec: *Decl,
                          fid: u32) -> *InstanceEntry {
-        if (primary == &null) || (args == &null) || (spec == &null) { return &null; }
+        if (primary == &null) || (args_in == &null) || (spec == &null) { return &null; }
+        var dd = vec::<*Type>();
+        var args = self._set_args(primary, args_in, &dd);
         var h = self._hash(primary, args);
 
         var lock = std::LockGuard(self._mu);
@@ -168,6 +400,11 @@ class InstantiationRegistry {
 
     // === Partial specializations ===============================================
 
+    /// \p spec is a REPRESENTATIVE: its parameters' GenericParamType owner
+    /// is that decl, and matching binds by owner identity. Entries already
+    /// minted for \p primary are re-selected: T registers a TU's specs before
+    /// it resolves anything else in it, so a re-selection here only ever
+    /// moves an instance no body has been typed against yet.
     fn register_partial(self, primary: *Decl, spec: *Decl) {
         if (primary == &null) || (spec == &null) { return; }
         var lock = std::LockGuard(self._mu);
@@ -178,6 +415,12 @@ class InstantiationRegistry {
             (*slot) = v;
         }
         (*slot)->push_back(spec);
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            for var i: usize = 0; i < it->second.size(); ++i {
+                var e = it->second[i];
+                if (e->primary == primary) && (!e->is_explicit) { self._select_into(e); }
+            }
+        }
     }
 
     fn partials_of(self, primary: *Decl) -> *vec::<*Decl> {
@@ -187,22 +430,378 @@ class InstantiationRegistry {
         return it->second;
     }
 
-    // === Enumeration (M1 / EmitPlan) ===========================================
-
-    /// Every entry, in NO defined order (hash order of pointer hashes,
-    /// filled from parallel T). A caller that emits from this sorts by its
-    /// own stable key -- EmitPlan by mangled name -- before writing anything.
-    fn collect(self, out: ref!(vec::<*InstanceEntry>)) {
+    /// Every user-written specialization of \p primary, partial and
+    /// explicit, appended to \p out: partials in registration order, then
+    /// the explicit ones in NO defined order (hash order, as collect()).
+    /// EmitPlan declares them wherever it declares the primary -- a TU that
+    /// sees `Store` but not `Store<bool>` would instantiate the primary for
+    /// it, an ODR violation no linker reports.
+    fn specs_of(self, primary: *Decl, out: *vec::<*Decl>) {
+        if (primary == &null) || (out == &null) { return; }
         var rlock = std::SharedLock(self._mu);
-        for var it = self._table.begin(); it != self._table.end(); ++it {
-            for var i: usize = 0; i < it->second.size(); ++i { out.push_back(it->second[i]); }
+        var it = self._partials.find(reinterpret_cast::<u64>(primary));
+        if it != self._partials.end() {
+            for var i: usize = 0; i < it->second->size(); ++i { out->push_back((*(it->second))[i]); }
+        }
+        for var t = self._table.begin(); t != self._table.end(); ++t {
+            for var i: usize = 0; i < t->second.size(); ++i {
+                var e = t->second[i];
+                if (e->primary == primary) && e->is_explicit { out->push_back(e->decl); }
+            }
         }
     }
 
+    /// The partial specialization of \p primary that \p args select, with
+    /// its parameters' bindings in \p out_args; null for the primary (none
+    /// matched, or an ambiguity -- the instance path reports that one).
+    /// For a DEPENDENT use (`Store<*P>` as an extension's receiver, a
+    /// partial's own Self), which has no entry to cache on: the args'
+    /// parameters are opaque here, so `*P` selects `<Q> Store<*Q>` with
+    /// Q := P, and a bare `T` selects nothing.
+    fn select_partial(self, primary: *Decl, args: *vec::<*Type>, out_args: *vec::<*Type>) -> *Decl {
+        if (primary == &null) || (args == &null) { return &null; }
+        var rlock = std::SharedLock(self._mu);
+        var a: *Decl = &null; var b: *Decl = &null;
+        return self._select(primary, args, out_args, &a, &b);
+    }
+
+    // --- matching (under the lock; pure: reads canonical types only) ---------
+
+    /// C++ partial-specialization selection, simplified: every partial whose
+    /// pattern matches \p args, then the one strictly more specialized than
+    /// each other match ([temp.class.order]); two with no order between them
+    /// are ambiguous, reported through \p amb_a / \p amb_b. An IMPORTED
+    /// primary's instances are clang's to fill, partial included
+    /// (ForeignInstantiate), so it never selects here.
+    priv fn _select(self, primary: *Decl, args: *vec::<*Type>, out_args: *vec::<*Type>,
+                    amb_a: *(*Decl), amb_b: *(*Decl)) -> *Decl {
+        if decl_is_imported(primary) { return &null; }
+        var it = self._partials.find(reinterpret_cast::<u64>(primary));
+        if it == self._partials.end() { return &null; }
+        var ps = it->second;
+        var hits  = vec::<*Decl>();
+        for var i: usize = 0; i < ps->size(); ++i {
+            var binds = vec::<*Type>();
+            if self._matches((*ps)[i], args, &binds) { hits.push_back((*ps)[i]); }
+        }
+        if hits.size() == 0 { return &null; }
+        var best: *Decl = &null;
+        for var i: usize = 0; i < hits.size(); ++i {
+            var wins = true;
+            for var j: usize = 0; j < hits.size(); ++j {
+                if i == j { continue; }
+                if !self._more_specialized(hits[i], hits[j]) { wins = false; break; }
+            }
+            if wins { best = hits[i]; break; }
+        }
+        if best == &null {
+            (*amb_a) = hits[0];
+            (*amb_b) = hits[1];
+            return &null;
+        }
+        if out_args != &null {
+            out_args->clear();
+            self._matches(best, args, out_args);
+        }
+        return best;
+    }
+
+    /// Under the write lock. Idempotent: a re-selection (register_partial)
+    /// overwrites every field it owns.
+    priv fn _select_into(self, e: *InstanceEntry) {
+        e->pattern = &null;
+        e->pattern_args.clear();
+        e->ambiguous_a = &null;
+        e->ambiguous_b = &null;
+        var a: *Decl = &null; var b: *Decl = &null;
+        e->pattern = self._select(e->primary, &(e->args), &(e->pattern_args), &a, &b);
+        e->ambiguous_a = a;
+        e->ambiguous_b = b;
+    }
+
+    /// \p spec's pattern against \p args; \p binds gets one type per
+    /// generic param of \p spec, all of them bound or the match fails (a
+    /// parameter the pattern never names cannot be deduced, which C++
+    /// rejects at the declaration).
+    priv fn _matches(self, spec: *Decl, args: *vec::<*Type>, binds: *vec::<*Type>) -> bool {
+        var pat = decl_spec_args(spec);
+        if pat.size() != args->size() { return false; }
+        var gps = decl_generic_params(spec);
+        binds->clear();
+        for var i: usize = 0; i < gps.size(); ++i { binds->push_back(&null); }
+        for var i: usize = 0; i < pat.size(); ++i {
+            var p = pat[i];
+            if (p == &null) || (p->canonical == &null) { return false; }
+            if !self._match(p->canonical, (*args)[i], spec, binds) { return false; }
+        }
+        for var i: usize = 0; i < binds->size(); ++i { if (*binds)[i] == &null { return false; } }
+        return true;
+    }
+
+    /// \p a is strictly more specialized than \p b: b's pattern matches a's
+    /// (a's parameters standing as opaque types) and not the reverse.
+    priv fn _more_specialized(self, a: *Decl, b: *Decl) -> bool {
+        return self._covers(b, a) && (!self._covers(a, b));
+    }
+
+    priv fn _covers(self, general: *Decl, special: *Decl) -> bool {
+        var sp = decl_spec_args(special);
+        var args = vec::<*Type>();
+        for var i: usize = 0; i < sp.size(); ++i {
+            if (sp[i] == &null) || (sp[i]->canonical == &null) { return false; }
+            args.push_back(sp[i]->canonical);
+        }
+        var binds = vec::<*Type>();
+        return self._matches(general, &args, &binds);
+    }
+
+    /// Exact structural match, never a conversion: a partial is chosen by
+    /// what the argument IS. Canonicals are hash-consed, so a pattern with
+    /// no parameter in it matches by identity. A qualifier must match
+    /// exactly -- `const P` against `const volatile i32` (C++ would bind
+    /// P := volatile i32) needs the type store to build the remainder,
+    /// which this layer does not hold, so it is a non-match, never a wrong
+    /// binding. A pack parameter never matches: pack patterns are not
+    /// selected yet.
+    priv fn _match(self, p: *Type, a: *Type, spec: *Decl, binds: *vec::<*Type>) -> bool {
+        if (p == &null) || (a == &null) { return false; }
+        // Identity settles a concrete pattern only: a dependent one matched
+        // against itself (a partial's own Self) must still bind its params.
+        if (p == a) && (!p->is_dependent()) { return true; }
+        if isa::<GenericParamType>(p) {
+            var g = cast::<GenericParamType>(p);
+            if (g->owner == spec) && (!g->is_pack) && (static_cast::<usize>(g->param_index) < binds->size()) {
+                var idx = static_cast::<usize>(g->param_index);
+                if (*binds)[idx] == &null { (*binds)[idx] = a; return true; }
+                return (*binds)[idx] == a;
+            }
+            return p == a;   // another template's parameter: only itself.
+        }
+        if !p->is_dependent() { return false; }   // concrete and not identical.
+        if p->kind != a->kind { return false; }
+        switch p->kind {
+            case TypeKind::PointerType {
+                var pp = cast::<PointerType>(p); var ap = cast::<PointerType>(a);
+                if pp->is_unsafe != ap->is_unsafe { return false; }
+                return self._match(pp->pointee, ap->pointee, spec, binds);
+            } case TypeKind::QualifiedType {
+                var pq = cast::<QualifiedType>(p); var aq = cast::<QualifiedType>(a);
+                if pq->quals != aq->quals { return false; }
+                return self._match(pq->inner, aq->inner, spec, binds);
+            } case TypeKind::NullableType {
+                return self._match(cast::<NullableType>(p)->inner, cast::<NullableType>(a)->inner, spec, binds);
+            } case TypeKind::FixedArrayType {
+                if p->size_bits != a->size_bits { return false; }
+                return self._match(cast::<FixedArrayType>(p)->element, cast::<FixedArrayType>(a)->element, spec, binds);
+            } case TypeKind::FunctionPointerType {
+                var pf = cast::<FunctionPointerType>(p); var af = cast::<FunctionPointerType>(a);
+                if pf->params.size() != af->params.size() { return false; }
+                for var i: usize = 0; i < pf->params.size(); ++i {
+                    if pf->modes[i] != af->modes[i] { return false; }
+                    if !self._match(pf->params[i], af->params[i], spec, binds) { return false; }
+                }
+                if (pf->return_type == &null) || (af->return_type == &null) { return pf->return_type == af->return_type; }
+                return self._match(pf->return_type, af->return_type, spec, binds);
+            } case TypeKind::RecordType {
+                // `Box<P>` against `Box<i32>`: the same template (an instance
+                // node and an explicit spec both lead back to the primary),
+                // then argument by argument.
+                var pr = cast::<RecordType>(p); var ar = cast::<RecordType>(a);
+                if decl_pattern(pr->decl) != decl_pattern(ar->decl) { return false; }
+                if pr->args.size() != ar->args.size() { return false; }
+                for var i: usize = 0; i < pr->args.size(); ++i {
+                    if !self._match(pr->args[i], ar->args[i], spec, binds) { return false; }
+                }
+                return true;
+            } default { return false; }
+        }
+    }
+
+    // === Conformance rows ======================================================
+
+    /// The row for (\p conformer, \p iface), or null if none was recorded.
+    fn row_find(self, conformer: *Type, iface: *Type) -> *ConformanceRow {
+        var rlock = std::SharedLock(self._mu);
+        return self._row_probe(conformer, iface);
+    }
+
+    /// Record \p r (built by the caller, outside the lock) unless a row for
+    /// its key already exists; either way returns THE row for the key, so
+    /// two TUs that both built one agree on a single identity.
+    fn row_add(self, r: *ConformanceRow) -> *ConformanceRow {
+        if r == &null { return &null; }
+        var lock = std::LockGuard(self._mu);
+        var hit = self._row_probe(r->conformer, r->iface);
+        if hit != &null { return hit; }
+        var row = self._row_copy(r);
+        self._rows[self._row_hash(r->conformer, r->iface)].push_back(row);
+        return row;
+    }
+
+    /// A copy of \p r that is NOT recorded: one TU's requirement match that
+    /// must not become the table's row (it failed, or it clashes with the
+    /// table's; ConformanceRow::hidden / clash). Lives as long as the table.
+    fn row_detached(self, r: *ConformanceRow) -> *ConformanceRow {
+        if r == &null { return &null; }
+        var lock = std::LockGuard(self._mu);
+        var row = self._row_copy(r);
+        row->hidden = r->hidden;
+        row->clash  = r->clash;
+        return row;
+    }
+
+    /// \p row is usable in TU \p fid (ConformanceRow::seen_by), once.
+    fn row_mark_visible(self, row: *ConformanceRow, fid: u32) {
+        if row == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = 0; i < row->seen_by.size(); ++i { if row->seen_by[i] == fid { return; } }
+        row->seen_by.push_back(fid);
+    }
+
+    /// TU \p fid is already known to be able to use \p row.
+    fn row_visible_in(self, row: *ConformanceRow, fid: u32) -> bool {
+        if row == &null { return false; }
+        var rlock = std::SharedLock(self._mu);
+        for var i: usize = 0; i < row->seen_by.size(); ++i { if row->seen_by[i] == fid { return true; } }
+        return false;
+    }
+
+    /// Caller holds the lock.
+    priv fn _row_copy(self, r: *ConformanceRow) -> *ConformanceRow {
+        var mem: *void = self._arena.alloc(sizeof(ConformanceRow), alignof(ConformanceRow));
+        var row = self._placement::<ConformanceRow>(mem);
+        row->conformer  = r->conformer;
+        row->iface      = r->iface;
+        row->iface_decl = r->iface_decl;
+        row->declared   = r->declared;
+        row->covered_by = r->covered_by;
+        row->ok         = r->ok;
+        for var i: usize = 0; i < r->witnesses.size(); ++i { row->witnesses.push_back(r->witnesses[i]); }
+        for var i: usize = 0; i < r->reqs.size(); ++i { row->reqs.push_back(r->reqs[i]); }
+        for var i: usize = 0; i < r->ext_args.size(); ++i { row->ext_args.push_back(r->ext_args[i]); }
+        for var i: usize = 0; i < r->ext_arg_count.size(); ++i { row->ext_arg_count.push_back(r->ext_arg_count[i]); }
+        for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }
+        for var i: usize = 0; i < r->seen_by.size(); ++i { row->seen_by.push_back(r->seen_by[i]); }
+        for var i: usize = 0; i < r->assoc_types.size(); ++i { row->assoc_types.push_back(r->assoc_types[i]); }
+        return row;
+    }
+
+    /// Record \p row as declared by \p by. Once per pair: a decl's TU
+    /// checks it once, but a re-run must not double the list.
+    fn declare_row(self, by: *Decl, row: *ConformanceRow) {
+        if (by == &null) || (row == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        var l = &(self._declared[reinterpret_cast::<u64>(by)]);
+        for var i: usize = 0; i < l->size(); ++i { if (*l)[i] == row { return; } }
+        l->push_back(row);
+    }
+
+    /// The rows \p by declared, in declaration order, appended to \p out.
+    fn declared_rows(self, by: *Decl, out: *vec::<*ConformanceRow>) {
+        if (by == &null) || (out == &null) { return; }
+        var rlock = std::SharedLock(self._mu);
+        var it = self._declared.find(reinterpret_cast::<u64>(by));
+        if it == self._declared.end() { return; }
+        for var i: usize = 0; i < it->second.size(); ++i { out->push_back(it->second[i]); }
+    }
+
+    /// \p inner is reached by \p outer's body (ConformanceChecking's reach).
+    /// Once per pair; \p inner keeps its first reacher. An instance that
+    /// reaches itself (`f<T>` calling `f<T>`) records nothing.
+    fn add_reach(self, outer: *InstanceEntry, inner: *InstanceEntry) {
+        if (outer == &null) || (inner == &null) || (outer == inner) { return; }
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = 0; i < outer->reached.size(); ++i { if outer->reached[i] == inner { return; } }
+        outer->reached.push_back(inner);
+        if inner->reached_by == &null { inner->reached_by = outer; }
+    }
+
+    /// \p e's reached instances, in reach order, appended to \p out. A copy:
+    /// a later TU's reach may still append to the entry's own list.
+    fn reached_of(self, e: *InstanceEntry, out: *vec::<*InstanceEntry>) {
+        if (e == &null) || (out == &null) { return; }
+        var rlock = std::SharedLock(self._mu);
+        for var i: usize = 0; i < e->reached.size(); ++i { out->push_back(e->reached[i]); }
+    }
+
+    /// Union \p rows, what one TU's check of \p e found, into its
+    /// program-wide list (InstanceEntry::rows, MONO.md D7): each row once,
+    /// a new one after every earlier one, so the order is first-found order
+    /// and the same on every run. Never a first-writer: a TU that checks
+    /// the instance after another adds what it found, however it differs.
+    fn add_rows(self, e: *InstanceEntry, rows: *vec::<*ConformanceRow>) {
+        if (e == &null) || (rows == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        for var i: usize = 0; i < rows->size(); ++i {
+            var r = (*rows)[i];
+            var have = false;
+            for var k: usize = 0; k < e->rows.size(); ++k { if e->rows[k] == r { have = true; break; } }
+            if !have { e->rows.push_back(r); }
+        }
+        e->rows_done = true;
+    }
+
+    fn mark_failed(self, e: *InstanceEntry) {
+        if e == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        e->failed = true;
+    }
+
+    // === Enumeration (M1 / EmitPlan) ===========================================
+
+    /// Every entry, in worklist (mint) order: deterministic, though not
+    /// sorted -- an output that must not move when an unrelated TU mints
+    /// first (EmitPlan's tier 3, a golden dump) still sorts by its own key.
+    fn collect(self, out: ref!(vec::<*InstanceEntry>)) {
+        var rlock = std::SharedLock(self._mu);
+        for var i: usize = 0; i < self._order.size(); ++i { out.push_back(self._order[i]); }
+    }
+
     fn size(self) -> usize {
-        var n: usize = 0;
-        for var it = self._table.begin(); it != self._table.end(); ++it { n += it->second.size(); }
-        return n;
+        var rlock = std::SharedLock(self._mu);
+        return self._order.size();
+    }
+
+    /// Make \p e live at depth 1, used at \p at (\p via null), or one hop
+    /// below live \p via, through the use \p via_at in its body. Once: the
+    /// first need fixes the depth, the range and the hop. True when it was
+    /// not live before.
+    fn mark_live(self, e: *InstanceEntry, at: SourceRange, via: *InstanceEntry, via_at: SourceRange) -> bool {
+        if e == &null { return false; }
+        var lock = std::LockGuard(self._mu);
+        if e->depth > 0 { return false; }
+        e->use_at = at;
+        e->depth  = 1;
+        if via != &null {
+            e->use_at = via->use_at;
+            e->depth  = via->depth + 1;
+            e->via    = via;
+            e->via_at = via_at;
+        }
+        return true;
+    }
+
+    /// THE worklist's next batch (MONO.md D4): every live entry whose reach
+    /// is not walked yet, in mint order, appended to \p out. Walking a batch
+    /// makes more entries live -- minted at the end of the order, or older
+    /// ones newly needed -- and they come back on the next call, so draining
+    /// until this yields nothing is the discovery fixpoint. Deterministic:
+    /// liveness and the order are both functions of the input.
+    fn drain(self, out: *vec::<*InstanceEntry>) {
+        if out == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        // A scan, not a cursor: an entry minted long ago (by T, by a losing
+        // candidate) may become live only now, in a later TU.
+        for var i: usize = 0; i < self._order.size(); ++i {
+            var e = self._order[i];
+            if (e->depth > 0) && (!e->checked) { out->push_back(e); }
+        }
+    }
+
+    fn set_checked(self, e: *InstanceEntry) {
+        if e == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        e->checked = true;
     }
 
     // === Internals ==============================================================
@@ -220,6 +819,33 @@ class InstantiationRegistry {
         // corruption in release). The bucket compares args, so the extra
         // collision this folds in costs one comparison, never correctness.
         return h >> 1;
+    }
+
+    priv fn _row_hash(self, conformer: *Type, iface: *Type) -> u64 {
+        var h = canon_hash_ptr(0, reinterpret_cast::<*void>(conformer));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(iface));
+        return h >> 1;   // clear of DenseMap's reserved keys, as _hash.
+    }
+
+    /// Under the lock (either mode).
+    priv fn _row_probe(self, conformer: *Type, iface: *Type) -> *ConformanceRow {
+        var it = self._rows.find(self._row_hash(conformer, iface));
+        if it == self._rows.end() { return &null; }
+        for var i: usize = 0; i < it->second.size(); ++i {
+            var r = it->second[i];
+            if (r->conformer == conformer) && (r->iface == iface) { return r; }
+        }
+        return &null;
+    }
+
+    /// \p args with an expanded enum pack's duplicates gone
+    /// (decl_dedup_pack_args), in \p scratch when anything was dropped.
+    priv fn _set_args(self, primary: *Decl, args: *vec::<*Type>, scratch: *vec::<*Type>) -> *vec::<*Type> {
+        if (args == &null) || (decl_pack_set_at(primary) == usize(-1)) { return args; }
+        for var i: usize = 0; i < args->size(); ++i { scratch->push_back((*args)[i]); }
+        decl_dedup_pack_args(primary, scratch, self.pack_order);
+        return scratch;   // fewer, or reordered (PackSetOrder).
+
     }
 
     /// Under the lock (either mode).
@@ -250,6 +876,9 @@ class InstantiationRegistry {
         e->is_explicit = is_explicit;
         e->home_fid    = fid;
         for var i: usize = 0; i < args->size(); ++i { e->args.push_back((*args)[i]); }
+        // Every caller holds the lock: the worklist append is the mint.
+        e->seq = static_cast::<u32>(self._order.size());
+        self._order.push_back(e);
         return e;
     }
 
@@ -329,6 +958,7 @@ class InstantiationRegistry {
             n->variants.from_raw(static_cast::<*(*EnumVariantDecl)>(&null), 0);
             n->underlying = p->underlying;
             n->is_adt     = p->is_adt;
+            n->is_open    = p->is_open;
             return static_cast::<*Decl>(n);
         }
         if isa::<InterfaceDecl>(primary) {

@@ -189,7 +189,7 @@ pub class FmtBuf {
         var lo: u64 = 0
         var hi: u64 = 0
         unsafe {
-            var p = (&v) as unsafe *const u8
+            var unsafe *p = (&v) as unsafe *const u8
             lo = FmtBuf::bits64_(p, 0)
             hi = FmtBuf::bits64_(p, 8)
         }

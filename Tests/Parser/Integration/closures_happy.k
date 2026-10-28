@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -197,7 +197,7 @@
 // AST-NEXT: |           `-NamedIdentExpr x
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var panic_closure
-// AST-NEXT: |   `-ClosureExpr ->  i32
+// AST-NEXT: |   `-ClosureExpr panic ->  i32
 // AST-NEXT: |     `-CompoundStmt (1)
 // AST-NEXT: |       `-ReturnStmt
 // AST-NEXT: |         `-IntegerLiteralExpr 42
@@ -211,7 +211,7 @@
 // AST-NEXT: |     `-CompoundStmt (0)
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var multi_modifier
-// AST-NEXT: |   `-ClosureExpr ->  i32
+// AST-NEXT: |   `-ClosureExpr panic ->  i32
 // AST-NEXT: |     `-CompoundStmt (1)
 // AST-NEXT: |       `-ReturnStmt
 // AST-NEXT: |         `-IntegerLiteralExpr 100
@@ -437,13 +437,14 @@
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: error [R020E]:
-// AST: {{.*}}: error [R020E]:
-// AST: {{.*}}: error [R020E]:
-// AST: {{.*}}: error [R020E]:
-// AST: {{.*}}: error [R020E]:
-// AST: {{.*}}: error [R029E]:
-// END-GENERATED-CHECKS
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R020E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R029E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R029N]:
+// END-GENERATED-CHECKS(AST)
 
 // ==========================================================================
 //  closures_happy.k

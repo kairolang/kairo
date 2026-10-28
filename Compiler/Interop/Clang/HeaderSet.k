@@ -220,12 +220,50 @@ class HeaderSet {
     /// Hold this around any clang::Sema call from sema (M2's RequireCompleteType).
     fn sema_lock(self) -> *std::RecursiveMutex { return &(self._sema_mu); }
 
+    /// Is \p name a macro once the set's headers are read: a predefined one
+    /// (`__linux__`) or one a header `#define`s. build() never ends the
+    /// source file, so the preprocessor still holds every definition.
+    /// Kairo's `defined!` (EVAL.md §4.3).
+    fn macro_defined(self, name: string) -> bool {
+        if self._ci == &null { return false; }
+        if !self._ci->hasPreprocessor() { return false; }
+        var slock = std::LockGuard(self._sema_mu);
+        return self._ci->getPreprocessor().isMacroDefined(sref(name));
+    }
+
     fn pch_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.pch"; }
 
-    /// Phase B's textual include of this set when it has a C header: one
-    /// in-memory header replaying the direct includes, the C ones inside
+    /// Phase B's textual include of this set: one in-memory header replaying
+    /// the direct includes inside the header FP pragmas, the C ones inside
     /// extern "C". Preprocessor `Includes` cannot wrap a path themselves.
     fn wrap_path(self) -> string { return f"{HeaderSet::vfs_root()}/pch/{self.id}.h"; }
+
+    /// \brief the `#include` line phase B's wrapper replays for the import
+    ///        spelled \p spelled, or "" when phase A found no such header.
+    ///
+    /// \details By name, through the search path, unless phase A found it
+    ///          beside the importing .k (the quoted dir only phase A
+    ///          searches): then by that absolute path, which is the same
+    ///          lookup. Never a system header by absolute path: a header
+    ///          reached that way was found in no search dir, so its
+    ///          `#include_next` starts over from the first one and finds
+    ///          itself. libc++'s <math.h> is exactly that wrapper, and then
+    ///          the C library's math.h (FP_NAN and the rest) never arrives.
+    fn replay_include(self, spelled: string) -> string {
+        for e: IncludeEdge in self.includes {
+            if e.from_path.size() != 0 { continue; }
+            if !self._spelling_matches(spelled, e.to_path) { continue; }
+            var dir = self.import_dir;
+            var local = (dir.size() > 0) && (e.to_path.size() > dir.size() + 1) && e.to_path.starts_with(dir);
+            if local {
+                var sep = e.to_path[dir.size()];
+                local = (sep == '/') || (sep == '\\');
+            }
+            if local { return "#include \x22" + e.to_path + "\x22"; }
+            return "#include <" + spelled + ">";
+        }
+        return "";
+    }
 
     fn has_c_linkage(self) -> bool {
         for var i: usize = 0; i < self.c_linkage.size(); ++i { if self.c_linkage[i] { return true; } }
@@ -321,6 +359,17 @@ class HeaderSet {
 
         self._main = libcxx::string();
         self._main_locs.clear();
+        // The headers keep C++'s FP semantics, not Kairo's (ClangBackend::
+        // header_fp_pragmas). One _main_locs entry per line, as for every
+        // other line here: the adapter maps clang's line numbers through it.
+        var fp_open  = vec::<string>();
+        var fp_close = vec::<string>();
+        be->header_fp_pragmas(&fp_open, &fp_close);
+        for l: string in fp_open {
+            self._main.append(l.std_string());
+            self._main.append(r"\n");
+            self._main_locs.push_back(SourceRange::invalid());
+        }
         for var i: usize = 0; i < self.headers.size(); ++i {
             var h = self.headers[i].std_string();
             var c = (i < self.c_linkage.size()) && self.c_linkage[i];
@@ -338,6 +387,15 @@ class HeaderSet {
                 self._main.append(r"\x7D\n");
                 self._main_locs.push_back(SourceRange::invalid());
             }
+        }
+        // A header that ends mid-declaration runs on into these lines, and
+        // clang's error then lands here: the last import is what ran out.
+        var last_at = SourceRange::invalid();
+        if self.header_locs.size() > 0 { last_at = self.header_locs[self.header_locs.size() - 1]; }
+        for l: string in fp_close {
+            self._main.append(l.std_string());
+            self._main.append(r"\n");
+            self._main_locs.push_back(last_at);
         }
         var buf = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(self._main.data(), self._main.size()), r"<injected>", false);

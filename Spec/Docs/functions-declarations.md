@@ -4,9 +4,7 @@ This page covers function modifiers, visibility, ABI and linkage, and forward de
 
 ## Function Modifiers
 
-Modifiers appear after the parameter list and before the return type arrow. Multiple modifiers can be
-combined, subject to the compatibility rules below. `inline` and `eval` may also be written before `fn`
-(`pub inline fn twice(x: i32) -> i32`); both positions mean the same thing.
+Modifiers appear after the parameter list and before the return type arrow. Multiple modifiers can be combined, subject to the compatibility rules below. `inline` and `eval` may also be written before `fn` (`pub inline fn twice(x: i32) -> i32`); both positions mean the same thing.
 
 ```kairo
 fn compute(x: i32) inline -> i32       { return x * x }
@@ -25,25 +23,21 @@ fn background() async -> Data          { /* ... */ }
 | `unsafe` | Yes | Yes | [Separate overload namespace](/docs/language/unsafe/#unsafe-function-overloads) for alternative implementations |
 | `eval` | Yes | Yes | Must be evaluable at compile time. See [Eval](/docs/language/eval/) |
 | `async` | Yes | Yes | Asynchronous execution. See [Concurrency](/docs/language/concurrency/) |
-| `panic` | Yes | Yes | May panic; callers must handle. See [Panic](/docs/language/panic/) |
+| `panic` | Yes | Yes | May panic; callers must handle. `panic(E1, E2)` declares the set. See [Panic](/docs/language/panic/) |
 | `inline` | Yes | Yes | Puts the body in the interface. See [`inline`](#inline) |
 | `final` | | Yes | Prevents override in subclasses. See [Classes](/docs/language/classes-inheritance/#final) |
 
 ### `inline`
 
-`inline` puts the body in the interface: importers compile it themselves. Use it for small functions on
-hot paths, and for functions the C++ compiler calls on your behalf ([coroutine promises and awaiters](/docs/language/concurrency/#custom-awaitables)).
+`inline` puts the body in the interface: importers compile it themselves. Use it for small functions on hot paths, and for functions the C++ compiler calls on your behalf ([coroutine promises and awaiters](/docs/language/concurrency/#custom-awaitables)).
 
 ```kairo
 pub inline fn twice(x: i32) -> i32 { return x * 2 }
 ```
 
-Every module that can see the declaration gets the definition and compiles it, so the optimizer can inline
-the call there. In C++ terms it is an `inline` function: one shared definition that the linker merges across
-objects. It is not a request to force inlining.
+Every module that can see the declaration gets the definition and compiles it, so the optimizer can inline the call there. In C++ terms it is an `inline` function: one shared definition that the linker merges across objects. It is not a request to force inlining.
 
-- An `inline` function must have a body, in the same file as its declaration (an in-class declaration may be
-  defined out of line in that file). An `inline` declaration with no body is an error.
+- An `inline` function must have a body, in the same file as its declaration (an in-class declaration may be defined out of line in that file). An `inline` declaration with no body is an error.
 - Every declaration of the function must agree on `inline`.
 - Unused `inline` bodies cost parse time only: no code is generated for one nothing calls.
 
@@ -81,8 +75,7 @@ priv fn internal_helper() { /* ... */ }
 prot fn library_helper()  { /* ... */ }
 ```
 
-See [Modules](/docs/language/modules/#visibility-on-top-level-declarations) for how visibility interacts
-with imports. Methods follow the member rules in [Classes](/docs/language/classes/#default-visibility).
+See [Modules](/docs/language/modules/#visibility-on-top-level-declarations) for how visibility interacts with imports. Methods follow the member rules in [Classes](/docs/language/classes/#default-visibility).
 
 ---
 
@@ -98,8 +91,7 @@ ABI modifiers control name mangling, dispatch mechanism, and symbol visibility a
 | `virtual` | Dynamic dispatch via vtable. See [Classes](/docs/language/classes-inheritance/#virtual-dispatch) |
 | `override` | Overrides a `virtual` method from a [base class](/docs/language/classes-inheritance/#inheritance); implies `virtual` |
 
-`static`, `virtual`, and `override` are mutually exclusive with each other. `ffi` can be combined with any
-of them.
+`static`, `virtual`, and `override` are mutually exclusive with each other. `ffi` can be combined with any of them.
 
 ```kairo
 class Shape {
@@ -132,9 +124,7 @@ fn parse_expression(tokens: [Token]) -> Expr
 fn parse_statement(tokens: [Token]) -> Stmt
 ```
 
-Within a single module, forward declarations are rarely needed. Kairo hoists all
-top-level declarations before type checking, so mutual recursion works without
-them:
+Within a single module, forward declarations are rarely needed. Kairo hoists all top-level declarations before type checking, so mutual recursion works without them:
 
 ```kairo
 fn is_even(n: u32) -> bool = if n == 0 => true else => is_odd(n - 1)
@@ -143,10 +133,8 @@ fn is_odd(n: u32) -> bool  = if n == 0 => false else => is_even(n - 1)
 
 Forward declarations are used when the definition lives elsewhere:
 
-- **FFI imports** the body is provided by a C or C++ library. See
-  [C/C++ Interop](/docs/language/c-cpp/).
-- **Separate translation units** the declaration is visible to callers; the
-  definition is linked in from another `.k` file.
+- **FFI imports** the body is provided by a C or C++ library. See [C/C++ Interop](/docs/language/c-cpp/).
+- **Separate translation units** the declaration is visible to callers; the definition is linked in from another `.k` file.
 - **Out-of-line class methods** declared in the class body, defined outside it using the `Class::method` qualified-name syntax:
 
     ```kairo
@@ -171,15 +159,11 @@ Forward declarations are used when the definition lives elsewhere:
 
 When a definition follows a forward declaration, the two must match exactly:
 
-- Parameter types, return type, and all function modifiers (`const`, `unsafe`,
-  `panic`, `eval`, `async`, `inline`, `final`, `volatile`)
+- Parameter types, return type, and all function modifiers (`const`, `unsafe`, `panic`, `eval`, `async`, `inline`, `final`, `volatile`)
 - Visibility (`pub`, `priv`, `prot`)
 - ABI linkage (`ffi "c"`, `ffi "c++"`, `static`, `virtual`, `override`)
 
-Parameter names may differ; the definition's names are used in the body. Defaults
-are not part of the match: each parameter's default may be written on any one
-declaration, and it applies to every call (see
-[Defaults apply to the whole function](/docs/language/functions-parameters/#defaults-apply-to-the-whole-function)).
+Parameter names may differ; the definition's names are used in the body. Defaults are not part of the match: each parameter's default may be written on any one declaration, and it applies to every call (see [Defaults apply to the whole function](/docs/language/functions-parameters/#defaults-apply-to-the-whole-function)).
 
 A mismatch in any other element is a compile error.
 

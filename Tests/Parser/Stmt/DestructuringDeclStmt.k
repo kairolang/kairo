@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(CHECK) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s
 // CHECK: ============== AST (tree) for fid 0 ==============
 // CHECK-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -32,7 +32,7 @@
 // CHECK-NEXT:         | `-NamedIdentExpr q
 // CHECK-NEXT:         `-NamedIdentExpr r
 // CHECK: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+// END-GENERATED-CHECKS(CHECK)
 
 fn f(t: (i32, i32, i32)) -> i32 {
     var (a, _, c) = t

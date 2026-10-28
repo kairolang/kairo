@@ -73,6 +73,9 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Lower::LowerSynth::*;
+import Sema::Resolve::NameLookup::*;
+import Sema::Type::ArgumentDeduction::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -117,6 +120,13 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         if (ch == &null) || (ch->steps.size() == 0) { return static_cast::<*Expr>(n); }
         var st  = ch->steps.get(ch->steps.size() - 1);
         var f   = dyn_cast::<FunctionDecl>(st->resolved_decl);
+        var req = self._requirement_of(f);
+        if req != &null {
+            if st->access_kind != ChainExpr::AccessKind::ColonColon { self._through_witness(n, ch, st, f, req); }
+            else if f->is_method() { self._qualified_witness(n, st, f, req); }
+            else { self._static_witness(n, ch, st, f, req); }
+            return static_cast::<*Expr>(n);
+        }
         var ext = decl_extension_of(static_cast::<*Decl>(f));
         if ext == &null { return static_cast::<*Expr>(n); }
 
@@ -154,6 +164,140 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         args.push(self._receiver(obj, f, ext, via_ptr));
         for var i: usize = 0; i < n->args.size(); ++i { args.push(n->args[i]); }
         args.freeze_into(&(n->args));
+    }
+
+    // --- calls through an interface bound -------------------------------------------
+
+    /// The interface \p f is a requirement of, or null. The typer binds a
+    /// call on a bounded `T` to the requirement itself (RESOLUTION.md §2b).
+    priv fn _requirement_of(self, f: *FunctionDecl) -> *InterfaceDecl {
+        if (f == &null) || (f->semantic_dc == &null) { return &null; }
+        var home = reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl();
+        if home == &null { return &null; }
+        return dyn_cast::<InterfaceDecl>(NameLookup::representative(home));
+    }
+
+    /// `a.m(x)` bound to requirement `m` of I: `m(&a, x)`, with the witness
+    /// recorded (CODEGEN.md §7b.5). The receiver takes the form an extension
+    /// member's does -- a witness member is declared as the requirement would
+    /// be as an extension member of Self -- with no upcast: the witness is
+    /// keyed on the receiver's own type. A `::` call (`T::make()`,
+    /// `I::m(a)`) is not rewritten yet, and EmitIR ICEs on it.
+    priv fn _through_witness(self, n: *CallExpr, ch: *ChainExpr, st: *ChainExpr::Step,
+                             f: *FunctionDecl, req: *InterfaceDecl) {
+        ICE_IF(ch->has_optional_chaining(),
+            "ExtensionLowering: `?.` into an interface requirement; the nullable trio runs after this pass and must hand it a plain receiver first");
+        ICE_IF(!f->is_method(), "ExtensionLowering: a static requirement called through a value; X should have rejected it");
+        var via_ptr = (st->access_kind == ChainExpr::AccessKind::Arrow);
+        n->callee = self._head(st, f);
+        var obj  = self._split(ch);
+        var me   = self._object_type(obj, via_ptr);
+        ICE_IF(me == &null, "ExtensionLowering: an untyped receiver for a requirement call; ExprTyper gate failure");
+        n->witness_self  = me;
+        n->witness_iface = self._declaring_iface(me, f, n);
+        var args = self.list_builder::<*Expr>();
+        args.push(self._witness_receiver(obj, f, via_ptr));
+        for var i: usize = 0; i < n->args.size(); ++i { args.push(n->args[i]); }
+        args.freeze_into(&(n->args));
+    }
+
+    /// `T::make(x)` bound to static requirement `make` of I: `make(x)`
+    /// through the witness, Self the qualifier, no receiver. Only a bare
+    /// bounded parameter qualifies one; any other `::` form of a requirement
+    /// (`I::m(a)`, a method named through `T::`) is left for EmitIR's ICE.
+    priv fn _static_witness(self, n: *CallExpr, ch: *ChainExpr, st: *ChainExpr::Step,
+                            f: *FunctionDecl, req: *InterfaceDecl) {
+        // CallTyping's qualifier, not a witness: a form left unrewritten
+        // must still reach EmitIR's ICE rather than spell a Self-less one.
+        n->witness_iface = &null;
+        if f->is_method() || (ch->steps.size() != 1) || (ch->base == &null) { return; }
+        var q = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(ch->base));
+        if q == &null { return; }
+        var gp = dyn_cast::<GenericParamDecl>(q->resolved_decl);
+        if (gp == &null) || (gp->owner == &null) { return; }
+        var me = self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
+        n->callee        = self._head(st, f);
+        n->witness_self  = me;
+        n->witness_iface = self._declaring_iface(me, f, n);
+    }
+
+    /// `I::m(a, x)`, the qualified form of a requirement call: `self` is
+    /// argument zero already (CallLowering), and takes the receiver form a
+    /// `.` call's would. Self is that argument's type -- a bounded `T`, or a
+    /// concrete conformer whose row ConformanceChecking put on the call.
+    priv fn _qualified_witness(self, n: *CallExpr, st: *ChainExpr::Step, f: *FunctionDecl, req: *InterfaceDecl) {
+        ICE_IF(n->args.size() == 0, "ExtensionLowering: `I::m` call to a requirement with no receiver argument; CallLowering postcondition");
+        var me = self._object_type(n->args[0], false);
+        ICE_IF(me == &null, "ExtensionLowering: an untyped receiver for a qualified requirement call; ExprTyper gate failure");
+        n->callee       = self._head(st, f);
+        n->witness_self = me;
+        if isa::<GenericParamType>(me) {
+            // The bound ConformanceChecking chose by the qualifier; the first
+            // bound with the requirement serves only a call that named none.
+            if n->witness_iface == &null { n->witness_iface = self._declaring_iface(me, f, n); }
+        } else {
+            var row = reinterpret_cast::<*ConformanceRow>(n->witness_row);
+            ICE_IF(row == &null, "ExtensionLowering: a qualified requirement call on a concrete type with no row; ConformanceChecking records it");
+            n->witness_iface = row->iface;
+        }
+        var args = self.list_builder::<*Expr>();
+        args.push(self._witness_receiver(n->args[0], f, false));
+        for var i: usize = 1; i < n->args.size(); ++i { args.push(n->args[i]); }
+        args.freeze_into(&(n->args));
+    }
+
+    /// Argument zero of a witness call: the pointer for a named member, the
+    /// object for an operator, as _receiver gives an extension member.
+    priv fn _witness_receiver(self, obj: *Expr, f: *FunctionDecl, via_ptr: bool) -> *Expr {
+        var x = self.tu.strip_parens(obj);
+        if f->is_operator {
+            if via_ptr { return self._deref(obj); }
+            if self._is_self(x) { return self._deref(self._self_ptr(x)); }
+            if self._addressable(obj) || f->is_const() { return obj; }
+            return self._deref(self._addr(obj, true));
+        }
+        return self._pointer_to(obj, x, via_ptr);
+    }
+
+    /// The canonical instance of the interface the call's witness belongs
+    /// to: the bound on \p me whose composed requirement list contains
+    /// callee \p f (InterfaceComposition). An inherited requirement goes
+    /// through the BOUND's witness -- `Stream_witness<T>::read` -- since every
+    /// interface's list holds what it derives. Self must be a generic
+    /// parameter: a concrete receiver is bound to the implementing decl,
+    /// never to a requirement.
+    priv fn _declaring_iface(self, me: *Type, f: *FunctionDecl, at: *CallExpr) -> *Type {
+        ICE_IF(!isa::<GenericParamType>(me),
+            "ExtensionLowering: a requirement call on a receiver that is not a bounded generic parameter; witness Self must be a parameter");
+        var g = cast::<GenericParamType>(me);
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        ICE_IF(it == self.sc->bounds.end(), "ExtensionLowering: a requirement call on a parameter whose owner has no bound table entry");
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+            var c = _set->impl_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var t = canon_unqual(c->rhs->canonical);
+            if self._has_requirement(t, f) { return t; }
+        }
+        ICE_FAIL("ExtensionLowering: no bound on the receiver's parameter requires the callee");
+        return &null;
+    }
+
+    /// Interface instance \p t's composed list contains requirement \p f.
+    priv fn _has_requirement(self, t: *Type, f: *FunctionDecl) -> bool {
+        if (t == &null) || (!isa::<RecordType>(t)) { return false; }
+        var d = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(cast::<RecordType>(t)->decl)));
+        if d == &null { return false; }
+        var fr = NameLookup::representative(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < d->requirements.size(); ++i {
+            if NameLookup::representative(d->requirements.get(i)->decl) == fr { return true; }
+        }
+        return false;
     }
 
     /// The receiver: the chain minus its last step. The ChainExpr node is

@@ -20,6 +20,29 @@ pub import string::*
 pub import types::*
 pub import fmt::*
 
+ffi "c" import "rt/crash.h"
+
+/// `null` as a value: the type of the constant every null converts from. A
+/// C++ host spells the constant `::builtin::null` (InterfaceEmitter writes
+/// it after this record; `null` is a Kairo keyword, so it has no Kairo
+/// declaration of its own). Empty: a null carries nothing.
+pub struct null_t {}
+
+/// `T?`. Kairo code never names it (the `?` suffix is the only spelling);
+/// C++ code does. An ADT (NULLABLE.md 1.2), so the payload is a real T only while present, constructed in place and
+/// destroyed exactly once, and copy and move follow T's own -- the special
+/// members EnumLayoutLowering gives every generic ADT. That pass also gives
+/// THIS one, the lang item, the C++ surface the desugars and a C++ host
+/// use: `Nullable()` and `Nullable(null_t)` (null), `Nullable(const T&)`
+/// and `Nullable(T&&)` (present), `is_null()`, the unchecked `__value()`
+/// and `==` when T has one. Every implicit `T -> T?` and `null -> T?` is
+/// one of those constructors. EnumLayoutLowering may lay it out
+/// niche-filled; nothing outside this declaration may depend on the layout.
+pub enum <T> Nullable {
+    Value { v: T },
+    Null,
+}
+
 /// `^^` on a primitive base. Repeated squaring, so overflow is exactly `*`'s.
 /// A negative exponent is `(1 / base) ^^ -exp` under the base type's own
 /// division: for an integer base that reciprocal is 0, 1 or -1 and nothing
@@ -40,3 +63,59 @@ priv fn <B, E> pow(base: B, exp: E) -> B {
     }
     return r
 }
+
+/// How many bit patterns a `T` never holds: the layout engine's niche_of
+/// (EnumLayoutLowering, spec ENUMLAYOUT §5.1) -- 1 for a pointer, the
+/// values past a plain enum's or an ADT tag's, a record's first field's,
+/// 0 for anything else. Answered at compile time: EnumLayoutLowering
+/// replaces every call with the count, so this body never runs.
+pub eval fn <T> __builtin_niche_of() -> u64 = 0
+
+/// T's panic type id (PANIC.md §1.3): the tag an `Err` holding a T is
+/// stored as, the same in every TU. A compiler test hook, answered at
+/// compile time like __builtin_niche_of.
+pub eval fn <T> __builtin_type_id() -> u32 = 0
+
+/// The panic site id of this call (PANIC.md §1.4), registered in the TU's
+/// `__kairo_panic_sites` table as a `panic` would be. A compiler test hook:
+/// EnumLayoutLowering replaces every call with the id.
+pub fn __builtin_panic_site() -> u32 = 0
+
+/// The compiler's crash entry (the UnwrapFailed lang item): `unwrap!` on
+/// null (NULLABLE.md 2.6), a checked `as` into a closed enum that misses,
+/// a script global read before its line ran, and the asserting downcast
+/// `p as *D` on the wrong dynamic type. `msg[0..len)` is a literal the
+/// lowering built whole -- the expression as written and its
+/// file:line:col -- so nothing is formatted at crash time; rt/crash.c
+/// writes it and a newline to stderr and aborts (PANIC.md §2.8, "the crash
+/// path"). `-> !` makes the failing arm `Never`. Not a panic: no `try`
+/// catches it and it is in no panic set.
+pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
+    unsafe { kairo_rt_crash(msg as unsafe *const u8, len) }
+}
+
+/// What `crash!` calls: `msg` and a newline to stderr (nothing when it is
+/// empty), then abort. `-> !`, so a `crash!()` ends its path for the flow
+/// checks like any other call that never returns. A runtime `string` is
+/// fine: its data pointer and length are read once, here, and handed to
+/// rt/crash.c, which writes at most KAIRO_RT_CRASH_MAX bytes of them and
+/// touches nothing else (no method of `string` runs on a program that is
+/// crashing). A literal costs no allocation: it is a borrowed view.
+pub fn crash_with(msg: string = "") -> ! {
+    unsafe { kairo_rt_crash(msg.data as unsafe *const u8, msg.len) }
+}
+
+/// `crash!()` / `crash!("why")`: end the process (PANIC.md §2.4). Not a
+/// panic -- it joins no panic set and no `try` catches it -- so a function
+/// that calls it needs no `panic` specifier, and `main` may use it. A
+/// plain macro, not a compiler intrinsic: every file sees it through the
+/// prelude, after its own imports, so a file's own `crash!` shadows it.
+/// What it reports is not final; rely only on "it does not return".
+///
+/// The body is one identifier and the caller's own tokens: a literal
+/// written here would be another file's literal at the use (TICKETS:
+/// SC073E for a macro from another file), so the empty message is
+/// crash_with's default, not the macro's. The call is unqualified (the
+/// builtin root has no spelling in user code), so a function named
+/// `crash_with` in scope at the use would capture it.
+pub macro crash!(...msg) { crash_with(msg...) }

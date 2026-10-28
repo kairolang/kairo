@@ -1,21 +1,16 @@
 # Ownership and Promotion
 
-Provenance and epochs govern whether an *access* is safe. A separate analysis governs *where a value
-lives and who frees it*. Its residuals are Tier P (transformable) or Tier N (unfixable), never Tier
-R there is no runtime check for "who owns this."
+Provenance and epochs govern whether an *access* is safe. A separate analysis governs *where a value lives and who frees it*. Its residuals are Tier P (transformable) or Tier N (unfixable), never Tier R there is no runtime check for "who owns this."
 
-When Tether determines that a heap pointer needs ownership semantics, it selects a [smart pointer type](/docs/language/pointers/#smart-pointer-promotion)
-from the pointer's whole-program usage. In **debug** it performs the promotion and warns; in
-**release** it emits a hard error naming the type to annotate.
+When Tether determines that a heap pointer needs ownership semantics, it selects a [smart pointer type](/docs/language/pointers/#smart-pointer-promotion) from the pointer's whole-program usage. In **debug** it performs the promotion and warns; in **release** it emits a hard error naming the type to annotate.
 
 ## `std::Unique<T>` single owner
 
-Exactly one live binding holds the pointer at any point. Ownership may transfer between scopes; the
-count of live owners is always one.
+Exactly one live binding holds the pointer at any point. Ownership may transfer between scopes; the count of live owners is always one.
 
 ```kairo
 fn make_config() -> *Config {
-    var cfg = @create Config(8080)
+    var *cfg = @create Config(8080)
     return cfg
     // debug: promote cfg -> std::Unique<Config>
     // release: error, annotate the return type
@@ -24,25 +19,21 @@ fn make_config() -> *Config {
 
 ## `std::Shared<T>` multiple owners
 
-Multiple live bindings refer to the same allocation and single ownership cannot be proven. The
-allocation is reference-counted; the object is destroyed when the last `Shared` reference's scope
-ends.
+Multiple live bindings refer to the same allocation and single ownership cannot be proven. The allocation is reference-counted; the object is destroyed when the last `Shared` reference's scope ends.
 
 ```kairo
 fn share_config(a: *Server, b: *Server) {
-    var cfg = @create Config(8080)
+    var *cfg = @create Config(8080)
     a.config = cfg
     b.config = cfg
     // debug: promote cfg -> std::Shared<Config>
 }
 ```
 
-A short-lived alias that dies before the owner escapes does **not** force `Shared`. The trigger is
-not "multiple pointers exist" but "multiple pointers are *live* at a point where shared ownership is
-required for safety."
+A short-lived alias that dies before the owner escapes does **not** force `Shared`. The trigger is not "multiple pointers exist" but "multiple pointers are *live* at a point where shared ownership is required for safety."
 
 ```kairo
-var cfg = @create Config(8080)
+var *cfg = @create Config(8080)
 {
     var tmp: *Config = cfg
     validate(tmp)
@@ -52,8 +43,7 @@ return cfg               // single owner at the escape -> Unique
 
 ## `std::Weak<*T>` back-reference
 
-A pointer that, promoted to `Shared`, would close a reference cycle (A -> B -> A). `Weak` does not
-contribute to the count and does not keep the target alive; access requires a liveness check.
+A pointer that, promoted to `Shared`, would close a reference cycle (A -> B -> A). `Weak` does not contribute to the count and does not keep the target alive; access requires a liveness check.
 
 ```kairo
 class Node {
@@ -64,12 +54,11 @@ class Node {
 
 ## No promotion
 
-A pointer whose lifetime is fully contained, or provably bounded by its referent's lifetime, stays a
-plain `*T` with no overhead:
+A pointer whose lifetime is fully contained, or provably bounded by its referent's lifetime, stays a plain `*T` with no overhead:
 
 ```kairo
 fn process() {
-    var data = @create Buffer(1024)
+    var *data = @create Buffer(1024)
     fill(data)
     consume(data)
     @destroy data    // fully contained -> plain *T
@@ -82,12 +71,9 @@ Field access and interior pointers are covered in [Bounds and Provenance](/docs/
 
 ## Stack Pointers
 
-A stack value has no heap allocation behind it, so it cannot be promoted to a smart pointer. But the
-(B) model splits stack escape into two cases by whether the value is **heap-promotable** that is,
-whether Tether can mechanically rewrite the stack allocation into a [`@create`](/docs/language/pointers/#heap-allocation) call.
+A stack value has no heap allocation behind it, so it cannot be promoted to a smart pointer. But the (B) model splits stack escape into two cases by whether the value is **heap-promotable** that is, whether Tether can mechanically rewrite the stack allocation into a [`@create`](/docs/language/pointers/#heap-allocation) call.
 
-**Heap-promotable escape Tier P.** A plain local whose address escapes via return or store, where
-the value's type can be heap-allocated:
+**Heap-promotable escape Tier P.** A plain local whose address escapes via return or store, where the value's type can be heap-allocated:
 
 ```kairo
 fn make() -> *i32 {
@@ -99,9 +85,7 @@ fn make() -> *i32 {
 }
 ```
 
-In debug, Tether lifts `x` to the heap and the escape becomes a legal ownership transfer. In release
-this is a hard error, because silently turning a stack allocation into a heap allocation in a
-release binary is exactly the hidden allocation the language forbids. The diagnostic shows the fix:
+In debug, Tether lifts `x` to the heap and the escape becomes a legal ownership transfer. In release this is a hard error, because silently turning a stack allocation into a heap allocation in a release binary is exactly the hidden allocation the language forbids. The diagnostic shows the fix:
 
 ```
 error[Tether]: address of stack local 'x' escapes its scope
@@ -112,12 +96,9 @@ error[Tether]: address of stack local 'x' escapes its scope
   help: allocate on the heap explicitly, or restructure to avoid the escape
 ```
 
-**Non-promotable escape Tier N.** A borrow with no value to lift (a pointer into a structure Tether
-cannot heap-allocate, an escape into an opaque sink where Tether cannot even establish the
-heap-allocation pattern) is a hard error in both modes. There is nothing to transform.
+**Non-promotable escape Tier N.** A borrow with no value to lift (a pointer into a structure Tether cannot heap-allocate, an escape into an opaque sink where Tether cannot even establish the heap-allocation pattern) is a hard error in both modes. There is nothing to transform.
 
-Dangling within a function is likewise a hard error in both modes the value is gone, there is no
-allocation to lift, and the access is statically known to be invalid:
+Dangling within a function is likewise a hard error in both modes the value is gone, there is no allocation to lift, and the access is statically known to be invalid:
 
 ```kairo
 fn also_bad() {

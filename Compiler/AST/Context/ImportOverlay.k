@@ -59,6 +59,10 @@ class OverlayTarget {
     pub var origin:  obs::<Decl>         = &null;  ///< the source *ImportDecl (typed *Decl to dodge cycle).
     pub var vis:     OverlayVisibility   = OverlayVisibility::Public;
     pub var src_fid: u32                 = 0;      ///< source module fid (for dumps/diagnostics).
+    /// A C/C++ tag hidden by an imported ordinary name under the same key
+    /// (`struct timezone` beside `extern long timezone`). Kept for dumps,
+    /// left out of `merged` and of the ambiguity count. One writer: I.
+    pub var hidden:  bool                = false;
 }
 
 /// \class OverlayEntry
@@ -75,6 +79,12 @@ class OverlayTarget {
 class OverlayEntry {
     pub var targets: vec::<OverlayTarget>;
     pub var merged:  OverloadCell;        ///< unioned candidate view; what lookup returns.
+    /// Ambiguous, and every entity in the collision came from a header: C++
+    /// reports such a collision only where the name is USED, so I records it
+    /// here and N / T emit R016E at the use (IMPORTS.md §5.1). A collision
+    /// any Kairo import takes part in is reported by I, at the import.
+    pub var lazy:     bool = false;
+    pub var reported: bool = false;       ///< I already emitted the eager R016E for this key.
 
     fn OverlayEntry(self) { }
 
@@ -99,6 +109,7 @@ class OverlayEntry {
             // is an ambiguity (IMPORTS.md §4.3).
             var k = self.targets[i].kind;
             if (k == OverlayTargetKind::FunctionSet) || (k == OverlayTargetKind::ModuleHandle) { continue; }
+            if self.targets[i].hidden { continue; }
             var d = self.targets[i].decl;
             if d == &null { continue; }
             var dup = false;

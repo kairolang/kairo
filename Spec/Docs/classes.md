@@ -1,8 +1,6 @@
 # Classes
 
-Classes are Kairo's primary mechanism for encapsulating state and behavior. The object model layout,
-vtables, ABI follows the platform's C++ convention. The surface syntax is cleaner, `self` is always
-explicit, and the copy/move model is expressed through [attributes](/docs/language/attributes/) rather than reference qualifiers.
+Classes are Kairo's primary mechanism for encapsulating state and behavior. The object model layout, vtables, ABI follows the platform's C++ convention. The surface syntax is cleaner, `self` is always explicit, and the copy/move model is expressed through [attributes](/docs/language/attributes/) rather than reference qualifiers.
 
 ## In this section
 
@@ -34,24 +32,17 @@ var obj = Foo(10, 3.14)
 obj.sum()   // 13.14
 ```
 
-Members are declared with `var`, `const`, `static`, or `eval` inside the class body. Methods are declared
-with `fn` and take `self` as the first parameter for instance methods. Omitting `self` requires the
-`static` modifier. If `self` is present, it is an instance method; if not, it must be `static`.
+Members are declared with `var`, `const`, `static`, `eval`, or `thread` inside the class body. Methods are declared with `fn` and take `self` as the first parameter for instance methods. Omitting `self` requires the `static` modifier. If `self` is present, it is an instance method; if not, it must be `static`.
 
 ---
 
 ## `self` and `Self`
 
-`self` is the instance parameter. It behaves like a reference to the current object use `self.member` to
-access fields and `self` to pass the object to other functions. `self` is not a pointer; you cannot
-perform pointer arithmetic on it or reassign it.
+`self` is the instance parameter. It behaves like a reference to the current object use `self.member` to access fields and `self` to pass the object to other functions. `self` is not a pointer; you cannot perform pointer arithmetic on it or reassign it.
 
 ### Members always need a qualifier
 
-Unlike C++, Kairo has no implicit `this->`. Inside a function body a member of the enclosing type is not in
-unqualified scope: an instance member is reached through `self`, a static member through `Self::` (or the
-type's own name). A bare name is a local, a parameter, or something from an enclosing scope, and never a
-member:
+Unlike C++, Kairo has no implicit `this->`. Inside a function body a member of the enclosing type is not in unqualified scope: an instance member is reached through `self`, a static member through `Self::` (or the type's own name). A bare name is a local, a parameter, or something from an enclosing scope, and never a member:
 
 ```kairo
 class Counter {
@@ -69,8 +60,7 @@ class Counter {
 }
 ```
 
-The one exception is a name that denotes a **scope** rather than a value nested types, type aliases, and
-nested modules. Naming a type is not an access through an object, so it needs no qualifier:
+The one exception is a name that denotes a **scope** rather than a value nested types, type aliases, and nested modules. Naming a type is not an access through an object, so it needs no qualifier:
 
 ```kairo
 class Tree {
@@ -85,13 +75,9 @@ class Tree {
 }
 ```
 
-The rule does not depend on where a method is written. It is identical in a `class`, `struct`, `union` or
-`interface` body, in an [`extend`](/docs/language/extends/) block, in an out-of-line `fn Type::method`
-definition, and inside a [closure](/docs/language/closures/) in any of those.
+The rule does not depend on where a method is written. It is identical in a `class`, `struct`, `union` or `interface` body, in an [`extend`](/docs/language/extends/) block, in an out-of-line `fn Type::method` definition, and inside a [closure](/docs/language/closures/) in any of those.
 
-`Self` (capitalized) is a type alias for the enclosing class. In a generic class `class <T> Foo`, `Self`
-resolves to `Foo<T>`. Use `Self` in parameter types, return types, and anywhere you need the class's own
-type without spelling out generic arguments:
+`Self` (capitalized) is a type alias for the enclosing class. In a generic class `class <T> Foo`, `Self` resolves to `Foo<T>`. Use `Self` in parameter types, return types, and anywhere you need the class's own type without spelling out generic arguments:
 
 ```kairo
 class <T> Container {
@@ -114,8 +100,7 @@ class <T> Container {
 }
 ```
 
-`Self` always refers to a reference to the class type. For a pointer, use `*Self` or `*ClassName`. The
-bare class name works anywhere `Self` does `Self` is syntactic sugar, not a distinct type.
+`Self` always refers to a reference to the class type. For a pointer, use `*Self` or `*ClassName`. The bare class name works anywhere `Self` does `Self` is syntactic sugar, not a distinct type.
 
 ---
 
@@ -135,7 +120,7 @@ Modifiers are applied per-declaration. There are no visibility blocks (`public:`
 
 | Member kind | Default |
 |---|---|
-| Instance / static / const / eval variables | `priv` |
+| Instance / static / const / eval / thread variables | `priv` |
 | Methods, constructors, destructors | `pub` |
 | Operator overloads | `pub` |
 | Static methods | `pub` |
@@ -161,14 +146,10 @@ class Account {
 }
 ```
 
-Visibility also applies at the top level a `priv class` is only accessible within its file, a `prot
-class` within its module and subclasses. See [Modules](/docs/language/modules/) for how top-level
-visibility interacts with [imports](/docs/language/imports/).
+Visibility also applies at the top level a `priv class` is only accessible within its file, a `prot class` within its module and subclasses. See [Modules](/docs/language/modules/) for how top-level visibility interacts with [imports](/docs/language/imports/).
 
 > [!NOTE]
-> Kairo has no `friend` keyword. If external code needs access to internals, expose it through a public
-> method or adjust module-level visibility. `priv` at the top level restricts access to the current file,
-> which covers most factory and serialization patterns.
+> Kairo has no `friend` keyword. If external code needs access to internals, expose it through a public method or adjust module-level visibility. `priv` at the top level restricts access to the current file, which covers most factory and serialization patterns.
 
 ---
 
@@ -190,13 +171,11 @@ class Point {
 var p = Point(1.0, 2.0)
 ```
 
-Constructors support all the features of regular functions default parameters, named arguments,
-overloading by parameter types, generic type parameters. See [Functions](/docs/language/functions/).
+Constructors support all the features of regular functions default parameters, named arguments, overloading by parameter types, generic type parameters. See [Functions](/docs/language/functions/).
 
 ### Const members in constructors
 
-Class-level `const` members can be initialized in the constructor body. They get exactly one assignment;
-after construction, they are frozen:
+Class-level `const` members can be initialized in the constructor body. They get exactly one assignment; after construction, they are frozen:
 
 ```kairo
 class Config {
@@ -214,6 +193,48 @@ var cfg = Config(3, 30.0)
 ```
 
 If a `const` member has an initializer at the declaration site, it cannot be reassigned in the constructor.
+
+### Fields without a default
+
+A field with no initializer whose type has no default value (`bool`, an [enum with payloads](/docs/language/enums-adt/), a class with no default constructor, or an array of any of these; see [Variables](/docs/language/variables/#default-initialization)) must be initialized by every constructor, like a `const` member. The constructor's first write of the whole field is its initialization; later writes are ordinary assignments:
+
+```kairo
+enum Frame {
+    Burst { base: i32, count: i32 },
+    Idle,
+}
+
+class Batch {
+    var frames: [Frame; 3]
+    var ready: bool
+
+    fn Batch(self, base: i32) {
+        self.frames = [.Burst { base: base, count: 3 }, .Idle, .Idle]  // initialization
+        self.ready = false
+        self.log()                                                      // the object exists from here
+        self.frames[2] = .Burst { base: 1, count: 1 }                  // ordinary assignment
+    }
+
+    fn log(self) { }
+}
+```
+
+Until every such field is initialized, the object does not exist yet, so the constructor can use `self` only to initialize fields and to read the ones already initialized: no method call, no `return`. A field the constructor leaves uninitialized on some path, or writes element by element before building it whole, is an error at the constructor:
+
+```kairo
+class Broken {
+    var frames: [Frame; 2]
+
+    fn Broken(self) {
+        self.frames[0] = .Idle   // error: 'frames' does not exist until it is built whole
+        self.frames[1] = .Idle
+    }
+}
+```
+
+Giving the field an initializer at its declaration (`var frames: [Frame; 3] = [.Idle, .Idle, .Idle]`) lifts the requirement.
+
+An array is not assignable, so an array field's one whole write in a constructor is its initialization: it must happen on every path through the constructor or on none, and never in a loop. A second whole write is an error; write the elements instead.
 
 ### Default and deleted constructors
 
@@ -248,8 +269,7 @@ Inheritance and virtual dispatch are covered in [Inheritance and Virtual Dispatc
 
 ## Interfaces
 
-A class can declare interface conformance with `impl`. The compiler verifies at declaration time that the
-class satisfies all interface requirements:
+A class can declare interface conformance with `impl`. The compiler verifies at declaration time that the class satisfies all interface requirements:
 
 ```kairo
 interface Hashable {
@@ -269,9 +289,7 @@ class UserId impl Hashable {
 }
 ```
 
-Interface conformance is structural a class that has the required methods satisfies the interface
-whether or not `impl` is declared. The `impl` keyword triggers the check at the declaration site rather
-than at the point of use.
+Interface conformance is structural a class that has the required methods satisfies the interface whether or not `impl` is declared. The `impl` keyword triggers the check at the declaration site rather than at the point of use.
 
 ```kairo
 class Point {
@@ -295,6 +313,10 @@ See [Interfaces](/docs/language/interfaces/) and [Requires Clauses](/docs/langua
 [Type parameters](/docs/language/generics/) are declared in angle brackets before the class name:
 
 ```kairo
+struct StackUnderflow {
+    fn op panic (const self) -> string { return "stack underflow" }
+}
+
 class <T> Stack {
     var items: [T]
 
@@ -308,7 +330,7 @@ class <T> Stack {
 
     fn pop(self) panic -> T {
         if self.items.length() == 0 {
-            panic std::Error::Runtime("stack underflow")
+            panic StackUnderflow {}
         }
         return self.items.pop()
     }
@@ -317,6 +339,9 @@ class <T> Stack {
 var s = Stack<i32>()
 s.push(42)
 ```
+
+> [!NOTE]
+> A `panic` method of a generic class, like `pop` here, is not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): a generic body's panic set will be inferred per instantiation. See [Status](/docs/status/#not-compiled-yet).
 
 Generic classes can inherit from other generic classes:
 
@@ -336,8 +361,7 @@ Type parameter constraints are covered in [Generics](/docs/language/generics/#ty
 
 ## Static Members
 
-Static members belong to the class, not to any instance. They are declared with `static` and accessed via
-`ClassName::member`:
+Static members belong to the class, not to any instance. They are declared with `static` and accessed via `ClassName::member`:
 
 ```kairo
 class Counter {
@@ -357,22 +381,13 @@ var b = Counter()
 Counter::get_count()   // 2
 ```
 
-Static variables are declared `static name: Type`, with no `var`, and require an explicit type
-annotation. They can be initialized at the declaration site or at program startup. Static methods do
-not take `self` and cannot access instance members.
-
-> [!NOTE]
-> Static fields do not compile yet: an initializer on one is rejected, and without one the program does
-> not link. See [Status](/docs/status/#not-compiled-yet).
+Static variables are declared `static name: Type`, with no `var`, and require an explicit type annotation. They can be initialized at the declaration site or at program startup. Static methods do not take `self` and cannot access instance members.
 
 ---
 
 ## Const Methods
 
-A method that takes `const self` promises not to modify the object (except `mutable` members). It is
-the ["can I change the pointee?"](/docs/language/variables/#the-const-binding-rule) question asked
-about the receiver. Only `const` methods can be called through a `*const T` pointer or on a `const`
-binding:
+A method that takes `const self` promises not to modify the object (except `mutable` members). It is the ["can I change the pointee?"](/docs/language/variables/#the-const-binding-rule) question asked about the receiver. Only `const` methods can be called through a `*const T` pointer or on a `const` binding:
 
 ```kairo hints
 class Sensor {
@@ -398,8 +413,7 @@ sensor->value()        // ok: const method
 
 ### Mutable members
 
-The `mutable` qualifier allows a member to be modified even through a `const` reference or in a `const`
-method:
+The `mutable` qualifier allows a member to be modified even through a `const` reference or in a `const` method:
 
 ```kairo
 class Cache {
@@ -418,20 +432,16 @@ class Cache {
 }
 ```
 
-`mutable` is only valid on instance variables inside class and struct bodies. It cannot appear on
-top-level variables, local variables, or `const`/`eval`/`static` declarations.
+`mutable` is only valid on instance variables inside class and struct bodies. It cannot appear on top-level variables, local variables, or `const`/`eval`/`static` declarations.
 
 > [!WARNING]
-> `mutable` breaks the semantic guarantee that `const` methods do not modify the object. Use it sparingly
-> caching, reference counting, and lazy initialization are the canonical use cases. If you find
-> yourself marking many members `mutable`, reconsider the `const` boundary.
+> `mutable` breaks the semantic guarantee that `const` methods do not modify the object. Use it sparingly caching, reference counting, and lazy initialization are the canonical use cases. If you find yourself marking many members `mutable`, reconsider the `const` boundary.
 
 ---
 
 ## `inline` Methods
 
-`inline` puts the body in the interface: importers compile it themselves. Use it for small functions on
-hot paths, and for functions the C++ compiler calls on your behalf (coroutine promises and awaiters).
+`inline` puts the body in the interface: importers compile it themselves. Use it for small functions on hot paths, and for functions the C++ compiler calls on your behalf (coroutine promises and awaiters).
 
 ```kairo
 pub class Gate {
@@ -440,22 +450,15 @@ pub class Gate {
 }
 ```
 
-Every module that uses `Gate` compiles `is_open` itself, so a call to it can be inlined there. Every
-`inline` method of a class goes with the class, whether or not Kairo code calls it, because the C++
-compiler may call methods Kairo never sees (`await_ready`, `initial_suspend`, ...). The class definition
-itself is unchanged: the bodies are emitted after it, outside it. See [Functions](/docs/language/functions-declarations/#inline)
-for the rules.
+Every module that uses `Gate` compiles `is_open` itself, so a call to it can be inlined there. Every `inline` method of a class goes with the class, whether or not Kairo code calls it, because the C++ compiler may call methods Kairo never sees (`await_ready`, `initial_suspend`, ...). The class definition itself is unchanged: the bodies are emitted after it, outside it. See [Functions](/docs/language/functions-declarations/#inline) for the rules.
 
-`inline` is allowed on `virtual` and `override` methods. If every virtual method of a class is `inline`, the
-class has no key function, so its vtable is emitted in every object that uses the class. That is correct;
-it costs only size.
+`inline` is allowed on `virtual` and `override` methods. If every virtual method of a class is `inline`, the class has no key function, so its vtable is emitted in every object that uses the class. That is correct; it costs only size.
 
 ---
 
 ## Nested Classes
 
-Classes can be declared inside other classes. Nested classes can access private members of the enclosing
-class:
+Classes can be declared inside other classes. Nested classes can access private members of the enclosing class:
 
 ```kairo
 class Tree {
@@ -468,7 +471,7 @@ class Tree {
     var root: unsafe *Node
 
     fn Tree(self) {
-        self.root = null
+        self.root = &null
     }
 }
 ```
@@ -515,11 +518,9 @@ Special operators beyond arithmetic:
 | `fn op as(self) -> TargetType` | Custom type conversion via `as` |
 | `fn <T> op await(self, obj: std::forward<T>) -> T` | Custom awaitable |
 
-`op =` is **not** user-definable it is auto-derived from the transfer constructor. See
-[Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories).
+`op =` is **not** user-definable it is auto-derived from the transfer constructor. See [Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories).
 
-See [Operators](/docs/language/operator-overloading/) for the full list of overloadable
-operators and restrictions.
+See [Operators](/docs/language/operator-overloading/) for the full list of overloadable operators and restrictions.
 
 ---
 
@@ -528,8 +529,7 @@ operators and restrictions.
 Class layout follows the platform's C++ ABI:
 
 - **Non-polymorphic classes**: members laid out in declaration order with standard padding and alignment.
-- **Polymorphic classes** (at least one `virtual` method): vtable pointer at offset 0 (8 bytes on 64-bit),
-  followed by members.
+- **Polymorphic classes** (at least one `virtual` method): vtable pointer at offset 0 (8 bytes on 64-bit), followed by members.
 - **Inheritance**: base class subobject precedes derived members.
 
 Layout can be controlled with [attributes](/docs/language/attributes/):
@@ -553,11 +553,10 @@ A plain `var` declaration allocates on the stack:
 var obj = Foo(42)   // stack-allocated
 ```
 
-Heap allocation uses `@create T()`, which returns a pointer. [Tether](/docs/language/tether/) determines
-whether the returned pointer is raw or promoted to a smart pointer based on usage analysis:
+Heap allocation uses `@create T()`, which returns a pointer. [Tether](/docs/language/tether/) determines whether the returned pointer is raw or promoted to a smart pointer based on usage analysis:
 
 ```kairo
-var ptr = @create Foo(42)
+var *ptr = @create Foo(42)
 ```
 
 See [Pointers](/docs/language/pointers/) and [Tether](/docs/language/tether/).
@@ -612,7 +611,7 @@ class UniqueFile {
     @move
     fn UniqueFile(self, other: Self) {
         self.handle  = other.handle
-        other.handle = null
+        other.handle = &null
     }
 
     fn op delete(self) {
@@ -622,7 +621,7 @@ class UniqueFile {
 
 // Inheritance with virtual dispatch
 class Shape {
-    fn area(const self) -> f64 = virtual
+    virtual fn area(const self) -> f64
 }
 
 class Circle derives Shape {
@@ -641,7 +640,7 @@ class <T impl Comparable> PriorityQueue impl Iterable {
 
     fn PriorityQueue(self) { self.heap = [] }
     fn push(self, item: T) { ... }
-    fn pop(self) panic -> T { ... }
+    fn pop(self) panic -> T { ... }   // `panic` in a generic class: not supported yet (SC116E)
 }
 
 // Final class

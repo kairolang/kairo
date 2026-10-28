@@ -27,6 +27,7 @@ import AST::Node::Expressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Types::*;
 import AST::Node::Casting::*;
+import AST::ParamMode::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
@@ -203,6 +204,35 @@ class <T> ExprParse {
         }
 
         lhs = self._parse_expr_prec(lhs, Precedence::None, stop);
+
+        dyn()->exit_expr_depth();
+        return lhs;
+    }
+
+    /// \brief A `where` guard on a function head: an expression that stops
+    ///        before an assignment operator and never reads `{` as a struct
+    ///        literal.
+    ///
+    /// Both stops are the body's: `where ok { ... }` opens the body, not
+    /// `ok { ... }`, and `where x > 0 = x` is an expression body, not an
+    /// assignment to `x > 0`. A guard is a bool test, so it has no use for
+    /// either form, and refusing them here is what lets the head end without
+    /// a separator.
+    fn parse_guard_expr(self) -> *Expr {
+        var stop = ExprStopKind::NoStructLiteral;
+        if dyn()->is_eof() { return &null; }
+        if self._should_stop(stop) { return &null; }
+        if !dyn()->enter_expr_depth() { return &null; }
+
+        var lhs = self._parse_cast_expr(stop);
+        if lhs == &null {
+            dyn()->exit_expr_depth();
+            return &null;
+        }
+
+        // Precedence::Assign as the floor: the loop takes only operators that
+        // bind tighter, so `=` (and `+=`, ...) ends the guard.
+        lhs = self._parse_expr_prec(lhs, Precedence::Assign, stop);
 
         dyn()->exit_expr_depth();
         return lhs;
@@ -732,16 +762,119 @@ class <T> ExprParse {
 
     //  Unary expressions
 
+    /// \brief parses an attribute applied to an expression.
+    ///  Grammar:  '@' identifier ( '(' call-args? ')' )? unary-expr
+    ///
+    /// \details an expression attribute is an attribute like any other
+    ///          (attributes.mdx, `@create T(args)`), so its head is the
+    ///          declaration attribute's grammar (ASTParse::
+    ///          consume_leading_annotations): a name, and an argument list
+    ///          exactly when `(` follows the name.
+    ///
+    ///          The operand binds as a keyword prefix's does (`await`,
+    ///          `thread`): one unary expression, postfix chain included. So
+    ///          `@create Config(8080)` attributes the constructor call, which
+    ///          is what every docs example means (`@create i32(10)`,
+    ///          `@create AST::Block()`, `@create Point{ x: 1.0 }`), and
+    ///          `@create Foo(1).bar` is `@create (Foo(1).bar)`: to reach the
+    ///          result write `(@create Foo(1)).bar`. Binary operators bind
+    ///          looser: `@a x + y` is `(@a x) + y`.
+    ///
+    ///          At the start of a statement the annotation pass runs first,
+    ///          and leaves the `@` here only when an expression follows it on
+    ///          the same line (ASTParse::_attr_opens_expr_stmt): `@destroy p`
+    ///          is this production, `@likely if` and `@copy fn` are not.
+    priv fn _parse_attributed_expr(self, stop: ExprStopKind) -> *Expr {
+        var at_range = dyn()->current_ptr()->range;
+
+        // `f(@inout x)` / `f(@move x)`: a parameter mode written at a call.
+        // A mistake, not an attribute waiting for a meaning
+        // (functions-parameter-modes.mdx: the call site writes `&x` / `x`),
+        // so it is the binding sites' S069E with the call-site spelling as
+        // the fix-it, and the operand parses as if the mode were not there.
+        var mode = dyn()->_peek_mode();
+        if mode != ParamMode::Value {
+            var r = dyn()->_consume_mode();
+            var b = dyn()->diag->report(DiagID::S069E, r.start,
+                "'@inout' and '@move' are parameter passing modes; a mode can only be written on a function or closure parameter, and a call passes '&x' to an '@inout' parameter and 'x' to a '@move' one"
+            );
+            b.first(r);
+            if mode == ParamMode::Inout { b.fix(r, "&", "pass the address"); }
+            else                        { b.remove(r, "pass the value"); }
+            b.emit();
+            return self._parse_unary_expr(stop);
+        }
+
+        dyn()->advance(); // consume `@`
+
+        if !dyn()->check(TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S046E, at_range.start,
+                "expected attribute name after '@\x27"
+            ).first(at_range).emit();
+            return AttributedExpr::create_error(dyn()->ctx, at_range);
+        }
+        var name_tok = dyn()->current();
+        dyn()->advance(); // consume the name
+        var head = at_range | name_tok.range;
+
+        var args: std::StackBuf::<*Expr, 8>;
+        var has_args = false;
+        if dyn()->check(TokenKind::OpLParen) {
+            has_args = true;
+            var lparen = dyn()->current_ptr()->range;
+            dyn()->advance(T::SkipNL::After); // consume `(`
+            dyn()->nl_push();
+            if !dyn()->check(TokenKind::OpRParen) {
+                self._parse_call_args(&args, lparen);
+            }
+            dyn()->nl_pop();
+            if dyn()->check(TokenKind::OpRParen) {
+                head = head | dyn()->current_ptr()->range;
+                dyn()->advance_raw();
+            } else {
+                dyn()->diag->report(DiagID::S051E, lparen.start,
+                    "expected ')' to close attribute argument list"
+                ).first(lparen).emit();
+            }
+        }
+
+        // Nothing to apply to (`var b = @create`, `f(@create)`): said here,
+        // naming the attribute. The operand parser's own "expected
+        // expression, found ')'" points past it, and its recovery cascades.
+        var operand: *Expr = &null;
+        var ends = dyn()->is_eof() || dyn()->_is_terminator_tok(dyn()->current_ptr())
+                || dyn()->check(TokenKind::OpRParen) || dyn()->check(TokenKind::OpRSquare)
+                || dyn()->check(TokenKind::OpRBrace) || dyn()->check(TokenKind::OpComma);
+        if !ends { operand = self._parse_unary_expr(stop); }
+        if operand == &null {
+            var nm = dyn()->ctx->get_spelling(name_tok);
+            dyn()->diag->report(DiagID::S052E, head.start,
+                f"expected an expression after '@{nm}'; an attribute in an expression applies to the expression that follows it"
+            ).first(head).emit();
+            return AttributedExpr::create_error(dyn()->ctx, head);
+        }
+
+        var ae = AttributedExpr::create(dyn()->ctx, head | operand->range, name_tok, operand);
+        ae->has_args = has_args;
+        ae->args.from_buf(args.data(), args.size(), dyn()->ctx);
+        return static_cast::<*Expr>(ae);
+    }
+
     /// \brief parses prefix unary operators then delegates to postfix.
     ///
     /// prefix ops: ! + - ~ & * ++ --
     /// keyword prefixes: await spawn thread eval unsafe delete sizeof alignof typeof
+    /// attribute prefix: `@name operand` (_parse_attributed_expr)
     inline fn _parse_unary_expr(self, stop: ExprStopKind) -> *Expr {
         if dyn()->is_eof() { return &null; }
 
         var cur_ptr = dyn()->current_ptr();
         if cur_ptr == &null { return &null; }
         var cur_range = cur_ptr->range;
+
+        if dyn()->check(TokenKind::OpAt) {
+            return self._parse_attributed_expr(stop);
+        }
 
         if dyn()->check(TokenKind::OpAmp) && dyn()->check_peek(TokenKind::LitNull) {
             var amp_range = cur_range;
@@ -1005,6 +1138,65 @@ class <T> ExprParse {
         }
 
         return TypeOfExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
+    }
+
+    /// \brief parses `defined!(NAME)` (EVAL.md §4.3). The preprocessor only
+    ///        lets a well-formed one through, so a malformed one here was
+    ///        written some way the PP did not see (a macro's output).
+    ///  Grammar:  'defined' '!' '(' identifier ')'
+    inline fn _parse_defined_intrinsic(self) -> *Expr {
+        var kw_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `defined`
+        dyn()->advance(); // consume `!`
+        if (!dyn()->check(TokenKind::OpLParen)) || ((dyn()->ig_peek_kind()) != TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected '(name)' after 'defined!': write 'defined!(NAME)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        dyn()->advance(); // consume `(`
+        var name = dyn()->current();
+        dyn()->advance(); // consume NAME
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected ')' to close 'defined!(...)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        dyn()->advance(); // consume `)`
+        if dyn()->tu != &null { dyn()->tu->has_eval_if = true; }   // EvalIfFolding answers it.
+        return static_cast::<*Expr>(DefinedExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, name));
+    }
+
+    /// \brief parses the unwrap intrinsic (NULLABLE.md 2.6).
+    ///  Grammar:  'unwrap' '!' '(' expr ')'
+    inline fn _parse_unwrap_intrinsic(self) -> *Expr {
+        var kw_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume `unwrap`
+        dyn()->advance(); // consume `!`
+        if !dyn()->check(TokenKind::OpLParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected '(' after 'unwrap!': write 'unwrap!(expr)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return UnwrapExpr::create_error(dyn()->ctx, kw_range | dyn()->prev().range);
+        }
+        dyn()->advance(T::SkipNL::After); // consume `(`
+
+        var operand = self.parse_expr(ExprStopKind::StopParen);
+        if operand == &null {
+            dyn()->diag->report(DiagID::S052E, kw_range.start,
+                "expected expression inside 'unwrap!(...)\x27"
+            ).first(kw_range).emit();
+            return UnwrapExpr::create_error(dyn()->ctx, kw_range);
+        }
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                "expected ')' to close 'unwrap!(...)\x27"
+            ).first(kw_range | operand->range).emit();
+            return UnwrapExpr::create_error(dyn()->ctx, kw_range | operand->range);
+        }
+        dyn()->advance(); // consume `)`
+        return UnwrapExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
     }
 
     //  Postfix expression loop
@@ -2026,6 +2218,20 @@ class <T> ExprParse {
             return self._parse_ident_expr();
         }
 
+        // -- unwrap!(expr): a parser intrinsic, passed through raw by the
+        // PP (Preprocessor::_detect_invocation), as label!/jump! are.
+        if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
+        && (dyn()->ctx->get_spelling(dyn()->current()) == "unwrap") {
+            return self._parse_unwrap_intrinsic();
+        }
+
+        // -- defined!(NAME) the PP's table could not answer (it passes those
+        // through raw, Preprocessor::_builtin_defined): clang's macros do.
+        if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
+        && (dyn()->ctx->get_spelling(dyn()->current()) == "defined") {
+            return self._parse_defined_intrinsic();
+        }
+
         // -- identifier (including `self`) ---------------------------
         if dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
@@ -2312,8 +2518,10 @@ class <T> ExprParse {
         dyn()->nl_pop();
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance_raw(); // consume `)` keep trailing NL significant
-            // the parens leave no node; remember them for _is_open_form.
-            if isa::<IfExpr>(first) || isa::<TryCatchExpr>(first) {
+            // the parens leave no node; remember them for _is_open_form, and
+            // for a binary operator, whose grouping the derives clause's
+            // mixed-operator warning reads (is_parenthesized).
+            if isa::<IfExpr>(first) || isa::<TryCatchExpr>(first) || isa::<BinaryOperatorExpr>(first) {
                 self._parened_open.push_back(first);
             }
             return first;
@@ -3130,6 +3338,52 @@ class <T> ExprParse {
         return value;
     }
 
+    /// \brief a `try` expression arm that leaves (PANIC.md §3.2):
+    ///        `=> return [v]`, `=> break [label]`, `=> continue [label]`.
+    /// \details precondition: current token is `=>`. The jump is wrapped in
+    ///          a StmtExpr marked `is_jump`, its body that one statement; X
+    ///          types it `!`. A bare `return` ends where a statement would,
+    ///          or at the next `catch`, `)` or `,` of the enclosing form.
+    priv fn _parse_jump_arm(self, stop: ExprStopKind) -> *Expr {
+        dyn()->advance(T::SkipNL::After); // consume `=>`
+        var start = dyn()->current_ptr()->range;
+        var jump: *Stmt = &null;
+        if dyn()->check(TokenKind::KwReturn) {
+            dyn()->advance(); // no NL skip: a bare return ends at the line
+            if dyn()->is_eof() || dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon)
+            || dyn()->check(TokenKind::OpRBrace) || dyn()->check(TokenKind::OpRParen) || dyn()->check(TokenKind::OpComma)
+            || dyn()->check(TokenKind::KwCatch) {
+                jump = static_cast::<*Stmt>(ReturnStmt::create(dyn()->ctx, start, &null));
+            } else {
+                var value = self.parse_expr(stop);
+                if (value == &null) || is_recovery(value) {
+                    return &null;
+                }
+                jump = static_cast::<*Stmt>(ReturnStmt::create(dyn()->ctx, start | value->range, value));
+            }
+        } else {
+            var is_break = dyn()->check(TokenKind::KwBreak);
+            dyn()->advance(); // consume `break` / `continue`; a label is on its line
+            var has_label = dyn()->check(TokenKind::LitIdentifier);
+            var label = Token();
+            var r = start;
+            if has_label {
+                label = dyn()->current();
+                r = start | label.range;
+                dyn()->advance();
+            }
+            if is_break { jump = static_cast::<*Stmt>(BreakStmt::create(dyn()->ctx, r, has_label, label)); }
+            else        { jump = static_cast::<*Stmt>(ContinueStmt::create(dyn()->ctx, r, has_label, label)); }
+        }
+        var body = CompoundStmt::create(dyn()->ctx, jump->range);
+        var one: std::StackBuf::<*Stmt, 1>;
+        one.push_back(jump);
+        body->body.from_buf(one.data(), one.size(), dyn()->ctx);
+        var se = StmtExpr::create(dyn()->ctx, jump->range, body);
+        se->is_jump = true;
+        return static_cast::<*Expr>(se);
+    }
+
     /// \brief S074E: the arm's `=>` is missing. Fix-it inserts it at the
     ///        cursor; then the value is parsed as if it were there, so a lone
     ///        forgotten `=>` costs one diagnostic and no cascade.
@@ -3302,6 +3556,10 @@ class <T> ExprParse {
     ///          unimplemented). If one does, the node at every check site is
     ///          then the ParenExpr itself, which _is_open_form already rejects,
     ///          so S077E / S078W / S079W come out the same either way.
+    /// \brief \p e was written inside grouping `( )` (an `if`, `try` or binary
+    ///        operator: the kinds recorded as their parens are unwrapped).
+    pub fn is_parenthesized(self, e: *Expr) -> bool { return self._was_parenthesized(e); }
+
     priv fn _was_parenthesized(self, e: *Expr) -> bool {
         var i = self._parened_open.size();
         while i > 0 {
@@ -3767,7 +4025,12 @@ class <T> ExprParse {
         // value
         var body: *Expr = &null;
         if self._skip_nl_if_next(TokenKind::OpFatArrow) {
-            body = self._parse_arm_value(stop, true);
+            var after = self._peek_kind_past_nl(1);   // past the `=>`
+            if (after == TokenKind::KwReturn) || (after == TokenKind::KwBreak) || (after == TokenKind::KwContinue) {
+                body = self._parse_jump_arm(stop);
+            } else {
+                body = self._parse_arm_value(stop, true);
+            }
         } else if dyn()->check(TokenKind::OpLBrace) {
             body = self._recover_braced_branch(BraceArm::Value);
         } else {
@@ -4034,6 +4297,10 @@ class <T> ExprParse {
         ce->modifiers      = modifiers;
         ce->return_type    = ret_type;
         ce->explicit_no_capture = explicit_no_capture;
+        ce->capture_range       = dyn()->closure_cap_range;
+        ce->panic_set           = dyn()->closure_panic_set;
+        ce->panic_range         = dyn()->closure_panic_range;
+        ce->params_end          = dyn()->closure_params_end;
 
         // bind captured names into the closure scope so the body can see them
         // for var i: usize = 0; i < ce->captures.size(); ++i {
@@ -4047,6 +4314,20 @@ class <T> ExprParse {
         //         );
         //     }
         // }
+
+        // A `where` guard selects among overloads, and a closure is one
+        // value with no overload set to select from (where.mdx, "What where
+        // Cannot Do"). Consumed after the error so the body still parses.
+        if dyn()->check(TokenKind::KwWhere) {
+            var wh = dyn()->current_ptr()->range;
+            dyn()->diag->report(DiagID::S045E, wh.start,
+                "'where' is not allowed on a closure; a guard selects among "
+                "overloads of a named function, and a closure has none. Test "
+                "the condition with an 'if' in the body instead"
+            ).first(wh).emit();
+            dyn()->advance(T::SkipNL::After); // consume `where`
+            var _discard = dyn()->parse_guard_expr();
+        }
 
         // body: block `{ ... }` or expression `= expr`
         if dyn()->check(TokenKind::OpLBrace) {

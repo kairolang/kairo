@@ -118,7 +118,34 @@ class IterLowering derives ASTWriter::<IterLowering> {
 
     // --- entry points -----------------------------------------------------------
 
+    /// > 0 inside an `eval fn`, which runs at compile time already: an `eval
+    /// for` there is an ordinary loop (EVAL.md 5a), so its bounds may be the
+    /// function's parameters.
+    priv var _in_eval_fn: u32 = 0;
+
+    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
+        if n->is_eval() { self._in_eval_fn += 1; }
+        var out = ASTWriter::<IterLowering>::transform_function_decl(n);
+        if n->is_eval() { self._in_eval_fn -= 1; }
+        return out;
+    }
+
     fn transform_ranged_for_stmt(self, n: *RangedForStmt) -> vec::<*Stmt> {
+        if n->is_eval && (self._in_eval_fn > 0) { n->is_eval = false; }
+        // An `eval for` stays for EmitIR's expansion (EVAL.md §5); only the
+        // loops in its body are lowered, and a range's bounds are kept.
+        if n->is_eval {
+            var r = dyn_cast::<RangeExpr>(self.tu.strip_parens(n->iterable));
+            if (n->iter_kind == IterKind::RangeLit) && (r != &null) {
+                n->ev_lo   = r->begin;
+                n->ev_hi   = r->end;
+                n->ev_incl = r->is_inclusive;
+                n->iterable = &null;
+            }
+            n->body = cast::<CompoundStmt>(self.transform_stmt_scalar(n->body));
+            if n->iterable != &null { n->iterable = self.transform_expr(n->iterable); }
+            return self._one_stmt(n);
+        }
         self._children(n);
         var pre  = self.list_builder::<*Stmt>();
         var loop = self._lower(n, &pre);
@@ -130,7 +157,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
     /// The label stays on the loop: `{ locals; label: while ... }`.
     fn transform_labeled_stmt(self, n: *LabeledStmt) -> vec::<*Stmt> {
         var rf = dyn_cast::<RangedForStmt>(n->inner);
-        if rf == &null { return ASTWriter::<IterLowering>::transform_labeled_stmt(n); }
+        if (rf == &null) || rf->is_eval { return ASTWriter::<IterLowering>::transform_labeled_stmt(n); }
         self._children(rf);
         var pre  = self.list_builder::<*Stmt>();
         var loop = self._lower(rf, &pre);
@@ -153,8 +180,9 @@ class IterLowering derives ASTWriter::<IterLowering> {
     /// node as it is (untyped or poisoned: already diagnosed, or dependent).
     priv fn _lower(self, n: *RangedForStmt, pre: *ListBuilder::<*Stmt>) -> *Stmt {
         if n->iterable == &null { return &null; }
+        if n->iter_kind == IterKind::Pack { return &null; }
         if n->iterable->is_poisoned() || (n->iterable->type_ == &null) { return &null; }
-        ICE_IF(n->is_eval, "IterLowering: eval for; EvalLowering owns it");
+        ICE_IF(n->is_eval, "IterLowering: an eval for reached the loop lowering; transform_ranged_for_stmt keeps it for EmitIR");
 
         switch n->iter_kind {
             case IterKind::RangeLit   { return self._range(n, pre); }
@@ -168,6 +196,7 @@ class IterLowering derives ASTWriter::<IterLowering> {
             case IterKind::Map        { ICE_FAIL("IterLowering: iterating a map; the container migration and tuple lowering own it"); }
             case IterKind::String     { ICE_FAIL("IterLowering: iterating a string (UTF-8 decode to char) is not lowered yet"); }
             case IterKind::None       { ICE_FAIL("IterLowering: a typed iterable X did not classify; StmtTyping::iter_elem_type gate failure"); }
+            case IterKind::Pack       { return &null; }   // C++ unrolls it: EmitIR's fold over the pack.
         }
         return &null;
     }
@@ -222,10 +251,10 @@ class IterLowering derives ASTWriter::<IterLowering> {
         ICE_IF(tb == &null, "IterLowering: Range over a non-builtin element; X restricts ranges to integers");
 
         var r   = self._local(pre, at, "rng", rt, n->iterable);
-        var i   = self._local(pre, at, "i",   t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, "begin"), t));
-        var hi  = self._local(pre, at, "hi",  t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, "end"), t));
+        var i   = self._local(pre, at, "i",   t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, LangMembers::range_begin()), t));
+        var hi  = self._local(pre, at, "hi",  t, self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, LangMembers::range_end()), t));
         var inc = self._local(pre, at, "inc", self._bool(),
-                              self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, "inclusive"), self._bool()));
+                              self.synth.field_of(at, self._use(r, at), self._lang_member(WellKnownType::Range, LangMembers::range_inclusive()), self._bool()));
 
         var more = self._local(pre, at, "more", self._bool(), self._cmp(at, self._use(i, at), self._use(hi, at), TokenKind::OpLess));
         var to_le = self.list_builder::<*Stmt>();
@@ -293,8 +322,8 @@ class IterLowering derives ASTWriter::<IterLowering> {
         var s = self._local(pre, at, "seq", st, n->iterable);
         self._extend(n->iterable);
 
-        var data = self._lang_member(WellKnownType::Slice, "data");
-        var len  = self._lang_member(WellKnownType::Slice, "len");
+        var data = self._lang_member(WellKnownType::Slice, LangMembers::slice_data());
+        var len  = self._lang_member(WellKnownType::Slice, LangMembers::slice_len());
         var p    = self._local(pre, at, "p", ptr, self.synth.field_of(at, self._use(s, at), data, ptr));
         var cnt  = self._local(pre, at, "n", self._usize(), self.synth.field_of(at, self._use(s, at), len, self._usize()));
         var k    = self._local(pre, at, "k", self._usize(), self.synth.int_literal(at, 0, BuiltinKind::USize));
@@ -341,8 +370,8 @@ class IterLowering derives ASTWriter::<IterLowering> {
             it = self._local(pre, at, "it", gen_ty, self.synth.member_call(at, recv, n->iter_op, &none, gen_ty));
         }
 
-        var next_d = self._lang_member(WellKnownType::Yield, "next");
-        var cur_d  = self._lang_member(WellKnownType::Yield, "current");
+        var next_d = self._lang_member(WellKnownType::Yield, LangMembers::yield_next());
+        var cur_d  = self._lang_member(WellKnownType::Yield, LangMembers::yield_current());
 
         var gen_cur  = (self._deref(self._use(it, at), gen_ty)) if (by_addr) else (self._use(it, at));
         var gen_next = (self._deref(self._use(it, at), gen_ty)) if (by_addr) else (self._use(it, at));

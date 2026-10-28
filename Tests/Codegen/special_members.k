@@ -52,26 +52,26 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}special_members.k
 // CXX:       class Pair {
-// CXX:       Pair({{.*}}Pair& other) = default;
-// CXX-NEXT:  ~Pair() = default;
+// CXX:       Pair({{.*}}Pair& other) noexcept = default;
+// CXX-NEXT:  ~Pair() noexcept = default;
 // CXX:       class Pinned {
-// CXX:       Pinned({{.*}}Pinned& other) = delete;
-// CXX-NEXT:  Pinned({{.*}}Pinned&& other) = delete;
+// CXX:       Pinned({{.*}}Pinned& other) noexcept = delete;
+// CXX-NEXT:  Pinned({{.*}}Pinned&& other) noexcept = delete;
 // CXX:       template<class T> class Cell {
-// CXX:       Cell({{.*}}Cell<T>& other) = default;
-// CXX-NEXT:  T get() const;
+// CXX:       Cell({{.*}}Cell<T>& other) noexcept = default;
+// CXX-NEXT:  T get() const noexcept;
 // CXX-NOT:   requires
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}special_members.k
-// IR:       Pair::Pair(signed int a, signed int b) {
+// IR:       Pair::Pair(signed int a, signed int b) noexcept {
 // IR-NOT:   Pair::Pair({{.*}}other)
 // IR-NOT:   Pair::~Pair
-// IR:       Pinned::Pinned(signed int n) {
+// IR:       Pinned::Pinned(signed int n) noexcept {
 // IR-NOT:   Pinned::Pinned({{.*}}other)
-// IR:       Cell<T>::Cell(T v) {
+// IR:       Cell<T>::Cell(T v) noexcept {
 // IR-NOT:   Cell<T>::Cell({{.*}}other)
-// IR:       Cell<T>::get() const {
+// IR:       Cell<T>::get() const noexcept {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d

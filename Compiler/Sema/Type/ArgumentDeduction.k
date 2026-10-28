@@ -1,8 +1,9 @@
 /// --- The Kairo Project ----------------- Sema/Type/ArgumentDeduction.k --- ///
 ///
 ///   \brief Structural unification of a parameter's canonical against an
-///          argument's canonical, binding the generic parameters of ONE owner,
-///          and substitution of those bindings back into a type.
+///          argument's canonical, binding the generic parameters of ONE owner.
+///          Substituting the bindings back into a type is Substitution's
+///          (Sema/Type/Substitution.k), which Deduction derives.
 ///
 ///   \detail
 ///     A parameter type like `[T]` canonicalizes to `vector(generic_param(f,
@@ -32,6 +33,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
+import Sema::Type::Substitution::*;
 import AST::Context::DeclContext::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
@@ -44,18 +46,11 @@ import AST::Node::Casting::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
 
-class DeducedBinding {
-    pub var owner: *Decl = &null;
-    pub var index: u32   = 0;
-    pub var ty:    *Type = &null;
-    fn DeducedBinding(self) { }
-}
-
-class Deduction {
-    pub var sc:       *SemaContext;
+/// Unification on top of Substitution: what the bindings are deduced
+/// FROM. Substitution (Sema/Type/Substitution.k) owns the bindings and
+/// the rewrite; this adds the argument side.
+class Deduction derives Substitution {
     pub var conv:     *Conversion;
-    pub var tu:       TypeUtil;
-    pub var bindings: vec::<DeducedBinding>;
     /// Some bindings came from the receiver (bind_from_extension), not from
     /// an argument. OverloadResolution then ranks an argument against its
     /// parameter with them substituted in.
@@ -66,36 +61,6 @@ class Deduction {
         self.sc   = sc;
         self.conv = conv;
         self.tu   = TypeUtil(sc);
-    }
-
-    fn lookup(self, owner: *Decl, index: u32) -> *Type {
-        for var i: usize = 0; i < self.bindings.size(); ++i {
-            var b = &(self.bindings[i]);
-            if (b->owner == owner) && (b->index == index) { return b->ty; }
-        }
-        return &null;
-    }
-
-    /// False on a conflicting rebind.
-    fn bind(self, owner: *Decl, index: u32, ty: *Type) -> bool {
-        if ty == &null { return false; }
-        var prev = self.lookup(owner, index);
-        if prev != &null { return prev == ty; }
-        var b = DeducedBinding{};
-        b.owner = owner; b.index = index; b.ty = ty;
-        self.bindings.push_back(b);
-        return true;
-    }
-
-    /// Seed from an instance: `Foo<i32>` binds Foo's params positionally.
-    fn bind_from_record(self, rec: *Type) {
-        var d = self.tu.record_decl(rec);
-        if d == &null { return; }
-        var pat  = NameLookup::representative(self.tu.pattern_of(d));
-        var args = self.tu.record_args(rec);
-        for var i: usize = 0; i < args.size(); ++i {
-            self.bind(pat, static_cast::<u32>(i), args[i]);
-        }
     }
 
     /// `extend <T> Vec<T>` reached through a `Vec<i64>`: T := i64, before any
@@ -185,6 +150,11 @@ class Deduction {
             return (ImplicitRank::Converted) if (rr != ImplicitRank::None) else (ImplicitRank::None);
         }
 
+        // A computed value argument (`Buf<N + 1>`, EVAL.md 0.2) is a
+        // non-deduced context: it binds nothing; the substituted type is
+        // compared after deduction.
+        if isa::<TypeExpr>(param) && cast::<TypeExpr>(param)->is_value { return ImplicitRank::Exact; }
+
         // Dependent composite: same shape, recurse exact.
         if param->kind != arg->kind {
             // *Derived -> *Base<T>: allow the top-level pointer case through
@@ -204,7 +174,21 @@ class Deduction {
                 return self._inner(self.unify(cast::<SetType>(param)->element, cast::<SetType>(arg)->element, false));
             } case TypeKind::FixedArrayType {
                 var pa = cast::<FixedArrayType>(param); var aa = cast::<FixedArrayType>(arg);
-                if pa->size_bits != aa->size_bits { return ImplicitRank::None; }
+                // `[T; N]` against `[i32; 3]` deduces the value parameter
+                // N := 3 (EVAL.md 3).
+                if (pa->extent_param != &null) && (aa->extent_param == &null) {
+                    // A computed extent (`[T; N + 1]`) is a non-deduced
+                    // context, as in C++: it binds nothing here; N comes
+                    // from another argument, and the substituted parameter
+                    // type is checked against this one after (EVAL.md 0.2).
+                    if isa::<TypeExpr>(pa->extent_param) { return self._inner(self.unify(pa->element, aa->element, false)); }
+                    var g = dyn_cast::<GenericParamType>(pa->extent_param);
+                    if (g == &null) || (g->owner == &null) { return ImplicitRank::None; }
+                    var v = self.sc->types->value_arg(false, static_cast::<u64>(aa->size_bits));
+                    if !self.bind(g->owner, g->param_index, v) { return ImplicitRank::None; }
+                    return self._inner(self.unify(pa->element, aa->element, false));
+                }
+                if (pa->extent_param != aa->extent_param) || (pa->size_bits != aa->size_bits) { return ImplicitRank::None; }
                 return self._inner(self.unify(pa->element, aa->element, false));
             } case TypeKind::MapType {
                 var pm = cast::<MapType>(param); var am = cast::<MapType>(arg);
@@ -226,10 +210,27 @@ class Deduction {
                 var ppat = NameLookup::representative(self.tu.pattern_of(pr->decl));
                 var apat = NameLookup::representative(self.tu.pattern_of(ar->decl));
                 if ppat != apat { return ImplicitRank::None; }
-                if pr->args.size() != ar->args.size() { return ImplicitRank::None; }
                 for var i: usize = 0; i < pr->args.size(); ++i {
+                    // `Outcome<i32, E...>` against `Outcome<i32, f64, bool>`:
+                    // a trailing pack takes every argument from here on, and
+                    // one already deduced must be those exactly.
+                    var pg = dyn_cast::<GenericParamType>(pr->args[i]);
+                    if (pg != &null) && pg->is_pack && (i + 1 == pr->args.size()) && (pg->owner != &null) {
+                        if i > ar->args.size() { return ImplicitRank::None; }
+                        var have = vec::<*Type>();
+                        if self.pack_elems(pg->owner, pg->param_index, &have) {
+                            if have.size() != ar->args.size() - i { return ImplicitRank::None; }
+                            for var k: usize = 0; k < have.size(); ++k { if have[k] != ar->args[i + k] { return ImplicitRank::None; } }
+                            return ImplicitRank::Exact;
+                        }
+                        self.open_pack(pg->owner, pg->param_index);
+                        for var k: usize = i; k < ar->args.size(); ++k { self.push_pack(pg->owner, pg->param_index, ar->args[k]); }
+                        return ImplicitRank::Exact;
+                    }
+                    if i >= ar->args.size() { return ImplicitRank::None; }
                     if self.unify(pr->args[i], ar->args[i], false) == ImplicitRank::None { return ImplicitRank::None; }
                 }
+                if pr->args.size() != ar->args.size() { return ImplicitRank::None; }
                 return ImplicitRank::Exact;
             } default { return ImplicitRank::None; }
         }
@@ -254,99 +255,6 @@ class Deduction {
 
     priv fn _inner(self, r: ImplicitRank) -> ImplicitRank {
         return (ImplicitRank::None) if (r == ImplicitRank::None) else (ImplicitRank::Exact);
-    }
-
-    // === substitute =========================================================
-
-    /// \p t with every bound generic param replaced. Null when a param is
-    /// still unbound or a component is not canonical. A concrete record
-    /// result goes through the registry so `Foo<i32>` is the instance decl.
-    fn substitute(self, t: *Type) -> *Type {
-        if t == &null { return &null; }
-        if !t->is_dependent() { return t; }
-
-        switch t->kind {
-            case TypeKind::GenericParamType {
-                var g = cast::<GenericParamType>(t);
-                var b = self.lookup(g->owner, g->param_index);
-                return b;   // null = unbound, stays dependent for the caller to notice.
-            } case TypeKind::PointerType {
-                var p = self.substitute(cast::<PointerType>(t)->pointee);
-                if p == &null { return &null; }
-                return self.sc->types->pointer(p, cast::<PointerType>(t)->is_unsafe);
-            } case TypeKind::NullableType {
-                var i = self.substitute(cast::<NullableType>(t)->inner);
-                if i == &null { return &null; }
-                return self.sc->types->nullable(i);
-            } case TypeKind::VectorType {
-                var e = self.substitute(cast::<VectorType>(t)->element);
-                if e == &null { return &null; }
-                // null when the lang item is unbound: a poisoned component,
-                // which reads here as no-match, exactly like any other.
-                return self.tu.vector_of(e);
-            } case TypeKind::SetType {
-                var e = self.substitute(cast::<SetType>(t)->element);
-                if e == &null { return &null; }
-                return self.tu.set_of(e);
-            } case TypeKind::MapType {
-                var k = self.substitute(cast::<MapType>(t)->key);
-                var v = self.substitute(cast::<MapType>(t)->value);
-                if (k == &null) || (v == &null) { return &null; }
-                return self.tu.map_of(k, v);
-            } case TypeKind::FixedArrayType {
-                var a = cast::<FixedArrayType>(t);
-                var e = self.substitute(a->element);
-                if e == &null { return &null; }
-                return self.sc->types->array(e, static_cast::<u64>(a->size_bits));
-            } case TypeKind::FunctionPointerType {
-                var f = cast::<FunctionPointerType>(t);
-                var ps = vec::<*Type>();
-                var ms = vec::<ParamMode>();
-                for var i: usize = 0; i < f->params.size(); ++i {
-                    var p = self.substitute(f->params[i]);
-                    if p == &null { return &null; }
-                    ps.push_back(p);
-                    ms.push_back(f->modes[i]);      // modes survive substitution unchanged.
-                }
-                var r: *Type = &null;
-                if f->return_type != &null {
-                    r = self.substitute(f->return_type);
-                    if r == &null { return &null; }
-                }
-                return self.sc->types->func(&ps, &ms, r);
-            } case TypeKind::QualifiedType {
-                var q = cast::<QualifiedType>(t);
-                var i = self.substitute(q->inner);
-                if i == &null { return &null; }
-                return self.sc->types->qualified(i, q->quals);
-            } case TypeKind::RecordType {
-                var r = cast::<RecordType>(t);
-                var args = vec::<*Type>();
-                var dep  = false;
-                for var i: usize = 0; i < r->args.size(); ++i {
-                    var a = self.substitute(r->args[i]);
-                    if a == &null { return &null; }
-                    if a->is_dependent() { dep = true; }
-                    args.push_back(a);
-                }
-                var primary = NameLookup::representative(self.tu.pattern_of(r->decl));
-                if dep || (args.size() == 0) { return self.sc->types->record(primary, &args); }
-                var e = self.sc->instances->instance_for(primary, &args, self.sc->ctx->fid,
-                                                         NameLookup::ctx_of(primary));
-                var inst = (e->decl) if (e != &null) else (primary);
-                return self.sc->types->record(inst, &args);
-            } default { return &null; }
-        }
-    }
-
-    /// Member type \p mt as seen through receiver \p recv (`Foo<i32>`'s
-    /// field `var x: T` reads as i32). Non-dependent members pass through.
-    fn member_through(self, recv: *Type, mt: *Type) -> *Type {
-        if mt == &null { return &null; }
-        if !mt->is_dependent() { return mt; }
-        self.bind_from_record(recv);
-        var s = self.substitute(mt);
-        return (s) if (s != &null) else (mt);
     }
 
     // === Self through a bound ===============================================
@@ -380,70 +288,38 @@ class Deduction {
         if f->semantic_dc == &null { return t; }
         var home = reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl();
         if (home == &null) || (!isa::<InterfaceDecl>(home)) { return t; }
-        return self.replace_self(t, home, receiver);
+        return self.replace_self(t, home, receiver, true);
     }
 
-    fn replace_self(self, t: *Type, iface: *Decl, with: *Type) -> *Type {
-        if (t == &null) || (iface == &null) || (with == &null) { return t; }
-        var rep = NameLookup::representative(iface);
-        switch t->kind {
-            case TypeKind::RecordType {
-                var r = cast::<RecordType>(t);
-                if (NameLookup::representative(self.tu.pattern_of(r->decl)) == rep)
-                && (r->args.size() == 0) { return with; }
-                var args    = vec::<*Type>();
-                var changed = false;
-                for var i: usize = 0; i < r->args.size(); ++i {
-                    var a = self.replace_self(r->args[i], iface, with);
-                    if a != r->args[i] { changed = true; }
-                    args.push_back(a);
-                }
-                if !changed { return t; }
-                return self.sc->types->record(r->decl, &args);
-            } case TypeKind::PointerType {
-                var p = cast::<PointerType>(t);
-                var i = self.replace_self(p->pointee, iface, with);
-                return (t) if (i == p->pointee) else (self.sc->types->pointer(i, p->is_unsafe));
-            } case TypeKind::NullableType {
-                var nt = cast::<NullableType>(t);
-                var i  = self.replace_self(nt->inner, iface, with);
-                return (t) if (i == nt->inner) else (self.sc->types->nullable(i));
-            } case TypeKind::VectorType {
-                var vt = cast::<VectorType>(t);
-                var i  = self.replace_self(vt->element, iface, with);
-                return (t) if (i == vt->element) else (self.tu.vector_of(i));
-            } case TypeKind::SetType {
-                var st = cast::<SetType>(t);
-                var i  = self.replace_self(st->element, iface, with);
-                return (t) if (i == st->element) else (self.tu.set_of(i));
-            } case TypeKind::MapType {
-                var mt = cast::<MapType>(t);
-                var k  = self.replace_self(mt->key, iface, with);
-                var v  = self.replace_self(mt->value, iface, with);
-                if (k == mt->key) && (v == mt->value) { return t; }
-                return self.tu.map_of(k, v);
-            } case TypeKind::QualifiedType {
-                  var q = cast::<QualifiedType>(t);
-                  var i = self.replace_self(q->inner, iface, with);
-                  return (t) if (i == q->inner) else (self.sc->types->qualified(i, q->quals));
-            } case TypeKind::FunctionPointerType {
-                var f       = cast::<FunctionPointerType>(t);
-                var ps      = vec::<*Type>();
-                var ms      = vec::<ParamMode>();
-                var changed = false;
-                for var i: usize = 0; i < f->params.size(); ++i {
-                    var p = self.replace_self(f->params[i], iface, with);
-                    if p != f->params[i] { changed = true; }
-                    ps.push_back(p);
-                    ms.push_back(f->modes[i]);
-                }
-                var r: *Type = &null;
-                if f->return_type != &null {
-                    r = self.replace_self(f->return_type, iface, with);
-                    if r != f->return_type { changed = true; }
-                }
-                return (t) if (!changed) else (self.sc->types->func(&ps, &ms, r));
-            } default { return t; }
+    // replace_self / own_args: Substitution's (the base class), since an
+    // associated type's default is read with Self := the conformer there.
+
+    /// The instance of requirement \p f's DECLARING interface that a
+    /// qualified call names through interface instance \p q: `Sub<i32>::get`,
+    /// with `interface <T> Sub derives Container<T>`, calls Container<i32>'s
+    /// `get`. The composed list says which instance a requirement came
+    /// through (Requirement::source), over q's interface's parameters. Null
+    /// when \p f is no requirement of q's interface.
+    fn declaring_instance(self, f: *FunctionDecl, q: *Type) -> *Type {
+        if (f == &null) || (q == &null) || (f->semantic_dc == &null) { return &null; }
+        var qr = canon_unqual(q);
+        var qd = self.tu.record_decl(qr);
+        if qd == &null { return &null; }
+        var qi = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(qd)));
+        if qi == &null { return &null; }
+        var home = NameLookup::representative(reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl());
+        if home == static_cast::<*Decl>(qi) { return qr; }
+        var fr = NameLookup::representative(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < qi->requirements.size(); ++i {
+            var r = qi->requirements.get(i);
+            if (NameLookup::representative(r->decl) != fr) || (r->source == &null) { continue; }
+            var src = canon_unqual((r->source->canonical) if (r->source->canonical != &null) else (r->source));
+            if !src->is_dependent() { return src; }
+            var d = Deduction(self.sc, self.conv);
+            d.bind_from_record(qr);
+            var s = d.substitute(src);
+            return (canon_unqual(s)) if (s != &null) else (&null);
         }
+        return &null;
     }
 }

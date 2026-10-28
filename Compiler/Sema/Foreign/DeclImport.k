@@ -415,6 +415,8 @@ class DeclImport {
             }
             case clang::Decl::Enum {
                 var e = EnumDecl::create(t->ctx, at, name, parent);
+                // clang owns its values: open, so no niche and no checked `as`.
+                e->is_open = true;
                 out = static_cast::<*Decl>(e);
             }
             case clang::Decl::Function         { out = static_cast::<*Decl>(FunctionDecl::create(t->ctx, at, name, parent)); }
@@ -567,6 +569,21 @@ class DeclImport {
                 return;
             }
         }
+        // C++ tag hiding ([basic.scope.hiding]). A typedef of the same-named
+        // tag (`typedef struct X X`) is that tag under its own name: one
+        // entity, so only the tag is bound. A tag whose name an ordinary
+        // decl takes (`struct timezone` + `extern long timezone`) is bound
+        // under the INTERNAL key `struct timezone` -- a spelling no source
+        // can produce -- and the plain name is the ordinary decl's alone.
+        // The type itself stays reachable through every signature that
+        // names it; TypeImport goes by the clang decl, never by name.
+        if self._typedef_of_own_tag(nd) { return; }
+        var kw = self._hidden_tag_keyword(nd);
+        if kw.size() > 0 {
+            decl_set_ffi_tag_keyword(kd, kw);    // monotonic: see FFILinkage::ffi_tag_keyword.
+            self.bind(t, dc, self._ident_key(t, dc, kw + " " + self._display_name(nd)), kd);
+            return;
+        }
         self.bind(t, dc, self._ident_key(t, dc, self._display_name(nd)), kd);
         // An UNSCOPED enumerator is also visible in the enum's enclosing scope.
         var ec = llvm::dyn_cast::<clang::EnumConstantDecl>(nd);
@@ -577,6 +594,43 @@ class DeclImport {
                 if outer != &null { self.bind(t, outer, self._ident_key(t, outer, self._display_name(nd)), kd); }
             }
         }
+    }
+
+    /// `struct` / `class` / `union` / `enum` when \p nd is a named tag whose
+    /// name an ORDINARY decl of the same scope also declares, "" otherwise.
+    /// Asked of clang's own lookup over the whole set, so a tag in one header
+    /// and the variable hiding it in another (glibc's `struct timezone` in
+    /// <sys/time.h>, `timezone` in <time.h>) are seen together.
+    priv fn _hidden_tag_keyword(self, nd: const_obs::<clang::NamedDecl>) -> string {
+        var tag = llvm::dyn_cast::<clang::TagDecl>(nd);
+        if tag == &null { return ""; }
+        if tag->getTypedefNameForAnonDecl() != &null { return ""; }
+        if nd->getDeclName().isEmpty() { return ""; }
+        if llvm::isa::<clang::ClassTemplateSpecializationDecl>(nd) { return ""; }
+        var dc = tag->getDeclContext()->getRedeclContext();
+        var canon = tag->getCanonicalDecl();
+        for r in dc->lookup(nd->getDeclName()) {
+            if llvm::isa::<clang::TagDecl>(r) { continue; }
+            if !r->isInIdentifierNamespace(clang::Decl::IDNS_Ordinary) { continue; }
+            var td = llvm::dyn_cast::<clang::TypedefNameDecl>(r);
+            if td != &null {
+                var under = td->getUnderlyingType()->getAsTagDecl();
+                if (under != &null) && (under->getCanonicalDecl() == canon) { continue; }
+            }
+            return self._str(tag->getKindName());
+        }
+        return "";
+    }
+
+    /// `typedef struct X X`: a typedef whose underlying type is a tag of the
+    /// same name in the same scope.
+    priv fn _typedef_of_own_tag(self, nd: const_obs::<clang::NamedDecl>) -> bool {
+        var td = llvm::dyn_cast::<clang::TypedefNameDecl>(nd);
+        if td == &null { return false; }
+        var under = td->getUnderlyingType()->getAsTagDecl();
+        if under == &null { return false; }
+        if under->getDeclName() != td->getDeclName() { return false; }
+        return under->getDeclContext()->getRedeclContext()->Equals(td->getDeclContext()->getRedeclContext());
     }
 
     /// The identifier key for \p dc's table. A table is keyed by ITS OWN

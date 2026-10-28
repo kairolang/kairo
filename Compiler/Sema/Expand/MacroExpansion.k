@@ -3,9 +3,10 @@
 ///   \brief Expand macros and macro-like intrinsics.
 ///
 ///   \detail
-///     Includes unwrap!() -> (if x.__has_value() { x.__value() } else { panic }).
-///     MUST run before PanicEffectChecking: unwrap! introduces a panic the
-///     effect checker has to see. Also crash!, label!/jump!, user macros.
+///     Not unwrap!(): it is a parser intrinsic (UnwrapExpr) that
+///     CoalesceLowering expands, and it aborts rather than panics, so the
+///     effect checker never sees it (NULLABLE.md 2.6). Also crash!,
+///     label!/jump!, user macros.
 ///
 ///   Phase: RESOLVE
 ///

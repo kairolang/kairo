@@ -69,6 +69,8 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::ASTSupport::*;
 import AST::ParamMode::*;
+import AST::DeclFacts::*;
+import Token::TokenKind::*;
 
 /// \brief 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
 ///        into a bucket key. Only ever a HINT: every bucket hit is confirmed by
@@ -94,6 +96,10 @@ fn canon_hash_u64(h: u64, v: u64) -> u64 {
 /// \brief Uniquing tables + the arena the canonical nodes live in.
 ///
 class CanonicalTypeStore {
+    /// How a lang item orders an expanded enum pack (DeclFacts::PackSetOrder;
+    /// the Panic item's type-id order). Set once by the driver, before Sema.
+    pub var pack_order: *PackSetOrder = &null;
+
     /// Canonical nodes outlive every fid, so they get their own arena rather
     /// than any ASTContext's. 256 KiB start: a large build interns a few
     /// thousand distinct type shapes, not hundreds of thousands.
@@ -213,8 +219,17 @@ class CanonicalTypeStore {
     /// The canonical nominal type for \p decl instantiated at \p args.
     /// \p decl MUST be the canonical redecl link (the definition where one
     /// exists) -- passing a forward declaration forks the entity in two.
-    fn record(self, decl: *Decl, args: *vec::<*Type>) -> *Type {
+    fn record(self, decl: *Decl, args_in: *vec::<*Type>) -> *Type {
         if decl == &null { return &null; }
+        // An enum's expanded pack is a set (decl_dedup_pack_args), so its
+        // duplicates are gone before the type has an identity.
+        var args = args_in;
+        var deduped = vec::<*Type>();
+        if (args_in != &null) && (args_in->size() > 1) && (decl_pack_set_at(decl) != usize(-1)) {
+            for var i: usize = 0; i < args_in->size(); ++i { deduped.push_back((*args_in)[i]); }
+            decl_dedup_pack_args(decl, &deduped, self.pack_order);
+            args = &deduped;   // fewer, or reordered (PackSetOrder).
+        }
 
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::RecordType)));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(decl));
@@ -352,6 +367,7 @@ class CanonicalTypeStore {
         at->element       = element;
         at->size_expr     = &null;      // canonical form carries the VALUE, not the expr.
         at->is_incomplete = false;
+        at->extent_param  = &null;
         at->init_annotations(&(self._arena));
         at->init_spans(&(self._arena));
         // The extent is the identity, and a canonical FixedArrayType has no
@@ -366,17 +382,226 @@ class CanonicalTypeStore {
         return ty;
     }
 
+    /// `[T; N]` for a generic VALUE parameter N (\p param, its canonical
+    /// GenericParamType): dependent, keyed on (element, param), substituted
+    /// to array() per instance (EVAL.md 3).
+    fn array_of_param(self, element: *Type, param: *Type) -> *Type {
+        if (element == &null) || (param == &null) { return &null; }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::FixedArrayType)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(element));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(param));
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::FixedArrayType { continue; }
+                var a = cast::<FixedArrayType>(c);
+                if (a->element == element) && (a->extent_param == param) { return c; }
+            }
+        }
+
+        var at = self._alloc::<FixedArrayType>();
+        at->kind          = TypeKind::FixedArrayType;
+        at->range         = SourceRange::invalid();
+        at->element       = element;
+        at->size_expr     = &null;
+        at->is_incomplete = false;
+        at->extent_param  = param;
+        at->init_annotations(&(self._arena));
+        at->init_spans(&(self._arena));
+        at->size_bits = 0;
+
+        var ty = static_cast::<*Type>(at);
+        ty->canonical = ty;
+        self._absorb_flags(ty, element);
+        self._absorb_flags(ty, param);
+        self._insert(h, ty);
+        return ty;
+    }
+
+    /// A generic VALUE argument (`4` of `Buf<4>`): a canonical TypeExpr
+    /// holding the exact integer, keyed on it, never dependent. The slot's
+    /// declared type is the parameter's, so the value alone is the identity
+    /// (EVAL.md 3).
+    fn value_arg(self, neg: bool, mag: u64) -> *Type {
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TypeExpr)));
+        h = canon_hash_u64(h, (u64(1)) if (neg) else (u64(0)));
+        h = canon_hash_u64(h, mag);
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::TypeExpr { continue; }
+                var v = cast::<TypeExpr>(c);
+                if v->is_exact() && (v->vneg == neg) && (v->vmag == mag) { return c; }
+            }
+        }
+
+        var te = self._alloc::<TypeExpr>();
+        te->kind     = TypeKind::TypeExpr;
+        te->range    = SourceRange::invalid();
+        te->expr     = &null;
+        te->is_value = true;
+        te->vneg     = neg;
+        te->vmag     = mag;
+        te->vop      = ValueOp::Literal;
+        te->vtok     = TokenKind::TkUnknown;
+        te->vdecl    = &null;
+        te->vty      = &null;
+        te->vbytes   = &null;
+        te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
+        te->type_flags = Type::TypeFlags::None;
+        te->init_annotations(&(self._arena));
+        te->init_spans(&(self._arena));
+
+        var ty = static_cast::<*Type>(te);
+        ty->canonical = ty;
+        self._insert(h, ty);
+        return ty;
+    }
+
+    /// A value Sema keeps for C++ to compute (EVAL.md 0.2): an array extent
+    /// or generic value argument over value parameters, eval names and
+    /// eval calls that does not fold (ValueOp). Keyed on the node's own
+    /// fields and its operands' canonicals, which are interned themselves,
+    /// so two nodes are the same type exactly when they are the same
+    /// expression. Dependent when an operand is (a value parameter).
+    fn value_expr(self, vk: ValueOp, tok: TokenKind, decl: *Decl, ops: *vec::<*Type>, ty: *Type) -> *Type {
+        var n: usize = 0;
+        if ops != &null { n = ops->size(); }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TypeExpr)));
+        h = canon_hash_u64(h, u64(0x5645));   // apart from value_arg's keys.
+        h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u8>(vk)));
+        h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u32>(tok)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(decl));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(ty));
+        h = canon_hash_u64(h, static_cast::<u64>(n));
+        for var i: usize = 0; i < n; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*ops)[i])); }
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::TypeExpr { continue; }
+                var v = cast::<TypeExpr>(c);
+                if (!v->is_value) || (v->vop != vk) || (v->vtok != tok) || (v->vdecl != decl) || (v->vty != ty) { continue; }
+                if v->vops.size() != n { continue; }
+                var same = true;
+                for var k: usize = 0; k < n; ++k { if v->vops[k] != (*ops)[k] { same = false; break; } }
+                if same { return c; }
+            }
+        }
+
+        var te = self._alloc::<TypeExpr>();
+        te->kind     = TypeKind::TypeExpr;
+        te->range    = SourceRange::invalid();
+        te->expr     = &null;
+        te->is_value = true;
+        te->vneg     = false;
+        te->vmag     = u64(0);
+        te->vop      = vk;
+        te->vtok     = tok;
+        te->vdecl    = decl;
+        te->vty      = ty;
+        te->vbytes   = &null;
+        if n > 0 {
+            var buf = self._alloc_array::<*Type>(n);
+            for var i: usize = 0; i < n; ++i { buf[i] = (*ops)[i]; }
+            te->vops.from_raw(buf, n);
+        } else {
+            te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
+        }
+        te->type_flags = Type::TypeFlags::None;
+        te->init_annotations(&(self._arena));
+        te->init_spans(&(self._arena));
+
+        var t = static_cast::<*Type>(te);
+        t->canonical = t;
+        for var i: usize = 0; i < n; ++i { self._absorb_flags(t, (*ops)[i]); }
+        if ty != &null { self._absorb_flags(t, ty); }
+        self._insert(h, t);
+        return t;
+    }
+
+    /// A string literal in a computed value (ValueOp::Str, EVAL.md 7e):
+    /// keyed on its decoded bytes, so two literals with the same bytes are
+    /// one node wherever they are written; \p ty is the string record.
+    fn value_str(self, bytes: *vec::<u8>, ty: *Type) -> *Type {
+        var n = bytes->size();
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::TypeExpr)));
+        h = canon_hash_u64(h, u64(0x5354));   // apart from value_arg's and value_expr's keys.
+        h = canon_hash_u64(h, static_cast::<u64>(n));
+        for var i: usize = 0; i < n; ++i { h = canon_hash_u64(h, static_cast::<u64>((*bytes)[i])); }
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(ty));
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::TypeExpr { continue; }
+                var v = cast::<TypeExpr>(c);
+                if (!v->is_value) || (v->vop != ValueOp::Str) || (v->vty != ty) || (v->vmag != static_cast::<u64>(n)) { continue; }
+                var same = true;
+                for var k: usize = 0; k < n; ++k { if v->vbytes[k] != (*bytes)[k] { same = false; break; } }
+                if same { return c; }
+            }
+        }
+
+        var te = self._alloc::<TypeExpr>();
+        te->kind     = TypeKind::TypeExpr;
+        te->range    = SourceRange::invalid();
+        te->expr     = &null;
+        te->is_value = true;
+        te->vneg     = false;
+        te->vmag     = static_cast::<u64>(n);
+        te->vop      = ValueOp::Str;
+        te->vtok     = TokenKind::TkUnknown;
+        te->vdecl    = &null;
+        te->vty      = ty;
+        var buf = self._alloc_array::<u8>(n + 1);
+        for var i: usize = 0; i < n; ++i { buf[i] = (*bytes)[i]; }
+        buf[n] = u8(0);
+        te->vbytes   = reinterpret_cast::<std::ConstPtr::<u8>>(buf);
+        te->vops.from_raw(static_cast::<*(*Type)>(&null), 0);
+        te->type_flags = Type::TypeFlags::None;
+        te->init_annotations(&(self._arena));
+        te->init_spans(&(self._arena));
+
+        var t = static_cast::<*Type>(te);
+        t->canonical = t;
+        if ty != &null { self._absorb_flags(t, ty); }
+        self._insert(h, t);
+        return t;
+    }
+
     /// \p modes is parallel to \p params, or null for all-Value (every
     /// caller that has no modes to offer -- an imported C++ function type,
     /// which spells reference kinds as types, not modes -- passes null).
     /// Modes are in the key: `fn(@inout i32)` and `fn(i32)` are two
     /// entities, because a closure's type IS this canonical and the mode
     /// must survive `apply(f: fn(i32) -> i32)`.
-    fn func(self, params: *vec::<*Type>, modes: *vec::<ParamMode>, ret: *Type) -> *Type {
+    ///
+    /// So is the panic effect (PANIC.md §2.2): \p panics, and \p pset, the
+    /// canonical set (null or empty for a bare `panic` with no set known).
+    /// `fn() panic(E) -> i32` and `fn() -> i32` are two types, converted by
+    /// subset (Conversion's fn rung); a call through a value of one adds
+    /// its set. The caller passes the set CANONICAL (EffectPropagation's
+    /// canonical_set: each type once, in the one order): the store only
+    /// compares it element by element, it cannot spell types to sort them.
+    fn func(self, params: *vec::<*Type>, modes: *vec::<ParamMode>, ret: *Type,
+            panics: bool = false, pset: *vec::<*Type> = &null) -> *Type {
         var n: usize = 0;
         if params != &null { n = params->size(); }
         ICE_IF(((modes != &null) && (modes->size() != n)),
                "CanonicalTypeStore::func: modes not parallel to params");
+        var ns: usize = 0;
+        if (pset != &null) && panics { ns = pset->size(); }
 
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::FunctionPointerType)));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(ret));
@@ -385,9 +610,11 @@ class CanonicalTypeStore {
             h = canon_hash_ptr(h, reinterpret_cast::<*void>((*params)[i]));
             h = canon_hash_u64(h, static_cast::<u64>(static_cast::<u8>(self._mode_at(modes, i))));
         }
+        h = canon_hash_u64(h, (u64(1)) if (panics) else (u64(0)));
+        for var i: usize = 0; i < ns; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*pset)[i])); }
 
         var lock = std::LockGuard(self._mu);
-        var hit = self._probe_func(h, params, modes, n, ret);
+        var hit = self._probe_func(h, params, modes, n, ret, panics, pset, ns);
         if hit != &null { return hit; }
 
         var ft = self._alloc::<FunctionPointerType>();
@@ -410,6 +637,14 @@ class CanonicalTypeStore {
         } else {
             ft->params.from_raw(static_cast::<*(*Type)>(&null), 0);
             ft->modes.from_raw(static_cast::<*ParamMode>(&null), 0);
+        }
+        ft->canon_panics = panics;
+        if ns > 0 {
+            var sb = self._alloc_array::<*Type>(ns);
+            for var i: usize = 0; i < ns; ++i { sb[i] = (*pset)[i]; }
+            ft->panic_set.from_raw(sb, ns);
+        } else {
+            ft->panic_set.from_raw(static_cast::<*(*Type)>(&null), 0);
         }
 
         var ty = static_cast::<*Type>(ft);
@@ -460,6 +695,49 @@ class CanonicalTypeStore {
 
         var ty = static_cast::<*Type>(gp);
         ty->canonical = ty;
+        self._insert(h, ty);
+        return ty;
+    }
+
+    /// An associated type of \p base through interface instance \p iface
+    /// (AssocType). Dependent by construction, whatever \p base is: even
+    /// `record(Graph)`, a non-dependent record, stands for every conformer
+    /// while it is the interface's Self.
+    fn assoc(self, base: *Type, iface: *Type, assoc: *Decl) -> *Type {
+        if (base == &null) || (iface == &null) || (assoc == &null) { return &null; }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::AssocType)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(base));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(iface));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(assoc));
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::AssocType { continue; }
+                var a = cast::<AssocType>(c);
+                if (a->base == base) && (a->iface == iface) && (a->assoc == assoc) { return c; }
+            }
+        }
+
+        var at = self._alloc::<AssocType>();
+        at->kind  = TypeKind::AssocType;
+        at->range = SourceRange::invalid();
+        at->base  = base;
+        at->iface = iface;
+        at->assoc = assoc;
+        at->init_annotations(&(self._arena));
+        at->init_spans(&(self._arena));
+
+        var ty = static_cast::<*Type>(at);
+        ty->canonical = ty;
+        self._absorb_flags(ty, base);
+        self._absorb_flags(ty, iface);
+        ty->type_flags = static_cast::<Type::TypeFlags>(
+            static_cast::<u8>(ty->type_flags)
+          | static_cast::<u8>(Type::TypeFlags::IsDependent)
+          | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent));
         self._insert(h, ty);
         return ty;
     }
@@ -589,7 +867,8 @@ class CanonicalTypeStore {
             }
             case TypeKind::NullableType {
                 var n = self._alloc::<NullableType>();
-                n->inner = child;
+                n->inner   = child;
+                n->lowered = &null;
                 ty = static_cast::<*Type>(n);
             }
             case TypeKind::VectorType {
@@ -691,13 +970,14 @@ class CanonicalTypeStore {
             if c->kind != TypeKind::FixedArrayType { continue; }
             var a = cast::<FixedArrayType>(c);
             if a->element != element { continue; }
+            if a->extent_param != &null { continue; }
             if static_cast::<u64>(a->size_bits) == extent { return c; }
         }
         return &null;
     }
 
     priv fn _probe_func(self, h: u64, params: *vec::<*Type>, modes: *vec::<ParamMode>,
-                        n: usize, ret: *Type) -> *Type {
+                        n: usize, ret: *Type, panics: bool, pset: *vec::<*Type>, ns: usize) -> *Type {
         var b = self._bucket(h);
         if b == &null { return &null; }
         for var i: usize = 0; i < b->size(); ++i {
@@ -706,10 +986,15 @@ class CanonicalTypeStore {
             var f = cast::<FunctionPointerType>(c);
             if f->return_type != ret { continue; }
             if f->params.size() != n { continue; }
+            if f->canon_panics != panics { continue; }
+            if f->panic_set.size() != ns { continue; }
             var same = true;
             for var j: usize = 0; j < n; ++j {
                 if f->params[j] != (*params)[j]          { same = false; break; }
                 if f->modes[j]  != self._mode_at(modes, j) { same = false; break; }
+            }
+            for var j: usize = 0; same && (j < ns); ++j {
+                if f->panic_set[j] != (*pset)[j] { same = false; }
             }
             if same { return c; }
         }
@@ -737,6 +1022,32 @@ class CanonicalTypeStore {
             if cast::<OpaqueFFIType>(c)->name == name_imm { return c; }
         }
         return &null;
+    }
+
+    // --- nullable lowering (writer: NullableTypeLowering) ---------------------
+
+    /// Every canonical `T?` interned so far, by any TU. A snapshot: the
+    /// caller lowers each after the lock is released, since minting the
+    /// record re-enters this table.
+    fn nullables(self) -> vec::<*NullableType> {
+        var out = vec::<*NullableType>();
+        var lock = std::LockGuard(self._mu);
+        for var it = self._table.begin(); it != self._table.end(); ++it {
+            for var i: usize = 0; i < it->second.size(); ++i {
+                var c = it->second[i];
+                if c->kind == TypeKind::NullableType { out.push_back(cast::<NullableType>(c)); }
+            }
+        }
+        return out;
+    }
+
+    /// Record \p r as what \p n is to C++, once. TUs lower in parallel and
+    /// all reach the same interned record, so a second writer is a no-op,
+    /// never a different answer.
+    fn set_nullable_lowered(self, n: *NullableType, r: *Type) {
+        if (n == &null) || (r == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        if n->lowered == &null { n->lowered = r; }
     }
 
     // --- stats (dumps only) ---------------------------------------------------

@@ -45,6 +45,7 @@ import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import AST::DeclFacts::*;
 import Token::Token::*;
 import Diagnostic::Registry::*;
 
@@ -117,6 +118,33 @@ class GenericArgs {
     /// two is two entries). Named args that name nothing, or name a slot
     /// twice, are errors.
     ///
+    /// Whether \p cty is the kind of argument \p gp takes: a value (a
+    /// canonical value_arg, or a value parameter standing in) for an `eval`
+    /// parameter, a type for a type parameter. Reported when not.
+    priv fn _kind_fits(self, primary: *Decl, gp: *GenericParamDecl, cty: *Type, a: *ChainType::GenericArg) -> bool {
+        if gp == &null { return true; }
+        var c = canon_unqual(cty);
+        var is_value = false;
+        if isa::<TypeExpr>(c) { is_value = cast::<TypeExpr>(c)->is_value; }
+        else if isa::<GenericParamType>(c) {
+            var g = cast::<GenericParamType>(c);
+            var ps = decl_generic_params(g->owner);
+            var ix = static_cast::<usize>(g->param_index);
+            if (g->owner != &null) && (ix < ps.size()) && (ps[ix] != &null) { is_value = ps[ix]->is_const_param; }
+        }
+        if is_value == gp->is_const_param { return true; }
+        if self.report {
+            var nm  = self.sc->ctx->get_spelling(gp->name);
+            var at  = (a->ty->range) if (a->ty != &null) else (a->name_range);
+            var msg = (f"'{nm}' is a generic value parameter; it takes a compile-time value, not a type") if (gp->is_const_param) else (f"'{nm}' is a type parameter; it takes a type, not a value");
+            var b = self.sc->diag->report(DiagID::R001E, at.start, msg);
+            b.first(at);
+            b.note(DiagID::R001N, gp->range.start, f"'{nm}' is declared here").first(gp->range);
+            b.emit();
+        }
+        return false;
+    }
+
     /// \p stand_in: a dependent argument with no canonical (a raw dependent
     /// composite) takes the parameter itself instead of failing. X and
     /// ChainBinding want that -- the result is a dependent pattern either
@@ -180,6 +208,10 @@ class GenericArgs {
                 self.inst_dependent = true;
             }
 
+            // A value parameter takes a value (`Buf<4>`, `Buf<N>`), a type
+            // parameter a type (EVAL.md 3).
+            if (cty != &null) && (!self._kind_fits(primary, gps[target], cty, a)) { return false; }
+
             if a->name != &null {
                 slots[target]  = cty;
                 filled[target] = true;
@@ -210,25 +242,31 @@ class GenericArgs {
             if !filled[i] {
                 if gp->default_type == &null { return false; }   // arity said otherwise; defensive.
                 var dc = gp->default_type->canonical;
-                // A FOREIGN default comes back as the header's canonical, and
-                // a default naming the primary's own params (`class A =
-                // allocator<T>`) is dependent there. Every param before this
-                // one is already placed, so substitute them in: without it
-                // `std::vector<i32>` keyed as `vector<i32, allocator<T>>`, a
-                // dependent type with no instance behind it, and nothing (the
-                // clang fill included) ever looked past the pattern.
-                if (dc != &null) && dc->is_dependent() && foreign {
+                // A default naming the primary's own params (`class A =
+                // allocator<T>`, `<K, V = K>`) is dependent on THEM. Every
+                // param before this one is already placed, so substitute
+                // them in: without it `std::vector<i32>` keyed as
+                // `vector<i32, allocator<T>>` and `Pair<i32>` as
+                // `Pair<i32, K>`, dependent types with no instance behind
+                // them, and C++ was handed a `K` nothing declares.
+                //
+                // A FOREIGN result that is still dependent names an unplaced
+                // param. A Kairo one may be dependent through its ARGUMENTS
+                // (`Pair<U>` in a generic body is `Pair<U, U>`), which is a
+                // real answer; only an unbound param (null) is not.
+                if (dc != &null) && dc->is_dependent() {
                     var ded = Deduction(self.sc, &null);
                     var rep = NameLookup::representative(primary);
                     for var j: usize = 0; j < out->size(); ++j { ded.bind(rep, static_cast::<u32>(j), (*out)[j]); }
                     var sub = ded.substitute(dc);
-                    if (sub != &null) && (!sub->is_dependent()) { dc = sub; }
+                    if (sub != &null) && ((!foreign) || (!sub->is_dependent())) { dc = sub; }
                     else { dc = &null; }      // still names an unplaced param: the stand-in below.
                 }
                 if dc == &null {
                     if gp->default_type->is_poisoned() { return false; }
-                    // Dependent default (mentions the primary's own params):
-                    // substitution is M2's. Stand in with the param itself.
+                    // A default substitution cannot place (it names a
+                    // later param, or has no canonical): stand in with the
+                    // param itself, instantiation-dependent.
                     self.inst_dependent = true;
                     out->push_back(self.sc->types->generic_param(primary, gp->index, false));
                     continue;

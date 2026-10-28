@@ -35,11 +35,11 @@ fn main() -> i32 { return 0 }
 // An input in a subdirectory declaring main: global, not sub::prog::main.
 // RUN: cd %S/Inputs/modpath && %kairo sub/prog.k --type-check-only --print-cxx 2>&1 | %FileCheck %s --check-prefix=MAIN
 // MAIN: namespace sub::prog {
-// MAIN-NEXT: signed int helper();
+// MAIN-NEXT: signed int helper() noexcept;
 // MAIN-NOT: main
 // RUN: cd %S/Inputs/modpath && %kairo sub/prog.k --print-ir -o %t.d/p_ir --cache-dir %t.d/c_ir 2>&1 | %FileCheck %s --check-prefix=MAINIR
 // MAINIR: CODEGEN C++: {{.*}}sub/prog.k
-// MAINIR: {{^}}int main() {
+// MAINIR: {{^}}int main() noexcept {
 // MAINIR-NEXT: return( ::sub::prog::helper() + 4);
 // RUN: cd %S/Inputs/modpath && %kcc sub/prog.k -o %t.d/prog && %t.d/prog; test $? -eq 7
 // RUN: cd %S/Inputs/modpath && %kcc -c sub/prog.k -o %t.d/prog.o && %kcc %t.d/prog.o -o %t.d/prog2 && %t.d/prog2; test $? -eq 7

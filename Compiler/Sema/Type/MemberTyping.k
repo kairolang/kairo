@@ -42,6 +42,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::NullnessFlow::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -51,6 +52,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
+import AST::LangItems::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
@@ -71,6 +73,42 @@ class ChainInfo {
 
 class <T> MemberTyping {
     priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
+
+    /// Step \p i of \p n is `?.` / `?->` on \p val, which is not nullable:
+    /// SC001E, with the fix-it that drops the `?`.
+    priv fn _not_nullable_step(self, n: *ChainExpr, i: usize, val: *Type) {
+        var st  = n->steps.get(i);
+        var sep = ("?->") if (st->access_kind == ChainExpr::AccessKind::QuestionArrow) else ("?.");
+        var to  = ("->") if (st->access_kind == ChainExpr::AccessKind::QuestionArrow) else (".");
+        var end = (n->base->range.end) if (i == 0) else (n->steps.get(i - 1)->range.end);
+        var r   = SourceRange(n->range.start, end);
+        var text = dyn()->sc->ctx->get_spelling(r);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, st->range.start,
+            f"'{text}' is not nullable ('{dyn()->tu.str(val)}'); '{sep}' guards a null it cannot hold, write '{to}\x27");
+        b.first(SourceRange(st->range.start, st->range.start.with_offset(1)));
+        // The declaration that gave it the non-nullable type.
+        var d: *Decl = &null;
+        if i > 0 { d = n->steps.get(i - 1)->resolved_decl; }
+        else if isa::<NamedIdentExpr>(dyn()->tu.strip_parens(n->base)) { d = cast::<NamedIdentExpr>(dyn()->tu.strip_parens(n->base))->resolved_decl; }
+        if (d != &null) && d->range.is_valid() { b.note(d->range.start, f"'{dyn()->tu.decl_name(d)}' is declared '{dyn()->tu.str(val)}' here"); }
+        b.remove(SourceRange(st->range.start, st->range.start.with_offset(1)), f"write '{to}\x27");
+        b.emit();
+        dyn()->poison_only(n);
+    }
+
+    /// A member of an associated type (`x.show()` on `x: T::Item`, or
+    /// `T::Item::make()`): lookup through the associated type's own bounds
+    /// is not built (MONO.md G5), so it is SC116E rather than unknown.
+    priv fn _assoc_member_unsupported(self, n: *ChainExpr, st: *ChainExpr::Step, t: *Type) {
+        var a = cast::<AssocType>(canon_unqual(t));
+        var ts = dyn()->tu.str(t);
+        var b = dyn()->sc->diag->report(DiagID::SC116E, st->range.start,
+            f"a member of associated type '{ts}' cannot be used yet; lookup through an associated type's bounds is not supported");
+        b.first(st->range);
+        if (a->assoc != &null) && a->assoc->range.is_valid() { b.note(DiagID::SC116N, a->assoc->range.start, "the associated type is declared here").first(a->assoc->range); }
+        b.emit();
+        dyn()->poison_only(n);
+    }
 
     fn type_chain(self, n: *ChainExpr, expected: *Type) -> *Type {
         var info = dyn()->new_chain_info(n);
@@ -93,6 +131,11 @@ class <T> MemberTyping {
         } else {
             var bt = dyn()->type_of(n->base, &null);
             if n->base->is_poisoned() { dyn()->poison_only(n); return &null; }
+            // `p->f` goes where p points: the pointer is no escape (NULLABLE.md 3.7).
+            if (n->steps.size() > 0)
+            && ((n->steps.get(0)->access_kind == ChainExpr::AccessKind::Arrow) || (n->steps.get(0)->access_kind == ChainExpr::AccessKind::QuestionArrow)) {
+                dyn()->flow.consumed(n->base);
+            }
             var denoted = dyn()->denoted_type(n->base);
             if denoted != &null {
                 cur_kind = 1; cur_type = denoted;
@@ -117,13 +160,59 @@ class <T> MemberTyping {
                 return &null;
             }
 
+            // `.` / `->` on a nullable reads its value (NULLABLE.md §4): the
+            // base, or the field path so far, narrowed when its place is
+            // proven non-null here, else the nullness error. ChainBinding
+            // left the step unbound for this (its anchor was nullable), so
+            // it binds below on the narrowed type. A nullable that is no
+            // place (`f().v`) keeps the old answer, "no member in 'T?'".
+            if (cur_kind == 0) && (cur != &null)
+            && ((st->access_kind == ChainExpr::AccessKind::Dot) || (st->access_kind == ChainExpr::AccessKind::Arrow))
+            && (dyn()->tu.nullable_inner(dyn()->ml.peel_ref(cur)) != &null) {
+                var o = dyn()->flow.read_prefix(n, i);
+                if o == NULL_READ_REFUSED() { dyn()->poison_only(n); return &null; }
+                if (o == NULL_READ_NONE()) && dyn()->flow.refuse_unplaced(n, i) { return &null; }
+                if o == NULL_READ_NARROWED() { cur = (n->base->type_) if (i == 0) else (n->steps.get(i - 1)->resolved_type); }
+            }
+
             // NeedsInference: bind now with the anchor T could not see.
             if (st->resolved_decl == &null) && (st->candidate_cell == &null)
             && ((st->name == &null) || (!st->name->is_poisoned())) && (!st->is_tuple_index()) {
+                if (cur_kind == 0) && (cur != &null) && isa::<AssocType>(canon_unqual(dyn()->ml.peel_ref(cur))) {
+                    self._assoc_member_unsupported(n, st, canon_unqual(dyn()->ml.peel_ref(cur)));
+                    return &null;
+                }
                 if (cur_kind == 0) && (cur != &null) {
                     var a = dyn()->cb.anchor_for_value(&null, cur);
                     dyn()->cb.bind_step(n, st, a);
                 } else if cur_kind == 1 {
+                    // A step ChainBinding left unbound on a type PARAMETER is
+                    // dependent by its decision (`: type`, or no bound
+                    // answered): M2's, not a lookup to retry on T here.
+                    if isa::<GenericParamType>(canon_unqual(cur_type)) {
+                        // `T::Node` naming an associated type of T's bounds
+                        // is that type (as in type position), not unknown.
+                        var at: *Type = &null;
+                        if (st->access_kind == ChainExpr::AccessKind::ColonColon) && (st->name != &null) && st->generic_args.is_empty() {
+                            at = dyn()->tu.assoc_named(cur_type, dyn()->sc->ctx->get_spelling(st->name->name));
+                        }
+                        if at != &null {
+                            cur_type = at;
+                            st->resolved_type = at;
+                            if is_last {
+                                info->receiver     = at;
+                                info->has_receiver = false;
+                            }
+                            continue;
+                        }
+                        info->unknown = true;
+                        dyn()->mark_unknown(n);
+                        return &null;
+                    }
+                    if isa::<AssocType>(canon_unqual(cur_type)) {
+                        self._assoc_member_unsupported(n, st, cur_type);
+                        return &null;
+                    }
                     var a = dyn()->cb.anchor_for_type(cur_type);
                     dyn()->cb.bind_step(n, st, a);
                 }
@@ -144,6 +233,13 @@ class <T> MemberTyping {
                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) {
                     var inner = dyn()->tu.nullable_inner(val);
                     if inner != &null { val = inner; saw_optional = true; }
+                    else if (val != &null) && (!val->is_dependent()) && (!val->is_instantiation_dependent()) {
+                        // `?.` guards a null that cannot happen: the value is
+                        // read as it is (NULLABLE.md 2.5), so say which
+                        // separator was meant rather than make it `M?`.
+                        self._not_nullable_step(n, i, val);
+                        return &null;
+                    }
                 }
                 if (st->access_kind == ChainExpr::AccessKind::Arrow)
                 || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) {
@@ -271,6 +367,29 @@ class <T> MemberTyping {
                 case DeclKind::ModuleDecl { cur_kind = 2; }
                 case DeclKind::GenericParamDecl { info->unknown = true; dyn()->mark_unknown(n); return &null; }
                 default {
+                    // `T::Node` that ChainBinding bound through T's bound to
+                    // the requirement itself: the associated type of T.
+                    if isa::<TypeAliasDecl>(d) && cast::<TypeAliasDecl>(d)->is_associated {
+                        var at: *Type = &null;
+                        if (cur_kind == 1) && (cur_type != &null) {
+                            var ct0 = canon_unqual(cur_type);
+                            if isa::<GenericParamType>(ct0) {
+                                at = dyn()->tu.assoc_named(ct0, dyn()->tu.decl_name(d));
+                            } else if (dyn()->tu.record_decl(ct0) != &null)
+                                   && isa::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(dyn()->tu.record_decl(ct0)))) {
+                                var ai = dyn()->tu.assoc_iface(ct0, d);
+                                if ai != &null { at = dyn()->sc->types->assoc(ct0, ai, NameLookup::representative(d)); }
+                            }
+                        }
+                        if at == &null { info->unknown = true; dyn()->mark_unknown(n); return &null; }
+                        if !is_last { self._assoc_member_unsupported(n, n->steps.get(i + 1), at); return &null; }
+                        cur_type = at;
+                        cur_kind = 1;
+                        st->resolved_type = at;
+                        info->receiver     = at;
+                        info->has_receiver = false;
+                        continue;
+                    }
                     if dyn()->tu.is_type_decl(d) {
                         cur_type = dyn()->type_from_type_decl(d, st->generic_args, n);
                         if cur_type == &null { dyn()->poison_only(n); return &null; }
@@ -290,7 +409,18 @@ class <T> MemberTyping {
                 if cur == &null { return &null; }
                 // `Opt::None` as a value is a construction (ControlTyping).
                 if last_variant != &null { return dyn()->type_variant_value(static_cast::<*Expr>(n), last_variant, cur); }
-                if saw_optional { return dyn()->sc->types->nullable(dyn()->tu.strip_nullable(cur)); }
+                // `x?.m` is `if x? => x.m else null` (NULLABLE.md 2.5): an
+                // rvalue `M?`, never `(M?)?`. CoalesceLowering expands it.
+                if saw_optional {
+                    n->value_category = Expr::ValueCategory::RValue;
+                    return dyn()->sc->types->nullable(dyn()->tu.strip_nullable(cur));
+                }
+                // A nullable field path is a use of its place, as a name is
+                // (ExprTyper::_note_place_read).
+                if null_flow_type_is_nullable(cur) {
+                    var place = null_place_of(static_cast::<*Expr>(n));
+                    if place.size() > 0 { dyn()->flow.note_read(static_cast::<*Expr>(n), &place); }
+                }
                 return cur;
             }
             case 1 { info->last_is_type = true; dyn()->note_type_expr(static_cast::<*Expr>(n), cur_type); return &null; }
@@ -337,6 +467,11 @@ class <T> MemberTyping {
         var bt = dyn()->type_of(n->base, &null);
         if dyn()->propagate(n, n->base) { return &null; }
         if bt == &null { return &null; }
+        // `xs[i]` on a nullable reads its value (NULLABLE.md §4).
+        if dyn()->tu.nullable_inner(bt) != &null {
+            bt = dyn()->read_value(n->base);
+            if bt == &null { dyn()->poison_only(n); dyn()->type_of(n->index, &null); return &null; }
+        }
         bt = canon_unqual(bt);
 
         var ri = dyn_cast::<RangeExpr>(dyn()->tu.strip_parens(n->index));
@@ -351,7 +486,7 @@ class <T> MemberTyping {
         var array_range = is_range && (dyn()->tu.element_of(bt) != &null);
         if array_range {
             var view = dyn()->tu.array_view(n->base->type_);
-            if view == &null { dyn()->missing_lang_item(n, "Slice"); return &null; }
+            if view == &null { dyn()->missing_lang_item(n, to_string(WellKnownType::Slice)); return &null; }
             recv = view;
         }
 
@@ -361,7 +496,17 @@ class <T> MemberTyping {
                             || (dyn()->tu.element_of(bt) != &null) || dyn()->tu.is_tuple(bt) || (dyn()->tu.pointee(bt) != &null);
             if (!is_container) || array_range {
                 var cands = vec::<*Decl>();
-                dyn()->ml.lookup(recv, DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &cands);
+                var sub_name = DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare);
+                // A bounded parameter has no members of its own: its `op []`
+                // is a bound's requirement, as a binary operator's is
+                // (OperatorTyping::_gather), which sends the call through the
+                // interface's witness (CODEGEN.md §7b.5).
+                var bound = dyn()->bound_ifaces(recv);
+                if bound.size() > 0 {
+                    for var i: usize = 0; i < bound.size(); ++i { dyn()->ml.lookup(bound[i], sub_name, &cands); }
+                } else {
+                    dyn()->ml.lookup(recv, sub_name, &cands);
+                }
                 if cands.size() == 0 {
                     dyn()->type_of(n->index, &null);
                     dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' has no subscript operator");
@@ -382,6 +527,10 @@ class <T> MemberTyping {
                 // seeded r.ded, and call_result_type substitutes a dependent
                 // result through it.
                 var rt = dyn()->call_result_type(r.decl, &r);
+                // call_result_type registers a generic winner's instance, so
+                // EmitIR spells its arguments rather than leaving them to
+                // C++ deduction (resolve_user_op's order).
+                n->op_instance = reinterpret_cast::<*void>(r.instance);
                 if rt == &null { return &null; }
                 // A C++ `operator[]` (std::unordered_map, ...) already returns
                 // the place as `T&`, and one returning a real `T*` means the

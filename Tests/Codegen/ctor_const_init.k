@@ -69,7 +69,7 @@ fn main() -> i32 {
 // CXX:      struct __kairo_slot
 // CXX:      class F {
 // CXX:      const signed int x;
-// CXX:      F(signed int x);
+// CXX:      F(signed int x) noexcept;
 // CXX:      private{{ ?}}:
 // CXX-NEXT: struct __kairo_ci0;
 // CXX-NEXT: static auto __kairo_ctor_pre0({{.*}}__kairo_ci0{{ ?}}&&{{ ?}}__kairo_s{{.*}}__kairo_lref{{.*}}x{{.*}}__kairo_ci0{{ ?}}&;
@@ -78,10 +78,11 @@ fn main() -> i32 {
 // The four definitions, for F.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}ctor_const_init.k
-// IR:      struct F{{ ?}}::{{ ?}}__kairo_ci0 {{[{]}}{{.*}}__kairo_slot{{.*}}x{{ ?}};
+// IR:      struct F{{ ?}}::{{ ?}}__kairo_ci0 {{[{]}}
+// IR-NEXT: __kairo_slot{{.*}}x{{ ?}};
 // IR:      __kairo_ctor_pre0
 // IR:      __kairo_s{{ ?}}.{{ ?}}x{{ ?}}.{{ ?}}init
-// IR:      return{{ ?}}__kairo_s{{ ?}};
+// IR:      return{{ ?}}static_cast<__kairo_ci0{{ ?}}&>({{ ?}}__kairo_s{{ ?}});
 // IR:      x{{ ?}}({{ ?}}__kairo_s{{ ?}}.{{ ?}}x{{ ?}}.{{ ?}}take
 // IR:      F{{ ?}}({{ ?}}__kairo_ctor_pre0{{ ?}}({{ ?}}__kairo_ci0{{ ?}}({{ ?}})
 

@@ -168,18 +168,27 @@ emitters use the same instance; a declaration and a body cannot disagree.
   fixity (`op_is_postfix`), not name. Operators C++ cannot spell come from
   `LowerTargets` (`__kairo_contains`/`__kairo_iter` for the two `op in`,
   `__kairo_pow`, `__kairo_dotstar`, `__kairo_await`). `===` is not an
-  operator a type declares: it is the nullable test, owned by the nullable
-  trio, and has no spelling here. An EXTENSION operator is a non-member
-  C++ operator taking `X&` / `const X&` (a class-typed parameter is what
+  operator a type declares: CoalesceLowering expands it (NULLABLE.md 2.3)
+  before codegen, and it has no spelling here. An EXTENSION operator is a
+  non-member C++ operator taking `X&` / `const X&` (a class-typed parameter is what
   [over.oper]/7 asks for), spelled exactly as a member's is; its body
   binds `self` to the address of that reference
   (`X* self = &__kairo_self;`), so the body emits unchanged. Every Kairo
   use is an explicit call that passes the object, not its address.
 - `_type(t)`: canonical → C++; builtins by table (`i32` is
   `::std::int32_t`), records qualified with instance args from the
-  registry, pointers, references, arrays through `decl()`. Structural
-  containers are gone (builtin records); `T?` and tuples ICE naming their
-  lowering.
+  registry, pointers, references, arrays through `decl()`. A Kairo
+  `fn(A) -> R` is the value type `::__kairo_fn<R(A...)>` (§5, §6
+  Closures; `fn_signature(f)` spells `R(A...)`), never `R(*)(A...)`:
+  closures.md gives a closure the `fn` type, and a lambda that captures
+  has no function pointer. Only a C no-prototype pointer
+  (`is_unprototyped`) stays raw. Structural
+  containers are gone (builtin records); a tuple canonical ICEs naming
+  TypeResolve. `T?` stays a NullableType canonical (Sema's later passes
+  ask it), and is spelled -- and planned, EmitPlan `_nullable_record` --
+  as the `::builtin::Nullable<T>` record NullableTypeLowering put in its
+  `lowered` slot; with none, it ICEs naming that pass. A `null` typed as a
+  nullable arrives as that record's null VariantInitExpr.
 - `decl(t, name)`: the declarator form, the name folded in. `[T; N]` is a C
   array: it is a local, a field, a literal, a `const`/`@inout` parameter,
   and what a slice views; it is not copied, assigned, passed by value or
@@ -193,9 +202,10 @@ emitters use the same instance; a declaration and a body cannot disagree.
   parameter lists.
 - `param_decl(p, name)`: the parameter spelling with the name folded into
   the declarator, for every type: the mode's `&`/`&&` and the const marker
-  go through `decl()`, so a function pointer is `U (*f)(T)` and `@inout`
-  on one is `U (*& f)(T)`. Appending the name (`U(*)(T) f`) is a cast-like
-  expression to clang. Arrays keep their own branch: a `const [T; N]`
+  go through `decl()`, so a raw function pointer (a C no-prototype one) is
+  `U (*f)(T)` and `@inout` on one is `U (*& f)(T)`; appending the name
+  (`U(*)(T) f`) is a cast-like expression to clang. A Kairo `fn` parameter
+  is the value type, `::__kairo_fn<U(T)> f` (`& f` for `@inout`). Arrays keep their own branch: a `const [T; N]`
   parameter is `const T (&name)[N]`, an `@inout` one is `T (&name)[N]`, and
   by value is an ICE (StmtTyping rejects it). Both emitters spell
   parameters through here.
@@ -247,7 +257,11 @@ Every Preamble and every Header opens with
 
 (`LowerTargets::array_alias`, `LowerTargets::tmp_addr`,
 `LowerTargets::adt_variant_tag`, `LowerTargets::construct_at`,
-`LowerTargets::destroy_at`). `__kairo_vt<I>` is the tag argument that selects
+`LowerTargets::destroy_at`). A plan that admits a Kairo `fn` type
+anywhere (`EmitPlan::needs_fn_value`, set by `_admit_type`) also writes
+`::__kairo_fn` (`LowerTargets::fn_value`, guarded
+`__KAIRO_FN_HELPERS` in a header, `have_fn_value` for an include
+stream), so a TU that names none keeps its text (§6, Closures). `__kairo_vt<I>` is the tag argument that selects
 an ADT's variant-I constructor. The alias is never
 instantiated. `__kairo_tmp` is the address of a prvalue's materialized
 temporary, valid to the end of the full-expression: ExtensionLowering's
@@ -279,7 +293,10 @@ Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields (a default as a C++ default member initializer: a
 constant FieldInitLowering folded as it is, `signed int n = 5;`, anything
 else as a call of the member function it made of the initializer,
-`T d = __kairo_init_d();`, so the expression is a body like any other),
+`T d = __kairo_init_d();`, so the expression is a body like any other;
+an array field's list literal as one such call per element,
+`E a[2] = {__kairo_init0_a(), __kairo_init1_a()};`, since no function
+returns an array),
 method DECLARATIONS (never bodies in the class — invariant 12), the
 derived `op =` (below),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
@@ -307,6 +324,18 @@ strengths, so the priv helpers and types they name are declared there too.
 The class definitions stay byte-identical, because the bodies are emitted
 outside the class. `--emit-headers` therefore runs EmitIR, needs a lowered
 tree, and writes nothing after an error.
+
+A record with a member `op <=>` gets the comparisons Kairo derives from it
+written into the class (`_derived_cmps`), after the methods and before the
+derived `op =`: `bool operator<(<other>) [const] { return static_cast<signed
+char>(this->operator<=>(static_cast<decltype(o)&&>(o))) < 0; }` for each of
+`<` `<=` `>` `>=` `==` `!=`, the operand, cv and access the `<=>`'s own. C++20
+cannot find them: its rewrite `(a <=> b) < 0` does not compile against
+`Ordering`, a scoped enum, and it never derives `==` from a user `<=>`. A
+comparison the record declares is skipped, as is `!=` beside a declared
+`==` (C++20 rewrites it as Kairo derives it). In the class, like the derived
+`op =` (invariant 12's exception). Not yet: a generic `<=>`, an extension
+`<=>`, an ADT's.
 
 A record's `op =` is derived from its transfer constructor, never written
 (classes.md); ClassLifecycle decides how (`assign_from`, `assign_form`) and
@@ -336,16 +365,24 @@ constexpr, and clang rejects a redeclaration that differs, in either order.
 An ADT enum is written as the record EnumLayoutLowering built
 (`EnumDecl::adt_layout`), under the enum's name and template head, in the
 record's order: the tag enum (bare enumerators: a tag is a variant's
-position), each payload struct with its own placement `operator new` as its
+position; its word is the enum's `derives` type, else u8 or u16), each
+payload struct with its own placement `operator new` as its
 first member (`new (&m) P(...)` finds it whether or not the TU includes
 `<new>`, so for a payload
 `::new` is never emitted), the tag (public: an ADT's `==` is a compare of
 two values' tags in the user's code), the anonymous union, a generic ADT's
 five `static constexpr bool` flags (type traits over the payload structs),
-then the role functions rendered from `adt_role` / `adt_form`: a
-`template <class F> E(::__kairo_vt<I>, F&& f)` or `E(::__kairo_vt<I>)` per
-variant, the special members, and the private `__kairo_destroy` /
-`__kairo_construct_from`. Their bodies are written in the class, as a
+then the role functions rendered from `adt_role` / `adt_form`: per variant
+`E(::__kairo_vt<I>, F0 f0, ...)` (the field constructor, every field
+trivial), `template <class F> E(::__kairo_vt<I>, F&& f)` (the lambda one),
+or both, constrained, for a generic ADT, and `E(::__kairo_vt<I>)` for a
+dataless one; the special members; the private `__kairo_destroy` /
+`__kairo_construct_from`; and `__kairo_which()` on a generic ADT. Every
+member with a body is `noexcept` unless -funwind, as is the lambda a
+construction site passes, so a construction is a call, not an invoke.
+Every ADT record also answers the niche trait: `__kairo_niche_count` (the
+tag values past its variants), a `(::__kairo_np, i)` constructor storing
+tag `N + i`, and `__kairo_niche_test`. Their bodies are written in the class, as a
 derived assignment's is (invariant 12's exception): they have no Kairo body
 to put out of line, and the text is still a pure function of the decl. A
 generic ADT declares all
@@ -355,6 +392,135 @@ one form its lifecycle facts select, unconstrained. EmitPlan reads an ADT's
 members, nested types, layout edges and by-value parameters off the record
 (`EmitPlan::adt_record`, through `layout_decl`), and sees through the
 anonymous union and the payload structs as through ordinary fields.
+
+A prefix-tagged ADT (EnumDecl::adt_tag_member; EnumLayoutLowering's
+header) writes no tag beside the union: each payload struct's first field
+is the tag, the union's first member `__kairo_t` (`__kairo_t_t`) holds only
+it, a variant constructor initializes the payload as `{Tag::V, f0, ...}` or
+`__kairo_t{Tag::V}`, and the destroy / construct-from helpers are not
+written (its special members are all defaulted).
+
+Niche layout (EnumLayoutLowering's header). The preamble trait
+`__kairo_niche<T>` (`_niche_helpers`, guarded `__KAIRO_NICHE_HELPERS` in a
+header) answers `count` / `pattern(i)` / `test(v, i)`: 0 by default, one
+null for any `T*`, and an ADT record's own members; a closed (not
+`@open`) plain enum with values `0..N-1` at namespace scope is followed by
+its explicit specialization (`_enum_niche_trait`; AST/EnumNiche.k decides
+which, for both Sema and codegen). The niche is sound because `as` into a
+closed enum is checked (Sema's CastTyping / OperatorLowering); an `@open`
+one may hold any value of its word, so it has none. A niche-filled non-generic ADT is written by
+`_niche_record`: the payload struct as its one member, each dataless
+variant a `pattern(j)` of the field, defaulted special members, `which()`,
+its own niche answer past the patterns it uses, then `static_assert(sizeof
+== the payload struct's && standard-layout)`. A niche-shaped generic ADT
+gets that record again as a partial specialization constrained on
+`__kairo_niche<F>::count >= D && trivially copyable && trivially
+destructible` beside the tagged primary, so C++ picks the layout per
+instance in every TU and host alike; each explicit instantiation is
+followed by static_asserts of the size and shape Sema predicted
+(`InstanceEntry::adt_shape` / `adt_size`).
+
+A pack-expanded variant (RESOLUTION.md's EnumLayoutLowering) is written as
+a member template payload `template <class __kairo_pe> struct __kairo_V_t`
+(the enum's pack spelled as `__kairo_pe` inside, `CXXSpell::pack_alias`),
+a union member `::__kairo_pu<__kairo_V_t<E>...>`, flags folded over the
+pack, a `template <unsigned K, class F>` constructor storing tag p + K, and
+the destroy / construct-from helpers' `default:` handing a tag past p to
+the union's own, by runtime index. `__kairo_pu` (head/rest union, `get<K>`,
+trivial special members exactly when its members' are) is emitted once per
+TU that defines such an ADT (`__KAIRO_PACK_UNION` in a header).
+
+The `Panic` lang item (PANIC.md §1.1a, §1.6) is such an ADT with its
+layout knobs set: a u32 tag, a u32 `__kairo_site` beside it, the union
+`alignas(__kairo_payload_offset)` (a static constexpr member,
+`__kairo_max_align<P...>(8)`), and type-id tags. Its pack constructor
+stores `__kairo_type_id<__type_pack_element<K, E...>>`, and destroy /
+construct-from find the element by a fold over `__kairo_type_id<E>`. The
+ids are Sema's: each instance's elements get `template <> struct
+__kairo_tid<E> { value = 0x..u; }` after tier 0 (also for a kcc
+include's pruned instances), once per C++ TU (`InterfaceEmitter::
+tid_seen`, carried along an include chain; `__KAIRO_TID_<key>` in a
+header). `__kairo_tid`, `__kairo_type_id`, `__kairo_nv<T>` (a `void` Ok's
+payload) and `__kairo_max_align` are emitted once where such an ADT is
+defined (`__KAIRO_PANIC_HELPERS` in a header). A TU with panic sites
+gets `__kairo_panic_site` and EmitIR writes one record per site into the
+`__kairo_panic_sites` section (`__DATA,__kairo_psite` on Mach-O).
+
+PanicLowering's C++ (PANIC.md §4) adds to that preamble: the pack
+constructor takes the site id (`Panic(vt<1>, vt<K>, u32 s, F&& f)`;
+VariantInitExpr::site, 0 for none); `__kairo_fwd<R, A>(s)`, one function
+template generic over the record (`P<T, E...>`), which returns `s` as the
+result R -- the same type moved, the bytes `__builtin_bit_cast` when size,
+payload offset and trivial copy agree, else one case per element
+(`__kairo_fwd_k`, built into R's element `__kairo_pidx<X>`, the site word
+copied; A also forwards Ok); `__kairo_raw<T>`, a union over
+`__kairo_rbox<T>` (which brings its own placement `new`) that a
+`raw_slot` local is declared as, filled by `new (&s.__kairo_b)
+__kairo_rbox<T>{v}` and read once by `s.__kairo_take()`; and
+`__kairo_pcall<R>(f, a...)`, a call's result as R. A function's signature
+is spelled from `panic_result` when it is set (CXXSpell::return_spelling,
+every `_ret`, EmitIR's `return`), a `fn` type's from its canonical node's.
+A PanicOpExpr is spelled by EmitIR (`_panic_op`). A `fn` value converted
+to a `fn` type with a wider panic effect -- the one conversion with no
+node in the tree -- is wrapped where it is converted
+(`EmitIR::_fn_effect_value`): an owned lambda holding the value and
+returning `__kairo_pcall<R'>` of the call.
+
+A panic result whose set names a type parameter (a generic body, PANIC.md
+P10) is ONE template for every instance (MONO.md D2), so C++ orders its
+set: CXXSpell spells such a `Panic<T, E...>` as `::__kairo_pset<Panic, T,
+E...>`, an alias (`InterfaceEmitter::_pset_helpers`, with the Panic
+helpers) that inserts each element into a type list sorted by
+`__kairo_type_id`, dropping a repeat (a static_assert stops two types with
+one id), and applies Panic to the result: the canonical order Sema forms
+every concrete set in (§1.3), so the template's result at T = A is the
+`Panic<i32, A>` a concrete caller names. Inside such a body nothing Sema
+cannot know is spelled: `catch e: E` is `::builtin::is<E>(p)` and its
+binding `::builtin::error<E>(p)` (PanicOpExpr Holds / ErrorRef, from
+EnumLayoutQuery when the set is dependent), and an Err is built at
+`::__kairo_vt<::__kairo_pidx<E>(static_cast<R*>(nullptr))>` with its
+payload `typename R::template __kairo_Err_t<E>`. Each instance's result
+Sema predicted (InstanceEntry::panic_result, M2's PanicInstances) is what
+its explicit instantiation spells, preceded by `static_assert(__is_same(
+<the alias at the instance>, <the prediction>))`; the dependent panic
+results its body names, formed at its arguments (InstanceEntry::
+panic_types), are admitted Complete wherever the instance is (EmitPlan),
+so every element's `__kairo_tid` is written there. A generic interface's
+witness spells a requirement's result at the specialization's arguments,
+and a full specialization orders after the Panic template
+(`EmitPlan::_witness_dep`).
+
+The C++ view of a panic result (PANIC.md §4.6, P7) is preamble text too,
+written after tier 0 wherever the Panic lang item is defined
+(`InterfaceEmitter::_panic_api`, `__KAIRO_PANIC_API` in a header): in
+`::builtin`, `type_id<E>`, ONE partial specialization `panic_set<Panic<T,
+E...>>` (value_type, types, size, payload_offset), `ok`, `value`,
+`is<E>`, `error<E>` (by `__kairo_pidx` / `__kairo_get<K>`, never a byte
+offset), `site` (a search of the site table, whose bounds are the
+linker's `__start_`/`__stop_` symbols, weak, on ELF), and, only where the
+C++ compiles with exceptions -- a header under `#if __cpp_exceptions`, a
+kcc include when its host's LangOptions have them, never an object's own
+TU -- `panic_error_base`, `panic_error<E>` and `value_or_throw`. Each
+`__kairo_tid<E>` specialization also carries E's Kairo `name`; an
+`extend`'s `op panic` gets `__kairo_pmsg<T>` after its scope. A panicking
+function's declaration is `[[nodiscard]]`. A panic result's elements are
+admitted Complete wherever the result is named (EmitPlan::_arg_by_value
+and _admit_instance), so a header declaring `Panic<T, E...> f()` includes
+every E's header; its instance is `extern template` there as every
+instance is, homed in one object.
+
+The `Nullable` lang item (`T?`'s target, Lib/builtin/module.k, NULLABLE.md
+1.2) is such an ADT, `Value { v: T }, Null`, and its record alone carries
+eight more roles (AdtRole::NullDefault on, `InterfaceEmitter::
+_nullable_member`): `Nullable()` and `Nullable(::builtin::null_t)` (null),
+`Nullable(const T&) requires __kairo_copyable` and `Nullable(T&&) requires
+__kairo_movable` (present, the payload built in place; constrained because
+the explicit instantiation defines every member whose constraints hold),
+`is_null() const`, the unchecked `T& __value()` / `const T& __value()
+const`, and `operator==` when `const T&` compares. None is `explicit`:
+every implicit `T -> T?` / `null -> T?` is C++ copy-initialization through
+one of them. `null_t` (`StructDecl::is_null_type`) is followed by `inline
+constexpr null_t null{};`, the constant a C++ host spells `::builtin::null`.
 
 A static field is declared in the class (`static [thread_local] T s;`, no
 initializer: C++ takes one in-class only on a const static) and DEFINED
@@ -380,14 +546,23 @@ __kairo_lref = T&;` and `__kairo_slot<T>`, a T in union storage built on
 its first assignment through its box's own placement `operator new` (no
 `<new>`), destroyed only if built, never copied: `init` (first
 assignment), `put` (may be a later one; the only use of T's `op =`),
-`get`, `take`, `set`.
+`get`, `take`, `set`. `__kairo_slot<T[N]>` is the array field's: `init`
+takes the array by `&&` (a list literal's prvalue, its elements moved) or
+`const&` (copied), building the elements from an index pack
+(`__make_integer_seq`, `LowerTargets::make_index_seq`), and there is no
+`put` (an array is written once, CtorInitCheck). `init_at(k, T)` builds
+element k alone, in place in a box of its own, for an array built element
+by element; the slot is `set` once all N are (CtorInitCheck guarantees
+every path builds every element, and S_pre cannot panic or return, so a
+partly built array is never destroyed).
 
 V1 refusals (each an ICE naming its owner): named unions, interfaces, the
-initializer of an eval or array-typed field (FeatureGateCheck rejects it
-first, SC116E: no eval constant is emitted yet, and a C++ function
-cannot return an array). A pack is spelled
-as its
-`Slice<E>` (`ParamDecl::pack_type`).
+initializer of an eval field or of an array-typed field FieldInitLowering
+did not take element by element (FeatureGateCheck rejects it first,
+SC116E: no eval constant is emitted yet, and a C++ function cannot
+return an array). A one-type pack is spelled as its `Slice<E>`
+(`ParamDecl::pack_type`); a type pack as `T... xs`, under an instance its
+elements, and a canonical pack parameter in an argument list as `E...`.
 
 ## 6. EmitIR — the core
 
@@ -399,7 +574,7 @@ Declarations are the plan's; EmitIR writes bodies. What it knows:
     `return`/`break`/`continue` (unlabeled), locals, blocks, named and
     anonymous initializers (designated, declaration order, aggregates
     only), `sizeof`/`alignof`/`delete`, `unsafe` (transparent),
-    `InitListExpr`, `StmtExpr`.
+    `InitListExpr`, `StmtExpr`, closures (Closures, below).
 
 `InitListExpr` is the C++ braced-init-list, and array-typed only. Its two
 spellings are chosen by POSITION: the bare `{...}` as a `VariableDecl`'s
@@ -411,6 +586,60 @@ decay of a prvalue array ("taking address of temporary array") and clang
 does not — bodies only ever go through clang, and that is a HARD dependency
 of this layer, not a preference.
 
+### Closures
+
+A closure is a C++ lambda inside the `fn` value its type is. closures.md
+gives every closure the type `fn(A) -> R` ("no separate closure type")
+and lets one that captures be stored, passed and returned as that type,
+so `fn(A) -> R` is spelled `::__kairo_fn<R(A...)>` everywhere (CXXSpell,
+§4), a preamble helper (§5): empty, a plain function pointer, or a
+heap-allocated lambda with its call / copy / destroy operations.
+
+    captures nothing   ::__kairo_fn<R(A)>(+[](A a) -> R { body })
+    captures           ::__kairo_fn<R(A)>::own(new auto([caps](A a) mutable -> R { body }))
+
+- A named function converts to the value by its function-pointer
+  constructor; a `fn` value converts back to `R(*)(A...)` for a C callee
+  or field, and that conversion traps on a capturing closure (it has no
+  function to give). C++ does both implicitly, so a foreign call needs
+  no arm here.
+- `new auto(lambda)` builds the lambda in its heap slot from the prvalue:
+  no temporary lambda, so each by-copy capture is copied once (from the
+  variable) and destroyed once (with the last `fn` value holding it).
+- Copying a `fn` value copies the lambda: each copy keeps its own
+  by-copy captures, as copying a C++ lambda does. A lambda with a
+  move-only capture cannot be copied; copying the `fn` value that holds
+  one traps. Moving never copies.
+- A capturing lambda is `mutable`: a by-copy capture is the closure's
+  own variable (closures.md), assignable in the body, and its value
+  persists from one call to the next.
+- The capture list is ClosureCaptures' decision (`ClosureExpr::
+  cap_decls` / `cap_modes` / `cap_via_ptr`, RESOLUTION.md §2.8), spelled
+  by `_capture_list`. Init-captures keep the Kairo name, so the body
+  emits unchanged: inside a `|*x|` closure Sema types `x` as `*T`
+  (ExprTyper::_capture_view), and the capture makes C++'s `x` that
+  pointer.
+
+        Copy       x
+        Move       x = static_cast<T&&>(x)          a MOVE value, moved in
+        Ptr        x = &x                           `|*x|`, `|*|`
+        ConstPtr   x = static_cast<const T*>(&x)    `|const *x|`
+        Self       this   (an extension member: self)
+
+  A binding an enclosing closure holds by pointer is already that pointer
+  in the inner lambda: Copy (and Ptr, Move) copy it, ConstPtr converts it
+  (`static_cast<const T*>(x)`).
+- `return` in the body returns from the lambda (`_return` reads the
+  innermost `_closure`'s return type); `_cur_fn` stays the enclosing
+  function, which decides `self`. An expression body arrives as a block
+  (ExprBodyDesugar). A `finally` in the body is FinallyLowering's local
+  record, declared in the lambda.
+- A call through a `fn` value (a local, a parameter, a field, `make()(4)`)
+  casts each argument to the type's parameter as `_arg` does
+  (`_fn_value_args`).
+- Not emitted: a generic closure (`fn <T>(x: T)`; FeatureGateCheck,
+  SC116E), whose parameters and calls X does not type.
+
 `StmtExpr` is the GNU statement expression `({ s0; s1; e; })`, whose value is
 its last statement. The parser produces it for source `({ ... })` (the last
 statement must be an expression, enforced there), and SequenceLowering mints
@@ -420,15 +649,26 @@ clang-only -- it is not C++, it is a GNU extension clang implements -- so it
 carries the same HARD clang dependency.
 
 A split constructor (its body `{ {S_pre} {S_post} }` after
-CtorInitLowering) is four definitions (`_split_ctor`): the slot record
+CtorInitLowering: one that initializes a const field, a field whose type
+has no default, or an array field, CtorInitCheck) is four definitions
+(`_split_ctor`): the slot record
 (`::__kairo_slot<T>` per field S_pre assigns, in declaration order, then
 per carried local); the pre-function, S_pre against the slots, `return
-__kairo_s;`; the slot constructor, mem-initializers `x(__kairo_s.x.take())`
-for every field S_pre assigns on all paths, in declaration order, then
+static_cast<__kairo_ciK&>(__kairo_s);` (not `return __kairo_s;`: since
+C++23 a returned `&&` parameter is an xvalue, which the `&` return cannot
+bind); the slot constructor, mem-initializers `x(__kairo_s.x.take())`
+for every field S_pre assigns on all paths, in declaration order (an
+array `a{__kairo_s.a.take()[0], ..., __kairo_s.a.take()[N-1]}`: a member
+array is initialized from elements, never from an array), then
 `if (__kairo_s.y.set) { this->y = __kairo_s.y.take(); }` for one it
-assigns on some, then S_post; and the declared constructor, `R(P p) :
+assigns on some (never an array: CtorInitCheck requires every path), then
+S_post; and the declared constructor, `R(P p) :
 R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}`. In S_pre (`_ci_pre`)
-`self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field),
+`self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field that
+is not an array),
+a write CtorInitCheck marked `ci_elem_init` (`self.a[k] = e`, building
+element k) is `__kairo_s.a.init_at(k, e)`, in place, so e runs where it
+is written;
 `self.x` and a bare field are `__kairo_s.x.get()`, and any other `self`
 ICEs (CtorInitCheck rejected it). A carried local is `__kairo_s.__kairo_lI_n`
 in both halves, built at its declaration. The temporary slot record lives
@@ -463,13 +703,19 @@ The no-headroom rules, each with one home:
   `<ext args..., member args...>`, the order of `template_params`, never leaving clang to deduce them: an argument
   whose C++ type is not its Kairo type (an int literal typed `i64`) would
   deduce an instance no TU homed. A generic METHOD through `.` still
-  deduces (`.template m<...>` is RESOLUTION.md item r). A default-thunk
-  call to a generic type's method is spelled through `CallExpr::qualifier`
-  (`Box<int>::__kairo_default_m_x()`). A constructor call's parameters are
+  deduces (`.template m<...>` is RESOLUTION.md item r). A static member
+  named through a generic record's instance (`Box<i32>::zero()`, or
+  `Box<U>::zero()` in a generic body) is spelled through
+  `CallExpr::qualifier`, which CallTyping writes: the member's decl is the
+  pattern's, and the decl alone spells the bare class template. EmitPlan
+  admits the qualifier Complete. A default-thunk call to a generic type's
+  method goes the same way (`Box<int>::__kairo_default_m_x()`). A constructor call's parameters are
   `CallExpr::ctor_decl`'s, not the named type's.
 - `_check_arity`: CallLowering's postcondition, checked in `_call`. Every
   parameter has an argument; more arguments than parameters only for a C
-  `...` tail. A dependent call is as written until M2 and is not checked.
+  `...` tail. A dependent call is as written and not checked here: the
+  body was checked once against its bounds (MONO.md D0), and clang checks
+  each instance of an unbounded or `: type` call.
 - Decision 6, the one headroom: an imported C++ function's TRAILING
   defaults are omitted from the call and clang supplies them
   (`has_default` with no `default_thunk`). A non-trailing omission has no
@@ -484,23 +730,36 @@ The no-headroom rules, each with one home:
   "Record" is a class, struct, union or ADT enum (`_record_operand`): a
   plain enum is a RecordType too, but `==`, `<` and `as` on an `enum class`
   are C++'s own; an ADT's `==` arrives that way, as a compare of the two
-  `__kairo_tag` fields (OperatorLowering, from X's `tag_eq`), never as a
-  call to an `operator==`. `===` in `_binary` is an ICE naming the nullable
-  lowering; `x as T&&` (a lowering's move, never user-written) is a
-  `static_cast`.
+  values' variants (OperatorLowering through EnumLayoutQuery::same_variant,
+  from X's `tag_eq`), never as a call to an `operator==`. `===` in `_binary` is an ICE naming
+  CoalesceLowering; `x as T&&` (a lowering's move, never user-written) is a
+  `static_cast`. The checked downcast `p as (*D)?` (CastTyping's
+  `checked_downcast`) is `dynamic_cast<D*>(p)` inside a lambda called on the
+  spot, `[](D* __kairo_dc) -> N { return __kairo_dc ? N(__kairo_dc) : N();
+  }(...)` with N the `Nullable<D*>`: with tagged storage a null pointer must
+  become the null nullable, not a present one (`_checked_downcast`). The
+  asserting downcast `p as *D` (CastTyping's `asserting_downcast`) arrives
+  expanded by OperatorLowering, `({ B* s = p; D* d = dynamic_cast<D*>(s);
+  if (s && !d) { unwrap_failed("<msg>", n); } d; })`: the inner cast is a
+  `dynamic_only` TypeCastExpr, spelled `dynamic_cast` as is; an unexpanded
+  asserting downcast reaching EmitIR is an ICE (PANIC.md §5).
 - `_var_decl`: an inferred type is the shared canonical (no range) and is
   spelled at the binding's name; a null type is `I011W` + `auto` — the
   only diagnostic codegen emits.
 
-ICE map (node → owner): match/MatchExpr → MatchLowering; try/finally/
-panic/assert → PanicLowering; ranged for → IterLowering, only for the
+ICE map (node → owner): match/MatchExpr → MatchLowering; try/panic →
+PanicLowering; finally → FinallyLowering; assert → not emitted yet; ranged for → IterLowering, only for the
 kinds RESOLUTION.md §2.10 lists as not yet lowered and for a dependent
 iterable; ranges → RangeLowering;
-`?.`/`??`/`T?` → the nullable trio; f-strings → FStringLowering; yield →
-YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
+`??`/`?.`/`?->`/`unwrap!`/`===` → CoalesceLowering (a `match` on a `T?`
+is rewritten there too, then reaches MatchLowering as an ordinary match);
+a `T?` with no `lowered` record → NullableTypeLowering (CXXSpell). A null
+test left for NullTestLowering or a read left for NarrowedAccessLowering
+has no ICE of its own: those two passes are the only guard; f-strings → FStringLowering; `yield`
+is EmitIR's own (`co_yield`, a C++ coroutine); a generic closure → FeatureGateCheck; await/spawn/thread
 → async lowering; `ListLiteralExpr` / set / map literals →
 ListLiteralLowering (set and map have no lowering yet); labeled
-break/continue → label lowering; typeof/impl/derives tests →
+break/continue → LabelLowering; typeof/impl/derives tests →
 TypeQueryLowering; NamedArgExpr → CallLowering; a call short of
 arguments → CallLowering; a ChainExpr callee ending in an extension
 member → ExtensionLowering; a `TypeCastExpr` with a
@@ -543,6 +802,77 @@ walks exactly it for dependencies, at the body strengths, to a fixed
 point -- that walk is what makes `Suspend` and `YieldPromise<T>` complete
 in a consumer whose own code names neither.
 
+Compile-time code is interface by the same rule (EVAL.md 1.1, 1.2b): a
+`consteval` body, a `constexpr` one (an eval class's field default, the
+builtin string's literal and empty constructors), and the definition of
+every namespace-scope `eval` binding, which is `inline constexpr T const N
+= init;` in every TU that reads it (`EmitPlan::visible_eval_vars`; an
+`extern const` is no constant expression to an importer). A constant
+expression needs what it calls already defined and declarations have no
+order, so EmitIR::emit_tu writes, in order: the compile-time bodies
+(foreign, then the TU's free functions, then its records' methods), then
+every eval binding, foreign and own, dependencies first
+(`EmitPlan::_eval_vars`, following what each reads through the eval fns
+it calls too), then the rest. A header and an include stream
+(`emit_bodies`) keep the same order.
+
+A declaration's TYPE may itself compute from an eval item (`[i32;
+f(3)]` as a field, `Buf<twice(1)>` in a signature, a namespace-scope
+`var g: [i32; f(1)]`; EVAL.md §11, USER), and C++ evaluates it where the
+declaration stands, in the interface. Those items, and everything they
+read transitively, are the plan's EARLY items (`EmitPlan::early`,
+`_early`): every free one is declared at the start of tier 1, and each is
+defined by a tier-1 entry of its own (`PlanEntry::eval_item`), which
+InterfaceEmitter hands to the shared EmitIR (`EmitIR::early`; the
+backends construct one EmitIR and give it to the interface). The
+toposort places each after the records its definition needs complete
+(by-value types in its body, a member's class) and, for an eval binding,
+after every item its value reads; a body only after what it evaluates at
+its own definition (a computed type inside it, an eval local), so mutual
+recursion orders freely; a record after every item its own types reach.
+EmitIR skips them afterwards (`_eval_done`, `_early_vars`); an include
+stream marks them as bodies the host has. A cycle among those edges is
+EvalUsageChecking's error (`_check_order`); reaching the toposort with one
+is an ICE.
+
+A computed value (EVAL.md 0.2: an array extent or generic value argument
+Sema kept as an expression, `TypeExpr` with a `ValueOp`) is spelled by
+`CXXSpell::value`: each operator application parenthesized, value
+parameters as written or by their instance's value, eval constants and
+calls by qualified name, an eval class's constructor call by its class
+(`::m::Pt(2, 3)`, braced when empty), a string as the string record's
+literal constructor over its bytes (`::builtin::string::string(
+::__kairo_estr<...>, len, cp)`, the named array past the inline limit;
+one object per content, so two spellings of one value are
+template-argument-equivalent). EmitPlan admits what it names (the
+eval fn, the eval binding, its definition with it). An instance over such
+a value gets no `template class` / `extern template` line: it may be the
+specialization another spelling names (`Buf<twice(1)>` is `Buf<2>`), and
+C++ rejects two explicit instantiations of one; it is instantiated
+implicitly where used. A template with a value parameter of class type
+(7e) is not forward-declared (C++ needs the class complete at every
+declaration of the template); its definition follows the class
+(`EmitPlan::value_param_record`).
+
+A string literal C++ reads at compile time (`StringLiteralExpr::
+const_eval`, set by EvalUsageChecking, EVAL.md 2a) passes its bytes as
+`::__kairo_estr<b0, b1, ...>`, a variable template of `const unsigned char`
+with the NUL appended (InterfaceEmitter writes it with the eval helpers):
+no `reinterpret_cast`, which no constant expression may hold, and keyed on
+the bytes, so a literal is one object in every TU and header. A run-time
+literal keeps `reinterpret_cast<const unsigned char*>("...")`. Past
+`LowerTargets::eval_str_inline_max` (256 bytes; EVAL.md §11, USER) one
+template argument per byte is too many: such a literal is
+`::__kairo_estrh_<len>_<hash>`, an `inline constexpr unsigned char[len +
+1]` named for its content (FNV-1a, `LowerTargets::eval_str_hash`).
+EmitPlan collects each one a walked body, eval initializer or value
+argument spells (`big_str_bytes`), and InterfaceEmitter defines them at
+global scope right after the eval helpers, ahead of every type and body,
+foreign consteval bodies included: `#ifndef`-guarded per name in a header,
+skipped by an include stream when an earlier include wrote it
+(`estr_seen`). Inline and content-named, so every TU and header that
+writes one writes the same entity and the linker keeps one.
+
 Why, rather than "the template's own TU plus every TU that homes an
 instance": clang instantiates templates Kairo never names -- a coroutine's
 promise (`YieldPromise<int>`, reached through `Yield<int>::promise_type`),
@@ -555,7 +885,7 @@ because the text is identical in every TU (invariant 11).
 `extern template` declarations still sit in the preamble for every
 registry instance this TU does not home, and the home still emits the
 explicit instantiation. They are NOT redundant now: `extern template class
-X<A>;` stops clang from implicitly instantiating X<A>'s non-inline members
+X\<A\>;` stops clang from implicitly instantiating X\<A\>'s non-inline members
 in that TU, so a known instance is still compiled once, in its home. That
 is what keeps visible bodies cheap -- parsed everywhere, instantiated only
 in the home TU and for the instances Kairo never saw. Explicit
@@ -568,50 +898,164 @@ InterfaceEmitter from adt_role/adt_form, and a generic record's derived
 assignment from its assign_form; they are not Kairo constraints and have no
 requires_clause.
 
-## 7b. Witnesses: calls through an interface bound [DECIDED, MISSING]
+### 7a. Specializations of a generic record [DONE]
 
-`Codegen/Emit/EmitWitness.k` (not written). This section supersedes the
+A partial specialization (`class <P> Store<*P>`) is a C++ partial
+specialization and an explicit one (`class <> Store<bool>`) a C++ explicit
+specialization; C++ then selects them itself, exactly as Sema did
+(RESOLUTION.md §2b, Instances):
+
+    template<class T> class Store;               // tier 0, primary first
+    template<class P> class Store<P *>;
+    template<> class Store<bool>;
+    template<class P> class Store<P *> { ... };  // tier 1, after the primary
+    template<class P> int Store<P *>::tag() const { ... }
+    int Store<bool>::tag() const { ... }         // no `template <>`
+    template class ::ns::Store<int *>;           // tier 3 names the instance
+
+- **Spelling.** `CXXSpell::record_head` (`template <>` for an explicit
+  spec, else template_head) heads the spec's own declaration and
+  definition; `spec_suffix` (the pattern, a partial's parameters by name)
+  follows its leaf there and in every out-of-line member's qualifier
+  (`owner_segment`). Inside a spec, Self is the instance it stands for,
+  spelled through the primary (`Store<P *>`, `Store<bool>`), never the
+  spec decl.
+- **Admission.** A primary admits every specialization of it at its own
+  strength (`EmitPlan::_admit_specs`, `InstantiationRegistry::specs_of`):
+  a TU or header that can name `Store<X>` sees each one before any use
+  would instantiate the primary instead -- an ODR violation no linker
+  reports. Tier 0 moves a spec written above its primary after it; tier 1
+  orders a spec after its primary. An instance a partial lays out is
+  `layout_decl`'d to the partial, and its by-value needs are read off the
+  partial's parameters.
+- **Members.** A partial's members are templates (visible bodies, §7); an
+  explicit spec's are ordinary members of a non-template class, defined in
+  the home TU like any record's, `inline` only when marked
+  ([temp.expl.spec]/5: no template head out of line).
+- **Tier 3.** An instance whose body is a partial is explicitly
+  instantiated by its own name (`template class Store<int *>;`); an
+  explicit spec is never an instance and gets no line.
+- **Extensions.** Every block on any form of a template -- `extend <T>
+  Store<T>`, `extend <P> Store<*P>`, `extend <> Store<bool>` -- is one
+  scope struct `__kairo_ext_Store` (keyed by the primary, `ExtScope::key`),
+  each member over its own receiver, befriended by every specialization.
+
+Not built: a partial selected by `requires` (SC001E at the declaration,
+the primary kept); a pack parameter in a partial's pattern (never
+matches); a qualifier that matches only by subset (`const P` against
+`const volatile i32` -- a non-match, never a wrong binding).
+
+## 7b. Witnesses: calls through an interface bound [DECIDED, PARTIAL]
+
+`Codegen/Emit/EmitWitness.k`. This section supersedes the
 witness paragraph of RESOLUTION.md §2b where the two differ -- every
 conformance a specialization, the witness edge in the home TU only -- and
-the design memo that sits in `Sema/Mono/WitnessTable.k` (prose in a `.k`
-file, no code); the header rule applies, this text is newer. RESOLUTION.md
+the earlier design memo (`Sema/Mono/WitnessTable.k`, prose in a `.k`
+file, since deleted); the header rule applies, this text is newer. RESOLUTION.md
 §2b keeps what Sema must produce: the conformance table, its rows, and the
 passes that fill them.
 
 ### 7b.1 What exists today
 
-- The typer binds a bound call to the REQUIREMENT. In `fn <T impl
-  Scalable> twice(a: T) { a.scale(2) }`, `--print-sema` shows `.scale ->
-  fn scale [member of Scalable]`: the step's `resolved_decl` is the
-  interface's `FunctionDecl`, its `semantic_dc` owner an `InterfaceDecl`.
-  `Self` in the requirement's signature reads back as the receiver
-  (`ArgumentDeduction::through_receiver`, called from overload ranking and
-  `CallTyping::call_result_type`). That decl is the key the witness needs;
-  nothing about binding changes.
-- `LowerTargets::witness_suffix()` (`_witness`) and `concept_suffix()`
-  (`_c`) exist in `AST/LangItems.k` with no reader. See 7b.12, question 1.
-- An interface is no C++ entity anywhere in codegen: EmitPlan drops an
-  `InterfaceDecl` on admission and as a member owner, EmitIR's `emit`
-  skips one, `CXXSpell::_type` ICEs on one ("witnesses are not emitted
-  yet"). `ConstraintSet::impl_constraints` holds every `T impl I` bound.
-- ConformanceChecking is a stub (`Sema/Check/ConformanceChecking.k`), and
-  no conformance is checked at an instantiation site: a `twice(x)` whose
-  `x` has no `scale` type-checks clean, and the only error is clang's.
-- **The ICE this section used to promise does not exist.** `EmitIR::_call`
-  has no branch for a callee owned by an `InterfaceDecl`. A bound method
-  call falls to `self.emit(n->callee)` and reaches clang as the member call
-  `a.scale(2)`, which is right when the conformer has an own member
-  `scale` and is CL001E "no member named 'scale'" when the conformance is
-  an extension member (the 2026-10-24 ticket; repro in
-  `private/IMPORTANT/TICKETS.TXT`). A static requirement, `T::make()`,
-  collapses through `_chain_prefix`'s `::` rule to `::N::Eq::make()`,
-  naming the interface (CL001E "no member named 'Eq' in namespace"), and
-  its local is untyped (I011W): `-> Self` is not read back through a `::`
-  step. An operator requirement on `T` reaches clang as the C++ operator
-  and works only for a member operator. The first piece of the work is
-  that ICE (one arm in `_call`, one in `_chain_prefix`, naming the
-  lowering of 7b.5), so the failure names its owner instead of reaching
-  clang.
+Built, end to end (`Tests/Codegen/witness/`):
+
+- **Sema.** ConformanceChecking (Check stage, after ExprTyper) walks every
+  call with a registered instance and, per `P impl I` bound of the
+  primary, finds the row `(X, I)`: for each of I's own requirements, the
+  decl member lookup on X finds whose signature is the requirement's
+  exactly (Self := X, the interface's parameters := the bound's
+  arguments). Rows live in the InstantiationRegistry (`ConformanceRow`,
+  `row_find` / `row_add`), shared build-wide, and go on the instance as
+  `InstanceEntry::rows`, the bound's derives closure included. A miss is
+  SC001E at the call, with notes at the bound and the requirement.
+- **The call.** ExtensionLowering rewrites `a.m(x)` / `p->m(x)` bound to a
+  requirement into `m(recv, x)` with an extension member's receiver rules
+  (no upcast), and `T::make(x)` bound to a STATIC requirement into
+  `make(x)` with Self the qualifier, and records `CallExpr::witness_iface`
+  (the DECLARING interface, found through the parameter's bounds and their
+  derives closure) and `witness_self`. A type parameter used as an
+  expression denotes its type (ExprTyper), which is how `T::` reaches the
+  bound and `-> Self` reads back as T. An operator on a bounded `T` binds
+  to the bound's requirement (OperatorTyping gathers candidates from the
+  bounds alone), so OperatorLowering mints the call and the same arm takes
+  it; an operator the bounds do not declare still defers. EmitIR spells the callee
+  `::N::I_witness<Self, A...>::m`. A requirement callee with no recorded
+  witness is an ICE naming ExtensionLowering.
+- **Emission.** EmitPlan keeps `WitnessPiece`s beside its ExtScopes: an
+  interface's primary + concept (tier-0 forward declaration, tier-1
+  definition; admitted by a requirement use and by a bounded generic's
+  declaration) and a row's specialization (tier 1, admitted from
+  `_admit_instance` in every TU holding the instance, after the primary,
+  the conformer and the extension scopes it forwards to). EmitWitness
+  writes them; the primary-vs-specialization choice is 7b.4's, from
+  spellings. A header guards each definition (`__KAIRO_W_<key>`);
+  IncludeEmitter dedupes by the same key.
+- **The concept** is rendered by `CXXSpell::template_head` on a
+  namespace-scope generic FUNCTION only (declaration, body and the
+  explicit-instantiation lines need no clause of their own: an explicit
+  instantiation has no template head, and clang matches it to the
+  constrained template -- checked by hand, and by `witness/diamond`).
+
+Also built: the qualified form `I::m(x)` (Self is the first argument's
+type; on a concrete conformer the call carries its own row,
+`CallExpr::witness_row`), a generic interface's included
+(`Container<i32>::get(x, 0)`: CallTyping keeps the qualifier on
+`CallExpr::witness_iface`, overload resolution binds the requirement's
+interface parameters from it, and the witness is the declaring instance's,
+`Container_witness<X, int>`; on a bounded parameter ConformanceChecking
+picks the bound the qualifier names, SC001E when none does); a generic
+interface's `Self` (`I<T>` over its own parameters, which CXXSpell spells
+as the witness's Self like a bare `I`); compound assignment and every other operator on
+a bounded `T`, `op []` included (a static member `__kairo_op_index`,
+`[]` having no extension name); generic requirements, named and operator
+alike (a member template, gated on the callable form -- `self.template
+operator[]<K>(k)` for an operator -- left out of the concept);
+constructor requirements (no member in the primary or any
+specialization, a concept clause `__kairo_Self(a0, ...)`, and `T(args)`
+in the body plain C++ construction); a generic extension's member as
+a witness (the row records the extension's arguments); the concept on
+every bounded head -- records, methods, extension members -- with the
+concepts in tier 0 ahead of the bounded records' forward declarations;
+rows for record instances wherever their type is named; DECLARED rows
+(`class X impl I`, `extend X impl I`, concrete X and I): ConformanceChecking
+builds the row at the declaration and records it on the registry under the
+declaring decl (`declare_row`), and EmitPlan admits it wherever that decl
+is emitted, the conformer's header included, so a C++ host instantiating
+with a declared conformer Kairo never paired finds the specialization
+(`witness/header_declared`; a row that does not hold is not recorded, and
+the host then fails at the concept); a GENERIC declared conformance
+(`extend <E> Wrap<E> impl I`, `class <T> Box impl I`) as ONE partial
+specialization, its row's conformer over the declaring decl's own
+parameters (`ConformanceRow::declared` names that decl, whose
+`template_head` -- bounds included, so a conditional `extend <E impl I>`
+gets `requires I_c<E>` -- heads it), and every concrete row it covers
+(same witnesses, conformer and interface at the row's arguments:
+`ConformanceRow::covered_by`) admitting the partial in place of a full
+specialization of its own; and the
+instances a generic's body reaches (`outer<T>` calling
+`inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
+arguments (`CallExpr::dep_args`) and ConformanceChecking's discovery
+fixpoint substitutes them per live instance, to any depth below
+`--cmax-generic-depth` (RESOLUTION.md §2.10). A reached instance is
+registered (its `home_fid` is the reaching TU's unless a TU named it
+first), keeps its own rows, and is recorded as reached by the outer one
+(`InstanceEntry::reached`, `add_reach`). Every plan that admits an
+instance -- a member template of a class template included -- admits
+what it reaches, transitively, rows and all, so the home writes the
+reached instance's explicit instantiation and every other TU holding the
+outer one its `extern template`, exactly as for a named instance
+(`Tests/Codegen/mono_reached/`, `Tests/Codegen/witness/deep_chain.k`).
+
+Not built, each the ICE or diagnostic that names it:
+
+- `T::m(a)` for a METHOD: R027E, by design (use `.`).
+- A bare qualified call to a GENERIC interface's requirement
+  (`Container::get(c, 0)`): SC001E asking for the arguments, by choice --
+  deducing the one instance c conforms to is a second lookup to keep sound.
+- Associated types, value-parameter interfaces: EmitWitness ICEs.
+- A member template of a class template gets no explicit instantiation,
+  named or reached: its registry entry carries only its own arguments,
+  so it is instantiated implicitly from its visible body.
 
 ### 7b.2 The problem, and why a witness
 
@@ -650,11 +1094,11 @@ in module `ring`:
             static signed int scale(const ::ring::Metric* self, signed int factor)
             { return ::ring::__kairo_ext_Metric::scale(self, static_cast<decltype(factor)&&>(factor)); }
         };
-        template <class T> requires ::ring::Scalable_c<T> signed int twice(T a);
+        template <class T> requires (::ring::Scalable_c<T>) signed int twice(T a);
     }
     ...                                                  // bodies
     namespace ring {
-        template <class T> requires ::ring::Scalable_c<T> inline signed int twice(T a)
+        template <class T> requires (::ring::Scalable_c<T>) inline signed int twice(T a)
         { return ::ring::Scalable_witness<T>::scale(&a, 2); }
     }
 
@@ -695,6 +1139,8 @@ verbatim and there is one receiver convention, not two:
     fn op ++ (self), postfix      static R __kairo_op_postinc(S& s, int)        the postfix dummy forwarded as is
     static fn make() -> Self       static __kairo_Self make()                    __kairo_Self::make() / __kairo_ext_X::make()
     fn <U> m(self, u: U)           template <class U> static void m(S* self, U u) self->template m<U>(u) / __kairo_ext_X::m<U>(self, u)
+    fn op [](const self, k: K)     static R __kairo_op_index(const S& s, K k)    s.operator[](k) in both (member-only: no extension form)
+    fn <U> op +(const self, u: U)  template <class U> static R __kairo_op_plus(const S& s, U u)  s.template operator+<U>(u) / __kairo_ext_X::__kairo_op_plus<U>(s, u)
     fn I(self, ...)  (constructor) none                                           -- see below
     type Node        (associated)  using Node = ...;                              -- see below
 
@@ -705,7 +1151,9 @@ an operator, `[const ]Self&` (`CXXSpell::ext_receiver`) are the whole list;
 there is no `@inout` or by-value receiver to spell. An operator's member is
 named by `LowerTargets::ext_op` (a static member cannot be `operator==`),
 or by its LowerTargets name for `in`, `^^`, `await`, `spawn`, `thread`:
-the name `CXXSpell::operator_name` gives an extension member. Parameters
+the name `CXXSpell::operator_name` gives an extension member. `op []` is
+member-only, so it has no extension name; its witness member alone is
+`LowerTargets::witness_subscript()`. Parameters
 are spelled by `param_decl` and returns by `return_spelling`, each with
 `Self` replaced by `__kairo_Self` -- so the DECIDED `const T&` rule for
 by-value records, when it lands, lands in the witness too -- and every
@@ -719,8 +1167,9 @@ constructor requirement is met by an own constructor and `T(args)` / `T{}`
 is already the right C++ for every conformer; lifecycle requirements
 (`@copy` / `@move` constructors) are C++'s implicit special members. The
 concept still lists them (`requires { __kairo_Self(a0); }`), so a host's
-non-conforming class fails at the call. Whether a PRIMITIVE satisfies a
-constructor requirement is open (question 7).
+non-conforming class fails at the call. A PRIMITIVE satisfies none
+(question 7, decided): `i32()` is not a call in Kairo (SC037E), so `i32`
+has no constructor for a row to name, though C++ `int()` would compile.
 
 **Associated types are not compiled yet** (interfaces.md, Status), and
 their witness shape is reserved, not built: a member alias, `using Node =
@@ -730,10 +1179,13 @@ specialization, with `T::Node` in a bounded body spelled `typename
 one. Until then a `T::Node` reaching codegen ICEs naming the feature.
 
 **Specializations** are full (`template <>`) for a non-generic conformance
-and PARTIAL for a generic one: `extend <T> Pair<T> impl Container<T>` is
-`template <class T> struct Container_witness<::m::Pair<T>, T> { ... }`, its
-head `CXXSpell::template_params` of the extension, and a generic extension
-member is called with its arguments spelled, never deduced (§6, `_call`).
+and PARTIAL for a generic DECLARED one: `extend <T> Pair<T> impl
+Container<T>` is `template <class T> struct Container_witness<::m::Pair<T>,
+T> { ... }`, its head `CXXSpell::template_head` of the extension, and a
+generic extension member is called with its arguments spelled, never
+deduced (§6, `_call`). A STRUCTURAL generic one (a plain `extend <T>
+Pair<T>` meeting I) stays a full specialization per concrete conformer a
+Kairo instance reaches (7b.6: a structural row is no host's to find).
 A specialization forwards each requirement to the decl its row names
 (7b.4), which may be an own member too: one non-structural requirement
 makes the whole (X, I) a specialization. Its members are defined IN the
@@ -849,9 +1301,10 @@ that is the unnamed namespace, and only that TU can reach it).
   primary instead, ill-formed NDR ([temp.expl.spec]/7); and the
   `extern template` line itself checks `Scalable_c<Metric>`. The row is
   also admitted, for DECLARED rows only (`class X impl I`, `extend X impl
-  I`), in every TU whose plan holds both X at Complete and I's primary: a
-  C++ host instantiates Kairo templates with types Kairo never paired, and
-  a declared conformance is enumerable where a structural one is not. A
+  I`), in every TU and header that emits the declaring decl -- there X is
+  complete and I named, and X's own header is where a host looks: a C++
+  host instantiates Kairo templates with types Kairo never paired, and a
+  declared conformance is enumerable where a structural one is not. A
   STRUCTURAL row met by extension members reaches only the TUs that hold a
   Kairo instance needing it; a C++ host instantiating with that type
   itself fails `I_c` at its call, never compiles a different witness
@@ -874,8 +1327,10 @@ that is the unnamed namespace, and only that TU can reach it).
 Every emitted generic decl with interface bounds carries `requires
 ::N::I_c<P, A...> && ...` in its template head, one conjunct per `P impl
 I<A...>`, in bound order. It is spelled by `CXXSpell::template_head`, the
-one speller, so the declaration, the body, the `extern template` line and
-the explicit instantiation definition carry the same clause: two
+one speller, so the declaration and the body carry the same clause (an
+`extern template` line or explicit instantiation definition has no
+template head and carries none; clang matches it to the constrained
+template): two
 declarations of one function template must have equivalent template heads
 ([temp.over.link]), and clang mangles the constraint into the symbol
 (`_ZN4ring5twiceINS_6MetricEQgssr4ringE10Scalable_cIT_EEEiS2_`, checked by
@@ -896,21 +1351,24 @@ than an error deep in the witness. Its job is the instantiations invariant
 reason). Generic requirements are left out of the concept (no argument to
 call them with; question 6).
 
-Invariant 13 (IMPORTS.md §3) needs one sentence revised, which this change
-does not make: "Emitted templates carry no `requires`" becomes "emitted
-templates carry no `requires` except the interface concepts EmitWitness
-derives (CODEGEN.md §7b), one conjunct per interface bound, true for every
-instance Kairo enumerated". Its title, "clang never instantiates", is
-already qualified by §7 (clang instantiates what Kairo never names) and
-should say "Kairo enumerates every instance it can see".
+Invariant 13 (IMPORTS.md §3) says so: emitted templates carry no
+`requires` except the interface concepts EmitWitness derives, one
+conjunct per interface bound, true for every instance Kairo enumerated
+(and a record's self-contained value predicates), and its title is
+"Kairo enumerates every instance it can see".
 
 ### 7b.8 Monomorphization and explicit instantiation
 
 Witnesses add no registry entry and no tier-3 line: the members are inline,
 the primary is instantiated implicitly per Self wherever a body uses it,
 and a specialization is complete on its own. The registry feeds them
-instead: the instance -> rows map M2 writes (RESOLUTION.md §2b) is the
-whole input of the specialization edge. A generic REQUIREMENT called with
+instead: the instance -> rows map ConformanceChecking writes at the
+instantiation site (`add_rows`, RESOLUTION.md §2b) is the
+whole input of the specialization edge. The map is PROGRAM-WIDE (MONO.md
+D7): an instance's rows are the union over every TU that checked it, in
+first-found order, so every TU holding the instance emits the same
+specializations in the same order, whatever that TU itself imports; which
+rows a TU's Sema may use is a per-TU filter that codegen never applies. A generic REQUIREMENT called with
 arguments registers a CallExpr instance whose primary is the requirement
 (CallTyping registers every generic callee); it names no C++ function, and
 EmitPlan must never write a tier-3 line for it (today's guard is the
@@ -922,13 +1380,38 @@ inside the class template's member bodies.
 
 ### 7b.9 Interfaces, case by case
 
-- **`derives`.** A witness belongs to the interface that DECLARES the
-  requirement. A call bound to `Readable::read` through `T impl Stream` is
-  `Readable_witness<T>::read`; `impl Stream` therefore yields a row for
-  Stream, Readable and Seekable each, and the interface instance's
-  arguments come through the derives edge's substitution.
+- **`derives`, and composition.** Every interface is normalized before
+  binding into a plain requirement list, its own members and everything its
+  `derives` expression yields (`+` union, `-` difference, `&` intersection;
+  Sema/Check/InterfaceComposition.k). A witness belongs to the BOUND: a call
+  bound to `Readable::read` through `T impl Stream` is
+  `Stream_witness<T>::read`, Stream's single row covers every requirement in
+  its list, and Stream's concept lists them all rather than conjoining
+  Readable's. A requirement inherited through a concrete generic instance
+  (`derives Container<i32>`) is spelled at that instance's arguments. One
+  inherited through a DEPENDENT instance (`interface <T> F derives
+  Container<T>`) is two substitutions deep, Container's E := F's T := the
+  row's argument: the primary and concept apply only the first (they are
+  written inside F's template, where T is in scope), and a specialization
+  spells it through the source Sema substituted at the row's arguments
+  (`ConformanceRow::sources`, `Container<i32>`), which is both at once.
+- **Associated types** [DONE, MONO.md G5]. `T::Node` in a bounded body
+  is the BOUND's witness's member type, `typename I_witness<T>::Node`
+  (CXXSpell::assoc_spelling), so one template body is right for every
+  instance and C++ picks the type per instance (MONO.md D2). Every row of
+  an interface that declares an associated type is a specialization,
+  opening with `using Node = <ConformanceRow::assoc_types[i]>;` (the
+  conformer's alias, or the default an explicit conformance took); members
+  after it name `Node` bare. The primary declares no associated type and
+  leaves out every member whose signature names one: a type with no
+  specialization (a C++ host's) then fails the concept, which opens with
+  `typename I_witness<Self>::Node;`, instead of hard-erroring inside the
+  primary's instantiation, as `using Node = typename Self::Node;` in the
+  primary would on any concept check of a non-conformer. `T::Node{}` and
+  `T::Node(args)` are value-initialization / construction of that member
+  type.
 - **Multiple bounds.** Each call is bound to one requirement and goes
-  through that requirement's interface. Two bounds both declaring `m` is
+  through the bound whose list contains it. Two bounds both declaring `m` is
   the typer's ambiguity (RESOLUTION.md §2b, "collide at the use"), never
   codegen's.
 - **Default methods** do not exist (interfaces.md, "No Default
@@ -945,10 +1428,12 @@ does not conform (ConformanceChecking at the instantiation site; no code
 exists for it yet, so it is the `SC001` placeholder until one is minted),
 a conformance whose implementing decls are outside the instantiating TU's
 import set (the extension-visibility rule), an unparameterized bound on a
-generic interface, and an extension member reached from a `: type` body
-(M2's re-check). Codegen keeps ICEs, each naming its owner: a requirement
+generic interface. An extension member reached from a `: type` body is
+nobody's Kairo error: the call is emitted as a member call and clang
+rejects the instance (MONO.md D1; there is no per-instance re-check).
+Codegen keeps ICEs, each naming its owner: a requirement
 callee with no recorded witness (ExtensionLowering); an instance whose
-bound binds no table row (ConformanceChecking / M2); a row with no decl for
+bound binds no table row (ConformanceChecking); a row with no decl for
 some requirement (ConformanceChecking); `T::Node` (associated types); a
 virtual-interface call.
 
@@ -1005,16 +1490,18 @@ exit code is computed, as §9's lowering tests are:
    and `twice<i64>` / `twice<isize>` are one C++ instantiation. Reject the
    pair in Sema, or require them to forward to one decl?
 4. **Overlapping conformances.** `extend <T> Vec<T> impl I` beside `extend
-   Vec<i32> impl I`: allowed? If so, M2's partial selection must agree
+   Vec<i32> impl I`: allowed? If so, the registry's partial selection must agree
    with C++ partial ordering of the two specializations.
 5. **Free functions as witnesses.** May a free (C++ or ADL-found Kairo)
    operator or function satisfy a requirement? If so, its row is a
    specialization forwarding to it qualified.
 6. **What `I_c` checks.** Generic requirements, bounds on the interface's
    own parameters, and associated types are out of it today. Include any?
-7. **Primitives and constructor requirements.** Does `i32` satisfy
-   `interface Defaultable { fn Defaultable(self) }` (C++ `int()` would
-   compile)?
+7. **Primitives and constructor requirements.** DECIDED: `i32` does not
+   satisfy `interface Defaultable { fn Defaultable(self) }`, since Kairo
+   rejects `i32()` (SC037E) though C++ `int()` would compile. A record
+   with no declared constructor meets a zero-parameter one, as `S()`
+   types.
 8. **Conditional conformance.** Is `extend <T impl Comparable> Pair<T>
    impl Sorted`'s partial specialization constrained with `requires
    Comparable_c<T>`, so a host's `Pair<NotComparable>` fails at the call,
@@ -1078,7 +1565,8 @@ name comparison — goldens for every `Tests/Codegen` test go in FIRST, or
 the refactor has nothing to hold it.
 
 Constructor initializer lists for every constructor: only a split one
-(a const field, §6) builds the fields S_pre assigns by mem-initializer; any
+(a const field, a field with no default or an array field, §6) builds the
+fields S_pre assigns by mem-initializer; any
 other constructor that assigns a defaulted field in its body still runs
 the default first, then the assignment. The fast path the design allows
 for a split constructor (straight-line S_pre lowered into the
@@ -1086,7 +1574,7 @@ mem-initializers with statement expressions, no slot record) is not
 written; the slot path is always correct. Per-instance `constinit` for a
 generic record's static whose initializer is a thunk: deciding constness
 per instantiation (and Kairo's own diagnostic when one cannot be
-constant) needs the monomorphizer (M1/M2), so today such a static is
+constant) is an instance fact M2 would compute (MONO.md D0), so today such a static is
 always dynamically initialized. `eval` fields as constants. AccessCheck. Vector/HashSet/
 HashMap constructor bodies in `Lib/builtin` — vector literals type-check
 and emit today, but do not LINK. Set and map literal lowering, which needs

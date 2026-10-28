@@ -35,7 +35,7 @@ fn main() -> i32 {
 // RUN: %kairo %s --type-check-only --emit-headers %t.h
 // RUN: cat $(find %t.h -name lib.hh) | %FileCheck %s --check-prefix=HDR
 // HDR: class Gate {
-// HDR: bool is_open();
+// HDR: bool is_open() noexcept;
 // HDR-NEXT: };
-// HDR: inline bool Gate::is_open() {
-// HDR: inline signed int twice(signed int x) {
+// HDR: inline bool Gate::is_open() noexcept {
+// HDR: inline signed int twice(signed int x) noexcept {

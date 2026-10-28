@@ -1,8 +1,6 @@
 # Extends
 
-`extend` blocks add methods, operators, and static functions to types declared elsewhere. They are the
-primary way to attach behavior to [structs](/docs/language/structures/) and
-[enums](/docs/language/enums/), which cannot contain methods in their body. Classes can also be extended.
+`extend` blocks add methods, operators, and static functions to types declared elsewhere. They are the primary way to attach behavior to [structs](/docs/language/structures/) and [enums](/docs/language/enums/), which cannot contain methods in their body. Classes can also be extended.
 
 ---
 
@@ -33,8 +31,7 @@ p.length()       // 5.0
 Point::origin()  // Point { x: 0.0, y: 0.0 }
 ```
 
-Methods added via `extend` are called the same way as methods defined in a class body there is no
-syntactic distinction at the call site.
+Methods added via `extend` are called the same way as methods defined in a class body there is no syntactic distinction at the call site.
 
 An `extend` body is the extended type's scope. Members still need an explicit qualifier `self.x` or `Self::x`, exactly as in a class body (see [Members always need a qualifier](/docs/language/classes/#members-always-need-a-qualifier)) and the same one exception applies: the target's nested types and type aliases are visible unqualified.
 
@@ -80,8 +77,7 @@ The rules differ by type:
 | Arithmetic / comparison operators | Copy / move assignment (`fn op =`) |
 | `fn op in` (iteration) | Member-only operators (`as`, `[]`, `->`) |
 
-Structs are trivially copyable. Extending lifecycle operations (destructors, copy/move) would break
-that guarantee. See [Structures](/docs/language/structures/#copy-semantics).
+Structs are trivially copyable. Extending lifecycle operations (destructors, copy/move) would break that guarantee. See [Structures](/docs/language/structures/#copy-semantics).
 
 ### Enums
 
@@ -101,15 +97,10 @@ that guarantee. See [Structures](/docs/language/structures/#copy-semantics).
 | Operators other than the member-only ones | Copy / move assignment |
 | | Member-only operators (`as`, `[]`, `->`, `delete`) |
 
-Classes already support methods and operators in their body. `extend` on a class is useful for
-separating interface conformance or adding functionality in a different section of the codebase
-(within the same file).
+Classes already support methods and operators in their body. `extend` on a class is useful for separating interface conformance or adding functionality in a different section of the codebase (within the same file).
 
 > [!NOTE]
-> Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type. Neither
-> can the member-only operators `as`, `[]`, `->`, and `delete`; declare them in the type's own body.
-> If you need construction logic on a struct, extend a static factory function instead. If you need
-> a destructor, use a [class](/docs/language/classes/).
+> Constructors, destructors, and copy/move assignment cannot be added via `extend` on any type. Neither can the member-only operators `as`, `[]`, `->`, and `delete`; declare them in the type's own body. If you need construction logic on a struct, extend a static factory function instead. If you need a destructor, use a [class](/docs/language/classes/).
 
 ---
 
@@ -129,8 +120,7 @@ extend Point impl Drawable {
 }
 ```
 
-The compiler verifies at the `extend` declaration that all interface requirements are satisfied.
-Missing methods are a compile error.
+The compiler verifies at the `extend` declaration that all interface requirements are satisfied. Missing methods are a compile error.
 
 > [!NOTE]
 > The current compiler does not report missing methods at the `extend` declaration yet. See [Implementation Status](/docs/status/#not-diagnosed).
@@ -169,8 +159,7 @@ extend <T> Pair<T> {
 }
 ```
 
-The parameters belong to the `extend` block, not to the type. Its target can be any instance pattern of
-the type, so an extension can apply to only some instantiations:
+The parameters belong to the `extend` block, not to the type. Its target can be any instance pattern of the type, so an extension can apply to only some instantiations:
 
 ```kairo
 struct <T> Box {
@@ -190,8 +179,7 @@ extend <T> Wrap<Box<T>> {
 
 `Wrap<Box<i32>>` has `unbox`; `Wrap<i32>` does not.
 
-Constraints on an extension's parameters are written with `impl`, `derives`, or a
-[`requires` clause](/docs/language/requires/):
+Constraints on an extension's parameters are written with `impl`, `derives`, or a [`requires` clause](/docs/language/requires/):
 
 ```kairo
 extend <T impl Comparable> Pair<T> {
@@ -201,8 +189,7 @@ extend <T impl Comparable> Pair<T> {
 }
 ```
 
-This `max` method is only available on `Pair<T>` when `T` satisfies `Comparable`. Calling
-`pair_of_noncomparable.max()` (or `Pair<SomeNonComparable>::max(p)`) is a compile error.
+This `max` method is only available on `Pair<T>` when `T` satisfies `Comparable`. Calling `pair_of_noncomparable.max()` (or `Pair<SomeNonComparable>::max(p)`) is a compile error.
 
 > [!NOTE]
 > The current compiler does not check an extension's bounds at the call site yet. See [Implementation Status](/docs/status/#not-diagnosed).
@@ -244,9 +231,7 @@ extend Point {
 }
 ```
 
-An extension member with no modifier is `pub`. A `priv` extension member is visible only inside the
-file that contains the `extend` block, not everywhere the type is visible. `prot` has its usual
-library-internal meaning.
+An extension member with no modifier is `pub`. A `priv` extension member is visible only inside the file that contains the `extend` block, not everywhere the type is visible. `prot` has its usual library-internal meaning.
 
 ---
 
@@ -285,8 +270,7 @@ import point::Point
 // extend Point { ... }   // compile error: Point is defined in a different file
 ```
 
-For `extend ... impl` blocks (interface conformance), the rule is looser: either the type or the
-interface must be defined in the same file as the `extend` block:
+For `extend ... impl` blocks (interface conformance), the rule is looser: either the type or the interface must be defined in the same file as the `extend` block:
 
 ```kairo
 // drawable.k
@@ -305,8 +289,7 @@ extend Point impl Drawable {
 }
 ```
 
-This prevents conflicts between extensions in different files while still allowing interface
-conformance to be declared where the interface is defined.
+This prevents conflicts between extensions in different files while still allowing interface conformance to be declared where the interface is defined.
 
 > [!NOTE]
 > The current compiler does not reject an `extend` in the wrong file yet. See [Implementation Status](/docs/status/#not-diagnosed).
@@ -315,8 +298,7 @@ conformance to be declared where the interface is defined.
 
 ## Multiple Extend Blocks
 
-A type can have multiple `extend` blocks in the same file. Each block can target different
-interfaces or group related functionality:
+A type can have multiple `extend` blocks in the same file. Each block can target different interfaces or group related functionality:
 
 ```kairo
 struct Color {
@@ -354,18 +336,13 @@ extend Color impl Drawable {
 
 ## Extend vs Class Methods
 
-A method in the class body and a method in an `extend` block are called the same way, but they are
-different entities:
+A method in the class body and a method in an `extend` block are called the same way, but they are different entities:
 
-- An extension member is not virtual, cannot override, and cannot be a constructor, destructor, or
-  assignment operator.
-- A same-file `extend` can read the type's private members. An `extend ... impl` placed in the
-  interface's file cannot.
-- C++ code calling a Kairo type sees body methods as member functions, and extension members as static
-  functions of a companion scope.
+- An extension member is not virtual, cannot override, and cannot be a constructor, destructor, or assignment operator.
+- A same-file `extend` can read the type's private members. An `extend ... impl` placed in the interface's file cannot.
+- C++ code calling a Kairo type sees body methods as member functions, and extension members as static functions of a companion scope.
 
-Put anything that needs [dynamic dispatch](/docs/language/classes-inheritance/#virtual-dispatch), overriding, or [lifecycle behavior](/docs/language/classes-lifecycle/) in the body. Use `extend`
-for the rest, such as interface conformance kept apart from the core type:
+Put anything that needs [dynamic dispatch](/docs/language/classes-inheritance/#virtual-dispatch), overriding, or [lifecycle behavior](/docs/language/classes-lifecycle/) in the body. Use `extend` for the rest, such as interface conformance kept apart from the core type:
 
 ```kairo
 class Server {

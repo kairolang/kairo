@@ -79,14 +79,14 @@ class RangeLowering derives ASTWriter::<RangeLowering> {
         var init = NamedInitializerExpr::create(self.ctx, at, &null);
         var fields = self.list_builder::<InitField>();
         if n->begin != &null {
-            fields.push(self._field(at, "begin", n->begin));
+            fields.push(self._field(at, LangMembers::range_begin(), n->begin));
         } else if n->end == &null {
             // `..`: X typed it RangeFrom<usize>; it starts at the first index.
-            fields.push(self._field(at, "begin", self.synth.int_literal(at, 0, BuiltinKind::USize)));
+            fields.push(self._field(at, LangMembers::range_begin(), self.synth.int_literal(at, 0, BuiltinKind::USize)));
         }
         if n->end != &null {
-            fields.push(self._field(at, "end",       n->end));
-            fields.push(self._field(at, "inclusive", self.synth.bool_literal(at, n->is_inclusive)));
+            fields.push(self._field(at, LangMembers::range_end(),       n->end));
+            fields.push(self._field(at, LangMembers::range_inclusive(), self.synth.bool_literal(at, n->is_inclusive)));
         }
         fields.freeze_into(&(init->fields));
 

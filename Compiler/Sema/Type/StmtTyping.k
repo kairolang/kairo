@@ -37,6 +37,7 @@ import Sema::Resolve::ResolutionState::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::NullnessFlow::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Check::ConstEval::*;
 import AST::Context::DeclContext::*;
@@ -116,6 +117,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             if args.size() > 0 { fr.yield_elem = args[0]; }
         }
         dyn()->frames.push_back(fr);
+        dyn()->flow.enter();   // a body starts knowing nothing about any nullable.
     }
 
     fn push_closure_frame(self, c: *ClosureExpr, declared: *Type) {
@@ -125,6 +127,9 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         fr.is_generator = (c != &null) && dyn()->tu.is_generator_return(c->return_type);
         if c != &null { fr.declared = self._effect_inner(c->return_type, declared); }
         dyn()->frames.push_back(fr);
+        // A closure may run anywhere: what it captures is Maybe inside it
+        // (NULLABLE.md 3.7), which a fresh state says.
+        dyn()->flow.enter(c);
     }
 
     /// `-> async T` canonicalizes to Future<T> (TypeResolve), but the body
@@ -140,7 +145,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     }
 
     fn pop_frame(self) {
-        if !dyn()->frames.empty() { dyn()->frames.pop_back(); }
+        if !dyn()->frames.empty() {
+            dyn()->frames.pop_back();
+            dyn()->flow.leave();
+        }
     }
 
     fn cur_frame(self) -> *TyperFrame {
@@ -224,12 +232,146 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         }
         if st == ResolveState::Resolved { return (v->type_->canonical) if (v->type_ != &null) else (&null); }
         if !dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(v), v->range) { return &null; }
+        if !self._shorthand_has_source(v) {
+            dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), false);
+            return &null;
+        }
+        // Typed on demand from wherever the use is: the initializer must
+        // not see that body's nullness facts.
+        dyn()->flow.enter();
         var t = dyn()->type_of(v->init, &null);
+        dyn()->flow.leave();
         dyn()->mark_list_storage(v->init);
         self._reject_array_copy(v, t);
-        if t != &null { v->type_ = canon_unqual(t); }
+        if t != &null { v->type_ = self._shorthand_type(v, t); }
         dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), t != &null);
-        return t;
+        return (v->type_) if ((t != &null) && v->nullable_shorthand) else (t);
+    }
+
+    /// The inferred slot of `var x = e` / `var x? = e`. The shorthand wraps
+    /// ONE level and never a second: `typeof(e)` is already the nullable
+    /// when `e` is one (`var b? = find()` with `find() -> i32?` is `i32?`,
+    /// not `(i32?)?`), because the shorthand says "this may be null", not
+    /// "add a level". A deliberate `(T?)?` is still writable as a type.
+    priv fn _shorthand_type(self, v: *VariableDecl, t: *Type) -> *Type {
+        var c = canon_unqual(t);
+        if v->pointer_depth > 0 { self._check_pointer_shorthand(v, c); }
+        if !v->nullable_shorthand { return c; }
+        return self._nullable_once(c);
+    }
+
+    /// `var *y = e` (NULLABLE.md 1.7): the stars state the pointer depth of
+    /// `e`'s type, and `unsafe` its outermost pointer's safety. A marker,
+    /// never a conversion: `y` is `typeof(e)` whatever is written, and a
+    /// wrong marker is an error with a fix-it but does NOT poison `y`, so
+    /// its uses type as they would without the stars and nothing cascades.
+    ///
+    /// Dependent types are decided on the type as written, like `var x? =
+    /// t` (1.6): `p: **T` has depth 2 and `var *q = p` is wrong even though
+    /// no `T` makes it right. What is NOT decidable is a pointer prefix that
+    /// ends in an opaque parameter: `var **q = p` with `p: *T` is right for
+    /// `T = *U` and wrong for `T = i32`. Such a decl is accepted when it has
+    /// at least the visible stars, and nothing re-checks it per instance
+    /// (bodies are typed once, on the dependent type): deferred means
+    /// unchecked.
+    priv fn _check_pointer_shorthand(self, v: *VariableDecl, c: *Type) {
+        if c == &null { return; }
+        var nm    = dyn()->tu.decl_name(static_cast::<*Decl>(v));
+        var wrote = pointer_shorthand_spelling(v->pointer_depth, v->pointer_unsafe);
+
+        // `var *y = e` with `e: (*T)?`: the value may be null and nothing
+        // on the name says so. The `?` is what is missing, not a star.
+        var base  = c;
+        var inner = dyn()->tu.nullable_inner(c);
+        if inner != &null {
+            base = canon_unqual(inner);
+            if !v->nullable_shorthand {
+                var b = dyn()->sc->diag->report(DiagID::SC001E, v->name.range.start,
+                    f"'{wrote}{nm}' is initialized with a nullable '{dyn()->tu.str(c)}'; write '{wrote}{nm}?' so the declaration says it may be null"
+                );
+                b.first(v->name.range);
+                b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
+                b.insert(v->name.range.end, "?", "mark the binding nullable");
+                b.emit();
+            }
+        }
+
+        var shape        = dyn()->tu.pointer_shape(base);
+        var depth        = shape.depth;
+        var outer_unsafe = shape.outer_unsafe;
+        var leaf         = shape.leaf;
+        var opaque = (leaf != &null) && self._is_opaque_dependent(leaf);
+
+        var depth_ok = (v->pointer_depth == depth) || (opaque && (v->pointer_depth > depth));
+        if (depth == 0) && opaque { return; }   // `var *y = t`, `t: T`: undecidable here.
+        if depth == 0 {
+            var b = dyn()->sc->diag->report(DiagID::SC001E, v->pointer_range.start,
+                f"'{wrote}{nm}' declares a pointer, but its initializer has type '{dyn()->tu.str(c)}', which is not one"
+            );
+            b.first(v->pointer_range);
+            b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
+            b.remove(v->pointer_range, "remove the shorthand");
+            b.emit();
+            return;
+        }
+        if depth_ok && (v->pointer_unsafe == outer_unsafe) { return; }
+
+        // One fix-it rewrites both the count and the safety: what the
+        // initializer's type spells (the visible stars when it is opaque).
+        var want_depth = (v->pointer_depth) if (depth_ok) else (depth);
+        var want = pointer_shorthand_spelling(want_depth, outer_unsafe);
+        var msg: string = "";
+        if !depth_ok {
+            msg = f"'{wrote}{nm}' states a pointer of depth {v->pointer_depth}, but its initializer is '{dyn()->tu.str(c)}', a pointer of depth {depth}; write '{want}{nm}\x27";
+        } else if outer_unsafe {
+            msg = f"'{wrote}{nm}' declares a safe pointer, but its initializer is the unsafe pointer '{dyn()->tu.str(c)}'; write '{want}{nm}\x27";
+        } else {
+            msg = f"'{wrote}{nm}' declares an unsafe pointer, but its initializer is the safe pointer '{dyn()->tu.str(c)}'; write '{want}{nm}\x27";
+        }
+        var b = dyn()->sc->diag->report(DiagID::SC001E, v->pointer_range.start, msg);
+        b.first(v->pointer_range);
+        b.second(v->init->range, f"this has type '{dyn()->tu.str(c)}\x27");
+        b.fix(v->pointer_range, want, f"write '{want}\x27");
+        b.emit();
+    }
+
+    /// A dependent type with no visible shape: a generic parameter (or a
+    /// type computed from one) that some argument could make a pointer.
+    /// A dependent record, tuple, array or function pointer is never one.
+    priv fn _is_opaque_dependent(self, t: *Type) -> bool {
+        if (t == &null) || (!t->is_dependent()) { return false; }
+        if isa::<RecordType>(t) || isa::<TupleType>(t) || isa::<FixedArrayType>(t) { return false; }
+        if isa::<VectorType>(t) || isa::<MapType>(t) || isa::<SetType>(t) { return false; }
+        if isa::<FunctionPointerType>(t) || isa::<NullableType>(t) { return false; }
+        return true;
+    }
+
+    /// `T` -> `T?`, `T?` -> `T?`: what every `?` shorthand (declaration or
+    /// binder) makes of the type it infers.
+    priv fn _nullable_once(self, c: *Type) -> *Type {
+        if (c == &null) || (dyn()->tu.nullable_inner(c) != &null) { return c; }
+        return dyn()->sc->types->nullable(c);
+    }
+
+    /// `var x? = null` (or `&null`): the shorthand infers the payload from
+    /// the initializer, and a null literal has none. Caught before typing
+    /// the literal so the error names the shorthand, not the generic
+    /// "annotate the target" SC076E that `type_null_literal` would give;
+    /// same code, it is the same mistake (nothing to infer from).
+    priv fn _shorthand_has_source(self, v: *VariableDecl) -> bool {
+        if (!v->nullable_shorthand) || (v->init == &null) { return true; }
+        var e = dyn()->tu.strip_parens(v->init);
+        if (e == &null) || (!isa::<NullLiteralExpr>(e)) { return true; }
+        var nm  = dyn()->tu.decl_name(static_cast::<*Decl>(v));
+        var lit = ("&null") if (cast::<NullLiteralExpr>(e)->is_ref) else ("null");
+        var b = dyn()->sc->diag->report(DiagID::SC076E, v->init->range.start,
+            f"nothing to infer the nullable's type from: '{nm}?' takes its type from the initializer, and '{lit}' has none"
+        );
+        b.first(v->init->range);
+        b.second(v->range, f"declare the type instead: 'var {nm}: T? = null\x27");
+        b.emit();
+        v->poison();
+        return false;
     }
 
     priv fn _reject_array_return(self, f: *FunctionDecl, t: *Type) {
@@ -349,16 +491,46 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
-    /// `@no_unwind` on any link marks the whole chain (FunctionDecl::no_unwind).
-    /// Probed, never interned: a name this file never spelled is on no decl.
+    /// Whether the function is spelled `noexcept` (FunctionDecl::no_unwind),
+    /// decided once for the whole redeclaration chain, because C++ requires
+    /// every declaration of a function to agree and an attribute may be
+    /// written on only one of them:
+    ///   - `@no_unwind` on any link: noexcept, even under -funwind;
+    ///   - else `@unwind` on any link, or -funwind: not noexcept, so a C++
+    ///     exception from a callee passes through this frame;
+    ///   - else noexcept: a C++ exception reaching the frame terminates.
+    /// A function with ffi linkage, or one imported from a header, is never
+    /// stamped: it is C/C++'s own declaration, whose exception spec its
+    /// header already states. Both attributes on one function is SC001E.
+    /// Names probed, never interned: a name this file never spelled is on
+    /// no decl.
     priv fn _stamp_no_unwind(self, n: *FunctionDecl) {
-        var k = dyn()->sc->imm_table()->find_ident("no_unwind");
-        if k == u32(-1) { return; }
-        if !n->has_attribute_named(k) { return; }
         var head = n->first_decl();
+        if n->has_ffi_linkage() || (n->clang_decl != &null) { return; }
+        var k_no = dyn()->sc->imm_table()->find_ident("no_unwind");
+        var k_un = dyn()->sc->imm_table()->find_ident("unwind");
+        var no_at: *FunctionDecl = &null;
+        var un_at: *FunctionDecl = &null;
         var cur  = head;
         while true {
-            cur->no_unwind = true;
+            if (k_no != u32(-1)) && cur->has_attribute_named(k_no) && (no_at == &null) { no_at = cur; }
+            if (k_un != u32(-1)) && cur->has_attribute_named(k_un) && (un_at == &null) { un_at = cur; }
+            cur = cur->next_in_chain();
+            if cur == head { break; }
+        }
+        // Reported once, from the link that carries `@unwind`.
+        if (no_at != &null) && (un_at == n) {
+            var nm = dyn()->tu.decl_name(static_cast::<*Decl>(n));
+            var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"'{nm}' is marked both '@unwind' and '@no_unwind\x27");
+            b.first(n->range);
+            b.note(DiagID::SC001N, no_at->range.start, "'@no_unwind' is here; it wins: the function is 'noexcept\x27").first(no_at->range);
+            b.emit();
+        }
+        var spell = (no_at != &null) || ((un_at == &null) && (!dyn()->sc->opts.unwind_all));
+        cur = head;
+        while true {
+            cur->no_unwind = spell;
             cur = cur->next_in_chain();
             if cur == head { break; }
         }
@@ -374,8 +546,6 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             why = "a constructor cannot be a generator; it returns the object it builds, not a sequence";
         } else if self._is_main(n) {
             why = "'main' cannot be a generator; it returns the process\x27s exit status";
-        } else if n->is_eval() {
-            why = "an 'eval' function cannot be a generator; it runs at compile time, where nothing suspends";
         } else if n->ffi_c_variadic {
             why = "a C-variadic function cannot be a generator; its '...' arguments do not outlive the call";
         } else if n->is_noreturn {
@@ -408,9 +578,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n == &null { return n; }
         if n->init != &null {
             var ft = (n->type_->canonical) if (n->type_ != &null) else (&null);
+            dyn()->flow.enter();   // a default runs in no body's state.
             dyn()->type_of(n->init, ft);
             dyn()->reject_slice_literal(n->init, "used as a field default");
             if ft != &null { dyn()->check_convertible(n->init, ft); }
+            dyn()->flow.leave();
         }
         return n;
     }
@@ -555,11 +727,16 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 ).first(n->range).emit();
                 n->poison();
             }
+            dyn()->flow.define(n);   // `var x: T?` starts null.
             return n;
         }
         var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(n));
         if st != ResolveState::Unresolved { return n; }   // demand-typed already.
         dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(n), n->range);
+        if !self._shorthand_has_source(n) {
+            dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), false);
+            return n;
+        }
         var t = dyn()->type_of(n->init, declared);
         dyn()->mark_list_storage(n->init);
         self._reject_array_copy(n, (declared) if (declared != &null) else (t));
@@ -573,12 +750,13 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 ).first(n->range).emit();
                 n->poison(); ok = false;
             } else {
-                n->type_ = canon_unqual(t);   // inferred slot := the value's type; a copy has no cv.
+                n->type_ = self._shorthand_type(n, t);   // inferred slot := the value's type (a copy has no cv), `?` applied.
             }
         } else if n->init->is_poisoned() {
             ok = false;
         }
         dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), ok);
+        if ok { dyn()->flow.define(n); }   // the value SETS the state (NULLABLE.md 3.2).
         return n;
     }
 
@@ -586,12 +764,32 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
     fn traverse_expression_stmt(self, n: *ExpressionStmt) -> *ExpressionStmt {
         if (n == &null) || (n->expr == &null) { return n; }
-        dyn()->type_of(n->expr, &null);
+        var t = dyn()->type_of(n->expr, &null);
+        if (t != &null) && dyn()->tu.is_never(t) { dyn()->flow.diverge(); }   // a `-> !` call ends the path.
         return n;
     }
 
     fn traverse_return_stmt(self, n: *ReturnStmt) -> *ReturnStmt {
         if n == &null { return n; }
+        self._type_return(n);
+        dyn()->flow.diverge();
+        return n;
+    }
+
+    fn traverse_break_stmt(self, n: *BreakStmt) -> *BreakStmt {
+        if n == &null { return n; }
+        dyn()->flow.on_break((dyn()->sc->ctx->get_spelling(n->label)) if (n->has_label) else (""));
+        return n;
+    }
+
+    fn traverse_continue_stmt(self, n: *ContinueStmt) -> *ContinueStmt {
+        if n == &null { return n; }
+        // The loop's head already assumes whatever the back edge brings.
+        dyn()->flow.diverge();
+        return n;
+    }
+
+    priv fn _type_return(self, n: *ReturnStmt) -> *ReturnStmt {
         var fr = self.cur_frame();
         if fr == &null {
             if n->value != &null { dyn()->type_of(n->value, &null); }
@@ -648,27 +846,72 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
+    /// The branches start from the condition's true and false sets, and
+    /// the code after from their join; a branch that diverges contributes
+    /// nothing (NULLABLE.md 3.3).
     fn traverse_conditional_stmt(self, n: *ConditionalStmt) -> *ConditionalStmt {
         if n == &null { return n; }
         if n->cond != &null { dyn()->require_bool(n->cond, "the 'if' condition"); }
+        var c = dyn()->flow.cond_of(n->cond);
+        dyn()->flow.env = c.t;
         if n->then_ != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->then_)); }
+        var then_env = dyn()->flow.env;
+        dyn()->flow.env = c.f;
         if n->else_ != &null { dyn()->dispatch_stmt(n->else_); }
+        var else_env = dyn()->flow.env;
+        dyn()->flow.env = dyn()->flow.join(&then_env, &else_env);
         return n;
     }
 
+    /// `outer: while ...`: the loop's `break outer` joins into it, not into
+    /// whichever loop is innermost (NULLABLE.md 3.5).
+    fn traverse_labeled_stmt(self, n: *LabeledStmt) -> *LabeledStmt {
+        if n == &null { return n; }
+        dyn()->flow.label_next(dyn()->sc->ctx->get_spelling(n->label));
+        if n->inner != &null { dyn()->dispatch_stmt(n->inner); }
+        dyn()->flow.label_next("");
+        return n;
+    }
+
+    /// The head holds what every back edge brings (NullnessFlow::
+    /// loop_enter); the condition, typed there, narrows the body; after the
+    /// loop, its false set joined with each `break`.
     fn traverse_while_loop_stmt(self, n: *WhileLoopStmt) -> *WhileLoopStmt {
         if n == &null { return n; }
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
         if n->cond != &null { dyn()->require_bool(n->cond, "the 'while' condition"); }
+        var c = dyn()->flow.cond_of(n->cond);
+        dyn()->flow.env = c.t;
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        var brk = dyn()->flow.loop_leave();
+        dyn()->flow.env = dyn()->flow.join(&(c.f), &brk);
+        return n;
+    }
+
+    /// `loop { }`: left only by a `break` (or not at all).
+    fn traverse_loop_stmt(self, n: *LoopStmt) -> *LoopStmt {
+        if n == &null { return n; }
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
+        if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        dyn()->flow.env = dyn()->flow.loop_leave();
         return n;
     }
 
     fn traverse_indexed_for_stmt(self, n: *IndexedForStmt) -> *IndexedForStmt {
         if n == &null { return n; }
         if n->init   != &null { dyn()->dispatch_stmt(n->init); }
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), n->update);
+        var head = dyn()->flow.env;
         if n->cond   != &null { dyn()->require_bool(n->cond, "the loop condition"); }
+        var c = dyn()->flow.cond_of(n->cond);
+        // The update runs after the body or a `continue`: the head's state
+        // (which already assumes the body's assignments) covers both.
+        dyn()->flow.env = head;
         if n->update != &null { dyn()->type_of(n->update, &null); }
+        dyn()->flow.env = c.t;
         if n->body   != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        var brk = dyn()->flow.loop_leave();
+        dyn()->flow.env = dyn()->flow.join(&(c.f), &brk);
         return n;
     }
 
@@ -988,7 +1231,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             shaped = dyn()->sc->types->pointer(shaped, (sh & static_cast::<u8>(BindingShorthand::Unsafe)) != 0);
         }
         if (sh & static_cast::<u8>(BindingShorthand::Nullable)) != 0 {
-            shaped = dyn()->sc->types->nullable(shaped);
+            shaped = self._nullable_once(shaped);
         }
         vd->type_ = shaped;
     }
@@ -1014,9 +1257,32 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n == &null { return n; }
         var it = dyn()->type_of(n->iterable, &null);
         var elem = (self.iter_elem_type(n->iterable, it, n)) if (it != &null) else (&null);
+        // `for x in xs` over a type pack: one copy of the body per element,
+        // each with its own type, so `x` is typed as the pack (dependent,
+        // like any generic body) and C++ unrolls it (EmitIR::_pack_for).
+        var pk = self._type_pack_ref(n->iterable);
+        if (pk != &null) && (!n->is_eval) {
+            n->iter_kind = IterKind::Pack;
+            n->iter_elem = canon_unqual(pk->type_->canonical);
+            elem = n->iter_elem;
+        }
         self._bind_list(&(n->bindings), elem, n->iterable);
+        // No condition refines it; it may run zero times, so after it is
+        // the head's state joined with each `break`.
+        dyn()->flow.loop_enter(static_cast::<*Stmt>(n->body), &null);
+        var head = dyn()->flow.env;
         if n->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->body)); }
+        var brk = dyn()->flow.loop_leave();
+        dyn()->flow.env = dyn()->flow.join(&head, &brk);
         return n;
+    }
+
+    /// \p e names a type pack parameter (`xs` of `...xs: T`), or null.
+    priv fn _type_pack_ref(self, e: *Expr) -> *ParamDecl {
+        var u = dyn()->tu.strip_parens(e);
+        if (u == &null) || (!isa::<NamedIdentExpr>(u)) { return &null; }
+        var p = dyn_cast::<ParamDecl>(cast::<NamedIdentExpr>(u)->resolved_decl);
+        return (p) if (param_is_type_pack(p)) else (&null);
     }
 
     fn traverse_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> *DestructuringDeclStmt {
@@ -1029,7 +1295,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         // struct destructure: by field name.
         var d = dyn()->tu.record_decl(dyn()->tu.strip_nullable(t));
         if (t != &null) && (d == &null) { dyn()->fail(n->value, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' by field name"); return n; }
-        var dc = (NameLookup::context_of(dyn()->tu.pattern_of(d))) if (d != &null) else (&null);
+        var dc = (NameLookup::context_of(dyn()->sc->body_of(d))) if (d != &null) else (&null);
         for var i: usize = 0; i < n->bindings.size(); ++i {
             var b = n->bindings.get(i);
             if (b == &null) || b->is_discard || (b->name == &null) { continue; }
@@ -1062,22 +1328,44 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         return n;
     }
 
+    /// Each arm starts from the state before the match, refined by what its
+    /// pattern proves (NULLABLE.md 3.6: on a `T?`, `case null` sees the
+    /// place Null and every later arm NonNull) and by its guard's true set.
+    /// After it, the join of the arms' ends, a diverging arm excluded: the
+    /// state before the match is not joined in, since a match is exhaustive
+    /// (a non-exhaustive one is SC120E), so no path skips every arm.
     fn traverse_match_stmt(self, n: *MatchStmt) -> *MatchStmt {
         if n == &null { return n; }
         var st = dyn()->type_of(n->scrutinee, &null);
+        var entry = dyn()->flow.env;
+        n->null_arm = dyn()->match_null_first(n->scrutinee, &(n->cases), st, n->range, true);
+        var bad_null = dyn()->match_null_missed(n->null_arm, st);
+        var acc = dyn()->flow.dead_env();
         for var i: usize = 0; i < n->cases.size(); ++i {
             var mc = n->cases.get(i);
-            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], st); }
-            if mc->guard != &null { dyn()->require_bool(mc->guard, "a 'where' guard"); }
+            var col = dyn()->match_arm_enter(n->null_arm, n->scrutinee, mc, i, st, &entry);
+            for var j: usize = 0; j < mc->patterns.size(); ++j { dyn()->type_pattern(mc->patterns[j], col); }
+            dyn()->match_guard(mc);
             if mc->body  != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(mc->body)); }
             if mc->expression != &null { dyn()->type_of(mc->expression, &null); }
+            var end = dyn()->flow.env;
+            acc = dyn()->flow.join(&acc, &end);
         }
+        if n->cases.size() == 0 { acc = entry; }
+        dyn()->flow.env = acc;
+        if bad_null { n->scrutinee->poison(); }
         return n;
     }
 
+    /// A `catch` arm starts from the state before the `try` with whatever
+    /// the body assigns assumed (it may throw anywhere); after the
+    /// statement, the body's end joined with every arm's.
     fn traverse_try_catch_stmt(self, n: *TryCatchStmt) -> *TryCatchStmt {
         if n == &null { return n; }
+        var entry = dyn()->flow.env;
         if n->try_body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(n->try_body)); }
+        var acc = dyn()->flow.env;
+        var arm_entry = dyn()->flow.try_entry(&entry, static_cast::<*Stmt>(n->try_body), &null);
         for var i: usize = 0; i < n->arms.size(); ++i {
             var arm = n->arms.get(i);
             var vd = dyn_cast::<VariableDecl>(arm->decl);
@@ -1087,8 +1375,12 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 if ft == &null { var a = vec::<*Type>(); ft = dyn()->tu.lang_record(WellKnownType::Panic, &a); }
                 if ft != &null { vd->type_ = canon_unqual(ft); }
             }
+            dyn()->flow.env = arm_entry;
             if arm->body != &null { dyn()->dispatch_stmt(static_cast::<*Stmt>(arm->body)); }
+            var end = dyn()->flow.env;
+            acc = dyn()->flow.join(&acc, &end);
         }
+        dyn()->flow.env = acc;
         return n;
     }
 
@@ -1117,6 +1409,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     fn traverse_panic_stmt(self, n: *PanicStmt) -> *PanicStmt {
         if n == &null { return n; }
         if n->payload != &null { dyn()->type_of(n->payload, &null); }
+        dyn()->flow.diverge();
         return n;
     }
 

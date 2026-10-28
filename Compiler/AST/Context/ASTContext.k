@@ -416,10 +416,23 @@ class ASTContext {
 
         var u = unwrap_expansion(tok, self.tcm);
         if u.is_sentinel { return u32(-1); }
-        if static_cast::<u32>(u.kind) == static_cast::<u32>(TokenKind::LitIdentifier) {
-            return u.imm;
+        if static_cast::<u32>(u.kind) != static_cast::<u32>(TokenKind::LitIdentifier) {
+            return u32(-1);
         }
-        return u32(-1);
+        // An identifier from a macro body written in ANOTHER file (an
+        // imported `pub macro`, the prelude's `crash!`) indexes THAT file's
+        // table; read against this one the same index is some other name
+        // (a call to `helper` bound `main`). Re-key it here, finding first:
+        // intern_ident_copy stores a fresh copy on every call, and this
+        // runs per lookup. The literal half of the problem is the SC073E
+        // ticket; only identifiers are re-keyed.
+        if (u.depth > 0) && (u.tbl != &null) && (u.tbl != tbl) {
+            var sp  = u.tbl->get_ident(u.imm);
+            var idx = tbl->find_ident(sp);
+            if idx == u32(-1) { idx = tbl->intern_ident_copy(sp); }
+            return idx;
+        }
+        return u.imm;
     }
 
     fn get_token_text(self, tok: Token) -> TokenText {

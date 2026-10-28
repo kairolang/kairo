@@ -71,6 +71,7 @@ class FrontendOptions {
     pub var print_macros:        bool   = false;
     pub var print_imports:       bool   = false;
     pub var print_emit_plan:     bool   = false;
+    pub var print_panic_sets:    bool   = false;
     pub var print_cxx:           bool   = false; ///< --print-cxx: the TU's C++ preamble (interface only) as text
     pub var emit_headers:        string = "";    ///< --emit-headers <dir>: write each module's C++ interop header
     pub var print_symbols:       bool   = false;
@@ -173,6 +174,7 @@ class FrontendOptions {
         (o.print_macros)        = args.get_bool("print-macros");
         (o.print_imports)       = args.get_bool("print-imports");
         (o.print_emit_plan)     = args.get_bool("print-emit-plan");
+        (o.print_panic_sets)    = args.get_bool("print-panic-sets");
         (o.print_cxx)           = args.get_bool("print-cxx");
         (o.emit_headers)        = args.get_string("emit-headers");
         (o.print_symbols)       = args.get_bool("print-symbols");

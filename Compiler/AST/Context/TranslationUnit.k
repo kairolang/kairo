@@ -23,6 +23,16 @@ import AST::Node::Program::*;
 import AST::Node::Base::*;
 import Resolution::ModulePath::*;
 
+/// One panic site of a TU (TranslationUnit::panic_sites): its id, the
+/// 64-bit hash of its (path, byte offset) that names its table record, and
+/// where it is, which EmitIR renders as file, line and column.
+class PanicSiteRec {
+    pub var id:  u32 = 0;
+    pub var key: u64 = 0;
+    pub var at:  SourceLocation;
+    fn PanicSiteRec(self) { }
+}
+
 class TranslationUnit; // forward decl for ParentRef
 
 enum ParentKind derives u8 {
@@ -207,6 +217,18 @@ class TranslationUnit derives DeclContext {
     /// long as the build (CompilerInstance::release refuses it).
     pub var is_foreign:     bool = false;
 
+    /// The parser met an `eval if` or a DefinedExpr in this file (any
+    /// position), so EvalIfFolding has something to fold. One writer: the
+    /// parser.
+    pub var has_eval_if:    bool = false;
+    /// The parser met an `eval for` (InterfaceEmitter writes the eval
+    /// helpers, EVAL.md §5). One writer: the parser.
+    pub var has_eval_for:   bool = false;
+    /// StringLowering spelled a string literal C++ reads at compile time
+    /// (EVAL.md 2a), so InterfaceEmitter writes `__kairo_estr`. One writer:
+    /// StringLowering.
+    pub var has_eval_string: bool = false;
+
     /// The HeaderSet this file's ffi imports requested (PPWalker::_finalize),
     /// or null. Typed *void: TranslationUnit cannot name Interop. Owned by the
     /// CompilerInstance's HeaderSetCache, never by the TU.
@@ -221,6 +243,11 @@ class TranslationUnit derives DeclContext {
     /// so every run spells them the same.
     pub var cxx_escaping:      vec::<*Decl>;
     pub var cxx_escaping_done: bool = false;
+
+    /// PANIC.md §1.4: this TU's panic sites, in registration order, ids
+    /// unique within the TU. One writer, PanicSites::site_id (Sema); one
+    /// reader, EmitIR, which writes them to the `__kairo_panic_sites` table.
+    pub var panic_sites:       vec::<PanicSiteRec>;
 
     /// The path of this file's bare `module a::b` declaration, one token per
     /// segment, or empty. Recorded by the parser in any file; read by

@@ -93,6 +93,23 @@ class <T> FFILinkage {
     pub var layout:          ForeignLayout;
     pub var ffi_is_union:    bool = false;
     pub var ffi_is_final:    bool = false;
+    /// `struct` / `class` / `union` / `enum` when this tag's name is HIDDEN
+    /// by an ordinary name in its scope (`struct timezone` beside `extern
+    /// long timezone`, C++ [basic.scope.hiding]); "" otherwise. C++ then
+    /// reaches the type only through an elaborated specifier, so CXXSpell
+    /// writes `struct ::timezone` wherever it spells the type. Set by
+    /// DeclImport, monotonic across header sets: once any set saw the name
+    /// hidden, the elaborated spelling is the only one valid in every TU.
+    pub var ffi_tag_keyword: string = "";
+    /// On a Kairo-written bodiless `ffi "c" struct timezone` (or class /
+    /// union): the imported tag it names, so the forward declaration IS the
+    /// header's entity rather than a new Kairo type. NameLookup::
+    /// representative answers with it, which makes every canonical type
+    /// built from the forward declaration the header's. One writer: I
+    /// (ImportResolution::_bind_ffi_forwards). Null when no header tag of
+    /// that name is in the TU's ffi closure. Typed *void: this mixin cannot
+    /// name Decl (DeclFacts casts).
+    pub var ffi_tag_target:  obs::<void> = &null;
 
     // Enums.
     pub var ffi_scoped_enum: bool = false;

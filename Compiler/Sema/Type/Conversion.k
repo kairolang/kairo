@@ -40,6 +40,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import AST::OperatorFacts::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
@@ -49,6 +50,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::TypeKind::*;
+import AST::ParamMode::*;
 import Token::TokenKind::*;
 
 /// \enum ConvClass
@@ -305,6 +307,14 @@ class Conversion {
         var to_inner = self.tu.nullable_inner(tq);
         if to_inner != &null {
             var from_inner = self.tu.nullable_inner(fu);
+            // One level per conversion (NULLABLE.md 1.5): a value becomes
+            // present in ONE `?`. `T -> (T?)?` would be two wraps, which no
+            // single constructor of Nullable<Nullable<T>> is -- C++ refuses
+            // the second user conversion, and so does Kairo. `T? -> (T?)?`
+            // wraps the whole nullable, its null included, as the present
+            // outer value.
+            if (from_inner == &null) && (self.tu.nullable_inner(to_inner) != &null) { return ImplicitRank::None; }
+            if (from_inner != &null) && (canon_unqual(to_inner) == fu) { return ImplicitRank::Converted; }
             if from_inner != &null {
                 // T? -> U?: only when the inners relate; never Exact (different type).
                 return (ImplicitRank::Converted) if (self._seq(from_inner, to_inner, false) != ImplicitRank::None)
@@ -324,7 +334,7 @@ class Conversion {
             if !self._quals_kept(fp, tp) { return ImplicitRank::None; }
             var fd = self.tu.record_decl(fp);
             var td = self.tu.record_decl(tp);
-            if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(fd, td) {
+            if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(fp, tp) {
                 return ImplicitRank::Converted;
             }
             if self._qual_conv(fu, tq, true) { return ImplicitRank::Converted; }
@@ -340,6 +350,16 @@ class Conversion {
             return ImplicitRank::None;
         }
 
+        // `fn` values: the same signature, and an effect the target allows
+        // (PANIC.md §2.2). A function whose set is S converts to a `fn` type
+        // whose set is S' only when S is a subset of S'; one that does not
+        // panic converts to any panicking `fn` type. The effect is in the
+        // canonical, so only the effect can differ here.
+        if isa::<FunctionPointerType>(fu) && isa::<FunctionPointerType>(tq) {
+            return (ImplicitRank::Converted) if (self._fn_effect_widens(cast::<FunctionPointerType>(fu), cast::<FunctionPointerType>(tq)))
+                   else (ImplicitRank::None);
+        }
+
         if !user { return ImplicitRank::None; }
 
         // `[T; N]` -> `[T;]`: a view of the array, nothing copied. The one
@@ -351,6 +371,30 @@ class Conversion {
         if self.implicit_op(from, tq) != &null { return ImplicitRank::Converted; }
 
         return ImplicitRank::None;
+    }
+
+    /// \p a and \p b are one signature (parameters, modes, result) and \p a's
+    /// panic effect is within \p b's: \p a does not panic, or both do and
+    /// \p a's set is a subset of \p b's.
+    priv fn _fn_effect_widens(self, a: *FunctionPointerType, b: *FunctionPointerType) -> bool {
+        if (a->return_type != b->return_type) || (a->params.size() != b->params.size()) { return false; }
+        if a->is_unprototyped != b->is_unprototyped { return false; }
+        for var i: usize = 0; i < a->params.size(); ++i {
+            if a->params[i] != b->params[i] { return false; }
+            var ma = (a->modes[i]) if (i < a->modes.size()) else (ParamMode::Value);
+            var mb = (b->modes[i]) if (i < b->modes.size()) else (ParamMode::Value);
+            if ma != mb { return false; }
+        }
+        if !a->canon_panics { return true; }
+        if !b->canon_panics { return false; }
+        for var i: usize = 0; i < a->panic_set.size(); ++i {
+            var found = false;
+            for var j: usize = 0; j < b->panic_set.size(); ++j {
+                if a->panic_set[i] == b->panic_set[j] { found = true; break; }
+            }
+            if !found { return false; }
+        }
+        return true;
     }
 
     /// `[T; N]` seen as the slice \p to: `[T;]`, or `[const T;]`. A const
@@ -513,7 +557,7 @@ class Conversion {
         if src == ru { return ImplicitRank::Exact; }
         var fd = self.tu.record_decl(src);
         var td = self.tu.record_decl(ru);
-        if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(fd, td) {
+        if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(src, ru) {
             return ImplicitRank::Converted;
         }
         if canon_has_const(referee) && (self.implicit(src, ru) != ImplicitRank::None) { return ImplicitRank::Converted; }
@@ -568,7 +612,7 @@ class Conversion {
         if su == ru { return RefRel::Same; }
         var fd = self.tu.record_decl(su);
         var td = self.tu.record_decl(ru);
-        if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(fd, td) { return RefRel::Derived; }
+        if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(su, ru) { return RefRel::Derived; }
         if self.implicit(su, ru) != ImplicitRank::None { return RefRel::Converts; }
         return RefRel::None;
     }

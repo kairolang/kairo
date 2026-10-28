@@ -1,8 +1,6 @@
 # Requires Clauses
 
-`requires` attaches compile-time constraints to declarations. A `requires` clause specifies a
-condition that must hold at compile time if it doesn't, the program does not compile. There is
-no runtime fallback, no dispatch, no branching. `requires` is a static gate.
+`requires` attaches compile-time constraints to declarations. A `requires` clause specifies a condition that must hold at compile time if it doesn't, the program does not compile. There is no runtime fallback, no dispatch, no branching. `requires` is a static gate.
 
 For runtime-conditional dispatch, see [Where Clauses](/docs/language/where/).
 
@@ -70,8 +68,7 @@ If the expression depends on a runtime value, it belongs in a `where` clause, no
 
 ## Type Constraints
 
-`impl` and `derives` bounds can appear in `requires` clauses as an alternative to inline bounds
-on type parameters. The compiler desugars them identically:
+`impl` and `derives` bounds can appear in `requires` clauses as an alternative to inline bounds on type parameters. The compiler desugars them identically:
 
 ```kairo
 // These are equivalent:
@@ -79,15 +76,9 @@ fn <T impl Serializable> save(data: T) { ... }
 fn <T> save(data: T) requires T impl Serializable { ... }
 ```
 
-Either way, the bounds are all a generic body can rely on. The body is checked once, where it is
-defined, against its bounds, never per instantiation. Calling a method no
-bound declares is a compile error in the generic itself, even if every type it is ever
-instantiated with happens to have that method. See
-[Type parameter constraints](/docs/language/generics/#type-parameter-constraints) and
-[Generic Bodies](/docs/language/interfaces/#generic-bodies).
+Either way, the bounds are all a generic body can rely on. The body is checked once, where it is defined, against its bounds, never per instantiation. Calling a method no bound declares is a compile error in the generic itself, even if every type it is ever instantiated with happens to have that method. See [Type parameter constraints](/docs/language/generics/#type-parameter-constraints) and [Generic Bodies](/docs/language/interfaces/#generic-bodies).
 
-The `requires` form is preferred when constraints are long or involve relationships between
-multiple type parameters:
+The `requires` form is preferred when constraints are long or involve relationships between multiple type parameters:
 
 ```kairo
 fn <T, U> convert(input: T) -> U
@@ -101,8 +92,7 @@ fn <T, U> convert(input: T) -> U
 
 ## Requires on Types
 
-`requires` on a [class](/docs/language/classes/), [struct](/docs/language/structures/), or [enum](/docs/language/enums/) is checked at instantiation time. A violation is a hard
-compile error at the point of use:
+`requires` on a [class](/docs/language/classes/), [struct](/docs/language/structures/), or [enum](/docs/language/enums/) is checked at instantiation time. A violation is a hard compile error at the point of use:
 
 ```kairo
 class <T> SmallBuffer
@@ -125,15 +115,13 @@ enum <T> Compact
 }
 ```
 
-Type-level constraints are always `requires`. There is no runtime dispatch on type instantiation
-either the type is valid or it isn't.
+Type-level constraints are always `requires`. There is no runtime dispatch on type instantiation either the type is valid or it isn't.
 
 ---
 
 ## Requires on Interface Methods
 
-`requires` on an [interface](/docs/language/interfaces/) method constrains what conforming types must satisfy. The conforming
-type must implement the method with an identical `requires` clause:
+`requires` on an [interface](/docs/language/interfaces/) method constrains what conforming types must satisfy. The conforming type must implement the method with an identical `requires` clause:
 
 ```kairo
 interface Accumulator {
@@ -154,17 +142,13 @@ class Counter impl Accumulator {
 }
 ```
 
-Because interfaces are zero-cost structural contracts, `requires` is the only valid constraint
-keyword on interface members. `where` is not permitted runtime dispatch inside an interface
-method would violate the zero-cost guarantee.
+Because interfaces are zero-cost structural contracts, `requires` is the only valid constraint keyword on interface members. `where` is not permitted runtime dispatch inside an interface method would violate the zero-cost guarantee.
 
 ---
 
 ## Requires on Interfaces
 
-A `requires` clause on an interface declaration constrains which types can conform. A type that
-does not satisfy the `requires` cannot implement the interface, even if it has all the required
-methods:
+A `requires` clause on an interface declaration constrains which types can conform. A type that does not satisfy the `requires` cannot implement the interface, even if it has all the required methods:
 
 ```kairo
 interface <T> SmallStorable
@@ -174,22 +158,20 @@ interface <T> SmallStorable
 }
 ```
 
-This is distinct from `requires` on an individual method it applies to the entire interface
-as a precondition on conformance.
+This is distinct from `requires` on an individual method it applies to the entire interface as a precondition on conformance.
 
 ---
 
 ## Requires and eval
 
-`requires` expressions are evaluated by the same compile-time engine as `eval`. Any `eval`
-function or variable is usable in a `requires` clause:
+`requires` expressions are evaluated by the same compile-time engine as `eval`. Any `eval` function or variable is usable in a `requires` clause:
 
 ```kairo
 eval fn is_power_of_two(n: i32) -> bool {
     return n > 0 && (n & (n - 1)) == 0
 }
 
-fn <const N: i32> clear_aligned(@inout buf: [u8; N])
+fn <eval N: i32> clear_aligned(@inout buf: [u8; N])
   requires is_power_of_two(N) {
     for i in 0..N { buf[i] = 0 }
 }
@@ -206,24 +188,25 @@ See [Eval](/docs/language/eval/) for compile-time evaluation rules.
 
 ## Requires and panic
 
-`requires` and [`panic`](/docs/language/panic/) serve different purposes and can coexist. `requires` filters invalid inputs
-before the function body executes. `panic` handles valid inputs that produce errors during
-processing:
+`requires` and [`panic`](/docs/language/panic/) serve different purposes and can coexist. `requires` filters invalid inputs before the function body executes. `panic` handles valid inputs that produce errors during processing:
 
 ```kairo
+struct PortRange {
+    var port: i32
+    fn op panic (const self) -> string { return f"port {self.port} out of range" }
+}
+
 fn parse_port(input: string) panic -> i32
   requires input.length() > 0 {
     var port = std::parse<i32>(input)
     if port < 0 || port > 65535 {
-        panic std::Error::Runtime("port out of range")
+        panic PortRange { port: port }
     }
     return port
 }
 ```
 
-The `requires` clause rejects empty strings at compile time (when the argument is a constant) or
-documents the precondition for the caller. The `panic` handles the runtime error case of a
-non-empty string that isn't a valid port.
+The `requires` clause rejects empty strings at compile time (when the argument is a constant) or documents the precondition for the caller. The `panic` handles the runtime error case of a non-empty string that isn't a valid port.
 
 ---
 

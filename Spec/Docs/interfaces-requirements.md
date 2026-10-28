@@ -1,8 +1,6 @@
 # Interface Requirements
 
-An interface body contains method signatures (including generic methods), static function signatures,
-operator signatures, constructor requirements, and [associated types](/docs/language/interfaces/#associated-types).
-This page covers the operator, constructor, static, and `Self` requirements.
+An interface body contains method signatures (including generic methods), static function signatures, operator signatures, constructor requirements, and [associated types](/docs/language/interfaces/#associated-types). This page covers the operator, constructor, static, `Self` and panicking requirements.
 
 ---
 
@@ -20,11 +18,9 @@ interface Convertible {
 }
 ```
 
-`Self` in an interface signature refers to the conforming type. A class that `impl Equatable` must
-provide `fn op ==(const self, other: Self) -> bool` where `Self` resolves to that class.
+`Self` in an interface signature refers to the conforming type. A class that `impl Equatable` must provide `fn op ==(const self, other: Self) -> bool` where `Self` resolves to that class.
 
-See [Operators](/docs/language/operator-overloading/) for the full list of overloadable
-operators.
+See [Operators](/docs/language/operator-overloading/) for the full list of overloadable operators.
 
 ---
 
@@ -42,8 +38,7 @@ interface <T> Cloneable {
 }
 ```
 
-A conforming type must have a constructor that matches the parameter list. The constructor name in the
-implementation uses the type's own name, not the interface name:
+A conforming type must have a constructor that matches the parameter list. The constructor name in the implementation uses the type's own name, not the interface name:
 
 ```kairo
 interface Defaultable {
@@ -59,10 +54,19 @@ class Config impl Defaultable {
 }
 ```
 
+Only the conforming type's own constructors count; a base class's constructors do not. A type that declares no constructor at all has the implicit one, so it satisfies a requirement with no parameters (`fn Defaultable(self)`) and nothing else. Built-in types such as `i32` and `bool` satisfy no constructor requirement, because `i32()` is not a call in Kairo; use `x as i32` to convert.
+
+Inside a generic body, `T(args)` constructs a `T` when one of `T`'s bounds has a constructor requirement taking that many arguments:
+
+```kairo
+fn <T impl Defaultable> fresh() -> T {
+    return T()
+}
+```
+
 ### Lifecycle attributes on constructor requirements
 
-Constructor requirements can carry `@copy` or `@move` attributes to require a specific lifecycle
-category. This is how you express "T must be copyable" or "T must be movable" as an interface bound:
+Constructor requirements can carry `@copy` or `@move` attributes to require a specific lifecycle category. This is how you express "T must be copyable" or "T must be movable" as an interface bound:
 
 ```kairo
 interface Copyable {
@@ -79,13 +83,9 @@ fn <T impl Copyable> store(item: T) -> T { return item }
 fn <T impl Movable> consume(item: T)     { }
 ```
 
-A `@copy` requirement is satisfied only by COPY types. A `@move` requirement is satisfied by COPY and
-MOVE types; a copy is a valid move. NON_TRANSFER types satisfy neither.
+A `@copy` requirement is satisfied only by COPY types. A `@move` requirement is satisfied by COPY and MOVE types; a copy is a valid move. NON_TRANSFER types satisfy neither.
 
-Keep lifecycle requirements separate from a default constructor requirement. Putting `fn Copyable(self)`
-in `Copyable` would make "copyable" also mean "default-constructible", and the bound would reject every
-copyable type without a default constructor. Require default construction separately, with
-`Defaultable` above, where a body needs it.
+Keep lifecycle requirements separate from a default constructor requirement. Putting `fn Copyable(self)` in `Copyable` would make "copyable" also mean "default-constructible", and the bound would reject every copyable type without a default constructor. Require default construction separately, with `Defaultable` above, where a body needs it.
 
 The standard library will provide canonical lifecycle interfaces; these are just examples. See [Lifecycle Categories](/docs/language/classes-lifecycle/#lifecycle-categories) for the underlying model.
 
@@ -124,8 +124,7 @@ class Timestamp impl Parseable {
 
 ## Return Types with `Self`
 
-Interface methods can use `Self` as a return type. `Self` resolves to the conforming type a class
-that `impl Chainable` and returns `Self` returns its own type:
+Interface methods can use `Self` as a return type. `Self` resolves to the conforming type a class that `impl Chainable` and returns `Self` returns its own type:
 
 ```kairo
 interface Chainable {
@@ -140,9 +139,7 @@ class Pipeline impl Chainable {
 }
 ```
 
-Kairo has no user-visible reference types [Tether](/docs/language/tether/) infers reference semantics where
-needed. In practice this means `Self` returns enable fluent chaining without `->` or explicit
-dereferencing:
+Kairo has no user-visible reference types [Tether](/docs/language/tether/) infers reference semantics where needed. In practice this means `Self` returns enable fluent chaining without `->` or explicit dereferencing:
 
 ```kairo
 interface Chainable {
@@ -176,6 +173,36 @@ interface Duplicable {
     fn clone(self) -> *Self
 }
 ```
+
+---
+
+## Panicking Requirements
+
+A requirement that may [panic](/docs/language/panic/) must declare its panic set, `panic(E1, E2)`. A bare `panic` on a requirement is an error: a requirement has no body to infer a set from, and the set is the contract every conformer is held to.
+
+```kairo
+struct ReadError {
+    var path: string
+    fn op panic (const self) -> string { return f"cannot read {self.path}" }
+}
+
+interface Source {
+    fn read(self, path: string) panic(ReadError) -> string
+}
+
+class Disk impl Source {
+    fn read(self, path: string) panic -> string {     // set inferred: ReadError
+        if !exists(path) { panic ReadError { path: path } }
+        return load(path)
+    }
+}
+
+class Memory impl Source {
+    fn read(self, path: string) -> string { return "" }   // ok: no panic at all
+}
+```
+
+A conforming method may infer its set, but the set must be a subset of the requirement's. Panicking with a type outside it is an error at the conformer.
 
 ---
 

@@ -231,6 +231,11 @@ class TypeCycleCheck {
                 }
             } case TypeKind::FixedArrayType {
                 self._type_edges(cast::<FixedArrayType>(c)->element, site);
+            } case TypeKind::NullableType {
+                // `T?` holds its T in place (NULLABLE.md 1.2: tagged, and a
+                // niche is the T itself), so `class Node { var next: Node? }`
+                // is a by-value loop like `var next: Node`.
+                self._type_edges(cast::<NullableType>(c)->inner, site);
             } case TypeKind::QualifiedType {
                 // A const field is still by value.
                 self._type_edges(cast::<QualifiedType>(c)->inner, site);
@@ -327,6 +332,8 @@ class TypeCycleCheck {
                 return false;
             } case TypeKind::FixedArrayType {
                 return self._type_uses_param(cast::<FixedArrayType>(c)->element, rec, index, depth);
+            } case TypeKind::NullableType {
+                return self._type_uses_param(cast::<NullableType>(c)->inner, rec, index, depth);
             } case TypeKind::QualifiedType {
                 return self._type_uses_param(cast::<QualifiedType>(c)->inner, rec, index, depth);
             } default {

@@ -35,6 +35,7 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Statements::*;
 import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;
 import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -154,6 +155,58 @@ class <T> DeclParse {
             || k == TokenKind::KwInline;
     }
 
+    /// \brief true if the storage keyword under the cursor opens a binding
+    ///        rather than an expression.
+    ///  Lookahead:  KW ( 'const' | 'static' | 'thread' | 'eval' | 'var'
+    ///                 | 'unsafe'? '*'* name '?'? ( ':' | '=' | end ) )
+    ///  where `end` is a newline, `;`, `}` or the end of the file.
+    ///
+    /// \details `thread` and `eval` each front two things: a declaration
+    ///          (`thread n: i32 = 0`, `eval N = 4`) and a prefix expression
+    ///          (`thread work(&x)`, tether-threading.mdx; `eval f(3)`). Only
+    ///          what follows the name separates them: an expression operand
+    ///          is never followed by `:`, nor by `=` (that would assign to
+    ///          the operand of a spawn), and a spawn of a bare name means
+    ///          nothing, so `thread n` alone is the binding -- Sema then
+    ///          reports it has neither a type nor an initializer (SC046E), as
+    ///          for `static n`, where the expression would pass silently. A
+    ///          second binding keyword is always a binding, so
+    ///          _parse_storage_head gets to name a bad combination. The guard
+    ///          rolls the cursor back unconditionally.
+    pub fn _storage_binding_ahead(self) -> bool {
+        type ASTTentativeGuard = typename!(T::TentativeGuard);
+        var t = ASTTentativeGuard(dyn());
+
+        dyn()->advance();   // the keyword under test
+        if dyn()->check(TokenKind::KwConst)  || dyn()->check(TokenKind::KwStatic)
+        || dyn()->check(TokenKind::KwThread) || dyn()->check(TokenKind::KwEval)
+        || dyn()->check(TokenKind::KwVar) {
+            return true;
+        }
+        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) { dyn()->advance(); }
+        while dyn()->check(TokenKind::OpStar) { dyn()->advance(); }
+        if !dyn()->check_is_ident() { return false; }
+        dyn()->advance();   // the name
+        if dyn()->check(TokenKind::OpQuestion) { dyn()->advance(); }
+        if dyn()->check(TokenKind::OpColon) || dyn()->check(TokenKind::OpEqual) { return true; }
+        // `thread n` alone: a binding with neither a type nor an initializer,
+        // which Sema reports (SC046E) as it does for `static n`. As a spawn
+        // of a bare name it would be accepted silently.
+        return dyn()->is_eof() || dyn()->check(TokenKind::OpRBrace)
+            || dyn()->_is_terminator_tok(dyn()->current_ptr());
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
+    /// \brief _starts_decl_kw, plus `thread` when it opens a binding: the
+    ///        gate for every place that walks declarations (the index pass,
+    ///        a type body's index walk, top-level recovery). `thread` is not
+    ///        in _starts_decl_kw itself because `thread work()` is an
+    ///        expression and the callers of that predicate do not look ahead.
+    pub fn _starts_decl_here(self, k: TokenKind) -> bool {
+        if self._starts_decl_kw(k) { return true; }
+        return (k == TokenKind::KwThread) && self._storage_binding_ahead();
+    }
+
     //  Entry point
 
     /// \brief parses a single declaration.
@@ -255,8 +308,13 @@ class <T> DeclParse {
             case TokenKind::KwVar     { return self._parse_var_decl(); }
             case TokenKind::KwConst   { return self._parse_var_decl(); }
             case TokenKind::KwStatic  { return self._parse_var_decl(); }
+            case TokenKind::KwThread  { return self._parse_var_decl(); }   // callers saw _storage_binding_ahead
             case TokenKind::KwMutable { return self._parse_var_decl(); }
             case TokenKind::KwEval {
+                // `eval if` / `eval for` in a module or class body
+                if dyn()->check_peek(TokenKind::KwIf) || dyn()->check_peek(TokenKind::KwFor) {
+                    return self._parse_eval_stmt_decl();
+                }
                 // `eval {` decl block vs `eval var/const/fn ...`
                 if dyn()->check_peek(TokenKind::OpLBrace) {
                     return self._parse_eval_block_decl();
@@ -554,7 +612,7 @@ class <T> DeclParse {
 
             var is_field_lead = (k == TokenKind::KwVar) || (k == TokenKind::KwConst)
                              || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || (k == TokenKind::KwMutable);
+                             || (k == TokenKind::KwThread) || (k == TokenKind::KwMutable);
 
             if is_field_lead {
                 var f = self._parse_field(*field_idx);
@@ -786,6 +844,37 @@ class <T> DeclParse {
         return SpecKind::Primary; // all simple idents; sema refines vs Explicit
     }
 
+    /// \brief _classify_spec for a RECORD, which can say more: the head's own
+    ///        parameter names are known here, so an all-simple-idents
+    ///        pattern is the primary form only when it is exactly those
+    ///        parameters, in order (`<T> Box<T>`, `<A, B> Pair<A, B>`).
+    ///        Anything else -- a name the head does not bind (`<X> Pair<X,
+    ///        i32>`), a repeat or a reordering (`<A> Pair<A, A>`) -- is a
+    ///        pattern over the head's variables: Partial. Left as Primary it
+    ///        was a second primary to N, a redefinition of the first.
+    ///        Functions keep _classify_spec: a partial function spec is an
+    ///        error, and widening what lands there would change which
+    ///        function forms are rejected.
+    fn _classify_record_spec(
+        self,
+        spec_args: *std::StackBuf::<*Type, 4>,
+        gparams:   *std::StackBuf::<*GenericParamDecl, 2>
+    ) -> SpecKind {
+        var k = self._classify_spec(spec_args, !gparams->is_empty());
+        if k != SpecKind::Primary { return k; }
+        if spec_args->size() != gparams->size() { return SpecKind::Partial; }
+        for var i: usize = 0; i < spec_args->size(); ++i {
+            var ct = cast::<ChainType>((*spec_args)[i]);
+            var seg = ct->segments.get(0);
+            if (seg == &null) || (seg->name == &null) { return k; }
+            var arg = dyn()->ctx->get_spelling(seg->name->name);
+            var gp  = (*gparams)[i];
+            if gp == &null { return k; }
+            if arg != dyn()->ctx->get_spelling(gp->name) { return SpecKind::Partial; }
+        }
+        return k;
+    }
+
     /// \brief true if `ty` is a single-segment `ChainType` naming a bare
     ///        identifier with no generic args of its own (`T`, `i32`, `Foo`).
     ///        Structured types (`[T]`, `*T`, `Vec<T>`, `A::B`) return false.
@@ -899,12 +988,22 @@ class <T> DeclParse {
         dyn()->_reject_mode_binding();   // `<@move T>`: a generic param is not passed.
         var start = dyn()->current_ptr()->range;
 
-        // const value parameter: `const N: T`
-        if dyn()->check(TokenKind::KwConst) {
-            dyn()->advance(T::SkipNL::After); // consume `const`
+        // value parameter: `eval N: T` (EVAL.md 3). `const N: T` is the old
+        // spelling: an error with a fix-it to `eval`, parsed as the same
+        // parameter so nothing after it cascades.
+        if dyn()->check(TokenKind::KwEval) || dyn()->check(TokenKind::KwConst) {
+            var kw = dyn()->current();
+            if kw.kind == TokenKind::KwConst {
+                var b = dyn()->diag->report(DiagID::S001E, kw.range.start,
+                    "a generic value parameter is written 'eval N: T', not 'const N: T\x27; its value is a compile-time constant");
+                b.first(kw.range);
+                b.fix(kw.range, "eval", "write 'eval\x27");
+                b.emit();
+            }
+            dyn()->advance(T::SkipNL::After); // consume `eval` / `const`
             if !dyn()->check_is_ident() {
                 dyn()->diag->report(DiagID::S049E, start.start,
-                    "expected parameter name after 'const' in generic parameter list"
+                    "expected parameter name after 'eval' in generic parameter list"
                 ).first(start).emit();
                 return &null;
             }
@@ -912,7 +1011,7 @@ class <T> DeclParse {
             dyn()->advance();
             if !dyn()->check(TokenKind::OpColon) {
                 dyn()->diag->report(DiagID::S049E, start.start,
-                    "expected ':' and a type for a const generic value parameter"
+                    "expected ':' and a type for a generic value parameter"
                 ).first(start).emit();
                 return &null;
             }
@@ -949,8 +1048,10 @@ class <T> DeclParse {
 
         // optional kind bound: `: class|struct|enum|union`
         if dyn()->check(TokenKind::OpColon) {
+            var colon = dyn()->current().range;
             dyn()->advance(T::SkipNL::After); // consume `:`
             gp->kind_bound = self._parse_kind_bound(start);
+            gp->kind_bound_range = colon | dyn()->prev().range;
         }
 
         // optional impl/derives bounds. Both may appear (in either order) and
@@ -1181,6 +1282,9 @@ class <T> DeclParse {
             case TokenKind::KwThread: // thread
             case TokenKind::KwDelete: // delete
             case TokenKind::KwYield:  // yield
+            // `fn op panic (const self) -> string`: an error type's message
+            // (PANIC.md §1.5). Optional; P3 checks its signature.
+            case TokenKind::KwPanic:  // panic
 
             // nullability and boolean
             case TokenKind::OpQuestion { // ?
@@ -1339,6 +1443,8 @@ class <T> DeclParse {
         var params: std::StackBuf::<*ParamDecl, 4>;
         self._parse_param_list(&params);
         fd->params.from_buf(params.data(), params.size(), dyn()->ctx);
+        // The list's `)`, where a fix-it inserts a ` panic` specifier.
+        if dyn()->prev_ptr()->kind == TokenKind::OpRParen { fd->params_end = dyn()->prev_ptr()->range; }
         // DERIVED, never written directly: the parameter list is the truth
         // about which parameter is the pack (ParamDecl::is_pack), and a flag on
         // the function cannot say which one it is.
@@ -1410,11 +1516,19 @@ class <T> DeclParse {
 
         // optional `where <expr>` runtime-dispatch guard (functions only).
         // Comes after requires: `fn f(...) -> T requires <ct> where <rt> { }`.
-        if dyn()->check(TokenKind::KwWhere) {
+        // where.mdx writes it on its own line under the head, the way
+        // `requires` may sit; `where` cannot begin a declaration or a
+        // statement, so the newline in front of it never ends anything.
+        if self._peek_past_nl(TokenKind::KwWhere) {
+            var wh = dyn()->current_ptr()->range;
             dyn()->advance(T::SkipNL::After);
-            var wex = dyn()->parse_expr();
+            var wex = dyn()->parse_guard_expr();
             if (wex != &null) && (!is_recovery(wex)) {
                 fd->where_clause = wex;
+            } else if wex == &null {
+                dyn()->diag->report(DiagID::S052E, wh.start,
+                    "expected a condition after 'where\x27"
+                ).first(wh).emit();
             }
         }
 
@@ -1984,7 +2098,21 @@ class <T> DeclParse {
             else if dyn()->check(TokenKind::KwEval)     { fd->modifiers |= FnModifier::IsEval;     dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { fd->modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
             else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPanic)    { fd->modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPanic)    {
+                fd->modifiers |= FnModifier::IsPanic;
+                var pk = dyn()->current_ptr()->range;
+                dyn()->advance();
+                // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
+                // has the disambiguation rule).
+                if dyn()->check(TokenKind::OpLParen) {
+                    var pset: std::StackBuf::<*Type, 4>;
+                    dyn()->parse_panic_set(&pset);
+                    fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                }
+                // The specifier as written, its set included: what a fix-it
+                // removes or rewrites.
+                fd->panic_range = pk | dyn()->prev_ptr()->range;
+            }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
         }
@@ -2040,7 +2168,21 @@ class <T> DeclParse {
             else if dyn()->check(TokenKind::KwEval)     { fd->modifiers |= FnModifier::IsEval;     dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { fd->modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
             else if dyn()->check(TokenKind::KwFinal)    { fd->modifiers |= FnModifier::IsFinal;    dyn()->advance(); }
-            else if dyn()->check(TokenKind::KwPanic)    { fd->modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPanic)    {
+                fd->modifiers |= FnModifier::IsPanic;
+                var pk = dyn()->current_ptr()->range;
+                dyn()->advance();
+                // `panic(E1, E2)`: the declared set (TypeParse::parse_panic_set
+                // has the disambiguation rule).
+                if dyn()->check(TokenKind::OpLParen) {
+                    var pset: std::StackBuf::<*Type, 4>;
+                    dyn()->parse_panic_set(&pset);
+                    fd->panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                }
+                // The specifier as written, its set included: what a fix-it
+                // removes or rewrites.
+                fd->panic_range = pk | dyn()->prev_ptr()->range;
+            }
             else if dyn()->check(TokenKind::KwInline)   { fd->modifiers |= FnModifier::IsInline;   dyn()->advance(); }
             else { break; }
         }
@@ -2049,8 +2191,9 @@ class <T> DeclParse {
     /// \brief parses the function body, setting body_kind + body_block/expr.
     ///  Grammar:  block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
     priv fn _parse_fn_body(self, fd: *FunctionDecl) {
-        // `= default` / `= delete` / `= virtual` / `= expr`
+        // `= default` / `= delete` / `= expr`
         if dyn()->check(TokenKind::OpEqual) {
+            var before_eq = dyn()->prev().range;
             dyn()->advance(T::SkipNL::After); // consume `=`
 
             if dyn()->check(TokenKind::KwDefault) {
@@ -2059,11 +2202,25 @@ class <T> DeclParse {
             if dyn()->check(TokenKind::KwDelete) {
                 dyn()->advance(); fd->body_kind = FnBodyKind::Delete; return;
             }
+            // `= virtual` was the old pure-virtual spelling. A pure virtual
+            // method is now a `virtual fn` with no body (_parse_class marks
+            // it), so the fix-it rewrites to that, and recovery reads the
+            // method as pure virtual so the class is not also reported for
+            // a missing body or a non-abstract instantiation.
             if dyn()->check(TokenKind::KwVirtual) {
-                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
-                    "virtual functions must be declared with the 'virtual' modifier"
+                var vr = dyn()->current_ptr()->range;
+                var gone = SourceRange(before_eq.end, vr.end);
+                var b = dyn()->diag->report(DiagID::S047E, vr.start,
+                    "'= virtual' is not a function body; a pure virtual method is a 'virtual fn' with no body"
                 );
+                b.first(vr);
+                b.remove(gone, "remove '= virtual\x27");
+                if fd->abi != AbiKind::Virtual {
+                    b.insert(fd->range.start, "virtual ", "declare the method 'virtual\x27");
+                }
+                b.emit();
                 dyn()->advance();
+                fd->abi = AbiKind::Virtual;
                 return;
             }
             if dyn()->check(TokenKind::KwStatic) {
@@ -2124,6 +2281,108 @@ class <T> DeclParse {
 
     //  Variable / field declaration
 
+    /// \struct StorageHead
+    /// \brief the keywords that open a binding, read by _parse_storage_head.
+    struct StorageHead {
+        var storage:       StorageClass;
+        var is_thread:     bool;
+        var const_binding: bool;   ///< `static const` / `thread const`: the binding itself is const.
+        var saw_const:     bool;   ///< a `const` was read, whatever it meant (`eval const` sets nothing else).
+    }
+
+    /// \brief reads the keywords that open a binding or a field, in either
+    ///        order where `const` combines with a storage keyword.
+    ///  Grammar:  'var'
+    ///          | 'const' ( 'static' 'thread'? | 'thread' | 'eval' )?
+    ///          | 'static' 'thread'? 'const'?
+    ///          | 'thread' 'const'?
+    ///          | 'eval' 'const'?
+    ///
+    /// \details `static const x` and `const static x` are one declaration
+    ///          (variables.mdx): the storage keyword says where the object
+    ///          lives, `const` that the binding cannot be reassigned. Both
+    ///          orders land on the same node -- `storage` keeps the storage
+    ///          keyword and `const_binding` the const -- so nothing after the
+    ///          parser can tell which was written. `eval` is const already, so
+    ///          `eval const` / `const eval` is plain `eval` and sets nothing.
+    ///          `thread` is `static` storage with `is_thread`, the shape
+    ///          `static thread` always had: every consumer that asks
+    ///          is_static() (`Type::name` lookup, nullness, the C++ spelling)
+    ///          is already right for it. Anything else after the keyword is
+    ///          left for the name check, whose S046E names the real problem.
+    priv fn _parse_storage_head(self) -> StorageHead {
+        var first = dyn()->current();
+        var h     = self._storage_head_core();
+
+        // A keyword of the set still on the cursor is a combination the
+        // grammar above refuses (`var thread`, `static eval`, `const const`).
+        // Named here, where both keywords are known: left for the name check
+        // it was S046E "expected a name", which hides the real mistake. The
+        // extra keyword is dropped and the declaration parses on.
+        // FIXME(diag-table): S045 is "unexpected token in parsing"; a
+        // storage-class combination wants its own code.
+        while dyn()->check(TokenKind::KwVar)  || dyn()->check(TokenKind::KwConst)
+           || dyn()->check(TokenKind::KwStatic) || dyn()->check(TokenKind::KwEval)
+           || dyn()->check(TokenKind::KwThread) {
+            var extra = dyn()->current();
+            var msg   = f"'{dyn()->ctx->get_spelling(first)}' cannot be combined with '{dyn()->ctx->get_spelling(extra)}'; a binding takes one of 'var', 'static', 'thread' or 'eval', and 'const' once";
+            if dyn()->check(TokenKind::KwConst) && h.saw_const { msg = "'const' is written twice; a binding takes it once"; }
+            var b = dyn()->diag->report(DiagID::S045E, extra.range.start, msg);
+            b.first(extra.range);
+            b.remove(extra.range, "remove it");
+            b.emit();
+            dyn()->advance();   // consume the extra keyword
+        }
+        return h;
+    }
+
+    priv fn _storage_head_core(self) -> StorageHead {
+        var h = StorageHead{};
+        h.storage       = StorageClass::Var;
+        h.is_thread     = false;
+        h.const_binding = false;
+        h.saw_const     = false;
+
+        var lead_const = dyn()->check(TokenKind::KwConst);
+        if lead_const {
+            h.storage   = StorageClass::Const;
+            h.saw_const = true;
+            dyn()->advance();   // consume `const`
+            if dyn()->check(TokenKind::KwStatic) || dyn()->check(TokenKind::KwThread) {
+                h.storage       = StorageClass::Static;
+                h.is_thread     = dyn()->check(TokenKind::KwThread);
+                h.const_binding = true;
+                dyn()->advance();   // consume `static` / `thread`
+                if (!h.is_thread) && dyn()->check(TokenKind::KwThread) {
+                    h.is_thread = true;
+                    dyn()->advance();   // consume `thread` of `const static thread`
+                }
+            } else if dyn()->check(TokenKind::KwEval) {
+                h.storage = StorageClass::Eval;
+                dyn()->advance();   // consume `eval`
+            }
+            return h;
+        }
+
+        if      dyn()->check(TokenKind::KwStatic) { h.storage = StorageClass::Static; }
+        else if dyn()->check(TokenKind::KwThread) { h.storage = StorageClass::Static; h.is_thread = true; }
+        else if dyn()->check(TokenKind::KwEval)   { h.storage = StorageClass::Eval;   }
+        var is_var = dyn()->check(TokenKind::KwVar);
+        dyn()->advance();   // consume the storage keyword
+        if is_var { return h; }
+
+        if (h.storage == StorageClass::Static) && (!h.is_thread) && dyn()->check(TokenKind::KwThread) {
+            h.is_thread = true;
+            dyn()->advance();   // consume `thread` of `static thread`
+        }
+        if dyn()->check(TokenKind::KwConst) {
+            if h.storage == StorageClass::Static { h.const_binding = true; }
+            h.saw_const = true;
+            dyn()->advance();   // consume `const`
+        }
+        return h;
+    }
+
     /// \brief parses a var/const/static/eval binding as a VariableDecl.
     ///  Grammar:  ('var'|'const'|'static'|'eval') identifier (':' type)?
     ///            ('=' expr)?
@@ -2134,28 +2393,27 @@ class <T> DeclParse {
     fn _parse_var_decl(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
 
-        var storage = StorageClass::Var;
-        if      dyn()->check(TokenKind::KwConst)  { storage = StorageClass::Const;  }
-        else if dyn()->check(TokenKind::KwStatic) { storage = StorageClass::Static; }
-        else if dyn()->check(TokenKind::KwEval)   { storage = StorageClass::Eval;   }
-        dyn()->advance(); // consume the storage keyword
+        var head    = self._parse_storage_head();
+        var storage = head.storage;
         dyn()->_reject_mode_binding();   // `var @inout x`: modes are parameter-only.
 
-        // `static thread X: T` - thread_local storage duration.
-        var is_thread = false;
-        if dyn()->check(TokenKind::KwThread) {
-            var thread_range = dyn()->current_ptr()->range;
-            dyn()->advance();
-            if storage != StorageClass::Static {
-                // FIXME(diag-table): placeholder id. This is a storage-class
-                // combination error; it wants its own code, not S046 ("expected
-                // identifier or name in declaration").
-                dyn()->diag->report(DiagID::S045E, thread_range.start,
-                    "'thread' requires 'static'; thread-local storage has static "
-                    "storage duration"
-                ).first(thread_range).emit();
-            }
-            is_thread = true;
+        // `var *y = e`, `var **y = e`, `var unsafe *y = e`: the pointer
+        // shorthand (NULLABLE.md 1.7). Before the name, so the name check
+        // below sees the identifier; left unread, the `*` was S046E.
+        // `unsafe` counts only before a star: alone it is no shorthand.
+        var p_depth  = u32(0);
+        var p_unsafe = false;
+        var p_range  = SourceRange::invalid();
+        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) {
+            p_range  = dyn()->current_ptr()->range;
+            p_unsafe = true;
+            dyn()->advance();   // consume `unsafe`
+        }
+        while dyn()->check(TokenKind::OpStar) {
+            if p_depth == 0 && (!p_unsafe) { p_range = dyn()->current_ptr()->range; }
+            else                           { p_range = p_range | dyn()->current_ptr()->range; }
+            p_depth += 1;
+            dyn()->advance();   // consume `*`
         }
 
         if !dyn()->check_is_ident() {
@@ -2169,7 +2427,22 @@ class <T> DeclParse {
         dyn()->advance();
 
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
-        vd->is_thread = is_thread;
+        vd->storage_kw = start;   // the first binding keyword: a Sema fix-it rewrites it.
+        vd->is_thread      = head.is_thread;
+        vd->const_binding  = head.const_binding;
+        vd->pointer_depth  = p_depth;
+        vd->pointer_unsafe = p_unsafe;
+        vd->pointer_range  = p_range;
+
+        // `var x? = e`: the nullable shorthand. Read before the index-mode
+        // skip so both parses see the same name; left for the statement
+        // parser, the `?` became an expression and S052E.
+        var q_range = SourceRange();
+        if dyn()->check(TokenKind::OpQuestion) {
+            q_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+            vd->nullable_shorthand = true;
+        }
 
         // index mode: the name is all the table needs; skip type and init
         // (the init is an expression parsing it here would query the
@@ -2184,6 +2457,40 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpColon) {
             dyn()->advance(T::SkipNL::After); // consume `:`
             var ty = dyn()->parse_type();
+            if (ty != &null) && (!is_recovery(ty)) && (vd->pointer_depth > 0) {
+                // `var *y: T`. Same reasoning as `var x?: T` below: the
+                // stars restate what the annotation already says, and if
+                // they disagree one of them is a mistake. The annotation
+                // wins (it is the explicit one); the fix-it drops the stars.
+                var stars = pointer_shorthand_spelling(vd->pointer_depth, vd->pointer_unsafe);
+                var b = dyn()->diag->report(DiagID::S058E, vd->pointer_range.start,
+                    f"'{stars}{dyn()->ctx->get_spelling(name)}' states that the binding is a pointer, but the declaration also annotates its type; drop the '{stars}\x27"
+                );
+                b.first(vd->pointer_range);
+                b.remove(vd->pointer_range, "remove the shorthand");
+                b.emit();
+                vd->pointer_depth  = 0;
+                vd->pointer_unsafe = false;
+            }
+            if (ty != &null) && (!is_recovery(ty)) && vd->nullable_shorthand {
+                // `var x?: T`. The shorthand exists to infer the type, and
+                // the annotation says it outright, so one of them is a
+                // mistake: refused rather than read as redundant, because
+                // `var x?: i32` would otherwise mean `x: i32?` through a
+                // spelling no other declaration uses. Recovered as the
+                // annotation made nullable (`x: T?`, or `x: T` when T is
+                // already nullable), which is what the fix-it writes.
+                var already = isa::<NullableType>(ty);
+                var b = dyn()->diag->report(DiagID::S058E, q_range.start,
+                    f"'{dyn()->ctx->get_spelling(name)}?' infers a nullable type, but the declaration also annotates one; write the '?' on the type"
+                );
+                b.first(q_range);
+                b.remove(q_range, "remove the shorthand");
+                if !already { b.insert(ty->range.end, "?", "make the annotated type nullable"); }
+                b.emit();
+                vd->nullable_shorthand = false;
+                if !already { ty = NullableType::create(dyn()->ctx, ty->range, ty); }
+            }
             if (ty != &null) && (!is_recovery(ty)) {
                 vd->type_ = ty;
                 // `var x: const T` is `const x: T`: legal and identical in
@@ -2200,7 +2507,7 @@ class <T> DeclParse {
                     b.fix(start, "const", "make the binding 'const\x27");
                     b.remove(c_range, "and drop it from the type");
                     b.emit();
-                } else if (storage == StorageClass::Const) && ty->is_const() {
+                } else if ((storage == StorageClass::Const) || vd->const_binding) && ty->is_const() {
                     // `const x: const T` says it twice. The second is the one
                     // at fault: the binding keyword is the idiomatic place.
                     var c_range = dyn()->top_const_range(ty);
@@ -2246,34 +2553,34 @@ class <T> DeclParse {
             dyn()->advance();
         }
 
-        var storage = StorageClass::Var;
-        if      dyn()->check(TokenKind::KwConst)  { storage = StorageClass::Const;  }
-        else if dyn()->check(TokenKind::KwStatic) { storage = StorageClass::Static; }
-        else if dyn()->check(TokenKind::KwEval)   { storage = StorageClass::Eval;   }
-        else if dyn()->check(TokenKind::KwVar)    { storage = StorageClass::Var;    }
-        else {
+        if !(dyn()->check(TokenKind::KwConst) || dyn()->check(TokenKind::KwStatic)
+          || dyn()->check(TokenKind::KwEval)  || dyn()->check(TokenKind::KwVar)
+          || dyn()->check(TokenKind::KwThread)) {
             dyn()->diag->report(DiagID::S048E, start.start,
-                "expected 'var', 'const', 'static', or 'eval' to begin a field"
+                "expected 'var', 'const', 'static', 'thread', or 'eval' to begin a field"
             ).first(start).emit();
             return FieldDecl::create_error(dyn()->ctx, start);
         }
-        dyn()->advance(); // consume storage keyword
+        var head    = self._parse_storage_head();
+        var storage = head.storage;
         dyn()->_reject_mode_binding();   // `var @inout f: T` on a field.
 
-        // `static thread x: T` - thread_local storage duration.
-        var is_thread = false;
-        if dyn()->check(TokenKind::KwThread) {
-            var thread_range = dyn()->current_ptr()->range;
-            dyn()->advance();
-            if storage != StorageClass::Static {
-                // FIXME(diag-table): placeholder id - same storage-class rule as
-                // the binding path in _parse_var_decl; wants the same new code.
-                dyn()->diag->report(DiagID::S045E, thread_range.start,
-                    "'thread' requires 'static'; thread-local storage has static "
-                    "storage duration"
-                ).first(thread_range).emit();
-            }
-            is_thread = true;
+        // `var *f = e` in a type body: refused for the reason `var f? = e`
+        // is below (a field never infers). Read here so the name is still
+        // found and the member parses; left unread, the `*` was S048E.
+        var p_depth  = u32(0);
+        var p_unsafe = false;
+        var p_range  = SourceRange::invalid();
+        if dyn()->check(TokenKind::KwUnsafe) && dyn()->check_peek(TokenKind::OpStar) {
+            p_range  = dyn()->current_ptr()->range;
+            p_unsafe = true;
+            dyn()->advance();   // consume `unsafe`
+        }
+        while dyn()->check(TokenKind::OpStar) {
+            if p_depth == 0 && (!p_unsafe) { p_range = dyn()->current_ptr()->range; }
+            else                           { p_range = p_range | dyn()->current_ptr()->range; }
+            p_depth += 1;
+            dyn()->advance();   // consume `*`
         }
 
         if !dyn()->check_is_ident() {
@@ -2285,16 +2592,52 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
+        // `var f? = e` in a type body. A field's type is declared, never
+        // inferred (StmtTyping types a field's default against it), so the
+        // shorthand has nothing to reshape. Refused here, where the `?` is
+        // still known to be the shorthand: left alone it parses as the
+        // start of the next member and the real mistake is lost.
+        var q_range = SourceRange();
+        var has_q   = false;
+        if dyn()->check(TokenKind::OpQuestion) {
+            q_range = dyn()->current_ptr()->range;
+            has_q   = true;
+            dyn()->advance();
+        }
+
         var fty: *Type = &null;
         if dyn()->check(TokenKind::OpColon) {
             dyn()->advance(T::SkipNL::After); // consume `:`
             fty = dyn()->parse_type();
             if (fty != &null) && is_recovery(fty) { fty = &null; }
         }
+        if has_q {
+            // Reported after the type so the fix-it can move the `?` onto
+            // it when one is written (and drop it when that is nullable).
+            var b = dyn()->diag->report(DiagID::S058E, q_range.start,
+                f"a field declares its type and cannot use the '?' shorthand; write '{dyn()->ctx->get_spelling(name)}: T?\x27"
+            );
+            b.first(q_range);
+            b.remove(q_range, "remove the shorthand");
+            if (fty != &null) && (!isa::<NullableType>(fty)) {
+                b.insert(fty->range.end, "?", "make the field's type nullable");
+            }
+            b.emit();
+        }
+        if p_depth > 0 {
+            var stars = pointer_shorthand_spelling(p_depth, p_unsafe);
+            var b = dyn()->diag->report(DiagID::S058E, p_range.start,
+                f"a field declares its type and cannot use the '{stars}' shorthand; write '{dyn()->ctx->get_spelling(name)}: {stars}T\x27"
+            );
+            b.first(p_range);
+            b.remove(p_range, "remove the shorthand");
+            b.emit();
+        }
 
         var fd = FieldDecl::create(dyn()->ctx, start, name, storage, fty, idx);
         fd->is_mutable = is_mutable;
-        fd->is_thread  = is_thread;
+        fd->is_thread  = head.is_thread;
+        fd->const_binding = head.const_binding;
 
         if dyn()->check(TokenKind::OpEqual) {
             dyn()->advance(T::SkipNL::After); // consume `=`
@@ -2351,19 +2694,210 @@ class <T> DeclParse {
         }
     }
 
+    /// \brief parses an interface's `derives` clause as an expression over
+    ///        interfaces: `derives X + (Y - Z) & W`, and `derives A, B` as
+    ///        `A + B`. The expression parser does the precedence climbing
+    ///        and reads the leaves (names, `::` chains, generic applications);
+    ///        this checks the shape and turns each leaf into the type
+    ///        derives_list[i] resolves (InterfaceDecl::derives_expr).
+    ///
+    ///        Its precedence is the expression grammar's: `+`/`-` bind tighter
+    ///        than `&`, so `A + B & C` is `(A + B) & C`, and mixing them
+    ///        unparenthesized is warned.
+    priv fn _parse_derives_expr(self, id: *InterfaceDecl, out: *std::StackBuf::<InheritEdge, 4>) -> bool {
+        dyn()->advance(T::SkipNL::After); // consume `derives` (or a recovered `impl`)
+        var stop = static_cast::<T::ExprStopKind>(static_cast::<u8>(T::ExprStopKind::NoStructLiteral)
+                                                  | static_cast::<u8>(T::ExprStopKind::StopComma));
+        // `X - fn goo`: caught before the expression parser, which would read
+        // `fn goo { ... }` as a closure and take the body with it.
+        var n = dyn()->span.size();
+        for var i: usize = dyn()->c_idx; i < n; ++i {
+            var tk = dyn()->span.get(i);
+            if (tk == &null) || (tk->kind == TokenKind::OpLBrace) { break; }
+            if tk->kind == TokenKind::KwFn {
+                self._reject_member_removal(tk->range);
+                return false;
+            }
+        }
+        var tree: *Expr = &null;
+        while true {
+            var e = dyn()->parse_expr(stop);
+            if (e == &null) || is_recovery(e) {
+                dyn()->diag->report(DiagID::S001E, dyn()->current_ptr()->range.start,
+                    "expected an interface after 'derives\x27"
+                ).first(dyn()->current_ptr()->range).emit();
+                return false;
+            }
+            if tree == &null {
+                tree = e;
+            } else {
+                // `A, B` is `A + B`: the comma becomes the union operator.
+                var plus = dyn()->ctx->make_token(e->range, TokenKind::OpPlus, "+");
+                tree = static_cast::<*Expr>(BinaryOperatorExpr::create(dyn()->ctx, tree->range | e->range, tree, e, plus));
+            }
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                continue;
+            }
+            break;
+        }
+        var composed = false;
+        if !self._derives_leaves(tree, out, &composed) { return false; }
+        id->derives_expr     = tree;
+        id->derives_composed = composed;
+        id->derives_end      = dyn()->prev().range;
+        return true;
+    }
+
+    /// After a malformed `derives` clause: skip to the body's `{`, so the
+    /// interface's members still parse and the next declaration is not
+    /// swallowed. Stops at end of file or a newline-led declaration keyword.
+    priv fn _sync_to_body(self) {
+        while !dyn()->is_eof() {
+            if dyn()->check(TokenKind::OpLBrace) { return; }
+            dyn()->advance();
+        }
+    }
+
+    /// Check \p e is `+` / `-` / `&` over interface names, appending each leaf
+    /// as a type to \p out in source order. False after a diagnostic.
+    priv fn _derives_leaves(self, e_in: *Expr, out: *std::StackBuf::<InheritEdge, 4>, composed: *bool) -> bool {
+        var e = e_in;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        if e == &null { return false; }
+        if isa::<BinaryOperatorExpr>(e) {
+            var b = cast::<BinaryOperatorExpr>(e);
+            var k = b->op_token.kind;
+            if k == TokenKind::OpPipe {
+                var pb = dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
+                    "'|' is not an interface operator; union is '+\x27");
+                pb.first(b->op_token.range);
+                pb.fix(b->op_token.range, "+", "replace '|' with '+\x27");
+                pb.emit();
+                return false;
+            }
+            if k == TokenKind::OpCaret {
+                dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
+                    "'^' (symmetric difference) is not an interface operator; use '+', '-' or '&\x27")
+                    .first(b->op_token.range).emit();
+                return false;
+            }
+            if (k != TokenKind::OpPlus) && (k != TokenKind::OpMinus) && (k != TokenKind::OpAmp) {
+                dyn()->diag->report(DiagID::S001E, b->op_token.range.start,
+                    "only '+' (union), '-' (difference) and '&' (intersection) compose interfaces")
+                    .first(b->op_token.range).emit();
+                return false;
+            }
+            if k != TokenKind::OpPlus { (*composed) = true; }
+            if k == TokenKind::OpAmp { self._warn_mixed_amp(b); }
+            if !self._derives_leaves(b->lhs, out, composed) { return false; }
+            return self._derives_leaves(b->rhs, out, composed);
+        }
+        if isa::<ClosureExpr>(e) { self._reject_member_removal(e->range); return false; }
+        var t = self._expr_as_type(e);
+        if t == &null {
+            dyn()->diag->report(DiagID::S001E, e->range.start,
+                "expected an interface name in a 'derives' clause")
+                .first(e->range).emit();
+            return false;
+        }
+        var edge = InheritEdge{};
+        edge.visibility = 0;
+        edge.is_virtual = false;
+        edge.base  = t;
+        edge.range = e->range;
+        out->push_back(edge);
+        return true;
+    }
+
+    /// `-` and `&` group LOOSER than `+`/`-` here, as in every C expression:
+    /// `A + B & C` is `(A + B) & C`. Unparenthesized, that is a guess.
+    priv fn _warn_mixed_amp(self, b: *BinaryOperatorExpr) {
+        var sides = vec::<*Expr>();
+        sides.push_back(b->lhs);
+        sides.push_back(b->rhs);
+        for var i: usize = 0; i < sides.size(); ++i {
+            var o = dyn_cast::<BinaryOperatorExpr>(sides[i]);
+            if o == &null { continue; }
+            var k = o->op_token.kind;
+            if (k != TokenKind::OpPlus) && (k != TokenKind::OpMinus) { continue; }
+            if dyn()->is_parenthesized(static_cast::<*Expr>(o)) { continue; }
+            var w = dyn()->diag->report(DiagID::S001W, o->range.start,
+                "'+' and '-' bind tighter than '&' in a 'derives' clause; parenthesize to say which you mean");
+            w.first(o->range);
+            w.insert(o->range.start, "(", "insert '(\x27");
+            w.insert(o->range.end, ")", "insert ')\x27");
+            w.emit();
+        }
+    }
+
+    /// A single member cannot be removed from a composition (`X - fn goo`):
+    /// requirements come and go by whole interface.
+    priv fn _reject_member_removal(self, at: SourceRange) {
+        dyn()->diag->report(DiagID::S001E, at.start,
+            "a 'derives' clause composes whole interfaces; a single member cannot be removed. "
+            "Declare an interface with that member and subtract it")
+            .first(at).emit();
+    }
+
+    /// The type a name, a `::` path or a generic application denotes, as the
+    /// type parser would have built it: a ChainType, one segment per name,
+    /// each with its generic arguments. Null for any other expression.
+    priv fn _expr_as_type(self, e: *Expr) -> *Type {
+        var segs = vec::<ChainType::ChainSegment>();
+        if isa::<NamedIdentExpr>(e) {
+            self._push_segment(&segs, cast::<NamedIdentExpr>(e)->name, cast::<NamedIdentExpr>(e)->generic_args,
+                               e->range, ChainType::SegmentSeparator::None);
+        } else if isa::<ChainExpr>(e) {
+            var ch = cast::<ChainExpr>(e);
+            var base = dyn_cast::<NamedIdentExpr>(ch->base);
+            if base == &null { return &null; }
+            self._push_segment(&segs, base->name, base->generic_args, base->range, ChainType::SegmentSeparator::None);
+            for var i: usize = 0; i < ch->steps.size(); ++i {
+                var st = ch->steps.get(i);
+                if (st->access_kind != ChainExpr::AccessKind::ColonColon) || st->is_operator() || (st->name == &null) { return &null; }
+                self._push_segment(&segs, st->name->name, st->generic_args, st->range, ChainType::SegmentSeparator::ColonColon);
+            }
+        } else {
+            return &null;
+        }
+        var buf = dyn()->ctx->alloc_array::<ChainType::ChainSegment>(segs.size());
+        for var i: usize = 0; i < segs.size(); ++i { buf[i] = segs[i]; }
+        var ct = ChainType::create(dyn()->ctx, e->range);
+        ct->segments.from_raw(buf, segs.size());
+        return static_cast::<*Type>(ct);
+    }
+
+    priv fn _push_segment(self, out: *vec::<ChainType::ChainSegment>, name: Token,
+                          args: FrozenList::<ChainType::GenericArg>, range: SourceRange,
+                          sep: ChainType::SegmentSeparator) {
+        var seg = ChainType::ChainSegment{};
+        seg.name          = NamedIdentExpr::create(dyn()->ctx, name.range, name);
+        seg.generic_args  = args;
+        seg.resolved_type = &null;
+        seg.resolved_decl = &null;
+        seg.range         = range;
+        seg.sep           = sep;
+        seg.seg_kind      = (ChainType::SegmentKind::GenericApp) if (args.size() > 0) else (ChainType::SegmentKind::Named);
+        out->push_back(seg);
+    }
+
     /// \brief rejects a `where` clause on a type declaration. `where` is
     ///        runtime-conditional dispatch, which only free functions/methods
     ///        support; type instantiation and interface conformance are
     ///        compile-time only and must use `requires`. Consumes and discards
     ///        the offending clause so parsing can recover into the body.
     priv fn _reject_where_on_type(self, kind_word: string) {
-        if !dyn()->check(TokenKind::KwWhere) { return; }
+        // On its own line too (where.mdx writes `class <T> Buffer` and then
+        // `where ...` under it): the newline must not hide the clause, or it
+        // reaches the body parser as a stray `where`.
+        if !self._peek_past_nl(TokenKind::KwWhere) { return; }
         var wh = dyn()->current_ptr()->range;
         dyn()->diag->report(DiagID::S045E, wh.start,
             f"'where' is not allowed on a {kind_word}; runtime-conditional "
             "dispatch is only valid on functions. Use 'requires' for a "
             "compile-time constraint instead"
-        ).first(wh).emit();
+        ).first(wh).fix(wh, "requires", "use 'requires\x27").emit();
         dyn()->advance(T::SkipNL::After); // consume `where`
         var _discard = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral); // eat + drop the clause
     }
@@ -2438,7 +2972,7 @@ class <T> DeclParse {
             }
 
             var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
-            if self._starts_decl_kw(k) {
+            if self._starts_decl_here(k) {
                 var d = self.parse_decl();
                 if d == &null {
                     dyn()->_index_skip_stmt();
@@ -2480,6 +3014,14 @@ class <T> DeclParse {
         methods_out:  *std::StackBuf::<*FunctionDecl, 8>,
         allow_methods: bool
     ) -> bool {
+        if dyn()->is_eof() {
+            // No token to point at: anchor on the last one read.
+            var pr = dyn()->prev().range;
+            dyn()->diag->report(DiagID::S048E, pr.start,
+                "expected '{' to begin the type body"
+            ).first(pr).emit();
+            return false;
+        }
         if !dyn()->check(TokenKind::OpLBrace) {
             var r = dyn()->current_ptr()->range;
             dyn()->diag->report(DiagID::S048E, r.start,
@@ -2531,6 +3073,19 @@ class <T> DeclParse {
                 }
                 self._parse_member_vis_group(owner, owner_name, fields_out, methods_out,
                                              allow_methods, &field_idx);
+                continue;
+            }
+
+            // `eval if` / `eval for`: before the field lead, which `eval`
+            // also opens. Its branches are statements, not members of this
+            // type (DeclParse::_parse_eval_stmt_decl).
+            if (k == TokenKind::KwEval)
+            && (dyn()->check_peek(TokenKind::KwIf) || dyn()->check_peek(TokenKind::KwFor)) {
+                var ev = self._parse_eval_stmt_decl();
+                if (ev != &null) && (!self.is_fatal_decl(ev)) {
+                    dyn()->apply_annotations_to_decl(ev, &m_annot);
+                    owner->add_decl(ev);
+                }
                 continue;
             }
 
@@ -2604,7 +3159,7 @@ class <T> DeclParse {
             // field: mutable? var/const/static/eval ...
             var is_field_lead = (k == TokenKind::KwVar)    || (k == TokenKind::KwConst)
                              || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || (k == TokenKind::KwMutable);
+                             || (k == TokenKind::KwThread) || (k == TokenKind::KwMutable);
 
             if is_field_lead {
                 var f = self._parse_field(field_idx);
@@ -2681,7 +3236,7 @@ class <T> DeclParse {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             cd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            cd->spec_kind = self._classify_spec(&sargs, has_generics);
+            cd->spec_kind = self._classify_record_spec(&sargs, &gparams);
         } else if cls_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2727,12 +3282,16 @@ class <T> DeclParse {
             cd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
             cd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
-            // mark abstract if any method is `= virtual`.
+            // A `virtual fn` with no body is pure virtual, and its class
+            // abstract (a bodyless method that is not virtual stays a
+            // declaration). FnBodyKind::Virtual is what every later stage
+            // reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
             for var i: usize = 0; i < cd->methods.size(); ++i {
-                if cd->methods[i]->body_kind == FnBodyKind::Virtual {
-                    cd->is_abstract = true;
-                    break;
+                var m = cd->methods[i];
+                if (m->abi == AbiKind::Virtual) && (m->body_kind == FnBodyKind::None) {
+                    m->body_kind = FnBodyKind::Virtual;
                 }
+                if m->body_kind == FnBodyKind::Virtual { cd->is_abstract = true; }
             }
 
             cd->mark_definition();
@@ -2788,7 +3347,7 @@ class <T> DeclParse {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             sd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            sd->spec_kind = self._classify_spec(&sargs, has_generics);
+            sd->spec_kind = self._classify_record_spec(&sargs, &gparams);
         } else if struct_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2819,6 +3378,15 @@ class <T> DeclParse {
             if (req != &null) && (!is_recovery(req)) { sd->requires_clause = req; }
         }
         self._reject_where_on_type("struct");
+
+        // `ffi "c" struct timezone`: a foreign forward declaration, naming
+        // the header's tag (ImportResolution::_bind_ffi_forwards). Outside
+        // ffi a struct still needs its body.
+        if (dyn()->ffi_decl_depth > 0) && (!dyn()->check(TokenKind::OpLBrace)) {
+            sd->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(sd);
+        }
 
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(sd));
         var fields:  std::StackBuf::<*FieldDecl, 8>;
@@ -2878,7 +3446,7 @@ class <T> DeclParse {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             ud->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            ud->spec_kind = self._classify_spec(&sargs, has_generics);
+            ud->spec_kind = self._classify_record_spec(&sargs, &gparams);
         } else if union_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2891,6 +3459,15 @@ class <T> DeclParse {
             if dyn()->_index_skip_to_body() {
                 self._index_walk_body(static_cast::<*DeclContext>(ud));
             }
+            ud->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(ud);
+        }
+
+        // `ffi "c" union timezone`: a foreign forward declaration, naming
+        // the header's tag (ImportResolution::_bind_ffi_forwards). Outside
+        // ffi a union still needs its body.
+        if (dyn()->ffi_decl_depth > 0) && (!dyn()->check(TokenKind::OpLBrace)) {
             ud->range = start | dyn()->prev().range;
             dyn()->exit_depth();
             return static_cast::<*Decl>(ud);
@@ -2956,10 +3533,20 @@ class <T> DeclParse {
             return static_cast::<*Decl>(id);
         }
 
-        // interface inheritance via `derives`
+        // interface composition via `derives <expr>`. `impl` is accepted for
+        // recovery only: an interface that composes others conforms to
+        // nothing, it derives.
         var dlist: std::StackBuf::<InheritEdge, 4>;
-        while dyn()->check(TokenKind::KwDerives) {
-            self._parse_inherit_edges(&dlist);
+        if dyn()->check(TokenKind::KwImpl) {
+            var it = dyn()->current_ptr()->range;
+            var b = dyn()->diag->report(DiagID::S001E, it.start,
+                "an interface derives from other interfaces; 'impl' is for a type that conforms to one");
+            b.first(it);
+            b.fix(it, "derives", "replace 'impl' with 'derives\x27");
+            b.emit();
+        }
+        if dyn()->check(TokenKind::KwDerives) || dyn()->check(TokenKind::KwImpl) {
+            if !self._parse_derives_expr(id, &dlist) { self._sync_to_body(); }
         }
         id->derives_list.from_buf(dlist.data(), dlist.size(), dyn()->ctx);
 
@@ -3227,6 +3814,14 @@ class <T> DeclParse {
                 v->discriminant = disc;
             }
         }
+        // A pack-expanded variant, `Err { e: E }...`: one variant per element
+        // of the pack its payload names. A nullary `V...` is read too, so
+        // Sema can say why it means nothing (VariadicEnumCheck).
+        if dyn()->check(TokenKind::OpEllipsis) {
+            v->is_pack_expansion = true;
+            v->pack_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+        }
 
         v->range = start | dyn()->prev().range;
         return v;
@@ -3269,25 +3864,86 @@ class <T> DeclParse {
             return static_cast::<*Decl>(ita);
         }
 
-        if !dyn()->check(TokenKind::OpEqual) {
-            dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '=' in type alias declaration"
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        // Inside an interface, `type N` is an ASSOCIATED type
+        // (interfaces.md, "Associated Types"): `=` gives its default and is
+        // optional, and `impl X, Y` bounds it. Anywhere else it is an alias,
+        // `=` is required and `impl` has no meaning.
+        var cur = dyn()->scope.current_dc();
+        var in_iface = (cur != &null) && (cur->dc_kind == DeclContextKind::Interface);
+        var bounds: *Expr = &null;
+        if dyn()->check(TokenKind::KwImpl) {
+            if !in_iface {
+                var it = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S001E, it.start,
+                    "'impl' bounds an associated type, which is only declared inside an interface"
+                ).first(it).emit();
+                self._sync_decl(DeclSyncCtx::TopLevel);
+                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
+            bounds = self._parse_assoc_bounds(name);
+            if bounds == &null {
+                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
         }
-        dyn()->advance(T::SkipNL::After); // consume `=`
 
-        var aliased = dyn()->parse_type();
-        if (aliased == &null) || is_recovery(aliased) {
+        var aliased: *Type = &null;
+        if dyn()->check(TokenKind::OpEqual) {
+            dyn()->advance(T::SkipNL::After); // consume `=`
+            aliased = dyn()->parse_type();
+            if (aliased == &null) || is_recovery(aliased) {
+                return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
+        } else if !in_iface {
+            var b = dyn()->diag->report(DiagID::S050E, start.start,
+                "expected '=' in type alias declaration");
+            b.first(start);
+            b.note(start.start,
+                "a 'type' with no '=' is an associated type, which is only declared inside an interface");
+            b.emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
 
         var ta = TypeAliasDecl::create(dyn()->ctx, start | dyn()->prev().range, name, aliased);
+        ta->is_associated   = in_iface;
+        ta->requires_clause = bounds;
         if has_generics {
             ta->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
         return static_cast::<*Decl>(ta);
+    }
+
+    /// `impl X, Y` on associated type \p name: its bounds as the requires
+    /// clause every bound is, `N impl X && N impl Y` (ConstraintExpr
+    /// conjuncts), so ConstraintExtraction partitions them as it does any
+    /// decl's. Null after a diagnostic.
+    priv fn _parse_assoc_bounds(self, name: Token) -> *Expr {
+        var impl_tok = dyn()->current();
+        dyn()->advance(T::SkipNL::After); // consume `impl`
+        var clause: *Expr = &null;
+        while true {
+            var ty = dyn()->parse_type();
+            if (ty == &null) || is_recovery(ty) {
+                dyn()->diag->report(DiagID::S001E, dyn()->current_ptr()->range.start,
+                    "expected an interface after 'impl\x27"
+                ).first(dyn()->current_ptr()->range).emit();
+                return &null;
+            }
+            var lhs = NamedIdentExpr::create(dyn()->ctx, name.range, name);
+            var c = static_cast::<*Expr>(ConstraintExpr::create(dyn()->ctx, name.range | ty->range, static_cast::<*Expr>(lhs), ty, impl_tok));
+            if clause == &null {
+                clause = c;
+            } else {
+                var and_tok = dyn()->ctx->make_token(ty->range, TokenKind::OpAmpAmp, "&&");
+                clause = static_cast::<*Expr>(BinaryOperatorExpr::create(dyn()->ctx, clause->range | c->range, clause, c, and_tok));
+            }
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                continue;
+            }
+            break;
+        }
+        return clause;
     }
 
     //  Module
@@ -3708,7 +4364,9 @@ class <T> DeclParse {
                     dyn()->advance();
                     continue;
                 }
+                dyn()->ffi_decl_depth = dyn()->ffi_decl_depth + 1;
                 var d = self.parse_decl();
+                dyn()->ffi_decl_depth = dyn()->ffi_decl_depth - 1;
                 if d == &null { break; }
                 if self.is_fatal_decl(d) { break; }
 
@@ -3735,7 +4393,9 @@ class <T> DeclParse {
         }
 
         // ---- ffi "c++" fn foo(...) ----------------------------------------
+        dyn()->ffi_decl_depth = dyn()->ffi_decl_depth + 1;
         var d = self._dispatch_decl();
+        dyn()->ffi_decl_depth = dyn()->ffi_decl_depth - 1;
         if (d == &null) || self.is_fatal_decl(d) {
             dyn()->diag->report(DiagID::S064E, start.start,
                 "expected a declaration, 'import', or '{' after 'ffi \"...\"\x27"
@@ -3795,6 +4455,77 @@ class <T> DeclParse {
     }
 
     //  eval { decl* }  decl block
+
+    /// \brief index mode: crosses an `eval if` / `eval for` without parsing
+    ///        it. _index_skip_stmt stops at a `;` or a newline, which a C-style
+    ///        `for` header and an `else` on its own line both contain: here
+    ///        the header runs to the body's `{`, the body to its `}`, and an
+    ///        `else` (same line or the next) continues the chain.
+    priv fn _index_skip_eval_stmt(self) {
+        while !dyn()->is_eof() {
+            var depth: u32 = 0;
+            while !dyn()->is_eof() {
+                var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+                if (depth == 0) && (k == TokenKind::OpLBrace) { break; }
+                // no body before the enclosing closer: malformed, leave it
+                if (depth == 0) && (k == TokenKind::OpRBrace) { return; }
+                if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
+                    depth += 1;
+                } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
+                    if depth > 0 { depth -= 1; }
+                }
+                dyn()->advance_raw();
+            }
+            if dyn()->is_eof() { return; }
+            dyn()->advance_raw();          // `{`
+            dyn()->_index_skip_block();    // through the matching `}`
+
+            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine)
+            && ((dyn()->peek_past_nl_kind()) == TokenKind::KwElse) {
+                dyn()->advance(T::SkipNL::Only);
+            }
+            if !dyn()->check(TokenKind::KwElse) { return; }
+            dyn()->advance_raw();          // `else`
+        }
+    }
+
+    /// \brief an `eval if` / `eval for` written directly in a module or class
+    ///        body, carried by an EvalBlockDecl whose `stmt` is the statement.
+    ///  Grammar:  'eval' ( if_stmt | for_stmt )
+    ///
+    /// \details the statement is the statement parser's own, so the node is
+    ///          the one file scope and a function body build (a
+    ///          ConditionalStmt / RangedForStmt / IndexedForStmt with
+    ///          declarations as DeclStmts in its blocks). Those bodies hold
+    ///          declarations only, hence the carrier. Which branch is taken,
+    ///          and putting its declarations into the enclosing scope, is eval
+    ///          semantics, not the parser's: here the branches' declarations
+    ///          stay branch-local (eval_branch_dc keeps a module body from
+    ///          absorbing them), and FeatureGateCheck reports the form as not
+    ///          yet supported. Index mode skips it: a branch hoists nothing.
+    priv fn _parse_eval_stmt_decl(self) -> *Decl {
+        var start = dyn()->current_ptr()->range;
+        var eb = EvalBlockDecl::create(dyn()->ctx, start);
+
+        if dyn()->mode == T::ParseMode::Index {
+            self._index_skip_eval_stmt();
+            eb->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(eb);
+        }
+
+        if dyn()->check_peek(TokenKind::KwIf) && (dyn()->tu != &null) { dyn()->tu->has_eval_if = true; }
+        var saved_dc = dyn()->eval_branch_dc;
+        dyn()->eval_branch_dc = dyn()->scope.current_dc();
+        var s = dyn()->parse_stmt();
+        dyn()->eval_branch_dc = saved_dc;
+
+        if (s == &null) || dyn()->is_fatal::<Stmt>(s) {
+            return static_cast::<*Decl>(EvalBlockDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+        eb->stmt  = s;
+        eb->range = start | dyn()->prev().range;
+        return static_cast::<*Decl>(eb);
+    }
 
     /// \brief parses a decl-only eval block at namespace/type scope.
     ///  Grammar:  'eval' '{' decl* '}'
@@ -3880,13 +4611,14 @@ class <T> DeclParse {
                 }
                 if ctx == DeclSyncCtx::TopLevel {
                     if k == TokenKind::TkNewLine || k == TokenKind::OpSemicolon { return; }
-                    if self._starts_decl_kw(k) { return; }
+                    if self._starts_decl_here(k) { return; }
                 }
                 if ctx == DeclSyncCtx::TypeBody {
                     // member lead-ins inside a type body.
                     if k == TokenKind::KwFn      || k == TokenKind::KwVar
                     || k == TokenKind::KwConst   || k == TokenKind::KwStatic
-                    || k == TokenKind::KwEval    || k == TokenKind::KwClass
+                    || k == TokenKind::KwEval    || k == TokenKind::KwThread
+                    || k == TokenKind::KwClass
                     || k == TokenKind::KwStruct  || k == TokenKind::KwEnum
                     || k == TokenKind::KwUnion   || k == TokenKind::KwInterface
                     || k == TokenKind::KwType    || k == TokenKind::KwOverride
@@ -3928,8 +4660,10 @@ class <T> DeclParse {
         }
 
         // parameter list: `(x: i32, y: i32)`
+        dyn()->closure_params_end = SourceRange::invalid();
         if dyn()->check(TokenKind::OpLParen) {
             self._parse_param_list(&params);
+            if dyn()->prev_ptr()->kind == TokenKind::OpRParen { dyn()->closure_params_end = dyn()->prev_ptr()->range; }
         }
 
         // Recovery: If parameter list parsing exited unexpectedly or left corrupt tokens,
@@ -3941,9 +4675,15 @@ class <T> DeclParse {
         }
 
         // capture list: `|a, *b|` / `|*|` / `||`
+        dyn()->closure_cap_range = SourceRange::invalid();
         if dyn()->check(TokenKind::OpPipe) {
+            var cap_start = dyn()->current_ptr()->range;
             self._parse_capture_list(&captures);
+            dyn()->closure_cap_range = cap_start | dyn()->prev_ptr()->range;
+            // `| |` is the empty list spelled apart: no captures, as `||` is.
+            if captures.size() == 0 { explicit_no_capture = true; }
         } else if dyn()->check(TokenKind::OpPipePipe) {
+            dyn()->closure_cap_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `||`
             explicit_no_capture = true;
         }
@@ -3955,6 +4695,8 @@ class <T> DeclParse {
 
         // trailing modifiers: const / unsafe / async / eval
         var modifiers = FnModifier::None;
+        dyn()->closure_panic_set = FrozenList::<*Type>::empty();
+        dyn()->closure_panic_range = SourceRange::invalid();
         while true {
             if dyn()->check(TokenKind::KwConst) {
                 var r = dyn()->current_ptr()->range;
@@ -3998,7 +4740,17 @@ class <T> DeclParse {
                 dyn()->advance();
             }
 
-            else if dyn()->check(TokenKind::KwPanic)    { modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPanic)    {
+                modifiers |= FnModifier::IsPanic;
+                var pk = dyn()->current_ptr()->range;
+                dyn()->advance();
+                if dyn()->check(TokenKind::OpLParen) {
+                    var pset: std::StackBuf::<*Type, 4>;
+                    dyn()->parse_panic_set(&pset);
+                    dyn()->closure_panic_set.from_buf(pset.data(), pset.size(), dyn()->ctx);
+                }
+                dyn()->closure_panic_range = pk | dyn()->prev_ptr()->range;
+            }
             else if dyn()->check(TokenKind::KwVolatile) { modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
             else if dyn()->check(TokenKind::KwAsync)    { modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
             else { break; }

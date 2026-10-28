@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -52,7 +52,7 @@
 // AST-NEXT: |         `-IntegerLiteralExpr 8
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var bad_mixed
-// AST-NEXT: |   `-ClosureExpr ->  i32
+// AST-NEXT: |   `-ClosureExpr panic ->  i32
 // AST-NEXT: |     `-CompoundStmt (1)
 // AST-NEXT: |       `-ReturnStmt
 // AST-NEXT: |         `-IntegerLiteralExpr 9
@@ -178,27 +178,27 @@
 // AST: -- 22 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S053E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S054E]:
-// AST: {{.*}}: error [S047E]:
-// AST: {{.*}}: error [S054E]:
-// AST: {{.*}}: error [S052E]:
-// AST: {{.*}}: error [S052E]:
-// AST: {{.*}}: error [S054E]:
-// AST: {{.*}}: error [S052E]:
-// END-GENERATED-CHECKS
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S053E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S054E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S047E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S054E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S054E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]:
+// END-GENERATED-CHECKS(AST)
 
 // ==========================================================================
 //  closures_negative.k

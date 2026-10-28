@@ -30,6 +30,8 @@ import AST::ASTSupport::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import Token::Token::*;
 
@@ -48,6 +50,21 @@ fn decl_generic_params(d: *Decl) -> FrozenList::<*GenericParamDecl> {
     if isa::<FunctionDecl>(d)  { return cast::<FunctionDecl>(d)->generic_params;  }
     if isa::<ExtensionDecl>(d) { return cast::<ExtensionDecl>(d)->generic_params; }
     return create_empty_frozen_list::<*GenericParamDecl>();
+}
+
+/// The decl's `requires` clause (RequiresDesugar hoisted every inline
+/// bound into it), or null.
+fn decl_requires_clause(d: *Decl) -> *Expr {
+    if d == &null { return &null; }
+    if isa::<ClassDecl>(d)     { return cast::<ClassDecl>(d)->requires_clause;     }
+    if isa::<StructDecl>(d)    { return cast::<StructDecl>(d)->requires_clause;    }
+    if isa::<UnionDecl>(d)     { return cast::<UnionDecl>(d)->requires_clause;     }
+    if isa::<InterfaceDecl>(d) { return cast::<InterfaceDecl>(d)->requires_clause; }
+    if isa::<EnumDecl>(d)      { return cast::<EnumDecl>(d)->requires_clause;      }
+    if isa::<TypeAliasDecl>(d) { return cast::<TypeAliasDecl>(d)->requires_clause; }
+    if isa::<FunctionDecl>(d)  { return cast::<FunctionDecl>(d)->requires_clause;  }
+    if isa::<ExtensionDecl>(d) { return cast::<ExtensionDecl>(d)->requires_clause; }
+    return &null;
 }
 
 /// The slot itself, for a writer (DeclImport fills it). Null for a kind
@@ -246,6 +263,123 @@ fn decl_cxx_spelling(d: *Decl) -> string {
     return "";
 }
 
+/// The elaborated keyword of an imported tag whose name is hidden by an
+/// ordinary name (FFILinkage::ffi_tag_keyword), or "".
+fn decl_ffi_tag_keyword(d: *Decl) -> string {
+    if d == &null { return ""; }
+    if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->ffi_tag_keyword;  }
+    if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->ffi_tag_keyword; }
+    if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->ffi_tag_keyword;  }
+    if isa::<EnumDecl>(d)   { return cast::<EnumDecl>(d)->ffi_tag_keyword;   }
+    return "";
+}
+
+fn decl_set_ffi_tag_keyword(d: *Decl, kw: string) {
+    if d == &null { return; }
+    if isa::<ClassDecl>(d)  { cast::<ClassDecl>(d)->ffi_tag_keyword  = kw; return; }
+    if isa::<StructDecl>(d) { cast::<StructDecl>(d)->ffi_tag_keyword = kw; return; }
+    if isa::<UnionDecl>(d)  { cast::<UnionDecl>(d)->ffi_tag_keyword  = kw; return; }
+    if isa::<EnumDecl>(d)   { cast::<EnumDecl>(d)->ffi_tag_keyword   = kw; return; }
+}
+
+/// The header tag a bodiless `ffi` record declaration names
+/// (FFILinkage::ffi_tag_target), or null.
+fn decl_ffi_tag_target(d: *Decl) -> *Decl {
+    if d == &null { return &null; }
+    if isa::<ClassDecl>(d)  { return reinterpret_cast::<*Decl>(cast::<ClassDecl>(d)->ffi_tag_target);  }
+    if isa::<StructDecl>(d) { return reinterpret_cast::<*Decl>(cast::<StructDecl>(d)->ffi_tag_target); }
+    if isa::<UnionDecl>(d)  { return reinterpret_cast::<*Decl>(cast::<UnionDecl>(d)->ffi_tag_target);  }
+    return &null;
+}
+
+fn decl_set_ffi_tag_target(d: *Decl, t: *Decl) {
+    if d == &null { return; }
+    var v = reinterpret_cast::<*void>(t);
+    if isa::<ClassDecl>(d)  { cast::<ClassDecl>(d)->ffi_tag_target  = v; return; }
+    if isa::<StructDecl>(d) { cast::<StructDecl>(d)->ffi_tag_target = v; return; }
+    if isa::<UnionDecl>(d)  { cast::<UnionDecl>(d)->ffi_tag_target  = v; return; }
+}
+
+// === C/C++ name hiding ====================================================
+//
+// C and C++ keep tags (struct/class/union/enum names) apart from ordinary
+// names (variables, functions, typedefs, enumerators): `struct timezone`
+// and `extern long timezone` coexist, and the ORDINARY name is what a plain
+// `timezone` means ([basic.scope.hiding], [class.name]). Kairo has one
+// namespace per scope, so every place that sees both under one key applies
+// that rule, and only between IMPORTED decls -- a Kairo decl never hides
+// or is hidden this way.
+
+/// Imported from a header: the FFILinkage kinds, plus an enumerator of an
+/// imported enum (EnumVariantDecl carries no mixin of its own).
+fn decl_is_ffi(d: *Decl) -> bool {
+    if d == &null { return false; }
+    if isa::<EnumVariantDecl>(d) {
+        if d->semantic_dc == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        return decl_is_imported(dc->owner_decl());
+    }
+    return decl_is_imported(d);
+}
+
+/// An imported C/C++ tag: clang's IDNS_Tag.
+fn decl_is_ffi_tag(d: *Decl) -> bool {
+    if !decl_is_imported(d) { return false; }
+    return isa::<StructDecl>(d) || isa::<ClassDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d);
+}
+
+/// An imported typedef that names exactly \p tag: `typedef struct X X`
+/// is one entity under one name, not a typedef hiding its own tag.
+fn decl_is_ffi_typedef_of(d: *Decl, tag: *Decl) -> bool {
+    if (d == &null) || (tag == &null) { return false; }
+    if (!isa::<TypeAliasDecl>(d)) || (!decl_is_imported(d)) { return false; }
+    var t = cast::<TypeAliasDecl>(d)->aliased;
+    if (t == &null) || (!isa::<RecordType>(t)) { return false; }
+    return cast::<RecordType>(t)->decl == tag;
+}
+
+/// An imported decl in the ORDINARY namespace that hides \p tag: anything
+/// imported that is not itself a tag and not a typedef of that very tag.
+fn decl_ffi_hides_tag(d: *Decl, tag: *Decl) -> bool {
+    if (!decl_is_ffi(d)) || decl_is_ffi_tag(d) { return false; }
+    if isa::<ModuleDecl>(d) { return false; }   // a namespace is not an ordinary name.
+    if decl_is_ffi_typedef_of(d, tag) { return false; }
+    // Hiding is between declarations of ONE scope. Two headers' global
+    // scopes are two Kairo tables but one C++ scope, so the scope is read
+    // off the qualified C++ spelling: `::timezone` and `::timezone` share
+    // one, `::tz` and an inline namespace's `::a::tz` do not -- C++ calls
+    // that pair ambiguous, and so do we.
+    var ds = decl_cxx_spelling(d);
+    var ts = decl_cxx_spelling(tag);
+    if (ds.size() > 0) && (ts.size() > 0) && (ds != ts) { return false; }
+    return true;
+}
+
+/// Apply C++'s tag hiding to a candidate set, in place, keeping order:
+/// a `typedef struct X X` collapses into its tag, and an imported tag
+/// beside an imported ordinary name drops out. Returns true when anything
+/// was removed. Kairo decls are never touched.
+fn ffi_hide_tags(cands: *vec::<*Decl>) -> bool {
+    var n = cands->size();
+    if n < 2 { return false; }
+    var keep = vec::<*Decl>();
+    for var i: usize = 0; i < n; ++i {
+        var d = (*cands)[i];
+        var drop = false;
+        for var j: usize = 0; (j < n) && (!drop); ++j {
+            if i == j { continue; }
+            var o = (*cands)[j];
+            if o == d { continue; }
+            if decl_is_ffi_tag(d) && decl_ffi_hides_tag(o, d) { drop = true; }
+            else if decl_is_ffi_tag(o) && decl_is_ffi_typedef_of(d, o) { drop = true; }
+        }
+        if !drop { keep.push_back(d); }
+    }
+    if keep.size() == n { return false; }
+    (*cands) = keep;
+    return true;
+}
+
 /// The clang builtin a decl stands for, or 0.
 fn decl_builtin_id(d: *Decl) -> u32 {
     if (d == &null) || (!isa::<FunctionDecl>(d)) { return 0; }
@@ -300,6 +434,124 @@ fn decl_pack_param(d: *Decl) -> *ParamDecl {
     return &null;
 }
 
+/// `...xs: T` with T a TYPE pack (`fn <...T> f(...xs: T)`): a C++
+/// parameter pack, `T... xs`, one argument per element. A pack over one
+/// type (`...xs: i32`, or a non-pack `U`) is a `Slice<E>` instead
+/// (ParamDecl::pack_type); the two never mix, so every reader that builds,
+/// spells or passes a pack asks this first.
+fn param_is_type_pack(p: *ParamDecl) -> bool {
+    if (p == &null) || (!p->is_pack) || (p->type_ == &null) || (p->type_->canonical == &null) { return false; }
+    var g = dyn_cast::<GenericParamType>(canon_unqual(p->type_->canonical));
+    return (g != &null) && g->is_pack;
+}
+
+/// The pack-expanded variant of ADT \p en (`Err { e: E }...`), or null.
+fn adt_pack_variant(en: *EnumDecl) -> *EnumVariantDecl {
+    if en == &null { return &null; }
+    for var i: usize = 0; i < en->variants.size(); ++i {
+        var v = en->variants[i];
+        if (v != &null) && v->is_pack_expansion { return v; }
+    }
+    return &null;
+}
+
+/// The position in \p en's generic parameters of the type pack its
+/// pack-expanded variant expands, or usize(-1) when it has none. An
+/// instance's arguments from here on are the pack's elements
+/// (InstanceEntry::args keeps packs flat, at the tail).
+fn adt_pack_param(en: *EnumDecl) -> usize {
+    if adt_pack_variant(en) == &null { return usize(-1); }
+    for var i: usize = 0; i < en->generic_params.size(); ++i {
+        var gp = en->generic_params[i];
+        if (gp != &null) && gp->is_pack { return i; }
+    }
+    return usize(-1);
+}
+
+/// The position of variant \p v in \p en, or usize(-1).
+fn adt_variant_pos(en: *EnumDecl, v: *EnumVariantDecl) -> usize {
+    if (en == &null) || (v == &null) { return usize(-1); }
+    for var i: usize = 0; i < en->variants.size(); ++i { if en->variants[i] == v { return i; } }
+    return usize(-1);
+}
+
+/// An ADT's EXPANDED index: its constructors in tag order, which every
+/// pattern and layout question indexes by. An ordinary variant's is its
+/// position; element k of the pack-expanded variant (always the last, at
+/// position p) is p + k, so for an enum without one the two are the same.
+/// The variant expanded index \p i belongs to, or null past the last.
+fn adt_variant_at(en: *EnumDecl, i: usize) -> *EnumVariantDecl {
+    if en == &null { return &null; }
+    var n = en->variants.size();
+    if n == 0 { return &null; }
+    if i < n {
+        var v = en->variants[i];
+        return v;
+    }
+    var last = en->variants[n - 1];
+    if (last != &null) && last->is_pack_expansion { return last; }
+    return &null;
+}
+
+/// The pack element expanded index \p i stands for, or -1 for an ordinary
+/// variant (adt_variant_at).
+fn adt_expansion_at(en: *EnumDecl, i: usize) -> i32 {
+    var v = adt_variant_at(en, i);
+    if (v == &null) || (!v->is_pack_expansion) { return -1; }
+    return i32(i - (en->variants.size() - 1));
+}
+
+/// Where \p d's arguments become a set (decl_dedup_pack_args): the pack
+/// position of an enum with a pack-expanded variant, \p d being it or an
+/// instance of it; usize(-1) for every other decl.
+fn decl_pack_set_at(d: *Decl) -> usize {
+    if d == &null { return usize(-1); }
+    var p = decl_instantiated_from(d);
+    if p == &null { p = d; }
+    var en = dyn_cast::<EnumDecl>(p);
+    if (en == &null) || (!en->is_adt) { return usize(-1); }
+    return adt_pack_param(en);
+}
+
+/// How a lang item orders its expanded pack, a set (decl_dedup_pack_args):
+/// the Panic item sorts by type id (Sema's PanicTypeIds), which the AST
+/// layer cannot compute, so the build's CanonicalTypeStore and
+/// InstantiationRegistry hold one, installed by the driver. The default
+/// keeps first-occurrence order. Must be stateless and lock-free: it runs
+/// inside type formation.
+class PackSetOrder {
+    fn PackSetOrder(self) { }
+    virtual fn order(self, d: *Decl, args: *vec::<*Type>) { }
+}
+
+/// `R<i32, string, string>` IS `R<i32, string>` when R's pack is expanded
+/// into variants (PANIC.md §1.2: equal types are one variant). The pack is a
+/// set, kept in first-occurrence order, so the dedup happens where a type is
+/// formed (CanonicalTypes::record, InstantiationRegistry) and every reader
+/// after it -- the instance's args, the expansions' tags, C++'s template
+/// arguments -- sees one list. \p d is the primary or an instance of it.
+fn decl_dedup_pack_args(d: *Decl, args: *vec::<*Type>, ord: *PackSetOrder = &null) {
+    if (d == &null) || (args == &null) { return; }
+    var at = decl_pack_set_at(d);
+    if (at == usize(-1)) || (args->size() <= at + 1) { return; }
+    var out = vec::<*Type>();
+    for var i: usize = 0; i < args->size(); ++i {
+        var a = (*args)[i];
+        var dup = false;
+        if i > at {
+            for var j: usize = at; j < out.size(); ++j { if out[j] == a { dup = true; break; } }
+        }
+        if !dup { out.push_back(a); }
+    }
+    if out.size() != args->size() {
+        args->clear();
+        for var i: usize = 0; i < out.size(); ++i { args->push_back(out[i]); }
+    }
+    // A lang item may also fix the set's ORDER (PackSetOrder: the Panic
+    // item sorts by type id, PANIC.md §1.3), once the duplicates are gone.
+    if ord != &null { ord->order(d, args); }
+}
+
 /// `derives_list`: the kinds with nominal bases.
 fn decl_bases(d: *Decl) -> FrozenList::<InheritEdge> {
     if d == &null { return create_empty_frozen_list::<InheritEdge>(); }
@@ -317,4 +569,24 @@ fn decl_extension_of(d: *Decl) -> *ExtensionDecl {
     var lex = reinterpret_cast::<*DeclContext>(d->lexical_dc);
     if (lex == &null) || (lex->dc_kind != DeclContextKind::Extension) { return &null; }
     return dyn_cast::<ExtensionDecl>(lex->dc_owner);
+}
+
+// === Interface requirements ===============================================
+
+/// \p m is a CONSTRUCTOR requirement: a method of an interface named after
+/// that interface (`interface Defaultable { fn Defaultable(self) }`). A
+/// conformer meets it with its own constructor, named after ITSELF, so a
+/// lookup by the requirement's name can never find the witness; Sema and
+/// Codegen both branch on this. The owner is the semantic one, the
+/// interface that wrote it, so a requirement composed into a derived
+/// interface is still one. Names are interned per file and a method shares
+/// its interface's file, so the imms compare.
+fn decl_is_ctor_requirement(m: *FunctionDecl) -> bool {
+    if (m == &null) || m->is_operator || (m->semantic_dc == &null) { return false; }
+    var owner = reinterpret_cast::<*DeclContext>(m->semantic_dc)->owner_decl();
+    if (owner == &null) || (!isa::<InterfaceDecl>(owner)) { return false; }
+    var a = decl_name_tok(static_cast::<*Decl>(m));
+    var b = decl_name_tok(owner);
+    if (!a.has_imm()) || (!b.has_imm()) { return false; }
+    return a.imm == b.imm;
 }

@@ -148,6 +148,14 @@ enum TypeKind derives u8 {
     // Expression in the Type position like vec<i32, 12> where 12 is a const expression
     TypeExpr,
 
+    /// Canonical associated type named through something abstract: `T::Node`
+    /// in a body bounded `T impl Graph`, or `Self::Node` inside `Graph`
+    /// itself (interfaces.md, Associated Types). NEVER produced by the
+    /// parser; created only by CanonicalTypeStore::assoc. Always dependent:
+    /// substituting a concrete base reads the conformer's alias instead
+    /// (Substitution::assoc_witness). Node: AssocType base + iface + assoc.
+    AssocType,
+
     /// -----------------------------------------------------------------------
     ///  Marker
     /// -----------------------------------------------------------------------
@@ -180,6 +188,7 @@ fn to_string(t: TypeKind) -> string {
         case TypeKind::OpaqueFFIType { return "OpaqueFFIType"; }
         case TypeKind::QualifiedType { return "QualifiedType"; }
         case TypeKind::TypeExpr { return "TypeExpr"; }
+        case TypeKind::AssocType { return "AssocType"; }
     }
 
     return "UnknownTypeKind";

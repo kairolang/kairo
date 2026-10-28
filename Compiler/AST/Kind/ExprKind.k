@@ -364,6 +364,33 @@ enum ExprKind derives u8 {
     /// construction was written as.
     VariantInitExpr,
 
+    /// `unwrap!(e)`: the value of a nullable, or the program aborts.
+    /// Node: UnwrapExpr: operand: *Expr. A parser intrinsic (the PP passes
+    /// `unwrap!` through raw, like `label!`), so `e` is an ordinary parsed
+    /// expression; CoalesceLowering expands it (NULLABLE.md 2.6).
+    UnwrapExpr,
+
+    /// `defined!(NAME)` for a NAME the preprocessor's own table does not
+    /// hold (it writes `true` for one it does): clang's predefined macros
+    /// and the TU's ffi headers' macros answer it. Node: DefinedExpr: name:
+    /// Token. EvalIfFolding replaces every one with a bool literal in phase
+    /// E (EVAL.md §4.3); nothing after it sees one.
+    DefinedExpr,
+
+    /// An attribute applied to an expression: `@create Config(8080)`,
+    /// `@name(args) operand` (attributes.mdx). Node: AttributedExpr: the
+    /// attribute's name and arguments (the declaration attribute's grammar)
+    /// and the operand. No attribute has expression semantics yet:
+    /// FeatureGateCheck reports every one (SC116E).
+    AttributedExpr,
+
+    /// The panic lowering's C++ with no Kairo spelling (PANIC.md §4.3,
+    /// §4.4): widening a panic result (`fwd`), and the raw-storage slot a
+    /// multi-site `try` carries its error out in. Node: PanicOpExpr: the
+    /// op, an operand, the slot. Never parsed; PanicLowering mints it and
+    /// EmitIR spells it.
+    PanicOpExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -418,6 +445,10 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::InitListExpr { return "InitListExpr"; }
         case ExprKind::StmtExpr { return "StmtExpr"; }
         case ExprKind::VariantInitExpr { return "VariantInitExpr"; }
+        case ExprKind::UnwrapExpr { return "UnwrapExpr"; }
+        case ExprKind::DefinedExpr { return "DefinedExpr"; }
+        case ExprKind::AttributedExpr { return "AttributedExpr"; }
+        case ExprKind::PanicOpExpr { return "PanicOpExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

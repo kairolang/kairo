@@ -223,36 +223,36 @@ fn main() -> i32 {
 // above are what the exit code counts.
 
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX-DAG: Full operator+(::all::Full o);
-// CXX-DAG: Full operator+();
-// CXX-DAG: Full operator~();
+// CXX-DAG: Full operator+(::all::Full o) noexcept;
+// CXX-DAG: Full operator+() noexcept;
+// CXX-DAG: Full operator~() noexcept;
 // CXX-DAG: bool operator!=(
 // CXX-DAG: Ordering operator<=>(
-// CXX-DAG: Full operator++();
-// CXX-DAG: Full operator++(int);
-// CXX-DAG: Full operator--();
-// CXX-DAG: Full operator--(int);
-// CXX-DAG: operator signed int();
-// CXX-DAG: ~Full();
+// CXX-DAG: Full operator++() noexcept;
+// CXX-DAG: Full operator++(int) noexcept;
+// CXX-DAG: Full operator--() noexcept;
+// CXX-DAG: Full operator--(int) noexcept;
+// CXX-DAG: operator signed int() noexcept;
+// CXX-DAG: ~Full() noexcept;
 // CXX-DAG: __kairo_contains(
 // CXX-DAG: __kairo_iter(
 // CXX-DAG: __kairo_pow(
 // CXX-DAG: __kairo_await(
 // CXX-DAG: {{^ *}}signed int& operator[](
-// CXX-DAG: const signed int& operator[]({{.*}}) const;
-// CXX-DAG: signed int* operator->();
-// CXX-DAG: void operator+=(::all::Compound o);
+// CXX-DAG: const signed int& operator[]({{.*}}) const noexcept;
+// CXX-DAG: signed int* operator->() noexcept;
+// CXX-DAG: void operator+=(::all::Compound o) noexcept;
 // CXX-DAG: void operator<<=(
 // CXX-DAG: void operator>>=(
 // CXX-DAG: friend struct{{ ?}}::all::__kairo_ext_X;
 // CXX-DAG: struct __kairo_ext_X {
-// CXX-DAG: static{{ ?}}::all::X __kairo_op_minus(::all::X&);
-// CXX-DAG: static{{ ?}}::all::X __kairo_op_minus(::all::X&,{{ ?}}::all::X o);
-// CXX-DAG: static{{ ?}}::all::X __kairo_op_postdec(::all::X&, int);
+// CXX-DAG: static{{ ?}}::all::X __kairo_op_minus(::all::X&) noexcept;
+// CXX-DAG: static{{ ?}}::all::X __kairo_op_minus(::all::X&,{{ ?}}::all::X o) noexcept;
+// CXX-DAG: static{{ ?}}::all::X __kairo_op_postdec(::all::X&, int) noexcept;
 // CXX-DAG: static void __kairo_op_plus_eq(::all::X&,
-// CXX-DAG: static bool __kairo_contains(::all::X&, signed int x);
-// CXX-DAG: X operator-(::all::X& __kairo_a0) {
-// CXX-DAG: X operator--(::all::X& __kairo_a0, int __kairo_a1) {
+// CXX-DAG: static bool __kairo_contains(::all::X&, signed int x) noexcept;
+// CXX-DAG: X operator-(::all::X& __kairo_a0) noexcept {
+// CXX-DAG: X operator--(::all::X& __kairo_a0, int __kairo_a1) noexcept {
 // CXX-DAG: return{{ ?}}::all::__kairo_ext_X::__kairo_op_postdec(__kairo_a0, __kairo_a1);
 // CXX-DAG: void operator+=(::all::X& __kairo_a0,
 

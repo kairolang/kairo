@@ -1,26 +1,54 @@
 /// --- The Kairo Project --------------------- Sema/Check/CtorInitCheck.k --- ///
 ///
-///   \brief A const field is initialized exactly once, by its record's
-///          constructor, before the object is used; and the constructor's
-///          body is cut where that happens (FunctionDecl::ci_split).
+///   \brief A const field, and a field whose type has no default, is
+///          initialized by its record's constructor before the object is
+///          used; and the constructor's body is cut where that happens
+///          (FunctionDecl::ci_split).
 ///
 ///   \detail
 ///     classes.md: a `const` member with no initializer at its declaration
 ///     gets exactly one assignment, in the constructor; one with an
 ///     initializer gets none. C++ has no assignment to a const member at
 ///     all -- its value must exist at the mem-initializer list, before the
-///     first statement runs. So the body is read in two parts:
+///     first statement runs.
 ///
-///       S_pre    every top-level statement up to and including the LAST one
-///                that assigns a const field (the frontier). It runs before
-///                the object exists, against slots (CODEGEN.md §6).
+///     A field with no initializer whose type has no default (variables.mdx:
+///     `bool`, an enum with payloads, a record with no usable default
+///     constructor, an array of any of those; TypeUtil::why_no_default) is
+///     the same problem from the other side: C++ cannot build it before the
+///     body runs, so the constructor's FIRST whole write (`self.f = e`) is
+///     its initializer, exactly as a const field's one write is. Later writes
+///     are ordinary assignments. An array field is a third case: an array is
+///     not assignable (SC071E), so its one whole write in a constructor is
+///     its initialization or an error. ExprTyper leaves that write alone
+///     (OperatorTyping::type_assign) and this pass decides it. So the body is
+///     read in two parts:
+///
+///       S_pre    every top-level statement up to and including the frontier:
+///                the LAST one that assigns a const or array field, or the
+///                first after which a field with no default is assigned on
+///                every path, whichever is later. It runs before the object
+///                exists, against slots (CODEGEN.md §6).
 ///       S_post   the rest, in the built object.
 ///
 ///     The rules follow from "the object does not exist during S_pre":
 ///
-///       - every const field with no declared initializer is assigned on
-///         every path to the end of S_pre, and no const field is assigned
-///         on a path where it may already be (so never inside a loop);
+///       - every const field with no declared initializer, and every field
+///         with no default and no initializer, is assigned on every path to
+///         the end of S_pre; no const or array field is assigned on a path
+///         where it may already be (so never inside a loop); an array field
+///         S_pre assigns at all it assigns on every path (C++ could not
+///         assign it afterwards);
+///       - a field with no default is not written in part (`self.f[i] = e`,
+///         `self.f.x = e`) before it is built whole -- except that a
+///         one-dimensional array field of known length may be built
+///         element by element: `self.f[k] = e` with k a constant, every k
+///         in 0..N-1 exactly once on every path, outside any loop, before
+///         f or `self` is read. Each element is a bit of flow state like a
+///         field (CtorFlow::edef); f is assigned once its last element is,
+///         and each write that builds an element is marked ci_elem_init
+///         (EmitIR builds the element in the slot, in place, so source
+///         order holds);
 ///       - in S_pre, `self` appears only as `self.f = e` or as a read of a
 ///         field already assigned on every path: no method call, no `self`
 ///         passed or returned, no `&self.f`, no field S_pre never writes;
@@ -37,12 +65,15 @@
 ///
 ///     Separately, any assignment to a const field that is not `self.f = e`
 ///     in a constructor of the field's own record is an error wherever it is
-///     (classes.md: "cfg.MAX_RETRIES = 5 // compile error").
+///     (classes.md: "cfg.MAX_RETRIES = 5 // compile error"), and so is a whole
+///     write of an array field in its constructor that is not the one that
+///     initializes it (SC071E, the code ExprTyper deferred).
 ///
-///     Codes: SC001E (placeholder) for every rule; SC116E for the shapes the
-///     lowering cannot render yet (a generic constructor, `try` / `finally` /
-///     `inline` / `jump!` in S_pre, a static or array-typed local carried
-///     across).
+///     Codes: SC001E (placeholder) for every rule but that one; SC116E for
+///     the shapes the lowering cannot render yet (a generic constructor,
+///     `try` / `finally` / `inline` / `jump!` in S_pre, a static or
+///     array-typed local carried across, an array field whose element is an
+///     array or whose length is a generic parameter).
 ///
 ///   Phase: CHECKS, after InitCheck, before FeatureGateCheck. Reads
 ///          resolved_decl and expression types (`-> !`).
@@ -58,6 +89,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Check::ConstEval::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
@@ -99,25 +131,96 @@ fn ctor_init_self_field(e: *Expr) -> *FieldDecl {
     return f;
 }
 
-/// Is any const field of the record assigned anywhere under a statement?
-/// The frontier search.
+/// An array-typed field: assigned once, by its initialization.
+fn ctor_init_is_array(f: *FieldDecl) -> bool {
+    if (f == &null) || (f->type_ == &null) { return false; }
+    var c = canon_unqual(f->type_->canonical);
+    return (c != &null) && (c->kind == TypeKind::FixedArrayType);
+}
+
+/// A field written once, by its initialization: const, or an array.
+fn ctor_init_is_once(f: *FieldDecl) -> bool {
+    return (f != &null) && (f->is_const() || ctor_init_is_array(f));
+}
+
+/// `self.f[k]` exactly (one subscript straight on `self.f`), else null:
+/// the target of an element write that may build an array field.
+fn ctor_init_elem_target(e: *Expr) -> *SubscriptExpr {
+    var sub = dyn_cast::<SubscriptExpr>(e);
+    if (sub == &null) || (sub->index == &null) || (sub->resolved_op != &null) { return &null; }
+    if !ctor_init_is_array(ctor_init_self_field(sub->base)) { return &null; }
+    return sub;
+}
+
+/// The field a write of PART of it is rooted at: `self.f[i]`, `self.f.x`,
+/// `self.f[i].y`. Null for the whole `self.f`, and for anything not rooted
+/// at a field of `self`.
+fn ctor_init_part_root(e: *Expr) -> *FieldDecl {
+    var x = e;
+    var deeper = false;
+    while x != &null {
+        var sub = dyn_cast::<SubscriptExpr>(x);
+        if sub != &null { x = sub->base; deeper = true; continue; }
+        var c = dyn_cast::<ChainExpr>(x);
+        if c == &null { return &null; }
+        if ctor_init_is_self(c->base) {
+            if (c->steps.size() == 0) || ((c->steps.size() == 1) && (!deeper)) { return &null; }
+            var st = c->steps.get(0);
+            if (st->resolved_decl == &null) || (!isa::<FieldDecl>(st->resolved_decl)) { return &null; }
+            var f = cast::<FieldDecl>(st->resolved_decl);
+            if f->is_static() { return &null; }
+            return f;
+        }
+        x = c->base;
+        deeper = true;
+    }
+    return &null;
+}
+
+/// Is any field written once (a const or an array, ctor_init_is_once)
+/// assigned whole anywhere under a statement? The frontier search.
 class CtorConstWriteFind derives RecursiveASTVisitor::<CtorConstWriteFind> {
     pub var found: bool = false;
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         var f = ctor_init_self_field(n->lhs);
-        if (f != &null) && f->is_const() { self.found = true; self.stop = true; }
+        if ctor_init_is_once(f) { self.found = true; self.stop = true; }
         return true;
     }
 }
 
-/// Every field written as `self.f = ...` under a statement, and where first.
+/// The first write of part of field \p field under a statement
+/// (ctor_init_part_root), for the note on a field never built whole.
+class CtorPartWriteFind derives RecursiveASTVisitor::<CtorPartWriteFind> {
+    pub var field: *FieldDecl = &null;
+    pub var at:    SourceRange;
+    pub var found: bool = false;
+
+    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
+        if ctor_init_part_root(n->lhs) == self.field { self.found = true; self.at = n->range; self.stop = true; }
+        return true;
+    }
+}
+
+/// Every field written as `self.f = ...` under a statement, and where first;
+/// and each of \p elems written as `self.f[k] = ...` (built element by
+/// element, CtorInitCheck::_elem_ok).
 class CtorFieldWriteFind derives RecursiveASTVisitor::<CtorFieldWriteFind> {
     pub var fields: vec::<*FieldDecl>;
     pub var at:     vec::<SourceRange>;
+    pub var elems:  vec::<*FieldDecl>;
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         var f = ctor_init_self_field(n->lhs);
+        if (f == &null) && (n->op_token.kind == TokenKind::OpEqual) {
+            var sub = ctor_init_elem_target(n->lhs);
+            if sub != &null {
+                var ef = ctor_init_self_field(sub->base);
+                for var i: usize = 0; i < self.elems.size(); ++i {
+                    if self.elems[i] == ef { f = ef; break; }
+                }
+            }
+        }
         if f == &null { return true; }
         for var i: usize = 0; i < self.fields.size(); ++i {
             if self.fields[i] == f { return true; }
@@ -157,6 +260,10 @@ struct CtorFlow {
     pub var def:   vec::<bool>;
     pub var maybe: vec::<bool>;
     pub var dead:  bool = false;
+    /// The same per element of each array field built element by element,
+    /// field i's elements at CtorInitCheck::_ebase[i].
+    pub var edef:   vec::<bool>;
+    pub var emaybe: vec::<bool>;
 }
 
 /// One thing the expression scan saw `self` do, in evaluation order.
@@ -165,12 +272,16 @@ enum CtorEventKind derives u8 {
     CompoundWrite,  ///< `self.f op= e`: a read, then a write.
     Read,           ///< `self.f` / `self.f.<more>`.
     SelfUse,        ///< `self` as a whole: a call, an argument, `&self.f`.
+    PartWrite,      ///< `self.f[i] = e` / `self.f.x = e`: f must exist already.
+    ElemWrite,      ///< `self.f[k] = e`, f an array field: may build element k.
 }
 
 struct CtorEvent {
     pub var kind:  CtorEventKind = CtorEventKind::Read;
     pub var field: *FieldDecl = &null;
     pub var at:    SourceRange;
+    /// ElemWrite: the write itself (its subscript is the index).
+    pub var node:  *AssignOperatorExpr = &null;
 }
 
 /// The expression-level half of the walk: every `self` under an expression
@@ -181,21 +292,50 @@ struct CtorEvent {
 class CtorExprScan derives RecursiveASTVisitor::<CtorExprScan> {
     pub var events: vec::<CtorEvent>;
 
-    priv fn _push(self, k: CtorEventKind, f: *FieldDecl, at: SourceRange) {
+    priv fn _push(self, k: CtorEventKind, f: *FieldDecl, at: SourceRange, node: *AssignOperatorExpr = &null) {
         var e = CtorEvent{};
         e.kind  = k;
         e.field = f;
         e.at    = at;
+        e.node  = node;
         self.events.push_back(e);
     }
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         var f = ctor_init_self_field(n->lhs);
-        if f == &null { return true; }
+        if f == &null {
+            var pf = ctor_init_part_root(n->lhs);
+            if pf == &null { return true; }
+            if n->rhs != &null { self.dispatch_expr(n->rhs); }
+            self._scan_part(n->lhs);
+            if (n->op_token.kind == TokenKind::OpEqual) && (ctor_init_elem_target(n->lhs) != &null) {
+                self._push(CtorEventKind::ElemWrite, pf, n->range, n);
+                return false;
+            }
+            self._push(CtorEventKind::PartWrite, pf, n->range);
+            return false;
+        }
         if n->rhs != &null { self.dispatch_expr(n->rhs); }
         var k = (CtorEventKind::Write) if (n->op_token.kind == TokenKind::OpEqual) else (CtorEventKind::CompoundWrite);
         self._push(k, f, n->range);
         return false;
+    }
+
+    /// The operands of a part write's target other than its root `self.f`:
+    /// the subscripts, and any base that is not `self`.
+    priv fn _scan_part(self, e: *Expr) {
+        var x = e;
+        while x != &null {
+            var sub = dyn_cast::<SubscriptExpr>(x);
+            if sub != &null {
+                if sub->index != &null { self.dispatch_expr(sub->index); }
+                x = sub->base;
+                continue;
+            }
+            var c = dyn_cast::<ChainExpr>(x);
+            if (c == &null) || ctor_init_is_self(c->base) { return; }
+            x = c->base;
+        }
     }
 
     fn visit_chain_expr(self, n: *ChainExpr) -> bool {
@@ -258,6 +398,28 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     /// Per field, where it was first assigned on the path being walked
     /// (valid while maybe[i]); the note on a second assignment.
     priv var _assigned_at: vec::<SourceRange>;
+    /// The walk that finds the frontier runs before the one that judges
+    /// S_pre: it reports nothing and approves nothing.
+    priv var _quiet:      bool = false;
+    /// Only const fields drive the frontier: the diagnostics keep saying
+    /// "const field", as they did before any other field could.
+    priv var _const_only: bool = true;
+    /// Every whole write of an array field the walk decided: one that
+    /// initializes it, or one it already reported. Any other one in a
+    /// constructor is SC071E (visit_assign_operator_expr). Ranges, not
+    /// nodes: an instance's constructor is a copy of its pattern's.
+    priv var _approved:   vec::<SourceRange>;
+    /// The array fields whose write the walk reported, so the end of the
+    /// walk does not report the same field's paths again.
+    priv var _erred:      vec::<*FieldDecl>;
+    /// Per field (by index): where its elements start in CtorFlow::edef, or
+    /// usize(-1) for a field not built element by element (_elem_ok); its
+    /// element count; and per element, where it was first built on the path
+    /// being walked (the note on a second write).
+    priv var _ebase:      vec::<usize>;
+    priv var _elen:       vec::<usize>;
+    priv var _eat:        vec::<SourceRange>;
+    priv var _ce:         ConstEval;
 
     // The function being traversed, for the stray-assignment rule.
     priv var _fn: *FunctionDecl = &null;
@@ -265,6 +427,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     fn CtorInitCheck(self, sc: *SemaContext) {
         self.sc  = sc;
         self._tu = TypeUtil(sc);
+        self._ce = ConstEval(sc);
     }
 
     fn run(self) {
@@ -307,6 +470,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     /// constructor of f's record is the analysis's business, not this one's.
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         if n->is_poisoned() { return true; }
+        self._array_write(n);
         var c = dyn_cast::<ChainExpr>(n->lhs);
         if (c == &null) || (c->steps.size() == 0) { return true; }
         var st = c->steps.get(c->steps.size() - 1);
@@ -323,6 +487,25 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         b.note(f->range.start, f"'{nm}' is const: only a constructor of its own record initializes it, once").first(f->name.range);
         b.emit();
         return true;
+    }
+
+    /// The whole write of an array field ExprTyper let through in a
+    /// constructor of the field's record (OperatorTyping::type_assign): an
+    /// initialization the walk approved, or an assignment, which an array
+    /// does not have.
+    priv fn _array_write(self, n: *AssignOperatorExpr) {
+        if n->op_token.kind != TokenKind::OpEqual { return; }
+        var f = ctor_init_self_field(n->lhs);
+        if (!ctor_init_is_array(f)) || (self._fn == &null) || (!self._is_ctor(self._fn)) { return; }
+        if self._fn->semantic_dc != f->semantic_dc { return; }
+        for var i: usize = 0; i < self._approved.size(); ++i {
+            if self._approved[i] == n->range { return; }
+        }
+        var nm = self.sc->ctx->get_spelling(f->name);
+        var b = self.sc->diag->report(DiagID::SC071E, n->range.start, "an array is not assignable; assign its elements, or go through a slice");
+        b.first(n->range);
+        b.note(f->range.start, f"only the constructor\x27s first whole write of '{nm}', before the object is used, initializes it").first(f->name.range);
+        b.emit();
     }
 
     // === one record ==========================================================
@@ -365,55 +548,87 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         self._fields = fields;
         self._failed = false;
         self._loops  = 0;
+        self._erred.clear();
 
         var cname = self._tu.decl_name(owner);
         var at    = f->name.range;
+        self._const_only = true;
 
         if f->body_kind == FnBodyKind::Delete { return false; }
         if f->body_kind == FnBodyKind::Default {
+            // A defaulted transfer constructor copies or moves every field,
+            // which builds each one: nothing is left to initialize.
+            if f->transfer != TransferKind::NotTransfer { return false; }
             for var i: usize = 0; i < fields.size(); ++i {
                 var fd = fields[i];
                 if !self._required(fd) { continue; }
                 var nm = self.sc->ctx->get_spelling(fd->name);
-                var b = self.sc->diag->report(DiagID::SC001E, at.start,
-                    f"a defaulted constructor of '{cname}' cannot initialize const field '{nm}\x27");
-                b.first(at);
-                b.note(fd->range.start, f"'{nm}' is declared here without an initializer; give it one, or write the constructor").first(fd->name.range);
-                b.emit();
+                if fd->is_const() {
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"a defaulted constructor of '{cname}' cannot initialize const field '{nm}\x27");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' is declared here without an initializer; give it one, or write the constructor").first(fd->name.range);
+                    b.emit();
+                } else {
+                    var why = self._why(fd);
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"a defaulted constructor of '{cname}' cannot initialize field '{nm}', and {why}");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' is declared here without an initializer; give it one, or write the constructor").first(fd->name.range);
+                    b.emit();
+                }
             }
             return false;
         }
         if (f->body_kind != FnBodyKind::Block) || (f->body_block == &null) {
             if self._has_required(fields) {
-                self._gate(at, "a constructor with an expression body on a record with a const field");
+                self._gate(at, "a constructor with an expression body on a record with a field it must initialize");
             }
             return false;
         }
 
         var stmts = f->body_block->body;
+        self._elem_layout(fields);
+
+        // The frontier: the last statement assigning a field written once
+        // (const or array); and, for each field with no default written
+        // more often, the first statement after which it is assigned on
+        // every path (a quiet walk), or failing that its last write, so the
+        // walk below reports the path that misses it.
         var frontier = usize(-1);
         for var i: usize = 0; i < stmts.size(); ++i {
             var w = CtorConstWriteFind();
             w.dispatch_stmt(stmts[i]);
             if w.found { frontier = i; }
         }
+        for var i: usize = 0; i < stmts.size(); ++i {
+            var wf0 = CtorFieldWriteFind();
+            wf0.dispatch_stmt(stmts[i]);
+            for var j: usize = 0; j < wf0.fields.size(); ++j {
+                var wfj = wf0.fields[j];
+                if (!wfj->is_const()) && ctor_init_is_array(wfj) { self._const_only = false; }
+            }
+        }
+        for var i: usize = 0; i < fields.size(); ++i {
+            if self._required(fields[i]) && (!fields[i]->is_const()) { self._const_only = false; }
+        }
+        var settle = self._settle(fields, stmts);
+        for var i: usize = 0; i < fields.size(); ++i {
+            if settle[i] == usize(-1) { continue; }
+            if (frontier == usize(-1)) || (settle[i] > frontier) { frontier = settle[i]; }
+        }
 
         if frontier == usize(-1) {
             for var i: usize = 0; i < fields.size(); ++i {
                 var fd = fields[i];
                 if !self._required(fd) { continue; }
-                var nm = self.sc->ctx->get_spelling(fd->name);
-                var b = self.sc->diag->report(DiagID::SC001E, at.start,
-                    f"constructor of '{cname}' does not initialize const field '{nm}\x27");
-                b.first(at);
-                b.note(fd->range.start, f"'{nm}' is declared here without an initializer; assign it in every constructor, or give it one").first(fd->name.range);
-                b.emit();
+                self._missing(fd, cname, at, stmts);
             }
             return false;
         }
 
         if decl_generic_params(static_cast::<*Decl>(f)).size() > 0 {
-            self._gate(at, "a generic constructor that initializes a const field");
+            self._gate(at, self._t("a generic constructor that initializes a const field", "a generic constructor that initializes a field in place"));
             return false;
         }
 
@@ -422,31 +637,59 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         // What S_pre writes, anywhere: the slot set, and which reads of a
         // not-yet-assigned field are "later" rather than "never".
         var wf = CtorFieldWriteFind();
+        wf.elems = self._elem_fields();
         for var i: usize = 0; i <= frontier; ++i { wf.dispatch_stmt(stmts[i]); }
         self._written  = wf.fields;
         self._first_at = wf.at;
 
         // The walk.
-        self._st = CtorFlow{};
-        self._assigned_at.clear();
-        for var i: usize = 0; i < fields.size(); ++i {
-            self._st.def.push_back(false);
-            self._st.maybe.push_back(false);
-            self._assigned_at.push_back(SourceRange::invalid());
-        }
+        self._reset_flow(fields.size());
         for var i: usize = 0; i <= frontier; ++i { self._stmt(stmts[i]); }
 
         if !self._st.dead {
             for var i: usize = 0; i < fields.size(); ++i {
                 var fd = fields[i];
-                if (!self._required(fd)) || self._st.def[i] { continue; }
+                if self._st.def[i] { continue; }
+                // A field whose write the walk reported already: one error.
+                if self._required(fd) && (!fd->is_const()) && self._has_erred(fd) { continue; }
                 var nm = self.sc->ctx->get_spelling(fd->name);
-                var b = self.sc->diag->report(DiagID::SC001E, at.start,
-                    f"const field '{nm}' is not initialized on every path through the constructor of '{cname}\x27");
-                b.first(at);
-                b.note(fd->range.start, f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or give it an initializer").first(fd->name.range);
-                b.emit();
-                self._failed = true;
+                if self._required(fd) && fd->is_const() {
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"const field '{nm}' is not initialized on every path through the constructor of '{cname}\x27");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or give it an initializer").first(fd->name.range);
+                    b.emit();
+                    self._failed = true;
+                } else if self._required(fd) && (!self._is_written(fd)) {
+                    self._missing(fd, cname, at, stmts);
+                    self._failed = true;
+                } else if self._required(fd) && self._elems_begun(i) {
+                    var why = self._why(fd);
+                    var n = self._elen[i];
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"array field '{nm}' is built element by element, but {self._missing_elems(i)} not initialized on every path through the constructor of '{cname}', and {why}");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' has {n} elements; write each one once ('self.{nm}[k] = ...' for every k from 0 to {n - 1}) on every path, or assign it whole").first(fd->name.range);
+                    b.emit();
+                    self._failed = true;
+                } else if self._required(fd) {
+                    var why = self._why(fd);
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"field '{nm}' is not initialized on every path through the constructor of '{cname}', and {why}");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or give it an initializer").first(fd->name.range);
+                    b.emit();
+                    self._failed = true;
+                } else if ctor_init_is_array(fd) && self._is_written(fd) && (!self._has_erred(fd)) {
+                    // `if (set) this->f = ...` is how S_post takes a field
+                    // assigned on some paths, and an array has no `=`.
+                    var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                        f"array field '{nm}' is initialized on some paths through the constructor of '{cname}' only; an array is not assignable, so its one initialization must be on every path");
+                    b.first(at);
+                    b.note(fd->range.start, f"'{nm}' is declared here; assign it on every branch (an 'if' needs its 'else'), or on none").first(fd->name.range);
+                    b.emit();
+                    self._failed = true;
+                }
             }
         }
 
@@ -464,12 +707,12 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             }
             if !used { continue; }
             if v->is_static() {
-                self._gate(v->name.range, "a static local declared before a constructor's last const field assignment and used after it");
+                self._gate(v->name.range, "a static local declared before a constructor's " + self._last() + " and used after it");
                 continue;
             }
             var vc = (canon_unqual(v->type_->canonical)) if ((v->type_ != &null) && (v->type_->canonical != &null)) else (&null);
             if (vc != &null) && (vc->kind == TypeKind::FixedArrayType) {
-                self._gate(v->name.range, "an array local declared before a constructor's last const field assignment and used after it");
+                self._gate(v->name.range, "an array local declared before a constructor's " + self._last() + " and used after it");
                 continue;
             }
             crossing.push_back(static_cast::<*Decl>(v));
@@ -519,12 +762,14 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             case StmtKind::ReturnStmt {
                 var r = cast::<ReturnStmt>(s);
                 self._scan_expr(r->value);
-                var b = self.sc->diag->report(DiagID::SC001E, s->range.start,
-                    "a constructor cannot return before its last const field is initialized");
-                b.first(s->range);
-                b.note(self._frontier.start, "the last const field is initialized here; the object exists only after it").first(self._frontier);
-                b.emit();
-                self._failed = true;
+                if !self._quiet {
+                    var b = self.sc->diag->report(DiagID::SC001E, s->range.start,
+                        self._t("a constructor cannot return before its last const field is initialized", "a constructor cannot return before it has initialized its fields"));
+                    b.first(s->range);
+                    b.note(self._frontier.start, self._t("the last const field is initialized here; the object exists only after it", "the last field is initialized here; the object exists only after it")).first(self._frontier);
+                    b.emit();
+                    self._failed = true;
+                }
                 self._st.dead = true;
             }
             case StmtKind::PanicStmt {
@@ -580,11 +825,11 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
                 self._scan_expr(rf->iterable);
                 self._loop(rf->body);
             }
-            case StmtKind::TryCatchStmt      { self._gate(s->range, "'try' before a constructor's last const field assignment"); }
-            case StmtKind::FinallyStmt       { self._gate(s->range, "'finally' before a constructor's last const field assignment"); }
-            case StmtKind::InlineBlockStmt   { self._gate(s->range, "an 'inline' block before a constructor's last const field assignment"); }
-            case StmtKind::LabelIntrinsicStmt { self._gate(s->range, "'label!' before a constructor's last const field assignment"); }
-            case StmtKind::JumpIntrinsicStmt { self._gate(s->range, "'jump!' before a constructor's last const field assignment"); }
+            case StmtKind::TryCatchStmt      { self._gate(s->range, "'try' before a constructor's " + self._last()); }
+            case StmtKind::FinallyStmt       { self._gate(s->range, "'finally' before a constructor's " + self._last()); }
+            case StmtKind::InlineBlockStmt   { self._gate(s->range, "an 'inline' block before a constructor's " + self._last()); }
+            case StmtKind::LabelIntrinsicStmt { self._gate(s->range, "'label!' before a constructor's " + self._last()); }
+            case StmtKind::JumpIntrinsicStmt { self._gate(s->range, "'jump!' before a constructor's " + self._last()); }
             default { self._scan_stmt(s); }
         }
     }
@@ -611,6 +856,9 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         for var i: usize = 0; i < self._st.maybe.size(); ++i {
             if (!after.dead) && after.maybe[i] { self._st.maybe[i] = true; }
         }
+        for var i: usize = 0; i < self._st.emaybe.size(); ++i {
+            if (!after.dead) && after.emaybe[i] { self._st.emaybe[i] = true; }
+        }
     }
 
     /// The meet of two paths: assigned where both assigned it, maybe-assigned
@@ -621,6 +869,10 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         for var i: usize = 0; i < self._st.def.size(); ++i {
             self._st.def[i]   = self._st.def[i] && other.def[i];
             self._st.maybe[i] = self._st.maybe[i] || other.maybe[i];
+        }
+        for var i: usize = 0; i < self._st.edef.size(); ++i {
+            self._st.edef[i]   = self._st.edef[i] && other.edef[i];
+            self._st.emaybe[i] = self._st.emaybe[i] || other.emaybe[i];
         }
     }
 
@@ -645,6 +897,8 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
                 case CtorEventKind::Write         { self._on_write(e.field, e.at, false); }
                 case CtorEventKind::CompoundWrite { self._on_write(e.field, e.at, true); }
                 case CtorEventKind::Read          { self._on_read(e.field, e.at); }
+                case CtorEventKind::PartWrite     { self._on_part_write(e.field, e.at); }
+                case CtorEventKind::ElemWrite     { self._on_elem_write(e.field, e.node); }
                 default                           { self._on_self_use(e.at); }
             }
         }
@@ -657,8 +911,34 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         var i = self._index(f);
         if i == usize(-1) { return; }
         if compound { self._on_read(f, at); }
-        if f->is_const() {
+        if self._quiet {
+            0;
+        } else if (!f->is_const()) && ctor_init_is_array(f) && (!compound) {
             var nm = self.sc->ctx->get_spelling(f->name);
+            self._approved.push_back(at);
+            if self._loops > 0 {
+                var b = self.sc->diag->report(DiagID::SC071E, at.start,
+                    f"array field '{nm}' is initialized inside a loop; an array is not assignable, so its one initialization cannot repeat");
+                b.first(at);
+                b.note(f->range.start, f"'{nm}' is declared here; initialize it before the loop").first(f->name.range);
+                b.emit();
+                self._erred.push_back(f);
+                self._failed = true;
+            } else if self._st.maybe[i] {
+                var b = self.sc->diag->report(DiagID::SC071E, at.start,
+                    f"an array is not assignable; '{nm}' may already be initialized here");
+                b.first(at);
+                var prev = self._assigned_at[i];
+                if prev.is_valid() { b.note(prev.start, "initialized here first; assign its elements instead").first(prev); }
+                b.emit();
+                self._erred.push_back(f);
+                self._failed = true;
+            } else {
+                self._array_gate(f, at);
+            }
+        } else if f->is_const() {
+            var nm = self.sc->ctx->get_spelling(f->name);
+            if ctor_init_is_array(f) { self._approved.push_back(at); }
             if f->init != &null {
                 var b = self.sc->diag->report(DiagID::SC001E, at.start,
                     f"const field '{nm}' has an initializer at its declaration, so the constructor cannot assign it");
@@ -680,6 +960,8 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
                 if prev.is_valid() { b.note(prev.start, "initialized here first").first(prev); }
                 b.emit();
                 self._failed = true;
+            } else if ctor_init_is_array(f) {
+                self._array_gate(f, at);
             }
         }
         if !self._st.maybe[i] { self._assigned_at[i] = at; }
@@ -691,9 +973,18 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     priv fn _on_read(self, f: *FieldDecl, at: SourceRange) {
         var i = self._index(f);
         if i == usize(-1) { return; }
-        if self._st.def[i] { return; }
+        if self._st.def[i] || self._quiet { return; }
         var nm = self.sc->ctx->get_spelling(f->name);
-        if self._is_written(f) {
+        if self._elems_begun(i) {
+            // Built element by element and not finished: its slot holds
+            // elements that do not exist yet.
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{nm}' is read before all of its elements are initialized: {self._missing_elems(i)} not initialized yet on every path");
+            b.first(at);
+            var first = self._assigned_at[i];
+            if first.is_valid() { b.note(first.start, f"'{nm}' starts being built here; read it after its last element is written").first(first); }
+            b.emit();
+        } else if self._is_written(f) {
             var b = self.sc->diag->report(DiagID::SC001E, at.start,
                 f"'{nm}' is read before it is initialized on every path");
             b.first(at);
@@ -705,20 +996,111 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
             b.emit();
         } else {
             var b = self.sc->diag->report(DiagID::SC001E, at.start,
-                f"'{nm}' cannot be read before every const field is initialized: the object does not exist yet");
+                self._t(f"'{nm}' cannot be read before every const field is initialized: the object does not exist yet",
+                        f"'{nm}' cannot be read before the constructor has initialized its fields: the object does not exist yet"));
             b.first(at);
-            b.note(self._frontier.start, f"the last const field is initialized here; read '{nm}' after it").first(self._frontier);
+            b.note(self._frontier.start, self._t(f"the last const field is initialized here; read '{nm}' after it", f"the last field is initialized here; read '{nm}' after it")).first(self._frontier);
             b.emit();
         }
         self._failed = true;
     }
 
+    /// `self.f[i] = e`, `self.f.x = e`: a write into f, which must exist.
+    /// One with no default exists only once it is built whole; any other
+    /// field not assigned yet is a read of the object that does not exist.
+    priv fn _on_part_write(self, f: *FieldDecl, at: SourceRange) {
+        var i = self._index(f);
+        if i == usize(-1) { return; }
+        if self._st.def[i] || self._quiet { return; }
+        if (!self._required(f)) || f->is_const() { self._on_read(f, at); return; }
+        var nm  = self.sc->ctx->get_spelling(f->name);
+        var why = self._why(f);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"'{nm}' is written in part before it is initialized, and {why}");
+        b.first(at);
+        b.note(f->range.start, f"'{nm}' is declared here without an initializer; the constructor must build it whole first ('self.{nm} = ...'), or give it an initializer").first(f->name.range);
+        var how = self._part_note(f);
+        if how.size() > 0 { b.note(DiagID::SC001N, at.start, how).first(at); }
+        b.emit();
+        self._failed = true;
+    }
+
+    /// `self.f[k] = e`, f an array field. Field \p f built element by
+    /// element (_elem_ok) and not yet whole: this builds element k, once,
+    /// with k a constant, outside any loop. A field already built whole: an
+    /// ordinary element assignment. Any other: a write of part of f.
+    priv fn _on_elem_write(self, f: *FieldDecl, n: *AssignOperatorExpr) {
+        var i = self._index(f);
+        if (i == usize(-1)) || (n == &null) { return; }
+        if self._st.def[i] { return; }
+        if self._ebase[i] == usize(-1) { self._on_part_write(f, n->range); return; }
+        var sub = cast::<SubscriptExpr>(n->lhs);
+        var nm  = self.sc->ctx->get_spelling(f->name);
+        var len = self._elen[i];
+        var at  = n->range;
+        var c   = self._ce.eval_int(sub->index);
+        var ok  = c.ok && (!c.overflow) && (!c.neg) && (c.mag < static_cast::<u64>(len));
+        var k   = (static_cast::<usize>(c.mag)) if (ok) else (usize(0));
+        if self._quiet {
+            0;
+        } else if self._loops > 0 {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"an element of '{nm}' is initialized inside a loop; each element of an array field built element by element is written exactly once, with a constant index");
+            b.first(at);
+            b.note(f->range.start, f"'{nm}' has no default; write 'self.{nm}[0] = ...' through 'self.{nm}[{len - 1}] = ...' outside the loop, or assign it whole ('self.{nm} = [...]')").first(f->name.range);
+            b.emit();
+            self._erred.push_back(f);
+            self._failed = true;
+            ok = false;
+        } else if (!c.ok) || c.overflow {
+            var b = self.sc->diag->report(DiagID::SC001E, sub->index->range.start,
+                f"the index of an element write that builds '{nm}' must be a constant");
+            b.first(sub->index->range);
+            b.note(f->range.start, f"'{nm}' has no default, so the constructor builds it whole ('self.{nm} = [...]') or writes each of its {len} elements once with a constant index").first(f->name.range);
+            b.emit();
+            self._erred.push_back(f);
+            self._failed = true;
+        } else if !ok {
+            var b = self.sc->diag->report(DiagID::SC001E, sub->index->range.start,
+                f"index {self._ce.str(c)} is out of range for '{nm}', which has {len} elements");
+            b.first(sub->index->range);
+            b.emit();
+            self._erred.push_back(f);
+            self._failed = true;
+        } else if self._st.emaybe[self._ebase[i] + k] {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"element {k} of '{nm}' may already be initialized here; each element is initialized exactly once before '{nm}' is whole");
+            b.first(at);
+            var prev = self._eat[self._ebase[i] + k];
+            if prev.is_valid() { b.note(DiagID::SC001N, prev.start, "initialized here first").first(prev); }
+            b.emit();
+            self._failed = true;
+            ok = false;
+        } else {
+            n->ci_elem_init = true;
+        }
+        if !ok { return; }
+        var e = self._ebase[i] + k;
+        if !self._st.emaybe[e] { self._eat[e] = at; }
+        self._st.edef[e]   = true;
+        self._st.emaybe[e] = true;
+        if !self._st.maybe[i] { self._assigned_at[i] = at; }
+        self._st.maybe[i] = true;
+        var whole = true;
+        for var j: usize = 0; j < self._elen[i]; ++j {
+            if !self._st.edef[self._ebase[i] + j] { whole = false; break; }
+        }
+        if whole { self._st.def[i] = true; }
+    }
+
     /// `self` as a whole: a method call, an argument, a return, an address.
     priv fn _on_self_use(self, at: SourceRange) {
+        if self._quiet { return; }
         var b = self.sc->diag->report(DiagID::SC001E, at.start,
-            "'self' is used before every const field is initialized");
+            self._t("'self' is used before every const field is initialized", "'self' is used before the constructor has initialized its fields"));
         b.first(at);
-        b.note(self._frontier.start, "the last const field is initialized here; the object exists only after it, so move this use below it").first(self._frontier);
+        b.note(self._frontier.start, self._t("the last const field is initialized here; the object exists only after it, so move this use below it",
+                                             "the last field is initialized here; the object exists only after it, so move this use below it")).first(self._frontier);
         b.emit();
         self._failed = true;
     }
@@ -732,6 +1114,13 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         return usize(-1);
     }
 
+    priv fn _has_erred(self, f: *FieldDecl) -> bool {
+        for var i: usize = 0; i < self._erred.size(); ++i {
+            if self._erred[i] == f { return true; }
+        }
+        return false;
+    }
+
     priv fn _is_written(self, f: *FieldDecl) -> bool {
         for var i: usize = 0; i < self._written.size(); ++i {
             if self._written[i] == f { return true; }
@@ -739,10 +1128,224 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
         return false;
     }
 
-    /// A const field the constructor must assign: no declared initializer.
+    /// A field the constructor must assign: no declared initializer, and
+    /// const or of a type with no default.
     priv fn _required(self, f: *FieldDecl) -> bool {
-        if (f == &null) || f->is_static() || (!f->is_const()) || f->is_anonymous_union { return false; }
-        return f->init == &null;
+        if (f == &null) || f->is_static() || f->is_anonymous_union || (f->init != &null) { return false; }
+        return f->is_const() || (self._why(f).size() > 0);
+    }
+
+    /// Why \p f's type has no default (TypeUtil::why_no_default); empty when
+    /// it has one, or is not known.
+    priv fn _why(self, f: *FieldDecl) -> string {
+        if (f->type_ == &null) || (f->type_->canonical == &null) { return ""; }
+        return self._tu.why_no_default(f->type_->canonical);
+    }
+
+    /// The first statement after which each field with no default that is
+    /// written more than once is assigned on every path (usize(-1) for
+    /// none, and for every other field), by a walk over the whole body
+    /// that reports nothing. A field that never settles falls back to its
+    /// last whole write, so the reporting walk reaches the path missing it.
+    priv fn _settle(self, fields: FrozenList::<*FieldDecl>, stmts: FrozenList::<*Stmt>) -> vec::<usize> {
+        var out = vec::<usize>();
+        var any = false;
+        for var i: usize = 0; i < fields.size(); ++i {
+            out.push_back(usize(-1));
+            if self._settles(fields[i]) { any = true; }
+        }
+        if !any { return out; }
+        self._quiet = true;
+        self._written.clear();
+        self._first_at.clear();
+        self._reset_flow(fields.size());
+        for var s: usize = 0; s < stmts.size(); ++s {
+            self._stmt(stmts[s]);
+            for var i: usize = 0; i < fields.size(); ++i {
+                var fd = fields[i];
+                if (out[i] != usize(-1)) || (!self._settles(fd)) { continue; }
+                if self._st.dead || self._st.def[i] { out[i] = s; }
+            }
+            if self._st.dead { break; }
+        }
+        self._quiet  = false;
+        self._failed = false;
+        for var i: usize = 0; i < fields.size(); ++i {
+            var fd = fields[i];
+            if (out[i] != usize(-1)) || (!self._settles(fd)) { continue; }
+            for var s: usize = 0; s < stmts.size(); ++s {
+                var w = CtorFieldWriteFind();
+                w.elems = self._elem_fields();
+                w.dispatch_stmt(stmts[s]);
+                for var j: usize = 0; j < w.fields.size(); ++j {
+                    if w.fields[j] == fd { out[i] = s; }
+                }
+            }
+        }
+        return out;
+    }
+
+    priv fn _reset_flow(self, n: usize) {
+        self._st = CtorFlow{};
+        self._assigned_at.clear();
+        for var i: usize = 0; i < n; ++i {
+            self._st.def.push_back(false);
+            self._st.maybe.push_back(false);
+            self._assigned_at.push_back(SourceRange::invalid());
+        }
+        self._eat.clear();
+        for var i: usize = 0; i < self._elen.size(); ++i {
+            if self._ebase[i] == usize(-1) { continue; }
+            for var k: usize = 0; k < self._elen[i]; ++k {
+                self._st.edef.push_back(false);
+                self._st.emaybe.push_back(false);
+                self._eat.push_back(SourceRange::invalid());
+            }
+        }
+    }
+
+    /// The constructor never assigns required field \p fd whole.
+    priv fn _missing(self, fd: *FieldDecl, cname: string, at: SourceRange, stmts: FrozenList::<*Stmt>) {
+        var nm = self.sc->ctx->get_spelling(fd->name);
+        if fd->is_const() {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"constructor of '{cname}' does not initialize const field '{nm}\x27");
+            b.first(at);
+            b.note(fd->range.start, f"'{nm}' is declared here without an initializer; assign it in every constructor, or give it one").first(fd->name.range);
+            b.emit();
+            return;
+        }
+        var why = self._why(fd);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"constructor of '{cname}' does not initialize field '{nm}', and {why}");
+        b.first(at);
+        b.note(fd->range.start, f"'{nm}' is declared here without an initializer; assign it whole in every constructor ('self.{nm} = ...'), or give it one").first(fd->name.range);
+        // Writing its elements one by one is the likely attempt: they need
+        // the whole value to exist first.
+        var pw = CtorPartWriteFind();
+        pw.field = fd;
+        for var s: usize = 0; s < stmts.size(); ++s {
+            pw.dispatch_stmt(stmts[s]);
+            if pw.found { break; }
+        }
+        if pw.found {
+            b.note(pw.at.start, f"this writes part of '{nm}', which does not exist until it is built whole").first(pw.at);
+            var how = self._part_note(fd);
+            if how.size() > 0 { b.note(DiagID::SC001N, pw.at.start, how).first(pw.at); }
+        }
+        b.emit();
+    }
+
+    /// Why a write of part of array field \p f does not build it, when f is
+    /// an array: only whole elements count, and only of an array built
+    /// element by element. Empty for any other field.
+    priv fn _part_note(self, f: *FieldDecl) -> string {
+        if !ctor_init_is_array(f) { return ""; }
+        var nm = self.sc->ctx->get_spelling(f->name);
+        var i = self._index(f);
+        if (i != usize(-1)) && (self._ebase[i] != usize(-1)) {
+            return f"only a whole element written with a constant index ('self.{nm}[0] = ...') builds part of '{nm}'; a write into an element (a field of it, or a nested index) needs the element to exist first";
+        }
+        return f"'{nm}' cannot be built element by element: only a one-dimensional array of a known length can; assign it whole";
+    }
+
+    // === element by element ===================================================
+
+    /// An array field the constructor may build one element at a time: one
+    /// it must initialize, not const (its one write is whole), of a known
+    /// length (each element gets a bit), of elements that are not arrays
+    /// (an array element cannot be built in place from one; the whole-write
+    /// path gates the same shape).
+    priv fn _elem_ok(self, f: *FieldDecl) -> bool {
+        if (!self._required(f)) || f->is_const() || (!ctor_init_is_array(f)) { return false; }
+        var a = cast::<FixedArrayType>(canon_unqual(f->type_->canonical));
+        if a->is_incomplete || (a->extent_param != &null) { return false; }
+        if (a->element == &null) || (canon_unqual(a->element) == &null) { return false; }
+        if canon_unqual(a->element)->kind == TypeKind::FixedArrayType { return false; }
+        var n = static_cast::<usize>(a->size_bits);
+        return (n > 0) && (n <= usize(65536));
+    }
+
+    /// _ebase / _elen for the record's fields, once per constructor.
+    priv fn _elem_layout(self, fields: FrozenList::<*FieldDecl>) {
+        self._ebase.clear();
+        self._elen.clear();
+        var next: usize = 0;
+        for var i: usize = 0; i < fields.size(); ++i {
+            if !self._elem_ok(fields[i]) {
+                self._ebase.push_back(usize(-1));
+                self._elen.push_back(usize(0));
+                continue;
+            }
+            var n = static_cast::<usize>(cast::<FixedArrayType>(canon_unqual(fields[i]->type_->canonical))->size_bits);
+            self._ebase.push_back(next);
+            self._elen.push_back(n);
+            next += n;
+        }
+    }
+
+    priv fn _elem_fields(self) -> vec::<*FieldDecl> {
+        var out = vec::<*FieldDecl>();
+        for var i: usize = 0; i < self._fields.size(); ++i {
+            if self._ebase[i] != usize(-1) { out.push_back(self._fields[i]); }
+        }
+        return out;
+    }
+
+    /// A field whose frontier is where it is first whole on every path
+    /// (_settle): one written more than once, or one built element by
+    /// element.
+    priv fn _settles(self, f: *FieldDecl) -> bool {
+        if !self._required(f) { return false; }
+        if !ctor_init_is_once(f) { return true; }
+        var i = self._index(f);
+        return (i != usize(-1)) && (self._ebase[i] != usize(-1));
+    }
+
+    /// Some element of field \p i may be built on the path walked so far.
+    priv fn _elems_begun(self, i: usize) -> bool {
+        if (i >= self._ebase.size()) || (self._ebase[i] == usize(-1)) { return false; }
+        for var k: usize = 0; k < self._elen[i]; ++k {
+            if self._st.emaybe[self._ebase[i] + k] { return true; }
+        }
+        return false;
+    }
+
+    /// "element 1 is" / "elements 1, 3 and 4 are": the elements of field
+    /// \p i not built on every path walked so far.
+    priv fn _missing_elems(self, i: usize) -> string {
+        var miss = vec::<usize>();
+        for var k: usize = 0; k < self._elen[i]; ++k {
+            if !self._st.edef[self._ebase[i] + k] { miss.push_back(k); }
+        }
+        if miss.size() == 1 { return f"element {miss[0]} is"; }
+        var out = "elements ";
+        for var j: usize = 0; j < miss.size(); ++j {
+            if j > 0 { out += (" and ") if (j + 1 == miss.size()) else (", "); }
+            out += f"{miss[j]}";
+        }
+        return out + " are";
+    }
+
+    /// An array field the lowering cannot initialize in place yet: its
+    /// mem-initializer lists the elements, so it needs their count, and
+    /// an element cannot be initialized from an array.
+    priv fn _array_gate(self, f: *FieldDecl, at: SourceRange) {
+        var a = cast::<FixedArrayType>(canon_unqual(f->type_->canonical));
+        if a->extent_param != &null {
+            self._gate(at, "initializing an array field whose length is a generic parameter in its constructor");
+        } else if (a->element != &null) && (canon_unqual(a->element) != &null) && (canon_unqual(a->element)->kind == TypeKind::FixedArrayType) {
+            self._gate(at, "initializing an array field of arrays in its constructor");
+        }
+    }
+
+    /// The const wording while only const fields drive the frontier.
+    priv fn _t(self, const_text: string, any_text: string) -> string {
+        return (const_text) if (self._const_only) else (any_text);
+    }
+
+    priv fn _last(self) -> string {
+        return self._t("last const field assignment", "last field initialization");
     }
 
     priv fn _has_required(self, fields: FrozenList::<*FieldDecl>) -> bool {
@@ -753,6 +1356,7 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
     }
 
     priv fn _gate(self, at: SourceRange, what: string) {
+        if self._quiet { return; }
         var b = self.sc->diag->report(DiagID::SC116E, at.start, f"{what} is not yet supported");
         b.first(at);
         b.emit();

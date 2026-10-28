@@ -75,6 +75,12 @@ class ConstEval {
     /// poisoned, or an earlier variant whose own value failed. The caller
     /// reports nothing, so one mistake is one error.
     pub var quiet:    bool  = false;
+    /// The first `const` (not `eval`) variable the last evaluation read, and
+    /// the name that read it. A pattern bound or a discriminant may read
+    /// one; an array length or a generic value argument must be eval-able
+    /// (EVAL.md 3), and reports it with a fix-it to `eval`.
+    pub var const_decl: *VariableDecl = &null;
+    pub var const_at:   *Expr         = &null;
 
     /// The enum whose discriminant is being evaluated, and the defining
     /// variant's position in it; null outside a discriminant.
@@ -97,6 +103,16 @@ class ConstEval {
         return self._eval(e, 0);
     }
 
+    /// The value of the variable \p d names, as if \p at (a name of it) were
+    /// evaluated: a generic value argument written as a bare name parses as
+    /// a type, so there is no expression to hand eval_int (EVAL.md 3).
+    fn eval_decl(self, at: *Expr, d: *Decl) -> IntConst {
+        self._reset();
+        self._en  = &null;
+        self._pos = 0;
+        return self._ref(at, d, 0);
+    }
+
     /// \p e as the discriminant of the variant at position \p pos of \p en:
     /// the variants above it are constants too.
     fn eval_discriminant(self, e: *Expr, en: *EnumDecl, pos: usize) -> IntConst {
@@ -108,11 +124,62 @@ class ConstEval {
         return r;
     }
 
+    /// A canonical value node (EVAL.md 0.2, 3) for \p vk over \p ops:
+    /// folded to an exact value_arg when every operand is one and the
+    /// operator is one this class evaluates (`[T; N + 1]` under N := 3 is
+    /// `[T; 4]`), else the interned expression for C++ to compute. A call,
+    /// an eval name and `~` (which needs a width) never fold here.
+    fn value_node(self, vk: ValueOp, tok: TokenKind, decl: *Decl, ops: *vec::<*Type>, ty: *Type) -> *Type {
+        var exact = (vk == ValueOp::Unary) || (vk == ValueOp::Binary) || (vk == ValueOp::Cast);
+        var vals = vec::<IntConst>();
+        for var i: usize = 0; i < ops->size(); ++i {
+            var v = dyn_cast::<TypeExpr>((*ops)[i]);
+            if (v == &null) || (!v->is_exact()) { exact = false; break; }
+            vals.push_back(self.make(v->vneg, v->vmag));
+        }
+        if exact {
+            var r = IntConst{};
+            if vk == ValueOp::Unary {
+                if tok == TokenKind::OpMinus { r = self.negate(vals[0]); }
+                else if tok == TokenKind::OpPlus { r = vals[0]; }
+            } else if vk == ValueOp::Cast {
+                var u = self.tu.as_value(ty);
+                if (u != &null) && self.tu.is_integer(u) { r = self.wrap(vals[0], self.tu.int_bits(u), self.tu.is_signed_int(u)); }
+            } else {
+                r = self._fold_binary(tok, vals[0], vals[1]);
+            }
+            if r.ok && (!r.overflow) { return self.sc->types->value_arg(r.neg, r.mag); }
+        }
+        return self.sc->types->value_expr(vk, tok, decl, ops, ty);
+    }
+
+    /// The builtin binary operators on exact values, C++'s truncating `/`
+    /// and `%` among them; not ok for anything else (and for a zero divisor
+    /// or a negative shift, which C++ rejects in a constant expression).
+    priv fn _fold_binary(self, k: TokenKind, l: IntConst, r: IntConst) -> IntConst {
+        if k == TokenKind::OpPlus  { return self.add(l, r); }
+        if k == TokenKind::OpMinus { return self.sub(l, r); }
+        if k == TokenKind::OpStar  { return self.mul(l, r); }
+        if (k == TokenKind::OpPipe)  || (k == TokenKind::KwBitor)  { return self.bitop(l, r, u8(0)); }
+        if (k == TokenKind::OpAmp)   || (k == TokenKind::KwBitand) { return self.bitop(l, r, u8(1)); }
+        if (k == TokenKind::OpCaret) || (k == TokenKind::KwXor)    { return self.bitop(l, r, u8(2)); }
+        if ((k == TokenKind::OpLessLess) || (k == TokenKind::OpGreaterGreater)) && (!r.neg) {
+            return (self.shl(l, r)) if (k == TokenKind::OpLessLess) else (self.shr(l, r));
+        }
+        if ((k == TokenKind::OpSlash) || (k == TokenKind::OpPercent)) && (r.mag != u64(0)) {
+            if k == TokenKind::OpSlash { return self.make(l.neg != r.neg, l.mag / r.mag); }
+            return self.make(l.neg, l.mag % r.mag);
+        }
+        return IntConst{};
+    }
+
     priv fn _reset(self) {
         self.bad      = &null;
         self.bad_why  = "";
         self.bad_decl = &null;
         self.quiet    = false;
+        self.const_decl = &null;
+        self.const_at   = &null;
     }
 
     // === values =============================================================
@@ -350,13 +417,48 @@ class ConstEval {
         if isa::<ChainExpr>(e) {
             var ch = cast::<ChainExpr>(e);
             if ch->steps.size() == 0 { return self._fail(e, "this does not evaluate at compile time"); }
-            return self._ref(e, ch->steps.get(ch->steps.size() - 1)->resolved_decl, depth);
+            var last = ch->steps.get(ch->steps.size() - 1)->resolved_decl;
+            if last == &null { last = self.scope_path(ch); }
+            return self._ref(e, last, depth);
         }
 
         if isa::<CallExpr>(e) {
             return self._fail(e, "a call is not evaluated at compile time");
         }
         return self._fail(e, "this does not evaluate at compile time");
+    }
+
+    /// `m::K` / `C::K` before ChainBinding has bound it: TypeResolve
+    /// evaluates an array length (`[i32; m::K]`) in phase T, where only the
+    /// head of a chain is resolved. A path of `::` steps through modules and
+    /// types is looked up here as ChainBinding would, through the frozen
+    /// tables; a single unambiguous hit or nothing.
+    fn scope_path(self, ch: *ChainExpr) -> *Decl {
+        if (ch->base == &null) || (!isa::<NamedIdentExpr>(ch->base)) { return &null; }
+        var d = cast::<NamedIdentExpr>(ch->base)->resolved_decl;
+        for var i: usize = 0; i < ch->steps.size(); ++i {
+            var st = ch->steps.get(i);
+            if (d == &null) || (st->access_kind != ChainExpr::AccessKind::ColonColon) || (st->name == &null) { return &null; }
+            var imm = self.sc->ctx->get_ident_imm(st->name->name);
+            if imm == u32(-1) { return &null; }
+            var name    = DeclName::ident(imm);
+            var spelled = self.sc->ctx->get_spelling(st->name->name);
+            var scopes  = vec::<*DeclContext>();
+            if isa::<ModuleDecl>(d) { NameLookup::module_scopes(d, scopes); }
+            else {
+                var dc = NameLookup::context_of(d);
+                if dc != &null { scopes.push_back(dc); }
+            }
+            var hit: *Decl = &null;
+            for var k: usize = 0; k < scopes.size(); ++k {
+                var r = self.sc->lookup.in_context(scopes[k], name, spelled);
+                if !r.found() { continue; }
+                if (hit != &null) || (r.cell->size() != 1) { return &null; }
+                hit = r.cell->get(0);
+            }
+            d = hit;
+        }
+        return d;
     }
 
     priv fn _binary(self, b: *BinaryOperatorExpr, depth: u32) -> IntConst {
@@ -432,6 +534,10 @@ class ConstEval {
             if (!vd->is_const()) && (!vd->is_eval()) {
                 return self._fail(at, f"'{nm}' is a variable; only a 'const' or 'eval' name is a constant", d);
             }
+            if (!vd->is_eval()) && (self.const_decl == &null) {
+                self.const_decl = vd;
+                self.const_at   = at;
+            }
             if (vd->init == &null) || (depth > 8) {
                 return self._fail(at, f"'{nm}' has no initializer that evaluates", d);
             }
@@ -452,6 +558,30 @@ class ConstEval {
                 return self._fail(at, f"'{nm}' is {self.str(c)}, which does not fit its type '{self.tu.str(vt)}\x27", d);
             }
             return c;
+        }
+
+        // An `eval` field is a class constant (EVAL.md 1.2, 7d): one value
+        // per class, its initializer, as an `eval` variable is.
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (fd != &null) && fd->is_eval() {
+            var fnm = self.tu.decl_name(d);
+            if (fd->init == &null) || (depth > 8) {
+                return self._fail(at, f"'{fnm}' has no initializer that evaluates", d);
+            }
+            var fc = self._eval(fd->init, depth + 1);
+            if !fc.ok {
+                if !self.quiet {
+                    self.bad      = at;
+                    self.bad_why  = f"the initializer of '{fnm}' does not evaluate";
+                    self.bad_decl = d;
+                }
+                return fc;
+            }
+            var ft: *Type = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
+            if (ft != &null) && self.tu.is_integer(self.tu.as_value(ft)) && (!self.fits(fc, ft)) {
+                return self._fail(at, f"'{fnm}' is {self.str(fc)}, which does not fit its type '{self.tu.str(ft)}\x27", d);
+            }
+            return fc;
         }
 
         var v = dyn_cast::<EnumVariantDecl>(d);

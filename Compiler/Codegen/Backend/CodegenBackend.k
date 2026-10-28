@@ -132,13 +132,16 @@ class CodegenBackend derives TokenFiller {
         cg.advance_phase(CodegenPhase::Planned);
 
         // Every declaration, own and foreign, before any body: the item
-        // loop below then only ever defines what is already declared.
+        // loop below then only ever defines what is already declared. The
+        // body emitter is shared: the interface defines the early items
+        // through it (EmitPlan::early), and it skips them after.
+        var ir = EmitIR(&cg);
         var ie = InterfaceEmitter(&cg, &plan);
+        ie.ir = &ir;
         ie.run();
 
         // Bodies, driven by the plan: the same order the interface used, so
         // a definition always follows the declaration it matches.
-        var ir = EmitIR(&cg);
         ir.emit_tu(&plan);
 
         // Home instantiation definitions last: they only instantiate members
@@ -190,10 +193,10 @@ class CodegenBackend derives TokenFiller {
         //
         // LIMITATION: one PCH per clang TU. A Kairo TU whose import graph
         // spans two header sets uses the main file's; every other set's
-        // headers are `#include`d textually through Includes, by the paths
-        // phase A resolved them to (so no quoted-dir search is needed).
-        // Correct -- same headers, same order within each set -- just
-        // re-parsed.
+        // headers are `#include`d textually through a wrapper in Includes,
+        // each spelled so it resolves to what phase A found (HeaderSet::
+        // replay_include). Correct -- same headers, same order within each
+        // set -- just re-parsed.
         //
         // The invocation is shared by every TU's run: restore what this one
         // changed, or the next TU inherits this TU's PCH.
@@ -217,33 +220,37 @@ class CodegenBackend derives TokenFiller {
                 ppo->ImplicitPCHInclude = self._sets[0]->pch_path().std_string();
                 textual_from = 1;
             }
+            // Every textual set goes through one mounted wrapper: the same
+            // direct includes by the same resolved paths, inside the FP
+            // pragmas that give headers C++'s semantics rather than Kairo's
+            // (ClangBackend::header_fp_pragmas, as phase A's buffer has
+            // them), and with the C ones extern "C" as phase A parsed them.
+            // Preprocessor `Includes` cannot wrap a path themselves.
+            var fp_open  = vec::<string>();
+            var fp_close = vec::<string>();
+            self._be->header_fp_pragmas(&fp_open, &fp_close);
             for var i: usize = textual_from; i < self._sets.size(); ++i {
                 var s = self._sets[i];
-                // A set with an `ffi "c"` header: the same direct includes,
-                // by the same resolved paths, but through one mounted wrapper
-                // so the C ones stay extern "C" as phase A parsed them.
-                if s->has_c_linkage() {
-                    var w = "";
-                    for var e: usize = 0; e < s->includes.size(); ++e {
-                        if s->includes[e].from_path.size() != 0 { continue; }
-                        // Two literals: Stage 0 copies escapes into C++
-                        // verbatim, where \x is greedy, so one literal's
-                        // `\x22` then `C` lexes as the single char U+022C and
-                        // the wrapper opened with garbage instead of the quote.
-                        if s->includes[e].c_linkage { w += "extern \x22"; w += "C\x22 {\n"; }
-                        w += "#include \x22";
-                        w += s->includes[e].to_path;
-                        w += "\x22\n";
-                        if s->includes[e].c_linkage { w += "}\n"; }
-                    }
-                    self._be->mount_text(s->wrap_path(), w);
-                    ppo->Includes.push_back(s->wrap_path().std_string());
-                    continue;
+                var w = "";
+                for l: string in fp_open { w += l; w += "\n"; }
+                // The set's imports in the order phase A wrote them; how each
+                // is spelled is HeaderSet::replay_include's call.
+                for var e: usize = 0; e < s->headers.size(); ++e {
+                    var line = s->replay_include(s->headers[e]);
+                    if line.size() == 0 { continue; }
+                    var c = (e < s->c_linkage.size()) && s->c_linkage[e];
+                    // Two literals: Stage 0 copies escapes into C++
+                    // verbatim, where \x is greedy, so one literal's
+                    // `\x22` then `C` lexes as the single char U+022C and
+                    // the wrapper opened with garbage instead of the quote.
+                    if c { w += "extern \x22"; w += "C\x22 {\n"; }
+                    w += line;
+                    w += "\n";
+                    if c { w += "}\n"; }
                 }
-                for var e: usize = 0; e < s->includes.size(); ++e {
-                    if s->includes[e].from_path.size() != 0 { continue; }   // direct includes; the rest follow.
-                    ppo->Includes.push_back(s->includes[e].to_path.std_string());
-                }
+                for l: string in fp_close { w += l; w += "\n"; }
+                self._be->mount_text(s->wrap_path(), w);
+                ppo->Includes.push_back(s->wrap_path().std_string());
             }
         }
 

@@ -1,7 +1,6 @@
 # Forward Declarations and Out-of-Line Definitions
 
-A class can be forward-declared without a body sufficient for `*Class` uses, not for `sizeof` or member
-access:
+A class can be forward-declared without a body sufficient for `*Class` uses, not for `sizeof` or member access:
 
 ```kairo
 class Parser
@@ -16,10 +15,15 @@ class Parser {
 }
 ```
 
-Member methods can also be declared inside the class body without a body and defined out-of-line using
-the `Class::method` qualified-name syntax:
+Member methods can also be declared inside the class body without a body and defined out-of-line using the `Class::method` qualified-name syntax:
 
 ```kairo
+struct ParseError {
+    var message: string
+    var pos: usize
+    fn op panic (const self) -> string { return f"{self.message} at token {self.pos}" }
+}
+
 class Parser {
     var tokens: [Token]
     var pos: usize
@@ -44,28 +48,22 @@ fn Parser::advance(self) -> Token {
 fn Parser::peek(const self) -> Token = self.tokens[self.pos]
 
 fn Parser::error(self, msg: string) panic {
-    panic std::Error::Parse(msg, self.pos)
+    panic ParseError { message: msg, pos: self.pos }
 }
 ```
 
-This pattern keeps the class body small and readable as an API surface, with implementation details
-defined separately.
+This pattern keeps the class body small and readable as an API surface, with implementation details defined separately.
 
 ## Rules
 
-- The qualified definition's signature must exactly match the in-class declaration: parameter types,
-  return type, and all function modifiers (`const`, `unsafe`, `panic`, `eval`, `async`, `inline`,
-  `final`, `virtual`, `override`, `static`).
-- **Visibility is omitted** from the out-of-line definition it is taken from the in-class declaration.
-  Writing `pub fn Parser::advance` is a compile error.
+- The qualified definition's signature must exactly match the in-class declaration: parameter types, return type, and all function modifiers (`const`, `unsafe`, `panic`, `eval`, `async`, `inline`, `final`, `virtual`, `override`, `static`).
+- **Visibility is omitted** from the out-of-line definition it is taken from the in-class declaration. Writing `pub fn Parser::advance` is a compile error.
 - **Default arguments** must appear on the in-class declaration, not the out-of-line definition.
-- Parameter names may differ between declaration and definition; the definition's names are used in the
-  body.
+- Parameter names may differ between declaration and definition; the definition's names are used in the body.
 
 ## Generic classes
 
-For [generic classes](/docs/language/classes/#generic-classes), the type parameters are re-declared on the out-of-line definition and the class
-name carries its generic arguments:
+For [generic classes](/docs/language/classes/#generic-classes), the type parameters are re-declared on the out-of-line definition and the class name carries its generic arguments:
 
 ```kairo
 class <T> Vec {

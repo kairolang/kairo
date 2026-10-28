@@ -310,9 +310,11 @@ TU's imms (spell once, re-intern once hard invariant #2). Targets are thin
 references into the source arena; nothing is copied.
 
 After I the TU is self-contained: unqualified lookup is
-`DC chain -> overlay -> miss`, and no later phase touches another TU until
-the M2 sync point. Cross-TU *reads* of frozen tables and canonical type
-slots are fine; that is what DAG order guarantees.
+`DC chain -> overlay -> miss`. Later phases only READ other TUs: frozen
+tables, canonical type slots, and (ConformanceChecking's reach) an imported
+generic's typed body; that is what DAG order guarantees. The only
+cross-TU writes go to the two locked build-wide structures, the canonical
+store and the instantiation registry (RESOLUTION.md invariant 4).
 
 **Ordering.** `CompilerInstance::_sema` runs the pipeline per fid in
 reverse tree order = import-DAG order. Load-bearing for I (source overlay
@@ -435,9 +437,17 @@ every body. One object per non-foreign TU.
     adt_role/adt_form, and derived assignment operators) carry their
     bodies inside the class; they have no Kairo source counterpart, and no
     user-written function body is ever emitted in-class.
-13. **Clang never instantiates.** Every generic instantiation is
-    enumerated by Kairo sema, checked by Kairo sema, and emitted explicitly.
-    Emitted templates carry no `requires`. ADT special members carry C++
+13. **Kairo enumerates every instance it can see.** Every generic
+    instantiation Kairo can see is enumerated by Kairo sema (M1, the
+    registry's worklist), checked once against its bounds, and emitted
+    explicitly in its home TU. Clang instantiates only what Kairo never
+    names -- a coroutine's promise, std::sort calling a Kairo comparator,
+    a C++ host -- from the visible bodies (CODEGEN.md §7). Emitted
+    templates carry no `requires` except the interface concepts
+    EmitWitness derives (CODEGEN.md §7b.7), one conjunct per interface
+    bound, true for every instance Kairo enumerated, and a record's
+    self-contained value predicates (CXXSpell); for the instances only C++
+    sees, those are the real check. ADT special members carry C++
     constraints rendered by InterfaceEmitter from adt_role/adt_form, and a
     generic record's derived assignment operators from its assign_form;
     they are not Kairo constraints and have no requires_clause.
@@ -719,6 +729,83 @@ at the end of execute(); per-set release once its last importer passes
 Checked is the refinement. Fills need it alive: ForeignInstantiate ICEs on
 a released set rather than read a dangling `clang_decl`.
 
+### 5.1 Tags, ordinary names, and lazy ambiguity [DONE]
+
+C and C++ keep tags (struct/class/union/enum names) apart from ordinary
+names (variables, functions, typedefs, enumerators), so glibc declares
+both `struct timezone` (<sys/time.h>) and `extern long timezone` (<time.h>),
+`struct stat` beside `stat()`, `struct sigaction` beside `sigaction()`.
+Kairo has one namespace per scope, so the C++ hiding rule
+([basic.scope.hiding]) is applied wherever the two meet, and only between
+IMPORTED decls -- a Kairo decl never hides and is never hidden this way:
+
+| Header shape | Plain name binds | The tag |
+|---|---|---|
+| `struct T` + ordinary `T` (var, fn, typedef of something else, enumerator) | the ordinary decl | bound only under the internal key `struct T` |
+| `typedef struct T T` | the tag (one entity) | the typedef is not bound by name |
+| `struct T` alone | the tag | |
+| two ordinary `T` (inline namespaces) | nothing: lazy R016E at the use | |
+
+Three places, one rule:
+
+- **DeclImport::_bind_named**, per header set. Clang's own lookup over the
+  whole set decides (`_hidden_tag_keyword`), so a tag in one header and
+  its hider in another are seen together. A hidden tag is bound under
+  `struct timezone` -- a spelling no source can produce -- and stamped
+  `FFILinkage::ffi_tag_keyword`, monotonic across sets.
+- **ImportResolution::_apply_hiding**, per overlay entry. A header's table
+  is filled by the FIRST set that indexes it; a later set that also sees
+  the hider cannot rebind it. The overlay entry marks such a target
+  `hidden` (out of `merged`, out of `non_function_count`). Same scope only:
+  scope is read off the qualified C++ spelling, so a tag in an inline
+  namespace beside a global variable stays an ambiguity, as C++ has it.
+  A header cell with more than one entity folds one target per entity
+  (`_fold_ffi_cell`), not just its first.
+- **ChainBinding::_commit** (`ffi_hide_tags`), for `h::timezone` through
+  an alias, whose scopes are every closure header's.
+
+The type stays reachable through everything that names it -- TypeImport
+goes by the clang decl, never by name -- so `gettimeofday(*timeval,
+*timezone)` types its parameter as the struct. CXXSpell writes a hidden
+tag elaborated, `struct ::timezone`, since bare `::timezone` is the
+variable in C++. Source names a hidden tag with a foreign forward
+declaration (§5.2).
+
+**Lazy ambiguity.** An overlay entry whose collision is between header
+entities only (`OverlayEntry::lazy`) is not reported by I: C++ reports
+such a collision where the name is used, and a header set routinely
+declares names nobody uses. N (expression heads) and T (type names) report
+R016E at the use, one R016N note per candidate naming its kind
+(`MemberLookup::report_lazy_ambiguity`). A collision any Kairo import
+takes part in is still reported eagerly, at the import, as before: the
+Kairo import itself is the mistake, and §2.3's one-home rule stands for
+it. `--print-imports` marks a lazy entry `(reported at use)` and a hidden
+target `hidden`.
+`tests: Tests/Sema/FFI/tag_hiding.k, tag_hiding_ambiguous.k,
+tag_hiding_ambiguous_type.k`.
+
+### 5.2 Naming a tag: `ffi "c" struct T` [DONE]
+
+A bodiless `struct` / `class` / `union` under an `ffi` prefix or in an
+`ffi { }` block is a foreign forward declaration (outside ffi a struct
+still needs its body, S048E). Phase I (`_bind_ffi_forwards`) looks the
+name up in the TU's ffi closure -- a hidden tag's internal key first, then
+a visible tag -- and stamps the match on the declaration
+(`FFILinkage::ffi_tag_target`). `NameLookup::representative` answers with
+the header's decl, so every type built from the forward declaration is
+the header's entity and EmitPlan never emits it. No match leaves it a
+Kairo forward declaration, as before.
+
+The declaration sits in the TU's own table, so it would shadow the
+imported ordinary name. It does not in a VALUE position: N
+(`_prefer_ordinary_over_ffi_forward`) takes the overlay's imported
+ordinary decl instead, so `timezone` in an expression is still the
+variable while `*timezone` in a type is the struct -- the C split. The
+cost is that the head of an expression that means the TYPE (a struct
+literal) reaches the variable; C spells that `(struct timezone){...}` too.
+Enums are not covered: a C++ enum forward declaration needs its
+underlying type. `tests: Tests/Sema/FFI/tag_forward.k`.
+
 ---
 
 ## 6. Codegen: EmitPlan
@@ -818,24 +905,38 @@ namespaced names and nothing else.
 
 ## 7. Generics
 
-[DECIDED] Kairo has no monomorphizer. Sema enumerates and checks every
-`(template, canonical args)`; codegen emits explicit instantiations.
+[DECIDED] Kairo has no monomorphizer: no body is cloned or re-typed per
+instance (MONO.md D0). Sema enumerates every `(template, canonical args)`
+it can see and checks each against the template's bounds; the body was
+checked once, at its definition. Codegen emits explicit instantiations.
 
     home TU   : template <typename T> T add(T, T) { ... }   // body
                 template i32 add<i32>(i32, i32);            // explicit instantiation DEFINITION
     other TUs : template <typename T> T add(T, T);          // interface: signature only
                 extern template i32 add<i32>(i32, i32);     // explicit instantiation DECLARATION
 
-Registry (the real content of M1/M2): `(template decl, canonical args) ->
-home fid`, closed transitively over instantiations the body depends on.
-Home = the template's own TU if it instantiates it, else the first user in
-DAG order. Exactly one definition per instantiation build-wide; zero is a
-link error, so the registry is authoritative.
+Registry (the content of M1): `(template decl, canonical args) -> home
+fid`, closed transitively over the instances a body reaches
+(ConformanceChecking's reach substitutes a body's dependent uses per
+instance). Home = the first TU to name the instance, in DAG order
+(`InstanceEntry::home_fid`, MONO.md D3): for direct naming that is the
+template's own TU when it uses the instance itself, else its first user;
+an instance reached or substituted in a TU is homed there. Exactly one
+definition per instantiation build-wide; zero is a link error, so the
+registry is authoritative.
 
-`where` clauses, value-predicate `requires`, kind bounds, conformance:
-checked in Kairo at the instantiation site, lowered (`WhereDispatchLowering`)
-BEFORE emission. The emitted template is unconstrained and is only ever
-instantiated at arguments Kairo accepted.
+Value-predicate `requires`, kind bounds, conformance: checked in Kairo at
+the instantiation site BEFORE emission. The emitted template carries only
+the constraints CODEGEN.md §7b.7 derives (`requires I_c<...>` per
+interface bound) and a record's self-contained value predicates; they hold
+for every instance Kairo accepted, and they are the check for the
+instances only C++ sees.
+`where` guards are not constraints and take no part in this: they are
+runtime dispatch, and WhereDispatchLowering folds a group into one
+ordinary function before emission (RESOLUTION.md §2.10). A guarded
+generic function is SC116E (MONO.md G12: its calls to the candidates need
+per-instance entries); a method of a generic record dispatches inside the
+class template and needs nothing here.
 
 The lang records are no exception. `Slice<i32>`, `Vector<i32>` and their
 kin instantiate through this same registry whenever the arguments are
@@ -878,7 +979,7 @@ Each item is independently testable. Do them in this order.
    11. EmitPlan collector + closure + tiers               Codegen    DONE
    12. InterfaceEmitter                                   Codegen    DONE (declarations and bodies)
    12b. Cross-fid TokenSink (locmap-translated locations) Codegen    DONE
-   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE for classes; M1/M2 fill OPEN
+   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE, reached instances included (M1 worklist, MONO.md G2); discovery fixpoint G3; M2 = instance facts, no fill (D0)
    13a. Cross-reopening redefinition check (same signature, two definitions) at M2 sync
         OPEN, and not a codegen item: a module reopened in two files can define
         one signature twice, and nothing diagnoses it. Codegen cannot: each TU
@@ -914,13 +1015,14 @@ for diffing what a change did beyond the asserted lines. Named roots (9)
 are covered separately: two roots each holding `a.k`, imported as `a` and
 `foo::a`, binding to two different decls.
 
-Test for 10: `Tests/Sema/Types/type_cycle.k`. Five cycles (self, mutual, fixed
-array + tuple, bases, a generic argument the template stores by value) and
-five non-cycles (pointer, nullable, vector, map, set, plus a generic
-argument the template only points at), in one file, with `DIAG-NOT` closing
-the count. Both halves matter: the edge set is the whole content of the
-pass, and the second half is what a naive "does it mention itself" check
-gets wrong.
+Test for 10: `Tests/Sema/Types/type_cycle_*.k`, one file per edge kind.
+Six cycles (`_direct` self, `_mutual`, `_array_tuple` fixed array + tuple,
+`_nullable` a `T?` of the record, `_base` bases, `_generic` a generic
+argument the template stores by value), each closed by a `DIAG-NOT`, and
+the non-cycles (`_indirection`: pointer, nullable pointer, vector, map,
+set; `_generic`: a generic argument the template only points at). Both
+halves matter: the edge set is the whole content of the pass, and the
+second half is what a naive "does it mention itself" check gets wrong.
 
 Test for 11: `Tests/Sema/Imports/emit_plan`. `main.k` imports `foo`, never `bar`;
 `foo::F` holds a `bar::B` by value and a `bar::Deep` behind a pointer.

@@ -118,6 +118,7 @@ class EmitSink {
     fn kw_return(self, t: Token) -> bool    { return self.synth(t, clang::tok::kw_return);    }
     fn kw_const(self, t: Token) -> bool     { return self.synth(t, clang::tok::kw_const);     }
     fn kw_static(self, t: Token) -> bool    { return self.synth(t, clang::tok::kw_static);    }
+    fn kw_thread_local(self, t: Token) -> bool { return self.synth(t, clang::tok::kw_thread_local); }
     fn kw_constexpr(self, t: Token) -> bool { return self.synth(t, clang::tok::kw_constexpr); }
     fn kw_if(self, t: Token) -> bool        { return self.synth(t, clang::tok::kw_if);        }
     fn kw_else(self, t: Token) -> bool      { return self.synth(t, clang::tok::kw_else);      }

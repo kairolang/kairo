@@ -29,9 +29,12 @@ import Codegen::CodegenContext::*;
 import Codegen::Emit::InterfaceEmitter::*;
 import Codegen::Emit::EmitIR::*;
 import Codegen::Emit::CXXSpell::*;
+import Codegen::Emit::EmitWitness::*;
 import Interop::Clang::HeaderSet::*;
 import AST::Context::TranslationUnit::*;
 import AST::Node::Declarations::*;
+import AST::Node::Base::*;
+import AST::Node::Casting::*;
 
 import AST::Context::ASTContext::*;
 import AST::Context::InstantiationRegistry::*;
@@ -54,6 +57,16 @@ import Preprocessor::PreprocessorSymbolTable::*;
 class IncludedDecls {
     pub var helpers:    bool = false;   ///< InterfaceEmitter::have_helpers
     pub var ctor_slots: bool = false;   ///< InterfaceEmitter::have_ctor_slots
+    pub var fn_value:   bool = false;   ///< InterfaceEmitter::have_fn_value
+    pub var eval_helpers: bool = false; ///< InterfaceEmitter::have_eval_helpers
+    pub var niche_helpers: bool = false; ///< InterfaceEmitter::have_niche_helpers
+    pub var pack_union: bool = false;    ///< InterfaceEmitter::have_pack_union
+    pub var panic_helpers: bool = false; ///< InterfaceEmitter::have_panic_helpers
+    pub var site_type:  bool = false;    ///< InterfaceEmitter::have_site_type
+    pub var panic_api:  bool = false;    ///< InterfaceEmitter::have_panic_api
+    pub var raw_slot:   bool = false;    ///< InterfaceEmitter::have_raw_slot
+    pub var tid_seen:   vec::<u64>;      ///< InterfaceEmitter::tid_seen
+    pub var estr_seen:  vec::<u64>;      ///< InterfaceEmitter::estr_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
     /// a later include from defining X.
@@ -69,8 +82,19 @@ class IncludedDecls {
     fn IncludedDecls(self) { }
 
     fn clear(self) {
+        // Every flag: the next host TU has none of what this one was given.
         self.helpers    = false;
         self.ctor_slots = false;
+        self.fn_value   = false;
+        self.eval_helpers = false;
+        self.niche_helpers = false;
+        self.pack_union = false;
+        self.panic_helpers = false;
+        self.site_type  = false;
+        self.panic_api  = false;
+        self.raw_slot   = false;
+        self.tid_seen.clear();
+        self.estr_seen.clear();
         self._keys.clear();
         self._scopes.clear();
         self._bodies.clear();
@@ -92,8 +116,32 @@ class IncludedDecls {
         return true;
     }
 
+    /// Whether body or eval binding \p d was already offered (admit_body,
+    /// admit_eval_var), without offering it.
+    fn has_body(self, d: *Decl) -> bool {
+        return self._bodies.contains(reinterpret_cast::<u64>(d));
+    }
+
+    /// True the first time eval binding \p v's definition is offered
+    /// (EmitPlan::include_eval_vars). Keyed with the bodies: a decl's
+    /// address is unique whatever its kind.
+    fn admit_eval_var(self, v: *VariableDecl) -> bool {
+        var key = reinterpret_cast::<u64>(v);
+        if self._bodies.contains(key) { return false; }
+        self._bodies.insert(key);
+        return true;
+    }
+
     /// True the first time \p e is offered: it is new to the host TU.
     fn admit(self, plan: *EmitPlan, e: *PlanEntry) -> bool {
+        if e->witness != &null {
+            // One primary or specialization per key, whichever include wrote it.
+            var k = ("wdef ") if (e->tier == PlanTier::Definitions) else ((("wcon ") if (e->is_concept) else ("wfwd ")));
+            k += e->witness->key;
+            for var i: usize = 0; i < self._scopes.size(); ++i { if self._scopes[i] == k { return false; } }
+            self._scopes.push_back(k);
+            return true;
+        }
         if e->scope != &null {
             // Tiers 0 and 1 only: the declaration and the definition.
             var k = ("def ") if (e->tier == PlanTier::Definitions) else ("fwd ");
@@ -201,26 +249,76 @@ class IncludeEmitter {
         // the homes' explicit definitions are weak_odr, and the linker keeps
         // one.
         var fresh = vec::<PlanEntry>();
+        var pruned = vec::<*InstanceEntry>();
         for var i: usize = 0; i < plan.entries.size(); ++i {
-            if plan.entries[i].tier == PlanTier::Instantiations { continue; }
+            if plan.entries[i].tier == PlanTier::Instantiations {
+                if plan.entries[i].inst != &null { pruned.push_back(plan.entries[i].inst); }
+                continue;
+            }
+            // An early item (EmitPlan::early) an earlier include already
+            // defined, as an early item or among its bodies: defined once.
+            var ei = plan.entries[i].eval_item;
+            if (ei != &null) && seen->has_body(ei) { continue; }
             if seen->admit(&plan, &(plan.entries[i])) { fresh.push_back(plan.entries[i]); }
         }
         plan.entries = fresh;
 
+        var ir = EmitIR(&cg);
         var ie = InterfaceEmitter(&cg, &plan);
+        ie.ir = &ir;
         ie.have_helpers    = seen->helpers;
         ie.have_ctor_slots = seen->ctor_slots;
+        ie.have_fn_value   = seen->fn_value;
+        ie.have_eval_helpers = seen->eval_helpers;
+        ie.have_niche_helpers = seen->niche_helpers;
+        ie.have_pack_union = seen->pack_union;
+        ie.have_panic_helpers = seen->panic_helpers;
+        ie.have_site_type = seen->site_type;
+        ie.have_panic_api = seen->panic_api;
+        ie.have_raw_slot  = seen->raw_slot;
+        // The C++ view's throwing half needs the host's exceptions on: clang
+        // rejects a `throw` in a template it only defines.
+        ie.cxx_exceptions = static_cast::<bool>(ci->getLangOpts().CXXExceptions);
+        for var k: usize = 0; k < seen->tid_seen.size(); ++k { ie.tid_seen.push_back(seen->tid_seen[k]); }
+        for var k: usize = 0; k < seen->estr_seen.size(); ++k { ie.estr_seen.push_back(seen->estr_seen[k]); }
+        for var k: usize = 0; k < pruned.size(); ++k { ie.pruned_insts.push_back(pruned[k]); }
         ie.run();
+        // The early items it defined are bodies this host TU has now: the
+        // body list below, and a later include, leave them out.
+        for var i: usize = 0; i < plan.entries.size(); ++i {
+            var ei = plan.entries[i].eval_item;
+            if ei == &null { continue; }
+            var ef = dyn_cast::<FunctionDecl>(ei);
+            if ef != &null { seen->admit_body(ef); continue; }
+            var ev = dyn_cast::<VariableDecl>(ei);
+            if ev != &null { seen->admit_eval_var(ev); }
+        }
         seen->helpers    = ie.have_helpers;
         seen->ctor_slots = ie.have_ctor_slots;
+        seen->fn_value   = ie.have_fn_value;
+        seen->eval_helpers = ie.have_eval_helpers;
+        seen->niche_helpers = ie.have_niche_helpers;
+        seen->pack_union = ie.have_pack_union;
+        seen->panic_helpers = ie.have_panic_helpers;
+        seen->site_type = ie.have_site_type;
+        seen->panic_api = ie.have_panic_api;
+        seen->raw_slot  = ie.have_raw_slot;
+        seen->tid_seen.clear();
+        for var k: usize = 0; k < ie.tid_seen.size(); ++k { seen->tid_seen.push_back(ie.tid_seen[k]); }
+        seen->estr_seen.clear();
+        for var k: usize = 0; k < ie.estr_seen.size(); ++k { seen->estr_seen.push_back(ie.estr_seen[k]); }
 
         var bodies = vec::<*FunctionDecl>();
         var all = plan.include_bodies();
         for var i: usize = 0; i < all.size(); ++i {
             if seen->admit_body(all[i]) { bodies.push_back(all[i]); }
         }
-        var ir = EmitIR(&cg);
-        ir.emit_bodies(bodies);
+        var vars = vec::<*VariableDecl>();
+        var allv = plan.include_eval_vars();
+        for var i: usize = 0; i < allv.size(); ++i {
+            if seen->admit_eval_var(allv[i]) { vars.push_back(allv[i]); }
+        }
+        ir.emit_bodies(bodies, vars);
 
         for var i: usize = 0; i < sink->system_headers.size(); ++i {
             var l = "#include <" + sink->system_headers[i] + ">";

@@ -102,6 +102,8 @@ files it imports) or a documented role (parity/, kairo-only/).
       ExprTyper/        expression typing, overloads, call arguments
       Check/            post-resolution checks (lifecycle, C++ name clashes)
       Operators/        operator declaration / use rules
+      Panic/            panic effects: sets, unhandled calls, try/catch arms (PANIC.md)
+        Inputs/cross_tu/  a library whose sets are inferred, one that stops early, an importer
       Modes/            argument modes; kairo-only/ has no C++ oracle
       FFI/              C++ interop; parity/ is differential against clang
         Builtins/         clang builtins as unqualified names (RESOLUTION.md 2.5)
@@ -143,10 +145,24 @@ BEGIN/END-GENERATED-CHECKS blocks) and parity_check.py (the %parity driver).
 
 ADDING A TEST
 
-Copy the RUN lines from a neighbouring file in the same directory; the shapes in
-use are `--print-ast=tree`, `--print-tokens` and `--syntax-only`, each piped to
-FileCheck. `%kairo` expands to the resolved binary plus `--error-format=basic`,
-`%s` to the test file, `%t` to a scratch path.
+Copy the RUN lines from a neighbouring file in the same directory, or let
+gen_checks.py write them from the compiler's current output:
+
+    python3 Tests/gen_checks.py --mode=diag,sema Tests/Sema/Check/foo.k
+    python3 Tests/gen_checks.py --mode=cxx --focus=Grid,probe Tests/Codegen/x.k
+    python3 Tests/gen_checks.py --mode=run Tests/Codegen/x.k
+    python3 Tests/gen_checks.py Tests/Sema/Check/foo.k        # regenerate
+    python3 Tests/gen_checks.py --check Tests/Codegen/**/*.k  # diff only
+
+Modes: ast (--print-ast=tree), diag (every diagnostic, note and fix-it, plus
+--implicit-check-not so a new one fails), sema / lowered (named sections of the
+test's own TU), cxx (the test's own C++, shared runtime boilerplate dropped),
+run (compile, link, run: exit code and stdout). Generated output still has to
+be READ: it records what the compiler does today, not what it should do.
+
+`%kairo` expands to the resolved binary plus `--error-format=basic` and the
+--builtins-dir/--std-dir/--resource-dir roots, `%s` to the test file, `%t` to
+a scratch path.
 
 Tests whose expected behaviour is not implemented yet get `// XFAIL: *` and a
 comment saying what the CHECK lines describe and when to remove the marker --

@@ -8,8 +8,40 @@ change the loop.
 Pipeline, as scheduled by `Sema.k`:
 
     P -> I -> E -> V -> N -> T (TypeResolve, RedeclMerge, ChainBinding)
-      -> C (ConstraintExtraction, TypeCycleCheck, ExprTyper, ShadowCheck, ...)
+      -> C (ConstraintExtraction, TypeCycleCheck, ExprTyper, ShadowCheck,
+            ... ConformanceChecking)                       => Typed
+      == the panic-set barrier: every TU of the import cycle (one TU when
+         there is none) is Typed, then EffectPropagation solves its sets ==
+      -> C (PanicEffectChecking, EvalUsage, FeatureGate, ...) => Checked
       -> L -> M1 -> M2
+
+**The Typed barrier** is the one place a TU waits for others (PANIC.md
+§2.2: every TU's typing finishes before any panic set is final). A set is
+the union of what a body raises and what its callees leave, and a callee
+is always in the caller's import closure (an override's or a conformer's
+set is bounded by the base's or the requirement's DECLARED set, P4), so a
+TU's sets are final once every TU it reaches through imports is typed.
+`CompilerInstance::_sema` therefore runs the graph in groups, one per
+strongly connected component of the import graph (`ImportGroups`), each
+after every group it imports, in the import order wherever that order
+holds: every TU of a group goes to `SemaPhase::Typed` (through
+ConformanceChecking), the build-wide `EffectTable` (Sema/Check/
+EffectPropagation.k) registers the group's TUs that reached Typed and
+solves every inferred set of the group to one fixpoint (§2.5), and then
+each TU of the group goes on -- the late checks, `--print-sema`, the
+lowerings, mono, the diagnostic drain. With no import cycle every group is
+one TU and this is the one-TU-at-a-time loop it always was: a TU's lowering
+still runs before the next TU is typed (NullTestLowering, for one, reads
+the Nullable layout only once its TU has run EnumLayoutLowering). Only an
+import cycle -- which has no order in which every callee is finished
+first -- holds several TUs at Typed together; their Semas live until the
+group ends, each at a fixed address (an arena: Sema keeps `&self.sc` from
+its constructor on). Today the dependency scan drops a cyclic pair of user
+files altogether (TICKETS), so a group of more than one TU does not occur
+yet. A TU that stopped before Typed (a hard stop in I/N/T) is neither
+registered nor continued; a call into it says nothing about panics. A run
+with no driver table (`sc->effects` null) solves its own TU in
+PanicEffectChecking, reading other TUs' sets as they were left.
 
 **The dumps are pinned to phases, not to the end of the run.**
 `--print-sema` dumps after `run_to(Checked)` -- X's output, before any
@@ -34,10 +66,23 @@ their NAMES go in no table (N's lexical stack / T's `ltypes` own them).
 `Self` in expression and pattern position lexes as `BiSelf` and parses as
 an ordinary `NamedIdentExpr` head; `Self<...>` never takes generic args.
 
+**The declared panic set** (PANIC.md §2.2) is `panic_set`, a list of
+written types, on FunctionDecl, ClosureExpr and FunctionPointerType; empty
+for a bare `panic` and for no `panic`. `panic` followed by `(` on the same
+line, in a specifier position (after a function's, closure's or `fn`
+type's parameter list), is the set and never a tuple: no statement can
+start there. A newline ends the specifier, so `var t: fn() panic` then
+`(h)()` on the next line is a type and a call. `panic (x)` in a body is the
+statement. `panic()` is S055E (fix-it: remove the list) and parses as a
+bare `panic`. `fn op panic (const self) -> string` is an operator like
+`op await` (nullary; C++ name `LowerTargets::op_panic`).
+
     [MISSING] `TypeCastExpr::cast_mode` (Default / Static / Const /
     Unsafe). Only `is_unsafe` is recorded today; `as static` / `as const`
     parse but are not distinguishable by sema.                        (spec 3)
-    [MISSING] `<T: type>` -> `GenericParamKindBound::Duck`.
+    [DONE] `<T: type>` -> `GenericParamKindBound::Duck`, with the
+    written `: type` range in `kind_bound_range`. Accepted only under
+    -fduck-generics (MONO.md D1; FlagGates, §2.10 "The `: type` regime").
     [MISSING] `PointerType::is_unsafe` stamped from the `unsafe` qual. (spec 2)
 
 ### 2.2 I ImportResolution [DONE, IMPORTS.md §4]
@@ -53,11 +98,23 @@ overlay on a table miss (`_reexported_cell`). Wildcards fold re-exports.
 
 ### 2.3 E Expand [PARTIAL]
 
-`RequiresDesugar` runs. Macro expansion and eval lowering do not.
+`EvalIfFolding` runs first (EVAL.md §4): every `eval if` whose condition
+folds is replaced by its taken branch, the declarations of the others are
+discarded, and each scope it folded in gets a NEW frozen table without
+them (the parser indexed every branch; invariant #1 holds -- no table is
+mutated, one is replaced, as `_bind_cxx` does). It must run before V and
+N, which may not see an untaken branch, and after I, so a condition can
+read an imported `eval` constant and clang's macro table is joined.
+Being before T, it cannot fold `sizeof` / `alignof`: a declaration-scope
+condition using one is an error whose note names what works instead
+(`defined!(__LP64__)`, or an `eval if` in a function body, which is
+`if constexpr`; EVAL.md 4.2b). Then `RequiresDesugar`. Macro expansion and eval lowering do not run.
 
 ### 2.4 V Verify [DONE]
 
-Six independent structural checks. Errors hard-stop before N.
+Five independent structural checks. Errors hard-stop before N. (Unreachable
+code was the sixth, lexically; it needs `!` types and is ControlFlowAnalysis
+in C now, §2.8.)
 
 ### 2.5 N NameResolution [DONE]
 
@@ -129,6 +186,18 @@ Two mechanisms: N's `_fn_depth` counter plus `_ext_target` (probed AFTER the
 DC chain); T's `_lookup_in_selfs` for type position. Field defaults and enum
 variant values keep the type body's scope (`_fn_depth` resets to 0 on entry
 to every type scope).
+
+Legal, but warned [DONE]: a bare nested type, type alias or associated type
+of the record `Self` denotes at the use is SC001W with the fix-it inserting
+`Self::` (readability: nothing at the use says the name is a member).
+`MemberLookup::is_member_type_of` / `warn_unqualified_member_type`; N calls
+them for expression position (`Node { .. }`, `Node::make()`), T for type
+position, after the name has bound, so each use is warned once and binding
+is unchanged. Only the INNERMOST Self: a sibling of an enclosing type seen
+from a nested one, the type's own name, inherited nested types and nested
+modules are not warned (`Self::` would name the wrong scope, or a module).
+This is in any body, not only a function's: a field type or a method
+signature in the class body is warned too.
 
 **Clang builtins** [DONE]. A name clang knows as a builtin
 (`__builtin_expect`, `__builtin_popcount`, ...) is a foreign function the TU
@@ -223,14 +292,23 @@ What T decides:
   `unqualified_out_of_line` (§ N(b)). `_primary_of_spec` applies the same
   rule to a spec whose semantic scope is an imported primary's.
 - **`::` segments** step through `context_of(decl)`, alias expanded first,
-  spelled for cross-TU probes. `T::Item` and `Foo<T>::Inner` are marked
-  dependent and stopped (#5); M2 owns member-of-instantiation. The one
+  spelled for cross-TU probes. `Foo<T>::Inner` (and `T::Item` on a `: type` or
+  `derives`-bounded T) are marked dependent and stopped (#5); `T::Item` on
+  an interface-bounded T resolves through the bound, definition-side, never
+  per instance (MONO.md G5). The one
   exception is an IMPORTED `Foo` with concrete args: `Foo<Args>::Inner`
   steps into the registry instance, which `_scope_of` has clang fill first
   (`MemberLookup::ensure_filled`, IMPORTS.md §5); only a failed fill defers.
 - **Final decl -> canonical**: GenericParamDecl -> `generic_param(owner,
-  index)` on the REPRESENTATIVE; alias -> expand; nominal -> arity -> args
-  by position and name -> defaults in the PRIMARY's scope -> #12. A written
+  index)` on the REPRESENTATIVE; alias -> expand; a GENERIC alias
+  application -> arity -> args as a nominal's -> the aliased body with
+  the args substituted (`_apply_alias`), so `Mat<i32>` of `type <T> Mat =
+  [[T]]` IS `[[i32]]` and `B<U>` is the body over U; only a body
+  substitution cannot rewrite stays instantiation-dependent with no
+  canonical; nominal -> arity -> args
+  by position and name -> defaults in the PRIMARY's scope, a default that
+  names earlier params with their arguments substituted (`<K, V = K>`:
+  `Pair<i32>` is `Pair<i32, i32>`) -> #12. A written
   const/volatile wraps the canonical (`qualified()`); identity keeps it.
   Reference kinds put it on the referee.
 - **Specialization registration** (#12) via `_register_specs_in`.
@@ -238,6 +316,17 @@ What T decides:
   literal N. Dependence always flows up (`_component_ok`).
 - **Receiver synthesis.** `ParamDecl::create_self` leaves `type_` null; T
   writes a `SelfType` with the enclosing record as canonical.
+- **A declared panic set's elements** are written types in the
+  declaration's scope, resolved in the same walk as its parameters (a
+  generic parameter of the function is in scope). On a `fn` type they are
+  components (`_component_ok`): a poisoned element poisons the type. The
+  effect is in the `fn` canonical key (`CanonicalTypeStore::func`:
+  `canon_panics` and the canonical set, PANIC.md §2.2): `fn() panic(A, B)`
+  and `fn() panic(B, A)` are one type, `fn() panic(A)` and `fn()` two,
+  converted by subset (Conversion's fn rung). A function's value type
+  carries its DECLARED set (ExprTyper::fn_pointer_type), a closure's its
+  written one. Whether an element can be panicked at all is
+  PanicEffectChecking's.
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 
@@ -264,6 +353,47 @@ before it can be a record; it is also the FFI shape of a C array). An
 FFI-imported incomplete array keeps the structural `array(elem, 0)`. A
 `[...]` literal is a `Slice<E>` (or takes an expected `[E; N]` outright);
 `Slice<T> -> Vector<T>` is the one container conversion, rank Converted.
+
+**An array length is folded here** (`_resolve_array`, EVAL.md 0.1): by
+ConstEval, untyped -- literals, `eval` variables and `eval` fields (class
+constants, EVAL.md 1.2), and the arithmetic over them. A length read from
+an `eval` field of the field's own class whose initializer does not fold
+(C++ would compute it, and inside its own body the class is incomplete) is
+SC116E with a fix-it hoisting the constant to module scope (1.2a,
+`_own_class_constant`; `_cur_field` is the field being resolved).
+
+**What does not fold is kept for C++** (EVAL.md 0.2): a length or generic
+value argument over value parameters (`N + 1`), eval constants whose
+initializer does not fold, eval calls (`f(3)`), an enclosing unrolled
+`eval for`'s binding, `+ - * / % << >> & | ^`, unary `-` / `~` and `as`
+to an integer type becomes an interned canonical value node
+(`TypeExpr`, `ValueOp`; `_value_expr`, `CanonicalTypeStore::value_expr`):
+`[T; N + 1]` is `array_of_param(T, (N + 1))`, `Buf<f(3)>` has that node
+as its argument. Identity is the expression's structure: `[i32; f(3)]` is
+not `[i32; 4]`, as C++ treats a dependent expression before instantiation.
+ArgumentDeduction substitutes a node's operands and folds it when they
+are all values (ConstEval::value_node), so `Buf<3>`'s `[T; N + 1]` IS
+`[T; 4]`; a computed argument or extent is a non-deduced context. Such a
+node is accepted in any position, a declaration's type included (a field,
+a signature, a namespace-scope binding): EmitPlan defines the eval fns,
+eval constructors and eval bindings it names, and what they read, ahead of
+the declaration (its early items, CODEGEN.md §7; EVAL.md §11). Where no
+order exists -- an item whose body needs the declaring record complete,
+directly or through a record that needs it, or an eval binding whose
+value reaches itself -- EvalUsageChecking reports it (SC001E,
+`_check_order`).
+A call of a non-eval function is SC001E with a fix-it. An eval class value
+(7e) enters the same way: an eval constructor call (`Grid<Pt(2, 3)>`) is
+a `Call` node naming the class, and an eval binding of one (`Widget<CFG>`)
+a `Decl` node -- unless its initializer is a constructor call over
+literals, strings and such calls (a CLOSED node, `_vx_through`), when it
+IS that call's node: `Widget<SMALL>` with `eval SMALL = Config(4,
+"small")` is `Widget<Config(4, "small")>`, as it is one C++
+specialization (EVAL.md §11, USER). A string literal is a `Str` node, only
+as a call's argument, keyed on its decoded bytes
+(`CanonicalTypeStore::value_str`); a lowered initializer read from
+another module (`string(bytes, len, cp)`, a construction naming the
+constructor) gives the same nodes as the written form.
 
 **`unsafe *T` is a distinct canonical from `*T`** [DECIDED, MISSING, spec 2].
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
@@ -346,6 +476,19 @@ definition nowhere. Per TU, so the body has to be in the declaring file --
 which an importer needs anyway. `= default` / `= delete` / `= virtual`
 count as bodies.
 
+`where` groups (where.mdx). Two same-signature functions either of which
+has a `where` guard are never linked: they are members of one dispatch
+group, not one entity. After the pairwise loop, R(a) stamps
+`FunctionDecl::where_lead` -- the first member in the cell, which is
+source order -- on every safe, unpoisoned function sharing a guarded
+one's signature. An `unsafe` function is never a member. Two UNGUARDED
+same-signature definitions still link, so a second fallback is R029E.
+OverloadResolution maps every candidate to its `where_lead` before it
+dedups, so a group is one candidate with one signature and every call,
+in every TU, binds to the lead. A dependent signature never compares
+equal (above), so generic functions do not group (WhereGuardCheck gates
+them, SC116E).
+
 ### 2.7 ChainBinding [DONE]
 
 `Sema/Resolve/ChainBinding.k`, after RedeclMerge in the T stage. Walks
@@ -361,9 +504,16 @@ every `ChainExpr` left to right from an ANCHOR and binds each step:
 
 Anchors: param/field/typed var -> Value; class/struct/enum/interface/
 alias -> Type; `Self` bound to an ExtensionDecl -> Type (its target);
-module -> Module; generic param -> Dependent (carrying its canonical);
+module -> Module; generic param -> Dependent (carrying its canonical),
+except a value parameter of an eval class (`<eval C: Config>`, EVAL.md
+7e), which is a Value of that class (`C.size` is Config's field);
 call / inferred var / overload set / operator or tuple-index step ->
-NeedsInference. An ffi alias denotes the header TUs' ModuleDecls, so it
+NeedsInference. So is a `.` / `->` step on a value whose declared type is
+NULLABLE: whether it reads the value depends on the nullness analysis at
+that use (NULLABLE.md §4), which only the typer has, so MemberTyping binds
+it on the narrowed `T` or reports the nullness error; when MemberTyping is
+the caller (`bind_step`) a nullable anchor is bound as is, and fails with
+"no member in 'T?'". An ffi alias denotes the header TUs' ModuleDecls, so it
 anchors as Module like any reopened namespace. A module anchor's scopes
 are its whole reopening RING (`NameLookup::module_scopes`, deduped), from a
 single decl as much as from an all-module cell: N collapses a same-TU
@@ -385,10 +535,15 @@ conjuncts, read from `sc->bounds`):
                    "'T' has no known members; add 'impl I' or ': type'".
     <T impl I>     member lookup over I (and I's derives), unioned across
                    bounds. Binds to I's REQUIREMENT decl. `derives B`
-                   bounds expose B's members likewise. Definition-side
+                   bounds expose B's members likewise. An operator on
+                   T -- `op []` included (MemberTyping) -- gathers from
+                   the same bounds (OperatorTyping::bound_ifaces) and
+                   nothing else. Definition-side
                    checking: the error lands on the template, not on the
                    40th instantiation.
-    <T: type>      duck. Every step Dependent; M2 checks per instance.
+    <T: type>      duck, behind -fduck-generics. Every step Dependent and
+                   left unbound; codegen spells it as written and clang
+                   checks each instance. Kairo never re-checks the body.
 
 A dependent COMPOSITE (`*T`, `[T]`, an unfilled `Foo<T>::Inner`) is still
 Dependent under every regime; it has no scope to look into.
@@ -405,26 +560,67 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 
 ### 2.8 C checks [PARTIAL]
 
-In order: `ConstraintExtraction`, `TypeCycleCheck`,
-`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`,
-`PatternChecking`, `ReturnPathCheck`, `ClassLifecycle`, `MoveCheck`,
-`InitCheck`, `CtorInitCheck`, `FeatureGateCheck`.
+In order (`Sema.k::_stage_checks`): `TypeCycleCheck`,
+`OperatorSignatureCheck`, `PackChecking` (where a type pack, a pack
+parameter and a pack-expanded variant may appear; before X, on N's names
+and T's types; an enum it rejects is poisoned), `ExprTyper` (§2.9), `ValueCategoryPass`,
+`ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
+`ReturnPathCheck`, `ControlFlowAnalysis`, JumpLabelCheck's script rule,
+`WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
+`MoveCheck`, `InitCheck`,
+`CtorInitCheck`, `ConformanceChecking` -- Typed, the panic-set barrier
+(top of this file) -- `PanicEffectChecking`, `EvalUsageChecking` (EVAL.md §6:
+what an eval context, `eval for` and a body `eval if` may hold; needs X's
+callee bindings; also marks every string literal C++ reads at compile time,
+`StringLiteralExpr::const_eval`, for StringLowering, EVAL.md 2a), `FeatureGateCheck`, `FlagGates`,
+`PatternCompilation`. (`ConstraintExtraction` runs in T, before
+ChainBinding, §2.6.)
+
+`WhereGuardCheck` [DONE] judges each `where` group: a guard on an
+interface method, an `unsafe` overload or a bodiless declaration, a group
+with no fallback, and members disagreeing on return type, `const self`,
+`inline`, `-> !` or linkage are SC001E; virtual, `panic`, generic,
+extension, operator, constructor, out-of-line, forward-declared,
+generator, `async`, defaulted and variadic members are SC116E (`where` on
+an `eval` fn is EvalUsageChecking's SC001E).
+Guards that are conjunctions of integer-parameter-vs-constant comparisons
+(and bool parameters) are boxes; a box inside an earlier one (or inside
+the union of earlier one-parameter boxes) is unreachable, a box meeting
+an earlier one with neither inside the other overlaps, an empty one never
+holds: SC001W. Boxes covering every value are a fallback. Each passed
+group goes to `SemaContext::where_groups` in dispatch order.
 
 `PatternChecking` [DONE] is usefulness over a pattern matrix: SC120E for a
 non-exhaustive match (statement form too), with a witness; SC121E for an
 arm that can never match, SC122E for such an alternative. It writes
 `is_exhaustive` / `covering_arm` / `open_tail` on every `MatchStmt` /
-`MatchExpr`. Integer columns are cut into segments, so ranges can complete
+`MatchExpr`. A match on a `T?` that answers null first (X's `null_arm`,
+NULLABLE.md 3.6) is checked over its other arms with the column `T`. Integer columns are cut into segments, so ranges can complete
 a type; flags enums and imported C++ enums are open and need `default`.
-`ConformanceChecking`, `ConstChecking`, `AccessCheck`,
-`ExtensionOrphanCheck` are stubs / missing.
+`ConstChecking`, `AccessCheck`, `ExtensionOrphanCheck` are stubs /
+missing.
+
+`ClosureCaptures` [DONE] decides what every closure captures and how
+(closures.md, Capture Modes), and records it on the ClosureExpr
+(`cap_decls` / `cap_modes` / `cap_via_ptr` / `cap_uses`): the closure's
+free automatic bindings (FreeVarScan; statics and globals are named, not
+captured), by copy with no list (a MOVE type: moved in, ownership.md), by
+pointer under `|*|` / `|const *|`, as written in a named list, and `self`
+implicitly as the pointer it is. A binding an enclosing closure holds by
+pointer is that pointer inside (X's `_capture_view`), so an inner capture
+copies or converts it. A free binding that a named list or `||` leaves out
+is SC001E at its first use, a note at its declaration, and a fix-it that
+names it. MoveCheck reads each capture as a read where the closure is made
+and a Move capture as a move; FinallyLowering and EmitIR read the rest.
 
 `MoveCheck` [PARTIAL] decides every move and checks use-after-move
 (SC052E). A `@move` argument moves; so does a MOVE value transferred: by
 value, into a C++ `T&&`, into a variable, by assignment, out of a return
 that is not a bare local. It records each transfer site for
 CopyMoveLowering. Bindings and field paths under them (`p.a`) are
-tracked; pointers, `self` and captures are not. Path-insensitive: a move
+tracked; pointers and `self` are not. A closure's captures are reads of
+the bindings where it is made, and a MOVE value captured by copy is moved
+into it (ClosureCaptures). Path-insensitive: a move
 in the right operand of `&&` leaves the binding maybe-moved after it.
 
 `InitCheck` [PARTIAL] checks one rule so far: a field's default reads
@@ -445,28 +641,120 @@ in constructors), structural like ReturnPathCheck. A const field with no
 declared initializer is assigned on every path through each constructor,
 exactly once (never in a loop); one with an initializer is never
 assigned; outside a constructor of its own record no const field is
-assigned at all. The constructor body is read in two parts at the
-frontier, the last top-level statement that assigns a const field:
-S_pre runs before the object exists, so in it `self` appears only as
-`self.f = e` or as a read of a field already assigned on every path, and
-it holds no `return`. Every rule is SC001E; SC116E gates a generic
-constructor and `try` / `finally` / `inline` / `label!` / `jump!` in
-S_pre, and a static or array local carried across. It writes the cut
+assigned at all. A field with no initializer whose type has no default
+(`TypeUtil::why_no_default`, the answer InitCheck gives a local: `bool`,
+an enum with payloads, a record with no usable default constructor, an
+array of those) is required the same way: the constructor's first whole
+write is its initializer, on every path, and later writes are
+assignments; writing part of it (`self.f[i] = e`) before that is an
+error, except that a one-dimensional array field of known length (not
+const) may instead be built element by element: `self.f[k] = e`, k a
+constant (ConstEval), every k in 0..N-1 exactly once on every path,
+outside any loop, before `f` or `self` is read. The flow state tracks
+each such element as it tracks a field (CtorFlow::edef / emaybe); the
+array counts as assigned when its last element is, and the write that
+builds an element is marked `AssignOperatorExpr::ci_elem_init` for EmitIR.
+Missing elements (named), a duplicate, a non-constant or out-of-range
+index, a loop, a read before the last element: SC001E. A write into an
+element (`self.f[k].x = e`) and an array of arrays build nothing (a note
+says so). An array field is assigned once: its one whole write in a
+constructor initializes it, on every path or none, and any other is
+SC071E (OperatorTyping defers exactly that write to this pass). The
+constructor body is read in two parts at the frontier, the last
+top-level statement that assigns a const or array field whole or, for
+each other required field (and each array built element by element),
+the first after which it is assigned on every path (a quiet walk),
+whichever is later: S_pre runs before the object
+exists, so in it `self` appears only as `self.f = e` or as a read of a
+field already assigned on every path, and it holds no `return`. Every
+rule is SC001E but the array one; SC116E gates a generic constructor and
+`try` / `finally` / `inline` / `label!` / `jump!` in S_pre, a static or
+array local carried across, and an array field of arrays or of a generic
+length initialized in place. It writes the cut
 (`FunctionDecl::ci_split`, `ci_index`, `ci_slots`, `ci_dense`) for
 CtorInitLowering and the emitters (CODEGEN.md §6). ClassLifecycle makes
 a record with a const field unassignable member by member (SC071E), as
 C++ does; a transfer constructor with a body still rebuilds it.
 
-`FeatureGateCheck` [DONE] runs last and reports well-typed constructs that
+`FeatureGateCheck` [DONE] runs after the other checks (only FlagGates and
+PatternCompilation follow it) and reports well-typed constructs that
 have no lowering yet, one SC116E each ("<construct> is not yet supported").
 Lowerings carry no diagnostics, and they run under `--type-check-only`, so
 an unfinished feature is said HERE; the error stops the schedule before L
 and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
 `iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
 whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
-its special members from those facts), and an initializer on an eval or
-array-typed field (FieldInitLowering lowers every other one). A
-gate is removed in the commit that lands its lowering.
+its special members from those facts; a payload that is a generic instance,
+`Box<i32>`, has facts of its own since MONO.md G6, so this now guards only a
+substitution that does not go through), and an initializer on an eval
+field or on an array-typed field that FieldInitLowering cannot take
+element by element (a static one, an array of arrays, anything but a
+list literal), and a
+generic closure (`fn <T>(x: T)`: X types neither its parameters nor a
+call of it). A gate is removed in the commit that lands its lowering.
+
+`PanicEffectChecking` [PARTIAL, PANIC.md P3-P5] reads the sets the
+barrier solved (EffectPropagation: one PanicWalk per body, a fixpoint over
+every bare-`panic` function and closure of the graph) and walks each body
+again keeping its sites. Each site's leftover (what no enclosing `try`
+arm discharges) must be in its body's set: a body with no `panic` lets
+nothing leave (SC001E naming every unhandled type, with the edits "mark it
+`panic`" and "wrap the call in `try ... catch => crash!()`"); a declared
+`panic(E1, E2)` lets only those leave (SC001E, edit: add the type to the
+list); `main` and a script's top level let nothing leave and cannot be
+`panic`; a field's or parameter's default lets nothing leave; a global's
+or static field's initializer holds no panicking site and no `try`
+(§4.5). A call is anything X resolved to a function: a call, a
+constructor, a user operator (`resolved_op`), a `for` loop's `op in`. A
+set that cannot be known (a callee in a fid that stopped before Typed, an
+undefined bare-`panic` prototype, a gated callee) adds nothing. Also: `panic`
+with `-> !`; `panic` on what runs with no call written (a destructor, a
+transfer or default constructor, an `@implicit` conversion, `op panic`);
+each panicked, declared or caught type must be a movable, complete value
+type (§1.5); and SC116E for a generator or `async` `panic` function or
+closure, a generic closure, a `panic` function under a `<T: type>`
+parameter (MONO.md D1), and every panicking site in such a body. It
+stamps `PanicStmt::repanic` on a `panic e` of a catch binding (§3.4).
+A bounded or opaque generic body is judged like any other (PANIC.md P10,
+MONO.md D0/D5): its set is computed at the definition and may name its
+parameters; a call reads its callee's set at the call
+(`EffectPropagation::panic_call_set`): a requirement's DECLARED set at the
+bound's arguments (the declaring instance, as G7 types the call), a
+generic function's at the call's arguments (`instance` / `dep_args`), a
+generic record's method at its receiver's; a callee whose set names a
+parameter the call does not bind is SC116E. A set that grows without
+bound (a recursion at ever-larger arguments) stops at a nesting depth,
+`PanicSetState::Diverged`, SC001E. Override and conformer subsets read
+the base's / requirement's set at the base record / row interface. Two
+typed arms of one `try` that meet at an instance (`catch e: T`, `catch
+e: A`) are §3.1's duplicate arm, checked for every live instance at its
+use with its chain (`_check_instances`, over FunctionDecl::panic_arms);
+so is a STRUCTURAL conformance an instance's bound found (no `impl`
+declared): its witnesses' sets within the requirements' at the row.
+A `finally` whose previous sibling in its block is a `try` / `catch` is
+SC001W: it is the standalone `finally`, run when the block exits, not
+when the `try` finishes (PANIC.md §3.3).
+The declared-set rules (P4): a bare `panic` on a `fn` type, an interface
+requirement, a virtual base method or a closure is SC001E (edit: write the
+inferred set where there is a body); an override's set within the base
+method's and a conformer's within the requirement's (declared rows,
+`ConformanceRow::reqs`); a bare-`panic` function used as a value is
+SC001E (its value type carries only a declared set); and, building a
+library (`--shared`), an inferred set on a `pub` function is SC001W.
+The `try` rules (P5): each `try`'s body set is recorded on the node
+(`TryCatchStmt::reach` / `TryCatchExpr::reach`); an arm whose type is not
+in it is SC001W with a remove edit and marked `is_dead` for PanicLowering
+(a C++ type outside the set is a C++ exception arm, never dead, marked
+`is_cxx`, and SC001E with a remove edit in a build without C++ exceptions,
+SemaOptions::cxx_exceptions -- LangOptions::cxx_exceptions, the rule
+FlagTranslator passes to clang); a second
+arm for one type is SC001E. Arms match exact types: no subtyping. An arm
+after a bare `catch` is ArmOrderCheck's (V) SC001E in the statement form
+and the parser's S054E in the expression form. An expression arm may be
+`=> return v` / `=> break` / `=> continue` (a StmtExpr marked `is_jump`,
+typed `!`).
+`op panic`'s own signature (`const self`, `-> string`) is
+OperatorSignatureCheck's, beside the other operator rules.
 
 `ReturnPathCheck` [DONE] is structural, not a CFG: SC104 when a
 value-returning body can reach its closing brace, SC105 for `-> !`. After X
@@ -474,6 +762,30 @@ because a call ends a path when its type is `!`; after PatternChecking
 because a `match` ends one only when `is_exhaustive` and every arm does.
 Unknowns (recovery nodes, `inline` blocks, `jump!`, a non-exhaustive match,
 already SC120E) count as ending the path.
+
+`ControlFlowAnalysis` [DONE] is the unreachable-code warning, SC003W: one
+per run of statements after one that ends the path, up to the block's end
+or a `label!` (a `jump!` target; a label nested in the run ends it too).
+The divergence rule is ReturnPathCheck's, shared as `FallThrough`
+(`Sema/Check/ControlFlowAnalysis.k`), with unknowns the other way round:
+they fall through, so code that may run is never called dead. Same
+REQUIRES as ReturnPathCheck; before every lowering, so it sees only user
+code. Dead match arms stay PatternChecking's SC121E. It replaced the
+lexical V pass TerminatorCheck, which could not see `-> !` calls. A
+script's top level (ScriptRules::is_script) is walked as one block, since
+it is main's body: a region there is a contiguous run of code items, so a
+declaration between them (a function, a type, a binding with a constant
+initializer) is never in it and never in its fix-it, and a deferred
+binding is code. Nothing ScriptLowering mints can warn: it runs after.
+
+JumpLabelCheck's script rule (`run_script_jumps`) [DONE]: in a script
+(ScriptRules::is_script), a top-level `jump!` whose path crosses the line
+of a deferred binding, forward or back, is SC001E at the jump, with notes
+at the binding and the label (SCRIPT.md 2.7). Its frame rules stay in V;
+this half runs after X, because which bindings defer is
+ScriptRules::defers, a question of typed, ConstEval-folded initializers,
+and the same predicate ScriptLowering moves lines by. Every user
+`label!`/`jump!` is still FeatureGateCheck's SC116E as well.
 
 `OperatorSignatureCheck` [DONE] runs BEFORE X, because X's derived
 operators and compound-assignment pairing assume the shapes it rejects:
@@ -504,7 +816,7 @@ ChainBinding's dependent path and ConformanceChecking read.
     value?") is not the size question: it is answered from the PATTERN's
     fields, which exist before M2, so `class U { var b: Box<U> }` and
     `struct A { var t: (i32, A) }` (a tuple is the TupleN record) are
-    reported today (type_cycle_generic.k, type_cycle.k).
+    reported today (type_cycle_generic.k, type_cycle_array_tuple.k).
     [DECIDED] `ShadowCheck` runs after X; it is silent for a binding whose
     type is still null.
 
@@ -527,6 +839,9 @@ mechanisms with no traversal are components held by value.
     OperatorTyping.k     mixin: §6 of the lattice + user operators
     CallTyping.k         mixin: callee shapes, ctor calls, promotion
     MemberTyping.k       mixin: chains (NeedsInference re-entry), subscripts
+    NullnessFlow.k       component: the nullness analysis (NULLABLE.md §3-§5),
+                         which the mixins report into and ask at each use;
+                         also the null-test classifier NullTestLowering uses
     CastTyping.k         mixin: the `as` family
     ControlTyping.k      mixin: if/match/try joins, closures, initializers,
                          lang-item desugars, binder-typing half of patterns
@@ -557,6 +872,14 @@ the bound receiver in slot 0, which is no argument and has no default); and
 `CallExpr::ctor_decl` (a constructor call's selected constructor: the callee
 names the TYPE, so nothing else records which ctor `arg_map` is parallel
 to). `Lower/` reads them; codegen reads the instance slots and `ctor_decl`.
+
+And the narrowed-read mark (NULLABLE.md §4): `NamedIdentExpr::narrowed_from`
+/ `ChainExpr::Step::narrowed_from`, the `T?` of a read the nullness
+analysis proved non-null and typed `T` instead. The one place besides the
+`&` marker where a memoized `type_` is rewritten after the node was typed:
+by the CONSUMER that needs the value (an operator, `.` / `->`, a
+conversion to `T`, a call taking `T`), never by the use itself, so a use
+that does not read the value keeps `T?`. NarrowedAccessLowering reads it.
 
 And facts on an enum variant construction, which X checks and does not
 build: `variant_decl` on the node the construction was written as -- the
@@ -737,15 +1060,25 @@ argument rank. Ties inside a rank are ambiguous, with ONE tiebreak that is
 not a conversion ordering: among Exact winners a non-generic candidate
 beats a generic one (otherwise `fn f(i32)` beside `fn <T> f(T)` is
 ambiguous on every call). A fwd/def pair is one candidate (representative).
-Specializations are skipped (paired later). Packs are accepted at
-Converted and not deduced. A default is looked for across the WHOLE redecl
+Specializations are skipped (paired later). A one-type pack ranks each
+argument against its element. A TYPE pack deduces one element per argument,
+its type by value (a literal its default), into `Deduction::packs`, opened
+even for an empty run; the instance carries the elements flat, at the
+pack's position. Its elements cannot be written as explicit generic
+arguments yet (not viable, with that reason). A default is looked for across the WHOLE redecl
 chain (`TypeUtil::param_default`): defaults accumulate over redeclarations,
 and the link judged need not be the one that wrote it. An imported C++
 callee can only omit TRAILING defaults (clang applies them by omission); a
 named argument that fills a parameter after an unfilled defaulted one is
 SC107E. An extension member's own parameters are the receiver's
 (`Deduction::bind_from_extension`, after the receiver is judged, before
-placement); once `seeded`, a dependent parameter is ranked as its
+placement). A member of a generic record reached through a CONCRETE
+instance (its own pattern's, a partial's, or a constructor) takes the
+instance's arguments the same way (`bind_from_record`): on `Opt<i32>`,
+`fn Opt(self, v: T)` takes an i32 and never deduces T := NullT from the
+call, so it cannot tie an exact `fn Opt(self, n: NullT)`. An inherited
+member keeps deducing (its parameters are its own record's), and a
+dependent receiver is defer mode's (`member_through`). Once `seeded`, a dependent parameter is ranked as its
 SUBSTITUTED type, so a literal takes it and an argument converts to it
 rather than re-deducing it, and an extension whose parameters are still
 unbound is not viable. Diagnostics: no viable (capped candidate notes),
@@ -754,16 +1087,67 @@ ambiguous, not callable.
 **Deduction** (`ArgumentDeduction.k`). Structural unify of the param's
 canonical against the arg's, binding `(owner, index)`; conflicts fail,
 there is no common-type search. Top level may succeed through the implicit
-relation (Converted); inside a structure exact or nothing. `substitute`
-rebuilds through the store and goes through the registry for a concrete
-record. `member_through(recv, mt)` reads a member type through the
-receiver's args. `replace_self(t, I, T)` reads an interface member through
+relation (Converted); inside a structure exact or nothing. The bindings and
+their rewrite are its base, **Substitution** (`Substitution.k`), split out
+so the layer Deduction ranks with (Conversion) can substitute too.
+`substitute` rebuilds through the store and goes through the registry for
+a concrete record. `member_through(recv, mt)` reads a member type through
+the receiver's args. `derives_from(derived, base)` is derived-to-base on
+TYPES (every implicit upcast, `as`, the downcast hint): an instance's bases
+are its body's declared list (`record_body`: a filled instance's own, a
+selected partial's, else the pattern's) with the instance's arguments
+substituted, so `Const<i32>` of `derives Source<T>` reaches `Source<i32>`
+and not `Source<f64>` (MONO.md G4, D0: facts by substitution, never by
+re-typing). `replace_self(t, I, T)` reads an interface member through
 a bound (`-> Self` is `T`). `bind_from_extension(f, recv)` seeds a generic
 extension's parameters from the receiver before any argument is ranked:
 the extension's target is UNIFIED with the receiver, so `extend <T>
 Vec<Box<T>>` binds what it names and a receiver it does not match makes
 the candidate non-viable. No receiver, or a dependent one, binds nothing
 (`Vec::m(v)` deduces from its `self` argument). It sets `seeded`.
+A qualified requirement call (`Container<i32>::get(b, 0)`) seeds the same
+way from its qualifier: `declaring_instance(f, Q)` is the instance of the
+requirement's declaring interface Q names (through the composed list's
+`Requirement::source` when Q derives it), and its arguments bind the
+interface's parameters before any argument is ranked. A call THROUGH a
+bound (`c.get(1)` with `C impl PW<i32>`, an operator or `op []` on such a
+`C`) is the same call with the bound as the unwritten qualifier: the first
+interface bound of the receiver parameter (`TypeUtil::bound_ifaces`) whose
+`declaring_instance` is non-null seeds it, so `-> Wrap<V>` reads
+`Wrap<i32>` and the result is an ordinary value (a member of it binds, its
+initializer is checked; MONO.md G7, D0). A bound over the body's own
+parameter (`C impl Fancy<E>`) binds V := E and the result is E. A
+non-generic interface binds nothing and is not seeded. An associated-type
+result (`-> Self::Node`) reads `T::Node` through the bound (below).
+
+**Associated types** [DONE, MONO.md G5]. T resolves `Self::Node` (or bare
+`Node`) inside the interface, and `T::Node` on a T with interface bounds,
+to one canonical `AssocType` (base, interface instance, requirement): the
+base is the interface's Self record or the parameter, the interface is the
+one that DECLARES the requirement (normalized, `TypeUtil::assoc_iface`, so
+`G::Node` through `G impl Big`, `Big derives Graph`, and Graph's `first()
+-> Self::Node` through the same G are one type). It is checked against the
+bounds there and then: no bound declaring it is R025E, two is R028E, a
+default naming a later one is the order rule's error, a generic associated
+type or a member of one is SC116E. Inside the interface it is never
+expanded; its `aliased` is the DEFAULT. One rule,
+`Substitution::assoc_witness`, says what it is for a concrete base: the
+conformer's alias (member, inherited, or extension), read through its
+arguments; else, for an EXPLICIT conformer only, the default with Self :=
+the conformer. `replace_self` and `substitute` both route through it, so
+the conformance match (`-> Self::Node` against `-> i64`), a call result
+through a bound (`T::Node` in the body) and the instance fact (`T::Node :=
+S` at `bar(c)`) cannot disagree (D0: facts by substitution, never by
+re-typing). ConformanceChecking records the supplied type on the row
+(`assoc_types`), requires it of a structural conformer, and checks it
+against the associated type's own bounds. In a body a value of type
+`T::Node` has no members (SC116E: lookup through its bounds is not built)
+and is built only through a constructor its bounds promise (`type Node
+impl Default` makes `T::Node{}` / `T::Node()` legal; otherwise SC001E). In a GENERIC
+interface `Self` is `I<T...>` over its own parameters, so the Self rule
+(`through_receiver`) also takes that spelling, and CallTyping applies it
+before the substitution for a concrete receiver: substituted first, `I<T>`
+reads `I<i32>` and is no longer recognizable as Self.
 
 **Calls** (`CallTyping.k`). Callee shapes: name (function / set / type ->
 ctor / fn-pointer value), chain (method or set with the chain's receiver /
@@ -787,7 +1171,9 @@ set as a value is an error at the use.
 is an error; shifts unify the right operand alone; compound assignment
 converts the right operand only). Comparison -> bool; `<=>` -> `Ordering`;
 `??` on `T?` joins the inner with the right; `===` needs a nullable
-operand (it is the null test, not an overloadable operator). `^^` on
+operand and is not overloadable, but the `==` its expansion runs on the
+unwrapped values (NULLABLE.md 2.3) is resolved here like any `==` and
+recorded on the `===` node for CoalesceLowering to carry over. `^^` on
 primitives calls the `pow` lang item and needs an integer exponent.
 Non-primitives search the LEFT operand's members and extensions
 under `op_name`, plus free operator functions found by ADL in the modules of
@@ -798,7 +1184,11 @@ declared in (`MemberLookup::declaring_scope`): a free `op *` beside a
 file-scope type is otherwise unreachable from every file, its own included.
 A comparison the type does not declare is derived: `!=` from `op ==`,
 `<`/`<=`/`>`/`>=` from `op <=>` (C++20's rewritten candidates, minus the
-reversed ones), recorded in `op_rewrite`. `==`/`!=` on two values of one ADT
+reversed ones), and `==`/`!=` from `op <=>` when no `op ==` answers (Kairo's
+rule, not C++'s: never on an imported record), recorded in `op_rewrite`. A
+comparison the type declares beside an `op <=>` wins every use and is
+warned about as shadowing the derived one (OperatorSignatureCheck, SC001W
+for now). `==`/`!=` on two values of one ADT
 enum -- one canonical type, so one instance of a generic enum, never a
 nullable -- with no `op ==` found compares variants, not payloads: X sets
 `tag_eq` and binds nothing, and OperatorLowering writes the builtin
@@ -830,8 +1220,31 @@ is forbidden outright. `as const` asserts 1. `T? as T` is an error naming
 `??` / `unwrap!()`; there is no collapsing cast. Pointer <-> integer: `ptr
 as usize` needs no unsafe; `ptr as u8` is an error; `int as unsafe *T`
 needs unsafe; `int as *T` is an error; `*T as unsafe *T` needs unsafe.
-Asserting downcasts are recorded in `panic_sites()` for
-PanicEffectChecking.
+An asserting downcast is not a panic: it crashes on a wrong type
+(PANIC.md §5, P9) and joins no panic set. `panic_sites()` collects them
+for that check; PanicEffectChecking does not read it.
+
+Into a CLOSED plain enum (every plain enum not `@open`; the parser stamps
+`EnumDecl::is_open`, TypeResolve ORs it over a forward declaration's chain,
+DeclImport sets it on every imported enum) the value must be a variant's.
+A ConstEval-constant operand is checked at once (SC001E placeholder, fix-it
+`@open` on an enum this file declares); when the enum is declared below the
+cast its values are not written yet, and run() checks the deferred cast
+after the walk. Any other operand sets `TypeCastExpr::enum_check` (the
+enum), and OperatorLowering wraps the operand: `({ var t = v; if <miss> {
+unwrap_failed(m, n) } t })`, `<miss>` being `t >= N` (`|| t < 0` signed)
+for values `0..N-1`, else a `!=` per variant -- a crash (PANIC.md §2.8),
+through the UnwrapFailed lang item `unwrap!` aborts with. A closed enum's
+values past a dense set are its niche (EnumNiche); `@open` gives up both.
+
+The asserting downcast `p as *D` (D below p's polymorphic pointee) sets
+`TypeCastExpr::asserting_downcast` and always warns (SC001W placeholder,
+fix-it appending `?`). OperatorLowering expands it: `({ var s = p; var d =
+s as *D [dynamic_only]; if s && !d { unwrap_failed(m, n) } d })`, the same
+crash entry, the message naming the cast, both types and the site
+(PANIC.md §5). A dependent pointee stays SC091E for the asserting form.
+Every crash message is built whole by `LowerSynth::crash_call`; the
+runtime (Lib/rt/crash.c) appends the newline.
 
 **Control** (`ControlTyping.k`). if/match/try as expressions join their
 arms (`Conversion::join`: identical, one-way W, or Never on one side);
@@ -857,8 +1270,8 @@ initializers are errors. Conditions and guards must be `bool`. `for x in
 xs`: element from the container / map (K,V) tuple / string char / Range
 arg / `op in` (through `Yield<T>`); binders get it through their
 shorthands. Destructuring by position or field name. Context bindings take
-the value's type until ContextLowering. `yield`'s check against `yield T`
-is YieldLowering's. A parameter default is typed against its parameter, and
+the value's type until ContextLowering. `yield e` is typed against the
+function's `yield T` (StmtTyping). A parameter default is typed against its parameter, and
 may not refer to another parameter or `self` (SC106E: a default is evaluated
 by a nullary thunk, so it has nothing to read them from) nor be a slice
 literal (SC082E: the thunk would return a view of a dead array).
@@ -884,9 +1297,10 @@ record type, or `const` / `eval` constant) into `Pattern::resolved_decl`,
 maps payload subpatterns to fields (names first, then positions) into
 `Pattern::field_decl`, and types every binder;
 const-correctness, including assignment to const and const-cast validity
-beyond "adds const" (ConstChecking); effect propagation (reads
-`panic_sites()`); access control (AccessCheck); `yield` vs `yield T`;
-the context-binding protocol; the `: type` regime (M2 re-check).
+beyond "adds const" (ConstChecking); panic effects (PanicEffectChecking,
+past the Typed barrier); access control (AccessCheck); `yield` vs `yield T`;
+the context-binding protocol; the `: type` gate (FlagGates: an error
+without -fduck-generics).
 
 **Depends on** (blocking, spec items 1-7): `BuiltinKind::Never`;
 `PointerType::is_unsafe` in the store key; `TypeCastExpr::cast_mode`;
@@ -902,20 +1316,83 @@ section; TypeQual enum path in `TypeUtil::syntax_is_const`.
 `<unknown>`, zero diagnostics -- if this one fails, something treats
 dependent as failed, and that is the first bug to fix).
 
-### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
+### 2.10 L Lower [IN PROGRESS], M1 [DONE], M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar -> FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) -> FinallyLowering -> TupleLowering -> OperatorLowering -> FStringLowering
--> CallLowering -> IterLowering -> RangeLowering -> ExtensionLowering ->
-SequenceLowering -> ListLiteralLowering -> StringLowering (the passes
-`Sema.k` runs today), then
-NullableTypeLowering -> NullTestLowering ->
-CoalesceLowering -> MatchLowering/PatternCompilation ->
-PanicLowering -> YieldLowering ->
-TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
-CopyMoveLowering (copies) -> DestructorInsertion. Sugar first, control flow second,
-lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
-codegen is an ICE naming the pass.
+§6). The order is fixed, and owned by `Sema.k::_stage_lowerings`; this is
+exactly what it runs today, in order:
+
+    VariantInitLowering -> EnumLayoutLowering -> ExprBodyDesugar ->
+    WhereDispatchLowering ->
+    FieldInitLowering -> CtorInitLowering -> CopyMoveLowering (moves) ->
+    ScriptLowering -> PanicLowering -> FinallyLowering -> TupleLowering ->
+    CoalesceLowering -> NullTestLowering -> NarrowedAccessLowering ->
+    NullableTypeLowering ->
+    OperatorLowering -> FStringLowering -> CallLowering -> IterLowering ->
+    RangeLowering -> MatchLowering -> LabelLowering -> ExtensionLowering ->
+    SequenceLowering -> ListLiteralLowering -> StringLowering
+
+PatternCompilation, which builds the decision tree MatchLowering renders,
+is not a lowering: it runs last in the checks (§2.8). Every pass walks a
+closure's body as it walks a function's (the ASTWriter descends into
+`ClosureExpr`), so a closure's body is lowered like any other.
+ExprBodyDesugar also turns a closure's expression body into a block
+(`return e`, or `e;` when its resolved return type is `void` / `!`).
+Still to come, each a
+stub file or a `TODO(sema)` in `Sema.k`: UsingDeclSynthesis,
+TypeQueryLowering,
+CopyMoveLowering (copies). Generators need no lowering (a C++ coroutine,
+spelled by EmitIR), and destruction none (C++ destroys locals at scope
+exit). Sugar first, control flow
+second, lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
+codegen is an ICE naming the pass. NullableTypeLowering is the exception
+on types: it rewrites no type in the tree, it fills each canonical `T?`'s
+`lowered` slot with its `::builtin::Nullable<T>` record (NULLABLE.md 1.1),
+and only a `T?` with no record is the ICE.
+
+The nullable block (NULLABLE.md §5), four passes in this order, after
+TupleLowering and before OperatorLowering. Every one but the last still
+sees `NullableType` on every expression it reads:
+
+- CoalesceLowering [DONE]: `x ?? y`, `x?.m` / `x?.f(args)` / `?->`,
+  `unwrap!(x)`, `a === b`, and a `match` on a `T?` (whose `case null` is
+  answered before the match) become the if-expressions / statements of
+  NULLABLE.md 2.3-2.6 and 3.6: typed `x?` tests and reads marked narrowed,
+  for the two passes after it. A non-place operand is bound once
+  (`__kairo_coalK` / `__kairo_safeK` / `__kairo_unwrapK`). `===`'s `==`
+  carries the operator typing recorded on the `===`, for OperatorLowering.
+- NullTestLowering [DONE]: every null test (`x?`, `!x?`, `x == null` and
+  the other spellings, via `null_test_of`) becomes `x.is_null()` /
+  `!x.is_null()`; a compared `null` literal is dropped with it.
+- NarrowedAccessLowering [DONE]: every read the nullness analysis (or a
+  CoalesceLowering expansion) marked narrowed becomes `x.__value()`, the
+  unchecked accessor, an lvalue.
+- NullableTypeLowering [DONE]: fills each canonical `T?`'s `lowered` slot
+  with its `::builtin::Nullable<T>` record (below); `null` becomes that
+  record's null.
+
+WhereDispatchLowering [DONE]: each group in `where_groups` becomes one
+function. The lead keeps its identity (every call names it) and becomes
+the dispatcher, with fresh parameters: `if g0 { return K0(args) } ...
+return Kn(args)`, guards in dispatch order, each retargeted by position to
+the fresh parameters, the last call untested. Every member hands its
+parameters and body to a minted `priv` candidate
+`__kairo_where_<name>_<k>` (k in source order, LowerTargets), so no body
+is rewritten; a non-lead member leaves the tree. A forwarded by-value
+MOVE parameter is recorded in `move_sites` for CopyMoveLowering. After
+ExprBodyDesugar (bodies are blocks), before every other body rewrite.
+
+MatchLowering [PARTIAL]: every match becomes labels, gotos and switches
+over a once-evaluated scrutinee, rendering PatternCompilation's tree (a
+match left on the value of a `T?` by CoalesceLowering is an ordinary one
+by then). A match that tests a dependent column in a generic body gets no
+tree and reaches EmitIR (ticketed). An exhaustive switch over an ADT's tag
+defaults to `__builtin_unreachable()` (CodeGenOptions::adt_tag_policy; a
+trap under `--hardening=enum-tags`), and so does a closed plain enum's
+(USER 2026-10-27: its `as` is checked, so it holds no undeclared value);
+an `@open` or imported enum's and an integer's default to UnmatchedPolicy; an ADT with no tag (niche-filled) is an `if` chain of
+EnumLayoutQuery::variant_test, the last variant untested.
+LabelLowering [DONE]: `break L` / `continue L` become gotos.
 
 EnumLayoutLowering [DONE]. Every ADT pattern gets one StructDecl,
 `EnumDecl::adt_layout`: a tag enum (`__kairo_Tag`, the variants by name and
@@ -932,6 +1409,52 @@ codegen reaches the record only through `adt_layout`. A non-generic ADT
 whose facts are Unknown (a payload that is a generic instance) is rejected
 first by FeatureGateCheck (SC116E), so the pass's ICE on one is an invariant.
 
+A pack-expanded variant `Err { e: E }...` (PANIC.md §1.2; always the last
+variant, its pack fields typed bare `E`) is one constructor per element of
+the instance's pack. Its payload struct is a C++ template over the element
+(`StructDecl::adt_pack_param`), its union member a `__kairo_pu<P<E>...>`
+(the preamble's recursive union), its constructor `(vt<p>, vt<K>, f)`, and
+its tag the variant's plus K. Every index EnumLayoutQuery takes is EXPANDED
+(`adt_variant_at` / `adt_expansion_at`): a variant's position, element k of
+the pack variant at position p being p + k, which is also its tag; a payload
+read carries K on its chain step (`Step::pack_index`). An enum whose pack is
+expanded has its pack args deduplicated where the type is formed
+(`decl_dedup_pack_args`, in CanonicalTypes::record and the registry), so
+equal elements are one variant; a `PackSetOrder` the driver installs in
+both also fixes the ORDER for a lang item that wants one (the Panic item
+sorts its set by type id, Sema/Type/PanicSets.k, PANIC.md §1.3). Under
+type-id tags (AdtLayoutKnobs, the Panic item) element k's tag is its
+type's id, not p + k (`EnumLayoutQuery::tag_value(t, en, index)` takes
+the value's type for it). Construction and patterns pick the element
+by payload type (`VariadicEnum`; ControlTyping / PatternTyping record
+`variant_pack` / `Pattern::pack_index`); at a dependent type either is
+SC116E until M2. No niche: the tag niche is per instance, so none is
+promised.
+
+The tag is the enum's `derives` type, else the narrowest of u8 / u16 that
+holds the variants (a too-narrow `derives` is R001E in TypeResolve); tags
+stay dense `0..N-1`. A variant whose fields are all trivially copied and
+destroyed is built through one field constructor (`EnumVariantDecl::
+adt_ctor`: Fields; a generic ADT has Both, the site choosing by
+`VariantInitExpr::field_ctor`), every other through the lambda one. An ADT
+with one payload variant of one field beside dataless ones is niche-shaped
+(`adt_niche_shape`): laid out with no tag when the field's niche
+(`EnumLayoutQuery::niche_of`) covers the dataless variants and the field is
+trivial -- decided here for a non-generic one (`adt_niche`), by C++ per
+instance for a generic one (a constrained partial specialization), which
+Sema predicts and `EnumLayoutQuery::sweep` records on each InstanceEntry
+for codegen's static_asserts. Every reader and test of an ADT value goes
+through `EnumLayoutQuery` (tag_read, variant_test, payload_ref, field_ref,
+same_variant): MatchLowering and OperatorLowering never spell the layout.
+A generic ADT, and a niche-filled one, also get `__kairo_which()`
+(AdtRole::Which), which the query uses where it cannot predict the
+instance's layout. `__builtin_niche_of<T>()` (the NicheOf lang item) is
+answered here, as a literal. A non-generic, non-niche ADT whose payload
+fields are all builtins, pointers or plain enums keeps its tag in the
+payloads' common prefix (`adt_tag_member` / `adt_prefix_tag`): each payload
+struct starts with the tag, the union's first member holds only it, and
+the query reads it there.
+
 CopyMoveLowering [PARTIAL]. The moves only, and early: every site
 MoveCheck recorded in `SemaContext::move_sites` -- a MOVE value passed by
 value or to a C++ `T&&`, initializing a variable, assigned, or returned
@@ -942,6 +1465,59 @@ the only decider, so the cast and the use-after-move check agree. It runs
 before every pass that rebuilds an expression, so each recorded node is
 still in the tree; SequenceLowering leaves the cast in place (a cast of a
 name is pure). Choosing a @copy constructor stays with the later slot.
+
+ScriptLowering [DONE] (SCRIPT.md). A script -- the program's root file
+(`SemaContext::script_root`, set by the driver for each command-line
+input, never for an import or a `.k` a C++ input includes) with top-level
+statements and no `fn main` -- gets a synthesized `fn main() -> i32` whose
+body is those statements, in order, ending in `return 0`. Every top-level
+binding stays a global. One whose initializer is not constant
+(ScriptRules::defers, the one answer to which lines are deferred, which
+JumpLabelCheck's script rule and ControlFlowAnalysis share) is DEFERRED: its storage becomes `T?` starting null, main assigns
+it at its line, and main's first statement is a `finally` that nulls the
+deferred globals in reverse order. A read in main after the line is marked
+narrowed; one at or before it, or a direct call from main that reads it on
+every path, is SC001E; a read anywhere else is the `unwrap!` place form,
+aborting with "script variable 'g' used before its line ran". A top-level
+`return` returns from main (bare: 0; with a value: an integer exit
+status). Statements in a file that is not the root, or beside `fn main`,
+are SC001E. After CopyMoveLowering, whose `T&&` cast on a moved
+initializer moves into main with it; before FinallyLowering, which lowers
+the teardown, and before the nullable block, which lowers the tests and
+narrowed reads it builds. Its record of the first statement
+(`SemaContext::script_at`) is how the driver rejects two scripts in one
+link. EmitIR's
+ICE on a top-level statement means this pass did not run.
+
+PanicLowering [DONE, P6] (PANIC.md §4). A panic is a returned value. A
+function whose final set is not empty returns `Panic<T, E...>`, formed with
+PanicSets::form and recorded as `FunctionDecl::panic_result` (an
+override's is its base method's, a conforming method's its interface
+requirement's; a closure's on the ClosureExpr, a `fn`
+type's on its canonical node); `return_type` stays T, because an
+importer's X reads it after this TU lowered. `return x` builds Ok, `panic
+X` builds the Err with its site id; a call that may panic is held in a
+statement expression where it sat (`var p = f(); if !ok(p) { <deliver> }
+p.value`), so evaluation order and short circuits are the tree's; a tail
+`return g()` forwards g's result whole. An error goes to the innermost
+target: the function's return, or a `try`'s raw-storage slot and a jump to
+its dispatch, which moves it into a local first; `catch e: E` is one tag
+compare. A `try` whose body is one statement that is, assigns, returns or
+binds its one site reads that call's result with no slot. C++ with no Kairo
+spelling is a PanicOpExpr (`fwd`, slot put / take) and a `raw_slot` local.
+A `try` with C++ exception arms (`is_cxx`, P7) keeps them as a C++ `try`:
+the lowered body goes in a TryCatchStmt marked `cxx` whose arms are those
+arms (EmitIR writes `try { } catch (T& e) { }`), the panic dispatch after
+it (always the slot form, so no panic arm sits inside the C++ `try`); the
+function stays noexcept, so an exception no arm matches terminates at its
+boundary. In that body a value that can throw is bound to a local before
+an ADT payload is built from it (codegen builds payloads in noexcept
+lambdas). `panic e` of a C++ arm's binding panics a copy of it.
+After ScriptLowering (a script's main is an ordinary body) and
+CopyMoveLowering; before FinallyLowering (every jump and return made here
+is an ordinary exit to it), LabelLowering, CallLowering and SequenceLowering
+(which orders a held call's arguments: a panic result is the one record
+result it sequences).
 
 FinallyLowering [DONE]. `finally { body }` becomes a StructDecl declared in
 the function body whose `op delete` is the body, plus a local of it where
@@ -954,7 +1530,10 @@ enclosing `self` is the `__kairo_owner` pointer field. Each use in the body
 is rewritten to `(*self.<field>)`. Statics and globals are not captured.
 EmitIR emits the record in place (`_local_record`), CXXSpell names a
 function-scope record by leaf, EmitPlan never admits one. A `finally` in a
-closure ICEs until lambdas are emitted.
+closure is the same record, declared in the lambda's body and homed in
+the enclosing function; a closure's parameters are captured like the
+function's, and a binding the closure holds by pointer is reached through
+that pointer (the guard's field points at it).
 
 FieldInitLowering [DONE]. A class or struct field's initializer becomes
 its C++ default member initializer. A constant (an integer ConstEval
@@ -971,8 +1550,12 @@ scope) is read through `this`; InitCheck has made sure that member is
 built by then. A STATIC field folds or thunks the same way, but its thunk
 takes no `self` (a static member: there is no object), and the value is
 its out-of-line definition's, not a default member initializer
-(CODEGEN.md §5). Eval and array-typed fields keep `init`;
-FeatureGateCheck has rejected them.
+(CODEGEN.md §5). An array field's list literal is lowered one ELEMENT at
+a time, since no C++ function returns an array: a thunk per element,
+`__kairo_init<i>_<f>` (`LowerTargets::field_init_elem_thunk`), stamped in
+order as `FieldDecl::init_elems` (`init_fold` Elems), and the default is
+`= {__kairo_init0_f(), ...}`. Eval fields and every other array
+initializer keep `init`; FeatureGateCheck has rejected them.
 
 CtorInitLowering [DONE]. A constructor CtorInitCheck split has its body
 cut into exactly two blocks, `{ {S_pre} {S_post} }`, at `ci_split`, and
@@ -989,14 +1572,18 @@ every link of the redecl chain, and spliced beside the declaring link; a
 default written on an out-of-line definition becomes a member of the owner.
 `default_val` is MOVED into the thunk, so it is null afterwards. Explicit
 arguments evaluate left to right as written, whatever parameter they name;
-defaults evaluate after them, in parameter order. A pack is a `Slice<E>` by
-value (`ParamDecl::pack_type`) over a backing array alive for the call's
-full-expression. A call with an lvalue or record result keeps C++ order
+defaults evaluate after them, in parameter order. A pack over one type is a
+`Slice<E>` by value (`ParamDecl::pack_type`) over a backing array alive for
+the call's full-expression; a TYPE pack (`fn <...T> f(...xs: T)`,
+`param_is_type_pack`) is a C++ parameter pack, its run left one argument
+per element. A call with an lvalue or record result keeps C++ order
 (the documented SequenceLowering hole). Dependent calls are left as written
 until M2.
 
 IterLowering [PARTIAL]. X records each ranged `for`'s `iter_kind`,
-`iter_elem` and, for a user `op in`, `iter_op`. The pass renders a block of
+`iter_elem` and, for a user `op in`, `iter_op`. A `for` over a type pack
+(`IterKind::Pack`, its binding typed as the pack) is left for EmitIR, which
+unrolls it as a fold, one lambda copy per element. The pass renders a block of
 hidden locals and a `while` that advances before its body (so `continue`
 needs no step). Done: `a..b`, `a..=b` (never computes past `hi`), Range
 values (`inclusive` read at run time, never computes past `last`),
@@ -1060,15 +1647,79 @@ EmitPlan marks a tuple record OWN in every plan and InterfaceEmitter
 defines it under `__KAIRO_TUPLE_<N>`, so only the arities a TU names are
 emitted and two headers in one C++ TU agree.
 
-Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
-M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
-did). M2 is the sync point: fills `Instantiated` nodes from their pattern,
-selects partials, runs dependent conformance, resolves `T::Item`, and
-**re-checks every `: type` body per instance** by re-running X over the
-body with a `Deduction` seeded from the instance's args
-(`ExprTyper::retype_instance`, a second entry point, not a pass). A duck
-body whose member resolves to an EXTENSION member is an error there (see
-§2b, the `: type` rule).
+Mono model [DECIDED, MONO.md D0]: "a generic body is checked ONCE,
+against its bounds; M1 enumerates, M2 computes instance facts; C++
+instantiates explicitly". Nothing re-types a body per instance: every
+per-instance difference that reaches codegen is selected by C++ itself
+(`static_assert`, `requires`, `if constexpr`, a trait specialization),
+because kcc hosts, C++ templates and coroutine promises instantiate
+Kairo generics at types Kairo never enumerates (MONO.md §2).
+
+- **M1 enumerates** [DONE]. Every mint (T, X, `Deduction::substitute`,
+  ConformanceChecking's reach, the lang records, CallLowering's thunks,
+  foreign) goes through `InstantiationRegistry::_new_entry`, which
+  appends it to the registry's worklist: mint order, which under
+  sequential DAG-order Sema is (TU order, mint order), and which
+  `collect()` returns. An entry is LIVE once a use needs it
+  (`InstanceEntry::depth` > 0): depth 1 where a tree names it at a use
+  (ConformanceChecking's instantiation site), the reacher's + 1 where only
+  a generic body reaches it; an entry minted only by substitution into a
+  losing overload candidate is never live, and its bounds are never
+  checked. The discovery fixpoint (`ConformanceChecking::discover`) drains
+  the live, unwalked entries a batch at a time in worklist order, walks
+  each one's body (a record's methods and fields) for the uses
+  that become instances under its arguments, mints them, links them
+  (`InstanceEntry::reached`), makes them live one hop below (`via`,
+  `via_at`; the root's use, `use_at`, is inherited, so an instance with no
+  range of its own is reported at its chain's use) and checks their
+  bounds, until a walk makes nothing new live. It runs at the end of each
+  TU's ConformanceChecking, and again as M1 (`Sema.k::_stage_mono_collect`,
+  after the lowerings), where it normally finds nothing. A chain longer
+  than `--cmax-generic-depth` (default 128) is an error at the root's use
+  naming its first three and last three instances, never a silent stop.
+  The cycle state is the entry's, never the decl's (every function
+  instance shares its primary's decl). The home of an instance is its
+  first namer (`InstanceEntry::home_fid`, D3); EmitPlan writes its
+  explicit instantiation there and `extern template` everywhere else. An
+  instance a generic body reaches is named in no tree, so every plan
+  holding the outer instance follows the `reached` edge and holds the
+  reached ones, their witness rows included: an instance's rows are its
+  own bounds', not its reach's.
+- **M2 computes instance facts** by substituting the instance's
+  arguments into what the bounds declare, never by typing the body:
+  ADT layout (EnumLayoutQuery::sweep, built), lifecycle (built:
+  ClassLifecycle computes a concrete instance's facts from its pattern's
+  members over its arguments, on demand, memoized per instance decl; the
+  declaration rules a pattern's Unknown skipped -- rules 5, 6, the
+  virtual-destructor rule -- are asked of each live instance and reported
+  at its use with its chain, ConformanceChecking::_check_facts), witness
+  rows, panic sets. Each is predicted by Sema and pinned or selected in C++.
+- Partial selection is not M2's: the registry selects at mint (§2b
+  Instances). Dependent conformance (`f<T>` calling `g<Wrap<T>>`) is
+  ConformanceChecking's reach, before the Typed barrier (§2b, "The
+  conformance table").
+- `T::Item` is T's (resolved through the bound), and what it is at an
+  instance is a substitution (`Substitution::assoc_witness`), not an M2
+  pass.
+
+**The `: type` regime** [DONE, MONO.md D1]. No Kairo pass re-checks a
+`: type` body per instance; there is no `retype_instance`. The body is
+typed as written (a member step through the parameter is Dependent and
+unbound, its call unknown), emitted as an unconstrained template, and
+clang checks each instance: EmitIR spells a member chain rooted at the
+parameter, and its call, as written (`x.f(args)`, `p->f(args)`, `T::f(args)`,
+`.template f<A>` with generic arguments). An unbound step NOT rooted at a
+`: type` parameter still ICEs: a bounded body is Kairo's to check (D0). The regime is transitional and opt-in: without
+-fduck-generics, FlagGates rejects every `: type` in a program file
+(SC001E, labelled at the bound; the fix-it deletes `: type` only when no
+member step went through the parameter, else a note points at the first
+one). Library files are exempt like every other gate, and use none.
+Inside such a body a panicking call is SC116E (a bounded body's set is
+computed at its definition, PANIC.md P10; this one has none to compute),
+and `match` / `==` / `===` / f-strings on the opaque `T` behave as they do
+on any dependent operand. Removal: flip the default, delete the regime
+branch (ChainBinding `b.duck`), the gate and the flag, after the mixin
+migration (MONO.md G13/G14).
 
 ---
 
@@ -1076,6 +1727,11 @@ body whose member resolves to an EXTENSION member is an error there (see
 
 **MERGE, not hide** [DONE]. `MemberLookup::lookup(canonical, name, out)`
 walks own table -> extensions -> bases breadth-first, deduped, UNION.
+The interfaces an `impl` clause names are NOT walked: an interface has no
+default bodies, so each requirement is met by a member the walk already
+finds, and offering the bodiless requirement beside it made every direct
+call `x.f()` an SC064E tie. A bounded receiver reaches requirements
+through its bounds.
 
 **Extensions** [DONE]: indexed once per run over every parsed TU. Records
 keyed by `RecordType::decl` (the primary for `extend <T> Vec<T>`); an
@@ -1084,17 +1740,40 @@ extensions on structural types keyed by shape (goes away with the
 container migration); exact non-generic targets by canonical pointer.
 
 **Instances** [DONE]: an explicit spec walks its own body. An unfilled
-implicit instance walks its pattern (`instantiated_from`). An instance of an
+implicit instance walks its pattern (`instantiated_from`) -- or, when a
+partial specialization's pattern matches its args, that partial
+(`SemaContext::body_of`). Partial selection is done by the registry as the
+instance is minted, not by M2: an exact structural match of each partial's
+canonical `spec_args` against the args (`InstantiationRegistry::_select`;
+no conversions, a qualifier must match exactly), then the strictly more
+specialized one ([temp.class.order], simplified); two with no order
+between them are SC001E at the first written mention. The choice lives on
+`InstanceEntry::pattern` / `pattern_args` (the partial's own parameters'
+bindings: `Store<*i32>` is P := i32 where `args` say T := *i32), and
+`instantiated_from` stays the primary -- every reader of it asks "an
+instance of which template", which deduction and the lang-item tests
+compare. `Deduction::bind_from_record` binds both parameter spaces. A
+DEPENDENT use (`Store<*P>`: an extension's receiver, a partial's own Self,
+which TypeResolve spells through the primary) selects the same way at
+lookup (`SemaContext::record_body`), its parameters opaque. A partial
+selected by `requires` is refused (SC001E): requires-dispatch is M2's and
+not built. An instance of an
 IMPORTED template is filled by clang, not M2: the first lookup into it
 calls `ForeignInstantiate::fill` (IMPORTS.md §5), after which it is
 `instantiated` and walks its own table like any filled instance. A failed
 fill is sticky and leaves it on the pattern.
 
-**Extension visibility is import-scoped** [DECIDED, MISSING]. Today the
-index is build-global: `import std::Vec` does nothing except get the file
-into the build, and two libraries in the build both adding `push` make
-every `v.push` ambiguous. An extension contributes to a TU's lookup iff
-its fid is in that TU's transitive import set. One filter on `_index_decl`.
+**Extension visibility is import-scoped** [DECIDED; BUILT for conformance
+rows only, MONO.md D7]. Member lookup's index is still build-global: `import
+std::Vec` does nothing except get the file into the build, and two libraries
+in the build both adding `push` make every `v.push` ambiguous. It is also
+ORDER-dependent: the index skips a TU whose T has not run yet, so whether a
+non-imported extension is found depends on DAG order (ticketed). An
+extension contributes to a TU's lookup iff its fid is in that TU's
+transitive import set (its own, the builtin subtree's, and every fid its
+import edges reach). One filter on `_index_decl`. For conformance it is
+applied already, in ConformanceChecking (`_usable` / `_sees`, below: "The
+conformance table", Visibility).
 
 **The orphan rule** [DECIDED, MISSING -> `ExtensionOrphanCheck`, Checks
 stage, after T]. A plain `extend X` must be in X's file. `extend X impl
@@ -1107,6 +1786,18 @@ module); an FFI-extracted C++ type can never be plain-extended.
 **An `impl` extend may contain only the interface's members** [DECIDED,
 MISSING -> ConformanceChecking]. Without this `interface Dummy {}` in any
 file re-opens every cross-file conflict the orphan rule exists to prevent.
+
+**An interface's members are its composed requirement list** [DONE].
+InterfaceComposition (T stage, after RedeclMerge, before ConstraintExtraction
+and ChainBinding) normalizes every interface into `InterfaceDecl::
+requirements`: its own members plus its `derives` expression's result (`+`
+union, `-` difference, `&` intersection), deduplicated by identity (name,
+receiver, own generic parameters with their bounds, parameter modes and
+types; not the return type). MemberLookup answers an interface's names from
+that list, not from its table plus a walk of its derives edges, and
+ConformanceChecking builds one row over it. Conflicts, a removed associated
+type a kept method names, cycles and an empty result are errors there.
+private/PLAN-interface-algebra.md has the full rule set.
 
 **Interface-conformance methods are ordinary members at lookup**
 [DECIDED]. `v.push(x)` resolves the `VectorI` method bare. Two interfaces
@@ -1192,8 +1883,12 @@ Non-generic code never touches a witness. The typer already binds a bound
 call to the REQUIREMENT decl (`semantic_dc` owner an `InterfaceDecl`), and
 that is the key; binding does not change.
 
-**The conformance table** [MISSING; `Sema/Mono/WitnessTable.k` holds only a
-design memo]. One per build, beside the InstantiationRegistry and for the
+**The conformance table** [PARTIAL: structural rows at a call's instance,
+built by ConformanceChecking and kept in the InstantiationRegistry
+(`ConformanceRow`, `row_find` / `row_add`, `InstanceEntry::rows`); declared
+rows, the impl-only rule, visibility, `Box<Metric>` named by T, and M2's
+reached instances (ConformanceChecking's `_reach`, depth-capped) are
+built; CODEGEN.md §7b supersedes the earlier witness-table memo]. One per build, beside the InstantiationRegistry and for the
 same reason: a row found while checking TU A is needed by every TU that
 holds the same instance, so it is shared, mutex-guarded, own arena. A ROW
 is
@@ -1209,7 +1904,24 @@ is
                 or STRUCTURAL (found at a use)
     witnesses   each of the interface's OWN requirements -> the decl that
                 implements it: an own or inherited member, an extension
-                member, or an imported C++ member
+                member, or an imported C++ member. A CONSTRUCTOR
+                requirement (named after its interface,
+                `decl_is_ctor_requirement`) is met by an own constructor
+                of the conformer -- its own table under DeclName::ctor(),
+                never a base's -- matched on the non-self parameters, or,
+                for a zero-parameter one on a record declaring none, by
+                the implicit `X()` (the record decl stands as the
+                witness). A builtin meets none: `i32()` is SC037E. A
+                LIFECYCLE one (`@copy` / `@move`) is met by category
+                (ClassLifecycle): `@copy` by COPY, `@move` by COPY or
+                MOVE, builtins included.
+                `T(args)` on a parameter whose bound promises a
+                constructor of that arity types as T; any other `T(args)`
+                stays unknown, as before
+    sources     per requirement, the interface instance it came through at
+                the row's arguments (`F<T> derives Container<T>` met as
+                `F<i32>`: `Container<i32>`), so codegen spells an inherited
+                requirement without substituting types itself
 
 keyed `(conformer, interface)`. Two rows for one key are an error at the
 second one's use (open: overlapping generic conformances, CODEGEN.md §7b.12
@@ -1224,15 +1936,38 @@ Who fills it:
   STRUCTURAL row built by the same match and memoized in the table.
 - **At the instantiation site.** Wherever a generic's bound meets a
   concrete argument -- CallTyping registering a call's instance, a
-  `Box<Metric>` named by T, and M2 substituting into a body's dependent
-  instances -- the bound is checked with `conforms` and the row recorded
-  on the instance: `InstanceEntry::rows`, one per `P impl I` bound, in
-  bound order. A missing row is the user's error there (SC001E
-  placeholder until a code is minted). The direct cases are reachable
-  before M2 exists; the transitive ones (`f<T>` calling `g<T>`) are M2's
-  "dependent conformance".
-- **Visibility.** A row is usable in a TU iff its implementing decls are in
-  that TU's transitive import set (the extension-visibility rule).
+  `Box<Metric>` named by T, and ConformanceChecking's `_reach`
+  substituting into a body's dependent instances -- the bound is checked
+  with `conforms` and the row recorded on the instance:
+  `InstanceEntry::rows`, one per `P impl I` bound, in bound order. A
+  missing row is the user's error there (SC001E placeholder until a code
+  is minted). The transitive ones (`f<T>` calling `g<T>`, "dependent
+  conformance") are the reach: the discovery fixpoint above, whose depth
+  limit is a diagnostic (`--cmax-generic-depth`). A reached instance's
+  failure is reported at its chain's root use, once per instance, with one
+  note per hop, innermost first: "in instantiation of 'X<A>' required
+  here" at the use in the body that needed it, capped at
+  `--cmax-generic-backtrace` (5: the first 3, a count, the last 2)
+  (`ConformanceChecking::chain_notes`, MONO.md D6).
+- **Visibility** [BUILT, MONO.md D7]. A row is a program-wide fact and a
+  per-TU filter. Usable in a TU iff each implementing decl that is an
+  EXTENSION member is in that TU's transitive import set (an own member is
+  visible wherever its type is); `ConformanceRow::seen_by` remembers the
+  TUs that found it usable. `conforms` returns the table's row only where
+  it is usable; otherwise it matches again over what this TU sees and
+  returns a DETACHED row (never recorded): not ok with `hidden` (the
+  extension member it cannot see: "implemented by an extension this file
+  does not import", note at the member), or, when this TU sees a
+  DIFFERENT implementation, not ok with `clash` -- one conformance with two
+  implementations is an error at the second use (every TU's C++ holds one
+  witness specialization per conformance). A row that is not ok is never
+  recorded: it was one TU's view. A TU's direct use of an instance another
+  TU made live is checked again against this TU's view (`_recheck`, once
+  per instance per TU, at this use, no chain); a REACHED instance is not,
+  its rows being implied by its root's bounds. An instance's rows
+  (`InstanceEntry::rows`) are the union over every TU that checked it,
+  first-found order (`add_rows`; the first-writer `set_rows` is gone), and
+  codegen reads the union.
 
 EmitPlan reads `InstanceEntry::rows` for the specialization edge; EmitIR
 reads the witness ExtensionLowering records on the call (CODEGEN.md
@@ -1240,7 +1975,9 @@ reads the witness ExtensionLowering records on the call (CODEGEN.md
 
 **The `: type` rule** [DECIDED]. Duck typing is C++ duck typing: a `: type`
 body sees own members only. Extension members are unreachable under
-`: type` (M2's re-check reports it, naming the interface to bound with).
+`: type`: the call is emitted as a member call, and clang, finding no such
+member, rejects the instance. Nothing Kairo-side reports it (no per-instance
+re-check, MONO.md D0/D1).
 One dispatch system, and a precise meaning: "T is a C++ type; clang checks
 the body".
 
@@ -1270,7 +2007,8 @@ A pass that needs one asks that file; it never spells the string itself.
    foreign chain from this TU's code -- an out-of-line body of an imported
    member -- also falls back to the definition's lexical scope, since the
    owner's parents are the header's, not this file's.
-3. **One error, one home.** Import existence/ambiguity: I. Import access:
+3. **One error, one home.** Import existence/ambiguity: I (an ambiguity
+   between header entities only: N / T at the use, IMPORTS.md §5.1). Import access:
    N(b). Redefinition / conflicting kinds: N(a). Function redefinition /
    signature disagreement / default on an out-of-line definition: R.
    Unresolved head, `Self` outside a type body
@@ -1282,10 +2020,17 @@ A pass that needs one asks that file; it never spells the string itself.
    join, return-vs-signature, uninferrable decl: X. Unusable clang
    builtin: N(b) (R057E). Non-constant builtin argument, builtin used as
    a value: X (SC108E, SC109E). Dependent conformance:
-   M2. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
-4. **Parallelism boundary.** P parallel. I, T, X DAG-ordered. N, M1 per-TU
-   parallel. M2 sync. Store and registry are the shared mutable
-   structures and both are locked.
+   ConformanceChecking, at the outer use. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
+4. **Parallelism boundary.** P parallel. Sema is sequential today: one
+   import group at a time in DAG order, each TU's stages in order
+   (`CompilerInstance::_sema_group`). The canonical store and the
+   instantiation registry are the shared mutable structures; both are
+   locked, and T, X, ConformanceChecking, the lowerings and
+   EnumLayoutQuery::sweep all write them from every TU (there is no
+   "only M2 touches cross-TU state"). Determinism rests on the order:
+   `home_fid` (first namer) and every first-writer fact are a function
+   of DAG order, and the registry's worklist keeps mint order, so
+   nothing that reaches output depends on a hash.
 5. **Dependent = deferred, not failed.** X's "unknown" state is this
    invariant on expressions; `nomono.k` is its test.
 6. **Tracing never changes behavior.**
@@ -1295,7 +2040,7 @@ A pass that needs one asks that file; it never spells the string itself.
    segment slots, `self` receiver type, `spec_kind` refinement, spec
    chain links, `instantiated_from` on specs: T. Function chains: R.
    `Expr::type_`, `value_category`, `expr_flags`, inferred decl slots: X.
-   `instantiated_from` on implicit nodes: registry (then M2).
+   `instantiated_from` on implicit nodes: the registry.
    `needs_using`: MemberLookup. `sc->bounds`: ConstraintExtraction.
    `default_thunk` / `pack_type` on ParamDecl: CallLowering.
    `init_fold` / `init_neg` / `init_mag` / `init_thunk` on FieldDecl:
@@ -1322,7 +2067,8 @@ A pass that needs one asks that file; it never spells the string itself.
     conversion ordering; `-fno-implicit-conv` can therefore remove a
     candidate but never select a different one (lattice §7).
 17. **A generic parameter's regime is its declaration's.** `<T>` opaque,
-    `<T impl I>` bounded, `<T: type>` duck. No inference of regime from use.
+    `<T impl I>` bounded, `<T: type>` duck (only under -fduck-generics).
+    No inference of regime from use.
 18. **A class definition is closed at its file.** Its friends are its
     same-file extension scopes; nothing in another file changes the
     emitted definition.
@@ -1368,14 +2114,15 @@ Name/type residue:
 Type domain (each unblocks the next):
 
     h. ExtensionOrphanCheck + import-scoped extension index   small
-    i. ConformanceChecking: the conformance table, impl-only
+    i. ConformanceChecking: the conformance table (PARTIAL: structural
+       rows at call instances, SC001E on a miss), impl-only
        members, arity/Self checks, visibility at instantiation;
        instantiating a class with a `= virtual` method is an error
     j. PatternChecking: ctor-pattern heads, bare `case n`,       DONE
        `.Variant`, exhaustiveness
     k. ADL / free operator functions (X, OperatorTyping)     DONE
     l. AccessCheck (+ `prot` same-library provenance)
-    m. ConstChecking, PanicEffectChecking (reads panic_sites)
+    m. ConstChecking; PanicEffectChecking                  PARTIAL
     n. ExtensionLowering: `a.m()` -> `m(&a)`, prvalue receiver   DONE
        materialization (`__kairo_tmp`), generic extensions (receiver
        deduction, one merged template head). Residue: the `semantic_dc`
@@ -1384,10 +2131,22 @@ Type domain (each unblocks the next):
 
 Mono / codegen:
 
-    o. M1 enumeration over the registry (types AND functions)
-    p. M2: fill + partial selection + dependent conformance +
-       `: type` re-check (`ExprTyper::retype_instance`)
-    q. EmitWitness + EmitPlan witness edge + EmitIR witness calls
-       (CODEGEN.md §7b; first the ICE for an unrouted requirement callee)
-    r. EmitIR: `typename` / `.template` on Dependent segments/steps;
+    o. M1 enumeration over the registry (types AND functions):    DONE
+       worklist, discovery fixpoint with a depth diagnostic,
+       reached-instance homing
+    p. M2: instance facts by substitution into the bounds (MONO.md D0:
+       layout built, lifecycle built (G6), rows G8, panic sets P10:
+       PanicInstances forms each live instance's results, then the
+       layout sweep runs again for their ids). Partial
+       selection is done at registry mint (§2b Instances; requires-
+       selected partials open, G12); dependent conformance is
+       ConformanceChecking's reach. No `: type` re-check: clang checks
+       those bodies (MONO.md D1)
+    q. EmitWitness + EmitPlan witness edge + EmitIR witness calls   PARTIAL
+       (CODEGEN.md §7b; calls, statics, operators, `I::m(x)`, generic
+       requirements, records' concepts and reached instances done;
+       declared rows without an instance, partial specializations open)
+    r. EmitIR: `typename` / `.template` on Dependent segments/steps
+       (a dependent MEMBER step is spelled as written, `.template` when it
+       has generic arguments: done, D1);
        generic emission; the fwd-decl emitter (IMPORTS.md items 12, 14)

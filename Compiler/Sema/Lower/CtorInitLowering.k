@@ -1,7 +1,8 @@
 /// --- The Kairo Project -------------- Sema/Lower/CtorInitLowering.k --- ///
 ///
-///   \brief A constructor that initializes a const field has its body cut
-///          in two at CtorInitCheck's frontier.
+///   \brief A constructor that initializes a field in place (a const one,
+///          one whose type has no default, an array; CtorInitCheck) has its
+///          body cut in two at CtorInitCheck's frontier.
 ///
 ///   \detail
 ///       fn F(self, x: i32) { if x < 0 { self.x = 0 } else { self.x = x }  self.go() }

@@ -1,8 +1,6 @@
 # Operators
 
-Kairo's operators follow C-style precedence and semantics with a few additions: exponentiation (`^^`), null-aware
-equality (`===`), null-safe access (`?.`, `?->`), and ranges (`..`, `..=`). Most operators can be overloaded
-for user-defined types; the [overload table](/docs/language/operator-overloading/#all-overload-able-operators-for-user-defined-types) lists which.
+Kairo's operators follow C-style precedence and semantics with a few additions: exponentiation (`^^`), null-aware equality (`===`), null-safe access (`?.`, `?->`), and ranges (`..`, `..=`). Most operators can be overloaded for user-defined types; the [overload table](/docs/language/operator-overloading/#all-overload-able-operators-for-user-defined-types) lists which.
 
 ## In this section
 
@@ -23,12 +21,10 @@ for user-defined types; the [overload table](/docs/language/operator-overloading
 
 Integer division truncates toward zero, matching C++.
 
-The base of `^^` takes the expected type, the exponent may be any integer type, and the result has the base's
-type (`u64 ^^ u8` is `u64`, `f64 ^^ i32` is `f64`). A float exponent is an error.
+The base of `^^` takes the expected type, the exponent may be any integer type, and the result has the base's type (`u64 ^^ u8` is `u64`, `f64 ^^ i32` is `f64`). A float exponent is an error.
 
 - `x ^^ 0` is `1`.
-- A negative exponent is `(1 / x) ^^ n` using the base type's own division. For an integer base that is
-  `0`, `1` or `-1`; for a float base it is the reciprocal.
+- A negative exponent is `(1 / x) ^^ n` using the base type's own division. For an integer base that is `0`, `1` or `-1`; for a float base it is the reciprocal.
 - Overflow behaves exactly as repeated `*` does; see below.
 
 ```kairo
@@ -49,8 +45,7 @@ See [Primitives](/docs/language/primitives/#overflow-behavior) for full details 
 
 ### Floating-point overflow
 
-Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`,
-`sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check explicitly with `std::is_nan()`.
+Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN` (e.g., `0.0 / 0.0`, `sqrt(-1.0)`) propagate `NaN` per IEEE 754 no crash, no trap. Check explicitly with `std::is_nan()`.
 
 ---
 
@@ -71,10 +66,7 @@ Overflow produces `inf`, underflow produces `0.0`. Operations that produce `NaN`
 
 ### `==` vs `===`
 
-`===` is valid when at least one operand is [nullable](/docs/language/nullables/) (`T?`). `a === b` is true when both are non-null and
-equal. On nullable pointers (`*T?`) it compares the values they point to, where `==` compares **addresses**.
-Using `===` where neither operand is nullable is an error, including two `*T`. To compare the pointees of two
-non-null pointers, dereference them and use `==`.
+`===` is valid when at least one operand is [nullable](/docs/language/nullables/) (`T?`). `a === b` is true when both are non-null and equal: it reads as `(a? && b?) && a == b`, with `==` applied to the unwrapped values. A non-nullable operand needs no test, so `a === 5` is `a? && a == 5`. On nullable pointers (`*T?`) it compares the values they point to, where `==` compares **addresses**. This goes one level only: on `(**T)?` it compares the `*T` values, which are addresses. Using `===` where neither operand is nullable is an error, including two `*T`. To compare the pointees of two non-null pointers, dereference them and use `==`. When a nullable pointer is involved, both sides must be pointers (`p === 42` is an error), and a nullable raw pointer (`unsafe *T?`) needs an `unsafe` block, since `===` dereferences it. `x === null` is never true, so it is an error, with a fix-it that writes the null test `!x?`.
 
 ```kairo
 var a = 42
@@ -87,8 +79,8 @@ p === q   // true: both point to 42
 ```
 
 ```kairo
-var x = &a
-var y = &b
+var *x = &a
+var *y = &b
 
 x === y   // error: '===' needs a nullable operand; '*i32' and '*i32' are not nullable
 *x == *y  // true
@@ -106,8 +98,7 @@ x === y   // error: '===' needs a nullable operand; '*i32' and '*i32' are not nu
 | `\|\|` | Logical OR | `a \|\| b` |
 | `!` | Logical NOT | `!a` |
 
-Short-circuit evaluation applies: `&&` does not evaluate the right operand if the left is `false`, and `||`
-does not evaluate the right operand if the left is `true`. This is identical to C++.
+Short-circuit evaluation applies: `&&` does not evaluate the right operand if the left is `false`, and `||` does not evaluate the right operand if the left is `true`. This is identical to C++.
 
 ---
 
@@ -135,10 +126,7 @@ Right shift is arithmetic (sign-extending) for signed types and logical (zero-fi
 | `&=`, `\|=`, `^=` | Bitwise compound assignment |
 | `<<=`, `>>=` | Shift compound assignment |
 
-On primitives, `x op= y` behaves like `x = x op y` with `x` evaluated once. For user-defined types, a
-compound assignment and its binary operator form one pair (`+=` with `+`, `<<=` with `<<`, and so on): a
-type declares `op +` **or** `op +=`, never both, and the other is derived from it. See
-[Compound assignment](/docs/language/operator-overloading/#compound-assignment).
+On primitives, `x op= y` behaves like `x = x op y` with `x` evaluated once. For user-defined types, a compound assignment and its binary operator form one pair (`+=` with `+`, `<<=` with `<<`, and so on): a type declares `op +` **or** `op +=`, never both, and the other is derived from it. See [Compound assignment](/docs/language/operator-overloading/#compound-assignment).
 
 ---
 
@@ -153,8 +141,7 @@ type declares `op +` **or** `op +=`, never both, and the other is derived from i
 
 > [!WARNING]
 > Expressions that modify a variable multiple times without a sequence point (e.g., `i = i++ + ++i`) are
-> **undefined behavior**. This is inherited from C++ evaluation order semantics. Avoid combining multiple
-> side effects on the same variable in a single expression.
+> **undefined behavior**. This is inherited from C++ evaluation order semantics. Avoid combining multiple side effects on the same variable in a single expression.
 
 ---
 
@@ -165,8 +152,7 @@ type declares `op +` **or** `op +=`, never both, and the other is derived from i
 | `..` | Exclusive range (end excluded) | `0..10` -> 0 through 9 |
 | `..=` | Inclusive range (end included) | `0..=10` -> 0 through 10 |
 
-Range operators produce a `Range` object that implements iteration. Any type that satisfies the `Steppable`
-interface can be used with range operators:
+Range operators produce a `Range` object that implements iteration. Any type that satisfies the `Steppable` interface can be used with range operators:
 
 ```kairo
 interface <T> Steppable {
@@ -176,9 +162,7 @@ interface <T> Steppable {
 ```
 
 > [!NOTE]
-> Types do not need to explicitly `impl Steppable`. If a type satisfies the required method signatures, it
-> is automatically compatible with range operators. See [Interfaces](/docs/language/interfaces/) for details
-> on structural conformance.
+> Types do not need to explicitly `impl Steppable`. If a type satisfies the required method signatures, it is automatically compatible with range operators. See [Interfaces](/docs/language/interfaces/) for details on structural conformance.
 
 Ranges also work with slicing on strings and collections:
 
@@ -198,11 +182,18 @@ Kairo provides null-safe operators for working with [nullable types](/docs/langu
 | `?.` | Null-safe member access | `obj?.field` |
 | `?->` | Null-safe pointer deref + member access | `ptr?->field` |
 
-If the left-hand side is null, the entire expression evaluates to null instead of crashing.
+If the left-hand side is null, nothing on the right is evaluated and the entire expression is null. `x?.m` reads as `if x? => x.m else null`, and `x?.f(args)` the same: the call and its arguments run only when `x` is non-null. Nothing is constructed on the null path. The result type is the member's (or the call result's) type made nullable, `M?`, and stays `M?` when `M` is already nullable rather than becoming `(M?)?`. `?->` is the same over a nullable pointer, and a chain `a?.b?.c` applies each step to the previous step's result.
 
 ```kairo
 var user: User? = find_user("alice")
-var name = user?.get_name()   // string? null if user is null
+var name? = user?.get_name()  // string?: null if user is null; get_name() not called
+var city? = user?.address?.city  // string?: null if user or address is null
+```
+
+`??` supplies the fallback for the null case. The result is `T`, or `T?` when the right side is itself nullable; it chains to the right:
+
+```kairo
+var shown = user?.get_name() ?? "guest"   // string
 ```
 
 The non-null equivalents follow the same pattern without the safety check:
@@ -239,8 +230,7 @@ See [Type System](/docs/language/type-system/) for full `TypeInfo` details.
 
 ## Type Casting `as`
 
-`as` performs explicit type conversion. No implicit narrowing conversions exist in Kairo all narrowing casts
-must use `as`. [Implicit widening](/docs/language/casting-implicit/#widening) (e.g., `i32` to `i64`) is permitted without `as`.
+`as` performs explicit type conversion. No implicit narrowing conversions exist in Kairo all narrowing casts must use `as`. [Implicit widening](/docs/language/casting-implicit/#widening) (e.g., `i32` to `i64`) is permitted without `as`.
 
 ```kairo
 var x: i64 = 1000
@@ -293,35 +283,28 @@ fn main() -> i32 {
 
 The form is `({ statements... expression })`. Its value and type are those of the last expression.
 
-- The last statement must be an expression. A block that ends in `var`, an `if` statement or `return`, or
-  an empty block, is an error.
+- The last statement must be an expression. A block that ends in `var`, an `if` statement or `return`, or an empty block, is an error.
 - Locals declared inside are scoped to the block and destroyed at its closing brace.
-- `return`, `break` and `continue` inside the block jump out of it as they would anywhere else; `return`
-  returns from the enclosing function.
+- `return`, `break` and `continue` inside the block jump out of it as they would anywhere else; `return` returns from the enclosing function.
 - The expected type reaches the last expression: in `var b: u8 = ({ 5 })` the literal is a `u8`.
-- The value is a copy. A statement expression cannot yield a fixed-size array, since arrays are not copied
-  implicitly.
+- The value is a copy. A statement expression cannot yield a fixed-size array, since arrays are not copied implicitly.
 - Inside the block, a newline ends a statement as it does in any block.
 
-`({` always opens a statement expression. A set or map literal, or an anonymous initializer, is written
-without surrounding parentheses.
+`({` always opens a statement expression. A set or map literal, or an anonymous initializer, is written without surrounding parentheses.
 
-This is the only place a block yields a value. The arms of an `if`, `match`, or `try` expression are
-single `=> expr` values, and no other block returns its last expression implicitly. A statement expression
-is how an arm holds several statements: `if ready => ({ var t = load(); (t.value); }) else => 0`.
+This is the only place a block yields a value. The arms of an `if`, `match`, or `try` expression are single `=> expr` values, and no other block returns its last expression implicitly. A statement expression is how an arm holds several statements: `if ready => ({ var t = load(); (t.value); }) else => 0`.
 
 ---
 
 ## Precedence
 
-Operators are listed from highest precedence (tightest binding) to lowest. Operators on the same row have
-equal precedence and associate in the direction shown.
+Operators are listed from highest precedence (tightest binding) to lowest. Operators on the same row have equal precedence and associate in the direction shown.
 
 | Precedence | Operators | Associativity | Description |
 |---|---|---|---|
 | 1 | Literals, names, `( )` grouping, `({ ... })`, `match` | | Primary expressions |
 | 2 | `::` | Left | Scope resolution |
-| 3 | `()` `[]` `.` `->` `?.` `?->` | Left | Postfix / member access |
+| 3 | `()` `[]` `.` `->` `?.` `?->` `?` (null test) | Left | Postfix / member access |
 | 4 | `++` `--` (postfix) | Left | Postfix increment/decrement |
 | 5 | `++` `--` (prefix) `!` `~` `+` `-` (unary) `*` `&` `sizeof` `alignof` `typeof` | Right | Prefix / unary |
 | 6 | `as` | Left | Type cast |
@@ -341,34 +324,24 @@ equal precedence and associate in the direction shown.
 | 20 | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | Right | Assignment |
 | 21 | `if` / `try` expressions | | Value-form `if` and `try` |
 
-`if` and `try` expressions bind looser than every operator. Their last arm extends as far right as it can, so
-`x + if c => 1 else => 2 + 5` is `x + (if c => 1 else => (2 + 5))`. An `if` or `try` used as an operand
-produces a warning ([S078W](/docs/language/diagnostics/#s078w-if-or-try-expression-as-an-operators-operand));
-parenthesize it: `x + (if c => 1 else => 2) + 5`.
+`if` and `try` expressions bind looser than every operator. Their last arm extends as far right as it can, so `x + if c => 1 else => 2 + 5` is `x + (if c => 1 else => (2 + 5))`. An `if` or `try` used as an operand produces a warning ([S078W](/docs/language/diagnostics/#s078w-if-or-try-expression-as-an-operators-operand)); parenthesize it: `x + (if c => 1 else => 2) + 5`.
 
-A [`match` expression](/docs/language/pattern-matching/#match-as-an-expression) closes with `}` and binds as a primary expression: `match k { ... } + 1` needs no
-parentheses.
+A [`match` expression](/docs/language/pattern-matching/#match-as-an-expression) closes with `}` and binds as a primary expression: `match k { ... } + 1` needs no parentheses.
 
-`=>` is punctuation, not an operator: it has no precedence and cannot be overloaded. It introduces the value
-of an arm in the value forms of `if`, `match`, and `try`. See
-[Control Flow](/docs/language/control-flow/#if-as-an-expression-ternary-equivalent).
+`=>` is punctuation, not an operator: it has no precedence and cannot be overloaded. It introduces the value of an arm in the value forms of `if`, `match`, and `try`. See [Control Flow](/docs/language/control-flow/#if-as-an-expression-ternary-equivalent).
 
-`as` binds looser than every prefix operator and tighter than every binary one: `-1 as u8` casts `-1`,
-`&x as *const T` casts the address, and `x as i64 + 1` is `(x as i64) + 1`.
+`as` binds looser than every prefix operator and tighter than every binary one: `-1 as u8` casts `-1`, `&x as *const T` casts the address, and `x as i64 + 1` is `(x as i64) + 1`.
 
 > [!NOTE]
-> `==` binds tighter than `&&` and `||` compound conditions like `a == b && c == d` do not require
-> explicit parentheses. This matches C/C++ precedence.
+> `==` binds tighter than `&&` and `||` compound conditions like `a == b && c == d` do not require explicit parentheses. This matches C/C++ precedence.
 
-When in doubt, use parentheses. Apart from an `if` or `try` expression used as an operand, the compiler
-does not warn about precedence ambiguity, but explicit grouping improves readability.
+When in doubt, use parentheses. Apart from an `if` or `try` expression used as an operand, the compiler does not warn about precedence ambiguity, but explicit grouping improves readability.
 
 ---
 
 ## Evaluation Order
 
-Call arguments are evaluated **left to right**, and the receiver of a method call comes first. Given
-`f(a(), b())`, `a()` runs before `b()`; given `x.m(a())`, `x` is evaluated before `a()`.
+Call arguments are evaluated **left to right**, and the receiver of a method call comes first. Given `f(a(), b())`, `a()` runs before `b()`; given `x.m(a())`, `x` is evaluated before `a()`.
 
 ```kairo
 fn g(@inout n: i32) -> i32 { n += 1; return n * 10 }
@@ -377,15 +350,11 @@ var n = 0
 f(g(&n), g(&n))     // always f(10, 20)
 ```
 
-Named arguments follow the same rule: they run in the order written, not parameter order. Defaults for
-omitted arguments run after all explicit arguments, in parameter order. See
-[Functions](/docs/language/functions-parameters/#evaluation-order).
+Named arguments follow the same rule: they run in the order written, not parameter order. Defaults for omitted arguments run after all explicit arguments, in parameter order. See [Functions](/docs/language/functions-parameters/#evaluation-order).
 
-`&&` and `||` are also left to right, with short-circuiting. See
-[Control Flow](/docs/language/control-flow/#short-circuit-evaluation).
+`&&` and `||` are also left to right, with short-circuiting. See [Control Flow](/docs/language/control-flow/#short-circuit-evaluation).
 
-The operands of a primitive operator follow C++ and their order is unspecified: in `a() + b()`, either call
-may run first.
+The operands of a primitive operator follow C++ and their order is unspecified: in `a() + b()`, either call may run first.
 
 > [!WARNING]
 > Do not rely on the order of operands with side effects. Split the side effects into separate statements.

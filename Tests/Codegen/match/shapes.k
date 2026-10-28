@@ -1,4 +1,4 @@
-enum Level { Debug, Info, Warn, Error, Fatal }
+@open enum Level { Debug, Info, Warn, Error, Fatal }
 
 fn level(l: Level) -> i32 = match l {
     case .Debug => 1
@@ -26,7 +26,9 @@ fn word(s: string) -> i32 = match s {
 fn main() -> i32 = level(Level::Info) + status(200) + word("abc")
 
 // --- lit wiring -----------------------------------------------------------
-// -O2 shapes. An open_tail enum: one bounds check and a trap -- `ud2` on
+// -O2 shapes. An `@open` enum (a closed one holds no undeclared value, so
+// its complete match is unreachable past the cases, Codegen/match/
+// adt_dispatch.k): one bounds check and a trap -- `ud2` on
 // x86, `brk` on arm64 -- (UnmatchedPolicy Trap), gone at -O3 (Unreachable).
 // Ranges: a switch, so a binary search or table, never the linear compare
 // chain an if-chain of ranges stays as.

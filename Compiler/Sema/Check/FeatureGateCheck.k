@@ -27,18 +27,28 @@
 ///         EnumLayoutLowering picks its special members from those facts.
 ///         Reported at the enum, with a note at the payload field that left
 ///         the fact open.
-///       - an initializer on an eval or array-typed field.
+///       - an initializer on an array-typed field.
 ///         FieldInitLowering turns every other one into a C++ default member
-///         initializer (or, for a static, the initializer of its out-of-line
-///         definition); an eval field has no constant emission yet, and a C++
-///         function cannot return an array, so these keep theirs and codegen
-///         would ICE on them.
+///         initializer (or, for a static or eval field, the initializer of
+///         its out-of-line definition); a C++ function cannot return an
+///         array, so this one keeps its initializer and codegen would ICE on
+///         it.
 ///       - a generic record's field default that reads another field.
 ///         InitCheck reports it (SC116E too): it is the pass that walks what
 ///         a default reads.
 ///       - `var {a, b} = s`, destructuring a struct by field name.
 ///         TupleLowering renders the positional form only; a struct's
 ///         reaching EmitIR is its ICE.
+///       - an attribute applied to an expression (`@create T(args)`,
+///         AttributedExpr): it parses, but no attribute has an expression
+///         meaning yet. X leaves the node and its operand untyped.
+///       - an `eval for` directly in a module or class body
+///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
+///         (An `eval if` there is folded away by EvalIfFolding.)
+///       - a generic closure, `fn <T>(x: T) -> T { ... }`. X types neither
+///         its parameters (no canonical for `T`) nor a call of it, so there
+///         is no signature for EmitIR to spell; a C++ generic lambda is the
+///         target once both are typed.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -72,6 +82,7 @@ import AST::Node::Expressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Node::CanonicalNodes::*;
+import AST::Node::Types::*;
 import AST::Kind::StmtKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
@@ -107,6 +118,14 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         if n->iterable == &null { return true; }
         if n->iterable->is_poisoned() || (n->iterable->type_ == &null) { return true; }
 
+        // IterLowering counts an array by its extent, which for `[T; N]` over
+        // a generic value parameter is the parameter (EVAL.md 3).
+        var at = canon_unqual(n->iterable->type_);
+        if (at != &null) && isa::<FixedArrayType>(at) && (cast::<FixedArrayType>(at)->extent_param != &null) {
+            self._gate(n->iterable->range, "iterating an array whose length is a generic value parameter");
+            return true;
+        }
+
         var what = "";
         switch n->iter_kind {
             case IterKind::Vector { what = "iterating a vector"; }
@@ -125,6 +144,40 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
 
     fn visit_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> bool {
         if n->kind_ == DestructureKind::Struct { self._gate(n->range, "destructuring a struct by field name"); }
+        return true;
+    }
+
+    fn visit_closure_expr(self, n: *ClosureExpr) -> bool {
+        if n->generic_params.size() > 0 { self._gate(SourceRange::from_bounds(n->range.start, u32(2)), "a generic closure"); }
+        return true;
+    }
+
+    fn visit_attributed_expr(self, n: *AttributedExpr) -> bool {
+        var nm = self.sc->ctx->get_spelling(n->name);
+        self._gate(SourceRange::from_bounds(n->range.start, u32(1)) | n->name.range,
+            f"the expression attribute '@{nm}\x27");
+        return true;
+    }
+
+    /// An `eval for` directly in a module or class body parses
+    /// (EvalBlockDecl::stmt), but nothing unrolls it into declarations:
+    /// nothing would emit it. Reported at `eval for`; the statement's
+    /// contents are still resolved and typed. An `eval if` there never gets
+    /// here: EvalIfFolding replaced its carrier by the taken declarations.
+    fn visit_eval_block_decl(self, n: *EvalBlockDecl) -> bool {
+        if n->stmt == &null { return true; }
+        var what = "an 'eval for\x27";
+        if isa::<ConditionalStmt>(n->stmt) { what = "an 'eval if\x27"; }
+        self._gate(SourceRange::from_bounds(n->range.start, u32(4)),
+            f"{what} in a module or class body");
+        return true;
+    }
+
+    /// `eval { ... }` in a function body: no meaning is built for it (a
+    /// module or class body's eval block holds declarations, which are
+    /// emitted as any others).
+    fn visit_eval_block_stmt(self, n: *EvalBlockStmt) -> bool {
+        self._gate(SourceRange::from_bounds(n->range.start, u32(4)), "an 'eval' block in a function body");
         return true;
     }
 
@@ -189,18 +242,19 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         var odc   = reinterpret_cast::<*DeclContext>(n->semantic_dc);
         var owner = (odc->owner_decl()) if (odc != &null) else (&null);
         if (owner != &null) && decl_is_instance(owner) { return true; }
-        var what = "";
         // Array first: a static array keeps its initializer too (no thunk
-        // can return one), so `static` alone does not clear the gate.
+        // can return one), so `static` alone does not clear the gate. An
+        // instance field's list literal is lowered element by element
+        // (FieldInitLowering, Arrays); every other array initializer stays.
         var c = canon_unqual(n->type_->canonical);
-        if n->storage == StorageClass::Eval {
-            what = "an eval field";
-        } else if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
-            what = "an array-typed field";
-        } else {
-            return true;
-        }
-        self._gate(n->init->range, f"an initializer on {what}");
+        if (c == &null) || (c->kind != TypeKind::FixedArrayType) { return true; }
+        var tu = TypeUtil(self.sc);
+        if tu.array_field_list(n) != &null { return true; }
+        var what = "an initializer on an array-typed field that is not a list literal";
+        var el = canon_unqual(cast::<FixedArrayType>(c)->element);
+        if n->is_static() { what = "an initializer on a static array-typed field"; }
+        else if (el != &null) && (el->kind == TypeKind::FixedArrayType) { what = "an initializer on a field that is an array of arrays"; }
+        self._gate(n->init->range, what);
         return true;
     }
 

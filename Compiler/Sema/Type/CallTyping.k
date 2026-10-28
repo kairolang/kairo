@@ -57,6 +57,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::NullnessFlow::*;
 import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
@@ -197,6 +198,9 @@ class <T> CallTyping {
         u->is_mode_marker = true;
         u->type_          = _op->type_;
         u->value_category = Expr::ValueCategory::LValue;
+        // The callee may write the operand; the marker was no pointer
+        // (NULLABLE.md 3.4).
+        dyn()->flow.inout_arg(_op, a->expr);
         if _op->is_poisoned() { u->poison(); return; }
         if (pt == &null) || pt->is_dependent() { return; }
         if _op->type_ == &null { return; }
@@ -260,7 +264,7 @@ class <T> CallTyping {
                 }
             }
             if (p == &null) || (p->type_ == &null) { if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); } continue; }
-            var pt = p->type_->canonical;
+            var pt = self._self_first(f, r, p->type_->canonical, true);
             if (pt != &null) && pt->is_dependent() { pt = r->ded.substitute(pt); }
             // `other: Self` is `other: T`. Resolution already judged the
             // argument this way; this is the same rule applied to the winner.
@@ -271,6 +275,9 @@ class <T> CallTyping {
                 self._commit_marker(a, (canon_unqual(pt)) if (pt != &null) else (&null));
                 continue;
             }
+            // Unmarked (tolerated, warned): written all the same.
+            if (p->mode == ParamMode::Inout) && (!a->marked) { dyn()->flow.inout_arg(a->expr, &null); }
+            else { dyn()->flow.pass_pointer(a->expr, pt); }
             if a->lit != LitKind::None {
                 dyn()->type_of(a->expr, pt);
                 continue;
@@ -303,12 +310,40 @@ class <T> CallTyping {
         }
     }
 
+    /// \p t with an interface member's `Self` read as the receiver, BEFORE
+    /// the deduction substitutes: a generic interface's Self is `I<T>` over
+    /// its own parameters, and once `Container<i32>::get` binds T it reads
+    /// `I<i32>`, which the Self rule no longer recognizes. A dependent
+    /// receiver (a bound's T) goes first only for a parameter \p (any): a
+    /// parameter left dependent is the instance's to check either way, while
+    /// a return type has to substitute, and call_result_type says why that
+    /// fails once Self is the caller's T.
+    priv fn _self_first(self, f: *FunctionDecl, r: *OvlResult, t: *Type, any: bool) -> *Type {
+        if (t == &null) || (r->receiver == &null) { return t; }
+        if r->receiver->is_dependent() && (!any) { return t; }
+        return r->ded.through_receiver(f, r->receiver, t);
+    }
+
     /// The declared return type of \p f after deduction. Expression-bodied
     /// functions without an annotation are inferred on demand.
     fn call_result_type(self, f: *FunctionDecl, r: *OvlResult) -> *Type {
         if f->is_noreturn { return dyn()->tu.builtin(BuiltinKind::Never); }
-        var rt = dyn()->fn_return_type(f);
+        var rt = self._self_first(f, r, dyn()->fn_return_type(f), false);
         if rt == &null { return &null; }
+        // A GENERIC interface's `-> Self` through a bound `C`: Self is
+        // `I<T>`, dependent, so substituting first does not leave it alone
+        // as it does a non-generic `record(I)` -- with the qualifier binding
+        // T, it would read `I<i32>`. Read Self as C first, and let C stand
+        // for itself in the substitution that follows, which the rest of
+        // the type (`-> (Self, U)`) still needs.
+        if rt->is_dependent() && (r->receiver != &null) && r->receiver->is_dependent() {
+            var g = dyn_cast::<GenericParamType>(canon_unqual(r->receiver));
+            var rs = r->ded.through_receiver(f, r->receiver, rt);
+            if (g != &null) && (rs != rt) {
+                r->ded.bind(g->owner, g->param_index, static_cast::<*Type>(g));
+                rt = rs;
+            }
+        }
         if rt->is_dependent() {
             var s = r->ded.substitute(rt);
             if s == &null { return &null; }   // still dependent: caller marks unknown.
@@ -335,18 +370,49 @@ class <T> CallTyping {
             if ok {
                 r->instance = dyn()->sc->instances->instance_for(NameLookup::representative(static_cast::<*Decl>(f)), &args,
                                                                  dyn()->sc->ctx->fid, NameLookup::ctx_of(static_cast::<*Decl>(f)));
+            } else {
+                // Dependent: keep what deduction found, for the enclosing
+                // generic's instances to substitute (CallExpr::dep_args).
+                r->dep_args.clear();
+                var dok = ((ext == &null) || self._loose_args(r, static_cast::<*Decl>(ext), &(r->dep_args)))
+                       && self._loose_args(r, static_cast::<*Decl>(f), &(r->dep_args));
+                if !dok { r->dep_args.clear(); }
             }
         }
         return rt;
     }
 
-    /// \p owner's deduced arguments, appended to \p out in parameter order.
-    /// Packs are skipped; false on an unbound or still-dependent binding.
+    /// \p owner's deduced arguments, dependent ones included; false only on
+    /// an unbound parameter or a pack.
+    priv fn _loose_args(self, r: *OvlResult, owner: *Decl, out: *vec::<*Type>) -> bool {
+        var gps = decl_generic_params(owner);
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            if (gp == &null) || gp->is_pack { return false; }
+            var b = r->ded.lookup(owner, gp->index);
+            if b == &null { return false; }
+            out->push_back(b);
+        }
+        return true;
+    }
+
+    /// \p owner's deduced arguments, appended to \p out in parameter order,
+    /// a type pack flat (its elements, as InstanceEntry::args keeps them);
+    /// false on an unbound or still-dependent binding.
     priv fn _bound_args(self, r: *OvlResult, owner: *Decl, out: *vec::<*Type>) -> bool {
         var gps = decl_generic_params(owner);
         for var i: usize = 0; i < gps.size(); ++i {
             var gp = gps[i];
-            if (gp == &null) || gp->is_pack { continue; }
+            if gp == &null { continue; }
+            if gp->is_pack {
+                var els = vec::<*Type>();
+                if !r->ded.pack_elems(owner, gp->index, &els) { return false; }
+                for var k: usize = 0; k < els.size(); ++k {
+                    if els[k]->is_dependent() { return false; }
+                    out->push_back(els[k]);
+                }
+                continue;
+            }
             var b = r->ded.lookup(owner, gp->index);
             if (b == &null) || b->is_dependent() { return false; }
             out->push_back(b);
@@ -368,8 +434,11 @@ class <T> CallTyping {
             if id->is_deferred() {
                 var cands = vec::<*Decl>();
                 for var i: usize = 0; i < id->candidate_cell->size(); ++i { cands.push_back(id->candidate_cell->get(i)); }
-                return self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name),
+                self._set_explicit(&(id->generic_args));
+                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name),
                                              id, &null, true);
+                dyn()->ovl.explicit_args.clear();
+                return rt;
             }
             // `u32(x)`: the parser admits a primitive before `(`, but Kairo
             // converts with `as` (casting.md), and a type is not callable.
@@ -390,14 +459,17 @@ class <T> CallTyping {
             if isa::<FunctionDecl>(d) {
                 var cands = vec::<*Decl>();
                 cands.push_back(d);
-                return self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), &null, &null, true);
+                self._set_explicit(&(id->generic_args));
+                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), &null, &null, true);
+                dyn()->ovl.explicit_args.clear();
+                return rt;
             }
             if dyn()->tu.is_type_decl(d) {
                 var rec = dyn()->denoted_type(callee);
                 if rec == &null { dyn()->poison_only(n); return &null; }
                 return self._ctor_call(n, rec);
             }
-            if isa::<GenericParamDecl>(d) { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
+            if isa::<GenericParamDecl>(d) { return self._param_ctor_call(n, cast::<GenericParamDecl>(d)); }
             // a value: must be a function pointer.
             var vt = dyn()->type_of(callee, &null);
             return self._call_through(n, vt);
@@ -420,8 +492,12 @@ class <T> CallTyping {
                 var last = ce->steps.get(ce->steps.size() - 1);
                 var nm = "<operator>";
                 if last->name != &null { nm = dyn()->sc->ctx->get_spelling(last->name->name); }
-                return self._call_candidates(n, &(info->callable_cands), info->has_receiver, info->receiver,
-                                             nm, &null, last);
+                self._set_explicit(&(last->generic_args));
+                var r = self._call_candidates(n, &(info->callable_cands), info->has_receiver, info->receiver,
+                                              nm, &null, last);
+                dyn()->ovl.explicit_args.clear();
+                if ce->has_optional_chaining() { return self._safe_call_result(n, r); }
+                return r;
             }
             if info->unknown { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
             return self._call_through(n, callee->type_);
@@ -431,6 +507,30 @@ class <T> CallTyping {
         var t = dyn()->type_of(callee, &null);
         if callee->is_poisoned() { dyn()->poison_only(n); return &null; }
         return self._call_through(n, t);
+    }
+
+    /// `x?.f(args)` whose call typed \p r: the expression is `if x? =>
+    /// x.f(args) else null` (NULLABLE.md 2.5), so `R?`, and `R` itself when
+    /// it is already nullable (the one flattening, 1.5). A `void` method is
+    /// a statement either way; a `-> !` one is `void` too, since on null
+    /// the expression completes. \p r is kept on the node for the lowering.
+    priv fn _safe_call_result(self, n: *CallExpr, r: *Type) -> *Type {
+        if (r == &null) || n->is_poisoned() { return r; }
+        n->safe_result = r;
+        if dyn()->tu.is_never(r) || dyn()->tu.is_builtin(r, BuiltinKind::Void) { return dyn()->tu.builtin(BuiltinKind::Void); }
+        if r->is_dependent() || r->is_instantiation_dependent() {
+            if dyn()->tu.nullable_inner(r) != &null { return r; }
+            return dyn()->sc->types->nullable(r);
+        }
+        if dyn()->tu.nullable_inner(dyn()->tu.as_value(r)) != &null { return dyn()->tu.as_value(r); }
+        return dyn()->sc->types->nullable(dyn()->tu.as_value(r));
+    }
+
+    /// \p t is an interface's own type: `I` as a call's qualifier.
+    priv fn _is_interface_type(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var d = dyn()->tu.record_decl(canon_unqual(t));
+        return (d != &null) && isa::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(d)));
     }
 
     priv fn _any_method(self, cands: *vec::<*Decl>) -> bool {
@@ -443,6 +543,82 @@ class <T> CallTyping {
 
     priv fn _type_args_blind(self, n: *CallExpr) {
         for var i: usize = 0; i < n->args.size(); ++i { dyn()->type_of(n->args[i], &null); }
+    }
+
+    /// The explicit generic arguments of a call's callee name (`f<3>()`),
+    /// for OverloadResolution to bind before deduction (EVAL.md 3; the
+    /// "explicit generic arguments are ignored" ticket). One that did not
+    /// resolve leaves the list empty: the call deduces as it did before.
+    priv fn _set_explicit(self, gargs: *FrozenList::<ChainType::GenericArg>) {
+        dyn()->ovl.explicit_args.clear();
+        var tmp = vec::<*Type>();
+        for var i: usize = 0; i < gargs->size(); ++i {
+            var a = gargs->get(i);
+            if (a->name != &null) || (a->ty == &null) || (a->ty->canonical == &null) { return; }
+            tmp.push_back(a->ty->canonical);
+        }
+        for var i: usize = 0; i < tmp.size(); ++i { dyn()->ovl.explicit_args.push_back(tmp[i]); }
+    }
+
+    /// `y.foo(42)` selecting a STATIC requirement or a static extension
+    /// member: rejected, with the fix-it to `T::foo(42)`. A requirement has no
+    /// object to dispatch on, so a value names no witness; an extension
+    /// member is a free function in the C++ it lowers to, so there is no
+    /// receiver slot to drop the value into. Left alone, ExtensionLowering
+    /// meets the call with nowhere to put it and ICEs. A plain class's static
+    /// called through a value is C++'s rule and stays legal (it is a member
+    /// of the class, and the value is simply discarded).
+    priv fn _static_through_value(self, n: *CallExpr, step: *ChainExpr::Step,
+                                  f: *FunctionDecl, recv: *Type) -> bool {
+        if (f == &null) || f->is_method() || f->is_operator { return false; }
+        if step->access_kind == ChainExpr::AccessKind::ColonColon { return false; }
+        var fd = static_cast::<*Decl>(f);
+        var req = false;
+        if f->semantic_dc != &null {
+            var home = reinterpret_cast::<*DeclContext>(f->semantic_dc)->owner_decl();
+            req = (home != &null) && isa::<InterfaceDecl>(NameLookup::representative(home));
+        }
+        if (!req) && (decl_extension_of(fd) == &null) { return false; }
+
+        var nm   = dyn()->tu.decl_name(fd);
+        var what = ("static requirement") if (req) else ("static extension member");
+        var ch   = dyn_cast::<ChainExpr>(dyn()->tu.strip_parens(n->callee));
+        var at = (step->name->range.start) if (step->name != &null) else (step->range.start);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, at,
+            f"'{nm}' is a {what}; it takes no 'self' and is called through the type, not a value");
+        if step->name != &null { b.first(step->name->range); } else { b.first(step->range); }
+        if fd->range.is_valid() {
+            b.note(DiagID::SC001N, fd->range.start, f"'{nm}' is declared here, without 'self\x27").first(fd->range);
+        }
+        // The receiver's TYPE as written in the diagnostics (`T`, not what a
+        // bound T stands for): `T::foo` is the spelling that works in the
+        // generic body the call is in.
+        if (ch != &null) && (recv != &null) && (step->name != &null) {
+            var ty = dyn()->tu.str(dyn()->tu.as_value(recv));
+            b.fix(SourceRange(ch->range.start, step->name->range.start), ty + "::", f"call it through the type: '{ty}::{nm}\x27");
+        }
+        b.emit();
+        return true;
+    }
+
+    /// `Box<i32>::zero()`: the record a static member is named THROUGH,
+    /// when that record is a generic one's instance (or a pattern used
+    /// dependently, `Box<T>::zero()`); null otherwise. The member's decl is
+    /// the pattern's -- an instance shell has no members of its own -- so
+    /// the decl alone spells `Box::zero`, a class template with no
+    /// arguments, and clang rejects it. The arguments are on the qualifier
+    /// and nowhere else after X. A requirement goes through its witness
+    /// and an extension member is rewritten to a free call, so neither is
+    /// named through a record here.
+    priv fn _instance_qualifier(self, f: *FunctionDecl, recv: *Type) -> *Type {
+        if (f == &null) || (recv == &null) || f->is_method() || (f->semantic_dc == &null) { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return &null; }
+        var owner = dc->owner_decl();
+        if (owner == &null) || isa::<InterfaceDecl>(NameLookup::representative(owner)) { return &null; }
+        var r = dyn_cast::<RecordType>(canon_unqual(recv));
+        if (r == &null) || (r->args.size() == 0) { return &null; }
+        return static_cast::<*Type>(r);
     }
 
     /// Resolve against \p cands, promote the winner onto \p ident or \p step.
@@ -480,12 +656,48 @@ class <T> CallTyping {
             if pt != &null { recv = pt; }
         }
 
-        var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv);
+        // `I::m(x, ...)`, the qualified form of a requirement call: the
+        // qualifier is the interface, not the receiver. `self` is the first
+        // argument, so Self is ITS type, and the requirement's `Self` reads
+        // as that (through_receiver), as it would for `x.m(...)`.
+        // The qualifier stays on the call (CallExpr::witness_iface, until
+        // ExtensionLowering writes the declaring instance over it): a GENERIC
+        // interface's arguments are on it and nowhere else, and resolution
+        // binds the requirement's interface parameters from it.
+        var qual: *Type = &null;
+        if (!has_receiver) && (args.size() > 0) && (args[0].ty != &null) && self._is_interface_type(recv) {
+            qual = canon_unqual(recv);
+            n->witness_iface = qual;
+            recv = dyn()->tu.as_value(args[0].ty);
+            // Bare `Container::get(b, 0)` names no instance. Which one b
+            // conforms to could be deduced from its declarations when only one
+            // fits, but that is a second lookup to keep sound; the arguments
+            // are one edit away.
+            var qr = dyn_cast::<RecordType>(qual);
+            var qd = (NameLookup::representative(dyn()->tu.pattern_of(qr->decl))) if (qr != &null) else (&null);
+            if (qd != &null) && (decl_generic_params(qd).size() > 0) && dyn()->ded_scratch()->own_args(qr, qd) {
+                var iname = dyn()->tu.decl_name(qd);
+                var d = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    f"'{iname}' is generic, and a qualified call names its instance: write '{iname}<...>::{name}\x27");
+                d.first(n->range);
+                d.note(qd->range.start, f"'{iname}' is declared here").first(qd->range);
+                d.emit();
+                dyn()->poison_only(n);
+                return &null;
+            }
+        }
+
+        if !self._narrow_args(&all, &args, has_receiver, recv) { dyn()->poison_only(n); return &null; }
+        var r = dyn()->ovl.resolve(&all, &args, has_receiver, n->range, name, recv, qual);
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
         if !ok { dyn()->poison_only(n); return &null; }
+        if (step != &null) && self._static_through_value(n, step, r.decl, recv) { dyn()->poison_only(n); return &null; }
 
         if recv != &null { r.ded.bind_from_record(canon_unqual(recv)); }
+        if (step != &null) && (step->access_kind == ChainExpr::AccessKind::ColonColon) {
+            n->qualifier = self._instance_qualifier(r.decl, recv);
+        }
 
         // promote cell -> decl (hard invariant #7).
         if (ident != &null) && (ident->resolved_decl == &null) {
@@ -498,13 +710,69 @@ class <T> CallTyping {
         }
 
         self.finish_call_args(r.decl, &args, &r);
+        // A method taking a mutable `self` may write any field of its
+        // receiver (NULLABLE.md 3.4); a `const self` one cannot.
+        if (step != &null) && r.receiver_bound && r.decl->is_method() && (!r.decl->is_const()) && (!r.decl->params[0]->is_const) {
+            var ce = dyn_cast::<ChainExpr>(dyn()->tu.strip_parens(n->callee));
+            if ce != &null { dyn()->flow.mutable_self_call(ce, n->range); }
+        }
         if !self._check_constant_args(r.decl, &args, &r) { dyn()->poison_only(n); return &null; }
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
         var rt = self.call_result_type(r.decl, &r);
         n->instance = reinterpret_cast::<*void>(r.instance);
+        if (r.instance == &null) && (r.dep_args.size() > 0) {
+            var arr = dyn()->sc->ctx->alloc_array::<*Type>(r.dep_args.size());
+            for var i: usize = 0; i < r.dep_args.size(); ++i { arr[i] = r.dep_args[i]; }
+            n->dep_args.from_raw(arr, r.dep_args.size());
+        }
         if rt == &null { dyn()->mark_unknown(n); return &null; }
         return rt;
+    }
+
+    /// Nullable places passed where only their VALUE fits (NULLABLE.md §4).
+    /// Selection judges an argument by ArgInfo::ty, which for a `T?` place
+    /// is `T?`, so `take(a)` with `fn take(x: i32)` would be "no matching
+    /// overload" even after `if a?`. Only when no candidate takes the
+    /// arguments as they are, and one does with the nullable places read as
+    /// their values, are those reads made: each one narrowed when its place
+    /// is proven non-null, else the nullness error (false: reported). A
+    /// read some candidate does not need -- one still viable with that
+    /// argument left nullable -- is left alone, so a `T?` parameter keeps
+    /// its nullable and is never asked about. A `T?` overload, or a call
+    /// that type-checks as written, is untouched.
+    priv fn _narrow_args(self, cands: *vec::<*Decl>, args: *vec::<ArgInfo>, has_receiver: bool, recv: *Type) -> bool {
+        var idx = vec::<usize>();
+        for var i: usize = 0; i < args->size(); ++i {
+            var a = &((*args)[i]);
+            if (a->expr == &null) || a->marked || (a->ty == &null) { continue; }
+            if dyn()->flow.narrowed_type(a->ty) == &null { continue; }
+            idx.push_back(i);
+        }
+        if idx.size() == 0 { return true; }
+        if dyn()->ovl.any_viable(cands, args, has_receiver, &null, &null, recv) { return true; }
+        var alt = *args;
+        for var j: usize = 0; j < idx.size(); ++j {
+            alt[idx[j]].ty = dyn()->flow.narrowed_type(alt[idx[j]].ty);
+        }
+        if !dyn()->ovl.any_viable(cands, &alt, has_receiver, &null, &null, recv) { return true; }
+        // Keep only the reads some viable candidate needs.
+        var need = vec::<usize>();
+        for var j: usize = 0; j < idx.size(); ++j {
+            var keep = alt[idx[j]].ty;
+            alt[idx[j]].ty = (*args)[idx[j]].ty;
+            if dyn()->ovl.any_viable(cands, &alt, has_receiver, &null, &null, recv) { continue; }
+            alt[idx[j]].ty = keep;
+            need.push_back(idx[j]);
+        }
+        var ok = true;
+        for var j: usize = 0; j < need.size(); ++j {
+            var a = &((*args)[need[j]]);
+            var o = dyn()->flow.read_value(a->expr, true);
+            if o == NULL_READ_REFUSED() { ok = false; continue; }
+            if o == NULL_READ_NARROWED() { a->ty = a->expr->type_; }
+        }
+        return ok;
     }
 
     /// A clang builtin's `I` positions take an integer constant. Checked
@@ -612,6 +880,32 @@ class <T> CallTyping {
         n->pack_len = u32(pack_n);
     }
 
+    /// An object of an abstract class -- one with a pure virtual method
+    /// (a bodyless `virtual fn`) that it and its bases leave unoverridden --
+    /// cannot be made: `A()`, `A{ ... }`. Said here, at the construction,
+    /// with a note at the method that keeps it abstract; left to clang it
+    /// is CL001E "allocating an object of abstract class type" pointing into
+    /// the generated C++. A pointer or reference to one is fine. Reports,
+    /// poisons `n` and returns true when `d` is abstract.
+    fn reject_abstract(self, n: *Expr, d: *Decl) -> bool {
+        var pure = dyn()->tu.first_pure_left(d);
+        if pure == &null { return false; }
+        var cname = dyn()->tu.decl_name(d);
+        var mname = dyn()->tu.decl_name(static_cast::<*Decl>(pure));
+        var odc   = reinterpret_cast::<*DeclContext>(pure->semantic_dc);
+        var od    = (odc->owner_decl()) if (odc != &null) else (&null);
+        var owner = (dyn()->tu.decl_name(od)) if (od != &null) else (cname);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"cannot create an object of abstract class '{cname}\x27");
+        b.first(n->range);
+        var why = f"'{owner}::{mname}' is pure virtual and '{cname}' does not override it";
+        if owner == cname { why = f"'{mname}' is pure virtual: a 'virtual fn' with no body"; }
+        b.note(DiagID::SC001N, pure->range.start, why).first(pure->range);
+        b.emit();
+        n->poison();
+        return true;
+    }
+
     /// `Foo(args)` on a record type: constructors live in the type's own
     /// table under DeclName::ctor(). No ctor + no args is the default ctor.
     ///
@@ -627,6 +921,9 @@ class <T> CallTyping {
     /// clang pick per instance (RESOLUTION.md §2.9). Only a head with no
     /// record to name -- an unbounded `T::Inner` -- stays unknown.
     priv fn _ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
+        // `T::Node(args)`: only a constructor the associated type's bounds
+        // promise (see ControlTyping::_assoc_init).
+        if isa::<AssocType>(canon_unqual(rec)) { return self._assoc_ctor_call(n, rec); }
         var d = dyn()->tu.record_decl(rec);
         var dep = rec->is_dependent();
         if (d == &null) && dep { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
@@ -635,8 +932,10 @@ class <T> CallTyping {
             dyn()->fail(n, DiagID::SC037E, f"'{dyn()->tu.str(rec)}' is not constructible with a call; use 'as\x27");
             return &null;
         }
+        if (!dep) && self.reject_abstract(static_cast::<*Expr>(n), d) { self._type_args_blind(n); return &null; }
 
-        var body = dyn()->tu.pattern_of(d);   // an unfilled instance has an empty table.
+        var body = dyn()->sc->record_body(rec);   // an unfilled instance has an empty table; its body's (a selected partial's).
+        if body == &null { body = dyn()->tu.pattern_of(d); }
         var dc   = NameLookup::context_of(body);
         var cands = vec::<*Decl>();
         if dc != &null {
@@ -658,6 +957,7 @@ class <T> CallTyping {
         }
         var args = vec::<ArgInfo>();
         var ok = self.build_args(n->args, &args);
+        if (!dep) && (!self._narrow_args(&cands, &args, true, rec)) { dyn()->poison_only(n); return &null; }
         var r = OvlResult{};
         if dep {
             r = dyn()->ovl.resolve_deferred(&cands, &args, true, n->range, dyn()->tu.decl_name(d), rec);
@@ -682,6 +982,56 @@ class <T> CallTyping {
         return rec;
     }
 
+    /// `T(args)` on a generic parameter. Typed as T when one of T's bounds
+    /// promises a constructor of that arity (decl_is_ctor_requirement):
+    /// every instance's `X(args)` then exists, ConformanceChecking having
+    /// found it, so `var t = T()` has a type to carry into `t.m()`. Any
+    /// other `T(args)` stays unknown, as it always was -- clang decides it
+    /// per instance -- so a bound only ever adds a type, never accepts a
+    /// call that was rejected. The arguments are not checked against the
+    /// requirement: a conformer's constructor is matched exactly, so the
+    /// C++ `T(args)` reaches it or fails at the concept.
+    priv fn _param_ctor_call(self, n: *CallExpr, gp: *GenericParamDecl) -> *Type {
+        self._type_args_blind(n);
+        var t = dyn()->sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
+        var bs = dyn()->bound_ifaces(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var rt = dyn_cast::<RecordType>(bs[i]);
+            if rt == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(rt->decl)));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
+                if (m == &null) || (!decl_is_ctor_requirement(m)) { continue; }
+                var arity: usize = 0;
+                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { arity += 1; } }
+                if arity != n->args.size() { continue; }
+                n->value_category = Expr::ValueCategory::RValue;
+                return t;
+            }
+        }
+        dyn()->mark_unknown(n);
+        return &null;
+    }
+
+    priv fn _assoc_ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
+        self._type_args_blind(n);
+        if dyn()->tu.assoc_has_ctor(rec, n->args.size()) {
+            n->value_category = Expr::ValueCategory::RValue;
+            return rec;
+        }
+        var a  = cast::<AssocType>(canon_unqual(rec));
+        var ts = dyn()->tu.str(rec);
+        var an = dyn()->tu.decl_name(a->assoc);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"cannot construct '{ts}': no bound of associated type '{an}' requires a constructor taking {n->args.size()} argument(s)");
+        b.first(n->range);
+        b.note(a->assoc->range.start, f"'{an}' is declared here; bound it with an interface that declares a constructor requirement").first(a->assoc->range);
+        b.emit();
+        dyn()->poison_only(n);
+        return &null;
+    }
+
     /// finish_call_args with no winner: there is no parameter to type an
     /// untyped literal against, so it takes its default (what clang will
     /// see it as), and a `name: value` wrapper takes its value's type.
@@ -702,6 +1052,13 @@ class <T> CallTyping {
             self._type_args_blind(n);
             if !n->callee->is_poisoned() { dyn()->mark_unknown(n); } else { dyn()->poison_only(n); }
             return &null;
+        }
+        // A nullable callable proven non-null here is called through its
+        // value (NULLABLE.md §4); one that is not is the nullness error.
+        if (dyn()->tu.nullable_inner(t) != &null) && (dyn()->flow.read_value(n->callee, false) == NULL_READ_NARROWED()) { t = n->callee->type_; }
+        else if dyn()->tu.nullable_inner(t) != &null {
+            var o = dyn()->flow.read_value(n->callee, true);
+            if o == NULL_READ_REFUSED() { self._type_args_blind(n); dyn()->poison_only(n); return &null; }
         }
         var ft = dyn()->tu.strip_nullable(t);
         if ft != t {
@@ -772,6 +1129,7 @@ class <T> CallTyping {
                     u->value_category = Expr::ValueCategory::LValue;
                     dyn()->finish(a, _op->type_);
                 }
+                dyn()->flow.inout_arg(target, (a) if (_op != &null) else (&null));   // NULLABLE.md 3.4.
                 continue;
             }
 
@@ -781,8 +1139,11 @@ class <T> CallTyping {
             dyn()->type_of(a, pt);
             if a->is_poisoned() { bad = true; continue; }
             if !dyn()->check_convertible(a, pt) { bad = true; }
+            dyn()->flow.pass_pointer(a, pt);
         }
         if bad { dyn()->poison_only(n); return &null; }
+        // A closure holding pointers may write what they point at (3.7).
+        dyn()->flow.call_value(n->callee, n->range);
         if fp->return_type == &null { dyn()->mark_unknown(n); return &null; }
         return fp->return_type;
     }

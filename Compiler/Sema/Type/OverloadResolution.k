@@ -73,6 +73,7 @@ import Location::SourceRange::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
 import AST::Context::InstantiationRegistry::*;
+import AST::Context::DeclContext::*;
 
 /// \enum LitKind
 /// \brief An argument that is an untyped literal carries its shape so the
@@ -232,6 +233,10 @@ class OvlResult {
     /// The instance a GENERIC winner was registered as (call_result_type),
     /// null for a non-generic one or a dependent call.
     pub var instance: *InstanceEntry = &null;
+    /// A generic winner's arguments when some are still DEPENDENT (a call
+    /// from inside a generic body: `inner(Wrap<T>{...})` deduces
+    /// [Wrap<T>]), in instance order; empty when `instance` is set.
+    pub var dep_args: vec::<*Type>;
     fn OvlResult(self) { }
 }
 
@@ -244,6 +249,12 @@ class OverloadResolution {
     /// indices into it are stable for exactly that reason: an ArgInfo names
     /// its elements by range, so nothing has to hold a container of itself.
     pub var list_shapes: vec::<ListShape>;
+    /// The call's explicit generic arguments (`f<3>()`, `f<i32>(x)`), as
+    /// canonicals, in order; empty when none were written. Bound into each
+    /// generic candidate's deduction before its arguments are judged, so a
+    /// parameter no argument mentions (`fn <eval N: usize> width()`) has a
+    /// value. CallTyping sets and clears it around one resolve.
+    pub var explicit_args: vec::<*Type>;
 
     fn OverloadResolution(self) { self.sc = &null; self.conv = &null; }
     fn OverloadResolution(self, sc: *SemaContext, conv: *Conversion) {
@@ -265,9 +276,15 @@ class OverloadResolution {
     ///                against `Drawable` would reject a correct call. Null
     ///                when there is no receiver, or when the caller has none
     ///                to offer.
+    /// \param qualifier  the interface instance a qualified requirement call
+    ///                   names (`Container<i32>::get(b, 0)`): its arguments
+    ///                   are the requirement's interface parameters, decided
+    ///                   before any argument is ranked, as an extension's are
+    ///                   by the receiver. Null on every other call.
     fn resolve(self, cands: *vec::<*Decl>, args: *vec::<ArgInfo>, has_receiver: bool,
-               at: SourceRange, name: string, receiver: *Type = &null) -> OvlResult {
-        return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver);
+               at: SourceRange, name: string, receiver: *Type = &null,
+               qualifier: *Type = &null) -> OvlResult {
+        return self.resolve_mixed(cands, args, has_receiver, &null, &null, at, name, receiver, false, qualifier);
     }
 
     /// resolve() for a call whose callee is DEPENDENT but nameable -- a
@@ -314,7 +331,7 @@ class OverloadResolution {
     fn resolve_mixed(self, members: *vec::<*Decl>, margs: *vec::<ArgInfo>, has_receiver: bool,
                      frees: *vec::<*Decl>, fargs: *vec::<ArgInfo>,
                      at: SourceRange, name: string, receiver: *Type = &null,
-                     defer: bool = false) -> OvlResult {
+                     defer: bool = false, qualifier: *Type = &null) -> OvlResult {
         var out = OvlResult{};
         // \p receiver carries the OBJECT's cv (a const object's method call
         // ranks on it, _judge_receiver); everything downstream of the
@@ -327,7 +344,7 @@ class OverloadResolution {
         }
 
         var cs = vec::<Candidate>();
-        self._collect(&cs, members, margs, has_receiver, receiver, false, defer);
+        self._collect(&cs, members, margs, has_receiver, receiver, false, defer, qualifier);
         if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true, defer); }
 
         if cs.size() == 0 {
@@ -344,7 +361,20 @@ class OverloadResolution {
             if cs[i].viable && (cs[i].rank < best) { best = cs[i].rank; }
         }
         if best == 255 {
-            self._report_no_viable(&cs, at, name);
+            // An argument already diagnosed (poisoned) is no candidate's
+            // fault: "no matching overload" for it only repeats that error.
+            var any_poisoned = false;
+            if margs != &null {
+                for var i: usize = 0; i < margs->size(); ++i {
+                    if ((*margs)[i].expr != &null) && (*margs)[i].expr->is_poisoned() { any_poisoned = true; }
+                }
+            }
+            if fargs != &null {
+                for var i: usize = 0; i < fargs->size(); ++i {
+                    if ((*fargs)[i].expr != &null) && (*fargs)[i].expr->is_poisoned() { any_poisoned = true; }
+                }
+            }
+            if !any_poisoned { self._report_no_viable(&cs, at, name); }
             out.outcome = OvlOutcome::NoViable;
             return out;
         }
@@ -612,11 +642,16 @@ class OverloadResolution {
     /// \p cs, skipping one \p cs already holds (fwd + def are one entity,
     /// RedeclMerge; and a decl reached as both member and ADL free is one).
     priv fn _collect(self, cs: *vec::<Candidate>, cands: *vec::<*Decl>, args: *vec::<ArgInfo>,
-                     has_receiver: bool, receiver: *Type, free: bool, defer: bool = false) {
+                     has_receiver: bool, receiver: *Type, free: bool, defer: bool = false,
+                     qualifier: *Type = &null) {
         if cands == &null { return; }
         for var i: usize = 0; i < cands->size(); ++i {
             var f = dyn_cast::<FunctionDecl>((*cands)[i]);
             if f == &null { continue; }
+            // A `where` group is one candidate with one signature, and a
+            // call binds to its lead, the function WhereDispatchLowering
+            // makes the dispatcher (FunctionDecl::where_lead).
+            if f->where_lead != &null { f = f->where_lead; }
             if f->is_poisoned() { continue; }
             if NameLookup::is_specialization(static_cast::<*Decl>(f)) { continue; }   // OverloadResolution pairs later.
             var seen = false;
@@ -631,12 +666,60 @@ class OverloadResolution {
             c.defer   = defer;
             c.generic = f->generic_params.size() > 0;
             c.ded     = Deduction(self.sc, self.conv);
-            self._judge(&c, args, has_receiver, receiver);
+            if !self._bind_explicit(&c) { cs->push_back(c); continue; }
+            self._judge(&c, args, has_receiver, receiver, qualifier);
             cs->push_back(c);
         }
     }
 
     // === one candidate ======================================================
+
+    /// explicit_args into \p c's deduction, positionally. More arguments than
+    /// \p c has generic parameters, or any for a non-generic one, makes it
+    /// not viable; a value where a type parameter is (or the reverse) too.
+    priv fn _bind_explicit(self, c: *Candidate) -> bool {
+        var n = self.explicit_args.size();
+        if n == 0 { return true; }
+        var gps = c->f->generic_params;
+        if n > gps.size() {
+            c->viable = false;
+            c->reason = f"it takes {gps.size()} generic argument(s), and {n} were written";
+            return false;
+        }
+        for var i: usize = 0; i < n; ++i {
+            var gp = gps[i];
+            var a  = self.explicit_args[i];
+            if (gp == &null) || (a == &null) || (gp->owner == &null) { continue; }
+            // A type pack deduces from the arguments only (PANIC.md §1.2):
+            // written elements would have to be checked against the
+            // arguments one by one, which nothing does yet.
+            if gp->is_pack {
+                c->viable = false;
+                var pn = self.sc->ctx->get_spelling(gp->name);
+                c->reason = f"'{pn}' is a type pack, deduced from the arguments; it cannot be written as a generic argument yet";
+                return false;
+            }
+            var ca = canon_unqual(a);
+            var is_value = isa::<TypeExpr>(ca) && cast::<TypeExpr>(ca)->is_value;
+            if isa::<GenericParamType>(ca) {
+                var g  = cast::<GenericParamType>(ca);
+                var ps = decl_generic_params(g->owner);
+                var ix = static_cast::<usize>(g->param_index);
+                if (g->owner != &null) && (ix < ps.size()) && (ps[ix] != &null) { is_value = ps[ix]->is_const_param; }
+            }
+            if is_value != gp->is_const_param {
+                c->viable = false;
+                var nm = self.sc->ctx->get_spelling(gp->name);
+                c->reason = (f"'{nm}' is a generic value parameter, and argument {i + 1} is a type") if (gp->is_const_param) else (f"'{nm}' is a type parameter, and argument {i + 1} is a value");
+                return false;
+            }
+            c->ded.bind(gp->owner, gp->index, a);
+            // As a receiver's args do: a parameter they decide ranks as the
+            // type it is, so `gen<i64>(4)` takes the literal as an i64.
+            c->ded.seeded = true;
+        }
+        return true;
+    }
 
     /// The implicit object parameter ([over.match.funcs]/4): the receiver
     /// OBJECT against `self`, whose canonical carries the method's cv -- a
@@ -645,6 +728,45 @@ class OverloadResolution {
     /// reference would: a const object cannot bind a plain `self`, and
     /// either object binds `const self`. \p receiver's own cv is the
     /// object's; null means no object is known, and nothing is judged.
+    /// \p f is declared in the body of a partial specialization.
+    priv fn _member_of_partial(self, f: *FunctionDecl) -> bool {
+        if f->semantic_dc == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+        var owner = dc->owner_decl();
+        return (owner != &null) && (decl_spec_kind(owner) == SpecKind::Partial);
+    }
+
+    /// \p f is declared in the body of the pattern \p receiver is a
+    /// concrete instance of (`Opt<i32>` for a member of `class <T> Opt`).
+    /// An inherited member is not: its parameters are its own record's.
+    priv fn _member_of_instance(self, f: *FunctionDecl, receiver: *Type) -> bool {
+        if f->semantic_dc == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+        var owner = dc->owner_decl();
+        if owner == &null { return false; }
+        var r = dyn_cast::<RecordType>(canon_unqual(receiver));
+        if (r == &null) || (r->args.size() == 0) || r->is_dependent() || r->is_instantiation_dependent() { return false; }
+        return NameLookup::representative(owner) == NameLookup::representative(self.tu.pattern_of(r->decl));
+    }
+
+    /// The instance of \p c's declaring interface that a bound of the
+    /// parameter \p receiver names, read through the bound's `derives` chain
+    /// (`C impl Wrapped<i32>` declares Container's `get` at
+    /// `Container<Wrap<i32>>`); null when \p receiver is no bounded
+    /// parameter or no bound declares the candidate. The first bound that
+    /// does wins: two bounds reaching one requirement at different
+    /// arguments is a conflict the bounds' own checking owns, not this call.
+    priv fn _bound_declaring(self, c: *Candidate, receiver: *Type) -> *Type {
+        var bs = self.tu.bound_ifaces(receiver);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var di = c->ded.declaring_instance(c->f, bs[i]);
+            if di != &null { return di; }
+        }
+        return &null;
+    }
+
     priv fn _judge_receiver(self, c: *Candidate, p: *ParamDecl, receiver: *Type) {
         if (receiver == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return; }
         var sq = canon_quals(p->type_->canonical);
@@ -659,7 +781,7 @@ class OverloadResolution {
     }
 
     priv fn _judge(self, c: *Candidate, args: *vec::<ArgInfo>, has_receiver: bool,
-                   receiver: *Type) {
+                   receiver: *Type, qualifier: *Type = &null) {
         var f = c->f;
 
         // parameter slots, skipping the receiver when it is bound elsewhere.
@@ -681,6 +803,45 @@ class OverloadResolution {
             c->viable = false;
             c->reason = "the receiver is not an instance this extension applies to";
             return;
+        }
+        // A member of a PARTIAL specialization is over the partial's own
+        // parameters, which no argument need name the way it is passed:
+        // `Store(self, v: *const P)` called with a `*i32` deduces nothing
+        // (the pointee lacks the const), yet `Store<*const i32>` already
+        // says P := i32. The receiver binds them before any argument is
+        // ranked.
+        //
+        // A primary's members the same, on a concrete instance: the record's
+        // parameters are its arguments, not a guess from the call's. Left to
+        // the arguments, `fn Opt(self, v: T)` deduced T := NullT from
+        // `Opt<i32>(NullT {})` and tied the exact `fn Opt(self, n: NullT)`;
+        // a constructor has no `self` argument to bind T first. A dependent
+        // receiver is defer mode's (member_through), or deduces as before.
+        if (receiver != &null) && self._member_of_partial(f) {
+            c->ded.bind_from_record(canon_unqual(receiver));
+            c->ded.seeded = true;
+        } else if (receiver != &null) && (!c->defer) && self._member_of_instance(f, receiver) {
+            c->ded.bind_from_record(canon_unqual(receiver));
+            c->ded.seeded = true;
+        }
+        // `Container<i32>::get(b, 0)`: the requirement's interface parameters
+        // are the qualifier's, so `-> T` reads i32 and `x: T` takes one. Left
+        // to the arguments, nothing binds a T the parameters never name.
+        if qualifier != &null {
+            var di = c->ded.declaring_instance(f, qualifier);
+            if di != &null { c->ded.bind_from_record(di); c->ded.seeded = true; }
+        } else if receiver != &null {
+            // `c.get(1)` through `C impl PW<i32>`: the bound is the qualifier
+            // the call did not write. The body is checked once, against its
+            // bounds (MONO.md D0), so the requirement means what the bound
+            // says at the bound's arguments -- `-> Wrap<V>` reads `Wrap<i32>`
+            // -- and the result is an ordinary value. Left unbound, V made
+            // the result unknown: nothing checked `var z: Q = c.shine()`, and
+            // `c.get(1).w` reached codegen with its member step unbound.
+            // A non-generic interface has nothing to bind, and its `Self` is
+            // call_result_type's (through_receiver), so it is not seeded.
+            var di = self._bound_declaring(c, receiver);
+            if (di != &null) && (self.tu.record_args(di).size() > 0) { c->ded.bind_from_record(di); c->ded.seeded = true; }
         }
 
         var nparams = params.size();
@@ -814,7 +975,12 @@ class OverloadResolution {
             }
         }
 
-        // 4. rank every placed argument.
+        // 4. rank every placed argument. A type pack is bound even when no
+        //    argument reaches it: `f()` of `fn <...T> f(...xs: T)` is T = {}.
+        if (pack_at != usize(-1)) && param_is_type_pack(params[pack_at]) {
+            var pg = cast::<GenericParamType>(canon_unqual(params[pack_at]->type_->canonical));
+            c->ded.open_pack(pg->owner, pg->param_index);
+        }
         for var i: usize = 0; i < args->size(); ++i {
             var a  = &((*args)[i]);
             var pi = c->arg_to_param[i];
@@ -849,8 +1015,9 @@ class OverloadResolution {
             }
 
             if pt == &null {
-                // dependent-but-uncanonical parameter (`[T; N]`, alias app):
-                // cannot decide here; accept at Converted and let M2 judge.
+                // dependent-but-uncanonical parameter (`[T; N]`, an alias
+                // application substitution could not rewrite): cannot
+                // decide here; accept at Converted and let M2 judge.
                 if (p->type_ != &null) && (p->type_->is_dependent() || p->type_->is_instantiation_dependent()) {
                     if c->rank < 1 { c->rank = 1; }
                     continue;
@@ -874,8 +1041,16 @@ class OverloadResolution {
                     c->reason = f"parameter '{pn}' is '@inout' and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}\x27";
                     return;
                 }
+                // The type it was ranked against: on `Box<i32>`, `v: T`
+                // takes an i32, and "of type 'T'" names nothing the caller
+                // can pass.
+                var shown = pt;
+                if c->ded.seeded && pt->is_dependent() {
+                    var sp = c->ded.substitute(pt);
+                    if sp != &null { shown = sp; }
+                }
                 c->viable = false;
-                c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(pt)}\x27";
+                c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(shown)}\x27";
                 return;
             }
             // An unmarked argument reaching `@inout` is TOLERATED (CallTyping
@@ -985,6 +1160,18 @@ class OverloadResolution {
         // (VariadicPackType shares it). Bind nothing -- a pack is one slot
         // with many types, and the registry does not model that yet -- accept.
         if is_pack {
+            // A type pack's element is the argument's own type, by value (a
+            // literal its default): that is the instance's element, and what
+            // C++'s `T... xs` deduces from the same argument.
+            var pg = dyn_cast::<GenericParamType>(pt);
+            if (pg != &null) && pg->is_pack {
+                var et: *Type = &null;
+                if a->lit != LitKind::None { et = self._literal_default(a, pt); }
+                else if a->ty != &null     { et = self.tu.as_value(a->ty); }
+                if et == &null { return ImplicitRank::None; }   // `null`, `.V`: no type to deduce an element from.
+                c->ded.push_pack(pg->owner, pg->param_index, et);
+                return ImplicitRank::Exact;
+            }
             if pt->is_dependent() { return ImplicitRank::Converted; }
             if a->lit != LitKind::None { return self._rank_literal_arg(a, pt); }
             return self.conv->implicit_arg(a->ty, pt, a->cat, a->is_const);

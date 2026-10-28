@@ -92,6 +92,7 @@ class <D> RecursiveASTVisitor {
             case TypeKind::CXXRValueRefType      { return self.dyn()->traverse_cxxr_value_ref_type(      cast::<CXXRValueRefType>(e)       ); }
             case TypeKind::FunctionPointerType   { return self.dyn()->traverse_function_pointer_type(    cast::<FunctionPointerType>(e)    ); }
             case TypeKind::SubstGenericParamType { return self.dyn()->traverse_subst_generic_param_type( cast::<SubstGenericParamType>(e)  ); }
+            case TypeKind::AssocType             { return e; }   // canonical only: never in a written tree.
             case TypeKind::RecoveryType          { self.dyn()->visit_type(e); return e; }
             case TypeKind::TypeKindCount         {  ICE_FAIL("TypeKind::TypeKindCount reached RAV - this is a bug"); return &null; }
         }
@@ -259,6 +260,10 @@ class <D> RecursiveASTVisitor {
         }
         if n->return_type != &null {               // null on unprototyped path
             n->return_type = self.dyn()->dispatch_type(n->return_type);
+        }
+        for var i: usize = 0; i < n->panic_set.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(*(n->panic_set.get(i))); // discard return
         }
         return n;
     }
@@ -486,6 +491,10 @@ class <D> RecursiveASTVisitor {
             case ExprKind::RangeExpr                { return self.dyn()->traverse_range_expr(                 cast::<RangeExpr>(e)                ); }
             case ExprKind::ClosureExpr              { return self.dyn()->traverse_closure_expr(               cast::<ClosureExpr>(e)              ); }
             case ExprKind::AwaitExpr                { return self.dyn()->traverse_await_expr(                 cast::<AwaitExpr>(e)                ); }
+            case ExprKind::UnwrapExpr               { return self.dyn()->traverse_unwrap_expr(                cast::<UnwrapExpr>(e)               ); }
+            case ExprKind::DefinedExpr              { return self.dyn()->traverse_defined_expr(               cast::<DefinedExpr>(e)              ); }
+            case ExprKind::AttributedExpr           { return self.dyn()->traverse_attributed_expr(            cast::<AttributedExpr>(e)           ); }
+            case ExprKind::PanicOpExpr              { return self.dyn()->traverse_panic_op_expr(              cast::<PanicOpExpr>(e)              ); }
             case ExprKind::SpawnExpr                { return self.dyn()->traverse_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->traverse_thread_expr(                cast::<ThreadExpr>(e)               ); }
             case ExprKind::ConstraintExpr           { return self.dyn()->traverse_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
@@ -809,6 +818,11 @@ class <D> RecursiveASTVisitor {
 
         if self.stop { return n; }
 
+        for var i: usize = 0; i < n->panic_set.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(*(n->panic_set.get(i))); // discard
+        }
+        if self.stop { return n; }
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
         if n->body_block  != &null { n->body_block = self.dyn()->traverse_block(n->body_block); }
         if n->body_expr   != &null { n->body_expr  = self.dyn()->dispatch_expr(n->body_expr); }
@@ -819,6 +833,43 @@ class <D> RecursiveASTVisitor {
     fn traverse_await_expr(self, n: *AwaitExpr) -> *AwaitExpr {
         if self.dyn()->walkup_await_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
+        return n;
+    }
+
+    fn traverse_defined_expr(self, n: *DefinedExpr) -> *DefinedExpr {
+        self.dyn()->walkup_defined_expr(n);
+        return n;
+    }
+
+    fn traverse_unwrap_expr(self, n: *UnwrapExpr) -> *UnwrapExpr {
+        if self.dyn()->walkup_unwrap_expr(n) == false { return n; }
+        if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
+        return n;
+    }
+
+    /// The attribute's arguments, then its operand. The name is the
+    /// attribute's, not a name use: walking it would make every visitor see
+    /// an unbound identifier (as a named call argument's label would).
+    fn traverse_attributed_expr(self, n: *AttributedExpr) -> *AttributedExpr {
+        if self.dyn()->walkup_attributed_expr(n) == false { return n; }
+        for var i: usize = 0; i < n->args.size(); i++ {
+            if self.stop { break; }
+            var a = *(n->args.get(i));
+            var value = named_call_arg_value(a);
+            if value != &null { self.dyn()->dispatch_expr(value); continue; }
+            self.dyn()->dispatch_expr(a);  // discard
+        }
+        if self.stop { return n; }
+        if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
+        return n;
+    }
+
+    /// The slot, then the operand (a SlotPut builds the slot from it).
+    fn traverse_panic_op_expr(self, n: *PanicOpExpr) -> *PanicOpExpr {
+        if self.dyn()->walkup_panic_op_expr(n) == false { return n; }
+        if n->slot != &null { self.dyn()->dispatch_expr(n->slot); }
+        if self.stop { return n; }
+        if n->operand != &null { self.dyn()->dispatch_expr(n->operand); }
         return n;
     }
 
@@ -1071,6 +1122,26 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_await_expr(n);
     }
 
+    fn walkup_attributed_expr(self, n: *AttributedExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_attributed_expr(n);
+    }
+
+    fn walkup_panic_op_expr(self, n: *PanicOpExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_panic_op_expr(n);
+    }
+
+    fn walkup_defined_expr(self, n: *DefinedExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_defined_expr(n);
+    }
+
+    fn walkup_unwrap_expr(self, n: *UnwrapExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_unwrap_expr(n);
+    }
+
     fn walkup_spawn_expr(self, n: *SpawnExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_spawn_expr(n);
@@ -1181,6 +1252,10 @@ class <D> RecursiveASTVisitor {
     fn visit_range_expr(                  self, n: *RangeExpr                ) -> bool { return true; }
     fn visit_closure_expr(                self, n: *ClosureExpr              ) -> bool { return true; }
     fn visit_await_expr(                  self, n: *AwaitExpr                ) -> bool { return true; }
+    fn visit_unwrap_expr(                 self, n: *UnwrapExpr               ) -> bool { return true; }
+    fn visit_defined_expr(                self, n: *DefinedExpr              ) -> bool { return true; }
+    fn visit_attributed_expr(             self, n: *AttributedExpr           ) -> bool { return true; }
+    fn visit_panic_op_expr(               self, n: *PanicOpExpr              ) -> bool { return true; }
     fn visit_spawn_expr(                  self, n: *SpawnExpr                ) -> bool { return true; }
     fn visit_thread_expr(                 self, n: *ThreadExpr               ) -> bool { return true; }
     fn visit_constraint_expr(             self, n: *ConstraintExpr           ) -> bool { return true; }
@@ -1654,6 +1729,11 @@ class <D> RecursiveASTVisitor {
             self.dyn()->dispatch_decl(*(n->params.get(i)));          // discard
         }
         if self.stop { return n; }
+        for var i: usize = 0; i < n->panic_set.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(*(n->panic_set.get(i)));       // discard
+        }
+        if self.stop { return n; }
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
         if n->qualifier   != &null { n->qualifier   = self.dyn()->dispatch_expr(n->qualifier); }  // out-of-line Class:: path
         if n->body_block  != &null { n->body_block  = self.dyn()->traverse_block(n->body_block); }
@@ -1939,6 +2019,8 @@ class <D> RecursiveASTVisitor {
             if self.stop { break; }
             self.dyn()->dispatch_decl(*(n->body.get(i)));  // discard
         }
+        // a member-position `eval if` / `eval for` (EvalBlockDecl::stmt)
+        if (n->stmt != &null) && (!self.stop) { n->stmt = self.dyn()->dispatch_stmt(n->stmt); }
         return n;
     }
 

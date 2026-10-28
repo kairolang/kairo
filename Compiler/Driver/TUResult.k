@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Driver::TUStage::*;
+import Location::SourceRange::*;
 
 /// Result record for a single translation unit, returned by \c FrontendAction.
 ///
@@ -27,6 +28,10 @@ class TUResult {
     pub var stage:        TUStage; ///< Last stage reached before halt or Done.
     pub var had_fatal:    bool;    ///< True if this TU emitted a fatal diagnostic.
     pub var objects:      vec::<string>; ///< objects this TU's action emitted, in emission order
+    /// The first top-level statement of the script this action lowered
+    /// into `main` (SemaContext::script_at); invalid when it compiled no
+    /// script. The batch reads it to reject two scripts in one link.
+    pub var script_at:    SourceRange = SourceRange::invalid();
 
     fn TUResult(self) {
         self.path        = "";

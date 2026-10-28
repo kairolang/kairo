@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -26,9 +26,9 @@
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: error [R013E]:
-// AST: {{.*}}: error [R013E]:
-// END-GENERATED-CHECKS
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R013E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [R013E]:
+// END-GENERATED-CHECKS(AST)
 
 // Scope isolation: module frames must pop on their closing `}` so sibling
 // modules don't nest and macro scopes stay separated.
@@ -37,7 +37,7 @@
 // registered under [std, foo] and failed to resolve while bare eprint!
 // leaked to the last open scope).
 
-// SEPARATE:
+// ----------------------------------------------------------------------------
 module std {
     macro eprint!(...t) { fprintf(stderr, t) }
 }
@@ -48,7 +48,7 @@ std::eprint!(1)   // std body (fprintf ...); registered under [std]
 foo::eprint!(1)   // foo body (print "yes"); registered under [foo], MUST resolve
 eprint!(1)        // R013E: bare name not visible at file scope, no scope leak
 
-// SEPARATE:
+// ----------------------------------------------------------------------------
 module a {
     module b {
         macro m!() { 1 }   // registered under [a, b]

@@ -82,8 +82,11 @@ class <T> TemplateParams {
     /// (`<i32>`, `<[T]>`). Empty for None/Primary-via-`<T>` forms.
     pub var spec_args: FrozenList::<*Type>;
 
-    ///   Instantiated   the pattern: the primary, or a partial spec once M2
-    ///                  selects one. Written by the registry, repointed by M2.
+    ///   Instantiated   the primary, always: "an instance of which template".
+    ///                  A partial spec whose pattern the args select is the
+    ///                  BODY, kept on the registry entry (InstanceEntry::
+    ///                  pattern; SemaContext::body_of), never here. Written
+    ///                  by the registry.
     ///   Explicit/Partial  the primary. Written by T at registration.
     ///   None/Primary   null.
     pub var instantiated_from: *Decl = &null;
@@ -165,6 +168,13 @@ enum FnModifier derives u16 {
     IsFinal    = 1 << 5,
     IsPanic    = 1 << 6,
     IsInline   = 1 << 7,
+    /// Compiler-set only: C++ `constexpr` (usable at compile time AND at
+    /// run time), for a field default's thunk in an eval class, which an
+    /// eval (consteval) constructor runs (EVAL.md 7b), and for the builtin
+    /// string's literal and empty constructors, which build compile-time
+    /// strings (2a; NameResolution::_literal_ctor_constexpr). Always with
+    /// IsInline.
+    IsConstexpr = 1 << 8,
 }
 
 // INLINE(cxx-feature: operators on an enum type)
@@ -183,6 +193,19 @@ enum FnBodyKind derives u8 {
     Default,    ///< `= default` compiler-generated.
     Delete,     ///< `= delete` deleted.
     Virtual,    ///< `= virtual` pure virtual (abstract).
+}
+
+/// Whether a function's or closure's final panic set (`panic_eff`) can be
+/// read yet (PANIC.md §2.2: sets are final only past the whole-program
+/// barrier).
+enum PanicSetState derives u8 {
+    None = 0,   ///< not solved yet (or the function never reached the solve).
+    Final,      ///< panic_eff is the set; empty means it does not panic.
+    Unknown,    ///< its TU stopped before typing finished: say nothing about it.
+    /// A generic body's inferred set that grows without bound: a recursive
+    /// call at ever-larger type arguments (`f<Box<T>>` inside `f<T>`) adds
+    /// a deeper type each round. Reported at the function; read as Unknown.
+    Diverged,
 }
 
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
@@ -205,7 +228,45 @@ enum AdtRole derives u8 {
     Dtor,
     Destroy,         ///< destroys the active payload: `__kairo_destroy()`.
     ConstructFrom,   ///< builds a payload from another value's: `__kairo_construct_from(o)`.
+    Which,           ///< the variant held, as the tag enum: `__kairo_which()`, in either layout.
+
+    // The Nullable lang item's C++ surface (NULLABLE.md 1.2); only that
+    // enum's record has them. Every implicit `T -> T?` / `null -> T?` is one
+    // of the four constructors, so none is `explicit`. Kept last:
+    // adt_role_is_nullable is the range from NullDefault on.
+    NullDefault,     ///< `Nullable()`: null.
+    NullFrom,        ///< `Nullable(null_t)`: null. Its one parameter carries null_t's type.
+    ValueCopy,       ///< `Nullable(const T&)`: present, the payload copied in place.
+    ValueMove,       ///< `Nullable(T&&)`: present, the payload moved in place.
+    IsNull,          ///< `bool is_null() const`.
+    ValueRef,        ///< `T& __value()`, UNCHECKED: the desugars call it only where non-null is proven.
+    ValueCref,       ///< `const T& __value() const`, the same.
+    Equal,           ///< `operator==`, when T has one: null == null, null != a value. C++20 derives `!=`.
 }
+
+/// How an ADT variant with a payload is constructed in C++
+/// (EnumVariantDecl::adt_ctor). EnumLayoutLowering decides it; InterfaceEmitter
+/// declares the constructor(s) it names and EmitIR calls one.
+///
+///   Fields   `E(__kairo_vt<I>, F0 f0, F1 f1)`: one non-template constructor
+///            taking each field by value. Every field is trivially copied
+///            and destroyed, so the move out of the parameter and its
+///            destruction run no code: the same program as the lambda form.
+///   Lambda   `template <class F> E(__kairo_vt<I>, F&& f)`: the payload is
+///            the callable's prvalue, so a field that cannot move is still
+///            built in place.
+///   Both     a generic ADT, whose fields' movability C++ learns per
+///            instance: the field constructor, constrained on it, beside the
+///            lambda one. A site picks (VariantInitExpr::field_ctor).
+enum AdtCtorForm derives u8 {
+    Lambda = 0,
+    Fields,
+    Both,
+}
+
+/// \p r is one of the Nullable lang item's surface roles, which
+/// InterfaceEmitter renders apart from every other ADT member.
+fn adt_role_is_nullable(r: AdtRole) -> bool { return r >= AdtRole::NullDefault; }
 
 /// Which of the three forms of an ADT special member a role function is
 /// (FunctionDecl::adt_form). A generic ADT declares all three, constrained
@@ -260,7 +321,7 @@ enum GenericParamKindBound derives u8 {
     Struct,
     Enum,
     Union,
-    Duck,      ///< `: type`: full C++ duck typing, every member access deferred to M2.
+    Duck,      ///< `: type`: C++ duck typing, every member access left to clang per instance (-fduck-generics; MONO.md D1).
 }
 
 class GenericParamDecl derives Decl {
@@ -274,6 +335,9 @@ class GenericParamDecl derives Decl {
     /// Null for a closure's params (a closure is not a decl) and before T.
     pub var owner:          *Decl = &null;
     pub var kind_bound:     GenericParamKindBound = GenericParamKindBound::Any;
+    /// `: class` ... `: type` as written, colon through keyword; invalid when
+    /// there is no kind bound. FlagGates labels and deletes `: type` by it.
+    pub var kind_bound_range: SourceRange = SourceRange::invalid();
     pub var impl_bounds:    FrozenList::<InheritEdge>;  ///< `impl` interface bounds (structural).
     pub var derives_bounds: FrozenList::<InheritEdge>;  ///< `derives` base bounds (nominal, vtable).
     pub var is_pack:        bool = false;           ///< `...T` variadic pack.
@@ -294,6 +358,7 @@ class GenericParamDecl derives Decl {
         node->init_annotations(&(ctx->ast_alloc));;
         node->name  = name;
         node->index = index;
+        node->kind_bound_range = SourceRange::invalid();
         return node;
     }
 
@@ -469,6 +534,51 @@ class FunctionDecl
     pub var return_type:  *Type = &null;          ///< null => void (or inferred for expr body).
     pub var abi:           AbiKind    = AbiKind::None;
     pub var modifiers:     FnModifier = FnModifier::None;
+    /// The declared set of `panic(E1, E2)` (PANIC.md §2.2), as written: one
+    /// type per element, resolved by T like any written type. Empty for a
+    /// bare `panic` (the set is inferred) and for a function that does not
+    /// panic; `panic()` is a parse error and parses as bare `panic`, so a
+    /// non-empty list is exactly "the set was declared". Nothing checks it
+    /// yet (P3/P4); it is recorded for them.
+    pub var panic_set:     FrozenList::<*Type>;
+    /// The `panic` specifier as written, its set's `)` included; invalid
+    /// when there is none. `params_end` is the parameter list's `)`. Both
+    /// are the parser's, for fix-its: one removes the specifier, the other
+    /// inserts one (PanicEffectChecking).
+    pub var panic_range:   SourceRange;
+    pub var params_end:    SourceRange;
+    /// The function's FINAL panic set (PANIC.md §2): canonical, deduplicated,
+    /// in the canonical order (EffectPropagation::canonical_set). The
+    /// declared set canonicalized, or the inferred one. Empty for a function
+    /// that does not panic. `panic_state` says whether it can be read:
+    /// PanicSetState::Final once EffectPropagation solved it, Unknown when
+    /// the function's TU stopped before typing finished (a call to it then
+    /// reports nothing). One writer: EffectPropagation, onto every link of
+    /// the redeclaration chain, as no_unwind is.
+    pub var panic_eff:     FrozenList::<*Type>;
+    pub var panic_state:   PanicSetState = PanicSetState::None;
+    /// What C++ sees the function return when it panics: `Panic<T, E...>`
+    /// over `panic_eff` (PANIC.md §4.1), formed by PanicLowering in the
+    /// function's own TU, on every link of the chain. `return_type` stays T:
+    /// an importer's typing reads it after this TU lowered, and a call's
+    /// value is T. Null for a function that does not panic. Codegen spells
+    /// the signature from this when it is set (CXXSpell::return_spelling).
+    pub var panic_result:  *Type = &null;
+    /// The panic result types PanicLowering formed for this function's body
+    /// that are still DEPENDENT (a generic body, PANIC.md P10): its result,
+    /// each `try`'s slot, each held call's result, each bare binder. Each
+    /// instance needs them formed at its arguments (InstanceEntry::
+    /// panic_types) so their elements get their type ids in C++. Written in
+    /// the function's own TU; empty everywhere else.
+    pub var panic_deps:    FrozenList::<*Type>;
+    /// A generic body's `try`s whose typed arms could name ONE type at an
+    /// instance (`catch e: T` beside `catch e: A`): each such `try`'s arm
+    /// types, then a null, flat; `panic_arm_at` the arms' ranges, parallel
+    /// (an invalid range at each null). PanicEffectChecking records them at
+    /// the definition; the instance check (§3.1's duplicate arm, P10) reads
+    /// them once the body is lowered.
+    pub var panic_arms:    FrozenList::<*Type>;
+    pub var panic_arm_at:  FrozenList::<SourceRange>;
     pub var body_kind:     FnBodyKind = FnBodyKind::None;
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.
@@ -486,14 +596,31 @@ class FunctionDecl
     /// accepts. EmitIR reads it to give an empty generator the `co_return;`
     /// that makes it a coroutine at all, rather than walking the body itself.
     pub var has_yield:     bool = false;
-    /// `@no_unwind`: the C++ spelling carries `noexcept`, and that is all it
-    /// does. Writer: X (StmtTyping::traverse_function_decl), onto EVERY link
-    /// of the redeclaration chain, because C++ requires each declaration of
-    /// a function to agree on it and the attribute may be written on only
-    /// one of them.
+    /// The C++ spelling carries `noexcept`: every Kairo function by default,
+    /// not one marked `@unwind` or built with -funwind, always one marked
+    /// `@no_unwind` (StmtTyping::_stamp_no_unwind has the rule). Writer: X
+    /// (StmtTyping::traverse_function_decl), onto EVERY link of the
+    /// redeclaration chain, because C++ requires each declaration of a
+    /// function to agree on it and an attribute may be written on only one
+    /// of them. A function X never types (one a lowering mints) stays
+    /// false, on its declaration and definition alike.
     pub var no_unwind:     bool = false;
     pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
     pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
+    /// The function a `where` dispatch group is called through, stamped on
+    /// every member of the group (itself included), null on every other
+    /// function. A group is the same-signature overloads of one name in one
+    /// scope that differ only by their guards; RedeclMerge links them into
+    /// one chain and writes this, its first-declared link, which
+    /// WhereDispatchLowering turns into the dispatcher. OverloadResolution
+    /// binds a call to it, so every call site names the one function C++
+    /// will see.
+    pub var where_lead:   *FunctionDecl = &null;
+    /// On a group's lead only: every member, in dispatch order, the lead
+    /// included (WhereGuardCheck files them). The dispatcher's panic set is
+    /// the union of theirs (PANIC.md §2.8, where.mdx): EffectPropagation
+    /// reads it, here and in every importing TU.
+    pub var where_group:  FrozenList::<*FunctionDecl>;
     pub var ffi_builtin_id: u32 = 0;              ///< clang builtin ID; 0 for every other function.
     pub var ffi_ice_mask:   u32 = 0;              ///< bit i: parameter i takes an integer constant.
     /// A function EnumLayoutLowering minted for an ADT's layout record, or
@@ -578,8 +705,10 @@ class FunctionDecl
     fn is_eval(self)   -> bool { return (self.modifiers & FnModifier::IsEval)   != FnModifier::None; }
     fn is_async(self)  -> bool { return (self.modifiers & FnModifier::IsAsync)  != FnModifier::None; }
     fn is_panic(self)  -> bool { return (self.modifiers & FnModifier::IsPanic)  != FnModifier::None; }
+    fn has_panic_set(self) -> bool { return !(self.panic_set.is_empty()); }
     fn is_final(self)  -> bool { return (self.modifiers & FnModifier::IsFinal)  != FnModifier::None; }
     fn is_inline(self) -> bool { return (self.modifiers & FnModifier::IsInline) != FnModifier::None; }
+    fn is_constexpr(self) -> bool { return (self.modifiers & FnModifier::IsConstexpr) != FnModifier::None; }
 
     fn is_method(self)      -> bool {
         return (self.params.size() > 0) && (self.params[0]->is_self);
@@ -587,6 +716,30 @@ class FunctionDecl
     fn is_out_of_line(self) -> bool { return self.qualifier != &null; }
     fn has_body(self)       -> bool { return self.body_kind != FnBodyKind::None; }
     fn param_count(self)    -> usize { return self.params.size(); }
+}
+
+/// How a closure holds one captured binding, as ClosureCaptures decided it
+/// (Sema/Check/CaptureAnalysis.k) and EmitIR spells it in the lambda's
+/// capture list (CODEGEN.md §6, Closures).
+///
+///   Copy        its own copy (`x`): no list, or `|x|`.
+///   Move        its own value, moved in (`x = static_cast<T&&>(x)`): a by-copy
+///               capture of a MOVE type (ownership.md, Default capture).
+///   Ptr         a pointer to the original (`x = &x`): `|*x|`, `|*|`.
+///   ConstPtr    a `*const T` to it (`x = static_cast<const T*>(&x)`).
+///   Self        the enclosing `self`, a pointer already (`this`, or an
+///               extension member's receiver parameter).
+///
+/// A binding an enclosing closure already holds by pointer is that pointer
+/// inside it (ExprTyper::_capture_view), so an inner closure copies the
+/// pointer (Copy) or converts it (ConstPtr with `via_ptr`), never takes its
+/// address again.
+enum CaptureMode derives u8 {
+    Copy,
+    Move,
+    Ptr,
+    ConstPtr,
+    Self,
 }
 
 ///
@@ -613,9 +766,36 @@ class ClosureExpr derives Expr {
     pub var return_type: *Type;      ///< null if inferred.
     pub var body_kind:   FnBodyKind = FnBodyKind::None;
     pub var modifiers:   FnModifier = FnModifier::None;
+    /// `fn (x: i32) panic(E) -> T`: the declared set, as on FunctionDecl.
+    pub var panic_set:   FrozenList::<*Type>;
+    /// As on FunctionDecl: the specifier as written and the parameter
+    /// list's `)`, for fix-its; the final set and whether it is readable.
+    pub var panic_range: SourceRange;
+    pub var params_end:  SourceRange;
+    pub var panic_eff:   FrozenList::<*Type>;
+    pub var panic_state: PanicSetState = PanicSetState::None;
+    /// As on FunctionDecl: the lambda's C++ result when it panics.
+    pub var panic_result: *Type = &null;
     pub var is_variadic:         bool = false; ///< trailing `...name: T` pack param.
     pub var is_noreturn:         bool = false;
     pub var explicit_no_capture: bool = false;
+    /// `|...|` / `||` as written, for a fix-it; invalid when there is none.
+    pub var capture_range: SourceRange;
+
+    /// What the closure holds, decided once by ClosureCaptures (CHECK) and
+    /// read by MoveCheck, FinallyLowering and EmitIR: the captured bindings
+    /// in first-use order (a named list's order for a named list), each
+    /// with its mode, parallel. `cap_via_ptr[i]`: an enclosing closure holds
+    /// `cap_decls[i]` by pointer, so the name is that pointer here.
+    /// `caps_resolved` is false until the check has run; EmitIR ICEs on it.
+    pub var cap_decls:     FrozenList::<*Decl>;
+    pub var cap_modes:     FrozenList::<CaptureMode>;
+    pub var cap_via_ptr:   FrozenList::<bool>;
+    /// The first use of each capture in the closure (a named capture's own
+    /// name in the list), parallel: what MoveCheck reads as the capture's
+    /// read. The tree's, before any lowering rebuilds it.
+    pub var cap_uses:      FrozenList::<*NamedIdentExpr>;
+    pub var caps_resolved: bool = false;
 
     static fn create(
         ctx:   *ASTContext,
@@ -628,6 +808,8 @@ class ClosureExpr derives Expr {
         node->body_block = &null;
         node->body_expr  = &null;
         node->return_type = &null;
+        node->capture_range = SourceRange::invalid();
+        node->caps_resolved = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -658,7 +840,42 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     pub var storage: StorageClass = StorageClass::Var;
     pub var type_:   *Type = &null;   ///< null => inferred from init.
     pub var init:    *Expr = &null;   ///< initializer; null for `var x: T` default-init.
-    pub var is_thread: bool = false;  ///< `static thread` thread_local storage.
+    pub var is_thread: bool = false;  ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
+    /// Raw storage for a value of `type_` that is built later and read once
+    /// (PanicOpExpr SlotPut / SlotTake): EmitIR declares it as
+    /// `::__kairo_raw<T>`, a union with an empty constructor and destructor,
+    /// so nothing is built on the path that never fills it. Only
+    /// PanicLowering's `try` slots; never written by the user.
+    pub var raw_slot: bool = false;
+    /// `static const x` / `const static x` (or `thread const`): the binding
+    /// of a Static-storage variable is const. `storage` stays the storage
+    /// keyword so every is_static() reader is unchanged; is_const() folds
+    /// this in, so every const reader is too. Never set with Const or Eval
+    /// storage (`eval const` is plain `eval`).
+    pub var const_binding: bool = false;
+    /// `var x? = e`, the nullable shorthand (variables.md, Declaration
+    /// Shorthands): the type is inferred from `init` and then made nullable,
+    /// once (`typeof(e)?`, or `typeof(e)` when that is already nullable).
+    /// The parser sets it only when `type_` is null: `var x?: T` is refused
+    /// there and recovered as `var x: T?`, so a set flag always means
+    /// "infer, then wrap" and StmtTyping has one case to handle.
+    pub var nullable_shorthand: bool = false;
+    /// `var *y = e` / `var **y = e` / `var unsafe *y = e`, the pointer
+    /// shorthand (NULLABLE.md 1.7): the number of stars written before the
+    /// name, 0 when there are none. A readability marker, never a
+    /// conversion: StmtTyping infers `typeof(e)` as for a plain `var y = e`
+    /// and checks the stars against it (depth, and the outermost pointer's
+    /// safety against `pointer_unsafe`). Like `nullable_shorthand`, set only
+    /// when `type_` is null; the parser refuses `var *y: T`.
+    pub var pointer_depth: u32 = 0;
+    pub var pointer_unsafe: bool = false;   ///< `unsafe` before the first star.
+    /// `unsafe`/first `*` through the last `*`: what a depth or safety
+    /// fix-it rewrites. Kept on the node because that fix-it is Sema's.
+    pub var pointer_range: SourceRange = SourceRange::invalid();
+    /// The storage keyword as written (`const` of `const N = 3`), for a
+    /// fix-it that rewrites it (`const` -> `eval` where a value must be
+    /// eval-able, EVAL.md 3). Invalid when the parser did not record it.
+    pub var storage_kw: SourceRange = SourceRange::invalid();
 
     static fn create(
         ctx:     *ASTContext,
@@ -691,17 +908,31 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
         return DeclKind::VariableDecl;
     }
 
-    fn is_const(self)  -> bool { return self.storage == StorageClass::Const; }
+    /// An `eval` binding is implicitly const (eval.mdx): it is never
+    /// assigned and only `const self` methods are called on it.
+    fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || (self.storage == StorageClass::Eval) || self.const_binding; }
     fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
     fn is_eval(self)   -> bool { return self.storage == StorageClass::Eval; }
     fn is_inferred(self) -> bool { return self.type_ == &null; }
+}
+
+/// The pointer shorthand as written before a binding's name: `*`, `**`,
+/// `unsafe *`. What every message and fix-it about it spells (the parser's
+/// refusals, StmtTyping's depth check, the shorthand lint, the printers).
+fn pointer_shorthand_spelling(depth: u32, is_unsafe: bool) -> string {
+    var s: string = "";
+    if is_unsafe { s = "unsafe "; }
+    for var i: u32 = 0; i < depth; ++i { s += "*"; }
+    return s;
 }
 
 /// What FieldInitLowering made of a field's initializer, for the emitter's
 /// default member initializer. None: no initializer was lowered (none was
 /// written, or a gate kept it). Int / True / False / Null: a constant the
 /// emitter spells itself, the value in FieldDecl::init_neg / init_mag for
-/// Int. Thunk: anything else, a call of FieldDecl::init_thunk.
+/// Int. Thunk: anything else, a call of FieldDecl::init_thunk. Elems: an
+/// array field's list literal, one thunk per element (FieldDecl::init_elems),
+/// since no C++ function returns an array.
 enum FieldFold derives u8 {
     None = 0,
     Int,
@@ -709,6 +940,7 @@ enum FieldFold derives u8 {
     False,
     Null,
     Thunk,
+    Elems,
 }
 
 ///
@@ -726,7 +958,8 @@ class FieldDecl derives Decl {
     pub var type_:      *Type = &null;   ///< field type; null only in recovery.
     pub var init:       *Expr = &null;   ///< at-decl default; null if none, or once FieldInitLowering has consumed it.
     pub var is_mutable: bool = false;    ///< `mutable var` escapes const-self.
-    pub var is_thread:  bool = false;    ///< `static thread` thread_local storage.
+    pub var is_thread:  bool = false;    ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
+    pub var const_binding: bool = false; ///< `static const` member; see VariableDecl::const_binding.
     pub var index:      u32 = 0;         ///< declaration order in the owning type.
     /// `type_` is the record type of an anonymous UnionDecl (`is_anonymous`),
     /// and this field is that union's one and only declaration: C++ gets
@@ -749,6 +982,8 @@ class FieldDecl derives Decl {
     pub var init_neg:   bool = false;
     pub var init_mag:   u64 = 0;
     pub var init_thunk: *Decl = &null;
+    /// `init_fold` Elems: the thunk of each element, in order.
+    pub var init_elems: FrozenList::<*Decl>;
 
     static fn create(
         ctx:     *ASTContext,
@@ -769,6 +1004,7 @@ class FieldDecl derives Decl {
         node->is_anonymous_union = false;
         node->init_fold  = FieldFold::None;
         node->init_thunk = &null;
+        node->init_elems = create_empty_frozen_list::<*Decl>();
         return node;
     }
 
@@ -781,6 +1017,7 @@ class FieldDecl derives Decl {
         node->is_anonymous_union = false;
         node->init_fold     = FieldFold::None;
         node->init_thunk    = &null;
+        node->init_elems    = create_empty_frozen_list::<*Decl>();
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -792,8 +1029,12 @@ class FieldDecl derives Decl {
         return DeclKind::FieldDecl;
     }
 
-    fn is_static(self) -> bool { return self.storage == StorageClass::Static; }
-    fn is_const(self)  -> bool { return self.storage == StorageClass::Const; }
+    /// An `eval` field is static: one compile-time value per class, not a
+    /// slot in every object (EVAL.md 1.2), so every reader that asks "is
+    /// this per object?" gets the same answer for both.
+    fn is_static(self) -> bool { return (self.storage == StorageClass::Static) || (self.storage == StorageClass::Eval); }
+    fn is_eval(self)   -> bool { return self.storage == StorageClass::Eval; }
+    fn is_const(self)  -> bool { return (self.storage == StorageClass::Const) || self.const_binding; }
 }
 
 ///
@@ -821,6 +1062,10 @@ class StructDecl
     /// operator new, so `new (&member) P(...)` needs no <new>. One writer:
     /// EnumLayoutLowering.
     pub var is_adt_payload: bool  = false;
+    /// A pack-expanded variant's payload struct: a template over one pack
+    /// element, inside which the enum's pack parameter (this) spells as that
+    /// element (InterfaceEmitter). Null for every other struct.
+    pub var adt_pack_param: *GenericParamDecl = &null;
     /// The ADT enum this record is the layout of (EnumDecl::adt_layout), or
     /// null. One writer: EnumLayoutLowering.
     pub var adt_of:         *Decl = &null;
@@ -835,6 +1080,12 @@ class StructDecl
     /// identity, never the name `TupleN` (a user may declare one). One
     /// writer: TupleRecords.
     pub var tuple_arity:    u32           = 0;
+    /// This record is the `null_t` lang item: InterfaceEmitter writes the
+    /// one constant of it, `null`, after its definition, for C++ hosts
+    /// (`null` is a Kairo keyword, so no Kairo declaration can name it).
+    /// Codegen has no route to well_known, hence a flag. One writer:
+    /// NameResolution::fill_lang_items.
+    pub var is_null_type:   bool          = false;
 
     static fn create(
         ctx:    *ASTContext,
@@ -850,9 +1101,11 @@ class StructDecl
         node->init_dc(DeclContextKind::Struct, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         node->is_adt_payload = false;
+        node->adt_pack_param = &null;
         node->adt_of         = &null;
         node->assign_from    = &null;
         node->assign_form    = AssignForm::Implicit;
+        node->is_null_type   = false;
         return node;
     }
 
@@ -865,6 +1118,7 @@ class StructDecl
         node->init_dc(DeclContextKind::Struct, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         node->is_adt_payload = false;
+        node->adt_pack_param = &null;
         node->adt_of         = &null;
         node->assign_from    = &null;
         node->assign_form    = AssignForm::Implicit;
@@ -957,6 +1211,16 @@ class ClassDecl
 ///  as FunctionDecl with body_kind == None. `derives_list` is interface
 ///  inheritance (additive, no state).
 ///
+/// One requirement of an interface AFTER composition (InterfaceComposition):
+/// the interface normalized into a plain list, as if written out by hand.
+struct Requirement {
+    var decl:       *Decl;   ///< the ORIGINAL member: a FunctionDecl, or an associated TypeAliasDecl.
+    var source:     *Type;   ///< the canonical interface instance it came through (`Y<i32>`); its own interface's for an own member.
+    var leaf:       u32;     ///< the derives_list index it came through (provenance); u32(-1) for an own member.
+    var bounds:     *Expr;   ///< an associated type's bounds after `+` / `&` merged them (requires-style `&&`); else its own clause.
+    var default_ty: *Type;   ///< an associated type's kept default, or null.
+}
+
 class InterfaceDecl
   derives Decl,
           DeclContext,
@@ -966,6 +1230,25 @@ class InterfaceDecl
     pub var name:         Token;
     pub var methods:      FrozenList::<*FunctionDecl>;  ///< requirement signatures.
     pub var derives_list: FrozenList::<InheritEdge>;    ///< parent interfaces.
+    /// The `derives` clause as written, when it is an EXPRESSION over
+    /// interfaces (`X + (Y - Z)`, `A, B` as `A + B`): BinaryOperatorExpr
+    /// nodes, op `+` / `-` / `&`, over the leaves as the expression parser
+    /// read them (names, `::` chains, generic applications). Leaf i, in
+    /// source order, is `derives_list[i]`'s type: the leaves are resolved
+    /// as types there, and nothing walks this tree but InterfaceComposition.
+    /// Null for no `derives`.
+    pub var derives_expr: *Expr = &null;
+    /// The clause uses `-` or `&`: not a plain union. Until composition is
+    /// compiled such an interface is rejected (InterfaceComposition).
+    pub var derives_composed: bool = false;
+    /// End of the derives clause: where an LSP shows the derived body.
+    pub var derives_end: SourceRange;
+    /// Every requirement, own and derived, deduplicated: what binding,
+    /// conformance and witnesses read. Written once by InterfaceComposition.
+    pub var requirements: FrozenList::<Requirement>;
+    /// InterfaceComposition's progress: 0 not yet, 1 in progress (a cycle
+    /// reaching it again is an error), 2 done.
+    pub var compose_state: u8 = 0;
 
     static fn create(
         ctx:    *ASTContext,
@@ -977,6 +1260,9 @@ class InterfaceDecl
         node->kind  = DeclKind::InterfaceDecl;
         node->range = range;
         node->name  = name;
+        node->derives_expr     = &null;
+        node->derives_composed = false;
+        node->compose_state    = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Interface, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
@@ -1080,6 +1366,14 @@ class EnumVariantDecl derives Decl {
     pub var payload:      FrozenList::<*FieldDecl>; ///< ADT fields; empty for plain variants.
     pub var index:        u32 = 0;                ///< declaration order.
     pub var adt_member:   *FieldDecl = &null;     ///< the union member holding this variant's payload; null when it has none or before EnumLayoutLowering.
+    pub var adt_ctor:     AdtCtorForm = AdtCtorForm::Lambda;  ///< how C++ builds it (AdtCtorForm); one writer, EnumLayoutLowering.
+    pub var adt_tag_value: u64 = 0;               ///< the tag this ADT variant is stored as: its position (a pack-expanded variant's, element 0's unless EnumDecl::adt_explicit_tags).
+    /// `V { e: E }...`: one variant per element of the type pack its payload
+    /// names (PANIC.md §1.2). Element k's tag is adt_tag_value + k, or with
+    /// EnumDecl::adt_explicit_tags its type id (EnumLayoutQuery::tag_value);
+    /// the payload's fields are the pattern's, read at element k's type.
+    pub var is_pack_expansion: bool = false;
+    pub var pack_range: SourceRange;              ///< the `...`, when is_pack_expansion.
     /// The variant's value: its discriminant's, else the previous variant's
     /// plus one, else 0 for the first, so an ADT's variants are their
     /// positions. One writer: StmtTyping::traverse_enum_variant_decl, in
@@ -1102,6 +1396,10 @@ class EnumVariantDecl derives Decl {
         node->name   = name;
         node->index  = index;
         node->adt_member = &null;
+        node->adt_ctor   = AdtCtorForm::Lambda;
+        node->adt_tag_value = u64(index);
+        node->is_pack_expansion = false;
+        node->pack_range = range;
         node->value      = IntConst{};
         return node;
     }
@@ -1113,6 +1411,8 @@ class EnumVariantDecl derives Decl {
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         node->adt_member    = &null;
+        node->is_pack_expansion = false;
+        node->pack_range    = range;
         node->value         = IntConst{};
         return node;
     }
@@ -1132,8 +1432,9 @@ class EnumVariantDecl derives Decl {
 ///  EnumDecl
 ///  enum Direction derives u8 { } | enum <T> Result { Ok { value: T }, Err }
 ///
-///  `underlying` is the `derives <int>` type for plain enums; null when
-///  defaulted (u32) or for ADT enums. Generic enums (TemplateParams) must be
+///  `underlying` is the `derives <int>` type; null when defaulted (u32 for a
+///  plain enum; for an ADT, the narrowest tag EnumLayoutLowering picks). On
+///  an ADT it is the tag's type. Generic enums (TemplateParams) must be
 ///  ADT (a plain enum has nothing to parameterize). Owns variants via the
 ///  `variants` list; DeclContext holds nested type decls.
 ///
@@ -1144,14 +1445,54 @@ class EnumDecl
           TemplateParams::<EnumDecl>,
           FFILinkage::<EnumDecl> {
     pub var name:       Token;
-    pub var underlying: *Type = &null;                  ///< `derives u8` etc; null if default/ADT.
+    pub var underlying: *Type = &null;                  ///< `derives u8` etc; null if defaulted.
     pub var variants:   FrozenList::<*EnumVariantDecl>;
     pub var is_adt:     bool = false;                   ///< any variant carries a payload.
+    /// `@open` (LangAttrs::open_enum): this plain enum may hold any value of
+    /// its underlying type, not only its variants' -- clang's
+    /// `enum_extensibility(open)`. A closed one (the default) has a niche
+    /// past its values (EnumNiche) and a checked `as` from its underlying
+    /// type (CastTyping). Writers: the parser stamps it, TypeResolve ORs it
+    /// over a forward declaration's chain, DeclImport sets it on every
+    /// imported C/C++ enum (clang owns those values). Never set on an ADT
+    /// (the parser rejects `@open` there).
+    pub var is_open:    bool = false;
     /// ADT enums: the record EnumLayoutLowering builds, and its `__kairo_tag`
-    /// field (tags are variant positions, underlying u32). One writer:
+    /// field (tags are variant positions, in the narrowest unsigned word
+    /// that holds them unless `derives` names one). One writer:
     /// EnumLayoutLowering; null until it runs, always null on a plain enum.
     pub var adt_layout:    *Decl      = &null;
     pub var adt_tag_field: *FieldDecl = &null;
+    /// Niche layout (spec ENUMLAYOUT §5; EnumLayoutLowering's header). One
+    /// writer, EnumLayoutLowering. `adt_niche_shape`: the declaration could
+    /// be laid out without a tag -- one variant carries a payload, of one
+    /// field, beside at least one without -- so a generic one gets the
+    /// niche-filled partial specialization beside its tagged primary.
+    /// `adt_niche`: a non-generic one IS laid out that way. `adt_which`: the
+    /// AdtRole::Which member, on a generic ADT and a niche-filled one.
+    pub var adt_niche_shape: bool = false;
+    pub var adt_niche:       bool = false;
+    pub var adt_which:       *FunctionDecl = &null;
+    /// Lang-item layout overrides (EnumLayoutLowering::_knobs, spec
+    /// ENUMLAYOUT §7), all off by default: a pack-expanded variant's
+    /// elements are tagged by type id (PANIC.md §1.3) instead of position,
+    /// so tags are not dense; the payload union is aligned to at least
+    /// `adt_union_align` (and its payloads'), which `adt_payload_offset`,
+    /// a compile-time member, states in C++; `adt_site_field` is a u32
+    /// slot between the tag and the union; a payload field whose type is a
+    /// bare parameter holds an empty struct for `void` (`adt_void_unit`).
+    /// One writer, EnumLayoutLowering.
+    pub var adt_explicit_tags: bool = false;
+    pub var adt_union_align:   u32  = 0;
+    pub var adt_site_field:    *FieldDecl = &null;
+    pub var adt_payload_offset: *FieldDecl = &null;
+    pub var adt_void_unit:     bool = false;
+    /// The tag in the payloads' common prefix (spec ENUMLAYOUT §6;
+    /// EnumLayoutLowering's header): `adt_tag_member` is the union's
+    /// tag-only member `__kairo_t`, `adt_prefix_tag` its one field, which
+    /// every payload struct also starts with. Null for the external tag.
+    pub var adt_tag_member:    *FieldDecl = &null;
+    pub var adt_prefix_tag:    *FieldDecl = &null;
 
     static fn create(
         ctx:    *ASTContext,
@@ -1168,6 +1509,16 @@ class EnumDecl
         node->init_redecl();
         node->adt_layout    = &null;
         node->adt_tag_field = &null;
+        node->adt_niche_shape = false;
+        node->adt_niche       = false;
+        node->adt_which       = &null;
+        node->adt_explicit_tags = false;
+        node->adt_union_align   = 0;
+        node->adt_site_field    = &null;
+        node->adt_payload_offset = &null;
+        node->adt_void_unit     = false;
+        node->adt_tag_member    = &null;
+        node->adt_prefix_tag    = &null;
         return node;
     }
 
@@ -1181,6 +1532,16 @@ class EnumDecl
         node->init_redecl();
         node->adt_layout    = &null;
         node->adt_tag_field = &null;
+        node->adt_niche_shape = false;
+        node->adt_niche       = false;
+        node->adt_which       = &null;
+        node->adt_explicit_tags = false;
+        node->adt_union_align   = 0;
+        node->adt_site_field    = &null;
+        node->adt_payload_offset = &null;
+        node->adt_void_unit     = false;
+        node->adt_tag_member    = &null;
+        node->adt_prefix_tag    = &null;
         return node;
     }
 
@@ -1265,7 +1626,11 @@ class UnionDecl
 ///
 class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<TypeAliasDecl> {
     pub var name:    Token;
-    pub var aliased: *Type;   ///< the right-hand-side type.
+    pub var aliased: *Type;   ///< the right-hand-side type; an associated type's DEFAULT, or null.
+    /// An interface's associated type (`type N`, `type N impl X`, `type N =
+    /// D`; interfaces.md "Associated Types"). Its bounds are its
+    /// requires_clause, `N impl X && N impl Y`, as any requires clause is.
+    pub var is_associated: bool = false;
 
     static fn create(
         ctx:     *ASTContext,
@@ -1279,6 +1644,7 @@ class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<
         node->init_annotations(&(ctx->ast_alloc));;
         node->name    = name;
         node->aliased = aliased;
+        node->is_associated = false;
         return node;
     }
 
@@ -1561,13 +1927,23 @@ class VisibilityGroupDecl derives Decl {
 ///  eval { decl* } at namespace/type scope (decl-only compile-time block).
 ///  The stmt-position eval block is StmtKind::EvalBlockStmt.
 ///
+///  Also the carrier for an `eval if` / `eval for` written directly in a
+///  module or class body: `stmt` holds the ConditionalStmt / RangedForStmt /
+///  IndexedForStmt exactly as file scope and a function body build it, and
+///  `body` stays empty. A module or class body holds declarations only, so
+///  the statement needs a declaration to ride in; the branches' declarations
+///  are DeclStmts in its blocks and are NOT members of the enclosing body
+///  (choosing a branch and hoisting its declarations is eval semantics).
+///
 class EvalBlockDecl derives Decl {
     pub var body: FrozenList::<*Decl>;
+    pub var stmt: *Stmt = &null;
 
     static fn create(ctx: *ASTContext, range: SourceRange) -> *EvalBlockDecl {
         var node   = ctx->alloc::<EvalBlockDecl>();
         node->kind  = DeclKind::EvalBlockDecl;
         node->range = range;
+        node->stmt  = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1577,6 +1953,7 @@ class EvalBlockDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::EvalBlockDecl;
         node->range         = range;
+        node->stmt          = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

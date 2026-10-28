@@ -37,6 +37,7 @@ import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::ParamMode::*;
+import Token::TokenKind::*;
 
 ///
 ///  Helper propagate type_flags from children into a parent node.
@@ -386,6 +387,13 @@ class PointerType derives Type {
 ///
 class NullableType derives Type {
     pub var inner: *Type;
+    /// On a canonical: the `::builtin::Nullable<inner>` record this `T?` IS
+    /// to C++, or null before NullableTypeLowering. Every pass up to that
+    /// one asks the NullableType (NULLABLE.md 1.1); codegen spells and plans
+    /// the record instead. A slot rather than a rewrite: canonicals are
+    /// build-wide and interned, and `Box<i32?>`'s instance key holds this
+    /// node. Written once, through CanonicalTypes::set_nullable_lowered.
+    pub var lowered: *Type = &null;
 
     static fn create(
         ctx:   *ASTContext,
@@ -475,6 +483,10 @@ class FixedArrayType derives Type {
     pub var element:      *Type;
     pub var size_expr:    *Expr;  ///< Null if is_incomplete.
     pub var is_incomplete: bool;  ///< True for C-style int buf[].
+    /// CANONICAL only: the generic value parameter the extent is (`[i32; N]`
+    /// in `class <eval N: usize>`), a GenericParamType; null when the
+    /// extent is the value in size_bits. Substituted per instance (EVAL.md 3).
+    pub var extent_param: *Type;
 
     static fn create(
         ctx:       *ASTContext,
@@ -490,6 +502,7 @@ class FixedArrayType derives Type {
         node->element       = element;
         node->size_expr     = size_expr;
         node->is_incomplete = false;
+        node->extent_param  = &null;
         propagate_flags(node, element);
         return node;
     }
@@ -507,6 +520,7 @@ class FixedArrayType derives Type {
         node->element       = element;
         node->size_expr     = &null;
         node->is_incomplete = true;
+        node->extent_param  = &null;
         propagate_flags(node, element);
         return node;
     }
@@ -727,6 +741,25 @@ class FunctionPointerType derives Type {
     /// `params` -- the parser via from_buf (even when empty), the store via
     /// from_raw. A count mismatch is an ICE in TypeResolution.
     pub var modes: FrozenList::<ParamMode>;
+    /// `fn(i32) panic(E1, E2) -> T`: the declared set, as written (PANIC.md
+    /// §2.2). Empty for a bare `panic` qualifier and for no `panic` at all.
+    /// Each element resolves like a parameter type, and a poisoned one
+    /// poisons this node. On a CANONICAL node it is the canonical set
+    /// (each type once, in the one order), and part of the key with
+    /// `canon_panics`: two `fn` types that differ in their sets are two
+    /// types, converted by subset (Conversion).
+    pub var panic_set: FrozenList::<*Type>;
+    /// A CANONICAL fn type panics (with `panic_set`, which a bare `panic`
+    /// leaves empty). A syntax node says so with its `panic` qualifier
+    /// (is_panic()) instead; this field is the store's.
+    pub var canon_panics: bool = false;
+    /// On a CANONICAL node that panics with a set: what a value of this
+    /// type returns in C++, `Panic<R, E...>` (PANIC.md §4.1), so the value
+    /// is `__kairo_fn<Panic<R, E...>(A...)>`. Formed once, by the first
+    /// PanicLowering to meet the type (types are shared by every TU, and
+    /// the form is canonical, so every TU forms the same one). Null
+    /// otherwise; CXXSpell spells `return_type` then.
+    pub var panic_result: *Type = &null;
 
     static fn create(
         ctx:         *ASTContext,
@@ -959,8 +992,48 @@ class OpaqueFFIType derives Type {
     }
 }
 
+/// What a canonical value node (TypeExpr, is_value) is (EVAL.md 0.2, 3).
+/// Literal is an exact integer (vneg / vmag); every other kind is an
+/// expression Sema keeps for C++ to compute: an array extent or generic
+/// value argument that does not fold, interned so that type identity is
+/// structural equality of the expression (`[i32; f(3)]` is `[i32; f(3)]`
+/// and not `[i32; 3]`, as C++ treats a dependent expression before
+/// instantiation).
+enum ValueOp derives u8 {
+    Literal = 0,
+    Decl,      ///< vdecl: an eval constant whose initializer does not fold, or an `eval for` binding.
+    Call,      ///< vdecl: the eval fn; vops: the arguments.
+    Unary,     ///< vtok: `-` or `~`; vops[0].
+    Binary,    ///< vtok: the operator; vops[0], vops[1].
+    Cast,      ///< vty: the integer target; vops[0].
+    /// A string literal (EVAL.md 7e, §11): vbytes / vmag its decoded bytes
+    /// and their count, vty the string lang record. Identity is the bytes.
+    /// Only an argument of a Call: a string is no length or integer.
+    Str,
+}
+
 class TypeExpr derives Type {
     pub var expr: *Expr;
+    /// CANONICAL only (CanonicalTypeStore::value_arg / value_expr): a
+    /// generic VALUE argument or a computed array extent. A Literal is the
+    /// exact integer, `4` of `Buf<4>` (EVAL.md 3); any other ValueOp is an
+    /// interned expression over value parameters (GenericParamType
+    /// operands), eval names and eval calls (EVAL.md 0.2). The syntax node
+    /// has `expr` and is_value false.
+    pub var is_value: bool;
+    pub var vneg:     bool;
+    pub var vmag:     u64;
+    pub var vop:      ValueOp = ValueOp::Literal;
+    pub var vtok:     TokenKind = TokenKind::TkUnknown;
+    pub var vdecl:    *Decl = &null;
+    pub var vty:      *Type = &null;
+    pub var vops:     FrozenList::<*Type>;
+    /// ValueOp::Str only: the bytes (vmag of them), owned by the store.
+    pub var vbytes:   std::ConstPtr::<u8> = &null;
+
+    /// A canonical exact integer (value_arg), the only value Sema itself
+    /// reads.
+    fn is_exact(self) -> bool { return self.is_value && (self.vop == ValueOp::Literal); }
 
     static fn create(
         ctx:   *ASTContext,
@@ -973,6 +1046,15 @@ class TypeExpr derives Type {
         node->init_annotations(&(ctx->ast_alloc));;
         node->init_spans(&(ctx->ast_alloc));
         node->expr  = expr;
+        node->is_value = false;
+        node->vneg     = false;
+        node->vmag     = u64(0);
+        node->vop      = ValueOp::Literal;
+        node->vtok     = TokenKind::TkUnknown;
+        node->vdecl    = &null;
+        node->vty      = &null;
+        node->vops     = create_empty_frozen_list::<*Type>();
+        node->vbytes   = &null;
         return node;
     }
 

@@ -1,4 +1,4 @@
-// BEGIN-GENERATED-CHECKS (gen_checks.py) -- do not hand-edit, re-run instead
+// BEGIN-GENERATED-CHECKS(AST) mode=ast loose-position loose-message -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
 // AST: ============== AST (tree) for fid 0 ==============
 // AST-NEXT: TranslationUnit '{{.*}}'(fid=0)
@@ -29,7 +29,7 @@
 // AST-NEXT:             |-NamedIdentExpr n
 // AST-NEXT:             `-Step .twice
 // AST: -- 0 error(s), 0 warning(s) --
-// END-GENERATED-CHECKS
+// END-GENERATED-CHECKS(AST)
 
 // EXPECT: 0 errors. `v.total()` binds via `extend <T> [T]` (shape-keyed).
 // EXPECT: `n.twice()` binds via `extend i32` (exact canonical).

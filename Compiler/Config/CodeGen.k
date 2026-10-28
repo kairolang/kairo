@@ -62,6 +62,10 @@ class CodeGenOptions {
     /// `--unmatched`: "trap", "unreachable", or "" to follow -O; read it
     /// through unmatched_policy().
     pub var unmatched:             string = "";
+    /// `--hardening=enum-tags`: an ADT's exhaustive match traps on a tag no
+    /// variant has instead of assuming none reaches it; read it through
+    /// adt_tag_policy().
+    pub var harden_enum_tags:      bool   = false;
     // -- debug info --------------------------------------------------------
     pub var dwarf_version:         i32    = 5;
     pub var debug_info:            bool   = false;
@@ -162,6 +166,9 @@ class CodeGenOptions {
         else if o_val == "3"                      { (o.opt_level) = 3; }
         else                                      { (o.opt_level) = 0; }
         (o.unmatched)            = args.get_string("unmatched");
+        for h in args.get_list("hardening") {
+            if h == "enum-tags" { (o.harden_enum_tags) = true; }
+        }
         (o.lto)                  = args.get_string("lto");
         (o.profile)              = prof;
         (o.debug_info)           = args.get_bool("debug-info");
@@ -254,6 +261,18 @@ class CodeGenOptions {
         for s in args.get_list("coverage-prefix-map") { o.coverage_prefix_map.push_back(s); }
 
         return o;
+    }
+
+    /// What an exhaustive match over an ADT's tag does with a tag no variant
+    /// has. No value of the enum holds one -- only memory written around the
+    /// type does -- so it is Unreachable, which lets the dispatch be a bare
+    /// table load, unless `--hardening=enum-tags` asks for the check (or
+    /// `--unmatched=trap` for every match). A plain enum's undeclared value
+    /// is different: a cast makes one legitimately (unmatched_policy).
+    fn adt_tag_policy(self) -> UnmatchedPolicy {
+        if self.harden_enum_tags   { return UnmatchedPolicy::Trap; }
+        if self.unmatched == "trap" { return UnmatchedPolicy::Trap; }
+        return UnmatchedPolicy::Unreachable;
     }
 
     /// `--unmatched` when given; otherwise Trap at -O0 through -O2 and

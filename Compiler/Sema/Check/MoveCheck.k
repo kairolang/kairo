@@ -265,13 +265,37 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     }
 
     /// Captures are reads in the ENCLOSING body (a moved-from binding cannot
-    /// be captured); the closure body is its own body.
+    /// be captured); the closure body is its own body. The captures are
+    /// ClosureCaptures' list, the implicit ones included, each read at its
+    /// first use (a named one at its name in the list); a Move capture
+    /// (ownership.md: a MOVE value captured by copy is moved in) then
+    /// leaves the binding moved-from here.
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
         if n == &null { return n; }
         if self.dyn()->walkup_closure_expr(n) == false { return n; }
-        for var i: usize = 0; i < n->captures.size(); ++i {
-            var cap = n->captures.get(i);
-            if cap->name != &null { self.dispatch_expr(cap->name); }
+        if n->caps_resolved {
+            for var i: usize = 0; i < n->cap_decls.size(); ++i {
+                var m = n->cap_modes[i];
+                var at = n->cap_uses[i];
+                if (m == CaptureMode::Self) || (at == &null) { continue; }
+                self._read(at);
+            }
+            for var i: usize = 0; i < n->cap_decls.size(); ++i {
+                if n->cap_modes[i] != CaptureMode::Move { continue; }
+                var d = n->cap_decls[i];
+                if !self._tracked(d) { continue; }
+                var mp  = MovedPart{};
+                mp.d    = d;
+                mp.path = "";
+                mp.at   = (n->cap_uses[i])->range;
+                mp.how  = "into the closure that captures it";
+                self._st.mark(mp);
+            }
+        } else {
+            for var i: usize = 0; i < n->captures.size(); ++i {
+                var cap = n->captures.get(i);
+                if cap->name != &null { self.dispatch_expr(cap->name); }
+            }
         }
         var saved_st    = self._st;
         var saved_loops = self._loops;
@@ -879,7 +903,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 var is_tup = self._tu.is_tuple(c);
                 var tf = lifecycle_of(self.sc)->facts_of_type(c);
                 var facts = (&tf) if (is_tup) else (lifecycle_of(self.sc)->facts_of(rd));
-                // A definite No only: Unknown facts are resolved per instance at M2, which does not exist yet.
+                // A definite No only. An instance has facts of its own (ClassLifecycle, Instances); only a pattern reads Unknown.
                 if facts->movable == LifecycleTri::No {
                     var b = self.sc->diag->report(DiagID::SC051E, e->range.start,
                         f"cannot move a value of type '{self._tu.str(c)}': {facts->why_not_movable}"

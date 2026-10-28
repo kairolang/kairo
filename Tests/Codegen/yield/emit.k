@@ -26,12 +26,12 @@ fn none() -> yield i32 { }
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      upto(signed int n) {
+// CXX:      upto(signed int n) noexcept {
 // CXX:      co_yield(i);
-// CXX:      early(signed int n) {
+// CXX:      early(signed int n) noexcept {
 // CXX:      co_yield(1);
 // CXX:      co_return;
 // CXX:      co_yield(2);
-// CXX:      none() {
+// CXX:      none() noexcept {
 // CXX-NEXT: co_return;
 // CXX-NEXT: }

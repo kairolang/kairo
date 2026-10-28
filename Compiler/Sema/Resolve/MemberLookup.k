@@ -57,6 +57,7 @@ import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
+import AST::Context::ImportOverlay::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
@@ -66,6 +67,8 @@ import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
+import Token::TokenKind::*;
+import Diagnostic::Registry::*;
 
 class MemberLookup {
     pub var sc: *SemaContext;
@@ -190,7 +193,15 @@ class MemberLookup {
 
         if isa::<RecordType>(c) {
             var seen = set::<u64>();
-            self._walk_record(cast::<RecordType>(c)->decl, name, out, &seen);
+            // A dependent `Store<*P>` whose pattern a partial specialization
+            // matches has that partial's members, not the primary's (an
+            // instance carries the same choice; 2b below).
+            var root = cast::<RecordType>(c)->decl;
+            if (root != &null) && (!decl_is_instance(root)) && (self.sc != &null) {
+                var b = self.sc->record_body(c);
+                if b != &null { root = b; }
+            }
+            self._walk_record(root, name, out, &seen);
         } else {
             var exts = self.extensions_of_type(c);
             if exts != &null { self._append_from_extensions(exts, name, out); }
@@ -280,6 +291,22 @@ class MemberLookup {
         //    the pattern exactly as before fills existed.
         MemberLookup::ensure_filled(self.sc, d);
 
+        // An interface's members are its COMPOSED requirement list
+        // (InterfaceComposition): own and derived, deduplicated, `-` and `&`
+        // applied. Not its table plus a walk of its derives edges -- that
+        // would answer `X - Y` with Y's members too.
+        var cid = dyn_cast::<InterfaceDecl>(d);
+        if (cid != &null) && (cid->compose_state == 2) {
+            for var i: usize = 0; i < cid->requirements.size(); ++i {
+                var rd = cid->requirements.get(i)->decl;
+                if !self._names(rd, name) { continue; }
+                var dup = false;
+                for var j: usize = 0; j < out->size(); ++j { if (*out)[j] == rd { dup = true; break; } }
+                if !dup { out->push_back(rd); }
+            }
+            return;
+        }
+
         // 1. own table. Unlike C++, an anonymous union field's members are
         //    not injected here and never found by name: only compiler-minted
         //    field_of chains reach them, carrying the member FieldDecl
@@ -303,27 +330,29 @@ class MemberLookup {
             //     via step 0) has an empty table and an empty base list. The
             //     names it WILL have are the pattern's: walk that instead
             //     (seen dedups).
-            if MemberLookup::unfilled(d) { self._walk_record(pat, name, out, seen); return; }
+            //     The pattern is the partial specialization the registry
+            //     selected for these args, when one was.
+            if MemberLookup::unfilled(d) {
+                var body = (self.sc->body_of(d)) if (self.sc != &null) else (pat);
+                self._walk_record(body, name, out, seen);
+                return;
+            }
         }
 
-        // 3. bases and implemented interfaces (default bodies join the set).
+        // 3. bases. NOT the interfaces an `impl` clause names: an interface
+        //    has no default bodies (interfaces.md), so each requirement is
+        //    met by a member this walk already finds (own, extension or
+        //    base), and the bodiless requirement beside it made every direct
+        //    call `x.f()` an SC064E tie between the two. A bounded receiver
+        //    reaches requirements through its bounds, not through here.
         if isa::<ClassDecl>(d) {
             var cd = cast::<ClassDecl>(d);
             for var i: usize = 0; i < cd->derives_list.size(); ++i {
                 self._walk_edge(cd->derives_list.get(i), name, out, seen);
             }
-            for var i: usize = 0; i < cd->implements.size(); ++i {
-                self._walk_edge(cd->implements.get(i), name, out, seen);
-            }
             return;
         }
-        if isa::<StructDecl>(d) {
-            var sd = cast::<StructDecl>(d);
-            for var i: usize = 0; i < sd->implements.size(); ++i {
-                self._walk_edge(sd->implements.get(i), name, out, seen);
-            }
-            return;
-        }
+        if isa::<StructDecl>(d) { return; }
         if isa::<InterfaceDecl>(d) {
             var id = cast::<InterfaceDecl>(d);
             for var i: usize = 0; i < id->derives_list.size(); ++i {
@@ -524,6 +553,23 @@ class MemberLookup {
 
     /// Append every decl of a cell, skipping duplicates by identity (a decl
     /// reached through two paths is one candidate).
+    /// Requirement \p d is named \p name. The requirement may be another
+    /// TU's, so an identifier compares by this lookup's spelling, not imm.
+    priv fn _names(self, d: *Decl, name: DeclName) -> bool {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f != &null) && f->is_operator {
+            if name.kind != DeclNameKind::Operator { return false; }
+            var k0 = TokenKind::TkUnknown; var k1 = TokenKind::TkUnknown;
+            if f->op_token.size() > 0 { k0 = f->op_token[0].kind; }
+            if f->op_token.size() > 1 { k1 = f->op_token[1].kind; }
+            return DeclName::op_name(k0, k1).as_key() == name.as_key();
+        }
+        if name.kind != DeclNameKind::Identifier { return false; }
+        var ctx = NameLookup::ctx_of(d);
+        if ctx == &null { return false; }
+        return ctx->get_spelling(decl_name_tok(d)) == self._cur_spelling;
+    }
+
     priv fn _append_cell(self, cell: *OverloadCell, out: *vec::<*Decl>) {
         for var i: usize = 0; i < cell->size(); ++i {
             var d = cell->get(i);
@@ -534,5 +580,112 @@ class MemberLookup {
             }
             if !dup { out->push_back(d); }
         }
+    }
+
+    // --- unqualified member types (the `Self::` readability lint) ----------
+    //
+    // classes.md "Members always need a qualifier": a nested type, type alias
+    // or associated type of the enclosing type MAY be named bare inside its
+    // body (`Node` means `Self::Node`), the one exception to the qualifier
+    // rule. It stays legal; it is warned, because at the use nothing says
+    // the name is a member and not something from the module. N reports the
+    // expression position (`Node { .. }`, `Node::make()`), T the type
+    // position; each reaches a use once, so each use is warned once.
+
+    /// \p d, the decl a BARE name resolved to, is a member type of \p owner
+    /// (the record `Self` denotes at the use). Only the innermost Self: a
+    /// sibling of an enclosing type, seen from inside a nested one, is not a
+    /// member of Self, and `Self::` would name the wrong scope; nor is a
+    /// type's own name, which answers from the scope around it. Nested
+    /// modules are scopes too but are not warned: `Self::` reads as a type,
+    /// and a module is not one.
+    static fn is_member_type_of(d: *Decl, owner: *Decl) -> bool {
+        if (d == &null) || (owner == &null) { return false; }
+        var kind_ok = isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<EnumDecl>(d)
+                   || isa::<UnionDecl>(d) || isa::<InterfaceDecl>(d) || isa::<TypeAliasDecl>(d);
+        if !kind_ok { return false; }
+        if d->semantic_dc == &null { return false; }
+        var home = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+        if home == &null { return false; }
+        var a = NameLookup::representative(home);
+        var b = NameLookup::representative(owner);
+        return a == b;
+    }
+
+    /// SC001W at \p at, the bare spelling of member type \p d of \p owner:
+    /// a note at its name, and the fix-it that writes `Self::`.
+    static fn warn_unqualified_member_type(sc: *SemaContext, at: SourceRange, d: *Decl, owner: *Decl) {
+        if !at.is_valid() { return; }
+        var dctx = NameLookup::ctx_of(d);
+        var octx = NameLookup::ctx_of(owner);
+        if dctx == &null { dctx = sc->ctx; }
+        if octx == &null { octx = sc->ctx; }
+        var tok  = decl_name_tok(d);
+        var otok = decl_name_tok(owner);
+        if (tok.kind == TokenKind::TkUnknown) || (otok.kind == TokenKind::TkUnknown) { return; }
+        var nm = dctx->get_spelling(tok);
+        var on = octx->get_spelling(otok);
+
+        var what = "nested type";
+        var ta = dyn_cast::<TypeAliasDecl>(d);
+        if ta != &null {
+            what = "type alias";
+            if ta->is_associated { what = "associated type"; }
+        }
+
+        var b = sc->diag->report(DiagID::SC001W, at.start,
+            f"{what} '{nm}' of '{on}' is named without a qualifier; write 'Self::{nm}' so it reads as a member"
+        );
+        b.first(at);
+        if tok.range.is_valid() {
+            b.note(DiagID::SC001N, tok.range.start, f"'{nm}' is declared here, in '{on}\x27").first(tok.range);
+        }
+        b.insert(at.start, "Self::", f"qualify with 'Self::\x27");
+        b.emit();
+    }
+
+    /// The R016E C++ defers to the use: \p imm, found through the overlay of
+    /// \p found_in's TU, names an entry I marked `lazy` (every colliding
+    /// entity came from a header, ImportResolution::_add). Reports at \p at
+    /// with one note per candidate and returns true; false, silently, for
+    /// every other entry. N calls it for expression heads, T for type names.
+    static fn report_lazy_ambiguity(sc: *SemaContext, found_in: *DeclContext, imm: u32,
+                                    nm: string, at: SourceRange) -> bool {
+        var tu = NameLookup::tu_of(found_in);
+        if (tu == &null) || (tu->import_overlay == &null) { return false; }
+        var entry = tu->import_overlay->entry(imm);
+        if (entry == &null) || (!entry->lazy) || (!entry->is_ambiguous()) { return false; }
+
+        var b = sc->diag->report(DiagID::R016E, at.start,
+            f"ambiguous import: '{nm}' names more than one non-function symbol"
+        );
+        b.first(at);
+        var seen = vec::<*Decl>();
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            var t = entry->targets[i];
+            if t.kind != OverlayTargetKind::Type { continue; }
+            if t.hidden || (t.decl == &null) { continue; }
+            var dup = false;
+            for var j: usize = 0; j < seen.size(); ++j { if seen[j] == t.decl { dup = true; break; } }
+            if dup { continue; }
+            seen.push_back(t.decl);
+            var what = MemberLookup::_kind_word(t.decl);
+            b.note(DiagID::R016N, t.decl->range.start, f"'{nm}' could be the {what} declared here").first(t.decl->range);
+        }
+        b.emit();
+        return true;
+    }
+
+    priv static fn _kind_word(d: *Decl) -> string {
+        if isa::<VariableDecl>(d)    { return "variable"; }
+        if isa::<TypeAliasDecl>(d)   { return "typedef"; }
+        if isa::<EnumVariantDecl>(d) { return "enumerator"; }
+        if isa::<StructDecl>(d)      { return "struct"; }
+        if isa::<ClassDecl>(d)       { return "class"; }
+        if isa::<UnionDecl>(d)       { return "union"; }
+        if isa::<EnumDecl>(d)        { return "enum"; }
+        if isa::<ModuleDecl>(d)      { return "namespace"; }
+        if isa::<FunctionDecl>(d)    { return "function"; }
+        return "declaration";
     }
 }

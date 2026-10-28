@@ -1230,19 +1230,23 @@ group = "ast"
 
     [S055.W]
     explain = """
-    # redundant nullable modifier
+    # nested nullable
 
-    a `?` nullable suffix was applied to a type that is already nullable.
-    the extra `?` has no effect and can be removed.
+    a `?` nullable suffix was applied to a type that is already nullable,
+    `(T?)?`. this is legal: the result is a distinct type,
+    `Nullable<Nullable<T>>`, whose outer null is not its inner null, and it
+    is not collapsed to `T?`. it is rarely what you want outside generic
+    code, where `V?` with `V = T?` produces it on its own.
 
     ## example
 
     ```kairo
-    var x: i32??   // second `?` is redundant
+    var x: (i32?)? = null   // the outer null; x holds no i32? at all
     ```
 
     ## how to fix
-    remove the extra `?`.
+    write a single `?` if one level of null is meant. `i32??` is a parse
+    error either way: `??` is the null-coalescing operator.
     """
 
 [S056]

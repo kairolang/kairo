@@ -64,11 +64,34 @@
 ///     a static member: the definition's initializer is in the class's
 ///     scope, so it calls the thunk by leaf exactly as a default does.
 ///
+///   \par Eval fields
+///     An eval field is static (FieldDecl::is_static), lowered as a static
+///     is: a constant is recorded, anything else becomes a static thunk,
+///     marked `eval` so it is C++ `consteval`. The definition is
+///     `inline constexpr T const R::k = <constant>;` after the class, or,
+///     for a thunk, the same with `= R::__kairo_init_k()` written by EmitIR
+///     after the thunk's body: a consteval function must be DEFINED where
+///     a constant expression calls it, and the class's out-of-line statics
+///     come before any body (EVAL.md 1.2).
+///
+///   \par Arrays
+///     No C++ function returns an array, so an array field's list literal is
+///     lowered one ELEMENT at a time: each element becomes a thunk returning
+///     the element type, and the default is `= {__kairo_init0_a(), ...}`
+///     (FieldFold::Elems).
+///
+///         class A { var a: [Frame; 2] = [.Idle, .Busy] }
+///       ->
+///         var a: [Frame; 2]                init_elems: __kairo_init0_a, __kairo_init1_a
+///         fn __kairo_init0_a(self) -> Frame { return .Idle }
+///         fn __kairo_init1_a(self) -> Frame { return .Busy }
+///
 ///   \par Not lowered
-///     An eval field and an array-typed one keep `init`. FeatureGateCheck
-///     rejects their initializers (SC116E) before this pass runs, so
-///     reaching one here is a hole in the gate, and InterfaceEmitter ICEs on
-///     it.
+///     Any other array-typed field keeps `init` (TypeUtil::array_field_list:
+///     a static one, one whose element is an array, one whose initializer is
+///     not a list literal). FeatureGateCheck rejects those initializers
+///     (SC116E) before this pass runs, so reaching one here is a hole in the
+///     gate, and InterfaceEmitter ICEs on it.
 ///
 ///   Phase: LOWER, after ExprBodyDesugar and before every other pass that
 ///   rewrites a body, so each of them meets the initializer as an ordinary
@@ -149,6 +172,10 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         for var i: usize = 0; i < fields.size(); ++i {
             var f = fields[i];
             if (f == &null) || (f->init == &null) { continue; }
+            if (!f->is_poisoned()) && (!f->init->is_poisoned()) && (self.tu.array_field_list(f) != &null) {
+                self._mint_elems(f, &rw);
+                continue;
+            }
             if self._kept(f) { continue; }
             if self._fold(f) { continue; }
             rw.append(self._mint(f));
@@ -160,7 +187,6 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     /// and a poisoned one, which is not this pass's to judge.
     priv fn _kept(self, f: *FieldDecl) -> bool {
         if f->is_poisoned() || f->init->is_poisoned() || (f->type_ == &null) { return true; }
-        if f->storage == StorageClass::Eval { return true; }
         var c = canon_unqual(f->type_->canonical);
         return (c != &null) && (c->kind == TypeKind::FixedArrayType);
     }
@@ -194,15 +220,34 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
     /// definition is written under. A static field's thunk has no `self`
     /// (file header, Statics).
     priv fn _mint(self, f: *FieldDecl) -> *FunctionDecl {
-        var e    = f->init;
+        var e  = f->init;
+        var th = self._thunk(f, e, LowerTargets::field_init_thunk(self.tu.decl_name(static_cast::<*Decl>(f))), f->type_);
+        f->init       = &null;                          // moved: one node, one parent.
+        f->init_fold  = FieldFold::Thunk;
+        f->init_thunk = static_cast::<*Decl>(th);
+        return th;
+    }
+
+    /// `fn <name>(self) -> <rt> { return <e> }` in \p f's record: the thunk
+    /// of a field's whole initializer, or of one element of it.
+    priv fn _thunk(self, f: *FieldDecl, e: *Expr, name: string, rt: *Type) -> *FunctionDecl {
         var at   = e->range;
-        var name = LowerTargets::field_init_thunk(self.tu.decl_name(static_cast::<*Decl>(f)));
         var th   = self._new_fn(at, self.synth.ident(at, name), reinterpret_cast::<*DeclContext>(f->semantic_dc));
         th->semantic_dc = f->semantic_dc;
         th->lexical_dc  = f->semantic_dc;
         th->visibility  = VisibilityKind::Public;
         th->is_implicit = true;
-        th->return_type = f->type_;
+        th->return_type = rt;
+        // An eval field's value is computed by C++ at compile time: its thunk
+        // is `consteval`, and EmitIR writes the field's `constexpr`
+        // definition right after the thunk's body (EVAL.md 1.2).
+        if f->is_eval() { th->modifiers = th->modifiers | FnModifier::IsEval; }
+        // An eval class's default runs inside its eval (consteval)
+        // constructor, at compile time, and in any other constructor at run
+        // time: `constexpr`, which is both, and so inline (EVAL.md 7b).
+        else if (!f->is_static()) && self._eval_class(f) {
+            th->modifiers = th->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline;
+        }
 
         var ps = self.list_builder::<*ParamDecl>();
         if !f->is_static() { ps.push(ParamDecl::create_self(self.ctx, at, self.synth.ident(at, "self"))); }
@@ -214,11 +259,43 @@ class FieldInitLowering derives ASTWriter::<FieldInitLowering> {
         b.push(static_cast::<*Stmt>(ret));
         b.freeze_into(&(body->body));
         th->body_block = body;
-
-        f->init       = &null;                          // moved: one node, one parent.
-        f->init_fold  = FieldFold::Thunk;
-        f->init_thunk = static_cast::<*Decl>(th);
         return th;
+    }
+
+    /// One thunk per element of an array field's list literal (file header,
+    /// Arrays), appended in element order and stamped on the field.
+    priv fn _mint_elems(self, f: *FieldDecl, rw: *ListRewriter::<*FunctionDecl>) {
+        var lit = self.tu.array_field_list(f);
+        var el  = cast::<FixedArrayType>(canon_unqual(f->type_->canonical))->element;
+        var nm  = self.tu.decl_name(static_cast::<*Decl>(f));
+        var out = self.list_builder::<*Decl>();
+        for var i: usize = 0; i < lit->elements.size(); ++i {
+            var e  = lit->elements[i];
+            var th = self._thunk(f, e, LowerTargets::field_init_elem_thunk(nm, i), el);
+            rw->append(th);
+            out.push(static_cast::<*Decl>(th));
+        }
+        out.freeze_into(&(f->init_elems));
+        f->init      = &null;                       // moved, as _mint's.
+        f->init_fold = FieldFold::Elems;
+    }
+
+    /// The record \p f belongs to has an eval constructor (an eval class,
+    /// EVAL.md §7).
+    priv fn _eval_class(self, f: *FieldDecl) -> bool {
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        if owner == &null { return false; }
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(owner) { ms = &(cast::<ClassDecl>(owner)->methods); }
+        else if isa::<StructDecl>(owner) { ms = &(cast::<StructDecl>(owner)->methods); }
+        if ms == &null { return false; }
+        var on = self.tu.decl_name(owner);
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if (m != &null) && m->is_eval() && (!m->is_operator) && (self.tu.decl_name(static_cast::<*Decl>(m)) == on) { return true; }
+        }
+        return false;
     }
 
     /// A FunctionDecl with every field set, as CallLowering's thunks are.

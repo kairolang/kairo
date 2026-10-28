@@ -34,6 +34,9 @@
 ///                          and InitField::field_decl on each field
 ///       loops              RangedForStmt::iter_kind / iter_op / iter_elem,
 ///                          and a C++ range's cxx_* slots
+///       narrowed reads     NamedIdentExpr / ChainExpr::Step narrowed_from,
+///                          with the read's `type_` rewritten to the `T`
+///                          (NullnessFlow::read_value, NULLABLE.md §4)
 ///
 ///     Nothing else in the tree. Outside it: its own side tables, sc.rstate
 ///     for the decls it infers, and instances it asks the registry for.
@@ -84,6 +87,7 @@ import Sema::Resolve::GenericArgs::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::ArgumentDeduction::*;
 import Sema::Type::LiteralTyping::*;
 import Sema::Type::OperatorTyping::*;
@@ -93,6 +97,8 @@ import Sema::Type::CastTyping::*;
 import Sema::Type::ControlTyping::*;
 import Sema::Type::StmtTyping::*;
 import Sema::Type::PatternTyping::*;
+import Sema::Type::NullnessFlow::*;
+import Sema::Check::EffectPropagation::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -212,6 +218,9 @@ class ExprTyper
     pub var ovl:  OverloadResolution;
     pub var ml:   MemberLookup;
     pub var cb:   ChainBinding;
+    /// The nullness analysis (NULLABLE.md §3): the mixins report into it
+    /// and ask it at each use; it owns every fact.
+    pub var flow: NullnessFlow;
 
     // --- scope state ------------------------------------------------------
     pub var frames:       vec::<TyperFrame>;
@@ -239,6 +248,10 @@ class ExprTyper
     priv var _typeexp: llvm::DenseMap::<u64, *Type>;   ///< expr -> the type it denotes.
     priv var _modexp:  llvm::DenseSet::<u64>;          ///< expr denotes a module.
     priv var _panics:  vec::<*Expr>;                          ///< asserting downcasts.
+    /// `as` into a closed enum typed before the enum's variant values were
+    /// written (the enum is declared below the cast): checked after the
+    /// walk, when every value is (CastTyping::check_closed_enum_cast).
+    priv var _enum_casts: vec::<*TypeCastExpr>;
     priv var _lang_reported: vec::<string>;
     priv var _scratch_ded: Deduction;
 
@@ -255,6 +268,7 @@ class ExprTyper
         self.ml   = MemberLookup(sc);
         self.cb   = ChainBinding(sc);
         self._scratch_ded = Deduction(sc, &(self.conv));
+        self.flow = NullnessFlow(sc, &(self.tu));
         self.discr_enum   = &null;
         self.variant_head = &null;
     }
@@ -295,6 +309,11 @@ class ExprTyper
             }
         }
         if self.stop { return; }
+        for var i: usize = 0; i < self._enum_casts.size(); ++i {
+            var c = self._enum_casts[i];
+            self.check_closed_enum_cast(c, self.closed_enum_of(c));
+        }
+        self._enum_casts.clear();
 
         var v = ExprBodyVerifier(self.sc, &(self.tu));
         v.run();
@@ -416,12 +435,47 @@ class ExprTyper
             case ExprKind::NamedInitializerExpr { return self.type_named_init(cast::<NamedInitializerExpr>(e), expected); }
             case ExprKind::AnonInitializerExpr  { return self.type_anon_init(cast::<AnonInitializerExpr>(e), expected); }
             case ExprKind::ChainExpr            { return self.type_chain(cast::<ChainExpr>(e), expected); }
-            case ExprKind::CallExpr             { return self.type_call(cast::<CallExpr>(e), expected); }
+            case ExprKind::CallExpr {
+                // Any call may write any global (NULLABLE.md 3.8). After the
+                // call: its own arguments were read before it ran.
+                var ct = self.type_call(cast::<CallExpr>(e), expected);
+                self.flow.after_call(e->range);
+                return ct;
+            }
             case ExprKind::SubscriptExpr        { return self.type_subscript(cast::<SubscriptExpr>(e), expected); }
             case ExprKind::NamedIdentExpr       { return self._type_ident(cast::<NamedIdentExpr>(e), expected); }
-            case ExprKind::UnaryOperatorExpr    { return self.type_unary(cast::<UnaryOperatorExpr>(e), expected); }
-            case ExprKind::BinaryOperatorExpr   { return self.type_binary(cast::<BinaryOperatorExpr>(e), expected); }
-            case ExprKind::AssignOperatorExpr   { return self.type_assign(cast::<AssignOperatorExpr>(e), expected); }
+            case ExprKind::UnaryOperatorExpr {
+                var un = cast::<UnaryOperatorExpr>(e);
+                var ut = self.type_unary(un, expected);
+                var uk = un->op_token.kind;
+                if (uk == TokenKind::OpPlusPlus) || (uk == TokenKind::OpMinusMinus) { self.flow.modified(un->operand); }
+                if un->resolved_op != &null {   // a user operator is a call.
+                    self.flow.operator_call(un->resolved_op, un->operand, e->range);
+                    self.flow.after_call(e->range);
+                }
+                return ut;
+            }
+            case ExprKind::BinaryOperatorExpr {
+                var bn = cast::<BinaryOperatorExpr>(e);
+                var bt = self.type_binary(bn, expected);
+                if bn->resolved_op != &null {
+                    self.flow.operator_call(bn->resolved_op, bn->lhs, e->range);
+                    self.flow.after_call(e->range);
+                }
+                return bt;
+            }
+            case ExprKind::AssignOperatorExpr {
+                var an = cast::<AssignOperatorExpr>(e);
+                var at = self.type_assign(an, expected);
+                // `=` reports itself (NullnessFlow::assign); a compound one
+                // writes its left side in place.
+                if an->op_token.kind != TokenKind::OpEqual { self.flow.modified(an->lhs); }
+                if an->resolved_op != &null {
+                    self.flow.operator_call(an->resolved_op, an->lhs, e->range);
+                    self.flow.after_call(e->range);
+                }
+                return at;
+            }
             case ExprKind::ImplConformanceExpr  { return self.type_constraint(e, expected); }
             case ExprKind::DerivesRelationExpr  { return self.type_constraint(e, expected); }
             case ExprKind::ConstraintExpr       { return self.type_constraint(e, expected); }
@@ -431,6 +485,21 @@ class ExprTyper
             case ExprKind::RangeExpr            { return self.type_range(cast::<RangeExpr>(e), expected); }
             case ExprKind::ClosureExpr          { return self.type_closure(cast::<ClosureExpr>(e), expected); }
             case ExprKind::AwaitExpr            { return self.type_await(cast::<AwaitExpr>(e), expected); }
+            case ExprKind::UnwrapExpr           { return self.type_unwrap(cast::<UnwrapExpr>(e), expected); }
+            // EvalIfFolding folded every one; a bool if one is ever left.
+            case ExprKind::DefinedExpr          { return self.tu.builtin(BuiltinKind::Bool); }
+            case ExprKind::AttributedExpr {
+                // No expression attribute has a meaning yet: FeatureGateCheck
+                // reports each one (SC116E), and that error stops the
+                // schedule before any lowering. The operand is NOT typed as
+                // an ordinary expression: an attribute may give it another
+                // meaning (`@create i32(10)` constructs an i32, where a plain
+                // `i32(10)` is SC037E), so typing it here would report
+                // errors in code the attribute defines. Its names were
+                // resolved (N), so a misspelling is still caught.
+                self.mark_unknown(e);
+                return &null;
+            }
             case ExprKind::SpawnExpr            { return self.type_spawn(e, cast::<SpawnExpr>(e)->operand, expected); }
             case ExprKind::ThreadExpr           { return self.type_spawn(e, cast::<ThreadExpr>(e)->operand, expected); }
             case ExprKind::SizeOfExpr           { return self.type_sizeof(cast::<SizeOfExpr>(e), expected); }
@@ -505,6 +574,10 @@ class ExprTyper
                 n->value_category = Expr::ValueCategory::LValue;
                 var t = self.param_value_type(p);
                 if t == &null { self.mark_unknown(n); return &null; }
+                var pv = self._capture_view(d, t);
+                if pv != &null { return pv; }
+                self._note_place_read(n, d, t);
+                self.flow.note_use(static_cast::<*Expr>(n), d);
                 return t;
             }
             case DeclKind::VariableDecl {
@@ -513,6 +586,12 @@ class ExprTyper
                 var t = self.var_type(v);
                 if t == &null { if d->is_poisoned() { self.poison_only(n); } else { self.mark_unknown(n); } }
                 else if v->is_const() { t = self.sc->types->qualified(t, QUAL_CONST()); }
+                if t != &null {
+                    var pv = self._capture_view(d, t);
+                    if pv != &null { return pv; }
+                    self._note_place_read(n, d, t);
+                    self.flow.note_use(static_cast::<*Expr>(n), d);
+                }
                 return t;
             }
             case DeclKind::FieldDecl {
@@ -545,7 +624,22 @@ class ExprTyper
                 if (!f->is_method()) && (f->generic_params.size() == 0) { return self.fn_pointer_type(f); }
                 return &null;
             }
-            case DeclKind::GenericParamDecl { self.mark_unknown(n); return &null; }
+            case DeclKind::GenericParamDecl {
+                // A TYPE parameter denotes its type, as a record's name does:
+                // `T::make()` is a static of T's bounds called with T as its
+                // qualifier, and MemberTyping reads the receiver off this. An
+                // `eval N: T` value parameter is a constant of its declared
+                // type (EVAL.md 3): a prvalue, the same in every instance.
+                var gp = cast::<GenericParamDecl>(d);
+                if gp->is_const_param && (gp->value_type != &null) && (gp->value_type->canonical != &null) {
+                    n->value_category = Expr::ValueCategory::RValue;
+                    return gp->value_type->canonical;
+                }
+                if gp->is_const_param || gp->is_pack || (gp->owner == &null) { self.mark_unknown(n); return &null; }
+                self.note_type_expr(static_cast::<*Expr>(n),
+                    self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, false));
+                return &null;
+            }
             case DeclKind::ModuleDecl {
                 // A module used as a value is the typer's own (still open)
                 // question and stays silent here. `cxx` is not: it is the C++
@@ -577,6 +671,69 @@ class ExprTyper
                 return &null;
             }
         }
+    }
+
+    /// Inside a closure that captures \p d by pointer (`|*x|`, `|*|`, or
+    /// `|const *x|`), the name is that pointer, `*T` (closures.md: the body
+    /// reads and writes the original through `*x`): its type there, or null
+    /// when \p d is not captured by pointer here. An inner closure that
+    /// copies an outer one's pointer capture sees the pointer too. Only
+    /// closures between the use and \p d's own body count.
+    priv fn _capture_view(self, d: *Decl, t: *Type) -> *Type {
+        if (d == &null) || (t == &null) { return &null; }
+        var at = d->range.start.id;
+        var i = self.frames.size();
+        while i > 0 {
+            i = i - 1;
+            var c = self.frames[i].closure;
+            if c == &null { return &null; }   // a function body: d is its own or a global.
+            if (at >= c->range.start.id) && (at < c->range.end.id) { return &null; }
+            for var k: usize = 0; k < c->captures.size(); ++k {
+                var cap = c->captures.get(k);
+                if !cap->by_ptr { continue; }
+                var named = (cap->name != &null) && (cap->name->resolved_decl == d);
+                var all = cap->name == &null;
+                if (!named) && (!all) { continue; }
+                // A global is named, not captured; `self` keeps its own
+                // receiver type: every closure holds it as the pointer it
+                // already is (ClosureCaptures, CaptureMode::Self).
+                if all && (null_flow_is_global(d) || (isa::<ParamDecl>(d) && cast::<ParamDecl>(d)->is_self)) { continue; }
+                var pointee = t;
+                if cap->is_const { pointee = self.sc->types->qualified(t, QUAL_CONST()); }
+                return self.sc->types->pointer(pointee, false);
+            }
+        }
+        return &null;
+    }
+
+    /// A use of the nullable place \p d: the analysis remembers its state
+    /// here, for the consumer that may need the value (NullnessFlow::
+    /// read_value). The use itself stays `T?`: `x?`, `x = null` and a `T?`
+    /// argument never read the value.
+    priv fn _note_place_read(self, n: *NamedIdentExpr, d: *Decl, t: *Type) {
+        if !null_flow_type_is_nullable(t) { return; }
+        var place = vec::<*Decl>();
+        place.push_back(d);
+        self.flow.note_read(static_cast::<*Expr>(n), &place);
+    }
+
+    /// The consumer of \p e needs its value: narrow it when its place is
+    /// proven non-null here, else the §4 error (NullnessFlow::read_value).
+    /// Returns \p e's type after (the `T` when narrowed), or null when the
+    /// error was reported and \p e poisoned.
+    fn read_value(self, e: *Expr) -> *Type {
+        if e == &null { return &null; }
+        if self.flow.read_value(e, true) == NULL_READ_REFUSED() { return &null; }
+        return e->type_;
+    }
+
+    /// \p e, typed \p t, as a consumer that takes the nullable as well as
+    /// its value sees it: the `T` when \p e is a nullable place proven
+    /// non-null here (narrowed), else \p t unchanged and no error.
+    fn value_if_proven(self, e: *Expr, t: *Type) -> *Type {
+        if (t == &null) || (self.tu.nullable_inner(t) == &null) { return t; }
+        if self.flow.read_value(e, false) == NULL_READ_NARROWED() { return e->type_; }
+        return t;
     }
 
     // === type-denoting expressions ==========================================
@@ -694,7 +851,13 @@ class ExprTyper
         }
         var r = self.fn_return_type(f);
         if r == &null { return &null; }
-        return self.sc->types->func(&ps, &ms, r);
+        // The effect is part of the type (PANIC.md §2.2): the DECLARED set.
+        // A bare `panic` function's set is inferred only past the Typed
+        // barrier, so its value type carries `panic` with no set here, and
+        // PanicEffectChecking rejects such a function used as a value.
+        var pset = vec::<*Type>();
+        if f->is_panic() { canonical_set(&(self.tu), &(panic_home(f)->panic_set), &pset); }
+        return self.sc->types->func(&ps, &ms, r, f->is_panic(), &pset);
     }
 
     // === outcomes ===========================================================
@@ -750,9 +913,27 @@ class ExprTyper
         if e->is_poisoned() { return false; }
         var from = e->type_;
         if from == &null { return true; }   // unknown: nothing to check here.
-        if to->is_dependent() { return true; }
+        if to->is_dependent() {
+            // `return t` from a `T?` into a `T` in a generic body: the same
+            // read of the value as below, decidable before instantiation.
+            var din = self.flow.narrowed_type(from);
+            if (din != &null) && (canon_unqual(din) == canon_unqual(to)) {
+                return self.flow.read_value(e, true) != NULL_READ_REFUSED();
+            }
+            return true;
+        }
         var r = self.conv.implicit(from, to);
         if r != ImplicitRank::None { return true; }
+
+        // A `T?` place where a `T` is wanted is a read of its value (§4):
+        // narrowed when proven non-null here, else the nullness error in
+        // place of "cannot convert". Only when the value would convert.
+        var nin = self.flow.narrowed_type(from);
+        if (nin != &null) && (self.conv.implicit(nin, to) != ImplicitRank::None) {
+            var o = self.flow.read_value(e, true);
+            if o == NULL_READ_REFUSED() { return false; }
+            if o == NULL_READ_NARROWED() { return true; }
+        }
 
         var hint = "";
         var fk = self.tu.kind_of(from);
@@ -786,7 +967,7 @@ class ExprTyper
                 hint = "; a safe pointer becomes a raw one only explicitly: 'unsafe &x', or 'as unsafe *T' inside an unsafe block";
             } else if self.tu.is_unsafe_ptr(from) && (!self.tu.is_unsafe_ptr(to)) {
                 hint = "; a raw pointer becomes safe only by 'as *T' inside an unsafe block";
-            } else if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(td, fd) {
+            } else if (fd != &null) && (td != &null) && (fd != td) && Substitution(self.sc).derives_from(self.tu.pointee(to), self.tu.pointee(from)) {
                 hint = "; a base-to-derived pointer needs an explicit 'as\x27";
             }
         }
@@ -830,6 +1011,7 @@ class ExprTyper
     /// An asserting downcast is a panic site. PanicEffectChecking reads
     /// panic_sites() when it lands; until then the list is inert.
     fn note_panic_site(self, e: *Expr) { self._panics.push_back(e); }
+    fn defer_enum_cast(self, n: *TypeCastExpr) { self._enum_casts.push_back(n); }
 
     // === RAV routing ========================================================
 
