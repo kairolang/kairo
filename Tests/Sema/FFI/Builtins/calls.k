@@ -2,11 +2,11 @@
 // source of unqualified names (RESOLUTION.md §2.5): no import, no header.
 
 fn bits(x: u32) -> i32 {
-    return __builtin_popcount(x);                 // i32(u32): plain import.
+    return __builtin_parity(x);                   // i32(u32): plain import.
 }
 
 fn likely(x: i32) -> i64 {
-    return __builtin_expect(x, 1);                // untyped literal takes the param type (C long).
+    return __builtin_labs(1) + x;                 // untyped literal takes the param type (C long).
 }
 
 fn scratch(n: usize) -> unsafe *void {
@@ -22,7 +22,7 @@ fn <T> promise_aligned(p: unsafe *void) -> unsafe *void {
 }
 
 fn die() -> i32 {
-    __builtin_trap();                             // noreturn: no `return` needed, no ReturnPathCheck error.
+    __builtin_abort();                            // noreturn: no `return` needed, no ReturnPathCheck error.
 }
 
 fn main() -> i32 {

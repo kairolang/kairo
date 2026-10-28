@@ -90,6 +90,18 @@ enum WellKnownType derives u8 {
     TypeIdOf,   ///< `__builtin_type_id<T>()`: T's panic type id (PANIC.md §1.3), answered like NicheOf.
     PanicSiteOf, ///< `__builtin_panic_site()`: the call's panic site id (PANIC.md §1.4), registered in the TU's site table.
     CChar,      ///< `type __builtin_c_char`: the alias TypeResolve gives BuiltinKind::CChar (C's `char`); std spells it std::c_char.
+    // Kairo-only type queries: C++ cannot tell these cases apart (a safe and
+    // an unsafe pointer are both `T*`; a class, a struct and an ADT are all
+    // C++ structs), so EnumLayoutLowering answers each call for a concrete T
+    // and a dependent T is an error, as for NicheOf.
+    IsSafePointer,   ///< `__builtin_is_safe_pointer<T>()`
+    IsUnsafePointer, ///< `__builtin_is_unsafe_pointer<T>()`
+    IsNullable,      ///< `__builtin_is_nullable<T>()`
+    IsAdtEnum,       ///< `__builtin_is_adt_enum<T>()`
+    IsClass,         ///< `__builtin_is_class<T>()`
+    IsStruct,        ///< `__builtin_is_struct<T>()` (a tuple is not one)
+    IsTuple,         ///< `__builtin_is_tuple<T>()`
+    TupleArity,      ///< `__builtin_tuple_arity<T>()`: 0 for a non-tuple.
 
     COUNT,      ///< keep last.
 }
@@ -128,6 +140,14 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::TypeIdOf   { return "__builtin_type_id"; }
         case WellKnownType::PanicSiteOf { return "__builtin_panic_site"; }
         case WellKnownType::CChar       { return "__builtin_c_char"; }
+        case WellKnownType::IsSafePointer { return "__builtin_is_safe_pointer"; }
+        case WellKnownType::IsUnsafePointer { return "__builtin_is_unsafe_pointer"; }
+        case WellKnownType::IsNullable { return "__builtin_is_nullable"; }
+        case WellKnownType::IsAdtEnum { return "__builtin_is_adt_enum"; }
+        case WellKnownType::IsClass { return "__builtin_is_class"; }
+        case WellKnownType::IsStruct { return "__builtin_is_struct"; }
+        case WellKnownType::IsTuple { return "__builtin_is_tuple"; }
+        case WellKnownType::TupleArity { return "__builtin_tuple_arity"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";

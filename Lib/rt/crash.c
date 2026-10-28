@@ -85,7 +85,8 @@ __attribute__((noreturn)) static void kairo_rt_crash_die_(void) {
     __builtin_trap();
 }
 
-void kairo_rt_crash(const unsigned char *msg, size_t len) {
+/* The re-entry guard and the one write, shared by every entry below. */
+static void kairo_rt_crash_say_(const unsigned char *msg, size_t len) {
     if (__atomic_exchange_n(&kairo_rt_crashing_, 1, __ATOMIC_SEQ_CST) != 0) {
         kairo_rt_crash_die_();
     }
@@ -97,5 +98,42 @@ void kairo_rt_crash(const unsigned char *msg, size_t len) {
         kairo_rt_crash_buf_[len] = '\n';
         kairo_rt_crash_put_(kairo_rt_crash_buf_, len + 1);
     }
+}
+
+void kairo_rt_crash(const unsigned char *msg, size_t len) {
+    kairo_rt_crash_say_(msg, len);
+    kairo_rt_crash_die_();
+}
+
+/* `__builtin_crash`: the message, then _Exit with the caller's code: no
+ * atexit handlers, no stdio flush, as for a crash. */
+void kairo_rt_crash_exit(const unsigned char *msg, size_t len, int code) {
+    kairo_rt_crash_say_(msg, len);
+    _Exit(code);
+}
+
+/* `__builtin_signal`: the message, then \p sig at its default action,
+ * unblocked, so the process ends as that signal would end it (a core for
+ * SIGSEGV, the shell's 128+n). A signal the target lacks, or one that
+ * returns (ignored by a parent's mask on some systems), falls to abort(). */
+void kairo_rt_signal(const unsigned char *msg, size_t len, int sig) {
+    kairo_rt_crash_say_(msg, len);
+#if defined(KAIRO_RT_CRASH_POSIX_)
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;
+    sa.sa_flags   = 0;
+    sigemptyset(&sa.sa_mask);
+    (void)sigaction(sig, &sa, (struct sigaction *)0);
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, sig);
+    (void)sigprocmask(SIG_UNBLOCK, &set, (sigset_t *)0);
+    (void)raise(sig);
+#elif defined(KAIRO_RT_CRASH_WIN_)
+    (void)signal(sig, SIG_DFL);
+    (void)raise(sig);
+#else
+    (void)sig;
+#endif
     kairo_rt_crash_die_();
 }

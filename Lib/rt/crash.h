@@ -45,6 +45,10 @@ extern "C" {
 
 /* See above. Never returns. */
 __attribute__((noreturn)) void kairo_rt_crash(const unsigned char *msg, size_t len);
+/* `__builtin_crash`: the same message, then _Exit(code). */
+__attribute__((noreturn)) void kairo_rt_crash_exit(const unsigned char *msg, size_t len, int code);
+/* `__builtin_signal`: the same message, then raise(sig) at its default action. */
+__attribute__((noreturn)) void kairo_rt_signal(const unsigned char *msg, size_t len, int sig);
 
 #ifdef __cplusplus
 }

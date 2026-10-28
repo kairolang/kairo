@@ -1368,6 +1368,14 @@ class CompilerInstance {
         // roots: -I / --ffi-include / --cxx-include (-I), --cxx-define (-D),
         // --cxx-undefine (-U).
         for a: string in FlagTranslator::preprocessor(self.invocation()) { bcfg.extra_cc1.push_back(a); }
+        // The triple's environment as a macro (`__kairo_env_musl__`):
+        // clang predefines the arch and OS, but nothing tells musl from
+        // glibc, which `__builtin_target_info()` (Lib/builtin) must.
+        var env_tt = llvm::Triple(llvm::Triple::normalize(sref(bcfg.triple)));
+        var env_sr: llvm::StringRef = env_tt.getEnvironmentName();
+        var env_nm = string(env_sr.data(), env_sr.size());
+        if env_nm.empty() { env_nm = "unknown"; }
+        bcfg.extra_cc1.push_back(f"-D{LowerTargets::reserved_prefix()}env_{env_nm}__=1");
         // The runtime root, after the user's: `rt/fmt.h` names the same file
         // from Lib/builtin/fmt/fmt_buf.k (an ffi header set copies this
         // invocation) and from Lib/rt/fmt_*.c (compile_native shares these

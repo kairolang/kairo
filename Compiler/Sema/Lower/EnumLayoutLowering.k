@@ -1096,6 +1096,8 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         var cd = NameLookup::representative(callee->resolved_decl);
         if self._is_lang(cd, WellKnownType::TypeIdOf)    { return self._type_id_of(n); }
         if self._is_lang(cd, WellKnownType::PanicSiteOf) { return self._panic_site_of(n); }
+        var tk = self._kairo_trait_kind(cd);
+        if tk != WellKnownType::COUNT { return self._kairo_trait(n, tk); }
         if !self._is_lang(cd, WellKnownType::NicheOf) { return out; }
         // A dependent call (a generic body's) has no instance entry: its T is
         // the instance's, which is the case reported below.
@@ -1142,6 +1144,62 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         var lit = self.synth.int_literal(n->range, u64(id), BuiltinKind::U32);
         lit->adopt_sema(static_cast::<*Expr>(n));
         return lit;
+    }
+
+    /// Which Kairo-only type query \p d is, or COUNT.
+    priv fn _kairo_trait_kind(self, d: *Decl) -> WellKnownType {
+        if self._is_lang(d, WellKnownType::IsSafePointer) { return WellKnownType::IsSafePointer; }
+        if self._is_lang(d, WellKnownType::IsUnsafePointer) { return WellKnownType::IsUnsafePointer; }
+        if self._is_lang(d, WellKnownType::IsNullable) { return WellKnownType::IsNullable; }
+        if self._is_lang(d, WellKnownType::IsAdtEnum) { return WellKnownType::IsAdtEnum; }
+        if self._is_lang(d, WellKnownType::IsClass) { return WellKnownType::IsClass; }
+        if self._is_lang(d, WellKnownType::IsStruct) { return WellKnownType::IsStruct; }
+        if self._is_lang(d, WellKnownType::IsTuple) { return WellKnownType::IsTuple; }
+        if self._is_lang(d, WellKnownType::TupleArity) { return WellKnownType::TupleArity; }
+        return WellKnownType::COUNT;
+    }
+
+    /// A Kairo-only type query -> a literal. Only Sema knows the answer (C++
+    /// spells a safe and an unsafe pointer, a class, a struct and an ADT
+    /// alike), so a T that depends on a generic parameter has none here: the
+    /// call is answered before any instantiation, as NicheOf's is.
+    priv fn _kairo_trait(self, n: *CallExpr, k: WellKnownType) -> *Expr {
+        var ie = reinterpret_cast::<*InstanceEntry>(n->instance);
+        var t: *Type = &null;
+        if (ie != &null) && (ie->args.size() == 1) { t = ie->args[0]; }
+        if (t != &null) && (t->canonical != &null) { t = t->canonical; }
+        if (t == &null) || t->is_dependent() || t->is_instantiation_dependent() {
+            var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
+                "\x27" + to_string(k) + "' needs a concrete type; this one depends on a generic parameter");
+            b.first(n->range, "answered at compile time, before any instantiation");
+            b.emit();
+            t = &null;
+        }
+        var arity: usize = 0;
+        if t != &null { arity = self.tu.tuple_arity(t); }
+        if k == WellKnownType::TupleArity {
+            var lit = self.synth.int_literal(n->range, u64(arity), BuiltinKind::USize);
+            lit->adopt_sema(static_cast::<*Expr>(n));
+            return lit;
+        }
+        var v = false;
+        if t != &null {
+            var u  = canon_unqual(t);
+            var rd = self.tu.record_decl(u);
+            if k == WellKnownType::IsSafePointer   { v = isa::<PointerType>(u) && (!self.tu.is_unsafe_ptr(u)); }
+            if k == WellKnownType::IsUnsafePointer { v = self.tu.is_unsafe_ptr(u); }
+            if k == WellKnownType::IsNullable      { v = isa::<NullableType>(u); }
+            if k == WellKnownType::IsTuple         { v = arity > 0; }
+            if rd != &null {
+                var pd = self.tu.pattern_of(NameLookup::representative(rd));
+                if k == WellKnownType::IsAdtEnum { v = isa::<EnumDecl>(pd) && cast::<EnumDecl>(pd)->is_adt; }
+                if k == WellKnownType::IsClass   { v = isa::<ClassDecl>(pd); }
+                if k == WellKnownType::IsStruct  { v = isa::<StructDecl>(pd) && (arity == 0); }
+            }
+        }
+        var bl = self.synth.bool_literal(n->range, v);
+        bl->adopt_sema(static_cast::<*Expr>(n));
+        return bl;
     }
 
     /// `__builtin_panic_site()` -> the id of the site this call is at, a

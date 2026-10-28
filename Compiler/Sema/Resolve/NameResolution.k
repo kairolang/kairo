@@ -517,6 +517,14 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::TypeIdOf);
         self._bind_lang(root, WellKnownType::PanicSiteOf);
         self._bind_lang(root, WellKnownType::CChar);
+        self._bind_lang(root, WellKnownType::IsSafePointer);
+        self._bind_lang(root, WellKnownType::IsUnsafePointer);
+        self._bind_lang(root, WellKnownType::IsNullable);
+        self._bind_lang(root, WellKnownType::IsAdtEnum);
+        self._bind_lang(root, WellKnownType::IsClass);
+        self._bind_lang(root, WellKnownType::IsStruct);
+        self._bind_lang(root, WellKnownType::IsTuple);
+        self._bind_lang(root, WellKnownType::TupleArity);
 
         // `byte` is spelled as the Byte enum, so a TU that uses it must
         // declare that enum. Codegen has no route to well_known, but every

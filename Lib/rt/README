@@ -16,7 +16,8 @@ source file is picked up with no driver change; a header or this README
 is never compiled. Each object is <cache>/kairo/<stem>.o, so stems must be
 unique, and a subdirectory is NOT searched.
 
-    crash.h            public: kairo_rt_crash, the crash path
+    crash.h            public: kairo_rt_crash (+ _exit, signal), the crash path
+    intrinsics.h       header-only kairo_rt_* helpers behind base/intrinsics.k
     crash.c              the one entry; async-signal-safe (POSIX, Windows,
                          wasm)
     fmt.h              public: the heap and float text FmtBuf calls

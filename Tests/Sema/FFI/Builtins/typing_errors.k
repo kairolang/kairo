@@ -2,8 +2,8 @@
 // else. See resolve_errors.k for why the two halves are separate files.
 
 fn main() -> i32 {
-    var f = __builtin_trap;                       // SC109E: builtin used as a value.
-    var g = &__builtin_trap;                      // SC109E: no address either.
+    var f = __builtin_ffsl;                       // SC109E: builtin used as a value.
+    var g = &__builtin_ffsl;                      // SC109E: no address either.
 
     var unsafe *p = __builtin_alloca(64);
     var align: i32 = 8; var wide: i64 = 8;
@@ -17,8 +17,8 @@ fn main() -> i32 {
 
 // --- lit wiring (below the code: nothing above shifts a line) -------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG:      typing_errors.k:5:13: error [SC109E]: '__builtin_trap' is a clang builtin; it can only be called directly
-// DIAG-NEXT: typing_errors.k:6:14: error [SC109E]: '__builtin_trap' is a clang builtin; it can only be called directly
+// DIAG:      typing_errors.k:5:13: error [SC109E]: '__builtin_ffsl' is a clang builtin; it can only be called directly
+// DIAG-NEXT: typing_errors.k:6:14: error [SC109E]: '__builtin_ffsl' is a clang builtin; it can only be called directly
 // DIAG-NEXT: typing_errors.k:10:31: error [SC108E]: argument 2 of '__builtin_coro_promise' must be an integer constant
 // DIAG-NEXT: typing_errors.k:14:31: error [SC108E]: argument 2 of '__builtin_coro_promise' must be an integer constant
 // DIAG-NOT: error

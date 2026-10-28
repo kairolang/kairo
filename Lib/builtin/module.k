@@ -23,6 +23,7 @@ pub import base::range::*
 pub import base::ordering::*
 pub import base::byte_t::*
 pub import base::pow::*
+pub import base::intrinsics::*
 
 pub import num::bigint::*
 pub import num::bigfloat::*
@@ -104,6 +105,20 @@ pub fn __builtin_panic_site() -> u32 = 0
 /// BuiltinKind::CChar, which C++ spells `char`; the `u8` below is only what
 /// parses, never the type. Here because a lang item binds from builtin.
 pub type __builtin_c_char = u8
+
+/// Kairo-only type queries: C++ spells a safe and an unsafe pointer alike,
+/// and a class, a struct and an ADT enum are all C++ structs, so only the
+/// compiler knows. EnumLayoutLowering answers each call for a concrete T;
+/// a T that depends on a generic parameter is an error. These bodies never
+/// run. The C++-answerable traits are in base/intrinsics.k.
+pub eval fn <T> __builtin_is_safe_pointer() -> bool = false
+pub eval fn <T> __builtin_is_unsafe_pointer() -> bool = false
+pub eval fn <T> __builtin_is_nullable() -> bool = false
+pub eval fn <T> __builtin_is_adt_enum() -> bool = false
+pub eval fn <T> __builtin_is_class() -> bool = false
+pub eval fn <T> __builtin_is_struct() -> bool = false
+pub eval fn <T> __builtin_is_tuple() -> bool = false
+pub eval fn <T> __builtin_tuple_arity() -> usize = 0
 
 /// `crash!()` / `crash!("why")`: end the process (PANIC.md §2.4). Not a
 /// panic -- it joins no panic set and no `try` catches it -- so a function
