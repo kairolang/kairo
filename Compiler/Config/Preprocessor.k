@@ -28,6 +28,9 @@ class PreprocessorOptions {
     pub var force_includes:     vec::<string>;      ///< --force-include
     // -- import / module limits --------------------------------------------
     pub var max_import_depth:   i32    = 512;       ///< --cmax-import-depth
+    /// -fimport-cycles / -fno-import-cycles: -1 unset (= on), 0 off, 1 on.
+    /// On, an import cycle compiles with a warning; off, it is an error.
+    pub var import_cycles:      i32    = -1;
     // -- source limits -----------------------------------------------------
     pub var max_file_size_mb:   i32    = 256;       ///< --cmax-file-size-mb
     pub var max_token_count:    i32    = 0;         ///< --cmax-token-count; 0 = unlimited
@@ -84,6 +87,7 @@ class PreprocessorOptions {
         (o.max_backtrace)      = args.get_cfg_i32("max-macro-backtrace");
         (o.trace_depth)        = args.get_cfg_i32("macro-trace-depth");
         (o.max_import_depth)   = args.get_cfg_i32("max-import-depth");
+        (o.import_cycles)      = args.get_feature("import-cycles");
         (o.max_file_size_mb)   = args.get_cfg_i32("max-file-size-mb");
         (o.max_token_count)    = args.get_cfg_i32("max-token-count");
         (o.macro_debug)        = args.get_bool("macro-debug");

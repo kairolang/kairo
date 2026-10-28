@@ -36,10 +36,19 @@ the Nullable layout only once its TU has run EnumLayoutLowering). Only an
 import cycle -- which has no order in which every callee is finished
 first -- holds several TUs at Typed together; their Semas live until the
 group ends, each at a fixed address (an arena: Sema keeps `&self.sc` from
-its constructor on). An import cycle is a compile error (modules.mdx,
-Circular Dependencies): the dependency scan records the edge that closes
-it and the preprocessor reports it (R001E), so the run stops after parse
-and a group of more than one TU does not reach sema today. A TU that stopped before Typed (a hard stop in I/N/T) is neither
+its constructor on). An import cycle compiles with a warning
+(R001W; an error, R001E, under -fno-import-cycles, which stops the run
+after parse). The dependency scan records the edge that closes it and
+leaves it out of the graph, so the waves walk every file of the cycle, and
+the preprocessor registers the macros of every file on the cycle before
+walking any (PPWalker::collect_macros), so walk order does not decide
+which macros a file sees. A group of more than one TU runs to Typed in
+LOCKSTEP, one phase (I, E, V, N, T, the typed checks) across every member
+before the next: each phase of one reads what the same phase of another
+produced -- a call typed in one needs the other's T to have resolved the
+callee's parameters. After I, the group's re-exports are folded to a
+fixpoint (ImportResolution::refold_reexports): the member that ran I first
+folded its sources' re-exports from overlays not built yet. A TU that stopped before Typed (a hard stop in I/N/T) is neither
 registered nor continued; a call into it says nothing about panics. A run
 with no driver table (`sc->effects` null) solves its own TU in
 PanicEffectChecking, reading other TUs' sets as they were left.

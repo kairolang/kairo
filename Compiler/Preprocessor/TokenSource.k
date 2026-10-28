@@ -85,6 +85,11 @@ class TokenSource {
     /// peek(), a splice, or a cursor that forgot to skip it.
     priv var _drop_comments: bool = true;
 
+    /// Frame 0 read back from tokens the lexer already produced, instead of
+    /// from the lexer (set_replay). Null: the lexer.
+    priv var _replay:    obs::<vec::<Token>> = &null;
+    priv var _replay_at: usize = 0;
+
     fn TokenSource(self, lexer: *Lexer) {
         self._lexer = lexer;
         self._ring.reserve(4);
@@ -111,6 +116,17 @@ class TokenSource {
     /// first pull; the ring is empty then, so no comment has been dropped yet.
     fn set_preserve_comments(self, on: bool) {
         self._drop_comments = !on;
+    }
+
+    /// Read frame 0 from \p toks -- every token the lexer produced for the
+    /// file, its TkEof last -- instead of from the lexer. A file on an import
+    /// cycle is lexed once and walked twice (PreProcessor::_prelex_cycles):
+    /// first for its macro definitions, then for real. Call before the first
+    /// pull. Comments, the token budget and the end are handled as for the
+    /// lexer, so the two walks see what one lexer pass would have shown.
+    fn set_replay(self, toks: *vec::<Token>) {
+        self._replay    = toks;
+        self._replay_at = 0;
     }
 
     // --- frame stack (== expansion chain) --------------------------------
@@ -283,7 +299,14 @@ class TokenSource {
             var t = Token();
             // CONTRACT: fn Lexer::next(out: *Token) -> bool
             //   emits exactly one TkEof, returns true for it, false thereafter.
-            if !self._lexer->next(&t) {
+            if self._replay != &null {
+                if self._replay_at >= self._replay->size() {
+                    self._eof_seen = true;
+                    return false;
+                }
+                t = (*self._replay)[self._replay_at];
+                self._replay_at += 1;
+            } else if !self._lexer->next(&t) {
                 self._eof_seen = true;
                 return false;
             }

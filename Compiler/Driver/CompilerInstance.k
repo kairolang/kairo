@@ -144,6 +144,7 @@ import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
 import Sema::Type::PanicSets::*;
 import Sema::Sema::*;
+import Sema::Resolve::ImportResolution::*;
 import Sema::SemaDump::*;
 import Sema::SemaContext::*;
 import Sema::Check::EffectPropagation::*;
@@ -3751,8 +3752,56 @@ fn FrontendAction::_sema_group(fids: *vec::<u32>, effects: *EffectTable, print_s
         // top-level statement nothing would run. The same answer for kcc and
         // every --emit mode: it depends on the command line, not the output.
         sem->sc.script_root = (fid == self._file_id) && (!self.discovered);
-        { var _ts = TimeRegion("Sema"); sem->run_to(SemaPhase::Typed); }
         sems.push_back(sem);
+    }
+
+    // One TU goes to Typed in one run, as it always did. The TUs of an
+    // import cycle go there in LOCKSTEP, one phase at a time across the
+    // group: each phase of one reads what the same phase of the other
+    // produced (I folds the other's surface, X calls functions whose
+    // parameter types the other's T resolved), and with no order in which
+    // every import is finished first, run one TU to Typed ahead of the
+    // other and its calls into the other see unresolved types. A TU that
+    // stops in a phase (a hard stop in I/N/T) goes no further; the others
+    // carry on, as an acyclic importer of it would.
+    {
+        var _ts = TimeRegion("Sema");
+        if sems.size() == 1 {
+            sems[0]->run_to(SemaPhase::Typed);
+        } else {
+            var phases = vec::<SemaPhase>();
+            phases.push_back(SemaPhase::ImportsResolved);
+            phases.push_back(SemaPhase::Expanded);
+            phases.push_back(SemaPhase::Verified);
+            phases.push_back(SemaPhase::NamesResolved);
+            phases.push_back(SemaPhase::TypesResolved);
+            phases.push_back(SemaPhase::Typed);
+            var stopped = vec::<bool>();
+            for var i: usize = 0; i < sems.size(); ++i { stopped.push_back(false); }
+            for var p: usize = 0; p < phases.size(); ++p {
+                for var i: usize = 0; i < sems.size(); ++i {
+                    if stopped[i] { continue; }
+                    // run_to's continuation would carry a stopped TU on past
+                    // its hard stop; one that fails a phase is left there.
+                    if !sems[i]->run_to(phases[p]) { stopped[i] = true; }
+                }
+                // Re-exports across the cycle, to a fixpoint: the TU that
+                // ran I first folded its sources' re-exports from overlays
+                // the others had not built yet (ImportResolution::
+                // refold_reexports). Bounded: each round that continues
+                // added a target, and the targets are finite.
+                if phases[p] == SemaPhase::ImportsResolved {
+                    var grew = true;
+                    while grew {
+                        grew = false;
+                        for var i: usize = 0; i < sems.size(); ++i {
+                            if stopped[i] { continue; }
+                            if ImportResolution(&(sems[i]->sc)).refold_reexports() { grew = true; }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // The barrier. A TU that stopped short of Typed (a hard stop in I/N/T)

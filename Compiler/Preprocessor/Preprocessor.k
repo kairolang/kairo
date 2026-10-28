@@ -125,6 +125,17 @@ class PPWalker
     priv var _c_detect: u32 = 0;
     priv var _c_emit:   u32 = 0;
 
+    // --- Import cycles (PreProcessor::_prelex_cycles) ---------------------
+    /// collect_macros() is running: nothing is emitted, and only macro
+    /// definitions and scope tokens are acted on.
+    priv var _collect:      bool = false;
+    /// This file's macros were registered by collect_macros() ahead of the
+    /// walk; run() steps over each definition instead of defining it again.
+    priv var _macros_known: bool = false;
+    /// ig_err is silent: the grammar is re-read for its tokens alone, and
+    /// whatever it had to say was said on the first read.
+    priv var _quiet:        bool = false;
+
     fn PPWalker(
         self,
         fid:         u32,
@@ -200,7 +211,91 @@ class PPWalker
     }
     fn ig_eof(self) -> bool { return self._src->at_eof(); }
     fn ig_err(self, r: SourceRange, msg: string, code: DiagID) {
+        if self._quiet { return; }
         self._diag->report(DiagCode(code), r.start, msg).first(r).emit();
+    }
+
+    /// Frame 0 from tokens already lexed (TokenSource::set_replay).
+    fn set_replay(self, toks: *vec::<Token>) { self._src->set_replay(toks); }
+
+    /// collect_macros() ran for this file on an earlier walker.
+    fn assume_macros_known(self) { self._macros_known = true; }
+
+    /// The macro DEFINITIONS of this file, registered ahead of its walk.
+    ///
+    /// \details A file sees an imported macro only once the file defining it
+    ///          has been walked, and the waves walk an importee first. On an
+    ///          import cycle there is no such order: one side of every cycle
+    ///          is walked before a file it imports, and its uses of that
+    ///          file's macros found nothing. So every file on a cycle runs
+    ///          this first (PreProcessor::_prelex_cycles), and the walks then
+    ///          see every macro of the cycle whatever their order. It acts
+    ///          only on what a definition needs: `macro` (and its visibility),
+    ///          and the `module` blocks and braces that give it its scope.
+    ///          Imports are stepped over, silently, so their braces are not
+    ///          read as scopes; nothing is emitted or expanded. A macro
+    ///          body is raw tokens, so no definition needs another file's
+    ///          macros to be read.
+    fn collect_macros(self) {
+        self._collect = true;
+        while !self._src->at_eof() {
+            var t = self._src->peek(0);
+            var k = t.kind;
+            if k == TokenKind::TkEof { break; }
+            if k == TokenKind::KwImport { self._quiet = true; self.parse_import_spec(); self._quiet = false; continue; }
+            if k == TokenKind::KwMacro  { self._handle_macro_def(3); continue; }
+            if (k == TokenKind::KwPub) || (k == TokenKind::KwPriv) || (k == TokenKind::KwProt) {
+                var vis: u8 = (3) if (k == TokenKind::KwPub) else (1) if (k == TokenKind::KwPriv) else (2);
+                var nk = self._src->peek(1).kind;
+                if nk == TokenKind::KwImport {
+                    self._src->next();
+                    self._quiet = true; self.parse_import_spec(); self._quiet = false;
+                    continue;
+                }
+                if nk == TokenKind::KwMacro { self._src->next(); self._handle_macro_def(vis); continue; }
+                if nk == TokenKind::KwModule {
+                    var mv = (ModuleVisibility::Public) if (k == TokenKind::KwPub)
+                        else (ModuleVisibility::Private) if (k == TokenKind::KwPriv)
+                        else (ModuleVisibility::Protected);
+                    self._src->next();
+                    self._track_scope(self._src->peek(0), mv);
+                    continue;
+                }
+                self._src->next();
+                continue;
+            }
+            if self._track_scope(t, ModuleVisibility::Public) { continue; }
+            self._src->next();
+        }
+        self._collect = false;
+        self._macros_known = true;
+    }
+
+    /// A macro definition collect_macros() already registered: its tokens,
+    /// consumed exactly as _handle_macro_def consumes them, and nothing else
+    /// -- no second MacroDecl, no duplicate-definition error, no diagnostic
+    /// the first read already gave.
+    priv fn _skip_macro_def(self) {
+        var kw = self._src->next(); // `macro`
+        if self._src->peek(0).kind == TokenKind::OpAt { self._emit(kw); return; }
+        self._quiet = true;
+        var hdr = self.parse_macro_header();
+        self._quiet = false;
+        if !hdr.ok { self._recover_to_terminator(); return; }
+        var builtin = self._is_builtin_name(TokenText::spelling(hdr.name, self._tcm));
+        if self._src->peek(0).kind != TokenKind::OpLBrace {
+            if builtin { self._recover_to_terminator(); }
+            return;
+        }
+        self._src->next(); // `{`
+        var d: i32 = 1;
+        while (!self._src->at_eof()) && (d > 0) {
+            var t = self._src->next();
+            if t.kind == TokenKind::OpLBrace { d += 1; }
+            if t.kind == TokenKind::OpRBrace { d -= 1; }
+        }
+        if builtin { return; }
+        if (d == 0) && (self._src->peek(0).kind == TokenKind::OpSemicolon) { self._src->next(); }
     }
 
     //  The walk
@@ -222,7 +317,10 @@ class PPWalker
 
             if k == TokenKind::KwFfi        { self._handle_ffi();       continue; }
             if k == TokenKind::KwImport     { self._handle_import(1);   continue; } // 1 = priv default
-            if k == TokenKind::KwMacro      { self._handle_macro_def(3); continue; } // 3 = pub default
+            if k == TokenKind::KwMacro      {
+                if self._macros_known { self._skip_macro_def(); } else { self._handle_macro_def(3); } // 3 = pub default
+                continue;
+            }
 
             if (k == TokenKind::KwPub) || (k == TokenKind::KwPriv) || (k == TokenKind::KwProt) {
                 var vis: u8 = (3) if (k == TokenKind::KwPub) else (1) if (k == TokenKind::KwPriv) else (2);
@@ -234,7 +332,7 @@ class PPWalker
                 }
                 if nk == TokenKind::KwMacro {
                     self._src->next();
-                    self._handle_macro_def(vis);
+                    if self._macros_known { self._skip_macro_def(); } else { self._handle_macro_def(vis); }
                     continue;
                 }
                 if nk == TokenKind::KwModule {
@@ -290,6 +388,7 @@ class PPWalker
         // Sampled, same reasoning as _detect_invocation: the single choke
         // point every token passes through.
         var _t = TimeSampled(self._t_emit, 64, &self._c_emit);
+        if self._collect { return; }   // collect_macros: a read, not a walk.
 
         if self._src->in_splice() {
             if (t.kind == TokenKind::KwImport) || (t.kind == TokenKind::KwMacro) {
@@ -2406,6 +2505,14 @@ class PPWalker
     }
 }
 
+/// A file on an import cycle, lexed and its macros collected ahead of the
+/// waves (PreProcessor::_prelex_cycles): the open stream and every token it
+/// produced, for _walk_one to replay.
+struct PrelexedFile {
+    var lexer:  *Lexer;
+    var tokens: *vec::<Token>;
+}
+
 //  Batch driver replaces the old PreProcessor::preprocess phases
 
 class PreProcessor {
@@ -2432,6 +2539,9 @@ class PreProcessor {
     priv var _prelude_scope: ModulePath;
     priv var _prelude_fid:   u32 = 0;
     priv var _prelude_files: set::<u32>;
+    /// Files on an import cycle, lexed ahead of the waves. Written before
+    /// the waves start and only read while they run (_walk_one).
+    priv var _prelexed:      map::<u32, PrelexedFile>;
     priv var _define_storage: vec::<libcxx::string>; ///< -D value bytes; load_virtual
                                                        ///  needs them stable for the
                                                        ///  whole compile. reserved
@@ -2656,7 +2766,13 @@ class PreProcessor {
         // noise, the wave is queueing on that one mutex and widening the pool
         // will not help. NOT lex time   see Lexer::next, which bills "Lex".
         var lexer: *Lexer = &null;
-        {
+        var replay: *vec::<Token> = &null;
+        if self._prelexed.contains(fid) {
+            // Opened, lexed and its macros registered by _prelex_cycles.
+            var pf = self._prelexed[fid];
+            lexer  = pf.lexer;
+            replay = pf.tokens;
+        } else {
             var _tl = TimeRegion("Open");
             lexer = self._tcm->open_stream(fid);
         }
@@ -2695,9 +2811,61 @@ class PreProcessor {
         if (self._prelude_fid != 0) && (!self._prelude_files.contains(fid)) {
             walker->set_prelude_scope(self._prelude_scope);
         }
+        if replay != &null {
+            walker->set_replay(replay);
+            walker->assume_macros_known();
+        }
 
         walker->run();
         return true;
+    }
+
+    /// Every file on an import cycle, opened, lexed in full and its macro
+    /// definitions registered BEFORE any file is walked (PPWalker::
+    /// collect_macros). The waves walk an importee before its importer, and
+    /// on a cycle one import always points the other way: without this, the
+    /// file walked first expanded none of the macros of a file it imports.
+    /// With it every file on the cycle sees every macro the cycle defines,
+    /// in either direction and whatever the walk order. Files off every
+    /// cycle are untouched -- lexed once, walked once, as before.
+    priv fn _prelex_cycles(self, graph: *DepGraph) {
+        for var c: usize = 0; c < graph->cycles.size(); ++c {
+            var cyc = &(graph->cycles[c]);
+            for var i: usize = 0; i < cyc->size(); ++i {
+                var fid = (*cyc)[i];
+                if self._prelexed.contains(fid) { continue; }
+                {
+                    var rlock = std::SharedLock(self._walked_mu);
+                    if self._walked.contains(fid) { continue; }
+                }
+                // Over the size cap: the walk reports it and stops there.
+                if (self._opts.max_file_size_mb > 0)
+                && (self._sm->get_file_size(fid) > usize(self._opts.max_file_size_mb) * 1024 * 1024) { continue; }
+                var lexer = self._tcm->open_stream(fid);
+                if lexer == &null { continue; }
+                var toks = std::create::<vec::<Token>>();
+                var t = Token();
+                while lexer->next(&t) { toks->push_back(t); }
+                var mp  = graph->mod_paths[fid];
+                var ctx = self._gscope->get_or_create_context(
+                    fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, mp);
+                var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+                if tu == &null {
+                    tu = ctx->alloc_init_pp_cleanup::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+                    ctx->tu = reinterpret_cast::<*void>(tu);
+                }
+                var walker = std::create::<PPWalker>(
+                    fid, lexer, ctx, tu, self._macros, self._resolver,
+                    self._sym, self._sm, self._tcm, self._diag, self._opts, mp, self._headers);
+                walker->set_replay(toks);
+                walker->collect_macros();
+                std::destroy(walker);
+                var pf = PrelexedFile{};
+                pf.lexer  = lexer;
+                pf.tokens = toks;
+                self._prelexed[fid] = pf;
+            }
+        }
     }
 
     /// \brief re-walks ONE fid, leaving the rest of the import graph alone.
@@ -2734,13 +2902,17 @@ class PreProcessor {
         return SourceRange::invalid();
     }
 
-    /// An import cycle (modules.mdx, Circular Dependencies: a compile
-    /// error). \p cyc is its files in import order, the last importing the
-    /// first (DepGraph::cycles). The error is at the import that closes it
-    /// -- the one the scan met with its target still open -- and each edge
-    /// of the cycle gets a note at its own import, so the whole loop reads
-    /// off the diagnostic. No fix-it: which import to drop, or what to move
-    /// into a third module, is a design call.
+    /// An import cycle (modules.mdx, Circular Dependencies). \p cyc is its
+    /// files in import order, the last importing the first (DepGraph::
+    /// cycles). A cycle compiles, but is warned about (R001W): no module on
+    /// it can be read, built or tested without the others. -fno-import-
+    /// cycles makes it an error (R001E), which stops the build after parse.
+    /// The diagnostic is at the import that closes it -- the one the scan
+    /// met with its target still open -- and each edge of the cycle gets a
+    /// note at its own import, so the whole loop reads off it. No fix-it
+    /// for a real cycle: which import to drop, or what to move into a third
+    /// module, is a design call. A self-import is the exception: it only
+    /// closes the cycle, and the fix-it removes it.
     priv fn _report_cycle(self, cyc: *vec::<u32>) {
         var n = cyc->size();
         if n == 0 { return; }
@@ -2753,9 +2925,12 @@ class PreProcessor {
         var last  = (*cyc)[n - 1];
         var first = (*cyc)[0];
         var at = self._import_range(last, first);
-        var msg = f"import cycle: {path}; a module cannot import itself, directly or through other modules";
-        if n == 1 { msg = f"'{Path::filename_of(self._sm->get_filename(first))}' imports itself; a module cannot import itself, directly or through other modules"; }
-        var b = self._diag->report(DiagID::R001E, at.start, msg);
+        var forbid = self._opts.import_cycles == 0;
+        var head = f"import cycle: {path}";
+        if n == 1 { head = f"'{Path::filename_of(self._sm->get_filename(first))}' imports itself"; }
+        var msg = f"{head}; import cycles are disabled (-fno-import-cycles)";
+        if !forbid { msg = f"{head}; a cycle hinders maintainability: no module on it can be read, built or tested without the others"; }
+        var b = self._diag->report((DiagID::R001E) if (forbid) else (DiagID::R001W), at.start, msg);
         b.first(at, "this import closes the cycle");
         if n > 1 {
             for var i: usize = 0; i < n; ++i {
@@ -2764,6 +2939,13 @@ class PreProcessor {
                 var r = self._import_range(a, t);
                 b.note(r.start, f"'{Path::filename_of(self._sm->get_filename(a))}' imports '{Path::filename_of(self._sm->get_filename(t))}' here");
             }
+        }
+        if n == 1 {
+            // A file sees its own declarations without importing itself, so
+            // the import does nothing but close the cycle: drop it.
+            b.remove(at, "remove the import; a file sees its own declarations without one");
+        } else {
+            b.note("move the declarations the modules share into a third module that each of them imports");
         }
         b.emit();
     }
@@ -2868,6 +3050,8 @@ class PreProcessor {
             }
         }
 
+        self._prelex_cycles(&graph);
+
         var executor = WaveExecutor(self._pool);
         var dispatched: usize = 0;
         {
@@ -2887,6 +3071,10 @@ class PreProcessor {
         }
 
         for var c: usize = 0; c < graph.cycles.size(); ++c { self._report_cycle(&(graph.cycles[c])); }
+        // The replayed tokens were copied into each walk's output; the lexers
+        // went with their streams (close_stream).
+        for var it = self._prelexed.begin(); it != self._prelexed.end(); ++it { std::destroy(it->second.tokens); }
+        self._prelexed.clear();
 
         // A file the waves never reached was never walked, so it is never
         // parsed or compiled. The scan drops (and reports) every edge that

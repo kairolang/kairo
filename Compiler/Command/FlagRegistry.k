@@ -273,6 +273,10 @@ fn register_kairo_flags(cmd: *Command) {
     // On by default until the compiler hosts itself (SemaContext reads an
     // unset flag as on); -fno-duck-generics turns it off.
     cmd->define::<FlagKind::Feature>("duck-generics",      "accept `<T: type>`: the body is checked by C++ per instance, not by Kairo (transitional; on by default until self-hosting, -fno-duck-generics turns it off)");
+    // Import cycles compile, with a warning (R001W) on each: the user's call
+    // (modules.mdx, Circular Dependencies). -fno-import-cycles makes each one
+    // an error (R001E) and stops the build after parse.
+    cmd->define::<FlagKind::Feature>("import-cycles",      "allow import cycles, each with a warning (on); -fno-import-cycles makes an import cycle an error");
 
     // codegen / optimization (off by default unless noted) -----------------
     cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");

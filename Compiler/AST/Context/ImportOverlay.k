@@ -165,6 +165,17 @@ class ImportOverlay {
     fn has(self, key: u32) -> bool { return self._entries.count(static_cast::<u64>(key)) > 0; }
 
     fn freeze(self)           { self._frozen = true; }
+    /// Writable again, for the one sanctioned late writer: the re-export
+    /// fixpoint of an import cycle (ImportResolution::refold_reexports),
+    /// which runs while every TU of the cycle is still in phase I.
+    fn thaw(self)             { self._frozen = false; }
+
+    /// Targets across every entry: what the fixpoint watches grow.
+    fn target_count(self) -> usize {
+        var n: usize = 0;
+        for var it = self._entries.begin(); it != self._entries.end(); ++it { n += it->second->targets.size(); }
+        return n;
+    }
     fn is_frozen(self) -> bool { return self._frozen; }
 
     fn size(self) -> usize { return self._entries.size(); }

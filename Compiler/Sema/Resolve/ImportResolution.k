@@ -50,6 +50,8 @@ import Diagnostic::Registry::*;
 
 class ImportResolution {
     priv var sc: obs::<SemaContext>;
+    /// refold_reexports is running: _add skips a target its entry holds.
+    priv var _dedup: bool = false;
 
     fn ImportResolution(self, sc: *SemaContext) {
         self.sc = sc;
@@ -89,6 +91,38 @@ class ImportResolution {
 
         overlay->freeze();
         return true;
+    }
+
+    /// One round of the re-export fixpoint of an import cycle. Phase I
+    /// folds a wildcard source's re-exports from the source's overlay, which
+    /// DAG order guarantees complete -- except on a cycle, where the TUs run
+    /// I in lockstep (CompilerInstance::_sema_group) and the one that goes
+    /// first folds from an overlay not built yet. A mutual `pub import`
+    /// pair then never saw each other's transitive re-exports. The driver
+    /// calls this on every TU of the cycle until no overlay grows; each
+    /// round adds only targets the overlay does not already hold.
+    /// \returns true when this TU's overlay grew.
+    fn refold_reexports(self) -> bool {
+        var tu = self.sc->tu;
+        if (tu == &null) || (tu->import_overlay == &null) { return false; }
+        var overlay = tu->import_overlay;
+        var before = overlay->target_count();
+        overlay->thaw();
+        self._dedup = true;
+        for var i: usize = 0; i < tu->imports.size(); ++i {
+            var slot = tu->imports[i];
+            if slot == &null { continue; }
+            var id = dyn_cast::<ImportDecl>(*slot);
+            if (id == &null) || id->has_ffi_linkage() || (!id->is_wildcard) { continue; }
+            if id->file_seg_count == 0 { continue; }
+            if !(static_cast::<usize>(id->file_seg_count) >= id->path_segments.size()) { continue; }   // a symbol path, not a module.
+            var src_tu = self._source_tu(id->resolved_fid);
+            if src_tu == &null { continue; }
+            self._fold_reexports(id, overlay, src_tu, id->resolved_fid);
+        }
+        self._dedup = false;
+        overlay->freeze();
+        return overlay->target_count() > before;
     }
 
     priv fn _resolve_one(self, id: *ImportDecl, overlay: *ImportOverlay,
@@ -657,6 +691,13 @@ class ImportResolution {
     priv fn _add(self, overlay: *ImportOverlay, visible: string, t: OverlayTarget) {
         var key = self.sc->imm_table()->intern_ident_copy(visible);
         var entry = overlay->entry_for(key);
+        // A fixpoint round re-folds what an earlier round already folded.
+        if self._dedup {
+            for var i: usize = 0; i < entry->targets.size(); ++i {
+                var o = entry->targets[i];
+                if (o.kind == t.kind) && (o.cell == t.cell) && (o.decl == t.decl) { return; }
+            }
+        }
 
         // Shadowing a PRELUDE module handle. Two ModuleHandle targets under
         // one key UNION into a multi-scope module -- non_function_count
