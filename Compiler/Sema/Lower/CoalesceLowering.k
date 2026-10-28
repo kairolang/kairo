@@ -112,7 +112,9 @@ class CoalesceLowering derives ASTWriter::<CoalesceLowering> {
         if n->op_token.kind != TokenKind::OpQuestionQuestion { return out; }
         if n->is_poisoned() || (n->type_ == &null) || (n->resolved_op != &null) { return out; }
         var lt = n->lhs->type_;
-        if (lt == &null) || (self.tu.nullable_inner(lt) == &null) {
+        // A C++ reference to a `T?` (`v[0] ?? 1` of a `vector<i32?>`) is
+        // read as the nullable it refers to, as _operand reads it.
+        if (lt == &null) || (self.tu.nullable_inner(self.tu.as_value(lt)) == &null) {
             // SC065W: a left side that is never null is the value, and the
             // right side is never evaluated.
             if (lt != &null) && (!lt->is_dependent()) { return n->lhs; }

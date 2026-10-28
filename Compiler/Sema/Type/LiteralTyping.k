@@ -333,7 +333,16 @@ class <T> LiteralTyping {
 
     /// `null` needs a nullable expected type; `&null` a pointer (or nullable
     /// pointer). Neither has a type of its own to fall back on.
-    fn type_null_literal(self, n: *NullLiteralExpr, expected: *Type) -> *Type {
+    fn type_null_literal(self, n: *NullLiteralExpr, expected_in: *Type) -> *Type {
+        // A C++ reference parameter (`push_back(const T?&)` of an imported
+        // `vector<T?>`) binds the null's temporary: the null is a value of
+        // the type referred to. Whether that type may bind there is the
+        // conversion's question, asked after this one.
+        var expected = expected_in;
+        var ec = canon_unqual(expected_in);
+        if (ec != &null) && (isa::<CXXLValueRefType>(ec) || isa::<CXXRValueRefType>(ec)) {
+            expected = dyn()->tu.as_value(ec);
+        }
         if n->is_ref {
             if dyn()->tu.pointee(dyn()->tu.strip_nullable(expected)) != &null {
                 // A safe `*T` is never null (pointers.mdx), so `&null` has

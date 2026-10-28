@@ -698,9 +698,10 @@ member type naming that clang type reads back as the argument: so
 `vector<*Node>::push_back` takes `const *Node&` and its iterator's
 `reference` is `*Node&`. A Kairo record is reachable from a header only
 through the arguments, which is what makes the argument the right answer.
-A nullable pointer `*Node?` is NOT `Node*` to C++ (it is
-`::builtin::Nullable<Node*>`, an ADT TypeExport has no stand-in for), so
-`vector<*Node?>` still cannot be filled. Two flavours of one pointee in one
+A nullable pointer `*Node?` is NOT `Node*` to C++: it is
+`::builtin::Nullable<Node*>`, which the fill spells through the Nullable
+lang item's stand-in (below) and records like any instance argument, so the
+`Node*` inside it reads back as `*Node` too. Two flavours of one pointee in one
 program (`vector<*Node>` and `vector<unsafe *Node>`) are two shells over ONE
 clang specialization, whose members are registered once by USR: the second
 shares the first's member decls (known gap, ticketed).
@@ -715,9 +716,36 @@ real `S`. The stand-in's USR is registered to S itself in ForeignRegistry,
 so TypeImport reads `reference` back as `S&` -- the Kairo record, whose own
 members and extensions then resolve. It mirrors layout only (no methods, no
 user destructor or deleted copy), which is all declaring members needs.
-Refused, and the fill fails as before: generic records and their instances,
-records nested in a type, classes with a base, enums, a field whose type has
-no export, and a name a header already owns.
+A generic record's instance (`vector<G<i32>>`) is an explicit
+specialization of a stand-in TEMPLATE, so it prints `::stem::G<int>`.
+
+[DONE] Kairo enums and `T?` (`vector<Color>`, `map<i32, Shape>`,
+`vector<Opt<i32>>`, `vector<i32?>`). A plain enum's stand-in is a scoped
+enum of its underlying word (`enum_niche_kind`, the rule InterfaceEmitter
+writes). An ADT's -- generic or not -- is a struct of its tag word
+(`adt_declared_tag_kind`, the rule EnumLayoutLowering builds the tag from)
+followed by every variant's payload fields IN SEQUENCE: a fill runs during
+typing, before EnumLayoutLowering has built the real record, and phase A's
+member declarations ask a type's traits (copyable, trivially copyable,
+destructible), never its size. A union of the payloads would have the
+size and the wrong traits (a non-trivial member deletes a union's copy;
+the real record copies exactly when every payload does), so the sequence
+mirrors the traits and over-states the size. `T?` is the Nullable lang
+item's instance over T, exactly as NullableTypeLowering later lowers it,
+so `vector<*Node?>` prints `::std::vector<::builtin::Nullable<::stem::Node
+*>>`. The way back is symmetric and build-wide: TypeImport reads any
+specialization of the Nullable lang item as `T?`, never as the record
+(whose C++ surface Kairo code cannot call before NullableTypeLowering). A
+Kairo instance a fill names first (`Nullable<i32>`, which no Kairo
+expression names) is homed in the TU that demanded the fill, so that TU
+writes its explicit instantiation.
+
+Refused, and the fill fails as before: records nested in a type, classes
+with a base, generics with a pack or value parameter, an ADT with a
+pack-expanded variant, a field whose type has no export, and a name a
+header already owns. A Kairo `fn(A) -> R` exports as the C pointer
+`R(*)(A)` it imports from, not as `::__kairo_fn`, so a container of
+closures is not one of these shapes.
 
 [DONE] The fill trigger is ONE entry point, `MemberLookup::ensure_filled`,
 called by both readers of a shell's table: member lookup (`c.size`) and

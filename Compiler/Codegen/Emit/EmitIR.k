@@ -2909,10 +2909,18 @@ class EmitIR {
         if (n->op_token.kind != TokenKind::OpEqual) {
             if (self._record_operand(n->lhs) || self._record_operand(n->rhs)) { self._ice(n->range, "EmitIR: compound assignment on a record; OperatorLowering owns it"); }
         }
+        // Through a C++ reference (`v[0] = x` of an imported container,
+        // whose `operator[]` returns `T&`) the value written is a T: a
+        // converted right side is cast to the referee, never to the
+        // reference, which a temporary cannot bind.
+        var want = n->lhs->type_;
+        if (want != &null) && (want->canonical != &null) && isa::<CXXLValueRefType>(want->canonical) {
+            want = cast::<CXXLValueRefType>(want->canonical)->referee;
+        }
         self._cg->sink->spell(n->range, "(");
         self.emit(n->lhs);
         self._cg->sink->create(n->op_token);
-        self._value(n->rhs, n->lhs->type_);
+        self._value(n->rhs, want);
         self._cg->sink->spell(n->range, ")");
     }
 

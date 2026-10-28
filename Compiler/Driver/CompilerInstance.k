@@ -1495,6 +1495,9 @@ class CompilerInstance {
         // one USR -> decl identity for the build (ForeignRegistry).
         self._headers = std::create::<HeaderSetCache>(self._backend, self._pool);
         self._freg    = std::create::<ForeignRegistry>();
+        // `T?` crosses into and out of a header as `::builtin::Nullable<T>`
+        // (TypeExport / TypeImport): both ask the registry for the lang item.
+        self._freg->well_known = self._g_scope->well_known();
         self._hindex  = std::create::<HeaderIndex>(self._sm, self._tcm, self._diag, self._imp,
                                                    &self.invocation(), self._g_scope, self._freg);
         self._finst   = std::create::<ForeignInstantiate>(self._hindex, self._freg, self._g_scope->instances());

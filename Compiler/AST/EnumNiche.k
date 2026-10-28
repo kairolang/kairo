@@ -98,6 +98,26 @@ fn enum_niche_count(en: *EnumDecl) -> u64 {
     return niche_word_values(enum_niche_kind(en)) - u64(en->variants.size());
 }
 
+/// The tag word ADT \p en is laid out with, from its declaration alone:
+/// the `derives` type when the enum declares one (TypeResolve checked it
+/// holds every tag), else `u8` up to 256 variants and `u16` past that. Tags
+/// stay dense `0..N-1` in declaration order whatever the width:
+/// MatchLowering's switch, and the jump table clang builds from it, index
+/// by them. EnumLayoutLowering builds the tag from it (a lang item's knobs
+/// may override), and TypeExport's stand-in reads it before that pass has
+/// run, so the two cannot drift.
+fn adt_declared_tag_kind(en: *EnumDecl) -> BuiltinKind {
+    var u = en->underlying;
+    if (u != &null) && (!u->is_poisoned()) && (u->canonical != &null) {
+        var c = canon_unqual(u->canonical);
+        if (c != &null) && isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() {
+            return cast::<BuiltinType>(c)->builtin;
+        }
+    }
+    if en->variants.size() <= 256 { return BuiltinKind::U8; }
+    return BuiltinKind::U16;
+}
+
 /// ADT \p en's tag word, read off its layout's tag field.
 fn adt_tag_kind(en: *EnumDecl) -> BuiltinKind {
     var b = BuiltinKind::U8;

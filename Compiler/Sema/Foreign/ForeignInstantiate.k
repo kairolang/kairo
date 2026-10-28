@@ -101,8 +101,11 @@ class ForeignInstantiate {
     /// Fill \p shell (an unfilled instance whose primary is imported). True
     /// if it is filled afterwards, by this call or an earlier one. clang's
     /// own diagnostics for the fill go to \p sink, the demanding TU's; null
-    /// leaves them on the set's fallback printer.
-    fn fill(self, shell: *Decl, sink: *BufferedDiagSink = &null) -> bool {
+    /// leaves them on the set's fallback printer. \p fid is that TU: a
+    /// Kairo instance the fill names first (`Nullable<i32>` behind
+    /// `vector<i32?>`) is homed there, as one its own typing named would be.
+    /// -1 when no TU demands it (fid 0 is a TU: the first file loaded).
+    fn fill(self, shell: *Decl, sink: *BufferedDiagSink = &null, fid: i64 = -1) -> bool {
         if shell == &null { return false; }
         // Unlocked fast path. Both flags only ever go false -> true, each is
         // written LAST by a fill holding `_mu`, and today every caller is the
@@ -120,7 +123,7 @@ class ForeignInstantiate {
         }
 
         self._active.push_back(shell);
-        var ok = self._fill_locked(shell, sink);
+        var ok = self._fill_locked(shell, sink, fid);
         self._active.pop_back();
         if ok {
             self.n_filled += 1;
@@ -140,7 +143,7 @@ class ForeignInstantiate {
         return false;
     }
 
-    priv fn _fill_locked(self, shell: *Decl, sink: *BufferedDiagSink) -> bool {
+    priv fn _fill_locked(self, shell: *Decl, sink: *BufferedDiagSink, fid: i64) -> bool {
         // 1. who owns the pattern.
         var prim = decl_instantiated_from(shell);
         if prim == &null { self._why = "no pattern"; return false; }
@@ -162,6 +165,9 @@ class ForeignInstantiate {
         // registry entry's (canonical, parameter order, defaults filled).
         var e = self._instances->entry_of(shell);
         if e == &null { self._why = "not a registry instance"; return false; }
+        // Where a Kairo instance a stand-in names is homed (TypeExport::
+        // home_fid): the demanding TU, else the TU that named the shell.
+        var home = (fid) if (fid >= 0) else (i64(e->home_fid));
 
         // Everything from here asks clang::Sema, including spelling the args:
         // a nested instance argument is itself a CheckTemplateIdType.
@@ -193,6 +199,7 @@ class ForeignInstantiate {
             tx.reg       = self._reg;
             tx.psym      = self.psym;
             tx.instances = self._instances;
+            tx.home_fid  = home;
             var qs: llvm::SmallVector::<clang::TemplateArgument, 8>;
             for var i: usize = 0; i < e->args.size(); ++i {
                 var a = tx.to_clang_arg(ct, i, e->args[i], qs);
@@ -232,6 +239,7 @@ class ForeignInstantiate {
         px.reg       = self._reg;
         px.psym      = self.psym;
         px.instances = self._instances;
+        px.home_fid  = home;
         for var i: usize = 0; i < e->args.size(); ++i {
             if !TypeImport::has_pointer_arg(e->args[i]) { continue; }
             ti.note_pointer_arg(e->args[i], px.to_clang(e->args[i]));

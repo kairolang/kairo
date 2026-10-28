@@ -14,12 +14,12 @@
 ///                                (a parameter IS expressible while a stand-in
 ///                                specialization is being defined; see below).
 ///       a Kairo record nested in another type, with a base, with a pack or
-///       value parameter   no stand-in shape for it yet.
+///       value parameter, an ADT with a pack-expanded variant
+///                                no stand-in shape for it yet.
 ///       a decl from ANOTHER set  its clang_decl points into a different
 ///                                ASTContext. v1 instantiates only through
 ///                                the set the primary came from, so a decl
 ///                                of any other set is refused, not re-found.
-///       nullables, Kairo vectors/maps/slices   no C++ counterpart.
 ///
 ///   \par Kairo records
 ///     phase A's AST has never heard of a Kairo-authored record, so
@@ -46,6 +46,15 @@
 ///     special members only (a Kairo destructor or deleted copy is not
 ///     mirrored). That is enough for phase A, which declares members and
 ///     never instantiates their bodies; phase B sees the real type.
+///
+///     Enums too. A plain enum's stand-in is a scoped enum of its word
+///     (_standin_enum). An ADT's is a struct (_shape): its tag word, then
+///     every variant's payload fields in sequence, which keeps the real
+///     record's traits (it copies exactly when every payload does) where a
+///     union would delete its copy. `T?` is the Nullable lang item's
+///     instance over T (_nullable), so `vector<*Node?>` is
+///     `::std::vector<::builtin::Nullable<::stem::Node *>>`, and TypeImport
+///     reads that specialization back as `T?`.
 ///
 ///   \par Threading
 ///     A nested instance (`cont<cont<i32>>`) is spelled by specializing the
@@ -82,6 +91,7 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::LangItems::*;
+import AST::EnumNiche::*;
 import Preprocessor::PreprocessorSymbolTable::*;
 import Codegen::CodegenContext::*;
 import Codegen::Emit::CXXSpell::*;
@@ -99,6 +109,11 @@ class TypeExport {
     pub var reg:       obs::<ForeignRegistry>         = &null;   ///< stand-in USR -> the Kairo decl.
     pub var psym:      obs::<PreprocessorSymbolTable> = &null;   ///< CXXSpell's module segments.
     pub var instances: obs::<InstantiationRegistry>   = &null;   ///< CXXSpell's CodegenContext wants it.
+    /// The TU a Kairo instance this export names first is homed in
+    /// (InstanceEntry::home_fid: EmitPlan writes its explicit instantiation
+    /// there). The demanding TU, which the fill knows; -1 falls back to the
+    /// primary's own TU, right only when the primary is the user's.
+    pub var home_fid:  i64 = -1;
 
     /// The substitution in force while a stand-in specialization is being
     /// defined: the primary whose parameters are being read, and what they
@@ -197,9 +212,10 @@ class TypeExport {
         }
 
         if isa::<RecordType>(t) { return self._record(cast::<RecordType>(t)); }
+        if isa::<NullableType>(t) { return self._nullable(cast::<NullableType>(t)); }
 
-        // OpaqueFFIType has no shape; nullable, vector, map, slice, tuple
-        // have no C++ twin.
+        // OpaqueFFIType has no shape. A tuple never gets here: TypeResolve
+        // canonicalizes it to its TupleN record, which the record arm takes.
         return clang::QualType();
     }
 
@@ -344,7 +360,8 @@ class TypeExport {
         // (`next: *G<T>` while G<int> is being defined): the specialization.
         if (!decl_is_imported(d)) && (!decl_is_instance(d)) {
             if rt->args.size() == 0 { return self._standin(d, rt); }
-            return self._standin_instance(d, rt->args);
+            var own = TypeExport::_vec_of(rt->args);
+            return self._standin_instance(d, &own);
         }
 
         var prim = decl_instantiated_from(d);
@@ -352,7 +369,10 @@ class TypeExport {
 
         // An instance of a KAIRO generic: an explicit specialization of the
         // primary's stand-in template.
-        if !decl_is_imported(NameLookup::representative(prim)) { return self._standin_instance(prim, rt->args); }
+        if !decl_is_imported(NameLookup::representative(prim)) {
+            var iargs = TypeExport::_vec_of(rt->args);
+            return self._standin_instance(prim, &iargs);
+        }
 
         // An unfilled instance of an imported template: spell the template-id
         // from its args. Recursing here is what makes `cont<cont<i32>>` work.
@@ -375,18 +395,84 @@ class TypeExport {
         return (self.reg != &null) && (self.psym != &null) && (self.instances != &null);
     }
 
-    /// The field list a stand-in mirrors, and the tag kind, or null for a
-    /// shape with no stand-in (an enum, an interface, a class with a base).
-    priv fn _fields_of(self, d: *Decl, tk: *clang::TagTypeKind) -> *FrozenList::<*FieldDecl> {
+    static fn _vec_of(l: FrozenList::<*Type>) -> vec::<*Type> {
+        var v = vec::<*Type>();
+        for var i: usize = 0; i < l.size(); ++i { v.push_back(*(l.get(i))); }
+        return v;
+    }
+
+    /// `T?`: the Nullable lang item's instance over T, which is what
+    /// NullableTypeLowering makes it and what EmitIR spells
+    /// (`::builtin::Nullable<T>`), so its stand-in is that generic ADT's
+    /// specialization like any other. Through the lang item, never the
+    /// lowered slot: a fill runs during typing, long before that pass.
+    priv fn _nullable(self, n: *NullableType) -> clang::QualType {
+        if (self.reg == &null) || (n->inner == &null) { return clang::QualType(); }
+        var nd = self.reg->nullable_lang();
+        if nd == &null { return clang::QualType(); }
+        var args = vec::<*Type>();
+        args.push_back(n->inner);
+        return self._standin_instance(nd, &args);
+    }
+
+    /// What a stand-in for \p d holds, or false for a shape with none (an
+    /// interface, a class with a base, a plain enum -- which is an enum,
+    /// _standin_enum -- or an ADT with a pack-expanded variant, which has
+    /// no fixed field list). \p out gets the field types in order (a null
+    /// entry fails _define), \p tag a leading tag field's type or stays null.
+    ///
+    /// An ADT mirrors its declaration, not EnumLayoutLowering's record: a
+    /// fill runs during typing and that pass has not built the record yet
+    /// (and a generic ADT's real shape is per instance, picked by C++). So
+    /// the stand-in is its tag word followed by every variant's payload
+    /// fields in sequence. Overlapping them in a union would match the size
+    /// but not the traits -- a union with a non-trivial member deletes its
+    /// own copy, while the real record copies exactly when every payload
+    /// does -- and phase A's member declarations ask traits
+    /// (`is_copy_constructible`, a defaulted `pair` copy), never sizeof.
+    priv fn _shape(self, d: *Decl, tk: *clang::TagTypeKind, tag: *clang::QualType, out: *vec::<*Type>) -> bool {
         (*tk) = clang::TagTypeKind::Struct;
-        if isa::<StructDecl>(d) { return &(cast::<StructDecl>(d)->fields); }
-        if isa::<UnionDecl>(d)  { (*tk) = clang::TagTypeKind::Union; return &(cast::<UnionDecl>(d)->fields); }
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        if isa::<StructDecl>(d) { fields = &(cast::<StructDecl>(d)->fields); }
+        if isa::<UnionDecl>(d)  { (*tk) = clang::TagTypeKind::Union; fields = &(cast::<UnionDecl>(d)->fields); }
         if isa::<ClassDecl>(d) {
             // A base would have to be mirrored first, and its layout with it.
-            if cast::<ClassDecl>(d)->derives_list.size() > 0 { return &null; }
-            return &(cast::<ClassDecl>(d)->fields);
+            if cast::<ClassDecl>(d)->derives_list.size() > 0 { return false; }
+            fields = &(cast::<ClassDecl>(d)->fields);
         }
-        return &null;
+        if isa::<EnumDecl>(d) {
+            var en = cast::<EnumDecl>(d);
+            if !en->is_adt { return false; }
+            (*tag) = self._int_type(adt_declared_tag_kind(en));
+            for var i: usize = 0; i < en->variants.size(); ++i {
+                var v = en->variants[i];
+                if (v == &null) || v->is_pack_expansion { return false; }
+                for var j: usize = 0; j < v->payload.size(); ++j {
+                    out->push_back(TypeExport::_canon_of(v->payload[j]));
+                }
+            }
+            return true;
+        }
+        if fields == &null { return false; }
+        for var i: usize = 0; i < fields->size(); ++i {
+            var fd = (*fields)[i];
+            if (fd == &null) || fd->is_static() { continue; }
+            out->push_back(TypeExport::_canon_of(fd));
+        }
+        return true;
+    }
+
+    static fn _canon_of(fd: *FieldDecl) -> *Type {
+        if (fd == &null) || (fd->type_ == &null) { return &null; }
+        return fd->type_->canonical;
+    }
+
+    /// The clang integer for builtin integer kind \p k, as _builtin spells it.
+    priv fn _int_type(self, k: BuiltinKind) -> clang::QualType {
+        var bits = builtin_info(k)->bits;
+        if bits == 0 { bits = static_cast::<usize>(self.cctx->getTypeSize(self.cctx->getSizeType())); }
+        var sgn: u32 = (1) if (builtin_info(k)->is_signed()) else (0);
+        return self.cctx->getIntTypeForBitwidth(static_cast::<u32>(bits), sgn);
     }
 
     /// The speller for the name EmitIR gives a Kairo decl. CXXSpell only
@@ -426,28 +512,75 @@ class TypeExport {
         return dc;
     }
 
-    /// Define \p rd with \p fields, each type through to_clang (and so
-    /// through the substitution in force). False, with \p rd marked
-    /// invalid, when a field has no clang type: all or nothing, or a
-    /// stand-in found by name later would have the wrong shape.
-    priv fn _define(self, rd: *clang::CXXRecordDecl, fields: *FrozenList::<*FieldDecl>) -> bool {
-        var loc = clang::SourceLocation();
+    /// Define \p rd with \p tag (when not null) and then \p fields, each
+    /// type through to_clang (and so through the substitution in force).
+    /// False, with \p rd marked invalid, when a field has no clang type:
+    /// all or nothing, or a stand-in found by name later would have the
+    /// wrong shape.
+    priv fn _define(self, rd: *clang::CXXRecordDecl, tag: clang::QualType, fields: *vec::<*Type>) -> bool {
         rd->startDefinition();
+        var n: usize = 0;
+        if !tag.isNull() { self._add_field(rd, tag, n); n += 1; }
         for var i: usize = 0; i < fields->size(); ++i {
-            var fd = (*fields)[i];
-            if (fd == &null) || fd->is_static() { continue; }
             var ft: clang::QualType;
-            if (fd->type_ != &null) && (fd->type_->canonical != &null) { ft = self.to_clang(fd->type_->canonical); }
+            if (*fields)[i] != &null { ft = self.to_clang((*fields)[i]); }
             if ft.isNull() { rd->setInvalidDecl(); return false; }
-            var fii = self._ident(LowerTargets::export_field(i));
-            var cf  = clang::FieldDecl::Create(*(self.cctx), rd, loc, loc, fii, ft,
-                                               self.cctx->getTrivialTypeSourceInfo(ft, loc),
-                                               &null, false, clang::ICIS_NoInit);
-            cf->setAccess(clang::AS_public);
-            rd->addDecl(cf);
+            self._add_field(rd, ft, n);
+            n += 1;
         }
         rd->completeDefinition();
         return true;
+    }
+
+    priv fn _add_field(self, rd: *clang::CXXRecordDecl, ft: clang::QualType, i: usize) {
+        var loc = clang::SourceLocation();
+        var fii = self._ident(LowerTargets::export_field(i));
+        var cf  = clang::FieldDecl::Create(*(self.cctx), rd, loc, loc, fii, ft,
+                                           self.cctx->getTrivialTypeSourceInfo(ft, loc),
+                                           &null, false, clang::ICIS_NoInit);
+        cf->setAccess(clang::AS_public);
+        rd->addDecl(cf);
+    }
+
+    /// The stand-in for plain Kairo enum \p en: a scoped enum with a fixed
+    /// underlying type, the one InterfaceEmitter writes (`enum class E :
+    /// u32`; EnumNiche's enum_niche_kind is that rule). No enumerators:
+    /// phase A only needs a complete enum of the right width, and no header
+    /// names a Kairo enum's values. Found by name after the first use, like
+    /// _standin. PRE: sema_lock() held.
+    priv fn _standin_enum(self, en: *EnumDecl) -> clang::QualType {
+        var d = static_cast::<*Decl>(en);
+        var segs = vec::<string>();
+        var leaf = "";
+        var fid: u32 = 0;
+        if !self._spell_for(d, &segs, &leaf, &fid) { return clang::QualType(); }
+        var dc = self._namespace_for(&segs);
+        if dc == &null { return clang::QualType(); }
+
+        var lii = self._ident(leaf);
+        var res = dc->lookup(clang::DeclarationName(lii));
+        if !res.empty() {
+            var prev = llvm::dyn_cast::<clang::EnumDecl>(res.front());
+            if prev == &null { return clang::QualType(); }
+            if self.reg->find(TypeImport::usr_of(prev)) != d { return clang::QualType(); }   // a header's own `stem::E`.
+            return clang::QualType(self.cctx->getCanonicalTagType(prev));
+        }
+
+        var loc = clang::SourceLocation();
+        var ut  = self._int_type(enum_niche_kind(en));
+        var ed  = clang::EnumDecl::Create(*(self.cctx), dc, loc, loc, lii, &null, true, true, true);
+        ed->setImplicit(true);
+        ed->setIntegerType(ut);
+        dc->addDecl(ed);
+        ed->startDefinition();
+        var promo = ut;
+        if self.cctx->isPromotableIntegerType(ut) { promo = self.cctx->getPromotedIntegerType(ut); }
+        ed->completeDefinition(ut, promo, 0, 0);
+
+        var usr = TypeImport::usr_of(ed);
+        if usr.empty() { dc->removeDecl(ed); return clang::QualType(); }
+        self.reg->put(usr, d);
+        return clang::QualType(self.cctx->getCanonicalTagType(ed));
     }
 
     /// The stand-in for plain Kairo record \p d in this set's AST, declared
@@ -459,9 +592,12 @@ class TypeExport {
         var d = NameLookup::representative(d_in);
         if rt->args.size() > 0 { return clang::QualType(); }
         if decl_generic_params(d).size() > 0 { return clang::QualType(); }
+        var en = dyn_cast::<EnumDecl>(d);
+        if (en != &null) && (!en->is_adt) { return self._standin_enum(en); }
         var tk = clang::TagTypeKind::Struct;
-        var fields = self._fields_of(d, &tk);
-        if fields == &null { return clang::QualType(); }
+        var tag = clang::QualType();
+        var fields = vec::<*Type>();
+        if !self._shape(d, &tk, &tag, &fields) { return clang::QualType(); }
 
         var segs = vec::<string>();
         var leaf = "";
@@ -488,7 +624,7 @@ class TypeExport {
         var rd = clang::CXXRecordDecl::Create(*(self.cctx), tk, dc, loc, loc, lii, &null);
         rd->setImplicit(true);
         dc->addDecl(rd);
-        if !self._define(rd, fields) { dc->removeDecl(rd); return clang::QualType(); }
+        if !self._define(rd, tag, &fields) { dc->removeDecl(rd); return clang::QualType(); }
 
         var usr = TypeImport::usr_of(rd);
         if usr.empty() { dc->removeDecl(rd); return clang::QualType(); }
@@ -511,7 +647,9 @@ class TypeExport {
             if (gp == &null) || gp->is_pack || gp->is_const_param { return &null; }
         }
         var tk = clang::TagTypeKind::Struct;
-        if self._fields_of(prim, &tk) == &null { return &null; }
+        var tag0 = clang::QualType();
+        var probe = vec::<*Type>();
+        if !self._shape(prim, &tk, &tag0, &probe) { return &null; }
 
         var segs = vec::<string>();
         var leaf = "";
@@ -570,18 +708,19 @@ class TypeExport {
     /// argument list. With concrete arguments the specialization's USR is
     /// registered to the registry instance, so `G<int>&` reads back as it.
     /// PRE: sema_lock() held.
-    priv fn _standin_instance(self, prim_in: *Decl, args: FrozenList::<*Type>) -> clang::QualType {
+    priv fn _standin_instance(self, prim_in: *Decl, args: *vec::<*Type>) -> clang::QualType {
         if !self._can_standin() { return clang::QualType(); }
         var prim = NameLookup::representative(prim_in);
         var ct = self._standin_template(prim);
         if ct == &null { return clang::QualType(); }
-        if decl_generic_params(prim).size() != args.size() { return clang::QualType(); }
+        if decl_generic_params(prim).size() != args->size() { return clang::QualType(); }
 
         var qs: llvm::SmallVector::<clang::QualType, 8>;
         var targs: llvm::SmallVector::<clang::TemplateArgument, 8>;
         var concrete = true;
-        for var i: usize = 0; i < args.size(); ++i {
-            var a = *(args.get(i));
+        for var i: usize = 0; i < args->size(); ++i {
+            var a = (*args)[i];
+            if a == &null { return clang::QualType(); }
             if a->is_dependent() || a->is_instantiation_dependent() { concrete = false; }
             var q = self.to_clang(a);
             if q.isNull() { return q; }
@@ -597,8 +736,9 @@ class TypeExport {
         }
 
         var tk = clang::TagTypeKind::Struct;
-        var fields = self._fields_of(prim, &tk);
-        if fields == &null { return clang::QualType(); }
+        var tag = clang::QualType();
+        var fields = vec::<*Type>();
+        if !self._shape(prim, &tk, &tag, &fields) { return clang::QualType(); }
         var loc = clang::SourceLocation();
         var dc  = ct->getDeclContext();
         // 22.x: the `StrictPackMatch` bool before PrevDecl. If the build says
@@ -616,7 +756,7 @@ class TypeExport {
         var saved_args  = self._sub_args;
         self._sub_owner = prim;
         self._sub_args  = &qs;
-        var ok = self._define(spec, fields);
+        var ok = self._define(spec, tag, &fields);
         self._sub_owner = saved_owner;
         self._sub_args  = saved_args;
         // On failure the spec stays in clang's table, invalid: findSpecialization
@@ -625,8 +765,9 @@ class TypeExport {
 
         if concrete {
             var kargs = vec::<*Type>();
-            for var i: usize = 0; i < args.size(); ++i { kargs.push_back(*(args.get(i))); }
-            var e = self.instances->instance_for(prim, &kargs, CXXSpell::fid_of(prim), NameLookup::ctx_of(prim));
+            for var i: usize = 0; i < args->size(); ++i { kargs.push_back((*args)[i]); }
+            var hf = (u32(self.home_fid)) if (self.home_fid >= 0) else (CXXSpell::fid_of(prim));
+            var e = self.instances->instance_for(prim, &kargs, hf, NameLookup::ctx_of(prim));
             var usr = TypeImport::usr_of(spec);
             if (e != &null) && (!usr.empty()) { self.reg->put(usr, e->decl); }
         }

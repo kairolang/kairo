@@ -354,6 +354,12 @@ class TypeImport {
                 if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { dep = true; }
             }
             var rep = NameLookup::representative(prim);
+            // `::builtin::Nullable<T>` is `T?`, never a record: TypeExport
+            // spells every `T?` as it (a fill's `vector<*Node?>`), and the
+            // record has no Kairo surface before NullableTypeLowering -- a
+            // member typed `Nullable<*Node>` would take neither `null` nor a
+            // `*Node`, nor answer `?`. Build-wide, as the export is.
+            if self._is_nullable(rep) && (args.size() == 1) { return self.store->nullable(args[0]); }
             if dep { return self.store->record(rep, &args); }
             var e = self.instances->instance_for(rep, &args, self.fid, NameLookup::ctx_of(rep));
             // `args` cannot always name `spec` back (`char` imports as i8);
@@ -379,6 +385,13 @@ class TypeImport {
             }
         }
         return self.store->record(rep, &args);
+    }
+
+    /// \p rep is the Nullable lang item (ForeignRegistry::nullable_lang).
+    priv fn _is_nullable(self, rep: *Decl) -> bool {
+        if (self.reg == &null) || (rep == &null) { return false; }
+        var nd = self.reg->nullable_lang();
+        return (nd != &null) && (NameLookup::representative(nd) == rep);
     }
 
     /// Template argument list -> canonicals. False if any argument is
@@ -429,6 +442,17 @@ class TypeImport {
         if (kt == &null) || ct.isNull() || (depth > 16) { return; }
         var ku = canon_unqual(kt);
         var cu = ct.getCanonicalType().getTypePtr();
+        // `T?` is `Nullable<T>` to C++ (TypeExport::_nullable): its one
+        // argument is T, so `*Node?` keeps `*Node` inside.
+        var kn = dyn_cast::<NullableType>(ku);
+        if kn != &null {
+            var ns = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(cu->getAsCXXRecordDecl());
+            if ns == &null { return; }
+            var nargs = ns->getTemplateArgs().asArray();
+            if (nargs.size() != 1) || (nargs[0].getKind() != clang::TemplateArgument::Type) { return; }
+            self._note_arg(kn->inner, nargs[0].getAsType(), depth + 1);
+            return;
+        }
         var cp = llvm::dyn_cast::<clang::PointerType>(cu);
         if cp != &null {
             if !isa::<PointerType>(ku) { return; }
@@ -458,6 +482,7 @@ class TypeImport {
         var u = canon_unqual(t);
         if u == &null { return false; }
         if isa::<PointerType>(u) { return true; }
+        if isa::<NullableType>(u) { return TypeImport::has_pointer_arg(cast::<NullableType>(u)->inner); }
         var rk = dyn_cast::<RecordType>(u);
         if rk == &null { return false; }
         for var i: usize = 0; i < rk->args.size(); ++i {

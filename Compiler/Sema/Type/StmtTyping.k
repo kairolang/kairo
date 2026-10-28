@@ -257,7 +257,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var c = canon_unqual(t);
         if v->pointer_depth > 0 { self._check_pointer_shorthand(v, self._cxx_referee(c)); }
         if !v->nullable_shorthand { return c; }
-        return self._nullable_once(c);
+        // `var *p? = ptrs[0]` of a `vector<*Node?>`: the `?` is about the
+        // value the reference refers to, and a nullable reference is no
+        // type at all, so the slot is the referee's nullable -- `*Node?`,
+        // already one, not `(*Node?&)?`.
+        return self._nullable_once(self._cxx_referee(c));
     }
 
     /// \p c, or what it refers to when it is a C++ reference: the stars of

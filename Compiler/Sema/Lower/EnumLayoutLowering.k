@@ -1481,21 +1481,10 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         for var i: usize = 0; i < r->args.size(); ++i { self._prebuild(*(r->args.get(i))); }
     }
 
-    /// The `derives` type when the enum declares one (TypeResolve checked
-    /// it holds every tag), else `u8` up to 256 variants and `u16` past
-    /// that. Tags stay dense `0..N-1` in declaration order whatever the
-    /// width: MatchLowering's switch, and the jump table clang builds from
-    /// it, index by them.
+    /// The tag word (EnumNiche: adt_declared_tag_kind, which TypeExport's
+    /// phase-A stand-in reads too, before this pass has run).
     priv fn _tag_kind(self, en: *EnumDecl) -> BuiltinKind {
-        var u = en->underlying;
-        if (u != &null) && (!u->is_poisoned()) && (u->canonical != &null) {
-            var c = canon_unqual(u->canonical);
-            if (c != &null) && isa::<BuiltinType>(c) && builtin_info(cast::<BuiltinType>(c)->builtin)->is_integer() {
-                return cast::<BuiltinType>(c)->builtin;
-            }
-        }
-        if en->variants.size() <= 256 { return BuiltinKind::U8; }
-        return BuiltinKind::U16;
+        return adt_declared_tag_kind(en);
     }
 
     /// How variant \p v is constructed (AdtCtorForm). A non-generic ADT knows

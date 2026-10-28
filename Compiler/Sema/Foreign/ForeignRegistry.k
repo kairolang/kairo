@@ -26,6 +26,7 @@ ffi "c++" import "llvm/ADT/StringRef.h";
 
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 
 class ForeignRegistry {
     /// StringMap, not a map over std::string: it owns the key bytes in the
@@ -36,7 +37,22 @@ class ForeignRegistry {
     priv var _spec_of: llvm::DenseMap::<*Decl, *void>;   ///< see note_spec().
     priv var _ns_head: llvm::StringMap::<*ModuleDecl>;   ///< see link_namespace().
 
+    /// The build's lang items, for the one Kairo type both directions of the
+    /// mapping treat specially: `T?`, which is `::builtin::Nullable<T>` to
+    /// C++ (nullable_lang). Null until the driver binds it; a `T?` argument
+    /// then has no phase-A spelling, as before.
+    pub var well_known: obs::<WellKnownDecls> = &null;
+
     fn ForeignRegistry(self) { self._by_usr = llvm::StringMap::<*Decl>(4096); }
+
+    /// The Nullable lang item's decl, or null (no builtin root, or not bound
+    /// yet). Read at every use rather than cached: the lang items are bound
+    /// once the builtin root has resolved, which may be after the driver
+    /// wired this registry.
+    fn nullable_lang(self) -> *Decl {
+        if self.well_known == &null { return &null; }
+        return self.well_known->get(WellKnownType::Nullable);
+    }
 
     fn find(self, usr: llvm::StringRef) -> *Decl {
         var rlock = std::SharedLock(self._mu);

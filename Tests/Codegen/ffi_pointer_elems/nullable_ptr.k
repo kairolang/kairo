@@ -1,16 +1,13 @@
 // Nullable pointers as elements: `vector<*Node?>`.
 //
-// XFAIL: *
-// Waiting on a phase-A spelling of `*Node?`. To C++ it is
-// `::builtin::Nullable<Node*>` (NullableTypeLowering), a Kairo ADT that
-// TypeExport has no stand-in for, so the instance cannot be filled from
-// clang; member lookup then walks the pattern and the calls below do not
-// resolve. (Spelling it `Node*` instead fills the instance but emits
-// `std::vector<Node*>` beside `Nullable<Node*>` values, which clang
-// rejects.) `vector<*Node>` and `vector<unsafe *Node>` work: vector_ptr.k,
-// unsafe_ptr.k.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// To C++ `*Node?` is `::builtin::Nullable<Node*>` (NullableTypeLowering).
+// Phase A knows it through the Nullable lang item's stand-in (TypeExport),
+// and the fill reads every `Nullable<Node*>` back as `*Node?` -- with the
+// `Node*` inside it kept a safe `*Node`, as for `vector<*Node>` -- so a
+// `*Node` and `null` both go in, and each element narrows with `?` before
+// `->`. `var *head? = ptrs[0]` takes the element out of the C++ reference
+// `operator[]` returns. `vector<*Node>` and `vector<unsafe *Node>`:
+// vector_ptr.k, unsafe_ptr.k.
 
 ffi "c++" import "vector"
 
@@ -29,7 +26,7 @@ fn main() -> i32 {
     for p in ptrs {
         if p? { n += p->id } else { n += 10 }
     }
-    var head = ptrs[0]
+    var *head? = ptrs[0]
     if head? { n += head->id }
     return n                                  // 3 + 10 + 3 = 16
 }
