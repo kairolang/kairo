@@ -236,24 +236,11 @@ class TypeUtil {
 
     /// checked_param with a `derives`-bounded parameter included: the
     /// regime of its OPERATORS (binary, unary, compound, `^^`, the `==` of
-    /// `===`). Those are looked up in bound_scopes -- the bases' tables
+    /// `===`). Those are looked up in Substitution::bound_scopes -- the bases' tables
     /// beside the interfaces' -- so a base that declares the operator binds
     /// it, and an operator no bound declares is the bound error at the
     /// definition rather than a deferral to clang.
     fn op_checked_param(self, t: *Type) -> *GenericParamDecl { return self._checked_param(t, true); }
-
-    /// The scopes a bounded parameter \p t's operators are looked up in: its
-    /// interface bounds (bound_ifaces), then its `derives` bounds' bases
-    /// (bound_bases), as a member step through T reads both (ChainBinding's
-    /// ParamBounds). Empty when \p t has neither.
-    fn bound_scopes(self, t: *Type) -> vec::<*Type> {
-        var out = self.bound_ifaces(t);
-        var bs = self.bound_bases(t);
-        for var i: usize = 0; i < bs.size(); ++i {
-            if isa::<RecordType>(bs[i]) { out.push_back(bs[i]); }
-        }
-        return out;
-    }
 
     priv fn _checked_param(self, t: *Type, with_bases: bool) -> *GenericParamDecl {
         var c = canon_unqual(t);
@@ -274,6 +261,40 @@ class TypeUtil {
             if (id != &null) && (id->resolved_decl == static_cast::<*Decl>(gp)) { return &null; }
         }
         return gp;
+    }
+
+    /// checked_param, for any dependent head a body may use only through
+    /// its bounds (MONO.md D0): a checked parameter's declaration, or an
+    /// associated type's requirement. An associated type is always checked:
+    /// no `: type` regime reaches one (on a `: type` T, `T::Item` never
+    /// forms). Null for anything else. Operators, conversions, formatting,
+    /// null tests and patterns ask this, so `a == b` on `a: T::Item` is its
+    /// bounds' `op ==` or an error, exactly as on a `T`.
+    fn checked_head(self, t: *Type) -> *Decl {
+        var c = canon_unqual(t);
+        if (c != &null) && isa::<AssocType>(c) { return cast::<AssocType>(c)->assoc; }
+        return static_cast::<*Decl>(self.checked_param(t));
+    }
+
+    /// checked_head for an OPERATOR: op_checked_param's regime (a
+    /// `derives`-bounded parameter included, its bases' operators being in
+    /// Substitution::bound_scopes) for a parameter, and an associated type
+    /// as checked_head has it. ONE rule for every dependent head: its
+    /// operators are its interface bounds' requirements, then its bases'
+    /// members, or the bound error at the definition.
+    fn op_checked_head(self, t: *Type) -> *Decl {
+        var c = canon_unqual(t);
+        if (c != &null) && isa::<AssocType>(c) { return cast::<AssocType>(c)->assoc; }
+        return static_cast::<*Decl>(self.op_checked_param(t));
+    }
+
+    /// How a diagnostic names checked head \p t: `T`, or `T::Item`.
+    fn head_spelling(self, t: *Type) -> string {
+        var c = canon_unqual(t);
+        if (c != &null) && isa::<AssocType>(c) { return self.str(c); }
+        var gp = self.op_checked_param(t);
+        if gp != &null { return self.decl_name(static_cast::<*Decl>(gp)); }
+        return self.str(t);
     }
 
     /// The interface instance an AssocType for requirement \p td carries

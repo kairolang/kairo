@@ -577,12 +577,12 @@ class <T> LiteralTyping {
         // A bounds-checked parameter formats through what its bounds grant
         // (MONO.md D0): a `repr` or `op as` requirement returning string,
         // called through the witness like any other requirement.
-        var cg = dyn()->tu.checked_param(v);
+        var cg = dyn()->tu.checked_head(v);
         if cg != &null {
             self._string_conv(v, repr, conv);
             if ((*repr) == &null) && ((*conv) == &null) {
                 dyn()->needs_bound(e, cg, Substitution(dyn()->sc).bound_ifaces(v).size() > 0,
-                    f"formatting a '{dyn()->sc->ctx->get_spelling(cg->name)}' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string\x27");
+                    f"formatting a '{dyn()->tu.head_spelling(v)}' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string\x27");
                 return false;
             }
             return true;
@@ -646,7 +646,7 @@ class <T> LiteralTyping {
         var s = dyn()->tu.string_type();
         // A bounds-checked parameter's members are its bounds' requirements.
         var scopes = vec::<*Type>();
-        if dyn()->tu.checked_param(v) != &null { scopes = Substitution(dyn()->sc).bound_ifaces(v); }
+        if dyn()->tu.checked_head(v) != &null { scopes = Substitution(dyn()->sc).bound_ifaces(v); }
         else { scopes.push_back(v); }
 
         var imm   = dyn()->sc->imm_table()->intern_ident_copy("repr");

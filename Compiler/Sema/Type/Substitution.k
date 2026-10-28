@@ -702,6 +702,22 @@ class Substitution {
         return out;
     }
 
+    /// The scopes a dependent head \p t's operators (and `op []`) are looked
+    /// up in: its interface bounds (bound_ifaces above, a parameter's or an
+    /// associated type's at any depth), then the bases a parameter's
+    /// `derives` bounds name, as a member step through T reads both
+    /// (ChainBinding's ParamBounds). A base's operator is an ordinary
+    /// member; an interface's a requirement, called through the witness.
+    /// Empty when \p t has neither.
+    fn bound_scopes(self, t: *Type) -> vec::<*Type> {
+        var out = self.bound_ifaces(t);
+        var bs = self.tu.bound_bases(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            if isa::<RecordType>(bs[i]) { out.push_back(bs[i]); }
+        }
+        return out;
+    }
+
     /// Associated type \p ta's `impl` bounds read for \p base: Self :=
     /// base (an interface's own spelling `I<V>` included), the declaring
     /// interface's parameters := \p iface's arguments, \p ta's own (a
@@ -850,8 +866,25 @@ class Substitution {
     /// \p req when that interface is not req's own (a derived interface's
     /// `type Node = ...`, merged into its composed requirement), or null.
     /// \p homes receives that interface and every interface it derives, the
-    /// Selfs the default may name.
+    /// Selfs the default may name. Two of x's interfaces giving DIFFERENT
+    /// defaults is null too: which one applies would depend on the path
+    /// (interfaces.md, "Associated types and inheritance"), so neither does,
+    /// and the conformance fails with derived_defaults' reason.
     fn _derived_default(self, x: *Type, req: *Decl, ml: *MemberLookup, homes: *vec::<*Decl>) -> *Type {
+        var tys = vec::<*Type>();
+        var nodes = vec::<*Type>();
+        var ins = vec::<*Decl>();
+        self.derived_defaults(x, req, ml, &tys, &nodes, &ins);
+        if tys.size() != 1 { return &null; }
+        self._iface_closure(ins[0], homes, 0);
+        return tys[0];
+    }
+
+    /// Every distinct default \p x's declared interfaces give requirement
+    /// \p req other than its own: the canonical into \p tys, the written
+    /// default (for its range) into \p nodes, the interface into \p ins.
+    fn derived_defaults(self, x: *Type, req: *Decl, ml: *MemberLookup, tys: *vec::<*Type>,
+                        nodes: *vec::<*Type>, ins: *vec::<*Decl>) {
         var ifaces = vec::<*Type>();
         var xd = self.tu.record_decl(x);
         if xd != &null {
@@ -878,11 +911,15 @@ class Substitution {
                 if NameLookup::representative(r->decl) != rq { continue; }
                 if (r->default_ty == &null) || (r->default_ty->canonical == &null) { continue; }
                 if (td != &null) && (r->default_ty == td->aliased) { continue; }   // req's own default: the caller's.
-                self._iface_closure(static_cast::<*Decl>(id), homes, 0);
-                return r->default_ty->canonical;
+                var c = canon_unqual(r->default_ty->canonical);
+                var seen = false;
+                for var k: usize = 0; k < tys->size(); ++k { if (*tys)[k] == c { seen = true; } }
+                if seen { continue; }
+                tys->push_back(c);
+                nodes->push_back(r->default_ty);
+                ins->push_back(static_cast::<*Decl>(id));
             }
         }
-        return &null;
     }
 
     priv fn _impl_list_into(self, d: *Decl, out: *vec::<*Type>) {

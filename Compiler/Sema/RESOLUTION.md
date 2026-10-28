@@ -1332,7 +1332,12 @@ static or a nested associated type), ExtensionLowering the witness Self
 (`T::Item::make()` is `Make_witness<typename Store_witness<T>::Item>::
 make()`), CXXSpell the bound an associated type through another one is
 spelled through (`BigHolder_witness<...::Item>::Inner`, the bound, not the
-declaring Holder), and constructors (`bounds_construct`).
+declaring Holder), constructors (`bounds_construct`), operators
+(`Substitution::bound_scopes`, the interface bounds then a parameter's
+`derives` bases, refused through `TypeUtil::op_checked_head`: `a == b` on
+`a: T::Item` is its bounds' `op ==` or R051E/R025E, as on a `T`), and
+conversions, formatting and patterns (`TypeUtil::checked_head`, which,
+like checked_param, leaves a `derives`-bounded parameter deferred).
 One inherited from a GENERIC interface is declared at the
 instance the bound reaches it through (TypeResolve::_declaring_through,
 `IntSource` -> `Source<i32>`). A derived interface may give an inherited
@@ -1341,7 +1346,10 @@ G's Node, not a second one (`Self::Node` in D names G's), InterfaceComposition
 merges it into G's requirement as its default, and assoc_witness takes it
 from the interface a conformer declares (`_derived_default`); restating it
 without a default, adding bounds, or changing a default G gives is SC001E at
-the redeclaration. A default must meet its own bounds, checked once at the
+the redeclaration. A conformer whose declared interfaces give one inherited
+requirement two DIFFERENT defaults takes neither (which would depend on the
+path): its conformance fails, SC001E naming both, unless it declares the
+type itself. A default must meet its own bounds, checked once at the
 interface (ConformanceChecking::_check_assoc_defaults): a concrete default by
 conformance, `= Self::Other` by Other's own bounds. Inside the interface it
 is never expanded; its `aliased` is the DEFAULT. One rule,

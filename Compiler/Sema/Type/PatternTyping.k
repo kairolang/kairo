@@ -96,13 +96,14 @@ class <T> PatternTyping {
         // in a bound declares them. It can be bound, guarded, or ignored.
         if (st != &null) && (p->kind != PatternKind::WildcardPattern) && (p->kind != PatternKind::BindingPattern)
         && (p->kind != PatternKind::AlternationPattern) && (p->kind != PatternKind::RecoveryPattern) {
-            var cg = dyn()->tu.checked_param(st);
+            var cg = dyn()->tu.checked_head(st);
             if cg != &null {
-                var pname = dyn()->sc->ctx->get_spelling(cg->name);
+                var pname = dyn()->tu.head_spelling(st);
+                var what = ("an associated type") if (isa::<TypeAliasDecl>(cg)) else ("a generic parameter");
                 var b = dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
                     f"a value of type '{pname}' can only be matched by a binding, '_' or 'default' (with a 'where' guard)");
                 b.first(p->range);
-                b.note(cg->range.start, f"'{pname}' is a generic parameter: no bound gives it variants, fields or values a pattern could test");
+                b.note(cg->range.start, f"'{pname}' is {what}: no bound gives it variants, fields or values a pattern could test");
                 b.emit();
                 p->poison();
                 return;

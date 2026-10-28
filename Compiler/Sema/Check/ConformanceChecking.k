@@ -1602,6 +1602,29 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 bd.emit();
                 return;
             }
+            // Two interfaces x declares each give the inherited requirement a
+            // default, and they differ: which one applies would depend on the
+            // path (interfaces.md, Associated types and inheritance), so none
+            // does. x has to say.
+            var dtys = vec::<*Type>();
+            var dnodes = vec::<*Type>();
+            var dins = vec::<*Decl>();
+            dd.derived_defaults(x, static_cast::<*Decl>(areq), &(self.ml), &dtys, &dnodes, &dins);
+            if dtys.size() > 1 {
+                var d0 = self.tu.str(dtys[0]);
+                var d1 = self.tu.str(dtys[1]);
+                var i0 = self.tu.decl_name(dins[0]);
+                var i1 = self.tu.decl_name(dins[1]);
+                var cd = self.sc->diag->report(DiagID::SC001E, at.start,
+                    f"'{xs}' does not conform to '{is}': its interfaces give associated type '{an}' two defaults, '{d0}' from '{i0}' and '{d1}' from '{i1}\x27");
+                cd.first(at);
+                if b != &null { cd.note(b->range.start, f"required by this bound").first(b->range); }
+                cd.note(dnodes[0]->range.start, f"'{i0}' gives it '{d0}' here").first(dnodes[0]->range);
+                cd.note(dnodes[1]->range.start, f"'{i1}' gives it '{d1}' here; declare 'type {an} = ...' in '{xs}' to choose").first(dnodes[1]->range);
+                if e != &null { self.chain_notes(&cd, e); }
+                cd.emit();
+                return;
+            }
             // Declared, but not in the requirement's shape: a generic
             // associated type needs a generic alias of its arity, and a plain
             // one a plain alias.

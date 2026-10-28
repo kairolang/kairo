@@ -908,10 +908,10 @@ class ExprTyper
     /// bounds are the scope, and the scope was searched). The note points at
     /// the parameter, which is where the fix goes. No fix-it: which
     /// interface should carry the requirement is the author's call.
-    fn needs_bound(self, e: *Expr, gp: *GenericParamDecl, bounded: bool, msg: string) {
+    fn needs_bound(self, e: *Expr, gp: *Decl, bounded: bool, msg: string) {
         if e == &null { return; }
         if e->is_poisoned() { return; }
-        var pname = self.sc->ctx->get_spelling(gp->name);
+        var pname = self.tu.decl_name(gp);
         if bounded {
             var b = self.sc->diag->report(DiagID::R025E, e->range.start, f"{msg}; none of the bounds of '{pname}' does");
             b.first(e->range);

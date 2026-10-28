@@ -384,7 +384,7 @@ class <T> CastTyping {
         //     D0): looked up in them, and absent there is the error below,
         //     never a conversion C++ might find per instance.
         var cands = vec::<*Decl>();
-        var cg = dyn()->tu.checked_param(src);
+        var cg = dyn()->tu.checked_head(src);
         var cbound = Substitution(dyn()->sc).bound_ifaces(src);
         if cg != &null {
             for var i: usize = 0; i < cbound.size(); ++i {
@@ -465,7 +465,7 @@ class <T> CastTyping {
         // 5e. nothing
         if cg != &null {
             dyn()->needs_bound(static_cast::<*Expr>(n), cg, cbound.size() > 0,
-                f"'as {dyn()->tu.str(target)}' on '{dyn()->sc->ctx->get_spelling(cg->name)}' needs a bound that declares 'op as' returning '{dyn()->tu.str(target)}\x27");
+                f"'as {dyn()->tu.str(target)}' on '{dyn()->tu.head_spelling(src)}' needs a bound that declares 'op as' returning '{dyn()->tu.str(target)}\x27");
             return &null;
         }
         dyn()->fail(n, DiagID::SC027E, f"no conversion from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}\x27");

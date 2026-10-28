@@ -155,10 +155,10 @@ class <T> OperatorTyping {
     fn bound_ifaces(self, t: *Type) -> vec::<*Type> { return Substitution(dyn()->sc).bound_ifaces(t); }
 
     /// Where a bounded parameter \p t's operators come from: bound_ifaces,
-    /// then the bases its `derives` bounds name (TypeUtil::bound_scopes). A
+    /// then the bases its `derives` bounds name (Substitution::bound_scopes). A
     /// base's operator is an ordinary member, bound and emitted as one; an
     /// interface's is a requirement, called through the witness.
-    fn bound_scopes(self, t: *Type) -> vec::<*Type> { return dyn()->tu.bound_scopes(t); }
+    fn bound_scopes(self, t: *Type) -> vec::<*Type> { return Substitution(dyn()->sc).bound_scopes(t); }
 
     priv fn _bounded(self, t: *Type) -> bool { return self.bound_scopes(t).size() > 0; }
 
@@ -173,7 +173,7 @@ class <T> OperatorTyping {
     }
 
     /// The D0 refusal of a binary operator touching a bounds-checked
-    /// parameter that nothing granted it (TypeUtil::op_checked_param). The
+    /// head that nothing granted it (TypeUtil::op_checked_head). The
     /// left operand's parameter is named: Kairo's operators are the left
     /// operand's. A parameter on the right of a CONCRETE left operand is
     /// refused too (`1 + t`: an `i32` has no `+` taking a T); one beside a
@@ -181,8 +181,8 @@ class <T> OperatorTyping {
     /// and still defers. True after reporting.
     priv fn _refuse_checked(self, n: *BinaryOperatorExpr, k: TokenKind, lt: *Type, rt: *Type) -> bool {
         var sym = dyn()->sc->ctx->get_spelling(n->op_token);
-        var gl = dyn()->tu.op_checked_param(lt);
-        var gr = dyn()->tu.op_checked_param(rt);
+        var gl = dyn()->tu.op_checked_head(lt);
+        var gr = dyn()->tu.op_checked_head(rt);
         var gp = gl;
         var bounded = (gl != &null) && self._bounded(lt);
         if gp == &null {
@@ -197,7 +197,7 @@ class <T> OperatorTyping {
             dyn()->fail(n, DiagID::SC067E, "logical operators require 'bool' operands; use a comparison or an explicit cast");
             return true;
         }
-        var pname = dyn()->sc->ctx->get_spelling(gp->name);
+        var pname = dyn()->tu.head_spelling((lt) if (gl != &null) else (rt));
         dyn()->needs_bound(static_cast::<*Expr>(n), gp, bounded, f"'{sym}' on '{pname}' needs a bound that declares {self._granting(k, sym)}");
         return true;
     }
@@ -633,14 +633,14 @@ class <T> OperatorTyping {
                 li = dyn()->tu.pointee(li);
                 ri = dyn()->tu.pointee(ri);
             }
-            if (dyn()->tu.op_checked_param(li) != &null) || (dyn()->tu.op_checked_param(ri) != &null) {
+            if (dyn()->tu.op_checked_head(li) != &null) || (dyn()->tu.op_checked_head(ri) != &null) {
                 return self._type_identity(n, lt, rt);
             }
             // Two operands that are never nullable whatever T is (a pointer,
             // a bounds-checked T): SC034E, as on any non-nullable pair.
             if (dyn()->tu.nullable_inner(lt) == &null) && (dyn()->tu.nullable_inner(rt) == &null)
-            && ((dyn()->tu.pointee(lt) != &null) || (dyn()->tu.op_checked_param(lt) != &null))
-            && ((dyn()->tu.pointee(rt) != &null) || (dyn()->tu.op_checked_param(rt) != &null)) {
+            && ((dyn()->tu.pointee(lt) != &null) || (dyn()->tu.op_checked_head(lt) != &null))
+            && ((dyn()->tu.pointee(rt) != &null) || (dyn()->tu.op_checked_head(rt) != &null)) {
                 return self._type_identity(n, lt, rt);
             }
         }
@@ -1075,11 +1075,11 @@ class <T> OperatorTyping {
         }
         // A bounds-checked parameter's `==` is only ever its bounds' (D0),
         // and they were asked above: `T === T` unifying is no comparison.
-        var gq = dyn()->tu.op_checked_param(li);
+        var gq = dyn()->tu.op_checked_head(li);
         var gt = li;
-        if gq == &null { gq = dyn()->tu.op_checked_param(ri); gt = ri; }
+        if gq == &null { gq = dyn()->tu.op_checked_head(ri); gt = ri; }
         if gq != &null {
-            var pname = dyn()->sc->ctx->get_spelling(gq->name);
+            var pname = dyn()->tu.head_spelling(gt);
             dyn()->needs_bound(static_cast::<*Expr>(n), gq, self._bounded(gt),
                 f"'===' on '{dyn()->tu.str(n->lhs->type_)}' compares the values with 'op ==', so it needs a bound on '{pname}' that declares 'op ==\x27");
             return false;
@@ -1145,7 +1145,7 @@ class <T> OperatorTyping {
         lt = dyn()->tu.as_value(lt);
         rt = dyn()->tu.as_value(rt);
         // A bounds-checked base has the `op ^^` its bounds grant, or none.
-        var pg = dyn()->tu.op_checked_param(lt);
+        var pg = dyn()->tu.op_checked_head(lt);
         if (pg != &null) && self._bounded(lt) {
             var pfound = false;
             var pargs  = vec::<*Expr>();
@@ -1155,7 +1155,7 @@ class <T> OperatorTyping {
             if pfound { return put; }
         }
         if pg != &null {
-            dyn()->needs_bound(static_cast::<*Expr>(n), pg, self._bounded(lt), f"'^^' on '{dyn()->sc->ctx->get_spelling(pg->name)}' needs a bound that declares 'op ^^\x27");
+            dyn()->needs_bound(static_cast::<*Expr>(n), pg, self._bounded(lt), f"'^^' on '{dyn()->tu.head_spelling(lt)}' needs a bound that declares 'op ^^\x27");
             return &null;
         }
         if self._is_dependent(lt) || self._is_dependent(rt) { dyn()->mark_unknown(n); return &null; }
@@ -1215,7 +1215,7 @@ class <T> OperatorTyping {
         if ot == &null { dyn()->mark_unknown(n); return &null; }
         var inner = dyn()->flow.narrowed_type(ot);
         if inner == &null {
-            if self._is_dependent(ot) && (dyn()->tu.checked_param(ot) == &null) { dyn()->mark_unknown(n); return &null; }
+            if self._is_dependent(ot) && (dyn()->tu.checked_head(ot) == &null) { dyn()->mark_unknown(n); return &null; }
             self._not_nullable_unwrap(n, dyn()->tu.as_value(ot));
             return &null;
         }
@@ -1334,11 +1334,11 @@ class <T> OperatorTyping {
         // A bounds-checked parameter defers nothing (D0): `t?` and `*t` get
         // the switch's own errors (a T is no nullable and no pointer), and
         // every other operator is the bounds' to grant, which they did not.
-        var ug = dyn()->tu.op_checked_param(ot);
+        var ug = dyn()->tu.op_checked_head(ot);
         if (ug != &null) && (k != TokenKind::OpAmp) && (k != TokenKind::OpStar) && (k != TokenKind::OpQuestion) && (k != TokenKind::OpEllipsis) {
             var sym = dyn()->sc->ctx->get_spelling(n->op_token);
             if (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) { return self._unary_bool(n, ot); }
-            var pname = dyn()->sc->ctx->get_spelling(ug->name);
+            var pname = dyn()->tu.head_spelling(ot);
             dyn()->needs_bound(static_cast::<*Expr>(n), ug, self._bounded(ot), f"'{sym}' on '{pname}' needs a bound that declares 'op {sym}\x27");
             return &null;
         }
@@ -1432,7 +1432,7 @@ class <T> OperatorTyping {
         // A bounds-checked parameter is never null whatever it is
         // instantiated with (D0: the body sees a T, and only a `T?` can be
         // null), so it gets the non-nullable error below.
-        if self._is_dependent(ov) && (dyn()->tu.checked_param(ov) == &null) {
+        if self._is_dependent(ov) && (dyn()->tu.checked_head(ov) == &null) {
             dyn()->mark_unknown(n);
             return &null;
         }
@@ -1633,9 +1633,9 @@ class <T> OperatorTyping {
         // A bounded parameter on the left binds through its bounds, as in
         // the binary case; any other dependent operand defers.
         if (self._is_dependent(lt) || self._is_dependent(rt)) && (!self._bounded(lt)) {
-            var cg = dyn()->tu.op_checked_param(lt);
+            var cg = dyn()->tu.op_checked_head(lt);
             if cg == &null { dyn()->mark_unknown(n); return &null; }
-            dyn()->needs_bound(static_cast::<*Expr>(n), cg, false, self._compound_msg(n, cg, base));
+            dyn()->needs_bound(static_cast::<*Expr>(n), cg, false, self._compound_msg(n, lt, base));
             return &null;
         }
 
@@ -1678,10 +1678,10 @@ class <T> OperatorTyping {
     /// the left side is primitive, so the builtin checks report it.
     /// `a += b` on a bounds-checked parameter: granted by an `op +=`
     /// requirement, or derived from an `op +` one.
-    priv fn _compound_msg(self, n: *AssignOperatorExpr, g: *GenericParamDecl, base: TokenKind) -> string {
+    priv fn _compound_msg(self, n: *AssignOperatorExpr, lt: *Type, base: TokenKind) -> string {
         var sym = dyn()->sc->ctx->get_spelling(n->op_token);
         var bsym = token_kind_to_readable_string(base);
-        return f"'{sym}' on '{dyn()->sc->ctx->get_spelling(g->name)}' needs a bound that declares 'op {sym}' or 'op {bsym}\x27";
+        return f"'{sym}' on '{dyn()->tu.head_spelling(lt)}' needs a bound that declares 'op {sym}' or 'op {bsym}\x27";
     }
 
     priv fn _type_compound(self, n: *AssignOperatorExpr, k: TokenKind, base: TokenKind,
@@ -1708,9 +1708,9 @@ class <T> OperatorTyping {
             if self._bounded(lt) {
                 // Nothing in the bounds: an error on a bounds-checked
                 // parameter (D0), else deferred as before.
-                var cg = dyn()->tu.op_checked_param(lt);
+                var cg = dyn()->tu.op_checked_head(lt);
                 if cg == &null { dyn()->mark_unknown(n); return &null; }
-                dyn()->needs_bound(static_cast::<*Expr>(n), cg, true, self._compound_msg(n, cg, base));
+                dyn()->needs_bound(static_cast::<*Expr>(n), cg, true, self._compound_msg(n, lt, base));
                 return &null;
             }
             if !l_rec { return &null; }

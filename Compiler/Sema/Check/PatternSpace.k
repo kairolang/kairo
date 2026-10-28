@@ -151,7 +151,7 @@ class PatternSpace {
         // A bounds-checked parameter (MONO.md D0) has values no pattern
         // can name: only a wildcard or a binder covers it.
         if u->is_dependent() {
-            if self.tu.checked_param(u) != &null { d.kind = DomainKind::Opaque; }
+            if self.tu.checked_head(u) != &null { d.kind = DomainKind::Opaque; }
             // A generic ADT at dependent arguments: its variants are its
             // pattern's, one list for every instance unless a variant is
             // pack-expanded (PatternTyping::dependent_adt).
