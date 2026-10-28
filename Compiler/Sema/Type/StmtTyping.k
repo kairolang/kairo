@@ -921,18 +921,78 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if t == &null { return &null; }
         var kind = IterKind::None;
         var _op: *Decl = &null;
-        var elem = self._iter_classify(at, t, &kind, &_op, rf);
+        var inst: *void = &null;
+        var elem = self._iter_classify(at, t, &kind, &_op, &inst, rf);
         if (rf != &null) && (elem != &null) {
             rf->iter_kind = kind;
             rf->iter_op   = _op;
+            rf->iter_inst = inst;
             rf->iter_elem = canon_unqual(elem);
         }
         return elem;
     }
 
-    priv fn _iter_classify(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl), rf: *RangedForStmt) -> *Type {
+    /// `fn op in (self) -> yield T` on \p t: the element type it yields, with
+    /// \p kind / \p _op / \p inst set to the call, or null when \p t
+    /// declares none. The iteration form takes `self` only; `op in (self, x)`
+    /// is containment and is never picked here.
+    priv fn _iter_own_op(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl), inst: *(*void)) -> *Type {
+        var cands = vec::<*Decl>();
+        dyn()->ml.lookup(dyn()->tu.strip_nullable(t), DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown), &cands);
+        for var i: usize = 0; i < cands.size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cands[i]);
+            if f == &null { continue; }
+            var extra: usize = 0;
+            for var p: usize = 0; p < f->params.size(); ++p {
+                if (f->params[p] != &null) && (!f->params[p]->is_self) { extra += 1; }
+            }
+            if extra != 0 { continue; }
+            var rt = self.fn_return_type(f);
+            if rt == &null { continue; }
+            rt = dyn()->ded_scratch()->member_through(t, rt);
+            if !dyn()->tu.is_lang(rt, WellKnownType::Yield) { continue; }
+            var args = dyn()->tu.record_args(rt);
+            if args.size() == 0 { continue; }
+            // The winner is resolved once more, alone, for its instance and
+            // its result through the receiver: a generic one -- an
+            // extension's on `[T]` above all, the form a builtin's iteration
+            // takes -- is called with X's arguments, never clang's
+            // (ExtensionLowering refuses it without them), and its `T` is
+            // the extension's, which member_through does not reach.
+            var one  = vec::<*Decl>(); one.push_back(cands[i]);
+            var none = vec::<ArgInfo>();
+            var recv = canon_unqual(dyn()->tu.strip_nullable(t));
+            var r = dyn()->ovl.resolve(&one, &none, true, at->range, "op in", recv);
+            if r.outcome == OvlOutcome::Selected {
+                r.ded.bind_from_record(recv);
+                var srt = dyn()->call_result_type(r.decl, &r);
+                (*inst) = reinterpret_cast::<*void>(r.instance);
+                if (srt != &null) && dyn()->tu.is_lang(srt, WellKnownType::Yield) {
+                    var sargs = dyn()->tu.record_args(srt);
+                    if sargs.size() > 0 { args = sargs; }
+                }
+            }
+            (*kind) = IterKind::User;
+            (*_op)   = cands[i];
+            return args[0];
+        }
+        return &null;
+    }
+
+    priv fn _iter_classify(self, at: *Expr, t: *Type, kind: *IterKind, _op: *(*Decl), inst: *(*void), rf: *RangedForStmt) -> *Type {
         var arr = dyn()->tu.element_of(t);
         if arr != &null { (*kind) = IterKind::Array; return arr; }
+
+        // A record's own `op in` wins, the builtin containers' included: the
+        // shapes below are only what a lang record that declares no
+        // iteration form falls back to, so Lib/builtin can give `[T]` or
+        // `string` a real `op in` without a compiler change and without the
+        // gate in FeatureGateCheck (SC116E) refusing it. Asked only of a
+        // record: an array (above), a pointer or a builtin has no members.
+        if dyn()->tu.record_decl(dyn()->tu.strip_nullable(t)) != &null {
+            var own = self._iter_own_op(at, t, kind, _op, inst);
+            if own != &null { return own; }
+        }
 
         if dyn()->tu.is_slice(t)       { (*kind) = IterKind::Slice;  return dyn()->tu.container_elem(t); }
         if dyn()->tu.is_vector_like(t) { (*kind) = IterKind::Vector; return dyn()->tu.container_elem(t); }
@@ -972,29 +1032,6 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 (*_op)   = &null;
                 return yargs[0];
             }
-        }
-
-        // `fn op in (self) -> yield T`: the iteration form takes `self` only;
-        // `op in (self, x)` is containment and is never picked here.
-        var cands = vec::<*Decl>();
-        dyn()->ml.lookup(dyn()->tu.strip_nullable(t), DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown), &cands);
-        for var i: usize = 0; i < cands.size(); ++i {
-            var f = dyn_cast::<FunctionDecl>(cands[i]);
-            if f == &null { continue; }
-            var extra: usize = 0;
-            for var p: usize = 0; p < f->params.size(); ++p {
-                if (f->params[p] != &null) && (!f->params[p]->is_self) { extra += 1; }
-            }
-            if extra != 0 { continue; }
-            var rt = self.fn_return_type(f);
-            if rt == &null { continue; }
-            rt = dyn()->ded_scratch()->member_through(t, rt);
-            if !dyn()->tu.is_lang(rt, WellKnownType::Yield) { continue; }
-            var args = dyn()->tu.record_args(rt);
-            if args.size() == 0 { continue; }
-            (*kind) = IterKind::User;
-            (*_op)   = cands[i];
-            return args[0];
         }
 
         var cxx_ok = false;

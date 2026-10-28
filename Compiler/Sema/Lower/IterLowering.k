@@ -58,7 +58,9 @@
 ///     `{ locals; label: while ... }`.
 ///
 ///   \par Not lowered here
-///     Vector, set, map and string ICE naming what they wait on; FeatureGateCheck (SC116E) rejects them first, so the ICE is an invariant. A dependent iterable (iter_kind None, no type) is left for M2;
+///     Vector, set, map and string that declare no `op in (self)` (a
+///     declared one makes the loop IterKind::User, above) ICE naming what
+///     they wait on; FeatureGateCheck (SC116E) rejects them first, so the ICE is an invariant. A dependent iterable (iter_kind None, no type) is left for M2;
 ///     reaching codegen it ICEs in EmitIR.
 ///
 ///   Phase: LOWER, after CallLowering and before ExtensionLowering: a user
@@ -367,7 +369,9 @@ class IterLowering derives ASTWriter::<IterLowering> {
                 recv = self._use(tmp, at);
             }
             var none = self.list_builder::<*Expr>();
-            it = self._local(pre, at, "it", gen_ty, self.synth.member_call(at, recv, n->iter_op, &none, gen_ty));
+            var call = self.synth.member_call(at, recv, n->iter_op, &none, gen_ty);
+            cast::<CallExpr>(call)->instance = n->iter_inst;
+            it = self._local(pre, at, "it", gen_ty, call);
         }
 
         var next_d = self._lang_member(WellKnownType::Yield, LangMembers::yield_next());

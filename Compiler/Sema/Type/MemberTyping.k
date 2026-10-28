@@ -463,6 +463,60 @@ class <T> MemberTyping {
         return canon_quals(c);
     }
 
+    /// `b[i]` through the record's own `op []`: \p cands is what the
+    /// lookup on \p recv (the receiver, or an array's slice view) found.
+    priv fn _type_subscript_op(self, n: *SubscriptExpr, bt: *Type, recv: *Type, cands: *vec::<*Decl>) -> *Type {
+        if cands->size() == 0 {
+            dyn()->type_of(n->index, &null);
+            dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' has no subscript operator");
+            return &null;
+        }
+        var args = vec::<ArgInfo>();
+        args.push_back(dyn()->arg_info(n->index));
+        var r = dyn()->ovl.resolve(cands, &args, true, n->range, "op []", recv);
+        if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
+        if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
+        // Member-only resolution, so via_free is false here by
+        // construction; assigned from r anyway so the two never drift.
+        n->resolved_op = r.decl;
+        n->op_via_free = r.via_free;
+        r.ded.bind_from_record(recv);
+        dyn()->finish_call_args(r.decl, &args, &r);
+        // Already through the receiver's generic args: bind_from_record
+        // seeded r.ded, and call_result_type substitutes a dependent
+        // result through it.
+        var rt = dyn()->call_result_type(r.decl, &r);
+        // call_result_type registers a generic winner's instance, so
+        // EmitIR spells its arguments rather than leaving them to
+        // C++ deduction (resolve_user_op's order).
+        n->op_instance = reinterpret_cast::<*void>(r.instance);
+        if rt == &null { return &null; }
+        // A C++ `operator[]` (std::unordered_map, ...) already returns
+        // the place as `T&`, and one returning a real `T*` means the
+        // pointer: its result is taken as declared. Decided by the
+        // declaring TU, not by the result's shape, for that reason.
+        var oc  = NameLookup::ctx_of(r.decl);
+        var otu = (reinterpret_cast::<*TranslationUnit>(oc->tu)) if (oc != &null) else (&null);
+        if (otu != &null) && otu->is_foreign {
+            n->value_category = Expr::ValueCategory::LValue;
+            return rt;
+        }
+        // A Kairo place returns `*T` / `*const T` and the subscript IS
+        // the T it points to, an lvalue, const if the pointer was. Any
+        // other result is a value operator: the subscript is that
+        // value, an rvalue, so `&b[0..1]` is the ordinary
+        // address-of-rvalue error.
+        var fd = cast::<FunctionDecl>(r.decl);
+        if OperatorFacts::is_place(fd) {
+            n->value_category = Expr::ValueCategory::LValue;
+            var place = dyn()->tu.pointee(rt);
+            ICE_IF(place == &null, "MemberTyping: place `op []` without a pointee; OperatorFacts::is_place disagrees");
+            return place;
+        }
+        n->value_category = Expr::ValueCategory::RValue;
+        return rt;
+    }
+
     fn type_subscript(self, n: *SubscriptExpr, expected: *Type) -> *Type {
         var bt = dyn()->type_of(n->base, &null);
         if dyn()->propagate(n, n->base) { return &null; }
@@ -490,11 +544,17 @@ class <T> MemberTyping {
             recv = view;
         }
 
-        // user `op []`
+        // user `op []`. A builtin container's own `op []` wins as any
+        // record's does: the shapes below are only what a vector, map or
+        // string that declares NO `op []` falls back to. One that declares
+        // some, none of which takes the index, gets the ordinary overload
+        // error rather than the shape: a declared set is the type's whole
+        // subscript surface, and a silent fallback would hide the mistake.
+        // An array, tuple or pointer has no members to ask.
         if dyn()->tu.kind_of(bt) == BuiltinKind::COUNT {
-            var is_container = dyn()->tu.is_vector_like(bt) || dyn()->tu.is_map_like(bt) || dyn()->tu.is_string(bt)
-                            || (dyn()->tu.element_of(bt) != &null) || dyn()->tu.is_tuple(bt) || (dyn()->tu.pointee(bt) != &null);
-            if (!is_container) || array_range {
+            var has_shape = dyn()->tu.is_vector_like(bt) || dyn()->tu.is_map_like(bt) || dyn()->tu.is_string(bt);
+            var no_members = (dyn()->tu.element_of(bt) != &null) || dyn()->tu.is_tuple(bt) || (dyn()->tu.pointee(bt) != &null);
+            if (!no_members) || array_range {
                 var cands = vec::<*Decl>();
                 var sub_name = DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare);
                 // A bounded parameter has no members of its own: its `op []`
@@ -507,55 +567,9 @@ class <T> MemberTyping {
                 } else {
                     dyn()->ml.lookup(recv, sub_name, &cands);
                 }
-                if cands.size() == 0 {
-                    dyn()->type_of(n->index, &null);
-                    dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' has no subscript operator");
-                    return &null;
+                if (cands.size() > 0) || (!has_shape) || array_range {
+                    return self._type_subscript_op(n, bt, recv, &cands);
                 }
-                var args = vec::<ArgInfo>();
-                args.push_back(dyn()->arg_info(n->index));
-                var r = dyn()->ovl.resolve(&cands, &args, true, n->range, "op []", recv);
-                if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
-                if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
-                // Member-only resolution, so via_free is false here by
-                // construction; assigned from r anyway so the two never drift.
-                n->resolved_op = r.decl;
-                n->op_via_free = r.via_free;
-                r.ded.bind_from_record(recv);
-                dyn()->finish_call_args(r.decl, &args, &r);
-                // Already through the receiver's generic args: bind_from_record
-                // seeded r.ded, and call_result_type substitutes a dependent
-                // result through it.
-                var rt = dyn()->call_result_type(r.decl, &r);
-                // call_result_type registers a generic winner's instance, so
-                // EmitIR spells its arguments rather than leaving them to
-                // C++ deduction (resolve_user_op's order).
-                n->op_instance = reinterpret_cast::<*void>(r.instance);
-                if rt == &null { return &null; }
-                // A C++ `operator[]` (std::unordered_map, ...) already returns
-                // the place as `T&`, and one returning a real `T*` means the
-                // pointer: its result is taken as declared. Decided by the
-                // declaring TU, not by the result's shape, for that reason.
-                var oc  = NameLookup::ctx_of(r.decl);
-                var otu = (reinterpret_cast::<*TranslationUnit>(oc->tu)) if (oc != &null) else (&null);
-                if (otu != &null) && otu->is_foreign {
-                    n->value_category = Expr::ValueCategory::LValue;
-                    return rt;
-                }
-                // A Kairo place returns `*T` / `*const T` and the subscript IS
-                // the T it points to, an lvalue, const if the pointer was. Any
-                // other result is a value operator: the subscript is that
-                // value, an rvalue, so `&b[0..1]` is the ordinary
-                // address-of-rvalue error.
-                var fd = cast::<FunctionDecl>(r.decl);
-                if OperatorFacts::is_place(fd) {
-                    n->value_category = Expr::ValueCategory::LValue;
-                    var place = dyn()->tu.pointee(rt);
-                    ICE_IF(place == &null, "MemberTyping: place `op []` without a pointee; OperatorFacts::is_place disagrees");
-                    return place;
-                }
-                n->value_category = Expr::ValueCategory::RValue;
-                return rt;
             }
         }
 

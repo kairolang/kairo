@@ -829,6 +829,37 @@ takes the pointer back; on a value `op []` it yields the result as an
 rvalue, so `&a[0..1]` is the ordinary address-of-rvalue error. A foreign
 `operator[]` is taken as declared, an lvalue.
 
+**A builtin type's declared operator wins; the built-in shape is the
+fallback** [DONE]. `[T]`, `{T}`, `{K: V}`, `[T;]` and `string` are records
+(the lang items Lib/builtin declares), and every operator on one resolves
+through the record path any user type takes -- its own and its
+extensions' members, bounds and witnesses, generic instances. The
+hard-coded shapes are only what a builtin that declares NOTHING applicable
+falls back to, and stay the fast path while Lib/builtin declares none:
+- `for x in c` (StmtTyping `_iter_classify`): after `[T; N]` (no record),
+  any record's `op in (self) -> yield T` is asked first; only then
+  IterKind::Slice / Vector / Set / Map / String / Range / Yield. A
+  declared containment `op in (self, x)` is no iteration form and changes
+  nothing. The fallback kinds keep FeatureGateCheck's SC116E.
+- `c[i]` (MemberTyping `type_subscript`): a vector, map or string with NO
+  `op []` takes the built-in element shape; one with any `op []` resolves
+  among them, so an index none of them takes is the ordinary overload
+  error, not a silent fallback (a declared set is the type's whole
+  subscript surface). Arrays, tuples and pointers have no members and are
+  never asked.
+- Every other operator (binary, comparison and the derived `!=` / `<`,
+  compound assignment, unary, containment `in`, `op as`) had no
+  identity branch ahead of the lookup: OperatorTyping and CastTyping gate
+  on "is a record", so a builtin is asked like any other. The nullable
+  operators (`x?`, `== null`, `??`, `===`) are language rules, not
+  library operators (NULLABLE.md), and stay ahead of the lookup.
+Not operator dispatch, and kept by identity: list / set / map / string
+literal construction (LiteralTyping, OverloadResolution's list-literal
+target), lifecycle facts (ClassLifecycle: Lib/builtin declares no
+destructor yet), string patterns (PatternSpace, PatternCompilation,
+MatchLowering), eval-usage messages, and diagnostic spelling
+(`TypeUtil::str`).
+
 `ConstraintExtraction` partitions each decl's canonical `requires` into
 conformance constraints vs value predicates and writes the result to
 `sc->bounds` keyed by owner decl [DECIDED, MISSING] -- the bound table
@@ -1605,7 +1636,9 @@ per element. A call with an lvalue or record result keeps C++ order
 until M2.
 
 IterLowering [PARTIAL]. X records each ranged `for`'s `iter_kind`,
-`iter_elem` and, for a user `op in`, `iter_op`. A `for` over a type pack
+`iter_elem` and, for a user `op in`, `iter_op` (and `iter_inst`, a
+generic one's instance -- an extension's on `[T]` is called with X's
+arguments, never clang's). A `for` over a type pack
 (`IterKind::Pack`, its binding typed as the pack) is left for EmitIR, which
 unrolls it as a fold, one lambda copy per element. The pass renders a block of
 hidden locals and a `while` that advances before its body (so `continue`
@@ -1623,8 +1656,10 @@ pass. A pointer iterator's `++` is minted typed (Kairo has no user `++` on
 pointers). Binders: plain `x` copies, `*x` points at the element (at a
 per-iteration copy over a range or a prvalue `*__it`); `(k, v)` binds the
 tuple element once (a const reference when it is a stable lvalue, a copy
-otherwise) and each binder off its fields. Not yet: Vector, set, map,
-string, nullable binders.
+otherwise) and each binder off its fields. A builtin container that
+declares `op in (self) -> yield T` is a user `op in` here. Not yet: the
+Vector, set, map and string FALLBACK shapes (no declared `op in`), nullable
+binders.
 
 RangeLowering. A range value is `Range<T>{.begin, .end, .inclusive}`; open
 ranges are valid only as a subscript index (X), where `a..` and `..` are

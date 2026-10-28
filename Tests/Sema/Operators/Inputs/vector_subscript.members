@@ -1,0 +1,4 @@
+    /// Test fixture (Tests/Sema/Operators/builtin_declared_subscript.k).
+    pub inline fn op [] (self, i: usize) -> *T {
+        return &self.data[i]
+    }

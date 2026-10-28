@@ -769,6 +769,7 @@ class RangedForStmt derives Stmt {
     pub var iter_kind: IterKind = IterKind::None;
     pub var iter_op:   *Decl    = &null;   ///< User: the selected `op in (self)`; null when the iterable is a Yield<T> itself.
     pub var iter_elem: *Type    = &null;   ///< the element type, canonical and unqualified.
+    pub var iter_inst: *void    = &null;   ///< User: a generic `op in`'s instance (an extension's on `[T]`), as CallExpr::instance.
     // Cxx only. Locals are *Decl (always a VariableDecl), the import-cycle
     // dodge Binding uses.
     pub var cxx_begin_fn:  *Decl  = &null;   ///< `begin`, a member or (cxx_free) a free function.
@@ -802,6 +803,7 @@ class RangedForStmt derives Stmt {
         node->iter_kind = IterKind::None;
         node->iter_op   = &null;
         node->iter_elem = &null;
+        node->iter_inst = &null;
         return node;
     }
 
@@ -814,6 +816,7 @@ class RangedForStmt derives Stmt {
         node->iter_kind     = IterKind::None;
         node->iter_op       = &null;
         node->iter_elem     = &null;
+        node->iter_inst     = &null;
         return node;
     }
 
