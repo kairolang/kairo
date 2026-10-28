@@ -743,6 +743,22 @@ class LowerTargets {
     static fn panic_fwd() -> string                  { return "__kairo_fwd"; }
     static fn panic_fwd_step() -> string             { return "__kairo_fwd_k"; }
     static fn panic_elem_index() -> string           { return "__kairo_pidx"; }
+    /// A panic set naming a type parameter (a generic body, PANIC.md P10) is
+    /// ordered by C++ at each instance: `__kairo_pset<P, T, E...>` is
+    /// `P<T, E'...>` with E' the elements deduplicated and sorted by type id,
+    /// the canonical order Sema forms every concrete set in (§1.3), so a
+    /// template's result and a concrete caller's are one type. Built by
+    /// insertion over a type list (`__kairo_ptl`): `__kairo_pins` places one
+    /// element (`__kairo_pins_at` by its id against the list's head),
+    /// `__kairo_pcons` prepends, `__kairo_psort` folds the elements in,
+    /// `__kairo_papply` makes the record.
+    static fn panic_set_alias() -> string            { return "__kairo_pset"; }
+    static fn panic_set_list() -> string             { return "__kairo_ptl"; }
+    static fn panic_set_insert() -> string           { return "__kairo_pins"; }
+    static fn panic_set_insert_at() -> string        { return "__kairo_pins_at"; }
+    static fn panic_set_cons() -> string             { return "__kairo_pcons"; }
+    static fn panic_set_sort() -> string             { return "__kairo_psort"; }
+    static fn panic_set_apply() -> string            { return "__kairo_papply"; }
     static fn raw_slot() -> string                   { return "__kairo_raw"; }
     static fn raw_slot_guard() -> string             { return "__KAIRO_RAW_SLOT"; }
     static fn raw_box() -> string                    { return "__kairo_rbox"; }

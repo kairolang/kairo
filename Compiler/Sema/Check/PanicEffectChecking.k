@@ -49,8 +49,18 @@
 ///     exact types. A C++ type outside the set is a C++ exception arm
 ///     (§3.5). What the arms leave goes to the enclosing `try` or the body.
 ///
-///     Gates (SC116E): a `panic` function or closure that is generic or
-///     inside a generic (§2.6: needs M2), a generator or `async` (§2.7: the
+///     Generics (P10, MONO.md D0/D5): a generic body is checked once, at
+///     its definition, like any other: its set may name its parameters, a
+///     call through a bound adds the requirement's DECLARED set at the
+///     bound's arguments, and a call of a generic function its set at the
+///     call's (EffectPropagation::panic_call_set). Two `catch` arms that
+///     name different types can name one at an instance (`catch e: T`,
+///     `catch e: A` at T = A): §3.1's duplicate-arm error, reported at the
+///     instance's use with its chain (_check_instances).
+///
+///     Gates (SC116E): a `panic` function, or a panicking site, under a
+///     `<T: type>` parameter (MONO.md D1: the C++-checked regime has no set
+///     to close), a generic closure, a generator or `async` (§2.7: the
 ///     coroutine frame does not exist yet); a panicking site in any of
 ///     those bodies.
 ///
@@ -75,6 +85,8 @@ import Sema::Check::EffectPropagation::*;
 import Sema::Type::PanicSets::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::ScriptRules::*;
+import Sema::Check::ConformanceChecking::*;
+import Sema::Type::ArgumentDeduction::*;
 import AST::OperatorFacts::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -139,6 +151,11 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// method can be reached through a visibility group and the list.
     priv var _subset_done: llvm::DenseSet::<u64>;
     priv var _scratch: vec::<*Type>;
+    /// The functions whose bodies the traversal is inside, innermost last:
+    /// a closure's enclosing function (a `<T: type>` gate reaches it).
+    priv var _fn_stack: vec::<*FunctionDecl>;
+    /// Structural conformance rows already held to their requirements' sets.
+    priv var _rows_done: llvm::DenseSet::<u64>;
 
     fn PanicEffectChecking(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -170,6 +187,8 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             }
         }
 
+        self._check_instances();
+
         // A script's top level is main's body: its statements, and its
         // bindings' initializers (each deferred one runs at its line in main;
         // a constant one cannot panic).
@@ -196,7 +215,192 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         }
     }
 
+    // === §3.1 at an instance (P10) =============================================
+
+    /// Two typed arms of one `try` in a generic body that name ONE type at
+    /// an instance's arguments (`catch e: T` beside `catch e: A`, at T = A):
+    /// §3.1's duplicate arm. Only the instance can tell, so it is reported
+    /// at the instance's use with its chain (MONO.md D6), as a lifecycle
+    /// fact that fails there is; the arms are the definition's
+    /// (FunctionDecl::panic_arms). Every live entry no TU checked yet, once
+    /// for the build: its primary's TU judged its body before this one, or
+    /// is this one. A generic record's instance checks its methods.
+    priv fn _check_instances(self) {
+        if self.sc->instances == &null { return; }
+        var all = vec::<*InstanceEntry>();
+        self.sc->instances->collect(all);
+        for var i: usize = 0; i < all.size(); ++i {
+            var e = all[i];
+            if (e == &null) || (e->depth == 0) || e->panic_checked || (e->primary == &null) { continue; }
+            var dep = false;
+            for var k: usize = 0; k < e->args.size(); ++k { if panic_dep(e->args[k]) { dep = true; } }
+            if dep { continue; }
+            e->panic_checked = true;
+            self._structural_rows(e);
+            var prim = e->primary;
+            if isa::<FunctionDecl>(prim) {
+                var h = panic_home(cast::<FunctionDecl>(prim));
+                if h->panic_arms.size() == 0 { continue; }
+                var d = Deduction(self.sc, &null);
+                self._bind_instance(&d, e, prim);
+                self._instance_arms(e, h, &d);
+                continue;
+            }
+            var ms = self._methods_of(prim);
+            var rt = (self.sc->types->record(e->decl, &(e->args))) if (e->decl != &null) else (&null);
+            for var k: usize = 0; k < ms.size(); ++k {
+                if ms[k] == &null { continue; }
+                var h = panic_home(ms[k]);
+                if h->panic_arms.size() == 0 { continue; }
+                var d = Deduction(self.sc, &null);
+                if rt != &null { d.bind_from_record(rt); }
+                self._instance_arms(e, h, &d);
+            }
+        }
+    }
+
+    /// A STRUCTURAL conformance an instance's bound found (`T impl Src<A>`
+    /// met by a class that declares no `impl`, ConformanceRow::declared
+    /// null): §2.2's conformer subset, which a declared conformance gets at
+    /// its declaration (_conformances), held here, at the instance's use
+    /// with its chain. Each row once per TU.
+    priv fn _structural_rows(self, e: *InstanceEntry) {
+        for var r: usize = 0; r < e->rows.size(); ++r {
+            var row = e->rows[r];
+            if (row == &null) || (row->declared != &null) || (!row->ok) { continue; }
+            var key = reinterpret_cast::<u64>(row);
+            if self._rows_done.contains(key) { continue; }
+            self._rows_done.insert(key);
+            for var i: usize = 0; (i < row->witnesses.size()) && (i < row->reqs.size()); ++i {
+                var w = dyn_cast::<FunctionDecl>(row->witnesses[i]);
+                var q = dyn_cast::<FunctionDecl>(row->reqs[i]);
+                if (w == &null) || (q == &null) || (w == q) { continue; }
+                var through = (row->sources[i]) if ((i < row->sources.size()) && (row->sources[i] != &null)) else (row->iface);
+                var a = vec::<*Type>();
+                var b = vec::<*Type>();
+                if panic_set_of_fn(&(self._tu), w, &a) != PanicKnown::Set { continue; }
+                var kb = panic_set_through(&(self._tu), q, through, &b);
+                if kb == PanicKnown::Unknown { continue; }
+                var out = vec::<*Type>();
+                for var k: usize = 0; k < a.size(); ++k { if !pset_has(&b, a[k]) { out.push_back(a[k]); } }
+                if out.size() == 0 { continue; }
+                var names = pset_names(&(self._tu), &out);
+                var verb = ("is") if (out.size() == 1) else ("are");
+                var xs = self._tu.str(row->conformer);
+                var is = self._tu.str(row->iface);
+                var qn = self._qual_name(q);
+                var at = (e->use_at) if (e->use_at.start.is_valid()) else (w->range);
+                var bld = self.sc->diag->report(DiagID::SC001E, at.start,
+                    f"'{xs}' does not meet '{is}' here: {names} {verb} not in the panic set of '{qn}', which '{self._qual_name(w)}' implements");
+                bld.first(at, f"'{self._inst_name(e)}' needs '{xs}' to implement '{is}\x27");
+                var wat = (w->panic_range) if (w->panic_range.is_valid()) else (self._name_range(w));
+                bld.note(DiagID::SC001N, w->range.start, f"'{self._qual_name(w)}' may panic with {names}").first(wat);
+                var qat = (q->panic_range) if (q->panic_range.is_valid()) else (self._name_range(q));
+                bld.note(DiagID::SC001N, q->range.start, f"'{qn}' is declared here").first(qat);
+                ConformanceChecking(self.sc).chain_notes(&bld, e);
+                bld.emit();
+            }
+        }
+    }
+
+    /// \p e's arguments bound to \p prim's parameters (an extension
+    /// member's extension's first), ConformanceChecking's order.
+    priv fn _bind_instance(self, d: *Deduction, e: *InstanceEntry, prim: *Decl) {
+        var k: usize = 0;
+        var x = decl_extension_of(prim);
+        if x != &null {
+            var eps = decl_generic_params(static_cast::<*Decl>(x));
+            var xr = NameLookup::representative(static_cast::<*Decl>(x));
+            for var i: usize = 0; (i < eps.size()) && (k < e->args.size()); ++i {
+                if eps[i] != &null { d->bind(xr, eps[i]->index, e->args[k]); }
+                k += 1;
+            }
+        }
+        var gps = decl_generic_params(prim);
+        var pr = NameLookup::representative(prim);
+        for var i: usize = 0; (i < gps.size()) && (k < e->args.size()); ++i {
+            var gp = gps[i];
+            if gp == &null { k += 1; continue; }
+            if gp->is_pack {
+                d->open_pack(pr, gp->index);
+                while k < e->args.size() { d->push_pack(pr, gp->index, e->args[k]); k += 1; }
+                break;
+            }
+            d->bind(pr, gp->index, e->args[k]);
+            k += 1;
+        }
+    }
+
+    priv fn _methods_of(self, d: *Decl) -> FrozenList::<*FunctionDecl> {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->methods; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->methods; }
+        if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->methods; }
+        return create_empty_frozen_list::<*FunctionDecl>();
+    }
+
+    /// Each `try` of \p h's (panic_arms: its arm types, null-separated):
+    /// the first pair of arms naming one type at \p d's bindings.
+    priv fn _instance_arms(self, e: *InstanceEntry, h: *FunctionDecl, d: *Deduction) {
+        var start: usize = 0;
+        var n = h->panic_arms.size();
+        for var i: usize = 0; i <= n; ++i {
+            if (i < n) && (h->panic_arms[i] != &null) { continue; }
+            var done = false;
+            for var a: usize = start; (a < i) && (!done); ++a {
+                var ta = self._arm_at(h->panic_arms[a], d);
+                if ta == &null { continue; }
+                for var b: usize = a + 1; (b < i) && (!done); ++b {
+                    var tb = self._arm_at(h->panic_arms[b], d);
+                    if (tb == &null) || (ta != tb) { continue; }
+                    self._instance_dup(e, ta, h->panic_arm_at[a], h->panic_arm_at[b]);
+                    done = true;
+                }
+            }
+            start = i + 1;
+        }
+    }
+
+    priv fn _arm_at(self, t: *Type, d: *Deduction) -> *Type {
+        if t == &null { return &null; }
+        if !panic_dep(t) { return canon_unqual(t); }
+        var x = d->substitute(t);
+        return (canon_unqual(x)) if (x != &null) else (&null);
+    }
+
+    priv fn _instance_dup(self, e: *InstanceEntry, t: *Type, first: SourceRange, second: SourceRange) {
+        var nm = self._tu.str(t);
+        var inst = self._inst_name(e);
+        var at = (e->use_at) if (e->use_at.start.is_valid()) else (second);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"two 'catch' arms of one 'try' catch '{nm}' in '{inst}': the first takes every '{nm}', and the second never runs");
+        b.first(at, f"'{inst}' is instantiated here");
+        b.note(DiagID::SC001N, first.start, f"this arm catches '{nm}' at these arguments").first(first);
+        b.note(DiagID::SC001N, second.start, "and so does this one").first(second);
+        ConformanceChecking(self.sc).chain_notes(&b, e);
+        b.emit();
+    }
+
+    priv fn _inst_name(self, e: *InstanceEntry) -> string {
+        if (e->decl != &null) && (!isa::<FunctionDecl>(e->primary)) {
+            var t = self.sc->types->record(e->decl, &(e->args));
+            if t != &null { return self._tu.str(t); }
+        }
+        var s = self._tu.decl_name(e->primary) + "<";
+        for var i: usize = 0; i < e->args.size(); ++i {
+            if i > 0 { s += ", "; }
+            s += self._tu.str(e->args[i]);
+        }
+        return s + ">";
+    }
+
     // === bodies ===============================================================
+
+    fn traverse_function_decl(self, f: *FunctionDecl) -> *FunctionDecl {
+        self._fn_stack.push_back(f);
+        var r = RecursiveASTVisitor::<PanicEffectChecking>::traverse_function_decl(f);
+        self._fn_stack.pop_back();
+        return r;
+    }
 
     fn visit_function_decl(self, f: *FunctionDecl) -> bool {
         if (f == &null) || f->is_poisoned() { return true; }
@@ -454,8 +658,16 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             b.emit();
             return;
         }
-        if panic_in_generic(static_cast::<*Decl>(f)) {
-            self._gate(at, "a generic 'panic' function (or one inside a generic type)");
+        if panic_in_duck(static_cast::<*Decl>(f)) {
+            self._gate(at, "a 'panic' function under a '<T: type>' parameter (C++-checked generics)");
+            return;
+        }
+        if f->panic_state == PanicSetState::Diverged {
+            var b = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"the panic set of '{nm}' grows without bound: it calls itself (or a function that calls it) at ever-larger type arguments");
+            b.first(at);
+            b.note(DiagID::SC001N, f->range.start, "a declared set, 'panic(E1, E2)', bounds it: what the recursive call panics with must then be in it or caught").first(self._name_range(f));
+            b.emit();
             return;
         }
         if f->is_generator {
@@ -563,9 +775,10 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         for var i: usize = 0; i < cd->methods.size(); ++i {
             var m = cd->methods[i];
             if (m == &null) || m->is_poisoned() || (m->abi != AbiKind::Override) || (!m->is_panic()) { continue; }
-            var base = self._overridden(cd, m);
+            var bt: *Type = &null;
+            var base = panic_overridden_at(&(self._tu), cd, m, &bt);
             if base == &null { continue; }
-            self._subset(m, base, "overrides", "an override");
+            self._subset(m, base, bt, "overrides", "an override");
         }
         self._conformances(static_cast::<*Decl>(cd));
         return true;
@@ -597,15 +810,18 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
                 if decl_is_imported(static_cast::<*Decl>(w)) { continue; }
                 // Only where the conformer is written: its own TU reports it.
                 if self._tu.fid_of(static_cast::<*Decl>(w)) != self.sc->ctx->fid { continue; }
-                self._subset(w, q, "implements", "a conforming method");
+                self._subset(w, q, row->iface, "implements", "a conforming method");
             }
         }
     }
 
     /// \p sub's set within \p sup's; an error naming each type outside,
     /// at \p sub, with a note at \p sup and the edit adding the types to
-    /// \p sup's declared set.
-    priv fn _subset(self, sub: *FunctionDecl, sup: *FunctionDecl, verb: string, what: string) {
+    /// \p sup's declared set. \p through is where \p sup is met (the base
+    /// record, the interface instance): a generic base's or interface's
+    /// set is read at its arguments (P10), `B<i32>`'s `panic(T)` is
+    /// `panic(i32)`.
+    priv fn _subset(self, sub: *FunctionDecl, sup: *FunctionDecl, through: *Type, verb: string, what: string) {
         var key = reinterpret_cast::<u64>(sub);
         if self._subset_done.contains(key) { return; }
         self._subset_done.insert(key);
@@ -613,7 +829,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         var b = vec::<*Type>();
         var ka = panic_set_of_fn(&(self._tu), sub, &a);
         if ka != PanicKnown::Set { return; }
-        var kb = panic_set_of_fn(&(self._tu), sup, &b);
+        var kb = panic_set_through(&(self._tu), sup, through, &b);
         if kb == PanicKnown::Unknown { return; }
         var out = vec::<*Type>();
         for var i: usize = 0; i < a.size(); ++i { if !pset_has(&b, a[i]) { out.push_back(a[i]); } }
@@ -632,14 +848,18 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         d.first(at);
         var sat = (sup->panic_range) if (sup->panic_range.is_valid()) else (self._name_range(sup));
         d.note(DiagID::SC001N, sup->range.start, f"'{sn}' is declared here").first(sat);
-        if sup->has_panic_set() && sup->panic_range.is_valid() && (!decl_is_imported(static_cast::<*Decl>(sup))) {
+        // A set naming its own parameters, read at arguments, has no
+        // spelling to add to: the base's or interface's list is written in
+        // its parameters, not in these arguments.
+        var generic_sup = false;
+        for var i: usize = 0; i < sup->panic_set.size(); ++i {
+            var st = sup->panic_set[i];
+            if (st != &null) && (st->canonical != &null) && panic_dep(st->canonical) { generic_sup = true; }
+        }
+        if sup->has_panic_set() && sup->panic_range.is_valid() && (!decl_is_imported(static_cast::<*Decl>(sup))) && (!generic_sup) {
             d.insert(sup->panic_range.end.with_offset(-1), ", " + pset_spelling(&(self._tu), &out), f"add it to the set of '{sn}\x27");
         }
         d.emit();
-    }
-
-    priv fn _overridden(self, cd: *ClassDecl, m: *FunctionDecl) -> *FunctionDecl {
-        return panic_overridden(&(self._tu), cd, m);
     }
 
     /// `Base::m` / `I::m`: a method as a message names it.
@@ -741,7 +961,9 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
     /// A `fn` type has no body to infer from: its set is written (§2.2).
     fn visit_function_pointer_type(self, n: *FunctionPointerType) -> bool {
         // A set naming a generic parameter (`fn <E> run(f: fn() panic(E))`)
-        // is per instance: deducing and checking it is P10, with M2 (§2.6).
+        // stays gated past P10: deduction never reads a `fn` type's effect
+        // (E would only come from an explicit argument), and substitution
+        // keeps a `fn` type's set as written (Substitution::substitute).
         for var i: usize = 0; i < n->panic_set.size(); ++i {
             var t = n->panic_set[i];
             if (t == &null) || (t->canonical == &null) { continue; }
@@ -796,18 +1018,21 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
 
     /// Every site of \p w against what \p kind lets leave the body.
     priv fn _judge(self, w: *PanicWalk, kind: PanicBody, f: *FunctionDecl, c: *ClosureExpr, holder: *Decl) {
-        if (w->sites.size() == 0) && (w->tries.size() == 0) { return; }
+        if (w->sites.size() == 0) && (w->tries.size() == 0) && (w->unbound_at.size() == 0) { return; }
 
         // Gated bodies: every panicking site is unsupported, caught or not.
         var gate = "";
         if f != &null {
-            if panic_in_generic(static_cast::<*Decl>(f)) { gate = "a generic function (or one inside a generic type)"; }
+            if panic_in_duck(static_cast::<*Decl>(f)) { gate = "a function under a '<T: type>' parameter (C++-checked generics)"; }
             else if f->is_generator { gate = "a generator"; }
             else if f->is_async() { gate = "an 'async' function"; }
         }
         if c != &null {
             if c->generic_params.size() > 0 { gate = "a generic closure"; }
             else if (static_cast::<u16>(c->modifiers) & static_cast::<u16>(FnModifier::IsAsync)) != 0 { gate = "an 'async' closure"; }
+            else if (self._fn_stack.size() > 0) && panic_in_duck(static_cast::<*Decl>(self._fn_stack[self._fn_stack.size() - 1])) {
+                gate = "a closure under a '<T: type>' parameter (C++-checked generics)";
+            }
         }
         if gate.size() > 0 {
             for var i: usize = 0; i < w->sites.size(); ++i {
@@ -816,6 +1041,12 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
                 self._gate(s->range, f"{what} inside {gate}");
             }
             return;
+        }
+        // A callee whose set names a type parameter this call does not bind
+        // (no bound declares the requirement it calls): its set here is not
+        // known, so nothing could be checked about it.
+        for var i: usize = 0; i < w->unbound_at.size(); ++i {
+            self._gate(w->unbound_at[i], f"a call of '{self._fn_name(w->unbound_fn[i])}', whose panic set names a generic parameter this call does not bind,");
         }
 
         // A panicking operator is called through the operator's own syntax,
@@ -837,6 +1068,7 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
         // leaves a `try` was routed to the enclosing one or to the body by
         // the walk, and is judged with the sites below.
         for var i: usize = 0; i < w->tries.size(); ++i { self._judge_try(&(w->tries[i])); }
+        if (f != &null) && panic_in_generic(static_cast::<*Decl>(f)) { self._record_arms(w, f); }
         if w->sites.size() == 0 { return; }
 
         // What may leave: the declared set, the inferred one, or nothing.
@@ -918,6 +1150,42 @@ class PanicEffectChecking derives RecursiveASTVisitor::<PanicEffectChecking> {
             w.remove(ar, "remove the arm");
             w.emit();
         }
+    }
+
+    /// A generic body's `try`s whose live typed arms could name one type at
+    /// an instance -- two or more, at least one dependent -- onto \p f
+    /// (FunctionDecl::panic_arms) for the instance check: §3.1's duplicate
+    /// arm is an error, and at `catch e: T` beside `catch e: A` only an
+    /// instance can say whether T is A (PanicInstances).
+    priv fn _record_arms(self, w: *PanicWalk, f: *FunctionDecl) {
+        var ts = vec::<*Type>();
+        var rs = vec::<SourceRange>();
+        for var i: usize = 0; i < w->tries.size(); ++i {
+            var t = &(w->tries[i]);
+            var n = (t->stmt->arms.size()) if (t->stmt != &null) else (t->expr->catch_arms.size());
+            var mine = vec::<*Type>();
+            var mat  = vec::<SourceRange>();
+            var dep = false;
+            for var k: usize = 0; k < n; ++k {
+                var filt = self._arm_filter(t, k);
+                if (filt == &null) || (filt->canonical == &null) { continue; }
+                var dead = (t->stmt->arms.get(k)->is_dead) if (t->stmt != &null) else (t->expr->catch_arms.get(k)->is_dead);
+                var cx   = (t->stmt->arms.get(k)->is_cxx) if (t->stmt != &null) else (t->expr->catch_arms.get(k)->is_cxx);
+                if dead || cx { continue; }
+                var c = canon_unqual(filt->canonical);
+                if panic_dep(c) { dep = true; }
+                mine.push_back(c);
+                mat.push_back(filt->range);
+            }
+            if (mine.size() < 2) || (!dep) { continue; }
+            for var k: usize = 0; k < mine.size(); ++k { ts.push_back(mine[k]); rs.push_back(mat[k]); }
+            ts.push_back(&null);
+            rs.push_back(SourceRange::invalid());
+        }
+        if ts.size() == 0 { return; }
+        var home = panic_home(f);
+        home->panic_arms.from_vec(&ts, self.sc->ctx);
+        home->panic_arm_at.from_vec(&rs, self.sc->ctx);
     }
 
     /// A C++ exception arm (§3.5): marked for PanicLowering, which keeps it

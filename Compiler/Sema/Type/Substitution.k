@@ -223,8 +223,9 @@ class Substitution {
                     r = self.substitute(f->return_type);
                     if r == &null { return &null; }
                 }
-                // The effect survives substitution; a `panic` in a generic
-                // signature is gated (PANIC.md §2.6), so its set is concrete.
+                // The effect survives substitution; a `fn` type whose set
+                // names a generic parameter is gated (PanicEffectChecking,
+                // past P10 too), so its set is concrete.
                 var pset = vec::<*Type>();
                 for var i: usize = 0; i < f->panic_set.size(); ++i { pset.push_back(f->panic_set[i]); }
                 return self.sc->types->func(&ps, &ms, r, f->canon_panics, &pset);

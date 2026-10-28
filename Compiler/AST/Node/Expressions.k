@@ -1176,6 +1176,12 @@ class IfExpr derives Expr {
 ///    SlotTake the slot's value moved out into the result and the slot
 ///             destroyed, a prvalue of the slot's type. Read once, at the
 ///             `try`'s dispatch.
+///    Holds    `operand` holds error `elem` (a bool), where the result's
+///             set is dependent (a generic body, PANIC.md P10): the tag
+///             against `elem`'s type id, which only the instance knows.
+///    ErrorRef an lvalue of `elem`, the error `operand` holds, read at
+///             `elem`'s place in the set C++ ordered (P10), where Sema
+///             cannot say which place that is.
 ///
 ///  `operand` is an lvalue for Fwd / FwdAll when it names a held result
 ///  (`__kairo_p0`), which it moves from. EmitIR spells every name through
@@ -1186,6 +1192,8 @@ enum PanicOp derives u8 {
     FwdAll,
     SlotPut,
     SlotTake,
+    Holds,
+    ErrorRef,
 }
 
 fn panic_op_name(k: PanicOp) -> string {
@@ -1194,6 +1202,8 @@ fn panic_op_name(k: PanicOp) -> string {
         case PanicOp::FwdAll   { return "fwd_all"; }
         case PanicOp::SlotPut  { return "slot_put"; }
         case PanicOp::SlotTake { return "slot_take"; }
+        case PanicOp::Holds    { return "holds"; }
+        case PanicOp::ErrorRef { return "error_ref"; }
     }
     return "?";
 }
@@ -1202,6 +1212,8 @@ class PanicOpExpr derives Expr {
     pub var which:   PanicOp = PanicOp::Fwd;
     pub var operand: *Expr   = &null;
     pub var slot:    *Expr   = &null;
+    /// Holds / ErrorRef: the error type asked about (dependent).
+    pub var elem:    *Type   = &null;
 
     static fn create(ctx: *ASTContext, range: SourceRange, which: PanicOp, operand: *Expr, slot: *Expr) -> *PanicOpExpr {
         var node     = ctx->alloc::<PanicOpExpr>();
@@ -1210,6 +1222,7 @@ class PanicOpExpr derives Expr {
         node->which   = which;
         node->operand = operand;
         node->slot    = slot;
+        node->elem    = &null;
         node->init_annotations(&(ctx->ast_alloc));
         return node;
     }

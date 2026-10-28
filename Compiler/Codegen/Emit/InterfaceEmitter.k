@@ -1133,6 +1133,46 @@ class InterfaceEmitter {
         self._cg->sink->brk();
         self._raw_slot_helpers(self._plan->mode() == PlanMode::Header);
         self._fwd_helpers(en);
+        self._pset_helpers();
+    }
+
+    /// `__kairo_pset<P, T, E...>` (PANIC.md P10): a panic result whose set
+    /// names a type parameter, ordered by C++ at each instance -- the
+    /// elements deduplicated and sorted by type id, Sema's canonical order
+    /// (§1.3), so a generic function's `Panic<i32, T, A>` at T = B is the
+    /// `Panic<i32, A, B>` (or at T = A the `Panic<i32, A>`) every concrete
+    /// former of that set names. Insertion over a type list; two types with
+    /// one id are a collision (Sema reports one it can see; this stops one
+    /// only C++ sees, an instance a kcc host makes). Every element needs its
+    /// `__kairo_tid`: one nobody gave an id is a compile error, never tag 0.
+    priv fn _pset_helpers(self) {
+        var at  = self._tu_at();
+        var tl  = LowerTargets::panic_set_list();
+        var ins = LowerTargets::panic_set_insert();
+        var ia  = LowerTargets::panic_set_insert_at();
+        var cn  = LowerTargets::panic_set_cons();
+        var so  = LowerTargets::panic_set_sort();
+        var ap  = LowerTargets::panic_set_apply();
+        var al  = LowerTargets::panic_set_alias();
+        var tid = "::" + LowerTargets::type_id();
+        var tp  = "template <class, class...> class P";
+        self._cg->sink->spell(at, "template <class... E> struct " + tl + " {};");
+        self._cg->sink->spell(at, "template <class H, class L> struct " + cn + ";");
+        self._cg->sink->spell(at, "template <class H, class... R> struct " + cn + "<H, " + tl + "<R...>> { using type = " + tl + "<H, R...>; };");
+        self._cg->sink->spell(at, "template <class X, class L> struct " + ins + ";");
+        self._cg->sink->spell(at, "template <int C, class X, class H, class... R> struct " + ia + ";");
+        self._cg->sink->spell(at, "template <class X> struct " + ins + "<X, " + tl + "<>> { using type = " + tl + "<X>; };");
+        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ia + "<-1, X, H, R...> { using type = " + tl + "<X, H, R...>; };");
+        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ia + "<0, X, H, R...> { "
+            + "static_assert(__is_same(X, H), \"two types with one panic type id cannot be in one panic set\"); using type = " + tl + "<H, R...>; };");
+        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ia + "<1, X, H, R...> { using type = typename " + cn + "<H, typename " + ins + "<X, " + tl + "<R...>>::type>::type; };");
+        self._cg->sink->spell(at, "template <class X, class H, class... R> struct " + ins + "<X, " + tl + "<H, R...>> : " + ia + "<(" + tid + "<X> < " + tid + "<H>) ? -1 : ((" + tid + "<X> == " + tid + "<H>) ? 0 : 1), X, H, R...> {};");
+        self._cg->sink->spell(at, "template <class L, class... E> struct " + so + " { using type = L; };");
+        self._cg->sink->spell(at, "template <class L, class X, class... E> struct " + so + "<L, X, E...> : " + so + "<typename " + ins + "<X, L>::type, E...> {};");
+        self._cg->sink->spell(at, "template <" + tp + ", class T, class L> struct " + ap + ";");
+        self._cg->sink->spell(at, "template <" + tp + ", class T, class... E> struct " + ap + "<P, T, " + tl + "<E...>> { using type = P<T, E...>; };");
+        self._cg->sink->spell(at, "template <" + tp + ", class T, class... E> using " + al + " = typename " + ap + "<P, T, typename " + so + "<" + tl + "<>, E...>::type>::type;");
+        self._cg->sink->brk();
     }
 
     /// `__kairo_raw<T>` (PANIC.md §4.4): storage for a T that the path
@@ -2861,6 +2901,15 @@ class InterfaceEmitter {
         s += "template ";
         if isa::<FunctionDecl>(d) {
             var f = cast::<FunctionDecl>(d);
+            // A result whose set names a type parameter (PANIC.md P10): C++
+            // orders it at this instance through the alias; Sema predicted
+            // the canonical result (InstanceEntry::panic_result), which the
+            // line below spells. The assert says it in words before the
+            // instantiation's own mismatch would.
+            if (ie->panic_result != &null) && (f->panic_result != &null) && (f->panic_result->is_dependent() || f->panic_result->is_instantiation_dependent()) {
+                self._cg->sink->spell(self._at(d), "static_assert(__is_same(" + self._spell->_type(f->panic_result, ie) + ", " + self._spell->_type(ie->panic_result)
+                    + "), \"PANIC.md P10: C++ ordered this instance's panic set differently from Kairo\");");
+            }
             s += self._ret_subst(f, ie);
             // The declarator-id is parenthesized, always: after a
             // class-template return, `Cell<double> ::test::f<...>` lexes as
@@ -2961,7 +3010,8 @@ class InterfaceEmitter {
     }
 
     priv fn _ret_subst(self, f: *FunctionDecl, ie: *InstanceEntry) -> string {
-        if f->panic_result != &null { return self._spell->_type(f->panic_result); }   // PanicLowering's result (PANIC.md §4.1).
+        if (ie != &null) && (ie->panic_result != &null) { return self._spell->_type(ie->panic_result); }   // its set at the instance (P10).
+        if f->panic_result != &null { return self._spell->_type(f->panic_result, ie); }   // PanicLowering's result (PANIC.md §4.1).
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
         return self._spell->return_spelling(f, ie);
     }

@@ -697,9 +697,26 @@ undefined bare-`panic` prototype, a gated callee) adds nothing. Also: `panic`
 with `-> !`; `panic` on what runs with no call written (a destructor, a
 transfer or default constructor, an `@implicit` conversion, `op panic`);
 each panicked, declared or caught type must be a movable, complete value
-type (§1.5); and SC116E for a generic, generator or `async` `panic`
-function or closure and for every panicking site in such a body. It
+type (§1.5); and SC116E for a generator or `async` `panic` function or
+closure, a generic closure, a `panic` function under a `<T: type>`
+parameter (MONO.md D1), and every panicking site in such a body. It
 stamps `PanicStmt::repanic` on a `panic e` of a catch binding (§3.4).
+A bounded or opaque generic body is judged like any other (PANIC.md P10,
+MONO.md D0/D5): its set is computed at the definition and may name its
+parameters; a call reads its callee's set at the call
+(`EffectPropagation::panic_call_set`): a requirement's DECLARED set at the
+bound's arguments (the declaring instance, as G7 types the call), a
+generic function's at the call's arguments (`instance` / `dep_args`), a
+generic record's method at its receiver's; a callee whose set names a
+parameter the call does not bind is SC116E. A set that grows without
+bound (a recursion at ever-larger arguments) stops at a nesting depth,
+`PanicSetState::Diverged`, SC001E. Override and conformer subsets read
+the base's / requirement's set at the base record / row interface. Two
+typed arms of one `try` that meet at an instance (`catch e: T`, `catch
+e: A`) are §3.1's duplicate arm, checked for every live instance at its
+use with its chain (`_check_instances`, over FunctionDecl::panic_arms);
+so is a STRUCTURAL conformance an instance's bound found (no `impl`
+declared): its witnesses' sets within the requirements' at the row.
 A `finally` whose previous sibling in its block is a `try` / `catch` is
 SC001W: it is the standalone `finally`, run when the block exits, not
 when the `try` finishes (PANIC.md §3.3).
@@ -1655,7 +1672,8 @@ parameter, and its call, as written (`x.f(args)`, `p->f(args)`, `T::f(args)`,
 (SC001E, labelled at the bound; the fix-it deletes `: type` only when no
 member step went through the parameter, else a note points at the first
 one). Library files are exempt like every other gate, and use none.
-Inside such a body a panicking call is SC116E like in any generic body,
+Inside such a body a panicking call is SC116E (a bounded body's set is
+computed at its definition, PANIC.md P10; this one has none to compute),
 and `match` / `==` / `===` / f-strings on the opaque `T` behave as they do
 on any dependent operand. Removal: flip the default, delete the regime
 branch (ChainBinding `b.duck`), the gate and the flag, after the mixin
@@ -2075,7 +2093,9 @@ Mono / codegen:
        worklist, discovery fixpoint with a depth diagnostic,
        reached-instance homing
     p. M2: instance facts by substitution into the bounds (MONO.md D0:
-       layout built, lifecycle built (G6), rows G8, panic sets P10). Partial
+       layout built, lifecycle built (G6), rows G8, panic sets P10:
+       PanicInstances forms each live instance's results, then the
+       layout sweep runs again for their ids). Partial
        selection is done at registry mint (§2b Instances; requires-
        selected partials open, G12); dependent conformance is
        ConformanceChecking's reach. No `: type` re-check: clang checks

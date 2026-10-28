@@ -2736,6 +2736,21 @@ class EmitIR {
                 self.emit(n->slot);
                 self._cg->sink->spell(n->range, "." + LowerTargets::raw_take() + "()");
             }
+            // A dependent set's test and read (PANIC.md P10): the C++ view's
+            // `is<E>` / `error<E>`, which find E's id and its place in the
+            // set C++ ordered at the instance.
+            case PanicOp::Holds {
+                if ((n->operand == &null) || (n->elem == &null)) { self._ice(n->range, "EmitIR: a panic holds-test with no value or type; EnumLayoutQuery mints both"); }
+                self._cg->sink->spell(n->range, "::" + LowerTargets::panic_api_ns() + "::" + LowerTargets::panic_api_is() + "<" + self._spell._type(n->elem) + ">(");
+                self.emit(n->operand);
+                self._cg->sink->spell(n->range, ")");
+            }
+            case PanicOp::ErrorRef {
+                if ((n->operand == &null) || (n->elem == &null)) { self._ice(n->range, "EmitIR: a panic error read with no value or type; EnumLayoutQuery mints both"); }
+                self._cg->sink->spell(n->range, "::" + LowerTargets::panic_api_ns() + "::" + LowerTargets::panic_api_error() + "<" + self._spell._type(n->elem) + ">(");
+                self.emit(n->operand);
+                self._cg->sink->spell(n->range, ")");
+            }
             default { 0; }
         }
     }
@@ -2784,8 +2799,17 @@ class EmitIR {
         // instance (ControlTyping refuses a dependent one).
         if n->pack_index >= 0 {
             if (n->pack_elem == &null) { self._ice(n->range, "EmitIR: a pack-expanded variant built with no element type; VariantInitLowering records it"); }
-            tag += ", ::" + LowerTargets::adt_variant_tag() + "<" + f"{n->pack_index}" + ">{}";
-            pt = t + "::" + leaf + "<" + self._spell._type(n->pack_elem) + ">";
+            var el = self._spell._type(n->pack_elem);
+            if n->type_->is_dependent() || n->type_->is_instantiation_dependent() {
+                // An error built at a dependent panic result (a generic body,
+                // PANIC.md P10): its place in the set is the one C++ ordered
+                // at the instance, `__kairo_pidx<E>`, never Sema's.
+                tag += ", ::" + LowerTargets::adt_variant_tag() + "<::" + LowerTargets::panic_elem_index() + "<" + el + ">(static_cast<" + t + "*>(nullptr))>{}";
+                pt = "typename " + t + "::template " + leaf + "<" + el + ">";
+            } else {
+                tag += ", ::" + LowerTargets::adt_variant_tag() + "<" + f"{n->pack_index}" + ">{}";
+                pt = t + "::" + leaf + "<" + el + ">";
+            }
             // A site slot's pack constructor takes the site id (PANIC.md
             // §1.4; InterfaceEmitter writes it): 0 for none.
             if en->adt_site_field != &null { tag += ", " + f"{n->site}" + "u"; }

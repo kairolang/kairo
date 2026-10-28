@@ -466,6 +466,30 @@ node in the tree -- is wrapped where it is converted
 (`EmitIR::_fn_effect_value`): an owned lambda holding the value and
 returning `__kairo_pcall<R'>` of the call.
 
+A panic result whose set names a type parameter (a generic body, PANIC.md
+P10) is ONE template for every instance (MONO.md D2), so C++ orders its
+set: CXXSpell spells such a `Panic<T, E...>` as `::__kairo_pset<Panic, T,
+E...>`, an alias (`InterfaceEmitter::_pset_helpers`, with the Panic
+helpers) that inserts each element into a type list sorted by
+`__kairo_type_id`, dropping a repeat (a static_assert stops two types with
+one id), and applies Panic to the result: the canonical order Sema forms
+every concrete set in (§1.3), so the template's result at T = A is the
+`Panic<i32, A>` a concrete caller names. Inside such a body nothing Sema
+cannot know is spelled: `catch e: E` is `::builtin::is<E>(p)` and its
+binding `::builtin::error<E>(p)` (PanicOpExpr Holds / ErrorRef, from
+EnumLayoutQuery when the set is dependent), and an Err is built at
+`::__kairo_vt<::__kairo_pidx<E>(static_cast<R*>(nullptr))>` with its
+payload `typename R::template __kairo_Err_t<E>`. Each instance's result
+Sema predicted (InstanceEntry::panic_result, M2's PanicInstances) is what
+its explicit instantiation spells, preceded by `static_assert(__is_same(
+<the alias at the instance>, <the prediction>))`; the dependent panic
+results its body names, formed at its arguments (InstanceEntry::
+panic_types), are admitted Complete wherever the instance is (EmitPlan),
+so every element's `__kairo_tid` is written there. A generic interface's
+witness spells a requirement's result at the specialization's arguments,
+and a full specialization orders after the Panic template
+(`EmitPlan::_witness_dep`).
+
 The C++ view of a panic result (PANIC.md §4.6, P7) is preamble text too,
 written after tier 0 wherever the Panic lang item is defined
 (`InterfaceEmitter::_panic_api`, `__KAIRO_PANIC_API` in a header): in

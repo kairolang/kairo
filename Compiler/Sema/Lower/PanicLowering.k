@@ -58,6 +58,17 @@
 ///     type that the operand or the arm that ran fills; an arm that leaves
 ///     (`=> return v`) is its statement.
 ///
+///   \par Generic bodies (P10)
+///     A generic body's result may name its type parameters: one C++
+///     template serves every instance, and CXXSpell spells such a result
+///     through `__kairo_pset`, which C++ orders per instance. Nothing here
+///     spells what only the instance knows -- an arm's test and binding of
+///     a dependent set are PanicOpExpr Holds / ErrorRef, an Err's place is
+///     `__kairo_pidx` (EnumLayoutQuery, EmitIR). A call reads its callee's
+///     result at its own arguments (panic_call_type), formed. The dependent
+///     results a body names are recorded (FunctionDecl::panic_deps) for
+///     PanicInstances, below, to form at each live instance in M2.
+///
 ///   \par What it reads
 ///     PanicEffectChecking's facts: each `try`'s reach, each dead arm, each
 ///     re-panic's arm (PanicStmt::repanic), the bare binder's type. Every
@@ -84,6 +95,8 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::PanicSets::*;
+import Sema::Type::Substitution::*;
+import Sema::Type::ArgumentDeduction::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Check::EffectPropagation::*;
@@ -111,6 +124,7 @@ import AST::ParamMode::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
+import Diagnostic::Registry::*;
 
 /// Where an error from a site goes: the function's return (`slot` null),
 /// or a `try`'s raw slot, filled before a jump to its dispatch.
@@ -169,6 +183,10 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     /// (_requirement_of): most TUs never ask it.
     priv var _ml: MemberLookup;
     priv var _ml_ready: bool = false;
+    /// The function being lowered, and the dependent panic results its body
+    /// names so far (_dep): its FunctionDecl::panic_deps.
+    priv var _cur: *FunctionDecl = &null;
+    priv var _deps: vec::<*Type>;
 
     fn PanicLowering(self, sc: *SemaContext) {
         self.sc    = sc;
@@ -202,15 +220,19 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         if f == &null { return &null; }
         if f->panic_result != &null { return f->panic_result; }
         if f->is_poisoned() || f->is_noreturn { return &null; }
-        if panic_in_generic(static_cast::<*Decl>(f)) { return &null; }   // gated (§2.6).
+        if panic_in_duck(static_cast::<*Decl>(f)) { return &null; }   // gated (MONO.md D1).
         if f->abi == AbiKind::Override {
             var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
             var cd: *ClassDecl = &null;
             if (dc != &null) && (dc->owner_decl() != &null) { cd = dyn_cast::<ClassDecl>(dc->owner_decl()); }
             if cd != &null {
-                var base = panic_overridden(&(self.tu), cd, f);
+                var bt: *Type = &null;
+                var base = panic_overridden_at(&(self.tu), cd, f, &bt);
                 if base != &null {
-                    var br = self._result_of(base);
+                    // A generic base's result at the arguments this class
+                    // derives it at: `B<i32>`'s `Panic<T, T>` is
+                    // `Panic<i32, i32>`, the type C++ has in B<int>'s vtable.
+                    var br = self._through(f->range, self._result_of(base), bt);
                     if br != &null { return self._store(f, br); }
                 }
             }
@@ -219,9 +241,11 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         // override's reason: the witness forwards `self->m(...)` as the
         // requirement's type, and its `requires` test names that exact
         // member pointer type, so a smaller set (even none) cannot change it.
-        var req = self._requirement_of(f);
+        // A generic interface's at the row's arguments.
+        var row: *ConformanceRow = &null;
+        var req = self._requirement_of(f, &row);
         if req != &null {
-            var qr = self._result_of(req);
+            var qr = self._through(f->range, self._result_of(req), (row->iface) if (row != &null) else (&null));
             if qr != &null { return self._store(f, qr); }
         }
         var set = vec::<*Type>();
@@ -238,7 +262,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
     /// method, by its extensions (`extend X impl I` met by X's member).
     /// Null for a method that implements none. The first row wins; one
     /// method meeting two requirements with different sets is ticketed.
-    priv fn _requirement_of(self, f: *FunctionDecl) -> *FunctionDecl {
+    priv fn _requirement_of(self, f: *FunctionDecl, out_row: * *ConformanceRow) -> *FunctionDecl {
         if self.sc->instances == &null { return &null; }
         var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
         if (dc == &null) || (dc->owner_decl() == &null) { return &null; }
@@ -264,10 +288,50 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
                 var w = row->witnesses[i];
                 if (w == &null) || (NameLookup::representative(w) != me) { continue; }
                 var q = dyn_cast::<FunctionDecl>(row->reqs[i]);
-                if (q != &null) && (static_cast::<*Decl>(q) != me) { return q; }
+                if (q != &null) && (static_cast::<*Decl>(q) != me) {
+                    (*out_row) = row;
+                    return q;
+                }
             }
         }
         return &null;
+    }
+
+    /// \p r read through record \p at (a base `B<i32>`, an interface
+    /// instance `Src<IOError>`), formed: null \p r stays null; a concrete
+    /// \p r, or a null \p at, is \p r.
+    priv fn _through(self, at: SourceRange, r: *Type, rec: *Type) -> *Type {
+        if (r == &null) || (rec == &null) || (!panic_dep(r)) { return r; }
+        var sub = Substitution(self.sc);
+        sub.bind_from_record(rec);
+        var x = sub.substitute(r);
+        if x == &null { return r; }
+        return self._formed(at, x);
+    }
+
+    /// The panic result \p t formed again (PanicSets::form): canonical, its
+    /// collisions checked, its formation noted. What a substituted result
+    /// goes through, so it is the type every other former of the same set
+    /// gets. Anything else as it is.
+    priv fn _formed(self, at: SourceRange, t: *Type) -> *Type {
+        if (t == &null) || (self.q.panic_adt(t) == &null) { return t; }
+        var args = self.tu.record_args(self.tu.as_value(t));
+        if args.size() == 0 { return t; }
+        var els = vec::<*Type>();
+        for var i: usize = 1; i < args.size(); ++i { els.push_back(canon_unqual(args[i])); }
+        var r = PanicSets(self.sc).form(at, canon_unqual(args[0]), &els);
+        return (r) if (r != &null) else (t);
+    }
+
+    /// A panic result the current body names that is still dependent (a
+    /// generic body, P10): each instance forms it at its arguments
+    /// (FunctionDecl::panic_deps, PanicInstances), so C++ has the ids of
+    /// its elements there.
+    priv fn _dep(self, t: *Type) {
+        if (t == &null) || (!panic_dep(t)) || (self._cur == &null) { return; }
+        var c = canon_unqual(t);
+        for var i: usize = 0; i < self._deps.size(); ++i { if self._deps[i] == c { return; } }
+        self._deps.push_back(c);
     }
 
     /// \p r as \p f's result, on every link of its chain in this TU (a
@@ -302,6 +366,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         if set.size() == 0 { return &null; }
         var r = PanicSets(self.sc).form(c->range, self._value_type(c->return_type), &set);
         c->panic_result = r;
+        self._dep(r);
         return r;
     }
 
@@ -356,13 +421,21 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         var sh = self._holders;
         var sr = self._fn_r;
         var sv = self._fn_t;
+        var sc = self._cur;
+        var sd = self._deps;
+        self._cur = n;
+        self._deps.clear();
+        self._dep(r);
         self._enter(r, self._value_type(n->return_type));
         var out = ASTWriter::<PanicLowering>::transform_function_decl(n);
         if r != &null { self._end_void(n->body_block); }
+        if self._deps.size() > 0 { panic_home(n)->panic_deps.from_vec(&(self._deps), self.ctx); }
         self._targets = st;
         self._holders = sh;
         self._fn_r = sr;
         self._fn_t = sv;
+        self._cur = sc;
+        self._deps = sd;
         return out;
     }
 
@@ -603,10 +676,21 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         }
         var rc = self._result_of(f);
         if rc == &null { return r; }
+        // A generic callee's result at this call's arguments (P10): `g<A>`
+        // returns `Panic<i32, A>`, a requirement through `T impl Src<E>`
+        // its result at E. PanicEffectChecking reported a call it cannot
+        // bind, and the lowerings do not run after an error.
+        var recv = panic_call_receiver(&(self.tu), c, f);
+        if panic_dep(rc) {
+            var x = panic_call_type(&(self.tu), f, c, recv, rc);
+            ICE_IF(x == &null, "PanicLowering: a call whose callee's panic result names a parameter it does not bind; PanicEffectChecking reports it");
+            rc = self._formed(c->range, x);
+        }
+        self._dep(rc);
         var set = vec::<*Type>();
         r.call  = c;
         r.rc    = rc;
-        r.fails = panic_set_of_fn(&(self.tu), f, &set) == PanicKnown::Set;
+        r.fails = panic_call_set(&(self.tu), f, c, recv, &set) == PanicKnown::Set;
         return r;
     }
 
@@ -979,6 +1063,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         if (a->decl != &null) && isa::<VariableDecl>(a->decl) {
             var vd = cast::<VariableDecl>(a->decl);
             var bt = vd->type_;
+            self._dep(bt);
             if (bt != &null) && (self.q.panic_adt(bt) != &null) && (self.tu.record_args(self.tu.as_value(bt)).size() > 1) {
                 var use = self.synth.use_of(h, at, Expr::ValueCategory::LValue);
                 vd->init    = (self._rref(at, use, bt)) if (canon_unqual(bt) == canon_unqual(h->type_)) else (self._fwd(at, PanicOp::Fwd, canon_unqual(bt), use));
@@ -1087,6 +1172,7 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         for var i: usize = 0; i < reach->size(); ++i { set.push_back((*reach)[i]); }
         var st = PanicSets(self.sc).form(at, self.sc->builtin(BuiltinKind::Void), &set);
         ICE_IF(st == &null, "PanicLowering: a try's set did not form; PanicSets reported the collision and the lowerings should not run");
+        self._dep(st);
         return st;
     }
 
@@ -1193,4 +1279,139 @@ class PanicLowering derives ASTWriter::<PanicLowering> {
         if isa::<CXXLValueRefType>(tc) || isa::<CXXRValueRefType>(tc) || (tc != c) { return v; }
         return self._rref(v->range, v, c);
     }
+}
+
+/// M2's panic facts (PANIC.md P10, MONO.md D0): what each live instance of
+/// a generic function -- or of a generic record, for its methods -- needs
+/// of the panic system, by SUBSTITUTION into what the definition recorded,
+/// never by re-checking the body:
+///   - the function's result at the instance's arguments, canonical
+///     (InstanceEntry::panic_result): the explicit instantiation spells it,
+///     a static_assert pins C++'s ordering (`__kairo_pset`) to it;
+///   - every dependent panic result its body names (FunctionDecl::
+///     panic_deps), formed (InstanceEntry::panic_types): EmitPlan admits
+///     them so each element's `__kairo_tid` is written where C++ may form
+///     the result; a collision is reported where it forms;
+/// Run per TU after the lowerings (Sema's M2 stage), over every live entry
+/// not done yet: a generic's own TU lowered first (imports go first), so
+/// its facts are recorded by then. An entry made live later is done by the
+/// TU that made it live.
+class PanicInstances {
+    pub var sc: *SemaContext;
+    priv var tu: TypeUtil;
+    priv var _formed_any: bool = false;
+
+    fn PanicInstances(self, sc: *SemaContext) {
+        self.sc = sc;
+        self.tu = TypeUtil(sc);
+    }
+
+    /// True when it formed a panic result type the layout sweep has not
+    /// seen (EnumLayoutQuery::sweep must run again for its ids).
+    fn run(self) -> bool {
+        if (self.sc->instances == &null) || (PanicSets(self.sc).panic_enum() == &null) { return false; }
+        var all = vec::<*InstanceEntry>();
+        self.sc->instances->collect(all);
+        for var i: usize = 0; i < all.size(); ++i {
+            var e = all[i];
+            if (e == &null) || (e->depth == 0) || e->panic_done || (e->primary == &null) { continue; }
+            var dep = false;
+            for var k: usize = 0; k < e->args.size(); ++k { if panic_dep(e->args[k]) { dep = true; } }
+            if dep { continue; }
+            e->panic_done = true;
+            var prim = e->primary;
+            if isa::<FunctionDecl>(prim) {
+                var f = cast::<FunctionDecl>(prim);
+                if !self._has_facts(f) { continue; }
+                var d = Deduction(self.sc, &null);
+                self._bind_instance(&d, e, prim);
+                self._facts(e, f, &d, true);
+                continue;
+            }
+            var ms = self._methods_of(prim);
+            if ms.size() == 0 { continue; }
+            var rt = (self.sc->types->record(e->decl, &(e->args))) if (e->decl != &null) else (&null);
+            for var k: usize = 0; k < ms.size(); ++k {
+                var m = ms[k];
+                if (m == &null) || (!self._has_facts(m)) { continue; }
+                var d = Deduction(self.sc, &null);
+                if rt != &null { d.bind_from_record(rt); }
+                self._facts(e, m, &d, false);
+            }
+        }
+        return self._formed_any;
+    }
+
+    priv fn _has_facts(self, f: *FunctionDecl) -> bool {
+        var h = panic_home(f);
+        if (h->panic_result != &null) && panic_dep(h->panic_result) { return true; }
+        return h->panic_deps.size() > 0;
+    }
+
+    /// \p e's arguments bound to \p prim's parameters (an extension
+    /// member's extension's first), ConformanceChecking's order.
+    priv fn _bind_instance(self, d: *Deduction, e: *InstanceEntry, prim: *Decl) {
+        var k: usize = 0;
+        var x = decl_extension_of(prim);
+        if x != &null {
+            var eps = decl_generic_params(static_cast::<*Decl>(x));
+            var xr = NameLookup::representative(static_cast::<*Decl>(x));
+            for var i: usize = 0; (i < eps.size()) && (k < e->args.size()); ++i {
+                if eps[i] != &null { d->bind(xr, eps[i]->index, e->args[k]); }
+                k += 1;
+            }
+        }
+        var gps = decl_generic_params(prim);
+        var pr = NameLookup::representative(prim);
+        for var i: usize = 0; (i < gps.size()) && (k < e->args.size()); ++i {
+            var gp = gps[i];
+            if gp == &null { k += 1; continue; }
+            if gp->is_pack {
+                d->open_pack(pr, gp->index);
+                while k < e->args.size() { d->push_pack(pr, gp->index, e->args[k]); k += 1; }
+                break;
+            }
+            d->bind(pr, gp->index, e->args[k]);
+            k += 1;
+        }
+    }
+
+    priv fn _methods_of(self, d: *Decl) -> FrozenList::<*FunctionDecl> {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->methods; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->methods; }
+        if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->methods; }
+        return create_empty_frozen_list::<*FunctionDecl>();
+    }
+
+    priv fn _facts(self, e: *InstanceEntry, f: *FunctionDecl, d: *Deduction, own: bool) {
+        var h = panic_home(f);
+        var at = (e->use_at) if (e->use_at.start.is_valid()) else (f->range);
+        if own && (h->panic_result != &null) {
+            var r = self._at(e, at, h->panic_result, d);
+            if r != &null { e->panic_result = r; }
+        }
+        for var i: usize = 0; i < h->panic_deps.size(); ++i { self._at(e, at, h->panic_deps[i], d); }
+    }
+
+    /// Dependent panic result \p t at the instance \p e, formed and kept
+    /// in its panic_types (null when it does not substitute). A concrete
+    /// \p t is any instance's: formed where it is named, as it is.
+    priv fn _at(self, e: *InstanceEntry, at: SourceRange, t: *Type, d: *Deduction) -> *Type {
+        if t == &null { return &null; }
+        if !panic_dep(t) { return t; }
+        var x = d->substitute(t);
+        if (x == &null) || panic_dep(x) { return &null; }
+        var args = self.tu.record_args(self.tu.as_value(x));
+        if args.size() == 0 { return &null; }
+        var els = vec::<*Type>();
+        for var i: usize = 1; i < args.size(); ++i { els.push_back(canon_unqual(args[i])); }
+        var r = PanicSets(self.sc).form(at, canon_unqual(args[0]), &els);
+        if r == &null { return &null; }
+        var c = canon_unqual(r);
+        for var i: usize = 0; i < e->panic_types.size(); ++i { if e->panic_types[i] == c { return c; } }
+        e->panic_types.push_back(c);
+        self._formed_any = true;
+        return c;
+    }
+
 }

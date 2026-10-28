@@ -1386,6 +1386,15 @@ class CXXSpell {
             return decl_cxx_spelling(d);
         }
 
+        // A panic result whose set names a type parameter (a generic body,
+        // PANIC.md P10): C++ orders the set at each instance through the
+        // sorting alias, so the template's result and a concrete caller's
+        // `Panic<T, A, B>` are one type however the parameters land.
+        if self._dependent_panic_set(r) {
+            var s = "::" + LowerTargets::panic_set_alias() + "<" + self.qual_name(CXXSpell::rep(d));
+            for var i: usize = 0; i < r->args.size(); ++i { s += ", " + self._type(r->args[i], subst, scope); }
+            return s + ">";
+        }
         // An instance shell names its PRIMARY plus the registry's args.
         if decl_is_instance(d) {
             var e = self._cg->instances->entry_of(d);
@@ -1399,6 +1408,19 @@ class CXXSpell {
             targs = self.args_str(&v, subst, scope);
         }
         return self._record_name(d, targs, scope);
+    }
+
+    /// \p r is the Panic lang item (a type-id-tagged ADT) with an element
+    /// past its value type that names a type parameter.
+    priv fn _dependent_panic_set(self, r: *RecordType) -> bool {
+        if r->args.size() < 2 { return false; }
+        var en = dyn_cast::<EnumDecl>(CXXSpell::rep(r->decl));
+        if (en == &null) || (!en->adt_explicit_tags) || (adt_pack_param(en) == usize(-1)) { return false; }
+        for var i: usize = 1; i < r->args.size(); ++i {
+            var a = r->args[i];
+            if (a != &null) && (a->is_dependent() || a->is_instantiation_dependent()) { return true; }
+        }
+        return false;
     }
 
     /// A record's name with its own template arguments \p targs ("" for

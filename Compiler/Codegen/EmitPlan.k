@@ -949,7 +949,22 @@ fn EmitPlan::_witness_dep(k: usize, t: *Type) {
     if !isa::<RecordType>(c) { self._admit_type(t, PlanNeed::Complete); return; }
     var d = self.layout_decl(cast::<RecordType>(c)->decl);
     if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
-    if c->is_dependent() { return; }
+    if c->is_dependent() {
+        // A generic interface's panic result names its parameters (PANIC.md
+        // P10): a full specialization's body returns it at the row's
+        // arguments, which C++ instantiates right there -- from the Panic
+        // template, defined first, over elements complete by then.
+        var en = dyn_cast::<EnumDecl>(CXXSpell::rep(cast::<RecordType>(c)->decl));
+        if (en == &null) || (!en->adt_explicit_tags) { return; }
+        self._admit(d, PlanNeed::Complete);
+        var po = self._outermost_type(d);
+        var seen = false;
+        for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == po { seen = true; } }
+        if !seen { self._witnesses[k].deps.push_back(po); }
+        var r = cast::<RecordType>(c);
+        for var i: usize = 0; i < r->args.size(); ++i { self._witness_dep(k, r->args[i]); }
+        return;
+    }
     self._admit_type(t, PlanNeed::Complete);
     var o = self._outermost_type(d);
     for var i: usize = 0; i < self._witnesses[k].deps.size(); ++i { if self._witnesses[k].deps[i] == o { return; } }
@@ -1422,6 +1437,7 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
         if !mseen {
             self._members.push_back(e);
             self._admit_reached(e);
+            for var i: usize = 0; i < e->panic_types.size(); ++i { self._admit_type(e->panic_types[i], PlanNeed::Complete); }
         }
         return;
     }
@@ -1430,6 +1446,11 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     if !seen {
         self._insts.push_back(e);
         self._admit_reached(e);
+        // The panic results its body names at these arguments (PANIC.md
+        // P10, InstanceEntry::panic_types): C++ forms them only when it
+        // instantiates the body, so their elements' ids must be written
+        // wherever it may.
+        for var i: usize = 0; i < e->panic_types.size(); ++i { self._admit_type(e->panic_types[i], PlanNeed::Complete); }
     }
     self._admit(prim, PlanNeed::Complete);
     // Every TU holding the instance may compile its body (it is a visible

@@ -679,15 +679,19 @@ class Sema {
     /// M2: instance facts (MONO.md D0). Nothing re-types a generic body per
     /// instance: each enumerated instance's facts come from substituting its
     /// arguments into what its bounds declare, predicted here and pinned or
-    /// selected in C++. The one built today, the ADT layout, is
-    /// EnumLayoutQuery::sweep at the end of the lowerings; lifecycle (G6),
-    /// rows (G8) and panic sets (P10) belong here. Not a build-wide sync
-    /// point: it runs per TU, in DAG order, and writes only the locked
-    /// registry, like every other stage that mints.
+    /// selected in C++. The ADT layout is EnumLayoutQuery::sweep at the end
+    /// of the lowerings; lifecycle (G6) and rows (G8) are computed where the
+    /// instance becomes live. Panic facts (P10) are here: each live
+    /// instance's result and the panic results its body names, formed at its
+    /// arguments (PanicInstances), then swept again so the new results have
+    /// their element ids. Not a build-wide sync point: it runs per TU, in
+    /// DAG order, and writes only the locked registry, like every other
+    /// stage that mints.
     priv fn _stage_mono_instantiate(self) -> bool {
         if self._already(SemaPhase::Complete) { return true; }
         var _t = TimeRegion("Instantiate");
         self.sc.require_phase(SemaPhase::MonoCollected);
+        if PanicInstances(&self.sc).run() { EnumLayoutQuery(&self.sc).sweep(); }
         self.sc.advance_phase(SemaPhase::Complete);
         return !self._hard_stop();
     }

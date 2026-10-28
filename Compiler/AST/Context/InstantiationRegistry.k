@@ -217,6 +217,21 @@ class InstanceEntry {
     /// One writer, the first former (PanicSets::note_formed).
     pub var formed_at:         SourceRange = SourceRange::invalid();
     pub var formed_fid:        u32 = u32(-1);
+    /// A generic function's (or a generic record's methods') panic facts at
+    /// THIS instance (PANIC.md P10, MONO.md D0: by substitution, never by
+    /// re-checking the body): `panic_result` the function's `Panic<T, E...>`
+    /// at the arguments, canonical (what the explicit instantiation spells
+    /// and the C++ alias must agree with, a static_assert pinning it); and
+    /// `panic_types` every dependent panic result its body names (its
+    /// FunctionDecl::panic_deps), formed here, which EmitPlan admits so their
+    /// elements' `__kairo_tid` specializations are written. `panic_done`
+    /// once computed (PanicInstances, Sema's M2 stage, in the first TU after
+    /// the entry is live); `panic_checked` once its `try` arms were asked
+    /// for duplicates at its arguments (PanicEffectChecking).
+    pub var panic_result:      *Type = &null;
+    pub var panic_types:       vec::<*Type>;
+    pub var panic_done:        bool = false;
+    pub var panic_checked:     bool = false;
     /// Its place in the registry's worklist: mint order, build-wide. Sema
     /// runs one TU at a time in DAG order, so this is (TU order, mint order)
     /// and the same on every run (MONO.md D4).

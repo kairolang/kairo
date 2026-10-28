@@ -889,7 +889,30 @@ class EnumLayoutQuery {
     fn panic_holds(self, at: SourceRange, x: *Expr, e: *Type) -> *Expr {
         var en = self.panic_adt(x->type_);
         ICE_IF(en == &null, "EnumLayoutQuery: panic_holds on a value that is no panic result");
+        // A dependent set (a generic body, PANIC.md P10): e's id, and where
+        // C++ put it, are the instance's. C++ answers (`::builtin::is<E>`).
+        if self._panic_dependent(x->type_) { return self._panic_op(at, PanicOp::Holds, x, e, self.sc->builtin(BuiltinKind::Bool), Expr::ValueCategory::RValue); }
         return self.variant_test(at, x, en, self.panic_elem_index(x->type_, e));
+    }
+
+    /// \p t names a type parameter among its elements: its canonical order
+    /// is C++'s to compute at each instance (CXXSpell spells it through the
+    /// sorting alias), so no element index or tag of Sema's applies.
+    priv fn _panic_dependent(self, t: *Type) -> bool {
+        var args = self.tu.record_args(self.tu.as_value(t));
+        for var i: usize = 1; i < args.size(); ++i {
+            var a = args[i];
+            if (a != &null) && (a->is_dependent() || a->is_instantiation_dependent()) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _panic_op(self, at: SourceRange, k: PanicOp, x: *Expr, e: *Type, ty: *Type, vc: Expr::ValueCategory) -> *Expr {
+        var n = PanicOpExpr::create(self.sc->ctx, at, k, x, &null);
+        n->elem           = canon_unqual(e);
+        n->type_          = ty;
+        n->value_category = vc;
+        return static_cast::<*Expr>(n);
     }
 
     /// The Ok value of \p x, an lvalue of \p ty (the result's T).
@@ -905,6 +928,7 @@ class EnumLayoutQuery {
     fn panic_error_ref(self, at: SourceRange, x: *Expr, e: *Type) -> *Expr {
         var en = self.panic_adt(x->type_);
         ICE_IF(en == &null, "EnumLayoutQuery: panic_error_ref on a value that is no panic result");
+        if self._panic_dependent(x->type_) { return self._panic_op(at, PanicOp::ErrorRef, x, e, canon_unqual(e), Expr::ValueCategory::LValue); }
         var pv = adt_pack_variant(en);
         return self.field_ref(at, x, en, self.panic_elem_index(x->type_, e), pv->payload[0], e);
     }

@@ -202,6 +202,10 @@ enum PanicSetState derives u8 {
     None = 0,   ///< not solved yet (or the function never reached the solve).
     Final,      ///< panic_eff is the set; empty means it does not panic.
     Unknown,    ///< its TU stopped before typing finished: say nothing about it.
+    /// A generic body's inferred set that grows without bound: a recursive
+    /// call at ever-larger type arguments (`f<Box<T>>` inside `f<T>`) adds
+    /// a deeper type each round. Reported at the function; read as Unknown.
+    Diverged,
 }
 
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
@@ -560,6 +564,21 @@ class FunctionDecl
     /// value is T. Null for a function that does not panic. Codegen spells
     /// the signature from this when it is set (CXXSpell::return_spelling).
     pub var panic_result:  *Type = &null;
+    /// The panic result types PanicLowering formed for this function's body
+    /// that are still DEPENDENT (a generic body, PANIC.md P10): its result,
+    /// each `try`'s slot, each held call's result, each bare binder. Each
+    /// instance needs them formed at its arguments (InstanceEntry::
+    /// panic_types) so their elements get their type ids in C++. Written in
+    /// the function's own TU; empty everywhere else.
+    pub var panic_deps:    FrozenList::<*Type>;
+    /// A generic body's `try`s whose typed arms could name ONE type at an
+    /// instance (`catch e: T` beside `catch e: A`): each such `try`'s arm
+    /// types, then a null, flat; `panic_arm_at` the arms' ranges, parallel
+    /// (an invalid range at each null). PanicEffectChecking records them at
+    /// the definition; the instance check (§3.1's duplicate arm, P10) reads
+    /// them once the body is lowered.
+    pub var panic_arms:    FrozenList::<*Type>;
+    pub var panic_arm_at:  FrozenList::<SourceRange>;
     pub var body_kind:     FnBodyKind = FnBodyKind::None;
     pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
     pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.

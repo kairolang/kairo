@@ -26,10 +26,22 @@
 ///         no driver table, PanicEffectChecking builds one for its own TU.
 ///
 ///     A set that cannot be known says nothing: a callee whose TU stopped
-///     before Typed, an undefined bare-`panic` prototype, a generic or
-///     generator `panic` function (each gated where it is declared). A
-///     call to it adds nothing and is never reported unhandled. A `where`
-///     group's set is the union of its members' (§2.8).
+///     before Typed, an undefined bare-`panic` prototype, a generator or
+///     `async` `panic` function, one with a `<T: type>` parameter (each
+///     gated where it is declared). A call to it adds nothing and is never
+///     reported unhandled. A `where` group's set is the union of its
+///     members' (§2.8).
+///
+///     Generics (P10, MONO.md D0/D5): a generic body's set is computed once,
+///     at its definition, like any other -- what it raises, its concrete
+///     callees' sets, and the DECLARED sets of the bound requirements it
+///     calls -- and may name its own type parameters. A call reads its
+///     callee's set AT THE CALL (panic_call_set): a requirement's at the
+///     bound's arguments (G7's declaring instance), a generic function's at
+///     the call's arguments, a generic record's method at its receiver's.
+///     Nothing is inferred per instance. A recursion at ever-larger type
+///     arguments would grow a set forever; past a nesting depth it stops,
+///     Diverged, and is reported.
 ///
 ///     The canonical ORDER is P1's (§1.3): by type id, as PanicTypeIds
 ///     orders a formed `Panic<...>`, so the set a body is checked against
@@ -51,10 +63,13 @@ import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::PanicSets::*;
+import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::Substitution::*;
 import AST::OperatorFacts::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::Node::Base::*;
@@ -166,6 +181,11 @@ enum PanicKnown derives u8 {
     No = 0,     ///< it does not panic.
     Set,        ///< it panics with the set written to `out`.
     Unknown,    ///< nobody can tell (file header): say nothing.
+    /// Its set names a generic parameter this call does not bind (no bound
+    /// declares the requirement, no argument fills the parameter): the set
+    /// at the call is not known. Reported at the call (SC116E), never read
+    /// as a set.
+    Unbound,
 }
 
 /// The function a redeclaration chain's facts are read from: its
@@ -178,12 +198,31 @@ fn panic_home(f: *FunctionDecl) -> *FunctionDecl {
 }
 
 /// A function some enclosing declaration of which is generic (a template,
-/// a member of one, or an extension of one): its body is checked per
-/// instance, which needs M2 (§2.6).
+/// a member of one, or an extension of one): its set may name a type
+/// parameter, and C++ orders it per instance (P10).
 fn panic_in_generic(d_in: *Decl) -> bool {
     var d = d_in;
     for var depth: u32 = 0; (d != &null) && (depth < 64); ++depth {
         if decl_generic_params(d).size() > 0 { return true; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if dc == &null { return false; }
+        d = dc->owner_decl();
+    }
+    return false;
+}
+
+/// A function some enclosing declaration of which has a `<T: type>`
+/// parameter: the C++-checked regime (MONO.md D1), whose body is typed as
+/// written and checked by clang per instance. A set there cannot be closed
+/// at the definition -- a call through `T` is unresolved, so it would add
+/// nothing whatever it panics with -- so a panic in one stays SC116E.
+fn panic_in_duck(d_in: *Decl) -> bool {
+    var d = d_in;
+    for var depth: u32 = 0; (d != &null) && (depth < 64); ++depth {
+        var gps = decl_generic_params(d);
+        for var i: usize = 0; i < gps.size(); ++i {
+            if (gps[i] != &null) && (gps[i]->kind_bound == GenericParamKindBound::Duck) { return true; }
+        }
         var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
         if dc == &null { return false; }
         d = dc->owner_decl();
@@ -218,7 +257,7 @@ fn panic_set_of_member(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -
         for var i: usize = 0; i < f->panic_eff.size(); ++i { out->push_back(f->panic_eff[i]); }
         return (PanicKnown::Set) if (out->size() > 0) else (PanicKnown::No);
     }
-    if f->panic_state == PanicSetState::Unknown { return PanicKnown::Unknown; }
+    if (f->panic_state == PanicSetState::Unknown) || (f->panic_state == PanicSetState::Diverged) { return PanicKnown::Unknown; }
     // Declared: the set is the declaration, whatever the body does (a body
     // breaking it is reported at the body).
     if f->has_panic_set() {
@@ -254,30 +293,263 @@ fn panic_set_of_fn(tu: *TypeUtil, f_in: *FunctionDecl, out: *vec::<*Type>) -> Pa
 }
 
 
-/// The method \p m overrides: the nearest base's virtual or override
-/// method of its name, arity and parameter types.
-fn panic_overridden(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl) -> *FunctionDecl {
+// === a callee's set at the call (P10) ========================================
+
+/// \p t has a component that names a type parameter.
+fn panic_dep(t: *Type) -> bool {
+    return (t != &null) && (t->is_dependent() || t->is_instantiation_dependent());
+}
+
+/// \p t's value type: a pointer, a reference and a nullable stripped (a
+/// receiver read through `->`, `?.`).
+fn panic_recv_value(tu: *TypeUtil, t_in: *Type) -> *Type {
+    if t_in == &null { return &null; }
+    var t = canon_unqual(t_in);
+    for var guard: u32 = 0; (t != &null) && (guard < 8); ++guard {
+        if isa::<PointerType>(t) { t = canon_unqual(cast::<PointerType>(t)->pointee); continue; }
+        if isa::<CXXLValueRefType>(t) { t = canon_unqual(cast::<CXXLValueRefType>(t)->referee); continue; }
+        if isa::<CXXRValueRefType>(t) { t = canon_unqual(cast::<CXXRValueRefType>(t)->referee); continue; }
+        if isa::<NullableType>(t) { t = canon_unqual(cast::<NullableType>(t)->inner); continue; }
+        break;
+    }
+    return t;
+}
+
+/// The receiver a call is made through: `r` of `r.m()` / `r->m()`, or the
+/// first argument of a `::`-qualified method call (`I::m(x)`). Null for a
+/// free call.
+fn panic_call_receiver(tu: *TypeUtil, c: *CallExpr, f: *FunctionDecl) -> *Type {
+    if c == &null { return &null; }
+    var e = tu->strip_parens(c->callee);
+    if (e != &null) && isa::<ChainExpr>(e) {
+        var ch = cast::<ChainExpr>(e);
+        var n = ch->steps.size();
+        if n > 0 {
+            var last = ch->steps.get(n - 1);
+            if last->access_kind != ChainExpr::AccessKind::ColonColon {
+                if n >= 2 { return panic_recv_value(tu, ch->steps.get(n - 2)->resolved_type); }
+                if (ch->base != &null) { return panic_recv_value(tu, ch->base->type_); }
+                return &null;
+            }
+        }
+    }
+    // `I::m(x)` / `Box::m(b)`: `self` is the first argument.
+    if (f != &null) && (f->params.size() > 0) && (f->params[0] != &null) && f->params[0]->is_self && (c->args.size() > 0) {
+        var a = c->args[0];
+        if (a != &null) { return panic_recv_value(tu, a->type_); }
+    }
+    return &null;
+}
+
+/// The record \p r is, or derives, whose pattern is \p owner, read through
+/// \p r's arguments hop by hop (`class D derives Box<i32>`: a `d.get()`
+/// reaches Box's method at `Box<i32>`); null when none is.
+fn panic_base_at(tu: *TypeUtil, r_in: *Type, owner: *Decl, depth: u32) -> *Type {
+    if (r_in == &null) || (depth > 32) { return &null; }
+    var r = canon_unqual(r_in);
+    if (r == &null) || (!isa::<RecordType>(r)) { return &null; }
+    var rd = tu->record_decl(r);
+    if rd == &null { return &null; }
+    if NameLookup::representative(tu->pattern_of(rd)) == owner { return r; }
+    var body = tu->sc->record_body(r);
+    if (body == &null) || (!isa::<ClassDecl>(NameLookup::representative(body))) { return &null; }
+    var cd = cast::<ClassDecl>(NameLookup::representative(body));
+    for var i: usize = 0; i < cd->derives_list.size(); ++i {
+        var e = cd->derives_list.get(i);
+        if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+        var b = canon_unqual(e->base->canonical);
+        if panic_dep(b) {
+            var sub = Substitution(tu->sc);
+            sub.bind_from_record(r);
+            var x = sub.substitute(b);
+            if x != &null { b = canon_unqual(x); }
+        }
+        var hit = panic_base_at(tu, b, owner, depth + 1);
+        if hit != &null { return hit; }
+    }
+    return &null;
+}
+
+/// \p owner's type parameters, each still unbound in \p d, bound to
+/// itself: a call inside the generic that names its own members at its own
+/// parameters (`self.m()` in `Box<T>`, `f(x)` recursing at `T`) reads the
+/// callee's set as written.
+fn panic_bind_self(tu: *TypeUtil, d: *Deduction, owner_in: *Decl) {
+    if owner_in == &null { return; }
+    var owner = NameLookup::representative(owner_in);
+    var gps = decl_generic_params(owner);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var gp = gps[i];
+        if gp == &null { continue; }
+        if gp->is_pack {
+            if !d->pack_open(owner, gp->index) { d->push_pack(owner, gp->index, tu->sc->types->generic_param(owner, gp->index, true)); }
+            continue;
+        }
+        if d->lookup(owner, gp->index) == &null { d->bind(owner, gp->index, tu->sc->types->generic_param(owner, gp->index, false)); }
+    }
+}
+
+/// \p f's own (and its extension's) type parameters from what the call
+/// chose: the instance's arguments, or the dependent arguments a call in a
+/// generic body records -- ConformanceChecking::_bind_instance's order (an
+/// extension's parameters first).
+fn panic_bind_args(tu: *TypeUtil, d: *Deduction, f: *FunctionDecl, c: *CallExpr) {
+    if c == &null { return; }
+    var args = vec::<*Type>();
+    var ie = reinterpret_cast::<*InstanceEntry>(c->instance);
+    if ie != &null {
+        for var i: usize = 0; i < ie->args.size(); ++i { args.push_back(ie->args[i]); }
+    } else {
+        for var i: usize = 0; i < c->dep_args.size(); ++i { args.push_back(c->dep_args[i]); }
+    }
+    if args.size() == 0 { return; }
+    var k: usize = 0;
+    var x = decl_extension_of(static_cast::<*Decl>(f));
+    if x != &null {
+        var eps = decl_generic_params(static_cast::<*Decl>(x));
+        var xr = NameLookup::representative(static_cast::<*Decl>(x));
+        for var i: usize = 0; (i < eps.size()) && (k < args.size()); ++i {
+            if eps[i] != &null { d->bind(xr, eps[i]->index, args[k]); }
+            k += 1;
+        }
+    }
+    var gps = decl_generic_params(static_cast::<*Decl>(f));
+    var pr = NameLookup::representative(static_cast::<*Decl>(f));
+    for var i: usize = 0; (i < gps.size()) && (k < args.size()); ++i {
+        var gp = gps[i];
+        if gp == &null { k += 1; continue; }
+        if gp->is_pack {
+            d->open_pack(pr, gp->index);
+            while k < args.size() { d->push_pack(pr, gp->index, args[k]); k += 1; }
+            break;
+        }
+        d->bind(pr, gp->index, args[k]);
+        k += 1;
+    }
+}
+
+/// Bind what \p f's set may name, for the call \p c through receiver \p recv
+/// (either may be null): false when a requirement's declaring interface
+/// is not found (no bound, no qualifier declares it).
+fn panic_bind_call(tu: *TypeUtil, d: *Deduction, f: *FunctionDecl, c: *CallExpr, recv: *Type) -> bool {
+    var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+    var owner = (NameLookup::representative(dc->owner_decl())) if ((dc != &null) && (dc->owner_decl() != &null)) else (&null);
+    if (owner != &null) && isa::<InterfaceDecl>(owner) {
+        // A requirement means its declared set at the interface's arguments
+        // the call goes through (MONO.md G7): a written qualifier, or the
+        // receiver's first bound that declares it.
+        var di: *Type = &null;
+        if (c != &null) && (c->witness_iface != &null) { di = d->declaring_instance(f, c->witness_iface); }
+        if (di == &null) && (recv != &null) {
+            var bs = tu->bound_ifaces(recv);
+            for var i: usize = 0; (i < bs.size()) && (di == &null); ++i { di = d->declaring_instance(f, bs[i]); }
+            // A concrete receiver conforming to a generic interface is the
+            // row's instance: the bound list of a concrete type is empty.
+        }
+        if di != &null { d->bind_from_record(di); }
+        else if decl_generic_params(owner).size() > 0 { return false; }
+        panic_bind_args(tu, d, f, c);
+        panic_bind_self(tu, d, static_cast::<*Decl>(f));
+        return true;
+    }
+    if (owner != &null) && (decl_generic_params(owner).size() > 0) {
+        var r = panic_base_at(tu, panic_recv_value(tu, recv), owner, 0);
+        if r != &null { d->bind_from_record(r); }
+        panic_bind_self(tu, d, owner);
+    }
+    var x = decl_extension_of(static_cast::<*Decl>(f));
+    panic_bind_args(tu, d, f, c);
+    if x != &null { panic_bind_self(tu, d, static_cast::<*Decl>(x)); }
+    panic_bind_self(tu, d, static_cast::<*Decl>(f));
+    return true;
+}
+
+/// \p f's set as the call \p c (through receiver \p recv) sees it: \p f's
+/// final set with every type parameter it names read at the call's
+/// arguments (P10). A concrete set is \p f's own. Unbound when a parameter
+/// it names is not bound here.
+fn panic_call_set(tu: *TypeUtil, f: *FunctionDecl, c: *CallExpr, recv: *Type, out: *vec::<*Type>) -> PanicKnown {
+    var raw = vec::<*Type>();
+    var k = panic_set_of_fn(tu, f, &raw);
+    if k != PanicKnown::Set { return k; }
+    var dep = false;
+    for var i: usize = 0; i < raw.size(); ++i { if panic_dep(raw[i]) { dep = true; } }
+    if !dep {
+        for var i: usize = 0; i < raw.size(); ++i { pset_add(tu, out, raw[i]); }
+        return PanicKnown::Set;
+    }
+    var d = Deduction(tu->sc, &null);
+    if !panic_bind_call(tu, &d, f, c, recv) { return PanicKnown::Unbound; }
+    for var i: usize = 0; i < raw.size(); ++i {
+        var s = d.substitute(raw[i]);
+        if s == &null { return PanicKnown::Unbound; }
+        pset_add(tu, out, s);
+    }
+    return PanicKnown::Set;
+}
+
+/// \p t read through \p f's call \p c (panic_call_set's bindings): a
+/// callee's dependent panic result as this call receives it, or null when
+/// a parameter it names is not bound here.
+fn panic_call_type(tu: *TypeUtil, f: *FunctionDecl, c: *CallExpr, recv: *Type, t: *Type) -> *Type {
+    if (t == &null) || (!panic_dep(t)) { return t; }
+    var d = Deduction(tu->sc, &null);
+    if !panic_bind_call(tu, &d, f, c, recv) { return &null; }
+    return d.substitute(t);
+}
+
+/// How deeply \p t nests types (a record's arguments, a pointee): the
+/// solve's guard against a recursion at ever-larger arguments.
+fn panic_type_depth(t: *Type, budget: u32) -> u32 {
+    if (t == &null) || (budget == 0) { return 0; }
+    var c = canon_unqual(t);
+    if c == &null { return 0; }
+    if isa::<PointerType>(c) { return 1 + panic_type_depth(cast::<PointerType>(c)->pointee, budget - 1); }
+    if isa::<NullableType>(c) { return 1 + panic_type_depth(cast::<NullableType>(c)->inner, budget - 1); }
+    if isa::<RecordType>(c) {
+        var r = cast::<RecordType>(c);
+        var m: u32 = 0;
+        for var i: usize = 0; i < r->args.size(); ++i {
+            var x = panic_type_depth(r->args[i], budget - 1);
+            if x > m { m = x; }
+        }
+        return 1 + m;
+    }
+    return 1;
+}
+
+/// panic_overridden, and the base record it was found in, \p out_base, as
+/// \p cd derives it (`B<i32>` for `class D derives B<i32>`): a generic
+/// base's method is read through it (its parameters, its panic set, P10).
+/// A generic base is walked as its pattern (an instance shell holds no
+/// methods), each hop's bases read through the hop's arguments.
+fn panic_overridden_at(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl, out_base: * *Type) -> *FunctionDecl {
     // An operator has no name to spell (FunctionDecl::name): it is
     // matched by its symbol.
     var nm = (OperatorFacts::symbol(m)) if (m->is_operator) else (tu->decl_name(static_cast::<*Decl>(m)));
     var seen = vec::<*Decl>();
-    var todo = vec::<*Decl>();
+    var todo = vec::<*Type>();
     for var i: usize = 0; i < cd->derives_list.size(); ++i {
         var e = cd->derives_list.get(i);
         if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
-        var bd = tu->record_decl(e->base->canonical);
-        if bd != &null { todo.push_back(NameLookup::representative(bd)); }
+        todo.push_back(canon_unqual(e->base->canonical));
     }
     var k: usize = 0;
     while k < todo.size() {
-        var d = todo[k];
+        var bt = todo[k];
         k += 1;
+        var bd0 = tu->record_decl(bt);
+        if bd0 == &null { continue; }
+        var d = NameLookup::representative(tu->pattern_of(bd0));
         var dup = false;
         for var i: usize = 0; i < seen.size(); ++i { if seen[i] == d { dup = true; break; } }
         if dup { continue; }
         seen.push_back(d);
         var bc = dyn_cast::<ClassDecl>(d);
         if bc == &null { continue; }
+        var sub = Substitution(tu->sc);
+        var generic = decl_generic_params(d).size() > 0;
+        if generic { sub.bind_from_record(bt); }
         for var i: usize = 0; i < bc->methods.size(); ++i {
             var b = bc->methods[i];
             if (b == &null) || ((b->abi != AbiKind::Virtual) && (b->abi != AbiKind::Override)) { continue; }
@@ -291,18 +563,60 @@ fn panic_overridden(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl) -> *Functio
                 var y = b->params[p];
                 if (x == &null) || (y == &null) { same = false; break; }
                 if x->is_self || y->is_self { continue; }
-                if (x->type_ == &null) || (y->type_ == &null) || (x->type_->canonical != y->type_->canonical) { same = false; break; }
+                if (x->type_ == &null) || (y->type_ == &null) || (y->type_->canonical == &null) { same = false; break; }
+                var yt = y->type_->canonical;
+                if generic && panic_dep(yt) {
+                    var ys = sub.substitute(yt);
+                    if ys != &null { yt = ys; }
+                }
+                if x->type_->canonical != yt { same = false; break; }
             }
-            if same { return b; }
+            if same {
+                (*out_base) = bt;
+                return b;
+            }
         }
         for var i: usize = 0; i < bc->derives_list.size(); ++i {
             var e = bc->derives_list.get(i);
             if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
-            var bd = tu->record_decl(e->base->canonical);
-            if bd != &null { todo.push_back(NameLookup::representative(bd)); }
+            var nb = canon_unqual(e->base->canonical);
+            if generic && panic_dep(nb) {
+                var x = sub.substitute(nb);
+                if x != &null { nb = canon_unqual(x); }
+            }
+            todo.push_back(nb);
         }
     }
     return &null;
+}
+
+/// The method \p m overrides: the nearest base's virtual or override
+/// method of its name, arity and parameter types.
+fn panic_overridden(tu: *TypeUtil, cd: *ClassDecl, m: *FunctionDecl) -> *FunctionDecl {
+    var bt: *Type = &null;
+    return panic_overridden_at(tu, cd, m, &bt);
+}
+
+/// \p sup's final set read through \p at (a base record `B<i32>`, an
+/// interface instance `Src<IOError>`): what a subset rule holds an
+/// override or a conformer to (P10). \p at null, or a concrete set: the
+/// set as it is. Unknown when a parameter it names is not bound by \p at.
+fn panic_set_through(tu: *TypeUtil, sup: *FunctionDecl, at: *Type, out: *vec::<*Type>) -> PanicKnown {
+    var raw = vec::<*Type>();
+    var k = panic_set_of_fn(tu, sup, &raw);
+    if k != PanicKnown::Set { return k; }
+    var sub = Substitution(tu->sc);
+    if at != &null { sub.bind_from_record(at); }
+    for var i: usize = 0; i < raw.size(); ++i {
+        var t = raw[i];
+        if panic_dep(t) && (at != &null) {
+            var x = sub.substitute(t);
+            if x == &null { return PanicKnown::Unknown; }
+            t = x;
+        }
+        pset_add(tu, out, t);
+    }
+    return PanicKnown::Set;
 }
 
 /// Write \p s as the final set of \p f's whole redeclaration chain.
@@ -376,6 +690,10 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
     pub var escape: vec::<*Type>;
     /// Every `try` met, in walk order (a nested one after its parent).
     pub var tries: vec::<PanicTry>;
+    /// Calls whose callee's set names a type parameter they do not bind
+    /// (PanicKnown::Unbound), and the callee: they add nothing.
+    pub var unbound_at: vec::<SourceRange>;
+    pub var unbound_fn: vec::<*FunctionDecl>;
 
     /// The `try`s around the walk, innermost last: indices into `tries`.
     priv var _open: vec::<usize>;
@@ -451,7 +769,9 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
             if (pt == &null) || n->payload->is_poisoned() { return true; }
             var c = canon_unqual(pt);
             if (c == &null) || self.tu.is_never(c) { return true; }
-            if c->is_dependent() || c->is_instantiation_dependent() { return true; }
+            // A dependent type is an element like any other: a generic
+            // body's set names its parameters (P10), and C++ orders it at
+            // each instance.
             s.push_back(c);
         }
         self._site(n->range, &null, n, &s);
@@ -462,7 +782,7 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
         if n->is_poisoned() { return true; }
         var f = self._callee_fn(n);
         if f != &null {
-            self._call(n->range, f);
+            self._call(n->range, f, n, panic_call_receiver(&(self.tu), n, f));
             return true;
         }
         // Through a `fn` value.
@@ -476,23 +796,23 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
     }
 
     fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
-        self._op(n->range, n->resolved_op);
+        self._op(n->range, n->resolved_op, self._type_of(n->operand));
         return true;
     }
     fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool {
-        self._op(n->range, n->resolved_op);
+        self._op(n->range, n->resolved_op, self._type_of(n->lhs));
         return true;
     }
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
-        self._op(n->range, n->resolved_op);
+        self._op(n->range, n->resolved_op, self._type_of(n->lhs));
         return true;
     }
     fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool {
-        self._op(n->range, n->resolved_op);
+        self._op(n->range, n->resolved_op, self._type_of(n->base));
         return true;
     }
     fn visit_type_cast_expr(self, n: *TypeCastExpr) -> bool {
-        self._op(n->range, n->resolved_op);
+        self._op(n->range, n->resolved_op, self._type_of(n->operand));
         return true;
     }
 
@@ -500,19 +820,33 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
     fn visit_ranged_for_stmt(self, n: *RangedForStmt) -> bool {
         if (n->iter_op != &null) && isa::<FunctionDecl>(n->iter_op) {
             var r = (n->iterable->range) if (n->iterable != &null) else (n->range);
-            self._call(r, cast::<FunctionDecl>(n->iter_op));
+            self._call(r, cast::<FunctionDecl>(n->iter_op), &null, self._type_of(n->iterable));
         }
         return true;
     }
 
-    priv fn _op(self, at: SourceRange, d: *Decl) {
-        if (d == &null) || (!isa::<FunctionDecl>(d)) { return; }
-        self._call(at, cast::<FunctionDecl>(d));
+    priv fn _type_of(self, e: *Expr) -> *Type {
+        if e == &null { return &null; }
+        return panic_recv_value(&(self.tu), e->type_);
     }
 
-    priv fn _call(self, at: SourceRange, f: *FunctionDecl) {
+    priv fn _op(self, at: SourceRange, d: *Decl, recv: *Type) {
+        if (d == &null) || (!isa::<FunctionDecl>(d)) { return; }
+        self._call(at, cast::<FunctionDecl>(d), &null, recv);
+    }
+
+    /// One call of \p f: its set as this call reads it (P10). A set naming
+    /// a parameter the call does not bind adds nothing and is kept for
+    /// PanicEffectChecking to report.
+    priv fn _call(self, at: SourceRange, f: *FunctionDecl, c: *CallExpr, recv: *Type) {
         var s = vec::<*Type>();
-        if panic_set_of_fn(&(self.tu), f, &s) != PanicKnown::Set { return; }
+        var k = panic_call_set(&(self.tu), f, c, recv, &s);
+        if k == PanicKnown::Unbound {
+            self.unbound_at.push_back(at);
+            self.unbound_fn.push_back(f);
+            return;
+        }
+        if k != PanicKnown::Set { return; }
         self._site(at, static_cast::<*Decl>(f), &null, &s);
     }
 
@@ -646,6 +980,11 @@ class PanicWalk derives RecursiveASTVisitor::<PanicWalk> {
 
 // === the solve ==============================================================
 
+/// How deeply a type in an inferred set may nest before the set is called
+/// Diverged (EffectTable::solve). Far past anything a program names: only a
+/// recursion that builds a deeper type each round gets there.
+fn PANIC_SET_DEPTH_MAX() -> u32 { return u32(48); }
+
 /// One body the solve infers: a bare-`panic` function or closure, and the
 /// context of the TU it is in.
 class EffectEntry {
@@ -656,15 +995,16 @@ class EffectEntry {
 }
 
 /// A bare-`panic` function whose set can be inferred: it has a body, and
-/// it is not generic, a generator or `async` (each gated at its
-/// declaration by PanicEffectChecking). A `where` member is its own body;
+/// it is not a generator, `async` or under a `<T: type>` parameter (each
+/// gated at its declaration by PanicEffectChecking). A generic one is
+/// inferred like any other, at its definition (P10). A `where` member is its own body;
 /// its group's set is the union (panic_set_of_fn).
 fn panic_inferable_fn(f: *FunctionDecl) -> bool {
     if (f == &null) || f->is_poisoned() { return false; }
     if (!f->is_panic()) || f->has_panic_set() { return false; }
     if (f->body_block == &null) && (f->body_expr == &null) { return false; }
     if f->is_generator || f->is_async() { return false; }
-    if panic_in_generic(static_cast::<*Decl>(f)) { return false; }
+    if panic_in_duck(static_cast::<*Decl>(f)) { return false; }
     return true;
 }
 
@@ -778,11 +1118,26 @@ class EffectTable {
                     w.walk_closure(e.ce);
                     for var k: usize = 0; k < e.ce->panic_eff.size(); ++k { cur.push_back(e.ce->panic_eff[k]); }
                 }
+                if (e.fd != &null) && (e.fd->panic_state == PanicSetState::Diverged) { continue; }
                 var grew = false;
+                var deep = false;
                 for var k: usize = 0; k < w.escape.size(); ++k {
-                    if pset_add(&(w.tu), &cur, w.escape[k]) { grew = true; }
+                    if pset_add(&(w.tu), &cur, w.escape[k]) {
+                        grew = true;
+                        if panic_type_depth(w.escape[k], PANIC_SET_DEPTH_MAX() + u32(1)) > PANIC_SET_DEPTH_MAX() { deep = true; }
+                    }
                 }
                 if !grew { continue; }
+                // A recursion at ever-larger type arguments (`f<Box<T>>`
+                // inside `f<T>`, P10) adds a deeper type every round and
+                // would never stop (§2.5's argument assumes the types are
+                // the ones the bodies name). Past the limit the function's
+                // set is Diverged: reported at it, read as unknown.
+                if deep && (e.fd != &null) {
+                    panic_store_fn(e.sc->ctx, e.fd, &cur, PanicSetState::Diverged);
+                    changed = true;
+                    continue;
+                }
                 changed = true;
                 if e.fd != &null { panic_store_fn(e.sc->ctx, e.fd, &cur, PanicSetState::Final); }
                 else { e.ce->panic_eff.from_vec(&cur, e.sc->ctx); }
