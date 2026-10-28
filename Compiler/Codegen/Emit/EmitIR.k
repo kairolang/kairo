@@ -552,6 +552,11 @@ class EmitIR {
             s += self._spell.decl(f->type_, nm);
             s += " = " + q + "::" + self._spell.leaf(m) + "();";
             self._cg->sink->spell(at, s);
+            // EVAL.md 4.2b: the value an `eval if` was decided on (_global_var).
+            var pin = decl_fold_pin(static_cast::<*Decl>(f));
+            if pin.size() > 0 {
+                self._cg->sink->spell(at, "static_assert(" + nm + " == " + pin + ", \"EVAL.md 4.2b: an eval if was decided on this constant; Kairo's type facts and clang disagree on its value\");");
+            }
             return;
         }
     }
@@ -1181,6 +1186,12 @@ class EmitIR {
         self._var_init(n, c);
         self._cur_global = saved;
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+        // EVAL.md 4.2b: an `eval if` was decided on this constant's value as
+        // Sema read it; clang computing another fails here, not silently.
+        var pin = decl_fold_pin(d);
+        if pin.size() > 0 {
+            self._cg->sink->spell(at, "static_assert(" + self._spell.leaf(d) + " == " + pin + ", \"EVAL.md 4.2b: an eval if was decided on this constant; Kairo's type facts and clang disagree on its value\");");
+        }
         self._close_ns(n->range, wrap);
     }
 

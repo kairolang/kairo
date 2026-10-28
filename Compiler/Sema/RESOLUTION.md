@@ -592,6 +592,14 @@ declaration (`resolved_decl`, or a `candidate_cell` holding one) to the
 survivor of that name in that scope; none is R020E. A TU that already has an
 error is not folded: the stage stops at its end.
 
+The agreement pin: an `eval` constant of this TU whose value the fold read
+through a type fact records that value (`fold_pin`), and codegen writes
+`static_assert(NAME == value, ...)` right after the constant's C++
+definition (EmitIR `_global_var` / `_eval_field_def`, InterfaceEmitter
+`_static_def`), the oracle the ADT layout facts use: clang computing another
+value fails the build. `--test-fold-lie` (tests only) inverts the fold's
+triviality facts to show it.
+
     [MISSING] A TYPE that reads a constant a deferred `eval if` declares
     (`[u8; W]`) is resolved by T before the fold decides which `W` exists.
     A type declared in a deferred branch is refused (§2.3). Both ticketed.
@@ -2438,7 +2446,8 @@ A pass that needs one asks that file; it never spells the string itself.
    FieldInitLowering. `ci_split` / `ci_index` / `ci_slots` / `ci_dense` on
    FunctionDecl: CtorInitCheck; `ci_cut`: CtorInitLowering.
    `ConditionalStmt::eval_deferred` and `sc->eval_branches`: EvalIfFolding
-   (filed in E, retired by EvalIfLateFolding).
+   (filed in E, retired by EvalIfLateFolding). `fold_pin` on VariableDecl /
+   FieldDecl: EvalIfLateFolding (codegen asserts it).
    `is_generator` / `has_yield` on FunctionDecl: X. A transfer
    constructor's `other` mode stamp: ClassLifecycle. A record's derived
    `op =` (`assign_from`, `assign_form`): ClassLifecycle. Lifecycle facts:

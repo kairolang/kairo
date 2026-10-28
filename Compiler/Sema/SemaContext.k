@@ -171,6 +171,10 @@ class SemaOptions {
     /// may name `Panic<...>`, and type ids keep only this many low bits.
     pub var test_panic_type:    bool = false;
     pub var test_panic_id_bits: i32  = 32;
+    /// Compiler test hook (EVAL.md 4.2b): EvalIfLateFolding reads every
+    /// triviality fact inverted, as a LifecycleFacts bug would, so a test can
+    /// show the codegen pin failing the build. No other pass sees it.
+    pub var test_fold_lie: bool = false;
     /// The build produces a library (--shared): the `pub` inferred-panic-set
     /// lint is on (PANIC.md §2.2). Off for an executable.
     pub var library_build: bool = false;
@@ -216,6 +220,7 @@ class SemaOptions {
         self.max_generic_backtrace = ci->lang.max_generic_backtrace;
         self.test_panic_type     = ci->lang.test_panic_type;
         self.test_panic_id_bits  = ci->lang.test_panic_id_bits;
+        self.test_fold_lie       = ci->lang.test_fold_lie;
         self.library_build       = ci->linker.shared;
     }
 

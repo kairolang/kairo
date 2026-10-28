@@ -264,6 +264,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     /// The failure _report is about is a fact about a type parameter
     /// (SC132E), not a condition that does not fold.
     priv var _dep: bool = false;
+    /// Type-fact leaves the late fold has answered so far: _ref compares it
+    /// around an initializer to know whether a constant read one (_pin).
+    priv var _leaves: u32 = 0;
 
     fn EvalIfFolding(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -929,6 +932,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             var tn = self._tu.str(c);
             return self._no(e, f"the layout of '{tn}' is C++'s to choose: a declaration-scope condition reads only the layout of builtins, pointers, arrays, and plain enums and records of them");
         }
+        self._leaves += 1;
         return self._int(self._ce.make(false, (sz) if (is_size) else (al)));
     }
 
@@ -947,7 +951,12 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         if t == LifecycleTri::Unknown {
             return self._no(e, f"'{self._tu.str(c)}' has no answer to this before it is instantiated");
         }
-        return self._bool(t == LifecycleTri::Yes);
+        var yes = t == LifecycleTri::Yes;
+        // --test-fold-lie: read the fact inverted, as a LifecycleFacts bug
+        // would, so a test can show the pin (_pin) failing the build.
+        if self.sc->opts.test_fold_lie { yes = !yes; }
+        self._leaves += 1;
+        return self._bool(yes);
     }
 
     /// A fact about a type parameter: one answer per instance, while a
@@ -1020,6 +1029,32 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         return f"it reads the members of '{self._tu.decl_name(d)}', which an 'eval if' that is not decided yet chooses";
     }
 
+    /// \p d's value as this fold read it through a type fact, for codegen to
+    /// assert against clang's (VariableDecl::fold_pin, EVAL.md 4.2b): a
+    /// disagreement then fails the build instead of Kairo keeping a branch
+    /// C++ would not. This TU's constants only: another TU's definition is
+    /// not written here, and its own late fold pins what it read.
+    priv fn _pin(self, d: *Decl, v: FoldVal) {
+        var home = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if home == &null { return; }
+        if static_cast::<*DeclContext>(NameLookup::tu_of(home)) != static_cast::<*DeclContext>(self.sc->tu) { return; }
+        var k = u8(1);
+        if v.is_int { k = u8(3); }
+        else if v.b { k = u8(2); }
+        var vd = dyn_cast::<VariableDecl>(d);
+        var fd = dyn_cast::<FieldDecl>(d);
+        if vd != &null {
+            vd->fold_pin     = k;
+            vd->fold_pin_neg = v.i.neg;
+            vd->fold_pin_mag = v.i.mag;
+        }
+        if fd != &null {
+            fd->fold_pin     = k;
+            fd->fold_pin_neg = v.i.neg;
+            fd->fold_pin_mag = v.i.mag;
+        }
+    }
+
     /// An `eval` variable or field: its initializer, folded where IT stands.
     priv fn _ref(self, at: *Expr, d: *Decl, depth: u32) -> FoldVal {
         if depth > 16 { return self._no(at, "its initializer refers back to itself"); }
@@ -1044,12 +1079,15 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         if init == &null { return self._no(at, f"'{nm}' has no initializer"); }
         var home = reinterpret_cast::<*DeclContext>(d->semantic_dc);
         if home != &null { self._dcs.push_back(home); }
+        var leaves = self._leaves;
         var v = self._fold(init, depth + 1);
         if home != &null { self._dcs.pop_back(); }
         if (!v.ok) && (!v.deferred) {
             self._why_at = at;
             self._why    = f"the initializer of '{nm}' does not fold: {self._why}";
         }
+        // A type fact went into this value: codegen pins it (_pin).
+        if self._late && v.ok && (self._leaves != leaves) { self._pin(d, v); }
         return v;
     }
 

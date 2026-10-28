@@ -881,6 +881,15 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     /// fix-it that rewrites it (`const` -> `eval` where a value must be
     /// eval-able, EVAL.md 3). Invalid when the parser did not record it.
     pub var storage_kw: SourceRange = SourceRange::invalid();
+    /// What EvalIfLateFolding read this `eval` constant as, when an `eval
+    /// if` it decided read it through a type fact (EVAL.md 4.2b): 0 none,
+    /// 1 false, 2 true, 3 the integer fold_pin_mag (negative when
+    /// fold_pin_neg). Codegen asserts it after the C++ definition, so clang
+    /// computing another value fails the build instead of the two keeping
+    /// different branches. One writer: EvalIfLateFolding; decl_fold_pin reads.
+    pub var fold_pin:     u8   = 0;
+    pub var fold_pin_neg: bool = false;
+    pub var fold_pin_mag: u64  = 0;
 
     static fn create(
         ctx:     *ASTContext,
@@ -966,6 +975,10 @@ class FieldDecl derives Decl {
     pub var is_thread:  bool = false;    ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
     pub var const_binding: bool = false; ///< `static const` member; see VariableDecl::const_binding.
     pub var index:      u32 = 0;         ///< declaration order in the owning type.
+    /// As VariableDecl::fold_pin, for an `eval` field.
+    pub var fold_pin:     u8   = 0;
+    pub var fold_pin_neg: bool = false;
+    pub var fold_pin_mag: u64  = 0;
     /// `type_` is the record type of an anonymous UnionDecl (`is_anonymous`),
     /// and this field is that union's one and only declaration: C++ gets
     /// `union { ... };` in its place, with no name. Unlike C++, the union's

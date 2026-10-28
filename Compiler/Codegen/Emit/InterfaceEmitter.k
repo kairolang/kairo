@@ -3092,6 +3092,11 @@ class InterfaceEmitter {
         }
         s += ";";
         self._cg->sink->spell(f->name.range, s);
+        // EVAL.md 4.2b: the value an `eval if` was decided on (EmitIR::_global_var).
+        var pin = decl_fold_pin(static_cast::<*Decl>(f));
+        if pin.size() > 0 {
+            self._cg->sink->spell(f->name.range, "static_assert(" + nm + " == " + pin + ", \"EVAL.md 4.2b: an eval if was decided on this constant; Kairo's type facts and clang disagree on its value\");");
+        }
     }
 
     /// `template <class T>` for each generic owner, outermost first. EmitIR's

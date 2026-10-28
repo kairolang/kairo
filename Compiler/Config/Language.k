@@ -74,6 +74,7 @@ class LangOptions {
     // -- compiler test hooks (PANIC.md §7, P1) -------------------------------
     pub var test_panic_type:    bool = false;  ///< --test-panic-type: source may name Panic<...>.
     pub var test_panic_id_bits: i32  = 32;     ///< --test-panic-id-bits: type ids masked to this many bits.
+    pub var test_fold_lie:      bool = false;  ///< --test-fold-lie: the late eval-if fold reads every triviality fact inverted (EVAL.md 4.2b).
 
     // -- sema / type system limits (from --c* config flags) ----------------
     pub var max_generic_depth:     i32 = 128;
@@ -133,6 +134,7 @@ class LangOptions {
         (o.freestanding)    = args.get_bool("freestanding");
         (o.test_panic_type)    = args.get_bool("test-panic-type");
         (o.test_panic_id_bits) = args.get_i32("test-panic-id-bits");
+        (o.test_fold_lie)      = args.get_bool("test-fold-lie");
 
         // -- feature toggles -----------------------------------------------
         (o.verify_interfaces)   = (args.get_feature("verify-interfaces"));

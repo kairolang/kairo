@@ -656,3 +656,30 @@ fn decl_only_forward(d: *Decl) -> bool {
     if isa::<UnionDecl>(p)  { return !cast::<UnionDecl>(p)->has_definition();  }
     return false;
 }
+
+/// The C++ literal EvalIfLateFolding pinned an `eval` constant to
+/// (VariableDecl / FieldDecl::fold_pin), or "" when it pinned none.
+fn decl_fold_pin(d: *Decl) -> string {
+    if d == &null { return ""; }
+    var k: u8 = u8(0);
+    var neg = false;
+    var mag: u64 = u64(0);
+    if isa::<VariableDecl>(d) {
+        var v = cast::<VariableDecl>(d);
+        k = v->fold_pin;
+        neg = v->fold_pin_neg;
+        mag = v->fold_pin_mag;
+    } else if isa::<FieldDecl>(d) {
+        var f = cast::<FieldDecl>(d);
+        k = f->fold_pin;
+        neg = f->fold_pin_neg;
+        mag = f->fold_pin_mag;
+    }
+    if k == u8(1) { return "false"; }
+    if k == u8(2) { return "true"; }
+    if k == u8(3) {
+        if neg { return f"-{mag}"; }
+        return f"{mag}";
+    }
+    return "";
+}
