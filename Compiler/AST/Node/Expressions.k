@@ -1701,6 +1701,60 @@ class AlignOfExpr derives Expr {
     static fn expr_kind() -> ExprKind { return ExprKind::AlignOfExpr; }
 }
 
+/// A type fact a condition can read (EVAL.md 4.2b). Only the facts Sema has
+/// an oracle for exist -- ClassLifecycle's two triviality bits -- so the
+/// late `eval if` fold can answer every one of them before C++ does, and C++
+/// computes each with the clang builtin of the same name. None is the
+/// parser's "this name is not one".
+enum TypeTraitKind derives u8 {
+    None = 0,
+    TriviallyCopyable,
+    TriviallyDestructible,
+}
+
+/// The fact the intrinsic \p name spells (without its `!`), or None.
+fn type_trait_of(name: string) -> TypeTraitKind {
+    if name == "is_trivially_copyable"     { return TypeTraitKind::TriviallyCopyable; }
+    if name == "is_trivially_destructible" { return TypeTraitKind::TriviallyDestructible; }
+    return TypeTraitKind::None;
+}
+
+/// \p k as Kairo spells it, without its `!`.
+fn type_trait_spelling(k: TypeTraitKind) -> string {
+    if k == TypeTraitKind::TriviallyCopyable     { return "is_trivially_copyable"; }
+    if k == TypeTraitKind::TriviallyDestructible { return "is_trivially_destructible"; }
+    return "";
+}
+
+/// The clang builtin that computes \p k: what C++ answers for the same type.
+fn type_trait_cxx(k: TypeTraitKind) -> string {
+    if k == TypeTraitKind::TriviallyCopyable     { return "__is_trivially_copyable"; }
+    if k == TypeTraitKind::TriviallyDestructible { return "__is_trivially_destructible"; }
+    return "";
+}
+
+///
+///  TypeTraitExpr
+///  is_trivially_copyable!(T) | is_trivially_destructible!(T)
+///
+class TypeTraitExpr derives Expr {
+    pub var fact:     TypeTraitKind = TypeTraitKind::None;
+    pub var type_arg: *Type;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, fact: TypeTraitKind, type_arg: *Type) -> *TypeTraitExpr {
+        var node       = ctx->alloc::<TypeTraitExpr>();
+        node->kind     = ExprKind::TypeTraitExpr;
+        node->range    = range;
+        node->fact     = fact;
+        node->type_arg = type_arg;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::TypeTraitExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::TypeTraitExpr; }
+}
+
 ///
 ///  TypeOfExpr
 ///  typeof expr | typeof(expr)

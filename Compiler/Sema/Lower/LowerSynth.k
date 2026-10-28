@@ -454,6 +454,7 @@ class LowerSynth {
             case ExprKind::NamedIdentExpr       { return true; }
             case ExprKind::SizeOfExpr           { return true; }
             case ExprKind::AlignOfExpr          { return true; }
+            case ExprKind::TypeTraitExpr        { return true; }
             case ExprKind::ParenExpr            { return LowerSynth::pure(cast::<ParenExpr>(e)->inner); }
             case ExprKind::UnsafeExpr           { return LowerSynth::pure(cast::<UnsafeExpr>(e)->operand); }
             case ExprKind::ImplicitBoundaryCastExpr { return LowerSynth::pure(cast::<ImplicitBoundaryCastExpr>(e)->original); }

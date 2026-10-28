@@ -49,6 +49,7 @@ import Config::CodeGen::*;
 import AST::Context::InstantiationRegistry::*;
 import Sema::Foreign::ForeignInstantiate::*;
 import Sema::Foreign::BuiltinImport::*;
+import Sema::Expand::EvalBranches::*;
 
 /// \enum SemaPhase
 /// \brief Where the TU is in the RESOLUTION.md pipeline. Monotonically
@@ -308,6 +309,12 @@ class SemaContext {
     /// target and configuration, so ControlFlowAnalysis does not call the
     /// code after it dead.
     pub var folded_eval_ifs: vec::<SourceRange>;
+
+    /// Every declaration-scope `eval if` E deferred on a type fact, with the
+    /// declarations of each of its branches (EVAL.md 4.2b). One writer,
+    /// EvalIfFolding (filed in E, retired by the late fold); readers N(a)
+    /// and RedeclMerge (sibling branches never conflict) and the late fold.
+    pub var eval_branches: EvalBranchTable;
 
     /// Each `<T: type>` parameter a member step went through, with the first
     /// such step's range, in the order ChainBinding met them. One writer,

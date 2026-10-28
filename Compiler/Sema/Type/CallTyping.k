@@ -878,7 +878,7 @@ class <T> CallTyping {
             if (!dyn()->tu.is_integer(tt)) && (!dyn()->tu.is_bool(tt)) { return false; }
             return self._is_constant_arg(c->operand);
         }
-        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) { return true; }
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) || isa::<TypeTraitExpr>(e) { return true; }
         // Not literal_shape: that is the overload ranker's view, which takes
         // floats and `null` (not constants here) and refuses a bool, the
         // very literal `__builtin_coro_promise`'s third slot wants.

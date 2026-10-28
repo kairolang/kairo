@@ -865,11 +865,14 @@ class PPWalker
         // raw tokens in the stream untouched; the parser owns the grammar
         // (`label` `!` `(` ident `)` in StmtParse, `unwrap` `!` `(` expr `)`
         // in ExprParse, whose operand must stay an ordinary expression).
+        // So are the type facts (EVAL.md 4.2b): their operand is a TYPE,
+        // which only the parser can tell from a value.
         // Qualified forms (`a::label!`) are NOT intrinsics and still resolve
         // as ordinary macros.
         if path_toks.size() == 1 {
             var sp = TokenText::spelling(name_tok, self._tcm);
             if (sp == "label") || (sp == "jump") || (sp == "unwrap") { return result; }
+            if (sp == "is_trivially_copyable") || (sp == "is_trivially_destructible") { return result; }
             // A `defined!` _builtin_defined already passed through raw.
             if (sp == "defined") && self._defined_raw.contains(name_tok.range.start.raw()) { return result; }
         }

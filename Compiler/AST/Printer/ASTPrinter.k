@@ -103,6 +103,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::DefinedExpr              { return "DefinedExpr";              }
         case ExprKind::AttributedExpr           { return "AttributedExpr";           }
         case ExprKind::PanicOpExpr              { return "PanicOpExpr";              }
+        case ExprKind::TypeTraitExpr            { return "TypeTraitExpr";            }
         case ExprKind::SpawnExpr                { return "SpawnExpr";                }
         case ExprKind::ThreadExpr               { return "ThreadExpr";               }
         case ExprKind::ConstraintExpr           { return "ConstraintExpr";           }
@@ -479,6 +480,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ConstraintExpr>(e)       { self._e_constraint(cast::<ConstraintExpr>(e)); return; }
         if isa::<SizeOfExpr>(e)           { self._builtin_type("sizeof",  cast::<SizeOfExpr>(e)->type_arg);  return; }
         if isa::<AlignOfExpr>(e)          { self._builtin_type("alignof", cast::<AlignOfExpr>(e)->type_arg); return; }
+        if isa::<TypeTraitExpr>(e)        { self._builtin_type(type_trait_spelling(cast::<TypeTraitExpr>(e)->fact) + "!", cast::<TypeTraitExpr>(e)->type_arg); return; }
         if isa::<TypeOfExpr>(e)           { self._e_typeof(cast::<TypeOfExpr>(e)); return; }
         if isa::<DeleteExpr>(e)           { self._e_delete(cast::<DeleteExpr>(e)); return; }
         if isa::<PackExpansionExpr>(e)    { self.src_expr(cast::<PackExpansionExpr>(e)->operand); self.p.paint(Color::Punct, "..."); return; }
@@ -2348,6 +2350,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ConstraintExpr>(e)       { self._dx_constraint(cast::<ConstraintExpr>(e), is_last); return; }
         if isa::<SizeOfExpr>(e)           { self._head("SizeOfExpr", is_last);  self._inline_type(cast::<SizeOfExpr>(e)->type_arg);  self.p.newline(); return; }
         if isa::<AlignOfExpr>(e)          { self._head("AlignOfExpr", is_last); self._inline_type(cast::<AlignOfExpr>(e)->type_arg); self.p.newline(); return; }
+        if isa::<TypeTraitExpr>(e) {
+            self._head("TypeTraitExpr", is_last);
+            self.p.put(" " + type_trait_spelling(cast::<TypeTraitExpr>(e)->fact) + "!");
+            self._inline_type(cast::<TypeTraitExpr>(e)->type_arg);
+            self.p.newline();
+            return;
+        }
         if isa::<TypeOfExpr>(e)           { self._dx_kw("TypeOfExpr", cast::<TypeOfExpr>(e)->operand, is_last); return; }
         if isa::<TypeCastExpr>(e)         { self._dx_cast(cast::<TypeCastExpr>(e), is_last);           return; }
         if isa::<ImplConformanceExpr>(e)  { self._dx_two_types("ImplConformanceExpr", cast::<ImplConformanceExpr>(e)->subject, cast::<ImplConformanceExpr>(e)->inter, is_last); return; }

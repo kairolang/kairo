@@ -115,10 +115,20 @@ them (the parser indexed every branch; invariant #1 holds -- no table is
 mutated, one is replaced, as `_bind_cxx` does). It must run before V and
 N, which may not see an untaken branch, and after I, so a condition can
 read an imported `eval` constant and clang's macro table is joined.
-Being before T, it cannot fold `sizeof` / `alignof`: a declaration-scope
-condition using one is an error whose note names what works instead
-(`defined!(__LP64__)`, or an `eval if` in a function body, which is
-`if constexpr`; EVAL.md 4.2b). Then `RequiresDesugar`. Macro expansion and eval lowering do not run.
+Being before T, it cannot answer a type fact: `sizeof`, `alignof`,
+`is_trivially_copyable!(T)`, `is_trivially_destructible!(T)`, or an `eval`
+constant whose initializer reads one. A declaration-scope `eval if` whose
+condition needs one is DEFERRED (EVAL.md 4.2b): left in place with every
+branch indexed, `ConditionalStmt::eval_deferred` set, and filed in
+`sc->eval_branches` (`Sema/Expand/EvalBranches.k`) with each branch's
+declarations. Its branches are walked now (a nested `eval if` that folds
+does), a class branch's `var` becomes its FieldDecl now, and a branch that
+declares a type is SC001E: T would resolve the type before anything decides
+whether it exists. A condition naming an `eval` constant that only such a
+branch declares is deferred with it. V, N, T and RedeclMerge see every branch
+of a deferred `eval if`; EvalIfLateFolding decides it after RedeclMerge
+(§2.6b). In a function body such a condition stays `if constexpr`. Then
+`RequiresDesugar`. Macro expansion and eval lowering do not run.
 
 ### 2.4 V Verify [DONE]
 

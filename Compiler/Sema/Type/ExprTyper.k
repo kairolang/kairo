@@ -529,6 +529,7 @@ class ExprTyper
             case ExprKind::ThreadExpr           { return self.type_spawn(e, cast::<ThreadExpr>(e)->operand, expected); }
             case ExprKind::SizeOfExpr           { return self.type_sizeof(cast::<SizeOfExpr>(e), expected); }
             case ExprKind::AlignOfExpr          { return self.type_alignof(cast::<AlignOfExpr>(e), expected); }
+            case ExprKind::TypeTraitExpr        { return self.type_type_trait(cast::<TypeTraitExpr>(e), expected); }
             case ExprKind::TypeOfExpr           { return self.type_typeof(cast::<TypeOfExpr>(e), expected); }
             case ExprKind::EvalExpr             { return self.type_eval(cast::<EvalExpr>(e), expected); }
             case ExprKind::UnsafeExpr           { return self.type_unsafe(cast::<UnsafeExpr>(e), expected); }

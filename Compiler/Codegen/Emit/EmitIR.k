@@ -1544,6 +1544,10 @@ class EmitIR {
             case ExprKind::IfExpr               { self._if_expr(cast::<IfExpr>(e)); }
             case ExprKind::SizeOfExpr           { self._cg->sink->spell(e->range, "sizeof(" + self._spell._type(cast::<SizeOfExpr>(e)->type_arg) + ")"); }
             case ExprKind::AlignOfExpr          { self._cg->sink->spell(e->range, "alignof(" + self._spell._type(cast::<AlignOfExpr>(e)->type_arg) + ")"); }
+            case ExprKind::TypeTraitExpr {
+                var tt = cast::<TypeTraitExpr>(e);
+                self._cg->sink->spell(e->range, type_trait_cxx(tt->fact) + "(" + self._spell._type(tt->type_arg) + ")");
+            }
             case ExprKind::DeleteExpr {
                 var n = cast::<DeleteExpr>(e);
                 self._cg->sink->spell(e->range, (("delete[]") if (n->is_array) else ("delete")));

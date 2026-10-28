@@ -225,6 +225,8 @@ class EvalNeeds derives RecursiveASTVisitor::<EvalNeeds> {
             self.rec_type(cast::<SizeOfExpr>(e)->type_arg, e->range);
         } else if isa::<AlignOfExpr>(e) {
             self.rec_type(cast::<AlignOfExpr>(e)->type_arg, e->range);
+        } else if isa::<TypeTraitExpr>(e) {
+            self.rec_type(cast::<TypeTraitExpr>(e)->type_arg, e->range);
         }
         return true;
     }
@@ -958,7 +960,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         if e == &null { return &null; }
         if isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e) || isa::<BooleanLiteralExpr>(e)
         || isa::<CharacterLiteralExpr>(e) || isa::<StringLiteralExpr>(e) || isa::<NullLiteralExpr>(e) { return &null; }
-        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) || isa::<TypeOfExpr>(e) { return &null; }
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) || isa::<TypeOfExpr>(e) || isa::<TypeTraitExpr>(e) { return &null; }
         if isa::<UnaryOperatorExpr>(e) {
             var u = cast::<UnaryOperatorExpr>(e);
             if u->resolved_op != &null { return e; }

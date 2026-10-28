@@ -149,6 +149,7 @@ class ScriptRules {
             case ExprKind::NullLiteralExpr      { return true; }
             case ExprKind::SizeOfExpr           { return true; }
             case ExprKind::AlignOfExpr          { return true; }
+            case ExprKind::TypeTraitExpr        { return true; }
             case ExprKind::StringLiteralExpr    { return !cast::<StringLiteralExpr>(x)->is_format(); }
             default { return self._constant_int(x, t); }
         }

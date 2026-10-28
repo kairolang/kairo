@@ -611,6 +611,10 @@ class ConditionalStmt derives Stmt {
     /// `eval if`, and every `else if` of its chain: folded by EvalIfFolding
     /// where its condition folds, else C++ `if constexpr` (EVAL.md §4).
     pub var is_eval: bool;
+    /// The head of a declaration-scope `eval if` whose condition reads a
+    /// type fact: E left it in place for EvalIfLateFolding (EVAL.md 4.2b).
+    /// One writer: EvalIfFolding.
+    pub var eval_deferred: bool;
 
     static fn create(
         ctx:   *ASTContext,
@@ -627,6 +631,7 @@ class ConditionalStmt derives Stmt {
         node->then_ = then_;
         node->else_ = else_;
         node->is_eval = false;
+        node->eval_deferred = false;
         return node;
     }
 
@@ -635,6 +640,7 @@ class ConditionalStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ConditionalStmt;
         node->is_eval       = false;
+        node->eval_deferred = false;
         node->range         = range;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;

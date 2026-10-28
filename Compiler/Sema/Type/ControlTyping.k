@@ -951,6 +951,13 @@ class <T> ControlTyping {
         return dyn()->tu.builtin(BuiltinKind::USize);
     }
 
+    /// `is_trivially_copyable!(T)` and its kin: a bool C++ computes (EVAL.md
+    /// 4.2b); a dependent T is fine, the instance's C++ answers it.
+    fn type_type_trait(self, n: *TypeTraitExpr, expected: *Type) -> *Type {
+        if (n->type_arg != &null) && n->type_arg->is_poisoned() { dyn()->poison_only(n); return &null; }
+        return dyn()->tu.builtin(BuiltinKind::Bool);
+    }
+
     /// `typeof x` in expression position yields a TypeInfo value; the docs
     /// route that through the reflection library. Until it exists the
     /// operand is typed, `resolved_type` is written, and the expression is

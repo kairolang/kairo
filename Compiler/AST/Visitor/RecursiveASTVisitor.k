@@ -495,6 +495,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::DefinedExpr              { return self.dyn()->traverse_defined_expr(               cast::<DefinedExpr>(e)              ); }
             case ExprKind::AttributedExpr           { return self.dyn()->traverse_attributed_expr(            cast::<AttributedExpr>(e)           ); }
             case ExprKind::PanicOpExpr              { return self.dyn()->traverse_panic_op_expr(              cast::<PanicOpExpr>(e)              ); }
+            case ExprKind::TypeTraitExpr            { return self.dyn()->traverse_type_trait_expr(            cast::<TypeTraitExpr>(e)            ); }
             case ExprKind::SpawnExpr                { return self.dyn()->traverse_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->traverse_thread_expr(                cast::<ThreadExpr>(e)               ); }
             case ExprKind::ConstraintExpr           { return self.dyn()->traverse_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
@@ -841,6 +842,12 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    fn traverse_type_trait_expr(self, n: *TypeTraitExpr) -> *TypeTraitExpr {
+        if self.dyn()->walkup_type_trait_expr(n) == false { return n; }
+        if n->type_arg != &null { n->type_arg = self.dyn()->dispatch_type(n->type_arg); }
+        return n;
+    }
+
     fn traverse_unwrap_expr(self, n: *UnwrapExpr) -> *UnwrapExpr {
         if self.dyn()->walkup_unwrap_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
@@ -1137,6 +1144,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_defined_expr(n);
     }
 
+    fn walkup_type_trait_expr(self, n: *TypeTraitExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_type_trait_expr(n);
+    }
+
     fn walkup_unwrap_expr(self, n: *UnwrapExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_unwrap_expr(n);
@@ -1254,6 +1266,7 @@ class <D> RecursiveASTVisitor {
     fn visit_await_expr(                  self, n: *AwaitExpr                ) -> bool { return true; }
     fn visit_unwrap_expr(                 self, n: *UnwrapExpr               ) -> bool { return true; }
     fn visit_defined_expr(                self, n: *DefinedExpr              ) -> bool { return true; }
+    fn visit_type_trait_expr(             self, n: *TypeTraitExpr            ) -> bool { return true; }
     fn visit_attributed_expr(             self, n: *AttributedExpr           ) -> bool { return true; }
     fn visit_panic_op_expr(               self, n: *PanicOpExpr              ) -> bool { return true; }
     fn visit_spawn_expr(                  self, n: *SpawnExpr                ) -> bool { return true; }

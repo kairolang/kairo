@@ -391,6 +391,13 @@ enum ExprKind derives u8 {
     /// EmitIR spells it.
     PanicOpExpr,
 
+    /// A type fact as a parser intrinsic: `is_trivially_copyable!(T)`,
+    /// `is_trivially_destructible!(T)` (EVAL.md 4.2b). Node: TypeTraitExpr:
+    /// the fact and its type operand. A bool; C++ computes it with the clang
+    /// builtin of the same name, and the late `eval if` fold answers it from
+    /// ClassLifecycle. Appended last so no existing kind renumbers.
+    TypeTraitExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -449,6 +456,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::DefinedExpr { return "DefinedExpr"; }
         case ExprKind::AttributedExpr { return "AttributedExpr"; }
         case ExprKind::PanicOpExpr { return "PanicOpExpr"; }
+        case ExprKind::TypeTraitExpr { return "TypeTraitExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

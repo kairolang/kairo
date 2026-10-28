@@ -48,6 +48,22 @@
 ///       where the branches decide which declarations exist; in a function
 ///       body the statement stays and is C++ `if constexpr`.
 ///
+///     \par Type facts (EVAL.md 4.2b)
+///       `sizeof`, `alignof`, `is_trivially_copyable!` and
+///       `is_trivially_destructible!` -- directly, or in the initializer of
+///       an `eval` constant the condition reads -- need resolved types, which
+///       this phase does not have. At declaration scope such an `eval if` is
+///       DEFERRED: it stays where it is with every branch indexed, marked
+///       eval_deferred and filed in sc->eval_branches. Its branches are
+///       walked now (a nested `eval if` that folds does, and every
+///       `defined!` becomes its literal), a class branch's `var` becomes its
+///       FieldDecl now (N then binds the field), and a branch may not
+///       declare a type, which T would resolve before anything decides
+///       whether it exists. A condition naming an `eval` constant that only
+///       a deferred branch declares is deferred with it. In a function body
+///       nothing is deferred: the condition is C++'s `if constexpr`, which
+///       clang decides with its own layouts.
+///
 ///   Phase: EXPAND (first)
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -68,6 +84,7 @@ import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
+import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::PrimaryExpressions::*;
@@ -90,6 +107,9 @@ struct FoldVal {
     var is_int: bool;
     var b:      bool;
     var i:      IntConst;
+    /// Not decided yet: a type fact this phase cannot answer (file header,
+    /// Type facts). `ok` is false with it; it is not a failure.
+    var deferred: bool;
 }
 
 class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
@@ -114,6 +134,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     priv var _why_decl: *Decl = &null;
     /// The branch the last _choose took.
     priv var _taken: *CompoundStmt = &null;
+    /// The last lookup found only declarations a deferred `eval if` may
+    /// still discard: the condition waits for it rather than fails.
+    priv var _pending_name: bool = false;
 
     fn EvalIfFolding(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -176,12 +199,16 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     /// A file-scope or function-body `eval if`.
     fn transform_conditional_stmt(self, n: *ConditionalStmt) -> vec::<*Stmt> {
         if !n->is_eval { return ASTWriter::<EvalIfFolding>::transform_conditional_stmt(n); }
-        if !self._choose(n) {
+        var r = self._choose(n);
+        if r != 1 {
             if self._body_depth > 0 {
                 // `if constexpr`: both branches stay, and are resolved and typed.
                 return ASTWriter::<EvalIfFolding>::transform_conditional_stmt(n);
             }
-            return self._one_stmt(n);   // reported; E stops before N.
+            // A type fact (r == 2) waits for EvalIfLateFolding; anything else
+            // was reported, and E stops before N.
+            if r == 2 { self._defer_node(n, self._record_of_top()); }
+            return self._one_stmt(n);
         }
         var taken = self._taken;
         if self._body_depth == 0 { self._mark_dirty(self._dcs[self._dcs.size() - 1]); }
@@ -202,7 +229,13 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             return ASTWriter::<EvalIfFolding>::transform_eval_block_decl(n);
         }
         var c = cast::<ConditionalStmt>(n->stmt);
-        if !self._choose(c) { return self._one_decl(n); }
+        var r = self._choose(c);
+        if r != 1 {
+            // A local class's (in a function body) is not deferred, as a
+            // body's `eval if` is not: it stays, as it always did.
+            if (r == 2) && (self._body_depth == 0) { self._defer_node(c, self._record_of_top()); }
+            return self._one_decl(n);
+        }
         var taken = self._taken;
         self._mark_dirty(self._dcs[self._dcs.size() - 1]);
         var out = vec::<*Decl>();
@@ -240,20 +273,25 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         (*items) = buf;
     }
 
-    /// Which branch \p n takes, into `_taken` (null: none). False when the
-    /// condition does not fold; reported unless in a function body.
-    priv fn _choose(self, n: *ConditionalStmt) -> bool {
+    /// Which branch \p n takes, into `_taken` (null: none). 1 when decided;
+    /// 0 when the condition does not fold (reported, unless in a function
+    /// body); 2 when it reads a type fact (file header, Type facts). An
+    /// else-if chain waits at its first link that does: whether an earlier
+    /// link that folded false still decides is the late fold's to see again.
+    priv fn _choose(self, n: *ConditionalStmt) -> i32 {
         var c = n;
         var chosen: *CompoundStmt = &null;
         var found = false;
         while (c != &null) && (!found) {
-            self._why      = "";
-            self._why_at   = &null;
-            self._why_decl = &null;
+            self._why          = "";
+            self._why_at       = &null;
+            self._why_decl     = &null;
+            self._pending_name = false;
             var v = self._fold(c->cond, 0);
+            if v.deferred { return 2; }
             if !v.ok {
                 if self._body_depth == 0 { self._report(c); }
-                return false;
+                return 0;
             }
             if self._truth(v) {
                 chosen = c->then_;
@@ -267,7 +305,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         }
         self._drop_untaken(static_cast::<*Stmt>(n), chosen);
         self._taken = chosen;
-        return true;
+        return 1;
     }
 
     priv fn _truth(self, v: FoldVal) -> bool {
@@ -290,14 +328,140 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
                 b.fix(vd->storage_kw, "eval", f"declare '{nm}' as 'eval\x27");
             }
         }
-        // The two things that do work (EVAL.md 4.2b): the target's macros
-        // answer the pointer-width question, and in a function body the
-        // condition is C++'s `if constexpr`, which sees layouts.
-        if isa::<SizeOfExpr>(at) || isa::<AlignOfExpr>(at) {
-            b.note(DiagID::SC001N, at->range.start,
-                "for the pointer width, test the target instead: 'defined!(__LP64__)\x27; or move the 'eval if' into a function body, where it is 'if constexpr' and sees layouts").first(at->range);
-        }
         b.emit();
+    }
+
+    // === deferred (file header, Type facts) =================================
+
+    /// The class or struct whose body is the innermost scope, or null (file
+    /// scope, a module body): where a branch's `var` is a field.
+    priv fn _record_of_top(self) -> *Decl {
+        var dc = self._dcs[self._dcs.size() - 1];
+        if (dc == &null) || (!dc->is_type_scope()) { return &null; }
+        var o = dc->owner_decl();
+        if (o != &null) && (isa::<ClassDecl>(o) || isa::<StructDecl>(o)) { return o; }
+        return &null;
+    }
+
+    /// E's half of a deferred `eval if` at declaration scope. Its branches
+    /// are walked here because nothing else in E reaches them; a class's
+    /// (\p record) become members' shapes now; then it is filed, so N(a),
+    /// RedeclMerge and the late fold know which declarations exclude each
+    /// other.
+    priv fn _defer_node(self, head: *ConditionalStmt, record: *Decl) {
+        self._walk_branches(head);
+        if record != &null {
+            self._fieldize(static_cast::<*Stmt>(head));
+            self._mark_dirty(self._dcs[self._dcs.size() - 1]);
+        }
+        self._no_types(static_cast::<*Stmt>(head));
+        head->eval_deferred = true;
+        var at = self.sc->eval_branches.add_if(static_cast::<*Stmt>(head), self._dcs[self._dcs.size() - 1]);
+        self._file_arms(at, static_cast::<*Stmt>(head));
+    }
+
+    /// Each link's condition and branch through this writer, but not the
+    /// link itself: it is the deferred `eval if`, not a statement to fold.
+    priv fn _walk_branches(self, head: *ConditionalStmt) {
+        var c = head;
+        while c != &null {
+            if c->cond != &null { c->cond = self.dyn()->transform_expr(c->cond); }
+            if c->then_ != &null { c->then_ = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(c->then_)); }
+            if c->else_ == &null { break; }
+            if isa::<ConditionalStmt>(c->else_) { c = cast::<ConditionalStmt>(c->else_); continue; }
+            c->else_ = self.dyn()->transform_stmt_scalar(c->else_);
+            break;
+        }
+    }
+
+    /// A class branch's `var`s become FieldDecls now, a nested `eval if`'s
+    /// included: N binds the field, and the late fold hoists FieldDecls.
+    /// Each is indexed when it joins `fields` (_members_from_branches).
+    priv fn _fieldize(self, s: *Stmt) {
+        if s == &null { return; }
+        if isa::<ConditionalStmt>(s) {
+            var c = cast::<ConditionalStmt>(s);
+            self._fieldize(static_cast::<*Stmt>(c->then_));
+            self._fieldize(c->else_);
+            return;
+        }
+        if !isa::<CompoundStmt>(s) { return; }
+        var b = cast::<CompoundStmt>(s);
+        for var i: usize = 0; i < b->body.size(); ++i {
+            var st = b->body[i];
+            if st == &null { continue; }
+            if isa::<ConditionalStmt>(st) { self._fieldize(st); continue; }
+            if !isa::<DeclStmt>(st) { continue; }
+            var ds = cast::<DeclStmt>(st);
+            if (ds->decl == &null) || (!isa::<VariableDecl>(ds->decl)) { continue; }
+            var f = self._as_field(cast::<VariableDecl>(ds->decl), u32(0));
+            if f != &null { ds->decl = static_cast::<*Decl>(f); }
+        }
+    }
+
+    /// A deferred branch may not declare a type: T resolves every name of
+    /// one before the fold decides whether it exists, and a canonical type
+    /// cannot be bound again to the survivor afterwards.
+    priv fn _no_types(self, s: *Stmt) {
+        if s == &null { return; }
+        if isa::<ConditionalStmt>(s) {
+            var c = cast::<ConditionalStmt>(s);
+            self._no_types(static_cast::<*Stmt>(c->then_));
+            self._no_types(c->else_);
+            return;
+        }
+        if !isa::<CompoundStmt>(s) { return; }
+        var b = cast::<CompoundStmt>(s);
+        for var i: usize = 0; i < b->body.size(); ++i {
+            var st = b->body[i];
+            if st == &null { continue; }
+            if isa::<ConditionalStmt>(st) { self._no_types(st); continue; }
+            if !isa::<DeclStmt>(st) { continue; }
+            var d = cast::<DeclStmt>(st)->decl;
+            if d == &null { continue; }
+            var is_type = isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d);
+            if isa::<InterfaceDecl>(d) || isa::<TypeAliasDecl>(d) || isa::<ModuleDecl>(d) { is_type = true; }
+            if !is_type { continue; }
+            var tok = decl_name_tok(d);
+            var at  = (tok.range) if (tok.range.is_valid()) else (d->range);
+            var nm  = (self.ctx->get_spelling(tok)) if (tok.range.is_valid()) else ("this type");
+            var bld = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{nm}' is declared in an 'eval if' whose condition reads a type fact; such a condition is decided after types are resolved, so its branches may declare only functions, constants and fields");
+            bld.first(at);
+            bld.emit();
+        }
+    }
+
+    /// Every declaration under each branch of \p head (filed at \p at), a
+    /// nested `eval if`'s included: one row per (declaration, branch).
+    priv fn _file_arms(self, at: usize, head: *Stmt) {
+        var c = cast::<ConditionalStmt>(head);
+        while c != &null {
+            self._file_decls(at, static_cast::<*Stmt>(c->then_), static_cast::<*Stmt>(c->then_));
+            if c->else_ == &null { break; }
+            if isa::<ConditionalStmt>(c->else_) { c = cast::<ConditionalStmt>(c->else_); continue; }
+            self._file_decls(at, c->else_, c->else_);
+            break;
+        }
+    }
+
+    priv fn _file_decls(self, at: usize, arm: *Stmt, s: *Stmt) {
+        if s == &null { return; }
+        if isa::<DeclStmt>(s) {
+            var d = cast::<DeclStmt>(s)->decl;
+            if d != &null { self.sc->eval_branches.add_decl(at, arm, d); }
+            return;
+        }
+        if isa::<CompoundStmt>(s) {
+            var b = cast::<CompoundStmt>(s);
+            for var i: usize = 0; i < b->body.size(); ++i { self._file_decls(at, arm, b->body[i]); }
+            return;
+        }
+        if isa::<ConditionalStmt>(s) {
+            var c = cast::<ConditionalStmt>(s);
+            self._file_decls(at, arm, static_cast::<*Stmt>(c->then_));
+            self._file_decls(at, arm, c->else_);
+        }
     }
 
     // === defined! ===========================================================
@@ -334,6 +498,32 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         var v = FoldVal{};
         v.ok = false;
         return v;
+    }
+
+    /// Not decided yet (FoldVal::deferred).
+    priv fn _defer(self, at: *Expr, why: string) -> FoldVal {
+        var v = FoldVal{};
+        v.ok       = false;
+        v.deferred = true;
+        return v;
+    }
+
+    /// A combination one of whose operands waits: it waits too.
+    priv fn _waits(self) -> FoldVal {
+        var v = FoldVal{};
+        v.ok       = false;
+        v.deferred = true;
+        return v;
+    }
+
+    /// A lookup that found nothing usable: it waits when what it found is a
+    /// deferred `eval if`'s to keep or discard (_one_live), else it fails.
+    priv fn _no_or_wait(self, at: *Expr) -> FoldVal {
+        if self._pending_name {
+            self._pending_name = false;
+            return self._defer(at, self._why);
+        }
+        return self._no(at, self._why);
     }
 
     priv fn _bool(self, b: bool) -> FoldVal {
@@ -376,22 +566,22 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         if isa::<BinaryOperatorExpr>(e) { return self._binary(cast::<BinaryOperatorExpr>(e), depth); }
         if isa::<NamedIdentExpr>(e) {
             var d = self._lookup(cast::<NamedIdentExpr>(e)->name, e);
-            if d == &null { return self._no(e, self._why); }
+            if d == &null { return self._no_or_wait(e); }
             return self._ref(e, d, depth);
         }
         if isa::<ChainExpr>(e) {
             var d = self._chain(cast::<ChainExpr>(e));
-            if d == &null { return self._no(e, "this name is not an 'eval' constant reachable here"); }
+            if d == &null {
+                if self._pending_name { return self._no_or_wait(e); }
+                return self._no(e, "this name is not an 'eval' constant reachable here");
+            }
             return self._ref(e, d, depth);
         }
         if isa::<CallExpr>(e) { return self._no(e, "a call is computed by C++ after names are resolved; use an 'eval' constant, a literal or 'defined!' here"); }
-        // EVAL.md 4.2b: a type's layout is not known before types are
-        // resolved, and this fold decides which declarations exist before
-        // then. _report says what works instead.
-        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) {
-            var kw = ("sizeof") if (isa::<SizeOfExpr>(e)) else ("alignof");
-            return self._no(e, f"'{kw}' needs a type\x27s layout, which is not known before types are resolved");
-        }
+        // EVAL.md 4.2b: a type fact needs resolved types, which this phase
+        // does not have. At declaration scope the `eval if` waits for
+        // EvalIfLateFolding; in a body it is `if constexpr`.
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) || isa::<TypeTraitExpr>(e) { return self._defer(e, ""); }
         return self._no(e, "this does not fold before names are resolved");
     }
 
@@ -399,21 +589,28 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         var e = static_cast::<*Expr>(b);
         var k = b->op_token.kind;
         var l = self._fold(b->lhs, depth);
-        if !l.ok { return l; }
+        // A failure decides; a side that waits does not, unless the other
+        // side fails (reported now) or settles `&&` / `||` by itself.
+        if (!l.ok) && (!l.deferred) { return l; }
         if (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd) {
-            if !self._truth(l) { return self._bool(false); }
+            if l.ok && (!self._truth(l)) { return self._bool(false); }
             var r = self._fold(b->rhs, depth);
-            if !r.ok { return r; }
+            if (!r.ok) && (!r.deferred) { return r; }
+            if r.ok && (!self._truth(r)) { return self._bool(false); }
+            if l.deferred || r.deferred { return self._waits(); }
             return self._bool(self._truth(r));
         }
         if (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr) {
-            if self._truth(l) { return self._bool(true); }
+            if l.ok && self._truth(l) { return self._bool(true); }
             var r = self._fold(b->rhs, depth);
-            if !r.ok { return r; }
+            if (!r.ok) && (!r.deferred) { return r; }
+            if r.ok && self._truth(r) { return self._bool(true); }
+            if l.deferred || r.deferred { return self._waits(); }
             return self._bool(self._truth(r));
         }
         var r = self._fold(b->rhs, depth);
-        if !r.ok { return r; }
+        if (!r.ok) && (!r.deferred) { return r; }
+        if l.deferred || r.deferred { return self._waits(); }
         if (k == TokenKind::OpEqualEqual) || (k == TokenKind::OpExclaimEqual) {
             var eq = false;
             if l.is_int && r.is_int { eq = self._cmp(l.i, r.i) == 0; }
@@ -472,7 +669,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         if home != &null { self._dcs.push_back(home); }
         var v = self._fold(init, depth + 1);
         if home != &null { self._dcs.pop_back(); }
-        if !v.ok {
+        if (!v.ok) && (!v.deferred) {
             self._why_at = at;
             self._why    = f"the initializer of '{nm}' does not fold: {self._why}";
         }
@@ -494,16 +691,29 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         return self._one_live(r.cell, nm);
     }
 
+    /// The one declaration of \p cell this pass has not discarded. When
+    /// every one left sits in a branch of an `eval if` that is not decided
+    /// yet, which of them exists is that `eval if`'s to say: null, with
+    /// _pending_name set, so the condition waits for it.
     priv fn _one_live(self, cell: *OverloadCell, nm: string) -> *Decl {
         var hit: *Decl = &null;
+        var n: usize = 0;
+        var waiting = true;
         for var i: usize = 0; i < cell->size(); ++i {
             var d = cell->get(i);
             if (d == &null) || self._is_dropped(d) { continue; }
-            if hit != &null {
-                self._why = f"'{nm}' names more than one declaration";
-                return &null;
-            }
+            n += 1;
+            if !self.sc->eval_branches.in_pending(d) { waiting = false; }
             hit = d;
+        }
+        if (n > 0) && waiting {
+            self._pending_name = true;
+            self._why = f"'{nm}' is declared in a branch of an 'eval if' that is not decided yet";
+            return &null;
+        }
+        if n > 1 {
+            self._why = f"'{nm}' names more than one declaration";
+            return &null;
         }
         if hit == &null { self._why = f"'{nm}' is declared only in a branch that is not taken"; }
         return hit;
@@ -568,6 +778,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
         }
         if isa::<ConditionalStmt>(s) {
             var c = cast::<ConditionalStmt>(s);
+            // A deferred `eval if` in a discarded branch goes with it and
+            // decides nothing any more.
+            self.sc->eval_branches.retire(s);
             self._drop_all(static_cast::<*Stmt>(c->then_));
             self._drop_all(c->else_);
         }

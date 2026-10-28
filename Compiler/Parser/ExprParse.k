@@ -1199,6 +1199,39 @@ class <T> ExprParse {
         return UnwrapExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
     }
 
+    /// \brief parses a type-fact intrinsic (EVAL.md 4.2b). A malformed one
+    ///        is reported and reads as `false`, as a malformed `defined!` does.
+    ///  Grammar:  ('is_trivially_copyable' | 'is_trivially_destructible') '!' '(' type ')'
+    inline fn _parse_type_trait_intrinsic(self) -> *Expr {
+        var kw_range = dyn()->current_ptr()->range;
+        var fact     = type_trait_of(dyn()->ctx->get_spelling(dyn()->current()));
+        var nm       = type_trait_spelling(fact);
+        dyn()->advance(); // consume the name
+        dyn()->advance(); // consume `!`
+        if !dyn()->check(TokenKind::OpLParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                f"expected '(' after '{nm}!': write '{nm}!(T)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        dyn()->advance(T::SkipNL::After); // consume `(`
+        var ty = dyn()->parse_type();
+        if ty == &null {
+            dyn()->diag->report(DiagID::S053E, kw_range.start,
+                f"expected a type inside '{nm}!(...)\x27"
+            ).first(kw_range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        if !dyn()->check(TokenKind::OpRParen) {
+            dyn()->diag->report(DiagID::S060E, kw_range.start,
+                f"expected ')' to close '{nm}!(...)\x27"
+            ).first(kw_range | dyn()->prev().range).emit();
+            return static_cast::<*Expr>(BooleanLiteralExpr::create(dyn()->ctx, kw_range, false));
+        }
+        dyn()->advance(); // consume `)`
+        return static_cast::<*Expr>(TypeTraitExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, fact, ty));
+    }
+
     //  Postfix expression loop
 
     /// \brief parses a primary expression then loops consuming postfix ops.
@@ -2216,6 +2249,14 @@ class <T> ExprParse {
         }) && (((dyn()->ig_peek_kind()) == TokenKind::OpLParen)
             || ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon)) {
             return self._parse_ident_expr();
+        }
+
+        // -- is_trivially_copyable!(T) / is_trivially_destructible!(T): type
+        // facts (EVAL.md 4.2b), parser intrinsics the PP passes through raw,
+        // as unwrap! is. Their operand is a TYPE.
+        if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
+        && (type_trait_of(dyn()->ctx->get_spelling(dyn()->current())) != TypeTraitKind::None) {
+            return self._parse_type_trait_intrinsic();
         }
 
         // -- unwrap!(expr): a parser intrinsic, passed through raw by the
