@@ -2,12 +2,9 @@
 // no `unsafe` block, and the second base of a class sits at a different
 // address than the first.
 //
-// XFAIL: *
-// Waiting on codegen: the cast is emitted as static_cast<size_t>(p), which
-// clang rejects (CL001E "static_cast from 'int *' to ... 'unsigned long' is
-// not allowed"); it needs reinterpret_cast or __builtin_bit_cast.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// The cast is a reinterpret_cast in C++: it was static_cast<size_t>(p),
+// which clang rejects (CL001E "static_cast from 'int *' to ... 'unsigned
+// long' is not allowed"). More shapes: Tests/Codegen/casts/.
 
 class R { prot var a: i32  virtual fn r(self) -> i32 { return 1 } }
 class W { prot var b: i32  virtual fn w(self) -> i32 { return 2 } }

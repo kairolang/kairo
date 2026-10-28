@@ -249,9 +249,18 @@ class <T> CastTyping {
         // pointer -> integer, integer -> pointer
         if (sp != &null) && dyn()->tu.is_integer(target) {
             if dyn()->tu.kind_of(target) != BuiltinKind::USize {
-                dyn()->sc->diag->report(DiagID::SC026E, n->range.start,
-                    f"a pointer converts to 'usize' only; write 'as usize as {dyn()->tu.str(target)}' if you mean to narrow the address"
-                ).first(n->range).emit();
+                // Every other integer is refused, u64 and isize included:
+                // usize is the one type that holds an address on every
+                // target, and the two-step spelling is the honest one.
+                var ts = dyn()->tu.str(target);
+                var b = dyn()->sc->diag->report(DiagID::SC026E, n->range.start,
+                    f"a pointer converts to 'usize' only; write 'as usize as {ts}' if you mean to narrow the address");
+                b.first(n->range, f"pointer cast to '{ts}\x27");
+                b.note(n->operand->range.start, f"'{dyn()->tu.str(src)}' is a pointer; its address is a 'usize', and narrowing that is an ordinary integer cast");
+                if (n->target != &null) && n->target->range.is_valid() {
+                    b.insert(n->target->range.start, "usize as ", "read the address as 'usize' first");
+                }
+                b.emit();
                 n->poison();
                 return &null;
             }

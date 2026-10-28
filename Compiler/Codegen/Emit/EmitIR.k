@@ -1986,6 +1986,15 @@ class EmitIR {
         return canon_unqual(c)->kind == TypeKind::PointerType;
     }
 
+    priv fn _type_is_builtin_int(self, t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        var u = canon_unqual(c);
+        if (u == &null) || (!isa::<BuiltinType>(u)) { return false; }
+        return cast::<BuiltinType>(u)->info()->is_integer();
+    }
+
     // --- Calls -----------------------------------------------------------------------
 
     priv fn _call(self, n: *CallExpr) {
@@ -2593,6 +2602,11 @@ class EmitIR {
         var kind = "static_cast";
         if n->mode == CastMode::Const  { kind = "const_cast"; }
         if n->mode == CastMode::Unsafe { kind = "reinterpret_cast"; }
+        // `p as usize` reads the address (casting.mdx). static_cast from a
+        // pointer to an integer is ill-formed C++; reinterpret_cast is the
+        // one cast that takes it, whatever the pointee's cv (CastTyping lets
+        // only usize through, so the target always holds the whole address).
+        if self._type_is_pointer(n->operand->type_) && self._type_is_builtin_int(n->target) { kind = "reinterpret_cast"; }
         // reinterpret_cast cannot cast away qualifiers, and `as unsafe *` is
         // the one Kairo spelling that drops them (the written cast already
         // passed the unsafe-context check). A C-style cast is the one C++
