@@ -1188,6 +1188,9 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         // The enum's own name and generic parameters: to C++ this record IS
         // the enum, so anything that asks it for either gets the enum's.
         var lay = StructDecl::create(self.ctx, en->range, en->name, edc);
+        // Synthesized whole, so a definition (decl_only_forward reads a
+        // record with no defining link as only forward-declared).
+        lay->mark_definition();
         self._place(static_cast::<*Decl>(lay), edc, VisibilityKind::Public, at);
         self._no_members(lay);
         lay->generic_params = en->generic_params;
@@ -1265,6 +1268,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         // are the record's to C++, and that field is in no field_of chain
         // (FieldDecl::is_anonymous_union).
         var un = UnionDecl::create(self.ctx, at, Token(), edc);
+        un->mark_definition();
         self._place(static_cast::<*Decl>(un), edc, VisibilityKind::Public, at);
         un->is_anonymous   = true;
         un->methods        = create_empty_frozen_list::<*FunctionDecl>();
@@ -1274,6 +1278,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             // The tag-only member, first: reading the tag through it is the
             // common-initial-sequence read every payload struct allows.
             var ts = StructDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::adt_tag_only_type()), edc);
+            ts->mark_definition();
             self._place(static_cast::<*Decl>(ts), edc, VisibilityKind::Public, at);
             self._no_members(ts);
             ts->is_adt_payload = true;
@@ -1538,6 +1543,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     /// tag-only member reads.
     priv fn _payload_struct(self, v: *EnumVariantDecl, vn: string, edc: *DeclContext, prefix_tag: *Type) -> *StructDecl {
         var ps = StructDecl::create(self.ctx, v->range, self.synth.ident(v->name.range, LowerTargets::adt_payload_type(vn)), edc);
+        ps->mark_definition();
         self._place(static_cast::<*Decl>(ps), edc, VisibilityKind::Public, v->name.range);
         self._no_members(ps);
         ps->is_adt_payload = true;

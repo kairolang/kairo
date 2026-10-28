@@ -1,7 +1,7 @@
 // Kairo has no uninitialized variable: `var x: T` default-constructs T,
 // so T must have a default. A number or a pointer is zero (null); a
-// record needs a constructor callable on `self` alone -- none at all,
-// one that takes arguments, or one deleted is an error; `bool` has no
+// record needs a constructor callable on `self` alone, or none (the
+// implicit one; implicit_default_ctor_*.k); `bool` has no
 // zero state to assume. An array follows its element. A brace
 // initializer builds an aggregate field by field, which a class that
 // declares a constructor is not (SC088E). Loop and pattern binders are
@@ -25,11 +25,11 @@ class <T> Box { pub var v: T
     fn Box(self) = default }
 class <T> Bare { pub var v: T }
 
-var g_empty: Empty
+var g_empty: Empty             // ok: the implicit constructor
 var g_int: i64
 
 fn locals() {
-    var a: Empty
+    var a: Empty                // ok: the implicit constructor
     var b: Def                  // ok
     var c: Body                 // ok
     var d: Del
@@ -43,9 +43,9 @@ fn locals() {
     var m: [bool; 2]
     var n: [Def; 2]             // ok
     var o: [Arg; 2]
-    var p: Pod
+    var p: Pod                  // ok: the implicit constructor
     var q: Box<i32>             // ok
-    var r: Bare<i32>
+    var r: Bare<i32>            // ok: the implicit constructor
     var s: string               // ok: the builtin string has a default
     for x in [1, 2] { }         // ok: a binder, not a declaration
 }
@@ -62,16 +62,12 @@ fn braces() {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT: error
-// CHECK: default_init.k:28:1: error [SC001E]: 'g_empty' is declared without an initializer, and 'Empty' has no default constructor (declare 'fn Empty(self)')
-// CHECK: default_init.k:32:5: error [SC001E]: 'a' {{.*}} 'Empty' has no default constructor
 // CHECK: default_init.k:35:5: error [SC001E]: 'd' {{.*}} the default constructor of 'Del' is deleted
 // CHECK: default_init.k:36:5: error [SC001E]: 'e' {{.*}} 'Arg' has no default constructor
 // CHECK: default_init.k:37:5: error [SC116E]: 'f' would be built by a constructor whose arguments all default
 // CHECK: default_init.k:39:5: error [SC001E]: 'i' {{.*}} 'bool' has no zero state
 // CHECK: default_init.k:43:5: error [SC001E]: 'm' {{.*}} 'bool' has no zero state
 // CHECK: default_init.k:45:5: error [SC001E]: 'o' {{.*}} 'Arg' has no default constructor
-// CHECK: default_init.k:46:5: error [SC001E]: 'p' {{.*}} 'Pod' has no default constructor
-// CHECK: default_init.k:48:5: error [SC001E]: 'r' {{.*}} 'Bare' has no default constructor
 // CHECK: default_init.k:54:13: error [SC088E]: 'Def' declares a constructor, so it cannot be built with a brace initializer
 // CHECK: default_init.k:55:13: error [SC088E]: 'Arg' declares a constructor
 // CHECK-NOT: error

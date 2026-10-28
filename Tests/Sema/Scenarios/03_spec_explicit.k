@@ -37,10 +37,6 @@
 // AST-NEXT:           |-NamedIdentExpr c
 // AST-NEXT:           `-Step .items
 // AST: -- 0 error(s), 0 warning(s) --
-//
-// -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC001E]:
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC001E]:
 // END-GENERATED-CHECKS(AST)
 
 // EXPECT: 0 errors. `b.bits` binds (member of the EXPLICIT spec, not the primary).

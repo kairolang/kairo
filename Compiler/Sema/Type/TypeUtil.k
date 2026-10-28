@@ -766,8 +766,16 @@ class TypeUtil {
     /// that has no initializer: a local, a static (InitCheck) and a field a
     /// constructor must build (CtorInitCheck).
     fn why_no_default(self, t: *Type) -> string {
+        return self._why_no_default(t, 0);
+    }
+
+    /// \p depth bounds the walk into fields: a by-value cycle is
+    /// TypeCycleCheck's error, but this question may be asked before it
+    /// poisons the cycle, and must not recurse forever meanwhile.
+    priv fn _why_no_default(self, t: *Type, depth: u32) -> string {
+        if depth > 16 { return ""; }
         var el = self.element_of(t);
-        if el != &null { return self.why_no_default(canon_unqual(el)); }
+        if el != &null { return self._why_no_default(canon_unqual(el), depth + 1); }
         if self.is_bool(t) { return "'bool' has no zero state: a default would have to guess true or false"; }
         if self.nullable_inner(t) != &null { return ""; }
         var en = self.payload_enum(t);
@@ -778,10 +786,70 @@ class TypeUtil {
         var rd = self.default_record(t);
         if rd == &null { return ""; }
         var nm = self.decl_name(rd);
+        if decl_only_forward(rd) { return f"'{nm}' is only forward-declared, so there is nothing to build"; }
         var dc = self.default_ctor_of(rd);
+        if (dc == &null) && (!self.declares_ctor(rd)) { return self._why_no_implicit(rd, depth); }
         if dc == &null { return f"'{nm}' has no default constructor (declare 'fn {nm}(self)')"; }
         if dc->body_kind == FnBodyKind::Delete { return f"the default constructor of '{nm}' is deleted"; }
         return "";
+    }
+
+    /// A record that declares no constructor has the implicit default one
+    /// (interfaces-requirements.mdx: "A type that declares no constructor at
+    /// all has the implicit one"), and it builds every base and field from
+    /// nothing, so it exists exactly when each of them can be: a field with
+    /// an initializer, or whose type has a default. A `const` field without
+    /// an initializer cannot (a constructor must give it its one value,
+    /// classes.mdx), nor can a C++ value-initialization of one. Empty when
+    /// it exists; otherwise why not, naming the first base or field that
+    /// stops it. A dependent field (`var v: T`) answers empty, as every
+    /// dependent type does: the instance decides.
+    priv fn _why_no_implicit(self, rd: *Decl, depth: u32) -> string {
+        var nm = self.decl_name(rd);
+        if isa::<ClassDecl>(rd) {
+            var bases = &(cast::<ClassDecl>(rd)->derives_list);
+            for var i: usize = 0; i < bases->size(); ++i {
+                var e = bases->get(i);
+                if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+                var bw = self._why_no_default(canon_unqual(e->base->canonical), depth + 1);
+                if !bw.empty() {
+                    return f"'{nm}' has no default constructor: the implicit one cannot build its base ({bw})";
+                }
+            }
+        }
+        var fs = (&(cast::<ClassDecl>(rd)->fields)) if (isa::<ClassDecl>(rd)) else (&(cast::<StructDecl>(rd)->fields));
+        for var i: usize = 0; i < fs->size(); ++i {
+            var f = (*fs)[i];
+            if (f == &null) || f->is_anonymous_union { continue; }
+            if (f->storage == StorageClass::Static) || (f->storage == StorageClass::Eval) { continue; }
+            if (f->init != &null) || (f->init_thunk != &null) || (f->init_fold != FieldFold::None) { continue; }
+            var fnm = self.sc->ctx->get_spelling(f->name);
+            if f->storage == StorageClass::Const {
+                return f"'{nm}' has no default constructor: the implicit one cannot give const field '{fnm}' a value, and it has no initializer";
+            }
+            if (f->type_ == &null) || (f->type_->canonical == &null) { continue; }
+            var fw = self._why_no_default(canon_unqual(f->type_->canonical), depth + 1);
+            if !fw.empty() {
+                return f"'{nm}' has no default constructor: the implicit one cannot build field '{fnm}', which has no initializer ({fw})";
+            }
+        }
+        return "";
+    }
+
+    /// \p d (class or struct) declares a constructor of any kind: one named
+    /// after it, a transfer (`@copy` / `@move`) included, deleted included.
+    /// Any of them suppresses the implicit default constructor, as a
+    /// user-declared constructor of any kind does in C++ -- which is what
+    /// the emitted class has to agree with.
+    fn declares_ctor(self, d: *Decl) -> bool {
+        var nm = self.decl_name(d);
+        var ms = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        for var i: usize = 0; i < ms.size(); ++i {
+            var m = ms[i];
+            if (m == &null) || m->is_operator || (m->adt_role != AdtRole::None) { continue; }
+            if self.decl_name(static_cast::<*Decl>(m)) == nm { return true; }
+        }
+        return false;
     }
 
     /// The Kairo enum with payloads \p t names (its pattern), else null.

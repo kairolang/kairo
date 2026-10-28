@@ -606,3 +606,20 @@ fn decl_is_ctor_requirement(m: *FunctionDecl) -> bool {
     if (!a.has_imm()) || (!b.has_imm()) { return false; }
     return a.imm == b.imm;
 }
+
+// === Forward declarations ===================================================
+
+/// A Kairo class, struct or union no link of whose chain has a body: it was
+/// only ever forward-declared (`struct Node`), so its size and members are
+/// unknown and it can be used through a pointer only. False for a header's
+/// record (clang owns completeness) and for an `ffi` forward declaration
+/// that names a header tag, which IS that tag.
+fn decl_only_forward(d: *Decl) -> bool {
+    if d == &null { return false; }
+    var p = decl_pattern(d);
+    if decl_is_imported(p) || (decl_ffi_tag_target(p) != &null) { return false; }
+    if isa::<ClassDecl>(p)  { return !cast::<ClassDecl>(p)->has_definition();  }
+    if isa::<StructDecl>(p) { return !cast::<StructDecl>(p)->has_definition(); }
+    if isa::<UnionDecl>(p)  { return !cast::<UnionDecl>(p)->has_definition();  }
+    return false;
+}

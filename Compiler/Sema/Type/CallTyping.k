@@ -947,7 +947,23 @@ class <T> CallTyping {
             }
         }
         if cands.size() == 0 {
-            if n->args.size() == 0 { return rec; }   // implicit default ctor
+            if n->args.size() == 0 {
+                // The implicit default constructor, which exists only when
+                // every base and field can be built from nothing -- the one
+                // answer `var x: R` gets too (TypeUtil::why_no_default).
+                var why = ("") if (dep) else (dyn()->tu.why_no_default(rec));
+                if !why.empty() {
+                    var nm = dyn()->tu.decl_name(d);
+                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                        f"'{nm}()' cannot be called: {why}"
+                    ).first(n->range)
+                     .note(DiagID::SC001N, d->range.start, f"'{nm}' declared here").first(d->range)
+                     .emit();
+                    n->poison();
+                    return &null;
+                }
+                return rec;
+            }
             self._type_args_blind(n);
             dyn()->sc->diag->report(DiagID::SC038E, n->range.start,
                 f"'{dyn()->tu.decl_name(d)}' declares no constructor taking arguments"

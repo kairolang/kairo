@@ -71,7 +71,6 @@
 // AST: -- 0 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [SC001E]:
 // AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: warning [R048W]:
 // AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: note [R048N]:
 // END-GENERATED-CHECKS(AST)

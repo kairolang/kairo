@@ -259,6 +259,7 @@ class FinallyLowering derives ASTWriter::<FinallyLowering> {
         // names it by leaf off this scope (CXXSpell::in_function_scope).
         var fdc = static_cast::<*DeclContext>(f);
         var rec = StructDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::finally_record(k)), fdc);
+        rec->mark_definition();   // synthesized whole (decl_only_forward)
         self._home(static_cast::<*Decl>(rec), fdc);
         // Implicit: a record the user writes in a body is hoisted to
         // namespace scope (CXXSpell::is_hoisted_local); this one captures
