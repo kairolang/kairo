@@ -26,6 +26,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
@@ -153,7 +154,7 @@ class OperatorFacts {
         if f == &null { return false; }
         var c = OperatorFacts::_ctx(f);
         if (c == &null) || (c->get_imm_table() == &null) { return false; }
-        var k = c->get_imm_table()->find_ident("implicit");
+        var k = c->get_imm_table()->find_ident(LangAttrs::implicit_conversion());
         if k == u32(-1) { return false; }
         return f->has_attribute_named(k);
     }

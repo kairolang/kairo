@@ -649,7 +649,7 @@ class <T> LiteralTyping {
         if dyn()->tu.checked_head(v) != &null { scopes = Substitution(dyn()->sc).bound_ifaces(v); }
         else { scopes.push_back(v); }
 
-        var imm   = dyn()->sc->imm_table()->intern_ident_copy("repr");
+        var imm   = dyn()->sc->imm_table()->intern_ident_copy(LangMembers::repr());
         var cands = vec::<*Decl>();
         for var k: usize = 0; k < scopes.size(); ++k { dyn()->ml.lookup(scopes[k], DeclName::ident(imm), &cands); }
         for var i: usize = 0; i < cands.size(); ++i {

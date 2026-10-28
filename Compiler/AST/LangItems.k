@@ -208,6 +208,10 @@ class LangMembers {
     /// FmtBuf methods (fmt/fmt_buf.k) every f-string lowers onto.
     static fn fmtbuf_text() -> string   { return "text"; }
     static fn fmtbuf_finish() -> string { return "finish"; }
+    /// `fn repr(self) -> string` on a USER type: the one method the compiler
+    /// calls by name on a type it did not declare, an f-string hole's
+    /// conversion (LiteralTyping::_string_conv, preferred over `op as`).
+    static fn repr() -> string { return "repr"; }
 }
 
 /// \class WellKnownDecls
@@ -417,6 +421,77 @@ class LangAttrs {
     /// underlying type, clang's `enum_extensibility(open)`. EnumDecl::is_open
     /// (Parser); no niche, `as` unchecked.
     static fn open_enum() -> string { return "open"; }
+    /// `@implicit fn op as`: a conversion the compiler may apply unasked.
+    /// OperatorFacts::has_implicit_attr reads it; OperatorSignatureCheck
+    /// rejects it anywhere but on a member `op as`.
+    static fn implicit_conversion() -> string { return "implicit"; }
+    /// `@no_unwind` / `@unwind` on a function: StmtTyping::_stamp_no_unwind
+    /// reads both and rejects the pair.
+    static fn no_unwind() -> string { return "no_unwind"; }
+    static fn unwind() -> string    { return "unwind"; }
+    /// `@inout x: T` / `@move x: T`: a parameter's passing mode
+    /// (ASTParse::_peek_mode). `move` is transfer_move's word with another
+    /// meaning -- a parameter, not a constructor -- so it is its own row.
+    static fn param_inout() -> string { return "inout"; }
+    static fn param_move() -> string  { return "move"; }
+}
+
+/// \class LangIntrinsics
+/// \brief The `name!(...)` forms the PARSER owns although they are spelled
+///        like macro calls. The preprocessor recognizes them by the same
+///        spelling to pass them through raw (Preprocessor::_detect_invocation),
+///        and StmtParse / ExprParse match them; two layers, one row each.
+class LangIntrinsics {
+    /// `label!(name)` / `jump!(name)`: StmtParse, lowered by LabelLowering.
+    static fn label() -> string   { return "label"; }
+    static fn jump() -> string    { return "jump"; }
+    /// `unwrap!(expr)`: ExprParse; its operand stays an ordinary expression.
+    static fn unwrap() -> string  { return "unwrap"; }
+    /// `defined!(NAME)` the preprocessor's table could not answer: ExprParse
+    /// asks clang's macros.
+    static fn defined() -> string { return "defined"; }
+    /// The type facts (EVAL.md 4.2b): their operand is a TYPE, which only
+    /// the parser can tell from a value. TypeTraitKind maps them both ways
+    /// (type_trait_of / type_trait_spelling).
+    static fn is_trivially_copyable() -> string     { return "is_trivially_copyable"; }
+    static fn is_trivially_destructible() -> string { return "is_trivially_destructible"; }
+}
+
+/// \class LangMacros
+/// \brief The preprocessor's builtin `name!(...)` macros. Preprocessor
+///        dispatches on these (_try_builtin) AND reserves them against a
+///        user definition (_is_builtin_name); both lists read these rows, so
+///        a builtin cannot be dispatched without being reserved. `defined!`
+///        is LangIntrinsics::defined: the preprocessor answers it when its
+///        table can, the parser otherwise.
+class LangMacros {
+    // source location
+    static fn file() -> string        { return "file"; }
+    static fn line() -> string        { return "line"; }
+    static fn column() -> string      { return "column"; }
+    static fn module_path() -> string { return "module_path"; }
+    // argument manipulation
+    static fn count() -> string       { return "count"; }
+    static fn first() -> string       { return "first"; }
+    static fn last() -> string        { return "last"; }
+    static fn rest() -> string        { return "rest"; }
+    static fn butlast() -> string     { return "butlast"; }
+    // token manipulation
+    static fn paste() -> string       { return "paste"; }
+    static fn stringify() -> string   { return "stringify"; }
+    static fn unstringify() -> string { return "unstringify"; }
+    // deferred code generation
+    static fn todo() -> string        { return "todo"; }
+    static fn unreachable() -> string { return "unreachable"; }
+    static fn unreachable_unchecked() -> string { return "unreachable_unchecked"; }
+    static fn unique_id() -> string   { return "unique_id"; }
+    static fn include() -> string     { return "include"; }
+    static fn embed_str() -> string   { return "embed_str"; }
+    static fn embed() -> string       { return "embed"; }
+    // diagnostics
+    static fn compile_error() -> string { return "compile_error"; }
+    static fn compile_warn() -> string  { return "compile_warn"; }
+    static fn compile_note() -> string  { return "compile_note"; }
 }
 
 /// \class LowerTargets

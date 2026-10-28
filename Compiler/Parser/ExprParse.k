@@ -25,6 +25,7 @@ import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Types::*;
 import AST::Node::Casting::*;
 import AST::ParamMode::*;
@@ -2262,14 +2263,14 @@ class <T> ExprParse {
         // -- unwrap!(expr): a parser intrinsic, passed through raw by the
         // PP (Preprocessor::_detect_invocation), as label!/jump! are.
         if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
-        && (dyn()->ctx->get_spelling(dyn()->current()) == "unwrap") {
+        && (dyn()->ctx->get_spelling(dyn()->current()) == LangIntrinsics::unwrap()) {
             return self._parse_unwrap_intrinsic();
         }
 
         // -- defined!(NAME) the PP's table could not answer (it passes those
         // through raw, Preprocessor::_builtin_defined): clang's macros do.
         if dyn()->check(TokenKind::LitIdentifier) && dyn()->check_peek(TokenKind::OpExclaim)
-        && (dyn()->ctx->get_spelling(dyn()->current()) == "defined") {
+        && (dyn()->ctx->get_spelling(dyn()->current()) == LangIntrinsics::defined()) {
             return self._parse_defined_intrinsic();
         }
 

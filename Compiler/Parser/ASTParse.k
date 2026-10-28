@@ -1976,8 +1976,8 @@ class ASTParse
         if !self.check(TokenKind::OpAt) { return ParamMode::Value; }
         if !self.check_peek(TokenKind::LitIdentifier) { return ParamMode::Value; }
         var sp = self.ctx->get_spelling(self.peek());
-        if sp == "inout" { return ParamMode::Inout; }
-        if sp == "move"  { return ParamMode::Move;  }
+        if sp == LangAttrs::param_inout() { return ParamMode::Inout; }
+        if sp == LangAttrs::param_move()  { return ParamMode::Move;  }
         return ParamMode::Value;
     }
 

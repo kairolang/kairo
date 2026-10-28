@@ -30,6 +30,7 @@ import AST::ASTSupport::*;                 // FrozenList in MatchCore
 import AST::Node::Base::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;   // VariableDecl for binder decls (Binding::decl)
+import AST::LangItems::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;      // MatchExpr / IfExpr for value-form statements
 import AST::Node::Casting::*;
@@ -400,8 +401,8 @@ class <T> StmtParse {
         // label!/jump! as macro invocations.
         if (k == TokenKind::LitIdentifier) && (dyn()->check_peek(TokenKind::OpExclaim)) {
             var sp = dyn()->ctx->get_spelling(dyn()->current());
-            if sp == "label" { return self._parse_label_intrinsic(); }
-            if sp == "jump"  { return self._parse_jump_intrinsic(); }
+            if sp == LangIntrinsics::label() { return self._parse_label_intrinsic(); }
+            if sp == LangIntrinsics::jump()  { return self._parse_jump_intrinsic(); }
         }
 
         // -- labeled loop:  ident ':' (while|for|loop) ----------------

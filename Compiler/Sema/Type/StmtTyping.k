@@ -524,8 +524,8 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     priv fn _stamp_no_unwind(self, n: *FunctionDecl) {
         var head = n->first_decl();
         if n->has_ffi_linkage() || (n->clang_decl != &null) { return; }
-        var k_no = dyn()->sc->imm_table()->find_ident("no_unwind");
-        var k_un = dyn()->sc->imm_table()->find_ident("unwind");
+        var k_no = dyn()->sc->imm_table()->find_ident(LangAttrs::no_unwind());
+        var k_un = dyn()->sc->imm_table()->find_ident(LangAttrs::unwind());
         var no_at: *FunctionDecl = &null;
         var un_at: *FunctionDecl = &null;
         var cur  = head;

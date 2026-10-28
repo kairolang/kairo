@@ -31,6 +31,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Types::*;
 import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
+import AST::LangItems::*;
 
 ///
 ///  CallExpr
@@ -1714,15 +1715,15 @@ enum TypeTraitKind derives u8 {
 
 /// The fact the intrinsic \p name spells (without its `!`), or None.
 fn type_trait_of(name: string) -> TypeTraitKind {
-    if name == "is_trivially_copyable"     { return TypeTraitKind::TriviallyCopyable; }
-    if name == "is_trivially_destructible" { return TypeTraitKind::TriviallyDestructible; }
+    if name == LangIntrinsics::is_trivially_copyable()     { return TypeTraitKind::TriviallyCopyable; }
+    if name == LangIntrinsics::is_trivially_destructible() { return TypeTraitKind::TriviallyDestructible; }
     return TypeTraitKind::None;
 }
 
 /// \p k as Kairo spells it, without its `!`.
 fn type_trait_spelling(k: TypeTraitKind) -> string {
-    if k == TypeTraitKind::TriviallyCopyable     { return "is_trivially_copyable"; }
-    if k == TypeTraitKind::TriviallyDestructible { return "is_trivially_destructible"; }
+    if k == TypeTraitKind::TriviallyCopyable     { return LangIntrinsics::is_trivially_copyable(); }
+    if k == TypeTraitKind::TriviallyDestructible { return LangIntrinsics::is_trivially_destructible(); }
     return "";
 }
 

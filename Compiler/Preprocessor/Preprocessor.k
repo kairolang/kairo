@@ -871,10 +871,10 @@ class PPWalker
         // as ordinary macros.
         if path_toks.size() == 1 {
             var sp = TokenText::spelling(name_tok, self._tcm);
-            if (sp == "label") || (sp == "jump") || (sp == "unwrap") { return result; }
-            if (sp == "is_trivially_copyable") || (sp == "is_trivially_destructible") { return result; }
+            if (sp == LangIntrinsics::label()) || (sp == LangIntrinsics::jump()) || (sp == LangIntrinsics::unwrap()) { return result; }
+            if (sp == LangIntrinsics::is_trivially_copyable()) || (sp == LangIntrinsics::is_trivially_destructible()) { return result; }
             // A `defined!` _builtin_defined already passed through raw.
-            if (sp == "defined") && self._defined_raw.contains(name_tok.range.start.raw()) { return result; }
+            if (sp == LangIntrinsics::defined()) && self._defined_raw.contains(name_tok.range.start.raw()) { return result; }
         }
 
         result.found   = true;
@@ -1391,45 +1391,45 @@ class PPWalker
         var name = self._sym_name(invoke->name_sym);
 
         // source location
-        if name == "file"        { return self._builtin_file(invoke); }
-        if name == "line"        { return self._builtin_line(invoke); }
-        if name == "column"      { return self._builtin_column(invoke); }
-        if name == "module_path" { return self._builtin_module_path(invoke); }
+        if name == LangMacros::file()        { return self._builtin_file(invoke); }
+        if name == LangMacros::line()        { return self._builtin_line(invoke); }
+        if name == LangMacros::column()      { return self._builtin_column(invoke); }
+        if name == LangMacros::module_path() { return self._builtin_module_path(invoke); }
 
         // argument manipulation
-        if name == "count"   { return self._builtin_count(invoke); }
-        if name == "first"   { return self._builtin_first(invoke); }
-        if name == "last"    { return self._builtin_last(invoke); }
-        if name == "rest"    { return self._builtin_rest(invoke); }
-        if name == "butlast" { return self._builtin_butlast(invoke); }
+        if name == LangMacros::count()   { return self._builtin_count(invoke); }
+        if name == LangMacros::first()   { return self._builtin_first(invoke); }
+        if name == LangMacros::last()    { return self._builtin_last(invoke); }
+        if name == LangMacros::rest()    { return self._builtin_rest(invoke); }
+        if name == LangMacros::butlast() { return self._builtin_butlast(invoke); }
 
         // token manipulation
-        if name == "paste"       { return self._builtin_paste(invoke); }
-        if name == "stringify"   { return self._builtin_stringify(invoke); }
-        if name == "unstringify" { return self._builtin_unstringify(invoke); }
+        if name == LangMacros::paste()       { return self._builtin_paste(invoke); }
+        if name == LangMacros::stringify()   { return self._builtin_stringify(invoke); }
+        if name == LangMacros::unstringify() { return self._builtin_unstringify(invoke); }
 
         // macro visibility
-        if name == "defined" { return self._builtin_defined(invoke); }
+        if name == LangIntrinsics::defined() { return self._builtin_defined(invoke); }
 
         // deferred code generation
-        if name == "todo"        { return self._builtin_todo(invoke); }
-        if name == "unreachable" { return self._builtin_unreachable(invoke); }
-        if name == "unreachable_unchecked" {
+        if name == LangMacros::todo()        { return self._builtin_todo(invoke); }
+        if name == LangMacros::unreachable() { return self._builtin_unreachable(invoke); }
+        if name == LangMacros::unreachable_unchecked() {
             return self._builtin_unreachable_unchecked(invoke);
         }
-        if name == "unique_id"   { return self._builtin_unique_id(invoke); }
-        if name == "include"     { return self._builtin_include(invoke); }
-        if name == "embed_str"   { return self._builtin_embed_str(invoke); }
-        if name == "embed"       { return self._builtin_embed(invoke); }
+        if name == LangMacros::unique_id()   { return self._builtin_unique_id(invoke); }
+        if name == LangMacros::include()     { return self._builtin_include(invoke); }
+        if name == LangMacros::embed_str()   { return self._builtin_embed_str(invoke); }
+        if name == LangMacros::embed()       { return self._builtin_embed(invoke); }
 
         // diagnostics
-        if name == "compile_error" {
+        if name == LangMacros::compile_error() {
             return self._builtin_diag(invoke, DiagSeverity::Error);
         }
-        if name == "compile_warn" {
+        if name == LangMacros::compile_warn() {
             return self._builtin_diag(invoke, DiagSeverity::Warning);
         }
-        if name == "compile_note" {
+        if name == LangMacros::compile_note() {
             return self._builtin_diag(invoke, DiagSeverity::Note);
         }
 
@@ -1439,26 +1439,27 @@ class PPWalker
     /// Builtin names are reserved unqualified: a user definition would never
     /// be reachable (dispatch checks builtins first), so `_handle_macro_def`
     /// rejects the definition outright instead of silently hijacking it.
-    /// MUST mirror the dispatch table in `_try_builtin`.
+    /// MUST mirror the dispatch table in `_try_builtin`; both spell every
+    /// name through LangMacros / LangIntrinsics, so a rename cannot split them.
     priv fn _is_builtin_name(self, name: string) -> bool {
-        return (name == "file")        || (name == "line")
-            || (name == "column")      || (name == "module_path")
-            || (name == "count")       || (name == "first")
-            || (name == "last")        || (name == "rest")
-            || (name == "butlast")     || (name == "paste")
-            || (name == "stringify")   || (name == "unstringify")
-            || (name == "defined")     || (name == "todo")
-            || (name == "unreachable") || (name == "unreachable_unchecked")
-            || (name == "unique_id")   || (name == "include")
-            || (name == "embed_str")   || (name == "embed")
-            || (name == "compile_error")
-            || (name == "compile_warn")
-            || (name == "compile_note")
+        return (name == LangMacros::file())        || (name == LangMacros::line())
+            || (name == LangMacros::column())      || (name == LangMacros::module_path())
+            || (name == LangMacros::count())       || (name == LangMacros::first())
+            || (name == LangMacros::last())        || (name == LangMacros::rest())
+            || (name == LangMacros::butlast())     || (name == LangMacros::paste())
+            || (name == LangMacros::stringify())   || (name == LangMacros::unstringify())
+            || (name == LangIntrinsics::defined())     || (name == LangMacros::todo())
+            || (name == LangMacros::unreachable()) || (name == LangMacros::unreachable_unchecked())
+            || (name == LangMacros::unique_id())   || (name == LangMacros::include())
+            || (name == LangMacros::embed_str())   || (name == LangMacros::embed())
+            || (name == LangMacros::compile_error())
+            || (name == LangMacros::compile_warn())
+            || (name == LangMacros::compile_note())
             // parser intrinsics (no _try_builtin entry: _detect_invocation
             // passes them through raw): reserved so a user macro named
             // label/jump can never be reached at an unqualified call site.
-            || (name == "label")       || (name == "jump")
-            || (name == "unwrap");
+            || (name == LangIntrinsics::label())       || (name == LangIntrinsics::jump())
+            || (name == LangIntrinsics::unwrap());
     }
 
     //  Builtin helpers
