@@ -44,7 +44,14 @@
 ///     inherited through a generic interface instance, concrete or
 ///     dependent (§7b.9), and constructor requirements: no member anywhere,
 ///     since `T(args)` is already the C++ for every conformer, only a
-///     concept clause (§7b.3). Not built: associated types.
+///     concept clause (§7b.3). Associated types (MONO.md G5): every row
+///     of an interface that declares one is a specialization, which opens
+///     with `using Node = <the conformer's type>;`; the primary declares
+///     none and leaves out every member whose signature names one, so a
+///     type with no specialization fails the concept's `typename
+///     I_witness<Self>::Node;` clause instead of hard-erroring inside the
+///     primary's instantiation; a bounded body spells `T::Node` as
+///     `typename I_witness<T>::Node` (CXXSpell::assoc_spelling).
 ///
 ///   Import law: CodegenContext only.
 ///
@@ -187,6 +194,9 @@ class EmitWitness {
     /// specialized, since its C++ type is not Kairo's to compare.
     fn needs_specialization(self, row: *ConformanceRow) -> bool {
         if (row == &null) || (row->conformer == &null) { return true; }
+        // The associated types are the specialization's member types, and
+        // the primary declares none (see the file header).
+        if self.has_assoc(cast::<InterfaceDecl>(row->iface_decl)) { return true; }
         // Nothing to forward -- every requirement a constructor (or an
         // associated type) -- and the primary is already right, for a
         // builtin conformer too: an empty specialization would be noise.
@@ -211,6 +221,27 @@ class EmitWitness {
             if w->is_operator != m->is_operator { return true; }
             var ms_sub = (subs[i]) if (subs[i] != &null) else (subst);
             if self._member_sig(w, &null, "") != self._member_sig(m, ms_sub, self._spell->_type(row->conformer)) { return true; }
+        }
+        return false;
+    }
+
+    /// \p idecl (composed) requires an associated type.
+    fn has_assoc(self, idecl: *InterfaceDecl) -> bool {
+        if (idecl == &null) || (idecl->compose_state != 2) { return false; }
+        for var i: usize = 0; i < idecl->requirements.size(); ++i {
+            var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(i)->decl);
+            if (ta != &null) && (ta->generic_params.size() == 0) { return true; }
+        }
+        return false;
+    }
+
+    /// \p m's signature names an associated type: the primary has no
+    /// member type to spell it with.
+    priv fn _names_assoc(self, m: *FunctionDecl) -> bool {
+        if CXXSpell::mentions_assoc(m->return_type) { return true; }
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var p = m->params[i];
+            if (p != &null) && (!p->is_self) && CXXSpell::mentions_assoc(p->type_) { return true; }
         }
         return false;
     }
@@ -275,6 +306,7 @@ class EmitWitness {
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
             if (m == &null) || m->is_poisoned() || decl_is_ctor_requirement(m) { continue; }
+            if self._names_assoc(m) { continue; }   // the specializations' alone.
             var sig  = self._member_sig(m, subs[i], me);
             var decl = self._member_decl(m, subs[i], me);
             var leaf = self._spell->leaf(static_cast::<*Decl>(m));
@@ -314,6 +346,8 @@ class EmitWitness {
         var k: usize = 0;
         var subs = vec::<*InstanceEntry>();
         var ms = self.members_with(idecl, &subs);
+        var saved_q = self._spell->assoc_self_qual;
+        self._spell->assoc_self_qual = self._spell->witness_name(p->iface) + self_args;
         for var i: usize = 0; i < ms.size(); ++i {
             var m = ms[i];
             if (m == &null) || m->is_poisoned() { continue; }
@@ -358,6 +392,21 @@ class EmitWitness {
             body += " " + self._spell->witness_name(p->iface) + self_args + "::"
                   + self._spell->witness_member_name(m) + "(" + args + ");";
         }
+        self._spell->assoc_self_qual = saved_q;
+        // Each associated type first: a type with no specialization has none,
+        // and fails here rather than at a member that names it.
+        var tn = "";
+        if idecl->compose_state == 2 {
+            for var i: usize = 0; i < idecl->requirements.size(); ++i {
+                var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(i)->decl);
+                if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
+                tn += " typename " + self._spell->witness_name(p->iface) + self_args + "::" + self._spell->leaf(static_cast::<*Decl>(ta)) + ";";
+            }
+        }
+        if tn.size() > 0 {
+            if conj.size() > 0 { conj += " && "; }
+            conj += "requires {" + tn + " }";
+        }
         if body.size() > 0 {
             if conj.size() > 0 { conj += " && "; }
             conj += ("requires {") if (parms.size() == 0) else ("requires (" + parms + ") {");
@@ -376,6 +425,17 @@ class EmitWitness {
         var x     = self._spell->_type(row->conformer);
         self._cg->sink->spell(at, self._spec_head(row) + "struct " + self._leaf_witness(p->iface)
                                   + self._spell->witness_args(x, row->iface) + " {");
+        // The associated types, ahead of the members whose signatures name
+        // them: the conformer's alias, or the default it took.
+        if idecl->compose_state == 2 {
+            for var i: usize = 0; i < idecl->requirements.size(); ++i {
+                var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(i)->decl);
+                if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
+                var at_t = (row->assoc_types[i]) if (i < row->assoc_types.size()) else (&null);
+                if at_t == &null { self._ice(CXXSpell::at(static_cast::<*Decl>(ta)), "EmitWitness: a row with no type for an associated type; ConformanceChecking records only complete rows on an instance"); }
+                self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(ta)), "using " + self._spell->leaf(static_cast::<*Decl>(ta)) + " = " + self._spell->_type(at_t, subst) + ";");
+            }
+        }
         var subs = vec::<*InstanceEntry>();
         var ms = self.members_with(idecl, &subs, row);
         for var i: usize = 0; i < ms.size(); ++i {

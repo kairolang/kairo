@@ -67,6 +67,11 @@ class CXXSpell {
     /// `__kairo_Self` in the primary, the conformer in a specialization.
     /// Null everywhere else, where an interface type is still an ICE.
     pub var self_iface:    *Decl  = &null;
+    /// While EmitWitness writes a CONCEPT: the witness an associated type
+    /// over Self is a member of, spelled (`::ns::I_witness<__kairo_Self>`).
+    /// Empty inside a specialization, whose own `using Node = ...;` the
+    /// bare name finds.
+    pub var assoc_self_qual: string = "";
     pub var self_spelling: string = "";
     /// While InterfaceEmitter writes a pack-expanded variant's payload struct
     /// (a template over one element): the enum's pack parameter, which
@@ -748,6 +753,16 @@ class CXXSpell {
             case TypeKind::GenericParamType {
                 return self._join(self._gparam(cast::<GenericParamType>(t), subst), name);
             }
+            // `T::Node` is the witness's member type: `typename
+            // ::ns::Graph_witness<T>::Node`. One template body, every
+            // instance: each conformance's specialization declares it
+            // (EmitWitness), so C++ selects the type per instance (MONO.md
+            // D2). Inside a witness, a base that is the interface's Self is
+            // spelled as Self is there. `typename` always: it is allowed on
+            // a qualified name that turns out not to be dependent.
+            case TypeKind::AssocType {
+                return self._join(self.assoc_spelling(cast::<AssocType>(t), subst, scope), name);
+            }
             // A generic VALUE argument (`4` of `Buf<4>`): the integer.
             case TypeKind::TypeExpr {
                 var v = cast::<TypeExpr>(t);
@@ -996,6 +1011,35 @@ class CXXSpell {
         return CXXSpell::_member_type(self._type(q, subst, scope), q->is_dependent(), leaf, targs);
     }
 
+    /// \p t names an associated type anywhere inside it (`Self::Node`,
+    /// `[Self::Node]`): a witness member whose signature does is served by
+    /// the specializations alone (EmitWitness).
+    static fn mentions_assoc(t: *Type) -> bool {
+        if t == &null { return false; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        switch c->kind {
+            case TypeKind::AssocType       { return true; }
+            case TypeKind::QualifiedType   { return CXXSpell::mentions_assoc(cast::<QualifiedType>(c)->inner); }
+            case TypeKind::PointerType     { return CXXSpell::mentions_assoc(cast::<PointerType>(c)->pointee); }
+            case TypeKind::NullableType    { return CXXSpell::mentions_assoc(cast::<NullableType>(c)->inner); }
+            case TypeKind::FixedArrayType  { return CXXSpell::mentions_assoc(cast::<FixedArrayType>(c)->element); }
+            case TypeKind::CXXLValueRefType { return CXXSpell::mentions_assoc(cast::<CXXLValueRefType>(c)->referee); }
+            case TypeKind::CXXRValueRefType { return CXXSpell::mentions_assoc(cast::<CXXRValueRefType>(c)->referee); }
+            case TypeKind::RecordType {
+                var r = cast::<RecordType>(c);
+                for var i: usize = 0; i < r->args.size(); ++i { if CXXSpell::mentions_assoc(*(r->args.get(i))) { return true; } }
+                return false;
+            }
+            case TypeKind::FunctionPointerType {
+                var f = cast::<FunctionPointerType>(c);
+                for var i: usize = 0; i < f->params.size(); ++i { if CXXSpell::mentions_assoc(*(f->params.get(i))) { return true; } }
+                return CXXSpell::mentions_assoc(f->return_type);
+            }
+            default { return false; }
+        }
+    }
+
     /// The text of dependent_member_type from an already-spelled qualifier.
     static fn _member_type(q: string, dependent: bool, leaf: string, targs: string) -> string {
         if !dependent { return q + "::" + leaf + targs; }
@@ -1087,6 +1131,59 @@ class CXXSpell {
         var ns = self.ns_segments(r);
         for var i: usize = 0; i < ns.size(); ++i { s += "::"; s += ns[i]; }
         return s + "::" + self.leaf(r);
+    }
+
+    /// `typename ::ns::I_witness<B, A...>::Node` for associated type \p a.
+    ///
+    /// The witness is the BOUND's (`G impl Big`, Big derives Graph:
+    /// `Big_witness<G>::Node`), since rows -- and so specializations -- exist
+    /// for the bound, not for the interface that declares the requirement.
+    /// A base that is an interface's Self is only ever spelled inside a
+    /// witness: there the bare member name (a specialization) or
+    /// assoc_self_qual (a concept).
+    fn assoc_spelling(self, a: *AssocType, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
+        var leaf = self.leaf(a->assoc);
+        var b = canon_unqual(a->base);
+        if isa::<RecordType>(b) && isa::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(b)->decl)))) {
+            if self.assoc_self_qual.size() == 0 { return leaf; }
+            return "typename " + self.assoc_self_qual + "::" + leaf;
+        }
+        var via = a->iface;
+        var g = dyn_cast::<GenericParamType>(b);
+        if g != &null {
+            var bt = self._assoc_bound(g, a);
+            if bt != &null { via = bt; }
+        }
+        var ic = canon_unqual(via);
+        if (ic == &null) || (!isa::<RecordType>(ic)) { self._ice(a->range, "CXXSpell: an associated type through a non-interface"); return ""; }
+        var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(ic)->decl)));
+        var q = self.witness_name(idecl) + self.witness_args(self._type(a->base, subst, scope), via, subst);
+        return CXXSpell::_member_type(q, true, leaf, "");
+    }
+
+    /// The bound of \p g whose interface requires \p a's associated type
+    /// (itself or through what it derives), or null.
+    priv fn _assoc_bound(self, g: *GenericParamType, a: *AssocType) -> *Type {
+        if g->owner == &null { return &null; }
+        var cs = vec::<*ConstraintExpr>();
+        CXXSpell::impl_bounds(decl_requires_clause(CXXSpell::rep(g->owner)), &cs);
+        var want = CXXSpell::rep(a->assoc);
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var bt = canon_unqual(c->rhs->canonical);
+            if !isa::<RecordType>(bt) { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(bt)->decl))));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                if CXXSpell::rep(idecl->requirements.get(j)->decl) == want { return bt; }
+            }
+        }
+        return &null;
     }
 
     /// `<Self, A...>`: a witness's or concept's arguments for interface

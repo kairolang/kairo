@@ -2013,11 +2013,15 @@ class EmitIR {
         var f = dyn_cast::<FunctionDecl>(callee);
         if n->ctor_decl != &null { f = dyn_cast::<FunctionDecl>(n->ctor_decl); }
         var inst  = reinterpret_cast::<*InstanceEntry>(n->instance);
-        var bound = (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f)
+        // `T::Node(args)`: the callee is the requirement, the type is the
+        // witness's member type, constructed as any type is (CallTyping
+        // admitted it through a constructor bound).
+        var assoc_ctor = isa::<TypeAliasDecl>(callee) && (n->type_ != &null) && isa::<AssocType>(canon_unqual(n->type_));
+        var bound = (n->ctor_decl != &null) || self._is_type_decl(callee) || self._is_ctor(f) || assoc_ctor
                  || ((last != &null) && (last->access_kind != ChainExpr::AccessKind::ColonColon));
         self._check_arity(n, f, bound);
 
-        if self._is_ctor(f) || self._is_type_decl(callee) {
+        if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
             self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
         } else if n->witness_iface != &null {
@@ -2712,6 +2716,12 @@ class EmitIR {
         }
         if e->type_ == &null { self._ice_untyped(e, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure"); }
         var c = canon_unqual(e->type_);
+        // `T::Node { }`: ControlTyping admits it with no fields only, through
+        // a constructor bound; C++ value-initializes the witness's member type.
+        if c->kind == TypeKind::AssocType {
+            self._cg->sink->spell(e->range, self._spell._type(e->type_) + "{}");
+            return;
+        }
         if (c->kind != TypeKind::RecordType) { self._ice(e->range, "EmitIR: initializer of a non-record type"); }
         var rd = CXXSpell::rep(cast::<RecordType>(c)->decl);
         var layout = self._layout_of(rd);

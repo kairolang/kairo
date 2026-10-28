@@ -92,6 +92,7 @@ class <D> RecursiveASTVisitor {
             case TypeKind::CXXRValueRefType      { return self.dyn()->traverse_cxxr_value_ref_type(      cast::<CXXRValueRefType>(e)       ); }
             case TypeKind::FunctionPointerType   { return self.dyn()->traverse_function_pointer_type(    cast::<FunctionPointerType>(e)    ); }
             case TypeKind::SubstGenericParamType { return self.dyn()->traverse_subst_generic_param_type( cast::<SubstGenericParamType>(e)  ); }
+            case TypeKind::AssocType             { return e; }   // canonical only: never in a written tree.
             case TypeKind::RecoveryType          { self.dyn()->visit_type(e); return e; }
             case TypeKind::TypeKindCount         {  ICE_FAIL("TypeKind::TypeKindCount reached RAV - this is a bug"); return &null; }
         }

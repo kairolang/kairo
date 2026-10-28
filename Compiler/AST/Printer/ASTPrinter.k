@@ -3745,6 +3745,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             case TypeKind::OpaqueFFIType         { return "OpaqueFFIType";         }
             case TypeKind::QualifiedType         { return "QualifiedType";         }
             case TypeKind::TypeExpr              { return "TypeExpr";              }
+            case TypeKind::AssocType             { return "AssocType";             }
             default                              { return "<type>";               }
         }
     }

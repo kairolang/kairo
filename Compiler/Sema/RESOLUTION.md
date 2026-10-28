@@ -292,9 +292,10 @@ What T decides:
   `unqualified_out_of_line` (§ N(b)). `_primary_of_spec` applies the same
   rule to a spec whose semantic scope is an imported primary's.
 - **`::` segments** step through `context_of(decl)`, alias expanded first,
-  spelled for cross-TU probes. `T::Item` and `Foo<T>::Inner` are marked
-  dependent and stopped (#5); `T::Item` resolves through the bound,
-  definition-side, never per instance (MONO.md G5). The one
+  spelled for cross-TU probes. `Foo<T>::Inner` (and `T::Item` on a `: type` or
+  `derives`-bounded T) are marked dependent and stopped (#5); `T::Item` on
+  an interface-bounded T resolves through the bound, definition-side, never
+  per instance (MONO.md G5). The one
   exception is an IMPORTED `Foo` with concrete args: `Foo<Args>::Inner`
   steps into the registry instance, which `_scope_of` has clang fill first
   (`MemberLookup::ensure_filled`, IMPORTS.md §5); only a failed fill defers.
@@ -1117,7 +1118,32 @@ interface bound of the receiver parameter (`TypeUtil::bound_ifaces`) whose
 initializer is checked; MONO.md G7, D0). A bound over the body's own
 parameter (`C impl Fancy<E>`) binds V := E and the result is E. A
 non-generic interface binds nothing and is not seeded. An associated-type
-result (`-> Self::Node`) does not substitute and stays unknown (G5). In a GENERIC
+result (`-> Self::Node`) reads `T::Node` through the bound (below).
+
+**Associated types** [DONE, MONO.md G5]. T resolves `Self::Node` (or bare
+`Node`) inside the interface, and `T::Node` on a T with interface bounds,
+to one canonical `AssocType` (base, interface instance, requirement): the
+base is the interface's Self record or the parameter, the interface is the
+one that DECLARES the requirement (normalized, `TypeUtil::assoc_iface`, so
+`G::Node` through `G impl Big`, `Big derives Graph`, and Graph's `first()
+-> Self::Node` through the same G are one type). It is checked against the
+bounds there and then: no bound declaring it is R025E, two is R028E, a
+default naming a later one is the order rule's error, a generic associated
+type or a member of one is SC116E. Inside the interface it is never
+expanded; its `aliased` is the DEFAULT. One rule,
+`Substitution::assoc_witness`, says what it is for a concrete base: the
+conformer's alias (member, inherited, or extension), read through its
+arguments; else, for an EXPLICIT conformer only, the default with Self :=
+the conformer. `replace_self` and `substitute` both route through it, so
+the conformance match (`-> Self::Node` against `-> i64`), a call result
+through a bound (`T::Node` in the body) and the instance fact (`T::Node :=
+S` at `bar(c)`) cannot disagree (D0: facts by substitution, never by
+re-typing). ConformanceChecking records the supplied type on the row
+(`assoc_types`), requires it of a structural conformer, and checks it
+against the associated type's own bounds. In a body a value of type
+`T::Node` has no members (SC116E: lookup through its bounds is not built)
+and is built only through a constructor its bounds promise (`type Node
+impl Default` makes `T::Node{}` / `T::Node()` legal; otherwise SC001E). In a GENERIC
 interface `Self` is `I<T...>` over its own parameters, so the Self rule
 (`through_receiver`) also takes that spelling, and CallTyping applies it
 before the substitution for a concrete receiver: substituted first, `I<T>`
@@ -1672,6 +1698,9 @@ Kairo generics at types Kairo never enumerates (MONO.md §2).
   Instances). Dependent conformance (`f<T>` calling `g<Wrap<T>>`) is
   ConformanceChecking's reach, before the Typed barrier (§2b, "The
   conformance table").
+- `T::Item` is T's (resolved through the bound), and what it is at an
+  instance is a substitution (`Substitution::assoc_witness`), not an M2
+  pass.
 
 **The `: type` regime** [DONE, MONO.md D1]. No Kairo pass re-checks a
 `: type` body per instance; there is no `retype_instance`. The body is

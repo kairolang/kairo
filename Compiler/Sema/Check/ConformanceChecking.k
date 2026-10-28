@@ -795,8 +795,9 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         row.declared   = declared;
         row.ok         = true;
         // Parallel to the interface's composed requirement list. An
-        // associated type's entry has no witness decl yet (they are not
-        // compiled) and does not fail the row.
+        // associated type's witness is the conformer's alias (or, for a
+        // default, the requirement itself) and its type goes in
+        // `assoc_types`; one the conformer does not supply fails the row.
         var decls = vec::<*Decl>();
         var srcs  = vec::<*Type>();
         self._reqs(idecl, iface, &decls, &srcs);
@@ -804,6 +805,15 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             var m = dyn_cast::<FunctionDecl>(decls[i]);
             var w: *Decl = &null;
             var ea = vec::<*Type>();
+            var at: *Type = &null;
+            var ta = dyn_cast::<TypeAliasDecl>(decls[i]);
+            if ta != &null {
+                w = self._assoc_implementation(x, iface, ta, &at);
+                // The supplied type must meet the associated type's own
+                // bounds (`type Item impl Display`).
+                if (w != &null) && (at != &null) && (!self._assoc_bounds_met(at, ta, x)) { w = &null; }
+                if w == &null { row.ok = false; }
+            }
             if m != &null {
                 var k = self._iface_decl(srcs[i]);
                 w = self._implementation(x, srcs[i], k, m);
@@ -815,6 +825,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             row.witnesses.push_back(w);
             row.reqs.push_back(decls[i]);
             row.sources.push_back(srcs[i]);
+            row.assoc_types.push_back(at);
             row.ext_arg_count.push_back(ea.size());
             for var k2: usize = 0; k2 < ea.size(); ++k2 { row.ext_args.push_back(ea[k2]); }
         }
@@ -1037,6 +1048,55 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             return NameLookup::representative(static_cast::<*Decl>(f));
         }
         return &null;
+    }
+
+    /// What supplies associated-type requirement \p ta of \p iface on
+    /// \p x: \p x's alias of that name, or \p ta itself when an explicit
+    /// conformance takes its default; null when nothing does (structural
+    /// conformance never takes a default). The type goes in \p out --
+    /// Substitution::assoc_witness's answer, the same one every use reads.
+    /// A dependent \p x (a generic row's `Wrap<E>`) reads its alias through
+    /// E, which the partial specialization spells. A generic associated
+    /// type is not checked: its uses are SC116E.
+    priv fn _assoc_implementation(self, x: *Type, iface: *Type, ta: *TypeAliasDecl, out: *(*Type)) -> *Decl {
+        if ta->generic_params.size() > 0 { return static_cast::<*Decl>(ta); }
+        var d = Deduction(self.sc, &null);
+        var t = d.assoc_witness(x, iface, static_cast::<*Decl>(ta));
+        if (t == &null) || isa::<AssocType>(canon_unqual(t)) { return &null; }
+        (*out) = t;
+        // The alias, when x declares one (a default has none): codegen
+        // spells the type either way, the decl is for the report's note.
+        var cands = vec::<*Decl>();
+        var imms = self.sc->ctx->get_imm_table();
+        self.ml.lookup(x, DeclName::ident(imms->intern_ident_copy(self.tu.decl_name(static_cast::<*Decl>(ta)))), &cands);
+        for var i: usize = 0; i < cands.size(); ++i {
+            var a = dyn_cast::<TypeAliasDecl>(cands[i]);
+            if (a != &null) && (!a->is_associated) { return NameLookup::representative(cands[i]); }
+        }
+        return static_cast::<*Decl>(ta);
+    }
+
+    /// \p t, supplied for associated type \p ta by conformer \p x, meets
+    /// every `impl` bound \p ta declares, `Self` in a bound read as \p x.
+    /// A bound still dependent after that is not checked here.
+    priv fn _assoc_bounds_met(self, t: *Type, ta: *TypeAliasDecl, x: *Type) -> bool {
+        var cs = vec::<*ConstraintExpr>();
+        self._impl_bounds(ta->requires_clause, &cs);
+        var home: *Decl = &null;
+        if ta->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(ta->semantic_dc)->owner_decl(); }
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var bt = canon_unqual(c->rhs->canonical);
+            if bt->is_dependent() && (home != &null) {
+                var d = Deduction(self.sc, &null);
+                bt = canon_unqual(d.replace_self(bt, NameLookup::representative(home), x, true));
+            }
+            if bt->is_dependent() { continue; }
+            var r = self.conforms(canon_unqual(t), bt);
+            if (r != &null) && (!r->ok) { return false; }
+        }
+        return true;
     }
 
     /// The constructor of \p x that meets constructor requirement \p m, or
@@ -1328,14 +1388,22 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var is = self.tu.str(iface);
         var missing = "";
         var req: *FunctionDecl = &null;
+        var areq: *TypeAliasDecl = &null;
         if row != &null {
             var decls = vec::<*Decl>();
             var srcs  = vec::<*Type>();
             self._reqs(cast::<InterfaceDecl>(row->iface_decl), row->iface, &decls, &srcs);
+            // A missing associated type first: every requirement that names
+            // it then fails too, and only it says why.
             for var i: usize = 0; (i < row->witnesses.size()) && (i < decls.size()); ++i {
                 if row->witnesses[i] != &null { continue; }
+                var ta = dyn_cast::<TypeAliasDecl>(decls[i]);
+                if ta != &null { areq = ta; break; }
+            }
+            for var i: usize = 0; (areq == &null) && (i < row->witnesses.size()) && (i < decls.size()); ++i {
+                if row->witnesses[i] != &null { continue; }
                 var f = dyn_cast::<FunctionDecl>(decls[i]);
-                if f == &null { continue; }   // an associated type: not checked yet.
+                if f == &null { continue; }
                 req = f;
                 missing = self._req_name(req);
                 break;
@@ -1343,6 +1411,37 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         }
         if (row != &null) && (row->clash != &null) {
             self._report_clash(at, b, xs, is, row, e);
+            return;
+        }
+        if areq != &null {
+            var an = self.tu.decl_name(static_cast::<*Decl>(areq));
+            var dd = Deduction(self.sc, &null);
+            var sup = dd.assoc_witness(x, row->iface, static_cast::<*Decl>(areq));
+            if (sup != &null) && (!isa::<AssocType>(canon_unqual(sup))) {
+                // Supplied, but not meeting the associated type's own bounds.
+                var ss = self.tu.str(sup);
+                var bd = self.sc->diag->report(DiagID::SC001E, at.start,
+                    f"'{xs}' does not conform to '{is}': its associated type '{an}' is '{ss}', which does not meet the bounds '{an}' declares");
+                bd.first(at);
+                if b != &null { bd.note(b->range.start, f"required by this bound").first(b->range); }
+                bd.note(areq->range.start, f"'{an}' and its bounds are declared here").first(areq->range);
+                if e != &null { self.chain_notes(&bd, e); }
+                bd.emit();
+                return;
+            }
+            // interfaces.md, Defaults: a structural conformer declares every
+            // associated type; only an explicit `impl` takes a default.
+            var ad = self.sc->diag->report(DiagID::SC001E, at.start,
+                f"'{xs}' does not conform to '{is}': it declares no associated type '{an}\x27");
+            ad.first(at);
+            if b != &null { ad.note(b->range.start, f"required by this bound").first(b->range); }
+            if (areq->aliased != &null) && (row->declared == &null) {
+                ad.note(areq->range.start, f"'{an}' has a default, but a default applies only to a type that declares 'impl {is}\x27").first(areq->range);
+            } else {
+                ad.note(areq->range.start, f"'{an}' is required here").first(areq->range);
+            }
+            if e != &null { self.chain_notes(&ad, e); }
+            ad.emit();
             return;
         }
         var msg = f"'{xs}' does not conform to '{is}\x27";

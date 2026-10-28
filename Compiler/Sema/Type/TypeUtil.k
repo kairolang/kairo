@@ -195,6 +195,102 @@ class TypeUtil {
         return out;
     }
 
+    /// The interface instance an AssocType for requirement \p td carries
+    /// when it is named through \p through (a bound, or the Self of the
+    /// interface it is named in): its DECLARING interface, so one entity has
+    /// one canonical however it was reached -- `G::Node` through `G impl
+    /// Big`, `Big derives Graph`, and Graph's `first() -> Self::Node`
+    /// through the same G are the same type. \p through itself when it is
+    /// the declaring interface (its arguments are then exact); the plain
+    /// record of a non-generic declaring interface; null for one inherited
+    /// from a GENERIC interface, whose arguments as seen from \p through
+    /// are not computed (SC116E at the use).
+    fn assoc_iface(self, through: *Type, td: *Decl) -> *Type {
+        if (through == &null) || (td == &null) || (td->semantic_dc == &null) { return &null; }
+        var home = reinterpret_cast::<*DeclContext>(td->semantic_dc)->owner_decl();
+        if (home == &null) || (!isa::<InterfaceDecl>(home)) { return &null; }
+        home = NameLookup::representative(home);
+        var td0 = self.record_decl(canon_unqual(through));
+        if (td0 != &null) && (NameLookup::representative(self.pattern_of(td0)) == home) { return canon_unqual(through); }
+        if decl_generic_params(home).size() > 0 { return &null; }
+        var none = vec::<*Type>();
+        return self.sc->types->record(home, &none);
+    }
+
+    /// `T::name` in expression position (`T::Node { }`, `T::Node()`): the
+    /// associated type the first of \p t's interface bounds that declares
+    /// \p name gives, or null. Type position resolves it in T, which also
+    /// reports the ambiguity of two bounds declaring it; this reads the same
+    /// composed requirement lists.
+    fn assoc_named(self, t: *Type, name: string) -> *Type {
+        var bs = self.bound_ifaces(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var d = self.record_decl(bs[i]);
+            if d == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.pattern_of(d)));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(j)->decl);
+                if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
+                if self.decl_name(static_cast::<*Decl>(ta)) != name { continue; }
+                var ai = self.assoc_iface(bs[i], static_cast::<*Decl>(ta));
+                if ai == &null { return &null; }
+                return self.sc->types->assoc(canon_unqual(t), ai, NameLookup::representative(static_cast::<*Decl>(ta)));
+            }
+        }
+        return &null;
+    }
+
+    /// Associated type \p t's own bounds (`type Node impl Default`) promise a
+    /// constructor taking \p arity arguments: the one thing that lets a
+    /// generic body build a value of it (interfaces.md, Generic Bodies).
+    fn assoc_has_ctor(self, t: *Type, arity: usize) -> bool {
+        var a = dyn_cast::<AssocType>(canon_unqual(t));
+        if a == &null { return false; }
+        var ta = dyn_cast::<TypeAliasDecl>(a->assoc);
+        if ta == &null { return false; }
+        var cs = vec::<*ConstraintExpr>();
+        self._conjuncts(ta->requires_clause, &cs);
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            if c->is_derives() || (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var d = self.record_decl(canon_unqual(c->rhs->canonical));
+            if d == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.pattern_of(d)));
+            if idecl == &null { continue; }
+            var ms = vec::<*FunctionDecl>();
+            if idecl->compose_state == 2 {
+                for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                    var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
+                    if m != &null { ms.push_back(m); }
+                }
+            } else {
+                for var j: usize = 0; j < idecl->methods.size(); ++j { ms.push_back(idecl->methods[j]); }
+            }
+            for var j: usize = 0; j < ms.size(); ++j {
+                var m = ms[j];
+                if !decl_is_ctor_requirement(m) { continue; }
+                var n: usize = 0;
+                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { n += 1; } }
+                if n == arity { return true; }
+            }
+        }
+        return false;
+    }
+
+    priv fn _conjuncts(self, e: *Expr, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        if e->kind == ExprKind::BinaryOperatorExpr {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if (b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd) {
+                self._conjuncts(b->lhs, out);
+                self._conjuncts(b->rhs, out);
+            }
+            return;
+        }
+        if e->kind == ExprKind::ConstraintExpr { out->push_back(cast::<ConstraintExpr>(e)); }
+    }
+
     fn record_args(self, t: *Type) -> FrozenList::<*Type> {
         var u = canon_unqual(t);
         if (u == &null) || (!isa::<RecordType>(u)) { return create_empty_frozen_list::<*Type>(); }
@@ -898,6 +994,14 @@ class TypeUtil {
                 return "<T>";
             }
             case TypeKind::OpaqueFFIType  { return "<ffi type>"; }
+            // `T::Node`; `Self::Node` while the base is the interface's own
+            // Self (it is then the interface record itself).
+            case TypeKind::AssocType {
+                var a = cast::<AssocType>(t);
+                var nm = self.decl_name(a->assoc);
+                if a->base == a->iface { return "Self::" + nm; }
+                return self.str(a->base) + "::" + nm;
+            }
             case TypeKind::QualifiedType {
                 var q = cast::<QualifiedType>(t);
                 var s = "";

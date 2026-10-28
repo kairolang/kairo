@@ -1095,6 +1095,13 @@ fn EmitPlan::_witness_row(row: *ConformanceRow) {
     for var i: usize = 0; i < row->witnesses.size(); ++i {
         var w = row->witnesses[i];
         if w == &null { continue; }
+        // An associated type's witness is an alias (or the requirement, for
+        // a default): what the specialization needs is the TYPE, complete,
+        // since its inline members return it by value.
+        if isa::<TypeAliasDecl>(w) {
+            if (i < row->assoc_types.size()) && (row->assoc_types[i] != &null) { self._witness_dep(k, row->assoc_types[i]); }
+            continue;
+        }
         // A constructor slot is forwarded to by nothing: the bounded body
         // constructs `T(args)` itself, wherever the conformer is complete.
         if (i < ms.size()) && (ms[i] != &null) && decl_is_ctor_requirement(ms[i]) { continue; }
@@ -1970,6 +1977,13 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
             for var i: usize = 0; i < f->params.size(); ++i { self._admit_type(*(f->params.get(i)), PlanNeed::Fwd); }
             self._admit_type(f->return_type, PlanNeed::Fwd);
             self._admit_type(f->panic_result, PlanNeed::Complete);   // its value returns this (PANIC.md §4.1).
+        }
+        // `T::Node` names the bound's witness (its member type) and T.
+        case TypeKind::AssocType {
+            var a = cast::<AssocType>(c);
+            self._admit_type(a->base, PlanNeed::Fwd);
+            var ic = canon_unqual(a->iface);
+            if (ic != &null) && isa::<RecordType>(ic) { self._admit(cast::<RecordType>(ic)->decl, PlanNeed::Complete); }
         }
         case TypeKind::BuiltinType {
             // A builtin spelled as a Kairo declaration (`byte` -> Byte): an

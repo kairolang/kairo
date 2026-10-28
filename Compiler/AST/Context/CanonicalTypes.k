@@ -699,6 +699,49 @@ class CanonicalTypeStore {
         return ty;
     }
 
+    /// An associated type of \p base through interface instance \p iface
+    /// (AssocType). Dependent by construction, whatever \p base is: even
+    /// `record(Graph)`, a non-dependent record, stands for every conformer
+    /// while it is the interface's Self.
+    fn assoc(self, base: *Type, iface: *Type, assoc: *Decl) -> *Type {
+        if (base == &null) || (iface == &null) || (assoc == &null) { return &null; }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::AssocType)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(base));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(iface));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(assoc));
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::AssocType { continue; }
+                var a = cast::<AssocType>(c);
+                if (a->base == base) && (a->iface == iface) && (a->assoc == assoc) { return c; }
+            }
+        }
+
+        var at = self._alloc::<AssocType>();
+        at->kind  = TypeKind::AssocType;
+        at->range = SourceRange::invalid();
+        at->base  = base;
+        at->iface = iface;
+        at->assoc = assoc;
+        at->init_annotations(&(self._arena));
+        at->init_spans(&(self._arena));
+
+        var ty = static_cast::<*Type>(at);
+        ty->canonical = ty;
+        self._absorb_flags(ty, base);
+        self._absorb_flags(ty, iface);
+        ty->type_flags = static_cast::<Type::TypeFlags>(
+            static_cast::<u8>(ty->type_flags)
+          | static_cast::<u8>(Type::TypeFlags::IsDependent)
+          | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent));
+        self._insert(h, ty);
+        return ty;
+    }
+
     /// An opaque C++ type, keyed by its spelling imm. Genuinely a black box:
     /// two FFI headers naming `std::FILE` denote the same thing, and Kairo has
     /// nothing else to compare.

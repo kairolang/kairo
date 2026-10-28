@@ -96,6 +96,20 @@ class <T> MemberTyping {
         dyn()->poison_only(n);
     }
 
+    /// A member of an associated type (`x.show()` on `x: T::Item`, or
+    /// `T::Item::make()`): lookup through the associated type's own bounds
+    /// is not built (MONO.md G5), so it is SC116E rather than unknown.
+    priv fn _assoc_member_unsupported(self, n: *ChainExpr, st: *ChainExpr::Step, t: *Type) {
+        var a = cast::<AssocType>(canon_unqual(t));
+        var ts = dyn()->tu.str(t);
+        var b = dyn()->sc->diag->report(DiagID::SC116E, st->range.start,
+            f"a member of associated type '{ts}' cannot be used yet; lookup through an associated type's bounds is not supported");
+        b.first(st->range);
+        if (a->assoc != &null) && a->assoc->range.is_valid() { b.note(DiagID::SC116N, a->assoc->range.start, "the associated type is declared here").first(a->assoc->range); }
+        b.emit();
+        dyn()->poison_only(n);
+    }
+
     fn type_chain(self, n: *ChainExpr, expected: *Type) -> *Type {
         var info = dyn()->new_chain_info(n);
 
@@ -164,6 +178,10 @@ class <T> MemberTyping {
             // NeedsInference: bind now with the anchor T could not see.
             if (st->resolved_decl == &null) && (st->candidate_cell == &null)
             && ((st->name == &null) || (!st->name->is_poisoned())) && (!st->is_tuple_index()) {
+                if (cur_kind == 0) && (cur != &null) && isa::<AssocType>(canon_unqual(dyn()->ml.peel_ref(cur))) {
+                    self._assoc_member_unsupported(n, st, canon_unqual(dyn()->ml.peel_ref(cur)));
+                    return &null;
+                }
                 if (cur_kind == 0) && (cur != &null) {
                     var a = dyn()->cb.anchor_for_value(&null, cur);
                     dyn()->cb.bind_step(n, st, a);
@@ -172,8 +190,27 @@ class <T> MemberTyping {
                     // dependent by its decision (`: type`, or no bound
                     // answered): M2's, not a lookup to retry on T here.
                     if isa::<GenericParamType>(canon_unqual(cur_type)) {
+                        // `T::Node` naming an associated type of T's bounds
+                        // is that type (as in type position), not unknown.
+                        var at: *Type = &null;
+                        if (st->access_kind == ChainExpr::AccessKind::ColonColon) && (st->name != &null) && st->generic_args.is_empty() {
+                            at = dyn()->tu.assoc_named(cur_type, dyn()->sc->ctx->get_spelling(st->name->name));
+                        }
+                        if at != &null {
+                            cur_type = at;
+                            st->resolved_type = at;
+                            if is_last {
+                                info->receiver     = at;
+                                info->has_receiver = false;
+                            }
+                            continue;
+                        }
                         info->unknown = true;
                         dyn()->mark_unknown(n);
+                        return &null;
+                    }
+                    if isa::<AssocType>(canon_unqual(cur_type)) {
+                        self._assoc_member_unsupported(n, st, cur_type);
                         return &null;
                     }
                     var a = dyn()->cb.anchor_for_type(cur_type);
@@ -330,6 +367,29 @@ class <T> MemberTyping {
                 case DeclKind::ModuleDecl { cur_kind = 2; }
                 case DeclKind::GenericParamDecl { info->unknown = true; dyn()->mark_unknown(n); return &null; }
                 default {
+                    // `T::Node` that ChainBinding bound through T's bound to
+                    // the requirement itself: the associated type of T.
+                    if isa::<TypeAliasDecl>(d) && cast::<TypeAliasDecl>(d)->is_associated {
+                        var at: *Type = &null;
+                        if (cur_kind == 1) && (cur_type != &null) {
+                            var ct0 = canon_unqual(cur_type);
+                            if isa::<GenericParamType>(ct0) {
+                                at = dyn()->tu.assoc_named(ct0, dyn()->tu.decl_name(d));
+                            } else if (dyn()->tu.record_decl(ct0) != &null)
+                                   && isa::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(dyn()->tu.record_decl(ct0)))) {
+                                var ai = dyn()->tu.assoc_iface(ct0, d);
+                                if ai != &null { at = dyn()->sc->types->assoc(ct0, ai, NameLookup::representative(d)); }
+                            }
+                        }
+                        if at == &null { info->unknown = true; dyn()->mark_unknown(n); return &null; }
+                        if !is_last { self._assoc_member_unsupported(n, n->steps.get(i + 1), at); return &null; }
+                        cur_type = at;
+                        cur_kind = 1;
+                        st->resolved_type = at;
+                        info->receiver     = at;
+                        info->has_receiver = false;
+                        continue;
+                    }
                     if dyn()->tu.is_type_decl(d) {
                         cur_type = dyn()->type_from_type_decl(d, st->generic_args, n);
                         if cur_type == &null { dyn()->poison_only(n); return &null; }

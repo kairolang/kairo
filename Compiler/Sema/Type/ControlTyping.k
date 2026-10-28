@@ -530,6 +530,7 @@ class <T> ControlTyping {
     /// `T::Inner`, a duck-typed `T`) stays unknown; codegen ICEs on an
     /// untyped initializer, so this is the line between the two.
     priv fn _init_fields(self, n: *Expr, rec: *Type, fields: FrozenList::<InitField>) -> *Type {
+        if isa::<AssocType>(canon_unqual(rec)) { return self._assoc_init(n, rec, fields); }
         var d = dyn()->tu.record_decl(rec);
         if (d == &null) && rec->is_dependent() {
             for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
@@ -576,6 +577,38 @@ class <T> ControlTyping {
             if (ft != &null) && (!dyn()->check_convertible(f->value, ft)) { ok = false; }
         }
         if !ok { dyn()->poison_only(n); return &null; }
+        return rec;
+    }
+
+    /// `T::Node { }`: a generic body builds an associated type only through
+    /// a constructor its bounds promise (interfaces.md, Generic Bodies: a
+    /// body uses exactly what the bounds declare), so `{ }` needs a bound
+    /// with a no-argument constructor requirement, `type Node impl Default`.
+    /// Its fields are no bound's, so a field list is never allowed.
+    priv fn _assoc_init(self, n: *Expr, rec: *Type, fields: FrozenList::<InitField>) -> *Type {
+        for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
+        var a  = cast::<AssocType>(canon_unqual(rec));
+        var ts = dyn()->tu.str(rec);
+        var an = dyn()->tu.decl_name(a->assoc);
+        if fields.size() > 0 {
+            var b = dyn()->sc->diag->report(DiagID::SC088E, n->range.start,
+                f"'{ts}' is an associated type: a generic body knows none of its fields");
+            b.first(n->range);
+            b.note(a->assoc->range.start, f"'{an}' is declared here; build it through a constructor bound ('type {an} impl ...')").first(a->assoc->range);
+            b.emit();
+            dyn()->poison_only(n);
+            return &null;
+        }
+        if !dyn()->tu.assoc_has_ctor(rec, 0) {
+            var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"cannot construct '{ts}': no bound of associated type '{an}' requires a constructor taking no arguments");
+            b.first(n->range);
+            b.note(a->assoc->range.start, f"'{an}' is declared here; bound it with an interface that declares a constructor requirement").first(a->assoc->range);
+            b.emit();
+            dyn()->poison_only(n);
+            return &null;
+        }
+        n->value_category = Expr::ValueCategory::RValue;
         return rec;
     }
 

@@ -1,13 +1,9 @@
 // Associated types (interfaces.mdx, Associated Types): a conformer supplies
 // `type Node` with a type alias, a requirement names it as `Self::Node`, and
-// a generic body names it through its parameter as `T::Node`.
-//
-// XFAIL: *
-// Ticket "[Sema] Associated types are parsed but not compiled"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today `Self::Node` and
-// `T::Node` do not resolve and conformers do not supply them (status.mdx, Not
-// Compiled Yet). When it XPASSes, delete the XFAIL -- the run below is
-// already the real assertion.
+// a generic body names it through its parameter as `T::Node`. One template
+// body for every conformer: `T::Node` is the witness's member type,
+// `typename Graph_witness<G>::Node`, which each conformance's
+// specialization declares (MONO.md G5, D2).
 
 interface Graph {
     type Node
@@ -34,6 +30,14 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// CXX-NOT: internal compiler error
+// CXX: concept Graph_c = requires {
+// CXX-NEXT: typename::associated_type::Graph_witness<__kairo_Self>::Node;
+// CXX: template<> struct Graph_witness< ::associated_type::Road> {
+// CXX-NEXT: using Node = signed long;
+// CXX-NEXT: static Node first(const::associated_type::Road * self) {
+// CXX: typename::associated_type::Graph_witness<G>::Node n = ::associated_type::Graph_witness<G>::first((& g));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

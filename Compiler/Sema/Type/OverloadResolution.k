@@ -361,7 +361,20 @@ class OverloadResolution {
             if cs[i].viable && (cs[i].rank < best) { best = cs[i].rank; }
         }
         if best == 255 {
-            self._report_no_viable(&cs, at, name);
+            // An argument already diagnosed (poisoned) is no candidate's
+            // fault: "no matching overload" for it only repeats that error.
+            var any_poisoned = false;
+            if margs != &null {
+                for var i: usize = 0; i < margs->size(); ++i {
+                    if ((*margs)[i].expr != &null) && (*margs)[i].expr->is_poisoned() { any_poisoned = true; }
+                }
+            }
+            if fargs != &null {
+                for var i: usize = 0; i < fargs->size(); ++i {
+                    if ((*fargs)[i].expr != &null) && (*fargs)[i].expr->is_poisoned() { any_poisoned = true; }
+                }
+            }
+            if !any_poisoned { self._report_no_viable(&cs, at, name); }
             out.outcome = OvlOutcome::NoViable;
             return out;
         }

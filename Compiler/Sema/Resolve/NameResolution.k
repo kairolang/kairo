@@ -1937,7 +1937,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         // The scope exception's readability lint: `Node { .. }` binds, and
         // says `Self::Node` would read better (MemberLookup).
-        if (!h.from_local) && (!h.via_overlay) && (h.decl != &null) {
+        // Not the subject of an associated type's own bound: `type Node impl
+        // X` is parsed as the clause `Node impl X`, whose `Node` is the
+        // declaration's name token, not a use anyone wrote.
+        var own_bound = (h.decl != &null) && isa::<TypeAliasDecl>(h.decl) && (cast::<TypeAliasDecl>(h.decl)->name.range.start == n->range.start);
+        if (!h.from_local) && (!h.via_overlay) && (h.decl != &null) && (!own_bound) {
             var so = self._self_owner();
             if MemberLookup::is_member_type_of(h.decl, so) {
                 MemberLookup::warn_unqualified_member_type(self.sc, n->range, h.decl, so);

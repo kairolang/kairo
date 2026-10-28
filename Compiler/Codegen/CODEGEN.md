@@ -1395,6 +1395,21 @@ inside the class template's member bodies.
   written inside F's template, where T is in scope), and a specialization
   spells it through the source Sema substituted at the row's arguments
   (`ConformanceRow::sources`, `Container<i32>`), which is both at once.
+- **Associated types** [DONE, MONO.md G5]. `T::Node` in a bounded body
+  is the BOUND's witness's member type, `typename I_witness<T>::Node`
+  (CXXSpell::assoc_spelling), so one template body is right for every
+  instance and C++ picks the type per instance (MONO.md D2). Every row of
+  an interface that declares an associated type is a specialization,
+  opening with `using Node = <ConformanceRow::assoc_types[i]>;` (the
+  conformer's alias, or the default an explicit conformance took); members
+  after it name `Node` bare. The primary declares no associated type and
+  leaves out every member whose signature names one: a type with no
+  specialization (a C++ host's) then fails the concept, which opens with
+  `typename I_witness<Self>::Node;`, instead of hard-erroring inside the
+  primary's instantiation, as `using Node = typename Self::Node;` in the
+  primary would on any concept check of a non-conformer. `T::Node{}` and
+  `T::Node(args)` are value-initialization / construction of that member
+  type.
 - **Multiple bounds.** Each call is bound to one requirement and goes
   through the bound whose list contains it. Two bounds both declaring `m` is
   the typer's ambiguity (RESOLUTION.md §2b, "collide at the use"), never

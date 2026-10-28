@@ -114,6 +114,13 @@ class ConformanceRow {
     /// codegen cannot substitute; a specialization spells the requirement
     /// through this instance instead.
     pub var sources:   vec::<*Type>;
+    /// Parallel to `witnesses`: for an associated-type requirement, the
+    /// type the conformer supplies (its alias, or the default an explicit
+    /// conformance takes; Substitution::assoc_witness), null for any other
+    /// requirement. Its witness is the alias decl, or the requirement
+    /// itself for a default. EmitWitness spells it as the specialization's
+    /// member type.
+    pub var assoc_types: vec::<*Type>;
     /// A concrete row that a GENERIC declared row (`extend <E> Wrap<E> impl
     /// I`, conformer over its own parameters) covers -- same witnesses, its
     /// conformer and interface at this row's arguments -- or null. EmitPlan
@@ -675,6 +682,7 @@ class InstantiationRegistry {
         for var i: usize = 0; i < r->ext_arg_count.size(); ++i { row->ext_arg_count.push_back(r->ext_arg_count[i]); }
         for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }
         for var i: usize = 0; i < r->seen_by.size(); ++i { row->seen_by.push_back(r->seen_by[i]); }
+        for var i: usize = 0; i < r->assoc_types.size(); ++i { row->assoc_types.push_back(r->assoc_types[i]); }
         return row;
     }
 

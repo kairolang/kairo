@@ -430,6 +430,7 @@ class <D> ASTWriter {
             case TypeKind::CXXRValueRefType      { return self.dyn()->transform_cxxr_value_ref_type(      cast::<CXXRValueRefType>(t)      ); }
             case TypeKind::FunctionPointerType   { return self.dyn()->transform_function_pointer_type(    cast::<FunctionPointerType>(t)   ); }
             case TypeKind::SubstGenericParamType { return self.dyn()->transform_subst_generic_param_type( cast::<SubstGenericParamType>(t) ); }
+            case TypeKind::AssocType             { return t; }   // canonical and interned.
             case TypeKind::RecoveryType          { return t; }
             case TypeKind::TypeKindCount         {  ICE_FAIL("TypeKindCount reached ASTWriter - bug"); return &null; }
         }

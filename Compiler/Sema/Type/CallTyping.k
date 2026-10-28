@@ -921,6 +921,9 @@ class <T> CallTyping {
     /// clang pick per instance (RESOLUTION.md §2.9). Only a head with no
     /// record to name -- an unbounded `T::Inner` -- stays unknown.
     priv fn _ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
+        // `T::Node(args)`: only a constructor the associated type's bounds
+        // promise (see ControlTyping::_assoc_init).
+        if isa::<AssocType>(canon_unqual(rec)) { return self._assoc_ctor_call(n, rec); }
         var d = dyn()->tu.record_decl(rec);
         var dep = rec->is_dependent();
         if (d == &null) && dep { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
@@ -1008,6 +1011,24 @@ class <T> CallTyping {
             }
         }
         dyn()->mark_unknown(n);
+        return &null;
+    }
+
+    priv fn _assoc_ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
+        self._type_args_blind(n);
+        if dyn()->tu.assoc_has_ctor(rec, n->args.size()) {
+            n->value_category = Expr::ValueCategory::RValue;
+            return rec;
+        }
+        var a  = cast::<AssocType>(canon_unqual(rec));
+        var ts = dyn()->tu.str(rec);
+        var an = dyn()->tu.decl_name(a->assoc);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"cannot construct '{ts}': no bound of associated type '{an}' requires a constructor taking {n->args.size()} argument(s)");
+        b.first(n->range);
+        b.note(a->assoc->range.start, f"'{an}' is declared here; bound it with an interface that declares a constructor requirement").first(a->assoc->range);
+        b.emit();
+        dyn()->poison_only(n);
         return &null;
     }
 
