@@ -925,7 +925,11 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 var ed = t->import_edges.get(i);
                 if ed == &null { continue; }
                 var f = ed->target_fid;
-                if (f == 0) || (f == u32(-1)) { continue; }   // ffi or unresolved: no Kairo extension behind it.
+                // ffi or unresolved: no Kairo extension behind it. A native
+                // edge to fid 0 is the first input, imported back by a module.
+                var eid = dyn_cast::<ImportDecl>(ed->decl);
+                var native0 = (f == 0) && (eid != &null) && (eid->file_seg_count > 0);
+                if ((f == 0) && (!native0)) || (f == u32(-1)) { continue; }
                 var have = false;
                 for var k: usize = 0; k < self._visible.size(); ++k { if self._visible[k] == f { have = true; break; } }
                 if have { continue; }

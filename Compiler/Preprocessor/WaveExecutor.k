@@ -22,18 +22,23 @@ class WaveExecutor {
         self._pool = pool;
     }
 
-    /// \brief Runs waves until all fids are processed.
+    /// \brief Runs waves until no fid is ready.
     /// \param graph        the dep graph (mutated in-place - in_degree decremented)
     /// \param task_fn      called once per fid with (fid, mod_path)
     ///                     MUST be thread-safe: multiple calls run concurrently
+    /// \returns how many fids were dispatched. Fewer than the graph holds
+    ///          means some never became ready -- a cycle in the graph -- and
+    ///          the caller must say so: those files were never walked.
     fn run(
         self,
         graph:   *DepGraph,
         task_fn:  std::Function::<void, u32, ModulePath>
-    ) {
+    ) -> usize {
         var ready = graph->roots();
+        var dispatched: usize = 0;
 
         while ready.size() > 0 {
+            dispatched += ready.size();
             for fid in ready {
                 var mod_path = graph->mod_paths[fid];
                 
@@ -58,5 +63,6 @@ class WaveExecutor {
 
             ready = next;
         }
+        return dispatched;
     }
 }

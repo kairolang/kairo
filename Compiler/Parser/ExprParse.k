@@ -4201,7 +4201,9 @@ class <T> ExprParse {
             var id   = dyn_cast::<ImportDecl>(edge->decl);
             if id == &null { continue; }
             var fid = edge->target_fid;
-            if fid == 0 { continue; }
+            // 0 with no file segments is an unresolved ffi edge; a native one
+            // to fid 0 is the first input, imported back by a module of it.
+            if (fid == 0) && (id->file_seg_count == 0) { continue; }
 
             // --- wildcard edge: probe unmapped ------------------------------
             if id->is_wildcard {

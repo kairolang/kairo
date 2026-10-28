@@ -43,6 +43,11 @@ class DepGraph {
     pub var mod_paths: map::<u32, ModulePath>;   ///< fid -> its module path
     pub var all_fids:  set::<u32>;               ///< every fid in the graph
     pub var depth_exceeded_path: string = "";    ///< "" = under budget; else first file that hit --cmax-import-depth
+    /// Every import cycle the scan met, one per edge that closes one: the
+    /// files on it in import order, each importing the next and the last
+    /// importing the first (a self-import is one file). The edge from the
+    /// last back to the first is NOT in deps -- see _scan_one_import.
+    pub var cycles: vec::<vec::<u32>>;
 
     fn add_node(self, fid: u32, path: ModulePath) {
         if !self.all_fids.contains(fid) {
@@ -79,6 +84,7 @@ class DepScanner {
     priv var _resolver:    obs::<ImportResolver>;
     priv var _sym_table:   obs::<PreprocessorSymbolTable>;
     priv var _visiting:    set::<u32>;   ///< cycle detection
+    priv var _stack:       vec::<u32>;   ///< _visiting in visit order: a cycle's files, read back off it
     priv var _max_depth:   i32 = 512;    ///< --cmax-import-depth; 0 = unlimited
     /// What an earlier preprocess() of the batch scanned. A fid in it is
     /// followed through its recorded edges, never rescanned: a walked file's
@@ -143,7 +149,7 @@ class DepScanner {
 
     priv fn visit(self, fid: u32, mod_path: ModulePath, graph: *DepGraph, depth: u32) {
         if graph->all_fids.contains(fid) { return; }
-        if self._visiting.contains(fid)  { return; } // cycle
+        if self._visiting.contains(fid)  { return; } // cycle (_scan_one_import drops its edge)
 
         if (self._max_depth > 0) && (i32(depth) > self._max_depth) {
             if graph->depth_exceeded_path.empty() {
@@ -163,7 +169,8 @@ class DepScanner {
 
         graph->add_node(fid, mod_path);
         self._visiting.insert(fid);
-        finally { self._visiting.erase(fid); }
+        self._stack.push_back(fid);
+        finally { self._visiting.erase(fid); self._stack.pop_back(); }
 
         var stream = self._tcm->open_scan_stream(fid);
         if stream.lexer == &null { return; }
@@ -289,6 +296,25 @@ class DepScanner {
         }
 
         if dep.fid == u32(-1) { return; }   // unresolved: silent here; the PP walk errors
+
+        // A BACK edge -- the target is still on the scan's stack, so this
+        // import closes a cycle (`a` imports `b` imports `a`, or a file that
+        // imports itself) -- is recorded and left out of the graph. A cycle
+        // is an error (modules.mdx, Circular Dependencies), which the
+        // preprocessor reports from `cycles`. The edge stays out so the
+        // waves still walk every file: with it, each file on the cycle waits
+        // on another, none is ever walked, and the cycle used to vanish
+        // from the build with exit 0 -- no error, and no file to point one at.
+        if self._visiting.contains(dep.fid) {
+            var cyc = vec::<u32>();
+            var on = false;
+            for var i: usize = 0; i < self._stack.size(); ++i {
+                if self._stack[i] == dep.fid { on = true; }
+                if on { cyc.push_back(self._stack[i]); }
+            }
+            graph->cycles.push_back(cyc);
+            return;
+        }
 
         self.visit(dep.fid, dep.mod_path, graph, depth + 1);
         graph->add_edge(from_fid, dep.fid);

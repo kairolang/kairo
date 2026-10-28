@@ -36,9 +36,10 @@ the Nullable layout only once its TU has run EnumLayoutLowering). Only an
 import cycle -- which has no order in which every callee is finished
 first -- holds several TUs at Typed together; their Semas live until the
 group ends, each at a fixed address (an arena: Sema keeps `&self.sc` from
-its constructor on). Today the dependency scan drops a cyclic pair of user
-files altogether (TICKETS), so a group of more than one TU does not occur
-yet. A TU that stopped before Typed (a hard stop in I/N/T) is neither
+its constructor on). An import cycle is a compile error (modules.mdx,
+Circular Dependencies): the dependency scan records the edge that closes
+it and the preprocessor reports it (R001E), so the run stops after parse
+and a group of more than one TU does not reach sema today. A TU that stopped before Typed (a hard stop in I/N/T) is neither
 registered nor continued; a call into it says nothing about panics. A run
 with no driver table (`sc->effects` null) solves its own TU in
 PanicEffectChecking, reading other TUs' sets as they were left.

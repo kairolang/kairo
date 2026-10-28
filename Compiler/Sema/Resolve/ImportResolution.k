@@ -106,7 +106,9 @@ class ImportResolution {
 
         // native: fid -> source TU
         var fid = id->resolved_fid;
-        if fid == 0 { return; }                 // unresolved; PP already errored.
+        // Unresolved; PP already errored. Not `fid == 0`: that is the first
+        // input, and a module it imports may import it back.
+        if id->file_seg_count == 0 { return; }
         var src_tu = self._source_tu(fid);
         if src_tu == &null { return; }
         var src_syms = src_tu->symbols();

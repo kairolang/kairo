@@ -487,11 +487,14 @@ class PPWalker
         self._tu->imports.push(static_cast::<*Decl>(id));
 
         // resolve NOW; errors HERE. record() stamps id->resolved_fid and hands
-        // back the source-module fid; a non-zero fid becomes a TU import edge in
-        // declaration order (the one writer of import_edges). ffi imports never
-        // reach here, so no edge is ever synthesized for them.
+        // back the source-module fid; a resolved import becomes a TU import
+        // edge in declaration order (the one writer of import_edges). ffi
+        // imports never reach here, so no edge is ever synthesized for them.
+        // Resolved is file_seg_count, not a non-zero fid: fid 0 is the first
+        // input, which a module it imports may import back (an import cycle
+        // through the entry file), and that edge was dropped with the rest.
         var target_fid = self._imports->record(id);
-        if target_fid != 0 {
+        if id->file_seg_count > 0 {
             var edge = ImportEdge{};
             edge.target_fid = target_fid;
             edge.decl       = static_cast::<*Decl>(id);
@@ -2717,6 +2720,54 @@ class PreProcessor {
         return self._walk_one(fid, mod_path);
     }
 
+    /// The `import` in \p from that names \p to, as the walk recorded it,
+    /// or an invalid range when there is none.
+    priv fn _import_range(self, from: u32, to: u32) -> SourceRange {
+        var ctx = self._gscope->get_context(from);
+        if (ctx == &null) || (ctx->tu == &null) { return SourceRange::invalid(); }
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        for var i: usize = 0; i < tu->import_edges.size(); ++i {
+            var e = tu->import_edges.get(i);
+            if (e == &null) || (e->target_fid != to) || (e->decl == &null) { continue; }
+            return e->decl->range;
+        }
+        return SourceRange::invalid();
+    }
+
+    /// An import cycle (modules.mdx, Circular Dependencies: a compile
+    /// error). \p cyc is its files in import order, the last importing the
+    /// first (DepGraph::cycles). The error is at the import that closes it
+    /// -- the one the scan met with its target still open -- and each edge
+    /// of the cycle gets a note at its own import, so the whole loop reads
+    /// off the diagnostic. No fix-it: which import to drop, or what to move
+    /// into a third module, is a design call.
+    priv fn _report_cycle(self, cyc: *vec::<u32>) {
+        var n = cyc->size();
+        if n == 0 { return; }
+        var path = "";
+        for var i: usize = 0; i < n; ++i {
+            path += Path::filename_of(self._sm->get_filename((*cyc)[i]));
+            path += " -> ";
+        }
+        path += Path::filename_of(self._sm->get_filename((*cyc)[0]));
+        var last  = (*cyc)[n - 1];
+        var first = (*cyc)[0];
+        var at = self._import_range(last, first);
+        var msg = f"import cycle: {path}; a module cannot import itself, directly or through other modules";
+        if n == 1 { msg = f"'{Path::filename_of(self._sm->get_filename(first))}' imports itself; a module cannot import itself, directly or through other modules"; }
+        var b = self._diag->report(DiagID::R001E, at.start, msg);
+        b.first(at, "this import closes the cycle");
+        if n > 1 {
+            for var i: usize = 0; i < n; ++i {
+                var a = (*cyc)[i];
+                var t = (*cyc)[(i + 1) % n];
+                var r = self._import_range(a, t);
+                b.note(r.start, f"'{Path::filename_of(self._sm->get_filename(a))}' imports '{Path::filename_of(self._sm->get_filename(t))}' here");
+            }
+        }
+        b.emit();
+    }
+
     fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> PPResult {
         var out = PPResult();
 
@@ -2818,6 +2869,7 @@ class PreProcessor {
         }
 
         var executor = WaveExecutor(self._pool);
+        var dispatched: usize = 0;
         {
             // One region, not a Wave/walk pair. The driver's time here is the
             // wave's LATENCY (dispatch + dependency stalls); each worker bills
@@ -2827,11 +2879,30 @@ class PreProcessor {
             var _te  = TimeRegion("Walk");
             var wrec = _te.record();
 
-            executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
+            dispatched = executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
                 var _tw = TimeWorker(wrec);
                 _tw.units(u64(self._sm->get_file_size(fid)), r"B");
                 self._walk_one(fid, mod_path);
             });
+        }
+
+        for var c: usize = 0; c < graph.cycles.size(); ++c { self._report_cycle(&(graph.cycles[c])); }
+
+        // A file the waves never reached was never walked, so it is never
+        // parsed or compiled. The scan drops (and reports) every edge that
+        // would close a cycle, so this is a scanner bug if it fires -- but it
+        // is reported, not ignored: dropping a file and exiting 0 is how an
+        // import cycle used to lose both of its files without a word.
+        if dispatched < graph.all_fids.size() {
+            var lost = "";
+            for fid in graph.all_fids {
+                if graph.in_degree[fid] == 0 { continue; }
+                lost = self._sm->get_filename(fid);
+                break;
+            }
+            self._diag->report(DiagID::I003E,
+                f"{graph.all_fids.size() - dispatched} file(s) of the import graph were never preprocessed (first: '{lost}'); the graph has a cycle the dependency scan did not break"
+            ).emit();
         }
 
         // Recorded for the next input's scan. A fid already known keeps its
