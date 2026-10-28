@@ -1520,7 +1520,9 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
     priv fn _moves(self, t: *Type) -> bool {
         if (t == &null) || (t->canonical == &null) { return false; }
         if isa::<FixedArrayType>(canon_unqual(t->canonical)) { return false; }
-        var f = lifecycle_of(self.sc)->facts_of_type(t->canonical);
+        // A non-generic ADT's payload: concrete, so an open fact would pick
+        // the Lambda form silently (Asked too early, ClassLifecycle).
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(t->canonical, "EnumLayoutLowering::_moves");
         return (f.movable == LifecycleTri::Yes) && (f.trivially_copyable == LifecycleTri::Yes)
             && (f.trivial_dtor == LifecycleTri::Yes);
     }

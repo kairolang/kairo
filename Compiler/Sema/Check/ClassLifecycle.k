@@ -145,6 +145,18 @@
 ///     twice and could answer differently mid-run.
 ///
 ///   Phase: CHECK, after ExprTyper. MoveCheck and SemaDump read facts_of().
+///   EvalIfLateFolding reads facts_of_type_concrete earlier, in the T stage
+///   right after RedeclMerge: every canonical it reads exists by then.
+///
+///   \par Asked too early
+///     A null type, or a record type with no decl, has no facts: it reads
+///     Unknown, never the trivially-everything a builtin gets. A reader that
+///     acts on the answer for a CONCRETE type (no generic parameter, not
+///     inside a generic owner) asks facts_of_type_concrete, which ICEs naming
+///     the reader when such a type's facts are still open: from T on they
+///     are all definite, so an open one means the question came too early,
+///     and a silent Yes would pick a different lowering, or a different
+///     `eval if` branch, than C++ will.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -430,7 +442,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     fn facts_of_type(self, t_in: *Type) -> LifecycleFacts {
         var out = LifecycleFacts{};
         out.computed = true;
-        if t_in == &null { return out; }
+        // No type is no answer (file header, Asked too early): Yes here would
+        // make a question asked before T a silent "trivially everything".
+        if t_in == &null { return self._unknown_facts(); }
         var t = canon_unqual(t_in);
 
         // The OWNING library containers, restated against the lang records
@@ -472,7 +486,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         switch t->kind {
             case TypeKind::RecordType {
                 var d = cast::<RecordType>(t)->decl;
-                if d == &null { return out; }
+                if d == &null { return self._unknown_facts(); }   // nothing to ask (Asked too early).
                 return *(self.facts_of(d));
             }
             case TypeKind::FixedArrayType { return self.facts_of_type(cast::<FixedArrayType>(t)->element); }
@@ -524,6 +538,25 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         out.assignable         = LifecycleTri::Unknown;
         out.category           = LifecycleCategory::Unknown;
         return out;
+    }
+
+    /// facts_of_type for a reader that acts on the answer (file header,
+    /// Asked too early). For a CONCRETE \p t every fact is definite from T
+    /// on, so an open one is an ICE naming \p caller rather than a guess.
+    /// A dependent type, and a record inside a generic owner (a non-generic
+    /// ADT nested in a generic class), are open legitimately and come back
+    /// as they are.
+    fn facts_of_type_concrete(self, t: *Type, caller: string) -> LifecycleFacts {
+        var f = self.facts_of_type(t);
+        if !lifecycle_open(&f) { return f; }
+        if t != &null {
+            var c = canon_unqual(t);
+            if (c != &null) && (c->is_dependent() || c->is_instantiation_dependent()) { return f; }
+            var d = self._tu.record_decl(c);
+            if (d != &null) && decl_in_generic_owner(d) { return f; }
+        }
+        ICE_IF(true, f"{caller}: the lifecycle facts of a concrete type are still open; they were asked before T resolved its parts");
+        return f;
     }
 
     /// Fold a component's facts into its owner's. A reason is recorded only
@@ -1586,6 +1619,6 @@ fn moves_on_pass(sc: *SemaContext, t: *Type) -> bool {
     if (d == &null) || isa::<InterfaceDecl>(d) { return false; }
     // A tuple's facts are its elements' (facts_of_type), not its pattern's,
     // which hang on the parameters and would read Unknown.
-    if tu.is_tuple(t) { return lifecycle_of(sc)->facts_of_type(t).category == LifecycleCategory::Move; }
+    if tu.is_tuple(t) { return lifecycle_of(sc)->facts_of_type_concrete(t, "moves_on_pass").category == LifecycleCategory::Move; }
     return lifecycle_of(sc)->facts_of(d)->category == LifecycleCategory::Move;
 }

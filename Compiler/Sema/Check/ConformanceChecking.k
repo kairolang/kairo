@@ -1400,7 +1400,9 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// decl, so the requirement itself does, which no consumer forwards to
     /// (a constructor slot never reaches a witness member).
     priv fn _transfer_implementation(self, c: *Type, m: *FunctionDecl) -> *Decl {
-        var f = lifecycle_of(self.sc)->facts_of_type(c);
+        // An open category would silently mean "no witness" for a concrete
+        // type (Asked too early, ClassLifecycle).
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(c, "ConformanceChecking::_transfer_implementation");
         var ok = (f.category == LifecycleCategory::Copy);
         if m->transfer == TransferKind::Move { ok = ok || (f.category == LifecycleCategory::Move); }
         if !ok { return &null; }
