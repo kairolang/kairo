@@ -29,8 +29,11 @@ fn main() -> i32 {
 // CXX: friend struct::friend_::__kairo_ext_Acct;
 // CXX: class Vault {
 // CXX: friend struct::friend_::__kairo_ext_Vault;
+// The rest of the file is befriended too (EmitPlan::file_friends), but no
+// extension member by name: its scope struct's one line covers it.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=NOFR
-// NOFR-NOT: {{^ *}}friend {{[^s]}}
+// NOFR-NOT: {{^ *}}friend {{.*}}peek
+// NOFR-NOT: {{^ *}}friend {{.*}}open
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

@@ -101,6 +101,98 @@ class CXXSpell {
         return static_cast::<u8>(d->visibility);
     }
 
+    /// The C++ access a record member is written at: Kairo's own, `priv` as
+    /// `private:` and `prot` as `protected:` -- the record befriends its
+    /// file's entities (EmitPlan::file_friends), which is how C++ says
+    /// "this file" -- with VIS_NONE left for InterfaceEmitter::_access to
+    /// default (a class's variables private, the rest public). Public
+    /// whatever the Kairo visibility:
+    ///
+    ///   - the special members (a transfer constructor, the destructor):
+    ///     compiler-made aggregates and prelude templates in other
+    ///     namespaces copy, move and destroy user values (tuple structs, ADT
+    ///     payloads, `Nullable<T>`, `__kairo_fn`, `__kairo_destroy_at`) and
+    ///     cannot all be befriended; private, the probes they use
+    ///     (`__is_constructible`, a `requires` on the copy) turn false
+    ///     silently. AccessCheck still enforces them in Kairo.
+    ///   - an instance field of a struct, a union, or a class that emits no
+    ///     constructor: such a record is a C++ aggregate, built from a named
+    ///     initializer as designated initializers, which a private field
+    ///     forbids even inside a friend; and a struct is the C ABI's shape,
+    ///     which MSVC returns through a hidden pointer once a field is
+    ///     private.
+    ///   - `internal`, which is module-wide like `pub` to C++.
+    ///
+    /// A member the compiler made keeps the access it was made with.
+    fn cxx_vis(self, d: *Decl) -> u8 {
+        if d == &null { return VIS_NONE(); }
+        var v = CXXSpell::vis_of(d);
+        if d->is_implicit { return v; }
+        var r = CXXSpell::rep(d);
+        if (v == VIS_NONE()) && (r != &null) && (r != d) { v = CXXSpell::vis_of(r); }
+        if v == VIS_INTERNAL() { return VIS_PUB(); }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        if owner == &null { return v; }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f != &null) && self.is_special_member(f, owner) { return VIS_PUB(); }
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (fd != &null) && (!fd->is_static()) && self.is_aggregate_record(owner) { return VIS_PUB(); }
+        return v;
+    }
+
+    /// cxx_vis with the default applied: what C++ will see.
+    fn cxx_access(self, d: *Decl) -> u8 {
+        var v = self.cxx_vis(d);
+        if v != VIS_NONE() { return v; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        var owner = (dc->owner_decl()) if (dc != &null) else (&null);
+        var is_var = isa::<FieldDecl>(d) || isa::<VariableDecl>(d);
+        if is_var && (owner != &null) && isa::<ClassDecl>(owner) { return VIS_PRIV(); }
+        return VIS_PUB();
+    }
+
+    /// A transfer constructor or the destructor of \p owner.
+    fn is_special_member(self, f: *FunctionDecl, owner: *Decl) -> bool {
+        if f->is_operator {
+            return (f->op_token.size() > 0) && (f->op_token[0].kind == TokenKind::KwDelete);
+        }
+        if f->transfer != TransferKind::NotTransfer { return true; }
+        if !self.is_ctor_of(f, owner) { return false; }
+        // An unmarked one: a single other parameter of the record's own type.
+        var other: *ParamDecl = &null;
+        var n: usize = 0;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if (p == &null) || p->is_self { continue; }
+            other = p;
+            n += 1;
+        }
+        if (n != 1) || (other->type_ == &null) || (other->type_->canonical == &null) { return false; }
+        var c = canon_unqual(other->type_->canonical);
+        if !isa::<RecordType>(c) { return false; }
+        return CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(c)->decl))) == CXXSpell::rep(decl_pattern(CXXSpell::rep(owner)));
+    }
+
+    /// \p f is a constructor of \p owner: a method named after it.
+    fn is_ctor_of(self, f: *FunctionDecl, owner: *Decl) -> bool {
+        if f->is_operator || (!f->is_method()) || (owner == &null) { return false; }
+        return self.leaf(static_cast::<*Decl>(f)) == self.leaf(owner);
+    }
+
+    /// \p d emits no constructor: a C++ aggregate (a struct or union always
+    /// is one to Kairo; a class only with no constructor of any kind).
+    fn is_aggregate_record(self, d: *Decl) -> bool {
+        if isa::<StructDecl>(d) || isa::<UnionDecl>(d) { return true; }
+        if !isa::<ClassDecl>(d) { return false; }
+        var c = cast::<ClassDecl>(d);
+        for var i: usize = 0; i < c->methods.size(); ++i {
+            var m = c->methods[i];
+            if (m != &null) && self.is_ctor_of(m, d) { return false; }
+        }
+        return true;
+    }
+
     /// The entity's representative (redecl canonical).
     static fn rep(d: *Decl) -> *Decl {
         if d == &null { return &null; }
@@ -487,8 +579,17 @@ class CXXSpell {
     /// Not when an inline or template body of the file names it
     /// (TranslationUnit::cxx_escaping): that body is compiled in every C++
     /// TU that includes the file, and calls it by external linkage.
+    ///
+    /// Never a function or a record: a record befriends its file's functions
+    /// and records (EmitPlan::file_friends), and a friend declaration cannot
+    /// reach into an unnamed namespace -- an unqualified one declares a NEW
+    /// `stem::f`, a qualified one matches nothing. So those keep the stem
+    /// namespace and external linkage; nothing imports a pathless file, and
+    /// two of them share a namespace only when their stems do, where their
+    /// `pub` decls already collide.
     static fn is_anon(d: *Decl) -> bool {
         if d == &null { return false; }
+        if isa::<FunctionDecl>(d) || isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) { return false; }
         var tu = CXXSpell::tu_of(d);
         if !CXXSpell::is_entry_tu(tu) { return false; }
         var v = CXXSpell::vis_of(d);
@@ -717,6 +818,13 @@ class CXXSpell {
     /// `const` goes in the declarator so it qualifies the variable itself:
     /// `int *const p`, not `const int *p`. `eval` is `const` here too; the
     /// definition adds `constexpr` (`extern constexpr` is ill-formed).
+    /// `T __kairo_ginit_x()`: the thunk that initializes \p v when its
+    /// initializer reaches a private member (EmitIR::_global_var); its
+    /// definition and the friend line (InterfaceEmitter::_friends) share it.
+    fn ginit_decl(self, v: *VariableDecl) -> string {
+        return self.decl(v->type_, LowerTargets::global_init_thunk(self.leaf(static_cast::<*Decl>(v))) + "()");
+    }
+
     fn global_var(self, v: *VariableDecl) -> string {
         var nm = self.leaf(static_cast::<*Decl>(v));
         var c = (v->type_->canonical) if (v->type_ != &null) else (&null);

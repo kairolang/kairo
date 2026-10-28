@@ -1157,11 +1157,27 @@ class EmitIR {
         // writes this same definition (EmitPlan::visible_eval_vars), since
         // an `extern const` is no constant expression to an importer.
         var head = ("inline constexpr ") if (n->is_eval()) else ("");
-        self._cg->sink->spell(at, head + self._spell.global_var(n));
         var c: *Type = &null;
         if n->type_->canonical != &null { c = canon_unqual(n->type_->canonical); }
         var saved = self._cur_global;
         self._cur_global = n;
+        // An initializer that reaches a private member is checked by C++ in
+        // the variable's context, which no record can befriend: it becomes
+        // the body of a thunk its file's records do befriend
+        // (GlobalInitReach, FileFriends::globals), and the variable calls it.
+        if GlobalInitReach::needs_thunk(&(self._spell), n) {
+            self._cg->sink->spell(at, self._spell.ginit_decl(n) + " { return");
+            self._value(n->init, n->type_);
+            self._cg->sink->spell(at, "; }");
+            self._cg->sink->brk();
+            self._cg->sink->spell(at, head + self._spell.global_var(n) + " = "
+                + LowerTargets::global_init_thunk(self._spell.leaf(d)) + "()");
+            self._cur_global = saved;
+            self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+            self._close_ns(n->range, wrap);
+            return;
+        }
+        self._cg->sink->spell(at, head + self._spell.global_var(n));
         self._var_init(n, c);
         self._cur_global = saved;
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);

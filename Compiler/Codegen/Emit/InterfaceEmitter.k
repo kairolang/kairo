@@ -330,6 +330,15 @@ class InterfaceEmitter {
             self._cg->sink->unanchored(false);
         }
 
+        // A record of `main`'s file befriends it as `::main`, a qualified
+        // name, which needs a declaration ahead of the record: the
+        // definition's own head, at global scope (EmitIR::_free_fn).
+        if self._plan->main_friend != &null {
+            var mf = self._plan->main_friend;
+            self._cg->sink->spell(self._fwd_at(static_cast::<*Decl>(mf)), self._main_decl_text(mf, false));
+            self._cg->sink->brk();
+        }
+
         var i: usize = 0;
         var n = self._plan->entries.size();
 
@@ -411,6 +420,16 @@ class InterfaceEmitter {
             if (fdc != &null) && fdc->is_type_scope() { continue; }
             if self._spell->is_main(ee->eval_item) { continue; }
             self._wrapped(ee->decl, fn () { self._free_fn_decl(ef, &null); });
+        }
+
+        // The functions a record's friend line names qualified
+        // (EmitPlan::friend_early), declared ahead of every record. A header
+        // declares only its own module's: another's come with the header
+        // that defines the record.
+        for var j: usize = 0; j < self._plan->friend_early.size(); ++j {
+            var fe = self._plan->friend_early[j];
+            if header && (CXXSpell::fid_of(static_cast::<*Decl>(fe)) != self._plan->home()) { continue; }
+            self._wrapped(static_cast::<*Decl>(fe), fn () { self._free_fn_decl(fe, &null); });
         }
 
         // tier 1
@@ -892,9 +911,11 @@ class InterfaceEmitter {
                 var e = d->derives_list.get(j);
                 if (e == &null) || (e->base == &null) { continue; }
                 var seen = vec::<*Decl>();
-                var found = self._base_method_named(self._edge_decl(e), nm, &seen, 0);
-                if found != 1 { continue; }
-                cur = self._access(cur, VIS_PUB(), false, at);
+                var found = self._base_method_named(self._edge_decl(e), nm, &seen, 0, CXXSpell::fid_of(static_cast::<*Decl>(d)));
+                if (found == 0) || (found == 255) { continue; }
+                // At the base members' own access: a public using of a
+                // protected member would make it public through d.
+                cur = self._access(cur, found, false, at);
                 self._cg->sink->spell(at, "using " + self._spell->_type(e->base) + "::" + nm + ";");
             }
         }
@@ -910,10 +931,13 @@ class InterfaceEmitter {
         return CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl)));
     }
 
-    /// Whether class \p b or a base of it has a method spelled \p nm: 0 none,
-    /// 1 one. Every such method is `public:` (_cxx_vis), so the
-    /// using-declaration is always one clang accepts.
-    priv fn _base_method_named(self, b: *Decl, nm: string, seen: *vec::<*Decl>, depth: u32) -> u8 {
+    /// Whether class \p b or a base of it has a method spelled \p nm, and at
+    /// what C++ access a using-declaration in a class of file \p fid may
+    /// bring them in: 0 none; VIS_PUB / VIS_PROT / VIS_PRIV, the narrowest
+    /// of the overloads (one using takes the whole set at one level); 255
+    /// one the deriving class cannot name -- private, in another file, so
+    /// not befriended -- and a using naming it is clang's access error.
+    priv fn _base_method_named(self, b: *Decl, nm: string, seen: *vec::<*Decl>, depth: u32, fid: u32) -> u8 {
         if (b == &null) || (depth > 64) || (!isa::<ClassDecl>(b)) { return 0; }
         for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == b { return 0; } }
         seen->push_back(b);
@@ -923,23 +947,33 @@ class InterfaceEmitter {
             var m = cd->methods[i];
             if (m == &null) || m->is_implicit { continue; }
             if self._spell->leaf(static_cast::<*Decl>(m)) != nm { continue; }
-            hit = 1;
+            var a = self._spell->cxx_access(static_cast::<*Decl>(m));
+            if (a == VIS_PRIV()) && (CXXSpell::fid_of(static_cast::<*Decl>(m)) != fid) { return 255; }
+            // VIS_PRIV < VIS_PROT < VIS_PUB: the narrowest is the smallest.
+            if (hit == 0) || (a < hit) { hit = a; }
         }
         if hit != 0 { return hit; }
         for var j: usize = 0; j < cd->derives_list.size(); ++j {
             var e = cd->derives_list.get(j);
             if e == &null { continue; }
-            var r = self._base_method_named(self._edge_decl(e), nm, seen, depth + 1);
+            var r = self._base_method_named(self._edge_decl(e), nm, seen, depth + 1, fid);
             if r != 0 { return r; }
         }
         return 0;
     }
 
-    /// Friends: every same-file extension scope, so an extension member
-    /// written beside the type can reach its privates. One line per scope
-    /// covers every member, generic or not, and each struct was declared in
-    /// tier 0, so its qualified name needs no other prior declaration. A
-    /// record's and an ADT's (_adt_def) alike.
+    /// Friends: every same-file extension scope of the record, so an
+    /// extension member written beside the type can reach its privates.
+    /// One line per scope covers every member, generic or not, and each
+    /// struct was declared in tier 0, so its qualified name needs no other
+    /// prior declaration. A record's and an ADT's (_adt_def) alike.
+    ///
+    /// Then, for a record with a non-public member, the rest of its file
+    /// (EmitPlan::file_friends, which says what each line needs declared
+    /// first and what is left out): its records, its other extension
+    /// scopes, its functions, the witnesses of what it declares it
+    /// implements, and `main`. That is C++'s spelling of Kairo's `priv`:
+    /// the class and every function of its file.
     priv fn _friends(self, d: *Decl) {
         var fs = vec::<*ExtScope>();
         self._plan->friend_scopes_of(d, &fs);
@@ -949,6 +983,92 @@ class InterfaceEmitter {
         if (fs.size() > 0) && self._cg->opts.extension_member_wrappers {
             self._ice(self._at(d), "InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
         }
+        var ff = FileFriends();
+        self._plan->file_friends(d, &ff);
+        if !ff.needed { return; }
+        var at = self._at(d);
+        for var i: usize = 0; i < ff.records.size(); ++i {
+            var r = ff.records[i];
+            var q = self._spell->qual_name(r);
+            if CXXSpell::template_params(r).size() == 0 {
+                // The friend-type form: no class-key to disagree with the
+                // definition's (a mismatch is in the mangling on MSVC).
+                self._cg->sink->spell(at, "friend " + q + ";");
+                continue;
+            }
+            var key = ("class") if (isa::<ClassDecl>(r)) else ((("union") if (isa::<UnionDecl>(r)) else ("struct")));
+            var head = (self._fresh_head(r)) if (ff.fresh[i]) else (self._spell->template_head(r));
+            self._cg->sink->spell(at, head + "friend " + key + " " + q + ";");
+        }
+        for var i: usize = 0; i < ff.scopes.size(); ++i {
+            self._cg->sink->spell(at, "friend struct " + self._spell->ext_scope_name(ff.scopes[i]) + ";");
+        }
+        for var i: usize = 0; i < ff.fns.size(); ++i {
+            self._cg->sink->spell(at, self._friend_fn_text(ff.fns[i], ff.far[i]));
+        }
+        for var i: usize = 0; i < ff.ifaces.size(); ++i {
+            var iface = ff.ifaces[i];
+            var h = "template <class " + LowerTargets::friend_tparam(0);
+            var gps = decl_generic_params(iface);
+            for var k: usize = 0; k < gps.size(); ++k { h += ", class " + LowerTargets::friend_tparam(k + 1); }
+            self._cg->sink->spell(at, h + "> friend struct " + self._spell->witness_name(iface) + ";");
+        }
+        for var i: usize = 0; i < ff.globals.size(); ++i {
+            self._cg->sink->spell(at, "friend " + self._spell->ginit_decl(ff.globals[i]) + ";");
+        }
+        if ff.main != &null {
+            self._cg->sink->spell(at, "friend " + self._main_decl_text(ff.main, true));
+        }
+    }
+
+    /// `template <class __kairo_ft0, int __kairo_ft1> `: \p r's template head
+    /// under names of its own, for a friend declaration inside a record
+    /// whose own parameters may share \p r's (EmitPlan::_ff_record).
+    priv fn _fresh_head(self, r: *Decl) -> string {
+        var gps = CXXSpell::template_params(r);
+        var s = "template <";
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            if i > 0 { s += ", "; }
+            s += (self._spell->_type(gp->value_type)) if (gp->is_const_param) else ("class");
+            if gp->is_pack { s += "..."; }
+            s += " " + LowerTargets::friend_tparam(i);
+        }
+        return s + "> ";
+    }
+
+    /// `friend R f(P...) noexcept;`, or with its template head: the
+    /// function's own declaration (_free_fn_text) as a friend may repeat it
+    /// -- the head, `consteval` and `noexcept` kept (a redeclaration must
+    /// agree on each), no attribute and no linkage (a friend declaration
+    /// may carry neither; EmitPlan::file_friends leaves out a function that
+    /// needs one). Unqualified, it names, or first declares, the function in
+    /// the record's namespace, which file_friends made sure is its own;
+    /// \p qualified, it names one declared ahead of the record
+    /// (EmitPlan::friend_early).
+    priv fn _friend_fn_text(self, f: *FunctionDecl, qualified: bool) -> string {
+        var s = self._spell->template_head(static_cast::<*Decl>(f));
+        s += "friend ";
+        if f->is_eval() { s += "consteval "; }
+        s += self._ret(f);
+        s += " ";
+        s += (self._spell->qual_name(static_cast::<*Decl>(f))) if (qualified) else (self._fn_name(f));
+        s += "(";
+        s += self._params(f, false, &null);
+        s += ")";
+        if f->no_unwind { s += " noexcept"; }
+        return s + ";";
+    }
+
+    /// `int ::main(int argc, ...) noexcept;` (\p qualified) or the global
+    /// declaration `int main(...) noexcept;` the friend line needs before
+    /// it: the definition's own head (EmitIR::_free_fn).
+    priv fn _main_decl_text(self, f: *FunctionDecl, qualified: bool) -> string {
+        var s = ("int ::main(") if (qualified) else ("int main(");
+        s += self._params(f, false, &null);
+        s += ")";
+        if f->no_unwind { s += " noexcept"; }
+        return s + ";";
     }
 
     /// The derived `op =` slots ClassLifecycle wrote on a record; Implicit
@@ -1815,26 +1935,19 @@ class InterfaceEmitter {
         return want;
     }
 
-    /// Every base is public in C++, whatever the edge says: `derives priv
-    /// Base` keeps Base's members to the deriving class's file, which a C++
-    /// access level cannot say, and AccessCheck enforces it in Kairo.
+    /// Every base is public in C++, whatever the edge says: a private base
+    /// refuses the upcast Kairo allows through a `derives priv` edge from
+    /// another file, and makes the checked downcast return null at run time
+    /// -- a silent miscompile. AccessCheck enforces the edge in Kairo.
     priv fn _base_access(self, v: u8) -> string {
         return "public";
     }
 
-    /// The access a member is written at. Every member Kairo's user wrote is
-    /// `public:`. `priv` and `prot` are module-wide (classes.mdx,
-    /// Visibility): a `priv` field is visible to every function in its
-    /// class's file, free ones included, and C++ has no access level that
-    /// means that -- `private:` made clang reject correct Kairo with CL001E.
-    /// AccessCheck enforces the rule in Kairo instead, so a C++ host that
-    /// includes the header sees these members as public too. Only members
-    /// the compiler made (a `where` group's candidates, a split
-    /// constructor's machinery) keep the access they were made with: no
-    /// Kairo code names them, and no C++ host should.
+    /// The access a member is written at: Kairo's own, with the record
+    /// befriending its file (_friends). CXXSpell::cxx_vis has the rule and
+    /// the members that stay public whatever they say.
     priv fn _cxx_vis(self, d: *Decl) -> u8 {
-        if (d != &null) && d->is_implicit { return CXXSpell::vis_of(d); }
-        return VIS_PUB();
+        return self._spell->cxx_vis(d);
     }
 
     priv fn _enum_def(self, en: *EnumDecl) {

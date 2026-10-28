@@ -550,6 +550,15 @@ class LowerTargets {
     /// namespace N is a static member of it (RESOLUTION.md §2b).
     static fn ext_scope_prefix() -> string { return "__kairo_ext_"; }
 
+    /// A friend template declaration's own parameter names (InterfaceEmitter
+    /// ::_friends): inside a generic record the befriended template's names
+    /// could redeclare the record's ([temp.local]/6), so they get these.
+    static fn friend_tparam(i: usize) -> string { return f"__kairo_ft{i}"; }
+    /// A namespace-scope variable whose initializer reaches a private
+    /// member is initialized by calling this function, which its file's
+    /// records befriend: a variable cannot be a friend (EmitIR::_global_var).
+    static fn global_init_thunk(name: string) -> string { return "__kairo_ginit_" + name; }
+
     /// An extension operator's static-member name. A static member cannot be
     /// named `operator+`, so it gets a mnemonic, and a namespace-scope
     /// `operator+` forwarder (InterfaceEmitter) gives C++ callers the

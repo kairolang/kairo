@@ -355,6 +355,100 @@ class ExtScope {
     fn ExtScope(self) { }
 }
 
+/// Whether a namespace-scope variable's initializer names a member C++
+/// will see non-public (CXXSpell::cxx_access): a field, method, static,
+/// constructor or operator of a record. Such a variable is initialized
+/// through a befriended thunk (EmitIR::_global_var), since a C++ variable
+/// initializer is checked in the variable's own context, which nothing can
+/// befriend. Read off the typed tree, which every TU holding the file has.
+class GlobalInitReach derives RecursiveASTVisitor::<GlobalInitReach> {
+    pub var spell: *CXXSpell = &null;
+    pub var hit: bool = false;
+
+    fn GlobalInitReach(self) { }
+
+    static fn needs_thunk(spell: *CXXSpell, v: *VariableDecl) -> bool {
+        if (v == &null) || (v->init == &null) || v->is_eval() || v->is_poisoned() { return false; }
+        if (v->type_ == &null) || (v->type_->canonical == &null) { return false; }
+        // No function returns an array: its initializer stays where it is.
+        if canon_unqual(v->type_->canonical)->kind == TypeKind::FixedArrayType { return false; }
+        var r = GlobalInitReach();
+        r.spell = spell;
+        r.dyn()->dispatch_expr(v->init);
+        return r.hit;
+    }
+
+    priv fn _see(self, d: *Decl) {
+        if (d == &null) || self.hit || decl_is_imported(d) { return; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return; }
+        if self.spell->cxx_access(d) != VIS_PUB() {
+            self.hit = true;
+            self.stop = true;
+        }
+    }
+
+    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if st != &null { self._see(st->resolved_decl); }
+        }
+        return true;
+    }
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool { self._see(n->resolved_decl); return true; }
+    fn visit_call_expr(self, n: *CallExpr) -> bool { self._see(n->ctor_decl); return true; }
+    fn visit_binary_operator_expr(self, n: *BinaryOperatorExpr) -> bool { self._see(n->resolved_op); return true; }
+    fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool { self._see(n->resolved_op); return true; }
+    fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool { self._see(n->resolved_op); return true; }
+    fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool { self._see(n->resolved_op); return true; }
+    fn visit_type_cast_expr(self, n: *TypeCastExpr) -> bool {
+        self._see(n->resolved_op);
+        self._see(n->resolved_ctor);
+        return true;
+    }
+}
+
+/// What a record's definition befriends (EmitPlan::file_friends): the
+/// entities of its OWN file that may reach its `private:` / `protected:`
+/// members, read off that file's declarations alone, so the list -- like
+/// the rest of the record's text -- is the same in every TU, header and
+/// include stream that defines the record. Friends change neither layout
+/// nor mangling on any target; the access levels do, which is why they
+/// cannot vary by view and these lines carry the difference instead.
+class FileFriends {
+    /// The record has a non-public member at all; nothing else is filled
+    /// when it has none.
+    pub var needed:  bool = false;
+    /// Every other outermost record of the file, and every hoisted local
+    /// one (`friend ::ns::X;`, `template <...> friend class ::ns::G;`): a
+    /// friend class covers its members and nested classes. Parallel:
+    /// `fresh` spells a generic one's head with names of its own, since the
+    /// record's own template parameters may not be redeclared inside it.
+    pub var records: vec::<*Decl>;
+    pub var fresh:   vec::<bool>;
+    /// The file's free functions in the record's namespace, generic ones
+    /// and hoisted locals included (unqualified `friend R f(P);`).
+    pub var fns:     vec::<*FunctionDecl>;
+    /// Parallel to `fns`: befriended by its qualified name, after its own
+    /// declaration ahead of every record (EmitPlan::friend_early).
+    pub var far:     vec::<bool>;
+    /// One extension of each scope struct in the record's namespace whose
+    /// target is another type (unqualified `friend struct __kairo_ext_X;`);
+    /// the record's own scopes are friend_scopes_of's.
+    pub var scopes:  vec::<*ExtensionDecl>;
+    /// The interfaces the file declares the record implements, with what
+    /// they derive: their witness primaries forward to its members.
+    pub var ifaces:  vec::<*Decl>;
+    /// The program's `main`, when it is in this file.
+    pub var main:    *FunctionDecl = &null;
+    /// The file's namespace-scope variables in the record's namespace
+    /// initialized through a thunk (GlobalInitReach): the thunk is the
+    /// friend (`friend T __kairo_ginit_x();`).
+    pub var globals: vec::<*VariableDecl>;
+
+    fn FileFriends(self) { }
+}
+
 class PlanEntry {
     pub var decl:    *Decl          = &null;
     pub var need:    PlanNeed       = PlanNeed::Fwd;
@@ -435,6 +529,14 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// in an eval class's value argument, EVAL.md 7e): its bytes are
     /// `__kairo_estr<...>`, so the eval helpers are written.
     pub var needs_eval_str: bool = false;
+    /// A record defined here befriends the program's `main`
+    /// (FileFriends::main): `friend int ::main(...)` names it qualified, so
+    /// InterfaceEmitter declares it at global scope ahead of every record.
+    pub var main_friend: *FunctionDecl = &null;
+    /// Functions a friend line names qualified (FileFriends::far): each is
+    /// declared in its own namespace ahead of the records, by its own
+    /// declaration's text.
+    pub var friend_early: vec::<*FunctionDecl>;
 
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
@@ -501,6 +603,19 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn is_early(self, d: *Decl) -> bool;
     fn _collect_uses(self);
     fn friend_scopes_of(self, d: *Decl, out: *vec::<*ExtScope>);
+    fn file_friends(self, d: *Decl, out: *FileFriends);
+    fn needs_friends(self, d: *Decl) -> bool;
+    fn _ff_dc(self, dc: *DeclContext, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends);
+    fn _ff_decl(self, x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends);
+    fn _ff_record(self, r: *Decl, tparams: *vec::<string>, out: *FileFriends);
+    fn _ff_fn_kind(self, f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>) -> u8;
+    fn _ff_add_fn(self, f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends);
+    fn _ff_nested(self, t: *Type, depth: u32) -> bool;
+    fn _ff_tparams(self, d: *Decl, out: *vec::<string>);
+    fn _ff_clash(self, d: *Decl, tparams: *vec::<string>) -> bool;
+    fn _ff_iface(self, t: *Type, out: *FileFriends, depth: u32);
+    fn _ff_ifaces_in(self, cand: *Decl, d: *Decl, out: *FileFriends);
+    fn _admit_friends(self, d: *Decl);
     fn dump(self, path: string);
     fn _tier_name(self, t: PlanTier) -> string;
     fn _need_name(self, n: PlanNeed) -> string;
@@ -723,7 +838,341 @@ fn EmitPlan::friend_scopes_of(d: *Decl, out: *vec::<*ExtScope>) {
         var s = &(self._scopes[i]);
         if (s->target == &null) || (s->key != key) { continue; }
         if CXXSpell::fid_of(static_cast::<*Decl>(s->anchor)) != CXXSpell::fid_of(c) { continue; }
+        // In source order, not plan order: two TUs touch the scopes in the
+        // order their own code does, and the record's text must not care.
+        var at = out->size();
+        while (at > 0) && ((*out)[at - 1]->anchor->range.start.id > s->anchor->range.start.id) { at -= 1; }
         out->push_back(s);
+        var k = out->size() - 1;
+        while k > at { (*out)[k] = (*out)[k - 1]; k -= 1; }
+        (*out)[at] = s;
+    }
+}
+
+// --- File friends --------------------------------------------------------------
+
+/// The record has a member C++ will see non-public (CXXSpell::cxx_access).
+/// A compiler-made one never counts: only the record's own members call
+/// it. A function of the record's declaration, so of its file.
+fn EmitPlan::needs_friends(d_in: *Decl) -> bool {
+    var d = CXXSpell::rep(d_in);
+    if (d == &null) || (!(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d))) { return false; }
+    var fields:  FrozenList::<*FieldDecl>;
+    var methods: FrozenList::<*FunctionDecl>;
+    if isa::<ClassDecl>(d)      { fields = cast::<ClassDecl>(d)->fields;  methods = cast::<ClassDecl>(d)->methods; }
+    else if isa::<UnionDecl>(d) { fields = cast::<UnionDecl>(d)->fields;  methods = cast::<UnionDecl>(d)->methods; }
+    else                        { fields = cast::<StructDecl>(d)->fields; methods = cast::<StructDecl>(d)->methods; }
+    for var i: usize = 0; i < fields.size(); ++i {
+        var f = fields[i];
+        if (f == &null) || f->is_implicit { continue; }
+        if self._spell.cxx_access(static_cast::<*Decl>(f)) != VIS_PUB() { return true; }
+    }
+    for var i: usize = 0; i < methods.size(); ++i {
+        var m = methods[i];
+        if (m == &null) || m->is_implicit { continue; }
+        if self._spell.cxx_access(static_cast::<*Decl>(m)) != VIS_PUB() { return true; }
+    }
+    var dc = CXXSpell::dc_of(d);
+    if dc == &null { return false; }
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var nd = *(dc->dc_decls.get(i));
+        if (nd == &null) || nd->is_implicit { continue; }
+        if (!self._is_type_decl(nd)) && (!isa::<TypeAliasDecl>(nd)) { continue; }
+        if self._spell.cxx_access(nd) != VIS_PUB() { return true; }
+    }
+    return false;
+}
+
+/// Record \p d's friends (FileFriends), from \p d's file's declarations.
+/// Coarse on purpose: everything of the file that may name a member Kairo
+/// lets it name, whether it does or not, so no walk of any body -- which
+/// another TU may not have lowered -- decides the text.
+///
+/// Left out, because C++ cannot befriend them from here, and so still
+/// unable to reach a private member in the C++ (ClangDiagAdapter makes the
+/// clang error a loud internal one): a function whose signature names a
+/// nested type (not declarable ahead of the record), and a generic one, or
+/// a constrained generic record, whose template parameters share a name
+/// with the record's own. A function in another namespace of the file (a
+/// `module` block's), or an `ffi "c"` or `-> !` one, is befriended by its
+/// qualified name after a declaration of its own (_ff_fn_kind).
+fn EmitPlan::file_friends(d_in: *Decl, out: *FileFriends) {
+    var d = CXXSpell::rep(d_in);
+    if !self.needs_friends(d) { return; }
+    out->needed = true;
+    var tu = CXXSpell::tu_of(d);
+    if (tu == &null) || (tu->program == &null) { return; }
+    var ns = self._spell.ns_segments(d);
+    // Only d itself is left out: a nested d befriends its outermost
+    // record too, since C++ gives an enclosing class no access to a nested
+    // one's private members.
+    var mine = d;
+    var tparams = vec::<string>();
+    self._ff_tparams(d, &tparams);
+    self._ff_dc(static_cast::<*DeclContext>(tu), d, mine, &ns, &tparams, out);
+    var hl = HoistedLocals();
+    hl.run(tu);
+    for var i: usize = 0; i < hl.found.size(); ++i {
+        var h = CXXSpell::rep(hl.found[i]);
+        if (h == &null) || h->is_poisoned() || (h == mine) { continue; }
+        if isa::<ClassDecl>(h) || isa::<StructDecl>(h) || isa::<UnionDecl>(h) { self._ff_record(h, &tparams, out); continue; }
+        var f = dyn_cast::<FunctionDecl>(h);
+        if f != &null { self._ff_add_fn(f, &ns, &tparams, out); }
+    }
+    // The witnesses of what the file declares d implements: on d itself,
+    // and on every `extend d impl I` of the file.
+    if isa::<ClassDecl>(d) {
+        var ce = &(cast::<ClassDecl>(d)->implements);
+        for var i: usize = 0; i < ce->size(); ++i { if ce->get(i) != &null { self._ff_iface(ce->get(i)->base, out, 0); } }
+    } else if isa::<StructDecl>(d) {
+        var se = &(cast::<StructDecl>(d)->implements);
+        for var i: usize = 0; i < se->size(); ++i { if se->get(i) != &null { self._ff_iface(se->get(i)->base, out, 0); } }
+    }
+    var items = &(tu->program->items);
+    for var i: usize = 0; i < items->size(); ++i {
+        var item = *(items->get(i));
+        if item.kind == TopLevelKind::Stmt {
+            var ds = dyn_cast::<DeclStmt>(item.as_stmt());
+            var v = (dyn_cast::<VariableDecl>(ds->decl)) if ((ds != &null) && (ds->decl != &null)) else (&null);
+            if (v == &null) || (!GlobalInitReach::needs_thunk(&(self._spell), v)) { continue; }
+            var vns = self._spell.ns_segments(static_cast::<*Decl>(v));
+            if self._same_ns_vec(&vns, &ns) { out->globals.push_back(v); }
+            continue;
+        }
+        if item.kind != TopLevelKind::Decl { continue; }
+        self._ff_ifaces_in(item.as_decl(), d, out);
+    }
+}
+
+fn EmitPlan::_ff_dc(dc: *DeclContext, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends) {
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var x = *(dc->dc_decls.get(i));
+        if x != &null { self._ff_decl(x, d, mine, ns, tparams, out); }
+    }
+}
+
+fn EmitPlan::_ff_decl(x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends) {
+    if x->is_poisoned() { return; }
+    if isa::<ModuleDecl>(x) { self._ff_dc(static_cast::<*DeclContext>(cast::<ModuleDecl>(x)), d, mine, ns, tparams, out); return; }
+    if isa::<VisibilityGroupDecl>(x) {
+        var g = cast::<VisibilityGroupDecl>(x);
+        for var i: usize = 0; i < g->members.size(); ++i { if g->members[i] != &null { self._ff_decl(g->members[i], d, mine, ns, tparams, out); } }
+        return;
+    }
+    if isa::<ExtensionDecl>(x) {
+        var e = cast::<ExtensionDecl>(x);
+        if (e->methods.size() == 0) || (e->target == &null) || (e->target->canonical == &null) { return; }
+        // d's own scopes are friend_scopes_of's, qualified and admitted.
+        var c = canon_unqual(e->target->canonical);
+        if isa::<RecordType>(c) && (self._scope_key(cast::<RecordType>(c)->decl) == self._scope_key(d)) { return; }
+        // Unqualified, it names (or first declares) the struct in d's
+        // namespace -- the one place it can, with no prior declaration.
+        var sns = self._spell.scope_ns(e);
+        if !self._same_ns_vec(&sns, ns) { return; }
+        var nm = self._spell.ext_scope_name(e);
+        for var i: usize = 0; i < out->scopes.size(); ++i { if self._spell.ext_scope_name(out->scopes[i]) == nm { return; } }
+        out->scopes.push_back(e);
+        return;
+    }
+    if isa::<ClassDecl>(x) || isa::<StructDecl>(x) || isa::<UnionDecl>(x) {
+        var r = CXXSpell::rep(x);
+        if (r != x) || (r == mine) || r->is_implicit || CXXSpell::is_record_spec(r) || decl_only_forward(r) { return; }
+        if (decl_ffi_tag_target(r) != &null) || (!self._plannable(r)) { return; }
+        self._ff_record(r, tparams, out);
+        return;
+    }
+    var f = dyn_cast::<FunctionDecl>(x);
+    if f == &null { return; }
+    var rf = cast::<FunctionDecl>(CXXSpell::rep(x));
+    if self._spell.is_main(static_cast::<*Decl>(rf)) {
+        if (out->main == &null) && (CXXSpell::c_linkage(rf).size() == 0) { out->main = rf; }
+        return;
+    }
+    self._ff_add_fn(rf, ns, tparams, out);
+}
+
+fn EmitPlan::_ff_add_fn(f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends) {
+    var k = self._ff_fn_kind(f, ns, tparams);
+    if k == 0 { return; }
+    for var i: usize = 0; i < out->fns.size(); ++i { if out->fns[i] == f { return; } }
+    out->fns.push_back(f);
+    out->far.push_back(k == 2);
+}
+
+/// A record friend; a generic one whose parameters clash with \p tparams
+/// is spelled with fresh ones, which a requires-clause (written in the
+/// parameters' own names) forbids -- that one is left out.
+fn EmitPlan::_ff_record(r: *Decl, tparams: *vec::<string>, out: *FileFriends) {
+    for var i: usize = 0; i < out->records.size(); ++i { if out->records[i] == r { return; } }
+    var fresh = false;
+    if CXXSpell::template_params(r).size() > 0 {
+        fresh = true;
+        if self._spell.requires_clause(r).size() > 0 {
+            if self._ff_clash(r, tparams) { return; }
+            fresh = false;
+        }
+    }
+    out->records.push_back(r);
+    out->fresh.push_back(fresh);
+}
+
+/// How \p f is befriended: 0 not at all; 1 unqualified, which names (or
+/// first declares) it in the record's namespace; 2 qualified, after an
+/// early declaration of its own (EmitPlan::friend_early) -- a function in
+/// another namespace of the file, or one whose first declaration must
+/// carry its `ffi "c"` linkage or `[[noreturn]]`, which a friend
+/// declaration may not.
+fn EmitPlan::_ff_fn_kind(f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>) -> u8 {
+    if f->is_poisoned() || f->is_method() || (decl_extension_of(static_cast::<*Decl>(f)) != &null) { return 0; }
+    if self._ff_clash(static_cast::<*Decl>(f), tparams) { return 0; }
+    if self._ff_nested(f->return_type, 0) || self._ff_nested(f->panic_result, 0) { return 0; }
+    for var i: usize = 0; i < f->params.size(); ++i {
+        var p = f->params[i];
+        if (p == &null) || p->is_self { continue; }
+        var pt = ((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_));
+        if self._ff_nested(pt, 0) { return 0; }
+    }
+    if f->is_noreturn || (CXXSpell::c_linkage(f).size() > 0) { return 2; }
+    var fns = self._spell.ns_segments(static_cast::<*Decl>(f));
+    if !self._same_ns_vec(&fns, ns) { return 2; }
+    return 1;
+}
+
+/// \p t names a record nested in another type: a name only a complete
+/// outer type declares, which the befriending record's definition may
+/// precede.
+fn EmitPlan::_ff_nested(t: *Type, depth: u32) -> bool {
+    if (t == &null) || (depth > 32) { return false; }
+    var c = (t->canonical) if (t->canonical != &null) else (t);
+    switch c->kind {
+        case TypeKind::QualifiedType { return self._ff_nested(cast::<QualifiedType>(c)->inner, depth + 1); }
+        case TypeKind::PointerType   { return self._ff_nested(cast::<PointerType>(c)->pointee, depth + 1); }
+        case TypeKind::CXXLValueRefType { return self._ff_nested(cast::<CXXLValueRefType>(c)->referee, depth + 1); }
+        case TypeKind::CXXRValueRefType { return self._ff_nested(cast::<CXXRValueRefType>(c)->referee, depth + 1); }
+        case TypeKind::FixedArrayType { return self._ff_nested(cast::<FixedArrayType>(c)->element, depth + 1); }
+        case TypeKind::NullableType  { return self._ff_nested(cast::<NullableType>(c)->inner, depth + 1); }
+        case TypeKind::TupleType {
+            var tt = cast::<TupleType>(c);
+            for var i: usize = 0; i < tt->elements.size(); ++i { if self._ff_nested(*(tt->elements.get(i)), depth + 1) { return true; } }
+            return false;
+        }
+        case TypeKind::FunctionPointerType {
+            var ft = cast::<FunctionPointerType>(c);
+            if self._ff_nested(ft->return_type, depth + 1) { return true; }
+            for var i: usize = 0; i < ft->params.size(); ++i { if self._ff_nested(*(ft->params.get(i)), depth + 1) { return true; } }
+            return false;
+        }
+        case TypeKind::RecordType {
+            var rt = cast::<RecordType>(c);
+            if rt->outer != &null { return true; }
+            if (rt->decl != &null) && (!decl_is_imported(rt->decl)) {
+                var dc = reinterpret_cast::<*DeclContext>(CXXSpell::rep(rt->decl)->semantic_dc);
+                if (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) { return true; }
+            }
+            for var i: usize = 0; i < rt->args.size(); ++i { if self._ff_nested(*(rt->args.get(i)), depth + 1) { return true; } }
+            return false;
+        }
+        default { return false; }
+    }
+    return false;
+}
+
+/// The template parameter names in scope inside \p d's body: its own and
+/// every enclosing record's.
+fn EmitPlan::_ff_tparams(d: *Decl, out: *vec::<string>) {
+    var cur = d;
+    var depth: u32 = 0;
+    while (cur != &null) && (depth < 64) {
+        depth += 1;
+        var gps = CXXSpell::template_params(cur);
+        for var i: usize = 0; i < gps.size(); ++i { out->push_back(self._spell.imm_name(gps[i]->name.imm, CXXSpell::fid_of(cur))); }
+        var dc = reinterpret_cast::<*DeclContext>(cur->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { break; }
+        cur = CXXSpell::rep(dc->dc_owner);
+    }
+}
+
+/// A template parameter of \p d is spelled as one in \p tparams: declared
+/// inside that scope it would redeclare it ([temp.local]/6).
+fn EmitPlan::_ff_clash(d: *Decl, tparams: *vec::<string>) -> bool {
+    var gps = CXXSpell::template_params(d);
+    for var i: usize = 0; i < gps.size(); ++i {
+        var nm = self._spell.imm_name(gps[i]->name.imm, CXXSpell::fid_of(d));
+        for var k: usize = 0; k < tparams->size(); ++k { if (*tparams)[k] == nm { return true; } }
+    }
+    return false;
+}
+
+/// Interface \p t's decl and everything it derives, once each.
+fn EmitPlan::_ff_iface(t: *Type, out: *FileFriends, depth: u32) {
+    if (t == &null) || (t->canonical == &null) || (depth > 32) { return; }
+    var c = canon_unqual(t->canonical);
+    if !isa::<RecordType>(c) { return; }
+    var id = dyn_cast::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(c)->decl))));
+    if id == &null { return; }
+    var idd = static_cast::<*Decl>(id);
+    for var i: usize = 0; i < out->ifaces.size(); ++i { if out->ifaces[i] == idd { return; } }
+    out->ifaces.push_back(idd);
+    for var i: usize = 0; i < id->derives_list.size(); ++i {
+        var e = id->derives_list.get(i);
+        if e != &null { self._ff_iface(e->base, out, depth + 1); }
+    }
+}
+
+fn EmitPlan::_ff_ifaces_in(cand: *Decl, d: *Decl, out: *FileFriends) {
+    if cand == &null { return; }
+    if isa::<VisibilityGroupDecl>(cand) {
+        var g = cast::<VisibilityGroupDecl>(cand);
+        for var i: usize = 0; i < g->members.size(); ++i { self._ff_ifaces_in(g->members[i], d, out); }
+        return;
+    }
+    if isa::<ModuleDecl>(cand) {
+        var dc = static_cast::<*DeclContext>(cast::<ModuleDecl>(cand));
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i { self._ff_ifaces_in(*(dc->dc_decls.get(i)), d, out); }
+        return;
+    }
+    var x = dyn_cast::<ExtensionDecl>(cand);
+    if (x == &null) || (x->implements.size() == 0) { return; }
+    if self._ext_target(x) != self.layout_decl(d) { return; }
+    for var i: usize = 0; i < x->implements.size(); ++i {
+        var e = x->implements.get(i);
+        if e != &null { self._ff_iface(e->base, out, 0); }
+    }
+}
+
+/// Where record \p d is Complete, everything its friend lines name is
+/// declared ahead of it: each record (tier 0), each function's signature
+/// types (as its own declaration would need them; the function itself
+/// need not be), each witness primary, and `main` at global scope.
+fn EmitPlan::_admit_friends(d: *Decl) {
+    var ff = FileFriends();
+    self.file_friends(d, &ff);
+    if !ff.needed { return; }
+    for var i: usize = 0; i < ff.records.size(); ++i { self._admit(ff.records[i], PlanNeed::Fwd); }
+    for var i: usize = 0; i < ff.fns.size(); ++i {
+        var f = ff.fns[i];
+        if ff.far[i] {
+            var have = false;
+            for var k: usize = 0; k < self.friend_early.size(); ++k { if self.friend_early[k] == f { have = true; break; } }
+            if !have { self.friend_early.push_back(f); }
+        }
+        self._witness_bounds(static_cast::<*Decl>(f));
+        for var j: usize = 0; j < f->params.size(); ++j {
+            var p = f->params[j];
+            if (p == &null) || p->is_self { continue; }
+            self._admit_type(((p->pack_type) if (p->is_pack && (p->pack_type != &null)) else (p->type_)), PlanNeed::Fwd);
+        }
+        self._admit_type(f->return_type, PlanNeed::Fwd);
+        self._admit_type(f->panic_result, PlanNeed::Fwd);
+    }
+    for var i: usize = 0; i < ff.ifaces.size(); ++i { self._witness_primary(ff.ifaces[i]); }
+    for var i: usize = 0; i < ff.globals.size(); ++i { self._admit_type(ff.globals[i]->type_, PlanNeed::Fwd); }
+    if ff.main != &null {
+        self.main_friend = ff.main;
+        for var j: usize = 0; j < ff.main->params.size(); ++j {
+            var p = ff.main->params[j];
+            if (p != &null) && (!p->is_self) { self._admit_type(p->type_, PlanNeed::Fwd); }
+        }
     }
 }
 
@@ -2157,6 +2606,7 @@ fn EmitPlan::_expand_type(d: *Decl) {
         }
     }
     self._collect_same_file_extensions(rec);
+    self._admit_friends(rec);
 }
 
 fn EmitPlan::_bases(bases: *FrozenList::<InheritEdge>) {

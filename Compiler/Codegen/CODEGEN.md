@@ -283,19 +283,30 @@ a file or directory name, is sanitized to an identifier, with a leading
 library) lives in
 `namespace <file stem>` (`CXXSpell::entry_stem`, the same sanitizing), and
 only there does a `priv` or `internal` decl go one level deeper, into an
-unnamed namespace nested inside it (`CXXSpell::is_anon`); a module's priv
+unnamed namespace nested inside it (`CXXSpell::is_anon`) -- never a
+function or a record, which records befriend (below) and a friend
+declaration cannot reach into an unnamed namespace; a module's priv
 decls keep external linkage. A file-scope `main` stays at global scope in
 every TU (`CXXSpell::is_main`). Qualified names are unchanged — `::stem::x`
 reaches into the unnamed namespace through C++'s implicit using-directive —
 so `qual_name` knows nothing about any of it.
 
-Walks plan entries by tier. Records: `class`/`struct`, every member the
-user wrote `public:` and every base `public` whatever its Kairo visibility
-(`_cxx_vis`: `priv`/`prot` are module-wide, which no C++ access level can
-say, and AccessCheck enforces them; only compiler-made members such as a
-`where` group's candidates keep `private:`), a `using Base::m;` for every
-method name the class shares with a base (`_base_usings`: Kairo merges
-the base's overloads, C++ would hide them), fields (a default as a C++ default member initializer: a
+Walks plan entries by tier. Records: `class`/`struct`, every member at
+its Kairo access -- `priv` `private:`, `prot` `protected:` -- and every
+base `public` whatever its edge says (a private base refuses the upcast
+Kairo allows through a `derives priv` edge from another file, and makes the
+checked downcast null). Public whatever they say (`CXXSpell::cxx_vis`): a
+transfer constructor and the destructor (prelude templates and
+compiler-made aggregates in other namespaces copy and destroy user values,
+and their probes would turn false silently), and the instance fields of a
+struct, a union, or a class with no constructor (a C++ aggregate, built by
+designated initializers; and a struct with a private field is returned
+through memory on MSVC, unlike C). Compiler-made members keep their own
+access (a `where` group's candidates `private:`). A `using Base::m;` for
+every method name the class shares with a base (`_base_usings`: Kairo
+merges the base's overloads, C++ would hide them), at the narrowest access
+of those overloads, and none when one is private to another file's base;
+fields (a default as a C++ default member initializer: a
 constant FieldInitLowering folded as it is, `signed int n = 5;`, anything
 else as a call of the member function it made of the initializer,
 `T d = __kairo_init_d();`, so the expression is a body like any other;
@@ -314,8 +325,26 @@ default-constructible when a member struct's zeroed fields made that
 member's default constructor non-trivial),
 method DECLARATIONS (never bodies in the class — invariant 12), the
 derived `op =` (below),
-one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested
-types. Enums: C-like as `enum class`, an ADT as its layout record (below).
+one `friend struct ::N::__kairo_ext_X;` per same-file scope (in source
+order, so the text does not depend on which scope a TU touched first),
+then, for a record with a non-public member, the rest of its file
+(`EmitPlan::file_friends` / `FileFriends`, read off the file's
+declarations only, so the record is one text in its own TU, an importer, a
+header and a kcc include): every other outermost record and hoisted local
+record (`friend ::ns::X;`, a generic one `template <...> friend class
+::ns::G;` under `__kairo_ft<i>` names when its own could redeclare the
+record's), every other-target scope in its namespace (`friend struct
+__kairo_ext_Y;`), every free function of the file (unqualified in the
+record's namespace; qualified, after a declaration of its own ahead of
+tier 1 (`friend_early`), for one in another namespace or one whose first
+declaration needs `extern "C"` or `[[noreturn]]`), the witness primaries
+of what the file declares it implements, the `__kairo_ginit_<v>` thunk of
+each global whose initializer reaches a private member (a variable cannot
+be a friend: EmitIR calls the thunk instead), and `main` (declared at
+global scope first: `friend int ::main()`). The plan admits what those
+lines name (`_admit_friends`). Left out: a function whose signature names
+a nested type, and a generic one whose parameter names clash with the
+record's. Nested types. Enums: C-like as `enum class`, an ADT as its layout record (below).
 Functions: free only. Extension scopes:
 `struct __kairo_ext_X {` and one `static` declaration per member (merged
 template head, receiver first via `ext_receiver`, the postfix `int` dummy
