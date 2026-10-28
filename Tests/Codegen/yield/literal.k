@@ -6,8 +6,8 @@
 // (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today it type-checks and clang
 // rejects the emitted C++: CL001E "non-const lvalue reference to type 'int'
 // cannot bind to a temporary of type 'int'" -- the yield passes its operand
-// to the runtime by non-const reference (Lib/builtin/types.k). Yielding a
-// variable works. When it XPASSes, delete the XFAIL -- the run below is
+// to the runtime by non-const reference (Lib/builtin/coro/generator.k).
+// Yielding a variable works. When it XPASSes, delete the XFAIL -- the run below is
 // already the real assertion.
 
 fn sevens() -> yield i32 {

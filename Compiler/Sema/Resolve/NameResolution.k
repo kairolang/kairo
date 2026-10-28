@@ -477,8 +477,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// items it actually declares (`_bind_lang` writes nothing on a miss).
     ///
     /// It cannot be the root alone: TUs are type-resolved in reverse tree
-    /// order, so `containers.k` -- which declares Slice -- reaches its own T
-    /// before `module.k` re-exports it, and `fn Vector(self, const items:
+    /// order, so `containers/slice.k` -- which declares Slice -- reaches its own
+    /// T before `module.k` re-exports it, and `fn Vector(self, const items:
     /// [T;])` would then resolve `[T;]` against an empty table and report the
     /// item missing from inside the builtin root itself.
     fn fill_lang_items(self) {

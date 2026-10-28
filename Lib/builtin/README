@@ -1,0 +1,159 @@
+Lib/builtin -- the builtin library
+==================================
+
+The declarations the compiler needs a handle to: every type a desugaring
+targets (`[T]`, `T?`, `a..b`, f-strings, generators, `panic` results) and
+every function a lowering calls. Installed as <resource-dir>/builtin, the
+named root `builtin`, and imported implicitly into every translation unit
+(the prelude). builtin DECLARES, std EXTENDS: a type sema needs a handle to
+goes here, a method only users call goes in Lib/std.
+
+Layout
+------
+
+One file per entity, grouped in directories by area, the way compiler-rt's
+lib/builtins and libc++'s src/ are laid out. module.k is the root: it
+re-exports every file below with `pub import`, which is how the prelude
+sees them, so a new file is listed there or nothing outside builtin sees it.
+
+    module.k                  the root: the re-exports, plus what must be
+                              declared in `::builtin` itself (see below)
+    string.k                  string                    ""
+    base/range.k              Range, RangeFrom, RangeTo a..b  a..  ..b
+    base/ordering.k           Ordering                  <=>
+    base/byte_t.k             Byte                      byte's C++ spelling
+    base/pow.k                pow                       ^^ on primitives
+    num/bigint.k              BigInt                    big integer literals
+    num/bigfloat.k            BigFloat                  big float literals
+    errors/panic_result.k     Panic                     a `panic` fn's result
+    errors/panic_raise.k      PanicRaise
+    errors/panic_catch.k      PanicCatch
+    errors/assert_fail.k      AssertFail                `assert` failure
+    errors/crash.k            unwrap_failed, crash_with the crash path
+    containers/slice.k        Slice                     [T;]
+    containers/vector.k       Vector                    [T]
+    containers/hash_set.k     HashSet                   {T}
+    containers/hash_map.k     HashMap                   {K: V}
+    coro/future.k             Future                    spawn
+    coro/suspend.k            Suspend                   the awaiter
+    coro/generator.k          Yield, YieldPromise       yield (one file:
+                                                        each names the other)
+    fmt/fmt_buf.k             FmtBuf                    f-strings
+
+The C behind it is Lib/rt (crash.c, fmt_*.c), reached through
+`ffi "c" import "rt/crash.h"` and `ffi "c++" import "rt/fmt.h"`.
+
+Names and namespaces
+--------------------
+
+A file is one module, and one module is one C++ namespace: its path from
+the root. `containers/vector.k` is `builtin::containers::vector`, so the
+emitted C++ (and a link error) spells Vector
+`builtin::containers::vector::Vector`. Two files cannot share a module yet
+(IMPORTS.md 4.3: merging two files' reopenings is M2 item 13a). So:
+
+  - Moving an entity to another file renames it in C++. Inside Kairo
+    nothing changes: lang items are bound by name, not by path.
+  - A file stem is a module path segment, so it cannot be a keyword:
+    `byte`, `panic`, `yield`, `assert`, `null`, `async` are refused
+    (S054E). Hence byte_t.k, panic_result.k, generator.k, assert_fail.k.
+    Avoid C++ keywords too: a segment that is one is spelled with a
+    trailing `_` in C++.
+  - `core` is ignored by the repository's .gitignore (core dumps); do not
+    name a directory that.
+
+What module.k declares itself, and why it cannot move yet:
+
+  null_t, Nullable  A C++ host spells them `::builtin::null_t`,
+                    `::builtin::null` (the constant InterfaceEmitter writes
+                    after null_t) and `::builtin::Nullable` (Spec,
+                    c-cpp-exposing). Only the root's own declarations are in
+                    `::builtin`.
+  __builtin_niche_of, __builtin_type_id, __builtin_panic_site
+                    Expression-bodied fns. One that is the last declaration
+                    of its file ICEs in codegen (TokenSink: "span runs past
+                    the end of its buffer"; TICKETS.TXT), so a file of only
+                    these cannot be built until that is fixed.
+  crash!            A prelude macro is found in the root's own scope only:
+                    the preprocessor does not follow a `pub import` for
+                    macros. Its target, crash_with, is in errors/crash.k and
+                    is called unqualified.
+
+Imports inside builtin
+----------------------
+
+Files import each other by their path from the root (`import
+containers::slice::*`), and those imports are load-bearing: a builtin
+file's lang items are bound (NameResolution::fill_lang_items) between name
+and type resolution of THAT file, and files are type-resolved after the
+files they import. vector.k imports slice.k because `[T;]` in Vector's
+constructor needs Slice already bound; slice.k imports base/range.k for
+`Range<usize>`. A file that uses another's type without importing it can
+see an empty lang-item table and report the item missing from inside
+builtin itself. Imports are acyclic: two entities that name each other
+share a file (coro/generator.k).
+
+Lang items
+----------
+
+The compiler finds these BY NAME (AST/LangItems.k: WellKnownType and
+to_string(WellKnownType); bound in NameResolution::fill_lang_items).
+Renaming one breaks the compiler; renaming its file only renames its C++
+namespace (and CanonicalNodes.k spells Byte's: "::builtin::base::byte_t::Byte").
+
+    WellKnownType   declared as              in
+    Future          Future                   coro/future.k
+    Range           Range                    base/range.k
+    RangeFrom       RangeFrom                base/range.k
+    RangeTo         RangeTo                  base/range.k
+    Yield           Yield                    coro/generator.k
+    Ordering        Ordering                 base/ordering.k
+    Nullable        Nullable                 module.k
+    NullT           null_t                   module.k
+    Panic           Panic                    errors/panic_result.k
+    String          string                   string.k
+    Vector          Vector                   containers/vector.k
+    Slice           Slice                    containers/slice.k
+    HashMap         HashMap                  containers/hash_map.k
+    HashSet         HashSet                  containers/hash_set.k
+    BigInt          BigInt                   num/bigint.k
+    BigFloat        BigFloat                 num/bigfloat.k
+    PanicRaise      PanicRaise               errors/panic_raise.k
+    PanicCatch      PanicCatch               errors/panic_catch.k
+    AssertFail      AssertFail               errors/assert_fail.k
+    Pow             pow                      base/pow.k
+    FmtBuf          FmtBuf                   fmt/fmt_buf.k
+    Byte            Byte                     base/byte_t.k
+    UnwrapFailed    unwrap_failed            errors/crash.k
+    NicheOf         __builtin_niche_of       module.k
+    TypeIdOf        __builtin_type_id        module.k
+    PanicSiteOf     __builtin_panic_site     module.k
+    (Array)         none: `[T; N]` stays a structural array
+
+Members found by name too (LangMembers in LangItems.k): Range's `begin`,
+`end`, `inclusive`; Slice's `data`, `len`; string's `data`, `len` (and its
+empty and 3-argument literal constructors, made constexpr by
+NameResolution::_literal_ctor_constexpr); Yield's `next`, `current`;
+FmtBuf's `text`, `finish` and the `put_<kind>` family (fmt_put_name).
+
+Not lang items, but named by something else and so not free to rename:
+crash_with (the `crash!` macro's body), YieldPromise (Yield's
+`promise_type`, the C++ coroutine protocol), Suspend's await_* and
+YieldPromise's get_return_object / initial_suspend / final_suspend /
+yield_value / return_void / unhandled_exception (C++'s coroutine
+protocol, called by clang). Everything else is plain library code.
+
+Where a new API goes
+--------------------
+
+  - A member of an existing lang item (Vector's push, string's methods):
+    in that type's file. A record's members are one declaration, so the
+    type's whole surface lives in its one file.
+  - A new entity: a new file in its area, `pub import`ed from module.k,
+    importing what it uses. A new area is a new directory.
+  - Something the compiler must find: also a WellKnownType row (or a
+    LangMembers row) in AST/LangItems.k, bound in fill_lang_items, and a
+    row in the table above.
+  - C the builtin calls: Lib/rt (see its README), declared in an rt/*.h the
+    builtin file imports with `ffi`.
+  - Anything only users call and the compiler never names: Lib/std.

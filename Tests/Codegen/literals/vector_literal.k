@@ -8,8 +8,8 @@
 // 'Vector'"; without it, `nums[0]` ICEs ("EmitIR: `[]` on a record;
 // OperatorLowering owns it"); and the literal alone type-checks and
 // compiles but does not link (L001E "undefined symbol:
-// builtin::containers::Vector<int>::Vector(builtin::containers::Slice<int>)":
-// the built-in vector constructors are not implemented). When it XPASSes,
+// builtin::containers::vector::Vector<int>::Vector(
+// builtin::containers::slice::Slice<int>)": the built-in vector constructors are not implemented). When it XPASSes,
 // delete the XFAIL -- the run below is already the real assertion.
 
 fn main() -> i32 {

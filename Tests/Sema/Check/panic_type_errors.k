@@ -12,7 +12,7 @@ fn main() -> i32 { return generic<i32>() as i32 }
 // SC116E, at the type, with the builtin declaration as the note.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=GATE
 // GATE: panic_type_errors.k:4:13: error [SC116E]: a panic result type cannot be named yet; a panicking call is handled with 'try' or propagated
-// GATE-NEXT: types.k:{{[0-9]+}}:{{[0-9]+}}: note [SC116N]: the builtin result type, declared here
+// GATE-NEXT: panic_result.k:{{[0-9]+}}:{{[0-9]+}}: note [SC116N]: the builtin result type, declared here
 // GATE: panic_type_errors.k:5:13: error [SC116E]
 // GATE: panic_type_errors.k:6:12: error [SC116E]
 

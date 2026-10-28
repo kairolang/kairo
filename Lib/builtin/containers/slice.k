@@ -1,16 +1,15 @@
-/// --- The Kairo Project --------------------- Lib/builtin/containers.k --- ///
+/// --- The Kairo Project --------------- Lib/builtin/containers/slice.k --- ///
 ///
-///   The container lang items. `[T;]` is Slice, `[T]` is Vector, `{T}` is
-///   HashSet, `{K: V}` is HashMap. `[T; N]` stays a structural array, and is
-///   the type of a `[...]` literal with no container target.
-///   Layouts are the ABI; bodies live in std and the runtime.
+///   The Slice lang item: `[T;]`. Layouts are the ABI; bodies live in std
+///   and the runtime. `[T; N]` stays a structural array, and is the type
+///   of a `[...]` literal with no container target.
 ///
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-import types::*
+import base::range::*
 
 /// A view over N contiguous T. `[T;]`, and the type a `[...]` literal
 /// takes against a `[T;]` target.
@@ -54,36 +53,4 @@ pub struct <T> Slice {
         if hi > self.len { __builtin_trap() }
         return Slice<T>(self.data, hi)
     }
-}
-
-/// Growable, owning.
-pub struct <T> Vector {
-    var data: *T
-    var len:  usize
-    var cap:  usize
-
-    fn Vector(self)
-    fn Vector(self, const items: [T;])
-
-    /// A vector passes where a slice is wanted: a view, nothing copied.
-    @implicit pub inline fn op as (self) -> [T;] {
-        return Slice<T>(self.data, self.len)
-    }
-}
-
-pub struct <T> HashSet {
-    var data: *T
-    var len:  usize
-    var cap:  usize
-
-    fn HashSet(self)
-}
-
-pub struct <K, V> HashMap {
-    var keys:   *K
-    var values: *V
-    var len:    usize
-    var cap:    usize
-
-    fn HashMap(self)
 }

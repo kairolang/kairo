@@ -67,7 +67,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      return(*({
 // CXX-NEXT:     if(t.is_null()) {
-// CXX-NEXT:         ::builtin::unwrap_failed({{.*}}"unwrap!(t) on null at {{.*}}unwrap.k:27:35"{{.*}}, {{[0-9]+}});
+// CXX-NEXT:         ::builtin::errors::crash::unwrap_failed({{.*}}"unwrap!(t) on null at {{.*}}unwrap.k:27:35"{{.*}}, {{[0-9]+}});
 // CXX:      ::builtin::Nullable<signed int> __kairo_unwrap0 ={{ ?}}::{{.*}}find(7);
 // CXX-NEXT: if(__kairo_unwrap0.is_null()) {
 // CXX:      static_cast<signed int &&>(__kairo_unwrap0.__value());

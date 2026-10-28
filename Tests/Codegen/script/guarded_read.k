@@ -23,7 +23,7 @@ var cfg = load()
 //
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      if( ::{{.*}}cfg.is_null()) {
-// CXX-NEXT:     ::builtin::unwrap_failed({{.*}}"script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:18)"{{.*}}, {{[0-9]+}});
+// CXX-NEXT:     ::builtin::errors::crash::unwrap_failed({{.*}}"script variable 'cfg' used before its line ran ({{.*}}guarded_read.k:18)"{{.*}}, {{[0-9]+}});
 //
 // REQUIRES: clang
 // RUN: rm -rf %t.d

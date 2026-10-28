@@ -24,13 +24,13 @@ fn main() -> i32 { return 0 }
 // LEFT:      #include "errs.hh"
 // LEFT:      #ifndef __KAIRO_TID_[[KEY:[0-9a-f]+]]
 // LEFT:      template<> struct __kairo_tid<::errs::Shared> {
-// LEFT:      {{\[\[}}nodiscard]]::builtin::types::Panic<signed int,::errs::Shared> left(signed int k) noexcept;
-// LEFT:      extern template struct::builtin::types::Panic<signed int,::errs::Shared>;
+// LEFT:      {{\[\[}}nodiscard]]::builtin::errors::panic_result::Panic<signed int,::errs::Shared> left(signed int k) noexcept;
+// LEFT:      extern template struct::builtin::errors::panic_result::Panic<signed int,::errs::Shared>;
 // RUN: cat %t.d/h/right.hh | %FileCheck %s --check-prefix=RIGHT
 // RIGHT:      #include "errs.hh"
 // RIGHT:      #ifndef __KAIRO_TID_{{[0-9a-f]+}}
-// RIGHT:      {{\[\[}}nodiscard]]::builtin::types::Panic<signed int,::errs::Shared> right(signed int k) noexcept;
-// RIGHT:      extern template struct::builtin::types::Panic<signed int,::errs::Shared>;
+// RIGHT:      {{\[\[}}nodiscard]]::builtin::errors::panic_result::Panic<signed int,::errs::Shared> right(signed int k) noexcept;
+// RIGHT:      extern template struct::builtin::errors::panic_result::Panic<signed int,::errs::Shared>;
 //
 // RUN: %kairo %S/Inputs/panic_headers/both.k --print-emit-plan -c > %t.d/plan.txt 2>&1
 // RUN: test "$(grep -c 'Panic<signed int, ::errs::Shared>.* home$' %t.d/plan.txt)" = 1

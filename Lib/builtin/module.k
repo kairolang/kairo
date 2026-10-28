@@ -1,9 +1,11 @@
 /// --- The Kairo Project ------------------------- Lib/builtin/module.k --- ///
 ///
-///   The builtin root: every declaration sema binds as a lang item. Shipped
-///   with the compiler, installed under <resource-dir>/builtin, imported
-///   implicitly by every translation unit. Nothing here is user-visible by
-///   any name but its own; `[T]`, `{K: V}` and `string` are sugar for it.
+///   The builtin root: every declaration sema binds as a lang item is
+///   declared here or re-exported from here. Shipped with the compiler,
+///   installed under <resource-dir>/builtin, imported implicitly by every
+///   translation unit. Nothing here is user-visible by any name but its
+///   own; `[T]`, `{K: V}` and `string` are sugar for it. README has the
+///   layout.
 ///
 ///   builtin DECLARES; std EXTENDS. A type sema needs a handle to goes here.
 ///   A method only users call goes in std.
@@ -15,12 +17,45 @@
 
 module builtin
 
-pub import containers::*
 pub import string::*
-pub import types::*
-pub import fmt::*
 
-ffi "c" import "rt/crash.h"
+pub import base::range::*
+pub import base::ordering::*
+pub import base::byte_t::*
+pub import base::pow::*
+
+pub import num::bigint::*
+pub import num::bigfloat::*
+
+pub import errors::panic_result::*
+pub import errors::panic_raise::*
+pub import errors::panic_catch::*
+pub import errors::assert_fail::*
+pub import errors::crash::*
+
+pub import containers::slice::*
+pub import containers::vector::*
+pub import containers::hash_set::*
+pub import containers::hash_map::*
+
+pub import coro::future::*
+pub import coro::suspend::*
+pub import coro::generator::*
+
+pub import fmt::fmt_buf::*
+
+// --- declared in the root ---------------------------------------------------
+//
+// What stays here, and why, until it can move: a file is one C++ namespace,
+// so the root's own declarations are the only ones in `::builtin`.
+//   null_t, Nullable  a C++ host spells them `::builtin::null_t`,
+//                     `::builtin::null` and `::builtin::Nullable`.
+//   __builtin_*       each is an expression-bodied fn, and one that ends
+//                     its file ICEs in codegen (TokenSink: "span runs past
+//                     the end of its buffer"; TICKETS.TXT), so a file of
+//                     only these cannot be built yet.
+//   crash!            a prelude macro is found in the root's own scope
+//                     only: the preprocessor does not follow a `pub import`.
 
 /// `null` as a value: the type of the constant every null converts from. A
 /// C++ host spells the constant `::builtin::null` (InterfaceEmitter writes
@@ -43,30 +78,6 @@ pub enum <T> Nullable {
     Null,
 }
 
-/// `^^` on a primitive base. Repeated squaring, so overflow is exactly `*`'s.
-/// A negative exponent is `(1 / base) ^^ -exp` under the base type's own
-/// division: for an integer base that reciprocal is 0, 1 or -1 and nothing
-/// can overflow on the way back; for a float base it is the reciprocal.
-/// `-(exp + 1)` rather than `-exp`, which has no value for the minimum.
-/// `: type`: B and E are only ever primitives, and no interface says
-/// "numeric" yet, so this one body is C++'s to check per instance (MONO.md
-/// D1); a bare `<B, E>` would be refused, its operators granted by no bound.
-priv fn <B: type, E: type> pow(base: B, exp: E) -> B {
-    if exp < 0 {
-        var inv: B = 1 / base
-        return pow(inv, -(exp + 1)) * inv
-    }
-    var r: B = 1
-    var b = base
-    var e = exp
-    while e > 0 {
-        if (e % 2) == 1 { r = r * b }
-        b = b * b
-        e = e / 2
-    }
-    return r
-}
-
 /// How many bit patterns a `T` never holds: the layout engine's niche_of
 /// (EnumLayoutLowering, spec ENUMLAYOUT §5.1) -- 1 for a pointer, the
 /// values past a plain enum's or an ADT tag's, a record's first field's,
@@ -83,30 +94,6 @@ pub eval fn <T> __builtin_type_id() -> u32 = 0
 /// `__kairo_panic_sites` table as a `panic` would be. A compiler test hook:
 /// EnumLayoutLowering replaces every call with the id.
 pub fn __builtin_panic_site() -> u32 = 0
-
-/// The compiler's crash entry (the UnwrapFailed lang item): `unwrap!` on
-/// null (NULLABLE.md 2.6), a checked `as` into a closed enum that misses,
-/// a script global read before its line ran, and the asserting downcast
-/// `p as *D` on the wrong dynamic type. `msg[0..len)` is a literal the
-/// lowering built whole -- the expression as written and its
-/// file:line:col -- so nothing is formatted at crash time; rt/crash.c
-/// writes it and a newline to stderr and aborts (PANIC.md §2.8, "the crash
-/// path"). `-> !` makes the failing arm `Never`. Not a panic: no `try`
-/// catches it and it is in no panic set.
-pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
-    unsafe { kairo_rt_crash(msg as unsafe *const u8, len) }
-}
-
-/// What `crash!` calls: `msg` and a newline to stderr (nothing when it is
-/// empty), then abort. `-> !`, so a `crash!()` ends its path for the flow
-/// checks like any other call that never returns. A runtime `string` is
-/// fine: its data pointer and length are read once, here, and handed to
-/// rt/crash.c, which writes at most KAIRO_RT_CRASH_MAX bytes of them and
-/// touches nothing else (no method of `string` runs on a program that is
-/// crashing). A literal costs no allocation: it is a borrowed view.
-pub fn crash_with(msg: string = "") -> ! {
-    unsafe { kairo_rt_crash(msg.data as unsafe *const u8, msg.len) }
-}
 
 /// `crash!()` / `crash!("why")`: end the process (PANIC.md §2.4). Not a
 /// panic -- it joins no panic set and no `try` catches it -- so a function

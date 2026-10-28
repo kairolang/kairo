@@ -47,7 +47,7 @@ fn main() -> i32 {
 // IR-LABEL: CODEGEN C++: {{.*}}closed_enum_cast.k
 // IR:       color(
 // IR:       if(__kairo_ecast{{[0-9]+}} >= 3) {
-// IR-NEXT:  ::builtin::unwrap_failed({{.*}}"v as Color: the value is no variant of the closed enum 'Color' at {{.*}}closed_enum_cast.k:19:28"{{.*}}, {{[0-9]+}});
+// IR-NEXT:  ::builtin::errors::crash::unwrap_failed({{.*}}"v as Color: the value is no variant of the closed enum 'Color' at {{.*}}closed_enum_cast.k:19:28"{{.*}}, {{[0-9]+}});
 // IR:       spread(
 // IR:       if({{.*}}__kairo_ecast{{[0-9]+}} != 1{{.*}}&&{{.*}}__kairo_ecast{{[0-9]+}} != 5{{.*}}) {
 // IR:       sign(

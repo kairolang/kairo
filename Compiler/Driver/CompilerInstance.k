@@ -4218,10 +4218,10 @@ fn FrontendAction::_tu_is_empty(fid: u32) -> bool {
 /// Every fid of the graph, each after everything it imports.
 ///
 /// Reversing `_fids` is not that order: it is a tree walk, so reversed it
-/// puts a later SIBLING first. `module.k` imports `string` before `fmt`, and
-/// reversed, `fmt` was typed before `string` had resolved -- every
-/// `s.len` on a `string` came out unknown, without an error, and reached
-/// codegen untyped. A fid is placed once each fid it imports (in this graph)
+/// puts a later SIBLING first. `module.k` imports `string` before `fmt`
+/// (now fmt/fmt_buf.k), and reversed, `fmt` was typed before `string` had
+/// resolved -- every `s.len` on a `string` came out unknown, without an
+/// error, and reached codegen untyped. A fid is placed once each fid it imports (in this graph)
 /// is placed; imports are acyclic, but should a pass place nothing the rest
 /// go in the old reverse order rather than be dropped.
 fn FrontendAction::_import_order() -> vec::<u32> {

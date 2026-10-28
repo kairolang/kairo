@@ -756,7 +756,7 @@ class FloatingLiteralExpr derives Expr {
 ///
 ///  FormatHole
 ///  What X decided about one f-string hole, so FStringLowering mints
-///  without a lookup. Field for field the FormatSeg row fmt.k declares,
+///  without a lookup. Field for field the FormatSeg row fmt_buf.k declares,
 ///  plus the conversion to apply to the hole's expression.
 ///
 struct FormatHole {

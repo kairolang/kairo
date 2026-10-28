@@ -163,22 +163,22 @@ fn tuple_field_name(i: usize)      -> string { return f"_{i}"; }
 ///        happen to share a spelling, so two rows. FmtBuf's `put_*` family
 ///        is fmt_put_name, below.
 class LangMembers {
-    /// Range<T>, RangeFrom<T>, RangeTo<T> fields (types.k): IterLowering
+    /// Range<T>, RangeFrom<T>, RangeTo<T> fields (base/range.k): IterLowering
     /// reads them, RangeLowering initializes them by designator.
     static fn range_begin() -> string     { return "begin"; }
     static fn range_end() -> string       { return "end"; }
     static fn range_inclusive() -> string { return "inclusive"; }
-    /// Slice<T> fields (containers.k): IterLowering walks a slice by them.
+    /// Slice<T> fields (containers/slice.k): IterLowering walks a slice by them.
     static fn slice_data() -> string { return "data"; }
     static fn slice_len() -> string  { return "len"; }
     /// string fields (string.k): MatchLowering compares a string head's
     /// bytes, LiteralTyping sizes an f-string's buffer.
     static fn string_data() -> string { return "data"; }
     static fn string_len() -> string  { return "len"; }
-    /// Yield<T> methods (types.k): the generator protocol IterLowering drives.
+    /// Yield<T> methods (coro/generator.k): the generator protocol IterLowering drives.
     static fn yield_next() -> string    { return "next"; }
     static fn yield_current() -> string { return "current"; }
-    /// FmtBuf methods (fmt.k) every f-string lowers onto.
+    /// FmtBuf methods (fmt/fmt_buf.k) every f-string lowers onto.
     static fn fmtbuf_text() -> string   { return "text"; }
     static fn fmtbuf_finish() -> string { return "finish"; }
 }
@@ -214,7 +214,7 @@ class WellKnownDecls {
 }
 
 /// \enum FormatKind
-/// \brief The compiler's spelling of Lib/builtin/fmt.k's FormatKind: what X
+/// \brief The compiler's spelling of Lib/builtin/fmt/fmt_buf.k's FormatKind: what X
 ///        records per f-string hole and FStringLowering mints as a variant
 ///        USE. The rows are matched to the enum's variants by NAME through
 ///        the lang item, never by value, so the numbering here is not an
@@ -307,7 +307,7 @@ fn format_kind_of(b: BuiltinKind) -> FormatKind {
     }
 }
 
-/// \enum FormatAlign  -- fmt.k's FormatAlign, same name-matching rule.
+/// \enum FormatAlign  -- fmt_buf.k's FormatAlign, same name-matching rule.
 enum FormatAlign derives u8 { Default = 0, Left, Right, Center }
 
 fn to_string(a: FormatAlign) -> string {
@@ -320,7 +320,7 @@ fn to_string(a: FormatAlign) -> string {
     return "<unknown>";
 }
 
-/// FormatSeg::flags bits and the "no precision" value, as fmt.k defines
+/// FormatSeg::flags bits and the "no precision" value, as fmt_buf.k defines
 /// them. Two copies on purpose: the AST layer cannot read Lib/builtin, and
 /// the runtime cannot read the compiler.
 eval fn FMT_SIGN_PLUS() -> u8  { return 1;  }
@@ -329,7 +329,7 @@ eval fn FMT_ZERO()      -> u8  { return 4;  }
 eval fn FMT_UPPER()     -> u8  { return 8;  }
 eval fn FMT_DEBUG()     -> u8  { return 16; }
 
-/// The spec word FStringLowering hands every put_* call; Lib/builtin/fmt.k
+/// The spec word FStringLowering hands every put_* call; Lib/builtin/fmt/fmt_buf.k
 /// unpacks it bit for bit. All-defaults is 0.
 ///   bits  0..15 width (0 = none)     bits 16..31 precision + 1 (0 = none)
 ///   bits 32..52 fill codepoint (0 = ' ')   bits 53..54 align (FormatAlign)

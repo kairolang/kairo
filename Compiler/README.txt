@@ -352,9 +352,9 @@ LIMITATION, the common case today: a clang TU takes ONE PCH. A Kairo TU's
 codegen gets every header set in its import graph; the first (its own,
 when it has one) is the PCH, and every other set's headers are #included
 textually and parsed again, in every TU's backend run. builtin alone has
-two sets (types.k's <coroutine>, fmt.k's rt/fmt.h), so every program pays
-it. Measured on a one-file program importing <vector>: phase B reopens
-all three sets' headers, sub-headers included, and the backend's own time
+two sets (coro/generator.k's <coroutine>, fmt/fmt_buf.k's rt/fmt.h), so
+every program pays it. Measured on a one-file program importing <vector>:
+phase B reopens all three sets' headers, sub-headers included, and the backend's own time
 (~1.3s over 6 TUs) dwarfs phase A's three set builds (~0.37s).
 
 --------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------------- Lib/builtin/fmt.k --- ///
+/// --- The Kairo Project -------------------- Lib/builtin/fmt/fmt_buf.k --- ///
 ///
 ///   The f-string builder. FStringLowering compiles an f-string into
 ///   straight-line calls on one FmtBuf: a capacity computed at compile

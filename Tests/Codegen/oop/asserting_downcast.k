@@ -64,7 +64,7 @@ fn main() -> i32 {
 //
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:     dynamic_cast< ::asserting_downcast::Dog *>(
-// CXX:     ::builtin::unwrap_failed(
+// CXX:     ::builtin::errors::crash::unwrap_failed(
 // CXX-NOT: static_cast< ::asserting_downcast::Dog *>(
 //
 // REQUIRES: clang
