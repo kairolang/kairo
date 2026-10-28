@@ -384,7 +384,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 if (x == &null) || (iface == &null) { continue; }
                 var row = self.conforms(x, iface);
                 if (row == &null) || (!row->ok) {
-                    self._report(at, b, x, iface, row);
+                    self._report(at, b, x, iface, row, e);
                     ok = false;
                     continue;
                 }
@@ -498,15 +498,9 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             var ne = self.sc->instances->instance_for(rep, &args, self.sc->ctx->fid, NameLookup::ctx_of(rep));
             if ne == &null { continue; }
             self.sc->instances->add_reach(e, ne);
-            if !self.sc->instances->mark_live(ne, SourceRange::invalid(), e, c->range) { continue; }
-            if !self._check_bounds(ne) {
-                // The error points at the root use; this says which call in
-                // the generic's body asked for the instance that failed.
-                var nb = self.sc->diag->report(DiagID::SC001N, c->range.start,
-                    f"required by this call, in the instance of '{self.tu.decl_name(prim)}' used there");
-                nb.first(c->range);
-                nb.emit();
-            }
+            // Its failure is reported at the root use, the hop notes saying
+            // which body asked for it (chain_notes).
+            if self.sc->instances->mark_live(ne, SourceRange::invalid(), e, c->range) { self._check_bounds(ne); }
         }
         for var i: usize = 0; i < uses.types.size(); ++i {
             var s = d.substitute(self._canon(uses.types[i]));
@@ -585,6 +579,44 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         if at.start.is_valid() { b.note(at.start, f"'{next}' is required here, instantiation {lim + 1} of the chain").first(at); }
         b.note("the limit is set by --cmax-generic-depth");
         b.emit();
+    }
+
+    /// The instantiation chain of reached instance \p e, on \p b, an error
+    /// reported at its root's use (MONO.md D6): one note per hop, innermost
+    /// first, "in instantiation of 'X<A>' required here" at the use in the
+    /// body that needed X<A>. Past N = --cmax-generic-backtrace hops
+    /// (default 5: the first 3 and the last 2) the first ceil(N/2) and the
+    /// last floor(N/2) are shown, with a note counting the rest. Each hop is one instance (the chain is the `via`
+    /// links, acyclic), and an instance's failure is reported once, at the
+    /// first use that needed it, so a second use of a failing instance adds
+    /// nothing. Nothing for a root (\p e used directly). Public: a fact that
+    /// fails for an instance (G6's lifecycle) reports at `use_at` with this.
+    fn chain_notes(self, b: *DiagBuilder, e: *InstanceEntry) {
+        var hops = vec::<*InstanceEntry>();
+        var h = e;
+        while (h != &null) && (h->via != &null) { hops.push_back(h); h = h->via; }
+        var n = hops.size();
+        if n == 0 { return; }
+        var cap = n;
+        if self.sc->opts.max_generic_backtrace > 0 { cap = static_cast::<usize>(self.sc->opts.max_generic_backtrace); }
+        var head = n;
+        var tail: usize = 0;
+        if n > cap {
+            head = (cap + 1) / 2;
+            tail = cap / 2;
+        }
+        for var i: usize = 0; i < n; ++i {
+            if (i >= head) && (i + tail < n) {
+                if i == head {
+                    var more = n - head - tail;
+                    b->note(f"{more} more instantiations in the chain; --cmax-generic-backtrace=0 shows them all");
+                }
+                continue;
+            }
+            var hp = hops[i];
+            if !hp->via_at.start.is_valid() { continue; }
+            b->note(hp->via_at.start, f"in instantiation of '{self._inst_name(hp)}' required here").first(hp->via_at);
+        }
     }
 
     /// \p e as the user reads it: `Wrap<Metric>`, `inner<Wrap<Metric>>`.
@@ -1123,7 +1155,10 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         return s + ")";
     }
 
-    priv fn _report(self, at: SourceRange, b: *ConstraintExpr, x: *Type, iface: *Type, row: *ConformanceRow) {
+    /// \p e, when given, is the instance whose bound failed: a reached one
+    /// gets its instantiation chain (chain_notes).
+    priv fn _report(self, at: SourceRange, b: *ConstraintExpr, x: *Type, iface: *Type, row: *ConformanceRow,
+                    e: *InstanceEntry = &null) {
         var xs = self.tu.str(x);
         var is = self.tu.str(iface);
         var missing = "";
@@ -1160,6 +1195,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         d.first(at);
         if b != &null { d.note(b->range.start, f"required by this bound").first(b->range); }
         if req != &null { d.note(req->range.start, req_note).first(req->range); }
+        if e != &null { self.chain_notes(&d, e); }
         d.emit();
     }
 }

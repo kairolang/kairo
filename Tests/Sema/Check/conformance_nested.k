@@ -1,12 +1,12 @@
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: conformance_nested.k:22:12: note [SC001N]: required by this call, in the instance of 'outer' used there
 // CHECK: conformance_nested.k:25:12: error [SC001E]: 'Wrap<Metric>' does not conform to 'Named': no member 'name_len' with the requirement's signature
 // CHECK: conformance_nested.k:20:9: note [I900N]: required by this bound
+// CHECK: conformance_nested.k:22:12: note [I900N]: in instantiation of 'inner<Wrap<Metric>>' required here
 //
 // An instance reached only through a generic's body: `outer<Metric>` calls
 // `inner(Wrap<Metric>{...})`, and Wrap has no `name_len`. The error is at
 // the outer use, the instantiation site, with a note at the call that
-// asked for the failing instance.
+// asked for the failing instance (the one hop of its instantiation chain).
 
 pub interface Scalable {
     fn scale(const self, factor: i32) -> i32

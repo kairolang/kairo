@@ -1840,7 +1840,12 @@ Who fills it:
   missing row is the user's error there (SC001E placeholder until a code
   is minted). The transitive ones (`f<T>` calling `g<T>`, "dependent
   conformance") are the reach: the discovery fixpoint above, whose depth
-  limit is a diagnostic (`--cmax-generic-depth`).
+  limit is a diagnostic (`--cmax-generic-depth`). A reached instance's
+  failure is reported at its chain's root use, once per instance, with one
+  note per hop, innermost first: "in instantiation of 'X<A>' required
+  here" at the use in the body that needed it, capped at
+  `--cmax-generic-backtrace` (5: the first 3, a count, the last 2)
+  (`ConformanceChecking::chain_notes`, MONO.md D6).
 - **Visibility.** A row is usable in a TU iff its implementing decls are in
   that TU's transitive import set (the extension-visibility rule).
 

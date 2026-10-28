@@ -487,7 +487,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  generic instantiation
     cmd->define_cfg::<FlagKind::I32>("max-generic-depth",         "maximum generic instantiation chain length; a longer chain is an error",   128,     1,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-generic-backtrace",     "maximum frames shown in generic instantiation error backtraces",            16,      0,    64);
+    cmd->define_cfg::<FlagKind::I32>("max-generic-backtrace",     "maximum instantiation-chain notes shown per error (0 = all)",               5,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations", "maximum total generic instantiations across compilation (0 = unlimited)", 16384,   0,    16777216);
 
     //  const / eval
@@ -688,7 +688,6 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->mark_unimplemented("c:tab-width");
     cmd->mark_unimplemented("diag-cascade");
     // --c* limits nothing enforces.
-    cmd->mark_unimplemented("c:max-generic-backtrace");
     cmd->mark_unimplemented("c:max-generic-instantiations");
     cmd->mark_unimplemented("c:max-const-eval-steps");
     cmd->mark_unimplemented("c:max-const-eval-depth");

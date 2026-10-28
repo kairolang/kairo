@@ -77,7 +77,7 @@ class LangOptions {
 
     // -- sema / type system limits (from --c* config flags) ----------------
     pub var max_generic_depth:     i32 = 128;
-    pub var max_generic_backtrace: i32 = 16;
+    pub var max_generic_backtrace: i32 = 5;
     pub var max_const_eval_steps:  i32 = 1000000;
     pub var max_const_eval_depth:  i32 = 512;
     pub var max_const_backtrace:   i32 = 8;
