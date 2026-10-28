@@ -65,6 +65,7 @@ fn main() -> i32 {
 // SEMA-NEXT:   14 typed, 0 unknown, 0 errored
 // SEMA-NEXT: -- inferred decls --
 // SEMA-NEXT:   (none: every declaration wrote its own type)
+// SEMA-NEXT: -- interface composition --
 // SEMA-NEXT: -- types --
 // END-GENERATED-CHECKS(SEMA)
 
@@ -111,6 +112,7 @@ fn main() -> i32 {
 // LOWERED-NEXT:   14 typed, 0 unknown, 0 errored
 // LOWERED-NEXT: -- inferred decls --
 // LOWERED-NEXT:   (none: every declaration wrote its own type)
+// LOWERED-NEXT: -- interface composition --
 // LOWERED-NEXT: -- types --
 // END-GENERATED-CHECKS(LOWERED)
 

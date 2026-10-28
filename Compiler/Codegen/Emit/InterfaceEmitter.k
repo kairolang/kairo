@@ -920,10 +920,26 @@ class InterfaceEmitter {
         return false;
     }
 
+    /// A class's, struct's or union's members. Every record walk goes through
+    /// these: a union reaches the same emitter as a class (_record_def), and a
+    /// two-way class-or-struct cast fails its assert on one.
+    priv fn _methods_of(self, d: *Decl) -> FrozenList::<*FunctionDecl> {
+        if isa::<ClassDecl>(d) { return cast::<ClassDecl>(d)->methods; }
+        if isa::<UnionDecl>(d) { return cast::<UnionDecl>(d)->methods; }
+        return cast::<StructDecl>(d)->methods;
+    }
+
+    priv fn _fields_of(self, d: *Decl) -> FrozenList::<*FieldDecl> {
+        if isa::<ClassDecl>(d) { return cast::<ClassDecl>(d)->fields; }
+        if isa::<UnionDecl>(d) { return cast::<UnionDecl>(d)->fields; }
+        return cast::<StructDecl>(d)->fields;
+    }
+
     priv fn _has_eval_member(self, d: *Decl) -> bool {
         var ms: *FrozenList::<*FunctionDecl> = &null;
         if isa::<ClassDecl>(d)       { ms = &(cast::<ClassDecl>(d)->methods); }
         else if isa::<StructDecl>(d) { ms = &(cast::<StructDecl>(d)->methods); }
+        else if isa::<UnionDecl>(d)  { ms = &(cast::<UnionDecl>(d)->methods); }
         if ms == &null { return false; }
         for var i: usize = 0; i < ms->size(); ++i {
             var m = (*ms)[i];
@@ -971,7 +987,7 @@ class InterfaceEmitter {
     /// exactly as Kairo derives it. A generic `<=>` has no one operand to
     /// spell and derives nothing here. Returns the access in force.
     priv fn _derived_cmps(self, d: *Decl, cur: u8, at: SourceRange) -> u8 {
-        var methods = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        var methods = self._methods_of(d);
         var has_eq = false;
         var declared = vec::<TokenKind>();
         for var i: usize = 0; i < methods.size(); ++i {
@@ -1108,7 +1124,7 @@ class InterfaceEmitter {
                 s += "__is_destructible(" + b + ") && !__is_polymorphic(" + b + ")";
             }
         }
-        var fields = (cast::<ClassDecl>(d)->fields) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->fields);
+        var fields = self._fields_of(d);
         for var i: usize = 0; i < fields.size(); ++i {
             var f = fields[i];
             if (f == &null) || f->is_static() || (!self._dependent(f->type_)) { continue; }
@@ -2483,7 +2499,7 @@ class InterfaceEmitter {
 
     priv fn _has_split_ctor(self, d: *Decl) -> bool {
         if (d == &null) || ((!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))) { return false; }
-        var methods = (cast::<ClassDecl>(d)->methods) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->methods);
+        var methods = self._methods_of(d);
         for var i: usize = 0; i < methods.size(); ++i {
             if (methods[i] != &null) && (methods[i]->ci_split > 0) { return true; }
         }
@@ -2661,7 +2677,7 @@ class InterfaceEmitter {
     /// outermost record of a tier-1 entry; anything else has no statics.
     priv fn _static_defs(self, d: *Decl) {
         if (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d)) { return; }
-        var fields = (cast::<ClassDecl>(d)->fields) if (isa::<ClassDecl>(d)) else (cast::<StructDecl>(d)->fields);
+        var fields = self._fields_of(d);
         for var i: usize = 0; i < fields.size(); ++i {
             var f = fields[i];
             if (f == &null) || (!f->is_static()) || f->is_anonymous_union { continue; }

@@ -86,6 +86,7 @@ fn main() -> i32 {
 // SEMA-NEXT:   15 typed, 0 unknown, 0 errored
 // SEMA-NEXT: -- inferred decls --
 // SEMA-NEXT:   reg : HardwareRegister
+// SEMA-NEXT: -- interface composition --
 // SEMA-NEXT: -- types --
 // END-GENERATED-CHECKS(SEMA)
 
@@ -144,6 +145,7 @@ fn main() -> i32 {
 // LOWERED-NEXT:   15 typed, 0 unknown, 0 errored
 // LOWERED-NEXT: -- inferred decls --
 // LOWERED-NEXT:   reg : HardwareRegister
+// LOWERED-NEXT: -- interface composition --
 // LOWERED-NEXT: -- types --
 // END-GENERATED-CHECKS(LOWERED)
 
