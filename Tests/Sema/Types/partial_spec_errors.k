@@ -3,9 +3,9 @@
 // match and neither more specialized (C++ [temp.class.order]) make the
 // instance ambiguous, reported once at its first written mention, with both
 // candidates; `Pair<f64, f64>` is not ambiguous, `<W> Pair<W, W>` alone
-// matches it. A partial selected by a `requires` clause needs requires-
-// dispatch, which is not built: refused at its declaration rather than
-// selected by its pattern alone (which would ignore the clause).
+// matches it. A partial selected by a `requires` clause is legal since
+// MONO.md G12 (Sema/Types/partial_spec_requires.k): `Pair<*Z, *Z>` here
+// simply matches none of the instances used.
 pub struct <A, B> Pair { pub var a: A; pub var b: B }
 pub struct <X> Pair<X, i32> { pub var left: X }
 pub struct <Y> Pair<i32, Y> { pub var right: Y }
@@ -20,8 +20,6 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
-// DIAG: partial_spec_errors.k:13:5: error [SC001E]: a partial specialization selected by 'requires' is not supported yet; the primary is used for every instance
-// DIAG-NEXT: partial_spec_errors.k:13:5: note [SC001N]: partial specializations are selected by their argument pattern alone
 // DIAG: partial_spec_errors.k:16:14: error [SC001E]: ambiguous partial specializations of 'Pair' for these arguments
 // DIAG-NEXT: partial_spec_errors.k:10:5: note [SC001N]: matches this partial specialization
 // DIAG-NEXT: partial_spec_errors.k:11:5: note [SC001N]: and this one, and neither is more specialized than the other

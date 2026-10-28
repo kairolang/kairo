@@ -701,6 +701,13 @@ class InterfaceEmitter {
         }
         s += " {";
         self._cg->sink->spell(at, s);
+        // Which body this is, for the pin beside each instance (MONO.md G12).
+        var tag = self._spec_tag(d);
+        if tag >= 0 {
+            var line = f"static constexpr unsigned {LowerTargets::spec_tag()} = {tag}u;";
+            if is_class { line = "public: " + line + " private:"; }
+            self._cg->sink->spell(at, line);
+        }
         // An ADT payload is built inside its union by `new (&member) P(...)`,
         // which must not depend on the TU including <new>: this placement
         // form, found in the class before any global one, is what it calls.
@@ -3043,6 +3050,49 @@ class InterfaceEmitter {
         self._cg->sink->spell(self._at(d), s);
         self._cg->sink->brk();
         self._instance_layout_asserts(d, ie);
+        self._instance_spec_assert(d, ie, e->is_home);
+    }
+
+    /// The tag of record \p d's body when its template has a partial
+    /// specialization selected by `requires` (LowerTargets::spec_tag): 0 for
+    /// the primary, 1 + the partial's registration index; -1 when no tag is
+    /// written. Only such templates carry one: a pattern-only partial is
+    /// selected by the same structural match on both sides.
+    priv fn _spec_tag(self, d: *Decl) -> i64 {
+        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d)) { return -1; }
+        if decl_generic_params(d).size() == 0 { return -1; }
+        var primary = CXXSpell::rep(d);
+        var k = decl_spec_kind(d);
+        if k == SpecKind::Partial {
+            primary = decl_instantiated_from(d);
+            if primary == &null { return -1; }
+        } else if (k != SpecKind::Primary) && (k != SpecKind::None) { return -1; }
+        var ps = self._cg->instances->partials_of(primary);
+        if ps == &null { return -1; }
+        var any = false;
+        var at: i64 = -1;
+        for var i: usize = 0; i < ps->size(); ++i {
+            if decl_requires_clause((*ps)[i]) != &null { any = true; }
+            if CXXSpell::rep((*ps)[i]) == CXXSpell::rep(d) { at = i64(i) + 1; }
+        }
+        if !any { return -1; }
+        if k == SpecKind::Partial { return at; }
+        return 0;
+    }
+
+    /// Beside an instance's explicit instantiation in its home: the body
+    /// Sema selected (InstanceEntry::pattern) is the one C++ selected.
+    priv fn _instance_spec_assert(self, d: *Decl, ie: *InstanceEntry, home: bool) {
+        if (!home) || (ie == &null) || isa::<FunctionDecl>(d) { return; }
+        var want = self._spec_tag(d);
+        if want < 0 { return; }
+        if ie->pattern != &null {
+            want = self._spec_tag(ie->pattern);
+            if want < 0 { return; }
+        }
+        var x = self._spell->qual_name(d) + self._spell->args_str(&(ie->args));
+        self._cg->sink->spell(self._at(d), "static_assert(" + x + "::" + LowerTargets::spec_tag() + " == " + f"{want}" + "u, \"MONO.md G12: C++ selected another specialization than Kairo\");");
+        self._cg->sink->brk();
     }
 
     /// A type-id-tagged instance's elements (the Panic lang item, PANIC.md

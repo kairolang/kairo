@@ -378,6 +378,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// body is not walked (it is marked walked here). The rows found are
     /// unioned into the instance's program-wide list (add_rows, D7).
     priv fn _check_bounds(self, e: *InstanceEntry) -> bool {
+        self._check_selection(e);
         var rows = vec::<*ConformanceRow>();
         var ok = self._bound_rows(e, e->use_at, e, &rows);
         if !ok {
@@ -445,6 +446,35 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// the instance's own facts fail, reported at its use with its chain
     /// (D6). Once per build, with the bounds; a failure the declaration
     /// shows is the declaration's, never repeated here (instance_failures).
+    /// The partial selection of a live instance, at its use, unless T
+    /// already reported it at a written type (TypeResolve): two partials
+    /// that tie, or one whose `requires` clause the registry could not
+    /// decide at these arguments (MONO.md G12). An expression head
+    /// (`Fit<Big> { ... }`) mints its instance where T never sees it.
+    priv fn _check_selection(self, e: *InstanceEntry) {
+        if (e == &null) || (!e->use_at.start.is_valid()) { return; }
+        if (e->ambiguous_a != &null) && (!e->ambiguity_reported) {
+            e->ambiguity_reported = true;
+            var b = self.sc->diag->report(DiagID::SC001E, e->use_at.start,
+                f"ambiguous partial specializations of '{self.tu.decl_name(e->primary)}' for these arguments");
+            b.first(e->use_at);
+            b.note(DiagID::SC001N, e->ambiguous_a->range.start, "matches this partial specialization");
+            b.note(DiagID::SC001N, e->ambiguous_b->range.start, "and this one, and neither is more specialized than the other");
+            self.chain_notes(&b, e);
+            b.emit();
+        }
+        if (e->undecided != &null) && (!e->undecided_reported) {
+            e->undecided_reported = true;
+            var b = self.sc->diag->report(DiagID::SC001E, e->use_at.start,
+                f"cannot decide whether a partial specialization of '{self.tu.decl_name(e->primary)}' applies to these arguments");
+            b.first(e->use_at);
+            b.note(DiagID::SC001N, e->undecided->range.start,
+                "its 'requires' clause is decided at compile time only from literals and the 'sizeof' / 'alignof' of builtins, pointers and arrays of them");
+            self.chain_notes(&b, e);
+            b.emit();
+        }
+    }
+
     priv fn _check_facts(self, e: *InstanceEntry) {
         if (e == &null) || (e->primary == &null) || isa::<FunctionDecl>(e->primary) { return; }
         if !e->use_at.start.is_valid() { return; }

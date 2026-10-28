@@ -2260,6 +2260,9 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if (e != &null) && (e->ambiguous_a != &null) && (!e->ambiguity_reported) {
                 self._ambiguous_partials(e, seg->range);
             }
+            if (e != &null) && (e->undecided != &null) && (!e->undecided_reported) {
+                self._undecided_partial(e, seg->range);
+            }
         }
         var rt = self.sc->types->record(inst, &args);
         if psets.is_panic(canon) && (!dep) { psets.note_formed(seg->range, rt); }
@@ -3359,16 +3362,21 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             args.push_back(a->canonical);
         }
 
+        // A `requires`-selected partial's clause is read by the registry's
+        // selection (MONO.md G12): resolve its types here, in the partial's
+        // scope, before any instance is selected against it.
+        if decl_requires_clause(d) != &null { self.dyn()->dispatch_expr(decl_requires_clause(d)); }
         self._leave_decl_scope(&saved);
         if !ok { d->poison(); return; }
 
         if (decl_spec_kind(d) == SpecKind::Partial) || dep {
-            // Selection by a `requires` clause needs the clause evaluated per
-            // instance (requires-dispatch, eval lowering), and neither
-            // exists: registered, the pattern alone would select it whether
-            // or not the clause holds. Refused, so the primary keeps every
-            // instance and nothing is silently misselected.
-            if decl_requires_clause(d) != &null {
+            // A `requires`-selected partial (MONO.md G12): the registry
+            // selects it where its pattern matches AND its clause holds at
+            // the instance's arguments (InstantiationRegistry::
+            // requires_holds). A conformance conjunct is not decided
+            // there: refused at the partial instead.
+            var rc = decl_requires_clause(d);
+            if (rc != &null) && self._has_conformance_conjunct(rc) {
                 self._requires_partial_unsupported(d);
                 d->poison();
                 return;
@@ -3445,16 +3453,44 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
          .emit();
     }
 
-    /// `struct <P> X<*P> requires pred<P>()`. NameResolution reports the
-    /// same thing for the form whose pattern is only its own parameters
-    /// (`<P> X<P> requires ...`), which the parser files as a second primary.
+    /// A conjunct of \p rc that is a conformance (`P impl I`, `P derives B`):
+    /// selection decides value predicates only (MONO.md G12).
+    priv fn _has_conformance_conjunct(self, rc: *Expr) -> bool {
+        if rc == &null { return false; }
+        if isa::<ConstraintExpr>(rc) { return true; }
+        if isa::<ParenExpr>(rc) { return self._has_conformance_conjunct(cast::<ParenExpr>(rc)->inner); }
+        if isa::<BinaryOperatorExpr>(rc) {
+            var b = cast::<BinaryOperatorExpr>(rc);
+            return self._has_conformance_conjunct(b->lhs) || self._has_conformance_conjunct(b->rhs);
+        }
+        if isa::<UnaryOperatorExpr>(rc) { return self._has_conformance_conjunct(cast::<UnaryOperatorExpr>(rc)->operand); }
+        return false;
+    }
+
+    /// `struct <P> X<*P> requires P impl I`: a partial selected by a
+    /// conformance, which the registry does not decide (MONO.md G12).
     priv fn _requires_partial_unsupported(self, d: *Decl) {
         var rc = decl_requires_clause(d);
-        var b = self.sc->diag->report(DiagID::SC001E, d->range.start,
-            "a partial specialization selected by 'requires' is not supported yet; the primary is used for every instance");
+        var b = self.sc->diag->report(DiagID::SC116E, d->range.start,
+            "a partial specialization selected by a conformance ('impl' / 'derives') in its 'requires' clause is not yet supported");
         b.first(rc->range);
         b.note(DiagID::SC001N, d->range.start,
-            "partial specializations are selected by their argument pattern alone (`<P> X<*P>`); write the pattern instead");
+            "a 'requires' clause that selects a partial may test sizes, alignments and constants (`requires sizeof P <= 8`); the primary is used for every instance");
+        b.emit();
+    }
+
+    /// A partial matched \p e's arguments by pattern, but its clause could
+    /// not be decided there (InstanceEntry::undecided): not selected, and
+    /// reported once, at the first written mention, so C++ never picks a
+    /// body Kairo did not type against.
+    priv fn _undecided_partial(self, e: *InstanceEntry, at: SourceRange) {
+        e->undecided_reported = true;
+        var nm = self._decl_name_str(e->primary);
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"cannot decide whether a partial specialization of '{nm}' applies to these arguments");
+        b.first(at);
+        b.note(DiagID::SC001N, e->undecided->range.start,
+            "its 'requires' clause is decided at compile time only from literals and the 'sizeof' / 'alignof' of builtins, pointers and arrays of them");
         b.emit();
     }
 

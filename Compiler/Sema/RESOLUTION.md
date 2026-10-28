@@ -1719,7 +1719,9 @@ Kairo generics at types Kairo never enumerates (MONO.md §2).
   at its use with its chain, ConformanceChecking::_check_facts), witness
   rows, panic sets. Each is predicted by Sema and pinned or selected in C++.
 - Partial selection is not M2's: the registry selects at mint (§2b
-  Instances). Dependent conformance (`f<T>` calling `g<Wrap<T>>`) is
+  Instances), a `requires`-selected partial too: its clause is evaluated at
+  the instance's arguments by the registry (MONO.md G12; CODEGEN.md §7 for
+  the C++ side and the `__kairo_spec` pin). Dependent conformance (`f<T>` calling `g<Wrap<T>>`) is
   ConformanceChecking's reach, before the Typed barrier (§2b, "The
   conformance table").
 - `T::Item` is T's (resolved through the bound), and what it is at an

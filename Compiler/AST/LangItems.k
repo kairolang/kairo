@@ -606,6 +606,13 @@ class LowerTargets {
     /// overload on (ticketed).
     static fn witness_conversion() -> string { return "__kairo_op_as"; }
 
+    /// `static constexpr unsigned __kairo_spec = k;` in the primary (0) and
+    /// each partial specialization (1 + its registration index) of a
+    /// template that has a `requires`-selected partial, and the
+    /// `static_assert(X<A>::__kairo_spec == k)` beside an instance's explicit
+    /// instantiation: Sema predicted k, C++ selected the body (MONO.md G12).
+    static fn spec_tag() -> string { return "__kairo_spec"; }
+
     // --- Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR) ----------
 
     /// `template <class T> auto* __kairo_tmp(T&& t)`: the address of a

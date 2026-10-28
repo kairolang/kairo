@@ -70,6 +70,9 @@ import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
+import AST::Node::Expressions::*;
+import AST::Node::PrimaryExpressions::*;
+import Token::TokenKind::*;
 import AST::DeclFacts::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
@@ -155,6 +158,13 @@ class ConformanceRow {
     }
 }
 
+/// One step of a `requires` clause evaluated by InstantiationRegistry
+/// (requires_holds): \p v when \p known.
+struct PartialPredValue {
+    var known: bool = false;
+    var v:     i64  = 0;
+}
+
 /// \class InstanceEntry
 /// \brief One concrete instance of a generic type. Both halves of "an
 ///        instantiation" hang here: the CHECKING-side decl (what RecordType
@@ -201,6 +211,13 @@ class InstanceEntry {
     pub var ambiguous_a:       *Decl = &null;
     pub var ambiguous_b:       *Decl = &null;
     pub var ambiguity_reported: bool = false;
+    /// A partial whose pattern matches but whose `requires` clause this
+    /// layer could not decide at these arguments (MONO.md G12: a `sizeof`
+    /// of a record, an `eval` call): it is not selected, and Sema reports
+    /// the instance at a naming site, once (`undecided_reported`), rather
+    /// than let C++ pick a body Kairo did not type against.
+    pub var undecided:          *Decl = &null;
+    pub var undecided_reported: bool = false;
     /// A generic ADT's instance: the layout Sema's niche engine predicts C++
     /// picks (0 unknown, 1 tagged, 2 niche-filled) and its size in bytes (0
     /// unknown). One writer, EnumLayoutQuery::sweep; InterfaceEmitter pins
@@ -474,7 +491,7 @@ class InstantiationRegistry {
     /// primary's instances are clang's to fill, partial included
     /// (ForeignInstantiate), so it never selects here.
     priv fn _select(self, primary: *Decl, args: *vec::<*Type>, out_args: *vec::<*Type>,
-                    amb_a: *(*Decl), amb_b: *(*Decl)) -> *Decl {
+                    amb_a: *(*Decl), amb_b: *(*Decl), undecided: *(*Decl) = &null) -> *Decl {
         if decl_is_imported(primary) { return &null; }
         var it = self._partials.find(reinterpret_cast::<u64>(primary));
         if it == self._partials.end() { return &null; }
@@ -482,7 +499,17 @@ class InstantiationRegistry {
         var hits  = vec::<*Decl>();
         for var i: usize = 0; i < ps->size(); ++i {
             var binds = vec::<*Type>();
-            if self._matches((*ps)[i], args, &binds) { hits.push_back((*ps)[i]); }
+            if !self._matches((*ps)[i], args, &binds) { continue; }
+            // A `requires`-selected partial (MONO.md G12) also needs its
+            // clause to hold at the bindings: C++ evaluates the same clause,
+            // which the emitted partial carries, so both pick alike.
+            var h = self.requires_holds((*ps)[i], &binds);
+            if h == 0 { continue; }
+            if h < 0 {
+                if (undecided != &null) && ((*undecided) == &null) { (*undecided) = (*ps)[i]; }
+                continue;
+            }
+            hits.push_back((*ps)[i]);
         }
         if hits.size() == 0 { return &null; }
         var best: *Decl = &null;
@@ -513,10 +540,14 @@ class InstantiationRegistry {
         e->pattern_args.clear();
         e->ambiguous_a = &null;
         e->ambiguous_b = &null;
-        var a: *Decl = &null; var b: *Decl = &null;
-        e->pattern = self._select(e->primary, &(e->args), &(e->pattern_args), &a, &b);
+        e->undecided   = &null;
+        var a: *Decl = &null; var b: *Decl = &null; var u: *Decl = &null;
+        e->pattern = self._select(e->primary, &(e->args), &(e->pattern_args), &a, &b, &u);
         e->ambiguous_a = a;
         e->ambiguous_b = b;
+        // A dependent instance decides nothing; only a concrete one is
+        // reported.
+        if !self._any_dependent(&(e->args)) { e->undecided = u; }
     }
 
     /// \p spec's pattern against \p args; \p binds gets one type per
@@ -539,9 +570,144 @@ class InstantiationRegistry {
     }
 
     /// \p a is strictly more specialized than \p b: b's pattern matches a's
-    /// (a's parameters standing as opaque types) and not the reverse.
+    /// (a's parameters standing as opaque types) and not the reverse. Two
+    /// EQUIVALENT patterns are ordered by their constraints, [temp.constr.
+    /// order] simplified to presence (MONO.md G12): the one with a
+    /// `requires` clause is more specialized than the one without; two
+    /// with clauses are unordered (C++ would order them by subsumption of
+    /// their atomic constraints, which Kairo does not compute: an ambiguity
+    /// here, never a different pick).
     priv fn _more_specialized(self, a: *Decl, b: *Decl) -> bool {
-        return self._covers(b, a) && (!self._covers(a, b));
+        var ba = self._covers(b, a);
+        var ab = self._covers(a, b);
+        if ba && ab { return (decl_requires_clause(a) != &null) && (decl_requires_clause(b) == &null); }
+        return ba && (!ab);
+    }
+
+    priv fn _any_dependent(self, args: *vec::<*Type>) -> bool {
+        for var i: usize = 0; i < args->size(); ++i {
+            var t = (*args)[i];
+            if (t != &null) && (t->is_dependent() || t->is_instantiation_dependent()) { return true; }
+        }
+        return false;
+    }
+
+    // --- requires-selected partials (MONO.md G12) ------------------------------
+
+    /// \p spec's `requires` clause at \p binds (its parameters' bindings):
+    /// 1 holds, 0 does not, -1 undecidable here. No clause: 1. What this
+    /// layer decides is pure and lock-free (it runs inside selection):
+    /// integer and bool literals; `sizeof` / `alignof` of a builtin, a
+    /// pointer, a fixed array of those, or a parameter bound to one;
+    /// arithmetic, comparisons, `!`, `&&` / `||` (short-circuit, so a
+    /// decided left side settles an undecidable right one). Anything else
+    /// -- a record's size, an `eval` call or constant, a conformance -- is
+    /// -1, and the partial is not selected.
+    fn requires_holds(self, spec: *Decl, binds: *vec::<*Type>) -> i32 {
+        var rc = decl_requires_clause(spec);
+        if rc == &null { return 1; }
+        var v = self._pred(rc, spec, binds);
+        if !v.known { return -1; }
+        return (1) if (v.v != 0) else (0);
+    }
+
+    priv fn _pred(self, e: *Expr, spec: *Decl, binds: *vec::<*Type>) -> PartialPredValue {
+        var out = PartialPredValue{};
+        if e == &null { return out; }
+        if isa::<ParenExpr>(e) { return self._pred(cast::<ParenExpr>(e)->inner, spec, binds); }
+        if isa::<BooleanLiteralExpr>(e) { out.known = true; out.v = (1) if (cast::<BooleanLiteralExpr>(e)->value) else (0); return out; }
+        if isa::<IntegerLiteralExpr>(e) {
+            var il = cast::<IntegerLiteralExpr>(e);
+            if (il->get_value_hi() != 0) || (il->get_value_lo() > u64(9223372036854775807)) { return out; }
+            out.known = true; out.v = i64(il->get_value_lo()); return out;
+        }
+        if isa::<SizeOfExpr>(e) || isa::<AlignOfExpr>(e) {
+            var ta = (cast::<SizeOfExpr>(e)->type_arg) if (isa::<SizeOfExpr>(e)) else (cast::<AlignOfExpr>(e)->type_arg);
+            if (ta == &null) || (ta->canonical == &null) { return out; }
+            var sz: u64 = 0; var al: u64 = 0;
+            if !self._layout(ta->canonical, spec, binds, &sz, &al) { return out; }
+            out.known = true;
+            out.v = i64((sz) if (isa::<SizeOfExpr>(e)) else (al));
+            return out;
+        }
+        if isa::<UnaryOperatorExpr>(e) {
+            var u = cast::<UnaryOperatorExpr>(e);
+            var x = self._pred(u->operand, spec, binds);
+            if !x.known { return out; }
+            var k = u->op_token.kind;
+            if (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) { out.known = true; out.v = (1) if (x.v == 0) else (0); return out; }
+            if k == TokenKind::OpMinus { out.known = true; out.v = i64(0) - x.v; return out; }
+            if k == TokenKind::OpPlus  { return x; }
+            return out;
+        }
+        if isa::<BinaryOperatorExpr>(e) {
+            var bn = cast::<BinaryOperatorExpr>(e);
+            var k = bn->op_token.kind;
+            var l = self._pred(bn->lhs, spec, binds);
+            if (k == TokenKind::OpAmpAmp) || (k == TokenKind::KwAnd) {
+                if l.known && (l.v == 0) { out.known = true; out.v = 0; return out; }
+                var r = self._pred(bn->rhs, spec, binds);
+                if r.known && (r.v == 0) { out.known = true; out.v = 0; return out; }
+                if l.known && r.known { out.known = true; out.v = 1; }
+                return out;
+            }
+            if (k == TokenKind::OpPipePipe) || (k == TokenKind::KwOr) {
+                if l.known && (l.v != 0) { out.known = true; out.v = 1; return out; }
+                var r = self._pred(bn->rhs, spec, binds);
+                if r.known && (r.v != 0) { out.known = true; out.v = 1; return out; }
+                if l.known && r.known { out.known = true; out.v = 0; }
+                return out;
+            }
+            var r = self._pred(bn->rhs, spec, binds);
+            if (!l.known) || (!r.known) { return out; }
+            out.known = true;
+            if k == TokenKind::OpLess           { out.v = (1) if (l.v <  r.v) else (0); return out; }
+            if k == TokenKind::OpLessEqual      { out.v = (1) if (l.v <= r.v) else (0); return out; }
+            if k == TokenKind::OpGreater        { out.v = (1) if (l.v >  r.v) else (0); return out; }
+            if k == TokenKind::OpGreaterEqual   { out.v = (1) if (l.v >= r.v) else (0); return out; }
+            if k == TokenKind::OpEqualEqual     { out.v = (1) if (l.v == r.v) else (0); return out; }
+            if k == TokenKind::OpExclaimEqual   { out.v = (1) if (l.v != r.v) else (0); return out; }
+            if k == TokenKind::OpPlus           { out.v = l.v + r.v; return out; }
+            if k == TokenKind::OpMinus          { out.v = l.v - r.v; return out; }
+            if k == TokenKind::OpStar           { out.v = l.v * r.v; return out; }
+            if (k == TokenKind::OpSlash) && (r.v != 0)   { out.v = l.v / r.v; return out; }
+            if (k == TokenKind::OpPercent) && (r.v != 0) { out.v = l.v % r.v; return out; }
+            out.known = false;
+            return out;
+        }
+        return out;
+    }
+
+    /// Size and alignment in bytes of \p t with \p spec's parameters read
+    /// through \p binds, for the types whose layout is target arithmetic
+    /// only (EnumLayoutQuery::size_of's first rows); false for anything
+    /// else, records included.
+    priv fn _layout(self, t: *Type, spec: *Decl, binds: *vec::<*Type>, size: *u64, align: *u64) -> bool {
+        if t == &null { return false; }
+        var c = t;
+        while isa::<QualifiedType>(c) { c = cast::<QualifiedType>(c)->inner; }
+        if isa::<GenericParamType>(c) {
+            var g = cast::<GenericParamType>(c);
+            if (g->owner != spec) || g->is_pack || (static_cast::<usize>(g->param_index) >= binds->size()) { return false; }
+            var b = (*binds)[static_cast::<usize>(g->param_index)];
+            if (b == &null) || (b->canonical == &null) || b->is_dependent() { return false; }
+            return self._layout(b->canonical, spec, binds, size, align);
+        }
+        if isa::<FixedArrayType>(c) {
+            var fa = cast::<FixedArrayType>(c);
+            if fa->is_incomplete || (fa->extent_param != &null) { return false; }
+            var es: u64 = 0; var ea: u64 = 0;
+            if !self._layout(fa->element, spec, binds, &es, &ea) { return false; }
+            (*size) = es * u64(fa->size_bits); (*align) = ea;
+            return true;
+        }
+        if isa::<BuiltinType>(c) || isa::<PointerType>(c) {
+            if isa::<BuiltinType>(c) && (cast::<BuiltinType>(c)->lang_decl != &null) { return false; }
+            if (c->size_bits == 0) || (c->align_bits == 0) || ((c->size_bits % 8) != 0) { return false; }
+            (*size) = u64(c->size_bits / 8); (*align) = u64(c->align_bits / 8);
+            return true;
+        }
+        return false;
     }
 
     priv fn _covers(self, general: *Decl, special: *Decl) -> bool {

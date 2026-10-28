@@ -2889,8 +2889,18 @@ class EmitIR {
         self._cg->sink->spell(n->range, "}; })");
     }
 
+    /// The declaration whose members an instance's C++ has: the partial
+    /// specialization the registry selected for it (InstanceEntry::pattern,
+    /// the same body Sema typed the instance against), else the primary.
+    /// Reading the primary for a partial's instance dropped every field of
+    /// an initializer the partial declares (`Store<*i64> { wide: p }`
+    /// emitted `{}`).
     priv fn _layout_of(self, d: *Decl) -> *Decl {
-        if decl_is_instance(d) { return CXXSpell::rep(decl_pattern(d)); }
+        if decl_is_instance(d) {
+            var e = self._cg->instances->entry_of(d);
+            if (e != &null) && (e->pattern != &null) { return CXXSpell::rep(e->pattern); }
+            return CXXSpell::rep(decl_pattern(d));
+        }
         return d;
     }
 

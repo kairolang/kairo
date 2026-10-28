@@ -940,8 +940,16 @@ specialization; C++ then selects them itself, exactly as Sema did
   scope struct `__kairo_ext_Store` (keyed by the primary, `ExtScope::key`),
   each member over its own receiver, befriended by every specialization.
 
-Not built: a partial selected by `requires` (SC001E at the declaration,
-the primary kept); a pack parameter in a partial's pattern (never
+A partial selected by `requires` [DONE, MONO.md G12]: emitted with its
+clause (`template<class P> requires(...) struct Store<P>`), so C++ selects
+it from the same clause the registry evaluated at mint
+(InstantiationRegistry::requires_holds: literals, `sizeof` / `alignof` of
+builtins, pointers and arrays of them; anything else undecided, SC001E at
+the use). Every body of a template with such a partial carries
+`static constexpr unsigned __kairo_spec` (0 the primary, 1 + its index a
+partial), and the home's explicit instantiation is followed by
+`static_assert(X<A>::__kairo_spec == k)`, k Sema's pick. A conformance in
+the selecting clause is SC116E. Not built: a pack parameter in a partial's pattern (never
 matches); a qualifier that matches only by subset (`const P` against
 `const volatile i32` -- a non-match, never a wrong binding).
 
