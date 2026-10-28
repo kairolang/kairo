@@ -74,6 +74,13 @@ fn sign(x: i32) -> i32 where x < 0  { return -1 }   // ok: every i32 is covered
 
 Overloads with the same parameter types are dispatched together, and must agree on the return type and on receiver `const`-ness. An overload with a different parameter list is an ordinary overload and is not a fallback.
 
+[Generic](/docs/language/generics/) overloads dispatch together when their signatures are the same up to the names of their type parameters, and they must also name those parameters alike and have the same bounds. A condition may read a type parameter (`where sizeof T > 8`); it is tested at run time like any other, and it is the same answer every time for one instantiation:
+
+```kairo
+fn <T> pick(x: T, n: i32) -> i32 where n > 0 { return 1 }
+fn <T> pick(x: T, n: i32) -> i32               { return 2 }
+```
+
 ---
 
 ## Declaration Order Determines Priority

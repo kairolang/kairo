@@ -312,18 +312,22 @@ The last arm of a `try` extends as far right as it can, like the last arm of an 
 
 ### `finally`
 
-`finally` defines cleanup code that always runs whether the `try` body completes normally, panics, or returns early.
+`finally` is a scope-exit block, described below. It is not a clause of `try`: a `finally` written after a `try`/`catch` is the same standalone `finally`, so it runs when the enclosing block is left, not when the `try` finishes, and a `return`, `break` or uncaught panic leaving the `try` never reaches it.
 
 ```kairo
-try {
-    acquire_resource()
-    do_work()
-} catch e: IOError {
-    handle_error(e)
-} finally {
-    release_resource()   // always executes
+fn work() {
+    try {
+        do_work()
+    } catch e: IOError {
+        handle_error(e)
+    } finally {            // warning: runs when work() returns
+        release_resource()
+    }
+    log("done")            // runs before release_resource()
 }
 ```
+
+A `finally` directly after a `try`/`catch` is a [warning](/docs/language/diagnostics/#sc001w-finally-runs-when-the-enclosing-block-exits-like-any-finally-not-when-the-try-before-it-finishes) for that reason. To clean up as soon as the `try` is done, on every way out of it, register the `finally` first, in a block of its own: `{ finally { release_resource() } try { ... } catch { ... } }`.
 
 ### Standalone `finally` (scope exit)
 

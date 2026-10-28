@@ -187,7 +187,7 @@ See [Requires Clauses](/docs/language/requires/) for the full constraint system.
 ## Associated Types
 
 > [!NOTE]
-> Associated types are not compiled yet. See [Status](/docs/status/#not-compiled-yet).
+> Associated types compile, except a generic associated type (`type <K> Map`), a member of an associated type or a call through its bounds, one inherited from a generic interface, and a derived interface giving an inherited one a default: those are [SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported) for now. See [Status](/docs/status/#not-compiled-yet).
 
 An interface can require a type member. A conforming type supplies it with a type alias:
 
@@ -206,7 +206,7 @@ class RoadMap impl Graph {
 }
 ```
 
-A generic body names it through its parameter: `T::Node`. Associated types can carry bounds, and can themselves be generic:
+Inside the interface (and inside a conforming type's body), name it `Self::Node`; a bare `Node` resolves too, but warns, with a fix-it that inserts `Self::`. A generic body names it through its parameter: `T::Node`. Associated types can carry bounds, and can themselves be generic:
 
 ```kairo
 interface Store {
@@ -423,7 +423,10 @@ Inside `fn <T impl Foo>`, a value of type `T` supports exactly what `Foo` (and e
 - A generic method requirement is called with explicit arguments, `x.liz<i32>()`, or with deduced ones.
 - `T(args)` constructs a `T`; it requires a constructor requirement taking those arguments in some bound (see [Constructors in Interfaces](/docs/language/interfaces-requirements/#constructors-in-interfaces)).
 - `var x: T` with no initializer requires a constructor requirement `fn Foo(self)` in some bound.
-- `T::Name` names an [associated type](#associated-types).
+- An operator on `x` (`x == y`, `x + y`, `-x`, `x += y`, and the `!=`, `<` or `+` derived from `op ==`, `op <=>` or `op +=`), `x as string` and `f"{x}"` resolve against the bounds' requirements (`fn op ==(const self, other: Self) -> bool`, `fn op as(const self) -> string`, `fn repr(const self) -> string`) and call them through the bound. With no requirement that grants it, each is a compile error in the generic (R051E for an unbounded `T`, R025E when no bound declares it), even if every type it is used with has the operator.
+- `T` is never nullable: `x?`, `x == null` and `unwrap!(x)` are errors (write the parameter as `T?`). `===` on a `T?` compares the values with the bounds' `op ==`.
+- `match x` can bind `x` (`case var v`), guard it (`case var v where ...`) or ignore it (`case _`, `default`). A variant, literal, range, tuple or struct pattern is an error: no bound gives `T` variants or values to compare.
+- `T::Name` names an [associated type](#associated-types). A value of it has nothing but what the associated type's own bounds declare. `T::Name()` / `T::Name{}` builds one only through a constructor requirement in one of those bounds (`type Node impl Default`); a field list (`T::Name{x: 1}`) never compiles, since no bound can promise fields.
 
 Nothing else is available, and the body is checked once against its bounds, never per instantiation.
 

@@ -68,6 +68,36 @@ Unary `*` on an imported C++ class calls its `operator*`, which is how C++ itera
 
 C and C++ signatures are judged by Kairo's conversion rules, with one addition: a fixed-width integer argument widens into a `size_t`, `ptrdiff_t`, `uintptr_t` or `intptr_t` parameter, and a `usize`/`isize` argument widens into a fixed-width one, whenever that is lossless on every 32- and 64-bit target. `n: u32` passes to a `size_t` directly on 32- and 64-bit targets; `n: u64` needs `as usize`. See the [Conversion Lattice section 4.1](/docs/language/conversion-lattice/#41-the-cc-boundary).
 
+### Tags and ordinary names
+
+C and C++ keep struct, class, union and enum names (tags) apart from variables, functions and typedefs, so a header can declare both under one name. glibc does: `struct timezone` in `<sys/time.h>` and `extern long timezone` in `<time.h>`. As in C++, the plain name means the ordinary declaration:
+
+```kairo
+ffi "c++" import "time.h"
+ffi "c++" import "sys/time.h"
+
+fn example() {
+    var west: i64 = timezone      // the variable
+}
+```
+
+The struct is still the type of everything that uses it, such as `gettimeofday`'s second parameter. To name it yourself, declare it with a bodiless `ffi` struct, which refers to the header's `struct timezone` instead of declaring a new type:
+
+```kairo
+ffi "c++" import "time.h"
+ffi "c++" import "sys/time.h"
+ffi "c" struct timezone
+
+fn now(tv: unsafe *timeval, tz: unsafe *timezone) -> i32 {   // the struct
+    var west: i64 = timezone                                  // still the variable
+    return gettimeofday(tv, tz)
+}
+```
+
+In a type, `timezone` is then the struct; in an expression, it is still the variable. `class` and `union` work the same way. Without a matching struct in the imported headers, `ffi "c" struct T` is an ordinary forward declaration.
+
+`typedef struct X X` is one type, not two names. Two different variables or typedefs under one name, which C++ only allows through inline namespaces, are an error where the name is used, not at the import: `ambiguous import: '{name}' names more than one non-function symbol` (R016E), with a note at each candidate.
+
 ---
 
 ## The `ffi` Keyword

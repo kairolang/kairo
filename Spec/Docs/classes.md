@@ -60,20 +60,23 @@ class Counter {
 }
 ```
 
-The one exception is a name that denotes a **scope** rather than a value nested types, type aliases, and nested modules. Naming a type is not an access through an object, so it needs no qualifier:
+The one exception is a name that denotes a **scope** rather than a value nested types, type aliases, and nested modules. Naming a type is not an access through an object, so a qualifier is not required. Prefer `Self::Node` anyway: a bare nested type, type alias or associated type of the enclosing type compiles, but the compiler warns and offers a fix-it that inserts `Self::`, because nothing at the use says the name is a member rather than something from the module:
 
 ```kairo
 class Tree {
     struct Node { var value: i32 }
     type Depth = i32
 
-    fn root(self) -> Depth {
-        var n = Node { value: 0 }   // ok: `Node` means `Self::Node`
-        var d: Depth = 0            // ok: alias, same rule
+    fn root(self) -> Self::Depth {
+        var n = Self::Node { value: 0 }   // preferred
+        var m = Node { value: 1 }         // ok, but warns: write `Self::Node`
+        var d: Depth = 0                  // ok, but warns: alias, same rule
         return d
     }
 }
 ```
+
+The warning applies anywhere in the body, a field type or method signature included. It names the innermost type only: inside `Node`, a bare `Depth` (a member of `Tree`, not of `Node`) and `Node` itself are not warned, since `Self::` there would mean `Node::`.
 
 The rule does not depend on where a method is written. It is identical in a `class`, `struct`, `union` or `interface` body, in an [`extend`](/docs/language/extends/) block, in an out-of-line `fn Type::method` definition, and inside a [closure](/docs/language/closures/) in any of those.
 
@@ -219,18 +222,23 @@ class Batch {
 }
 ```
 
-Until every such field is initialized, the object does not exist yet, so the constructor can use `self` only to initialize fields and to read the ones already initialized: no method call, no `return`. A field the constructor leaves uninitialized on some path, or writes element by element before building it whole, is an error at the constructor:
+Until every such field is initialized, the object does not exist yet, so the constructor can use `self` only to initialize fields and to read the ones already initialized: no method call, no `return`. A field the constructor leaves uninitialized on some path is an error at the constructor.
+
+An array field can also be built element by element: writing every element once, `self.frames[k] = ...` for each `k` from `0` to `N - 1` with a constant index, initializes it. The writes may come in any order and be spread over branches, as long as every path writes every element exactly once, outside any loop, before the array (or `self`) is read. Each element is built where its write is, so the right-hand sides run in source order with the statements around them. From the last element on, the array exists and further element writes are ordinary assignments:
 
 ```kairo
-class Broken {
+class Pair {
     var frames: [Frame; 2]
 
-    fn Broken(self) {
-        self.frames[0] = .Idle   // error: 'frames' does not exist until it is built whole
-        self.frames[1] = .Idle
+    fn Pair(self, base: i32) {
+        self.frames[1] = .Idle                              // builds element 1
+        self.frames[0] = .Burst { base: base, count: 2 }    // builds element 0: frames exists from here
+        self.frames[1] = .Burst { base: 1, count: 1 }      // ordinary assignment
     }
 }
 ```
+
+Leaving an element out on some path, writing one twice, an index that is not a constant, a write inside a loop, or reading the array before its last element is an error naming the elements still missing or the offending write. Only whole elements count: a write into an element (`self.toks[0].n = 1`) needs the element to exist already, and an array of arrays cannot be built element by element; assign those whole.
 
 Giving the field an initializer at its declaration (`var frames: [Frame; 3] = [.Idle, .Idle, .Idle]`) lifts the requirement.
 

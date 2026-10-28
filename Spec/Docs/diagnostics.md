@@ -455,7 +455,7 @@ See [Enums](/docs/language/enums-adt/#construction).
 
 ### SC001E: a constructor does not initialize a field that has no default
 
-A field with no initializer whose type has no default (`bool`, an enum with payloads, a class with no default constructor, an array of any of these) is initialized by every constructor, like a `const` member: the constructor's first whole write of it is its initialization. See [Classes](/docs/language/classes/#fields-without-a-default). The code is a placeholder until the error gets its own.
+A field with no initializer whose type has no default (`bool`, an enum with payloads, a class with no default constructor, an array of any of these) is initialized by every constructor, like a `const` member: the constructor's first whole write of it is its initialization, and an array field may instead be built element by element, each element written once with a constant index. See [Classes](/docs/language/classes/#fields-without-a-default). The code is a placeholder until the error gets its own.
 
 ```
 constructor of '{C}' does not initialize field '{f}', and {why}
@@ -464,26 +464,32 @@ field '{f}' is not initialized on every path through the constructor of '{C}', a
 a defaulted constructor of '{C}' cannot initialize field '{f}', and {why}
 array field '{f}' is initialized on some paths through the constructor of '{C}' only; an array is not assignable, so its one initialization must be on every path
 'self' is used before the constructor has initialized its fields
+array field '{f}' is built element by element, but element 1 is (elements 1 and 3 are) not initialized on every path through the constructor of '{C}', and {why}
+element {k} of '{f}' may already be initialized here; each element is initialized exactly once before '{f}' is whole
+the index of an element write that builds '{f}' must be a constant
+index {k} is out of range for '{f}', which has {N} elements
+an element of '{f}' is initialized inside a loop; each element of an array field built element by element is written exactly once, with a constant index
+'{f}' is read before all of its elements are initialized: elements 1 and 2 are not initialized yet on every path
 ```
 
-`{why}` says why the type has no default, the same reason a local gets (`'Frame' is an enum with payloads, so no variant is its default`). The note points at the field; when the constructor writes the field element by element instead, a second note points at the first such write.
+`{why}` says why the type has no default, the same reason a local gets (`'Frame' is an enum with payloads, so no variant is its default`). The note points at the field. Element by element, the messages name the elements still missing, the earlier write of a duplicate, or where the array started being built; a write into an element (`self.toks[0].n = 1`) or into an array of arrays does not build anything, and a note says so.
 
 ```kairo
 enum Frame { Burst { base: i32, count: i32 }, Idle }
 
 class Batch {
-    var frames: [Frame; 2]
+    var frames: [Frame; 3]
 
-    fn Batch(self) {             // error SC001E: does not initialize field 'frames'
-        self.frames[0] = .Idle   // note: this writes part of 'frames'
-        self.frames[1] = .Idle
+    fn Batch(self, c: bool) {    // error SC001E: elements 1 and 2 are not initialized on every path
+        self.frames[0] = .Idle
+        if c { self.frames[1] = .Idle }
     }
 }
 ```
 
-**Fix:** build the field whole first (`self.frames = [.Idle, .Idle]`) on every path, before any method call; or give it an initializer at its declaration.
+**Fix:** build the field on every path before any method call, whole (`self.frames = [.Idle, .Idle, .Idle]`) or one write per element; or give it an initializer at its declaration.
 
-An array field's one whole write in a constructor is its initialization, so a second one, or one inside a loop, is SC071E (`an array is not assignable; 'frames' may already be initialized here`).
+An array field's one whole write in a constructor is its initialization, so a second one, one inside a loop, or one after an element was already built, is SC071E (`an array is not assignable; 'frames' may already be initialized here`).
 
 ---
 
@@ -565,7 +571,7 @@ var retry = fn () panic -> string { return read_file("x") }   // error: write 'p
 
 ### SC001E: `'{E}' is not in the panic set of '{Base::m}', which this overrides` / `implements`
 
-An [override](/docs/language/panic/#subsets)'s set must be a subset of the base method's, and a conforming method's a subset of the interface requirement's. The fix-it adds the type to the base's or the requirement's declared set. Overriding a method that does not panic with one that does is `an override cannot panic when '{Base::m}', which it overrides, does not`.
+An [override](/docs/language/panic/#subsets)'s set must be a subset of the base method's, and a conforming method's a subset of the interface requirement's. The fix-it adds the type to the base's or the requirement's declared set. Overriding a method that does not panic with one that does is `an override cannot panic when '{Base::m}', which it overrides, does not`. A generic base's or interface's set is read at the arguments the class derives it at or conforms to (`class D derives Base<B>` holds `run` to `Base<T>::run`'s `panic(T, A)` as `panic(B, A)`), and then no fix-it is offered: the base's own list names its parameters.
 
 ### SC001E: `'{f}' is used as a value, but its panic set is inferred`
 
@@ -579,6 +585,10 @@ Only when building a library (`--shared`): a `pub` function's inferred set is AP
 
 A `catch e: T` whose `T` the `try` body cannot panic with. A warning, not an error, so that a library removing an error from a function's set does not break callers that still catch it. The fix-it removes the arm. Arms match [exact types](/docs/language/panic/#arms-match-exact-types): `catch e: Base` does not catch a `Derived`. A C++ type outside the set is a [C++ exception](/docs/language/c-cpp-exceptions/#exceptions) arm and is never reported.
 
+### SC001W: `'finally' runs when the enclosing block exits, like any 'finally', not when the 'try' before it finishes`
+
+A `finally` written directly after a `try`/`catch`, on the line of its closing brace (`} finally {`) or the next, is the ordinary [scope-exit `finally`](/docs/language/panic/#finally): it runs when the enclosing block is left, after whatever follows it in the block, and a `return`, `break` or uncaught panic leaving the `try` never reaches it, so it does not run on that path. A note points at the closing brace where it runs, another at the `try`. There is no fix-it, since no edit keeps the meaning and silences it. To clean up as soon as the `try` is done and on every way out of it, register the `finally` first, in a block of its own: `{ finally { ... } try { ... } catch { ... } }`.
+
 ### SC001W: `'{p as *D}' crashes the program when the object is not a '{D}'; use '{p as *D}?' and test the result for cleaner handling`
 
 Every [asserting downcast](/docs/language/casting/#downcasting-base-to-derived) warns: on the wrong dynamic type it crashes the program (it is not a panic and cannot be caught). The fix-it appends `?`, turning it into the checked downcast, which yields null on a miss.
@@ -586,6 +596,14 @@ Every [asserting downcast](/docs/language/casting/#downcasting-base-to-derived) 
 ### SC001E: `a second 'catch' arm for '{T}'` / `no 'catch' arm may follow a bare 'catch'`
 
 Two arms for the same type, or any arm after a bare `catch` (which has already handled everything), are errors with a fix-it removing the arm. In the expression form an arm after the default is a syntax error (S054E).
+
+### SC001E: `two 'catch' arms of one 'try' catch '{T}' in '{f<A>}': the first takes every '{T}', and the second never runs`
+
+In a [generic function](/docs/language/panic/#generic-functions), two arms that name different types in the body (`catch e: T` beside `catch e: Missing`) catch the same type at some instantiation (`T = Missing`). Reported where that instantiation is used, with notes at both arms and, when a generic body reached the instantiation, one note per call in the chain. Catch the parameter's type in its own function, or bound the parameter so the two cannot meet.
+
+### SC001E: `the panic set of '{f}' grows without bound: it calls itself (or a function that calls it) at ever-larger type arguments`
+
+A [generic function](/docs/language/panic/#generic-functions) whose inferred set includes what a recursive call at a larger type raises (`f(Box<T> { v: x })` inside `f<T>` lets `Box<T>` through, which lets `Box<Box<T>>` through, and so on). Declare the set, and catch what the recursive call adds outside it.
 
 ### SC001E: `'catch' of the C++ exception '{T}' in a build without C++ exceptions (-fno-exceptions, or a target with no OS)`
 
@@ -614,6 +632,142 @@ A remark, not a warning. A panicking function's result is returned in two regist
 **Fix:** nothing is required. To keep the fast path, panic with a small error (an id, or a pointer to the details).
 
 ---
+
+## Imports
+
+### R016E: `ambiguous import: '{name}' names more than one non-function symbol`
+
+One imported name refers to more than one thing that is not a function, for example two types imported from two modules. Functions merge into one overload set; other declarations cannot.
+
+```kairo
+import bar::{Box}
+import baz::{Box}    // error R016E, reported here
+```
+
+When a Kairo import is involved, the error is reported at the import. When every candidate comes from C or C++ headers, it is reported where the name is used, as C++ does, and a note points at each candidate and says what it is (variable, typedef, struct, ...). Importing such headers is not an error by itself.
+
+A header struct and a variable or function with the same name are not ambiguous: the name means the variable or function, and the struct can be named with `ffi "c" struct T`. See [Tags and ordinary names](/docs/language/c-cpp-calling/#tags-and-ordinary-names).
+
+**Fix:** import one of the conflicting names under an alias (`import Foo::{Bar as FooBar}`), or import a header under an alias (`ffi "c++" import "a.h" as a`) and qualify the name.
+
+---
+
+## Members
+
+### SC001W: `nested type '{N}' of '{T}' is named without a qualifier; write 'Self::{N}' so it reads as a member`
+
+A nested type, type alias (`type alias '{N}'`) or associated type (`associated type '{N}'`) of the enclosing type, named bare inside its body. It is legal, the one exception to [Members always need a qualifier](/docs/language/classes/#members-always-need-a-qualifier), but nothing at the use says the name is a member. Warned in type and expression position, in a class, struct, union or interface body, an `extend` block, an out-of-line `fn Type::method` and a closure in any of those. The code is a placeholder until the warning gets its own.
+
+```kairo
+class Tree {
+    struct Node { var value: i32 }
+
+    fn root(self) -> i32 {
+        var n = Node { value: 0 }   // warning SC001W: write 'Self::Node'
+        return n.value
+    }
+}
+```
+
+The note points at the declaration, and a fix-it inserts `Self::`. Only the innermost type counts: inside a nested type, its own name and the members of the type around it are not warned. Nested modules are not warned.
+
+**Fix:** write `Self::Node`.
+
+### SC001E: `'{f}' is a static requirement; it takes no 'self' and is called through the type, not a value`
+
+A static [interface requirement](/docs/language/interfaces-requirements/) (one with no `self`) called through a value: `y.make(2)` on `y: T` with `<T impl I>`. The same error reads `static extension member` for a static method added by an [`extend`](/docs/language/extends/) block. A requirement dispatches on the type, so a value names nothing to call it on. A plain class's `static` method called through a value is not an error. The code is a placeholder until the error gets its own.
+
+```kairo
+interface I { fn make(x: i32) -> i32 }
+
+fn <T impl I> f(y: T) -> i32 {
+    return y.make(2)    // error SC001E: write 'T::make(2)'
+}
+```
+
+The note points at the declaration, and a fix-it replaces the receiver with its type: `T::make(2)`.
+
+**Fix:** call it through the type.
+
+## Generics
+
+### SC001E: `'{T}: type' needs -fduck-generics: a generic body is checked against its bounds, not per instance`
+
+A [`: type`](/docs/language/generics/#the-type-regime-transitional) generic parameter in a build with `-fno-duck-generics`. `: type` is a transitional regime in which the C++ compiler checks the body per instantiation instead of Kairo checking it against bounds. It is on by default until the compiler compiles itself; `-fno-duck-generics` turns it off. The label is on `: type`. The code is a placeholder until the error gets its own.
+
+```kairo
+fn <T: type> show(t: T) -> i32 { return t.value() }   // error SC001E; note at 't.value'
+fn <T: type> same(t: T) -> T { return t }             // error SC001E; fix-it deletes ': type'
+```
+
+If the body uses no member of `T`, a fix-it deletes `: type`, since an unbounded `T` accepts the same body. If it does, a note points at the first member use instead. Deleting the bound there would only lead to R051E (an unbounded parameter has no members).
+
+**Fix:** bound the parameter with an interface that declares the members the body uses (`<T impl Valued>`), or drop `-fno-duck-generics` while the code is being migrated.
+
+### R051E / R025E: `'{op}' on '{T}' needs a bound that declares '{requirement}'`
+
+A generic body uses an operator, a conversion or an interpolation on a value of a type parameter that nothing grants. The body is [checked once against its bounds](/docs/language/generics/#type-parameter-constraints), so the error is at the use, in the generic, whatever the generic is later used with. R051E when the parameter has no bound at all (a note points at it: `'T' is declared with no bound`); R025E, ending `; none of the bounds of 'T' does`, when it has bounds and none declares the requirement. The forms: `'==' on 'T' needs a bound that declares 'op =='` (`!=` names `op !=` or `op ==`, a relational `op <=>`, `+` `op +=`, `+=` `op +`), `'===' on 'T?' compares the values with 'op ==', so it needs a bound on 'T' that declares 'op =='`, `'as string' on 'T' needs a bound that declares 'op as' returning 'string'`, and `formatting a 'T' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string'`.
+
+```kairo
+fn <T> eq(a: T, b: T) -> bool = a == b              // error R051E
+interface Same { fn op ==(const self, other: Self) -> bool }
+fn <T impl Same> eq2(a: T, b: T) -> bool = a == b   // ok: the bound's 'op =='
+```
+
+A `<T: type>` parameter is exempt: C++ checks its operators per instance. A null test on a `T` (`t?`, `t == null`) is the ordinary "is not nullable" error: a `T` is never null.
+
+**Fix:** bound the parameter with an interface that declares the operator, or take the value at its concrete type.
+
+### SC001E: `a value of type '{T}' can only be matched by a binding, '_' or 'default' (with a 'where' guard)`
+
+A `match` pattern other than a binding or `_` on a value of a type parameter. No bound gives `T` variants, fields or values a literal could equal; a note points at the parameter. The code is a placeholder until the error gets its own.
+
+**Fix:** bind the value and test it in a `where` guard through a bound's requirement, or match on a type whose variants are known (a generic ADT `Rep<T>` is fine).
+
+### SC001E: `'{X}' does not conform to '{I}'`, in an instance a generic reached
+
+A bound is checked where it meets a concrete argument, including in an instance that only another generic's body asks for: `outer<Metric>` calling `inner(Wrap<T> { item: a })` instantiates `inner<Wrap<Metric>>`, and its `U impl Named` bound is checked with `U = Wrap<Metric>`. The error is at the use that started the chain, the one written in your code. Notes name the bound and the missing requirement, then one note per step of the chain, innermost first, at the call in the generic's body that needed the instance:
+
+```kairo
+pub fn <U impl Named> inner(a: U) -> i32 { return a.name_len() }
+pub fn <T impl Scalable> outer(a: T) -> i32 {
+    return inner(Wrap<T> { item: a })      // note: in instantiation of 'inner<Wrap<Metric>>' required here
+}
+fn main() -> i32 {
+    return outer(Metric { base: 3 })      // error SC001E: 'Wrap<Metric>' does not conform to 'Named'
+}
+```
+
+A chain longer than five steps shows the innermost three, a note counting the steps left out, and the outermost two. `--cmax-generic-backtrace=N` changes the five; `0` shows every step. An instance that fails is reported once, at the first use that needs it. The code is a placeholder until the error gets its own.
+
+**Fix:** make the argument conform (an extension can add the missing member to `Wrap`), or bound the outer generic so the call cannot be made with it.
+
+### SC001E: `cannot decide whether a partial specialization of '{X}' applies to these arguments`
+
+A [partial specialization selected by `requires`](/docs/language/requires/#partial-specializations-selected-by-requires) matches an instantiation by its pattern, but its clause needs something the compiler does not compute while choosing (the `sizeof` of a struct, an `eval` function). It is not chosen, and the use is an error; a note points at the partial. Two partials that both apply with neither more specialized are `ambiguous partial specializations of '{X}' for these arguments`. The codes are placeholders until each gets its own.
+
+**Fix:** select by the pattern instead, or test a builtin type's size.
+
+### SC001E: `every overload in the 'where' dispatch of '{f}' must have the same {what}; C++ sees them as one function`
+
+Besides the return type and `const self`, a [`where` group of generic functions](/docs/language/where/#fallback-requirement) must agree on its type parameters' names and its bounds (`generic parameter names`, `bounds`). A second overload with no `where` clause is R029E, a redefinition.
+
+### SC001E: `instantiation depth exceeds {n}: ...`
+
+Each instance a generic body reaches can reach more. A chain that never ends, such as a function that calls itself with its argument wrapped once more, is reported once it is longer than `--cmax-generic-depth` (128 by default), at the use that started it. The message names the first three and the last three instances of the chain, and a note points at the call that would have gone one step deeper.
+
+```kairo
+pub fn <T> f(x: T) -> i32 {
+    return f(Wrap<T> { item: x })   // note: 'f<Wrap<...<i32>...>>' is required here, instantiation 129 of the chain
+}
+fn main() -> i32 {
+    return f(1)   // error SC001E: instantiation depth exceeds 128: 'f<i32>' -> 'f<Wrap<i32>>' -> ...
+}
+```
+
+A pointer to the class itself at a bigger argument (`var p: *L<Wrap<T>>` in `L<T>`) is reported the same way today, although following a pointer instantiates nothing. The code is a placeholder until the error gets its own.
+
+**Fix:** end the recursion at a fixed type (dispatch on a value instead of a type, or stop wrapping), or raise the limit with `--cmax-generic-depth=N` when the chain is finite and just long.
 
 ## Compile-Time Values
 
@@ -649,7 +803,6 @@ It is reported for:
 - `label!` and `jump!` in user code
 - matching a string against a pattern that isn't a string literal or a constant initialized with one
 - matching a record value against a literal-style pattern
-- a non-generic payload enum whose payload holds a type whose copy, move and destruction are not known until instantiation
 - an initializer on an `eval` field, and one on an array-typed field that is `static`, an array of arrays, or not a list literal
 - in a constructor that initializes a `const` field or a field without a default: a generic constructor or one with an expression body; `try`, `finally`, an `inline` block, `label!` or `jump!` before the last such initialization; a `static` or array local declared before it and used after it; initializing an array field of arrays, or one whose length is a generic parameter
 - a vector, set, map or f-string in an `eval` context (`a vector in an eval context is not yet supported`); a string literal is fine
@@ -662,27 +815,23 @@ It is reported for:
 - naming the panic result type `Panic<T, E...>` in source (`a panic result type cannot be named yet`): a panicking call's result is handled with `try` or propagated, not stored
 - keeping a panic result in a variable (`a stored panic result is not yet supported`), such as `var copy = e` for a bare `catch e`'s binding (re-panicking it with `panic e` is fine), and a function type whose panic set names a generic parameter
 - a call of a panicking operator (`a call of a panicking operator is not yet supported`)
-- a generic [`panic`](/docs/language/panic/) function (or one inside a generic type), a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside a generic function, a generator, or an `async` body
+- a [`panic`](/docs/language/panic/) function under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, a generic `panic` closure, a `panic` generator or `async` function or closure, and a `panic` statement or a call that may panic inside such a body (bounded and unbounded generics are [supported](/docs/language/panic/#generic-functions))
+- a call whose callee's panic set names a generic parameter the call does not bind (no bound declares the requirement it calls)
 - [`where` dispatch](/docs/language/where/) on a generic function, a `virtual` or `override` method, an `extend` member, an operator, a constructor, an out-of-line definition, a forward declaration, a generator, an `async` function, a variadic function, or an overload with a default argument (`'where' dispatch on a generic function is not yet supported`)
 
 It means "not yet supported", not "invalid": the code is correct Kairo that the current compiler cannot build.
 
 ```kairo
-class <T> Box { pub var v: T }
+struct P { var x: i32  var y: i32 }
 
-enum W { Has { b: Box<i32> }, Empty }   // error SC116E
+fn by_name(p: P) -> i32 {
+    var {x, y} = p        // error SC116E
+    return x + y
+}
 ```
 
 > [!NOTE]
-> For the payload enum case, make the variant generic over the payload type:
->
-> ```kairo
-> class <T> Box { pub var v: T }
->
-> enum <T> W { Has { b: Box<T> }, Empty }
->
-> var w: W<i32> = .Empty
-> ```
+> For struct destructuring, read the fields one by one: `var x = p.x`.
 
 **Fix:** rewrite around the construct for now. See [Status](/docs/status/).
 

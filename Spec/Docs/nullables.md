@@ -213,7 +213,7 @@ var port = env_port() ?? file_port() ?? 80 // i32
 
 ### Null-aware equality (`===`)
 
-`a === b` is true when both are non-null and their values are equal: `(a? && b?) && a == b`. A non-nullable operand needs no test, so `a === 5` is `a? && a == 5`. The `==` is the values' own, a user `op ==` included. On nullable pointers it compares what they point to, one level down. At least one operand must be nullable, and `x === null` is an error (it is never true; write `!x?`). Like the conjunction it reads as, a true `a === b` narrows both: in `if a === b { ... }`, `a` and `b` are non-null. See [Operators](/docs/language/operators/#comparison).
+`a === b` is true when both are non-null and their values are equal: `(a? && b?) && a == b`. A non-nullable operand needs no test, so `a === 5` is `a? && a == 5`. The `==` is the values' own, a user `op ==` included. On nullable pointers it compares what they point to, one level down. In a [generic](/docs/language/generics/#type-parameter-constraints) body, `===` on a `T?` compares with the `op ==` a bound on `T` declares (without one it is an error), and a `T` is never a pointer there: a `*i32` passed as `T` is compared as an address by its `==`; write `(*T)?` to compare pointees. At least one operand must be nullable, and `x === null` is an error (it is never true; write `!x?`). Like the conjunction it reads as, a true `a === b` narrows both: in `if a === b { ... }`, `a` and `b` are non-null. See [Operators](/docs/language/operators/#comparison).
 
 ### Force unwrap
 

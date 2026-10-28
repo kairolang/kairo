@@ -5,7 +5,7 @@
 Unlike [C++ exceptions](/docs/language/c-cpp-exceptions/), panics use no unwinding tables and no runtime. The codegen is zero-cost: every panic site becomes a tagged return value checked with a branch.
 
 > [!NOTE]
-> Panic is compiled. Not supported yet: a panic in a generic function (or a method of a generic type), in a generator or an `async` function, a call of a panicking operator, and keeping a caught error in another variable. See [Status](/docs/status/#not-compiled-yet).
+> Panic is compiled, in generic functions too. Not supported yet: a panic under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, in a generator or an `async` function, a call of a panicking operator, and keeping a caught error in another variable. See [Status](/docs/status/#not-compiled-yet).
 
 ---
 
@@ -315,7 +315,44 @@ var retry = fn () panic(IOError) -> string { return read_file("data.txt") }
 
 ### Public functions
 
-An inferred set on a `pub` function is API surface that changes silently when the body changes. When building a library, the compiler warns about a `pub` function whose set is inferred, with a fix-it that writes the set out. The warning is off for executables.
+An inferred set on a `pub` function is API surface that changes silently when the body changes. When building a library, the compiler warns about a `pub` function whose set is inferred, with a fix-it that writes the set out. The warning is off for executables. It applies to generic functions too.
+
+---
+
+## Generic Functions
+
+A generic function, or a method of a generic type, may panic like any other. Its body is checked once, where it is defined, against its [bounds](/docs/language/generics/), never per instantiation, and so is its set. The set of a generic body is:
+
+- every type it panics with, which may be one of its type parameters (`panic x` with `x: T`);
+- the sets of the ordinary functions it calls;
+- the **declared** set of every [interface requirement](/docs/language/interfaces-requirements/#panicking-requirements) it calls through a bound, at the bound's arguments: through `T impl Src<IOError>`, a requirement declared `panic(E)` panics with `IOError`;
+- the set of every generic function it calls, at that call's type arguments.
+
+```kairo
+interface <E> Source {
+    fn read(self) panic(E) -> i32
+}
+
+fn <E, T impl Source<E>> total(a: T, b: T) panic -> i32 {   // panics with E
+    return a.read() + b.read()
+}
+
+fn <T> pick(x: T, first: bool) panic -> i32 {               // panics with T and Missing
+    if first { panic x }
+    panic Missing {}
+}
+```
+
+A caller sees the set at its own arguments: `total<IOError, File>(f, g)` panics with `IOError`, and `pick(ParseError {}, true)` with `ParseError` and `Missing`. When two members of a set are the same type at some arguments (`pick(Missing {}, true)`), they are one: that call panics with `Missing` only.
+
+Everything the body does is checked at the definition, with the bound's types: a requirement's error that is neither caught nor in the function's set is an unhandled panic, and a declared set (`panic(E)`) holds the body to it, whatever the arguments will be. Interface requirements must declare their sets (see [above](#where-a-declared-set-is-required)), so a bound always says what calling through it can raise. A set may name the interface's own type parameters, as `panic(E)` does here.
+
+Two rules need the arguments:
+
+- **Arms that meet at an instance.** `catch e: T` beside `catch e: Missing` are two arms in the generic body, but at `T = Missing` both catch the same type. That is the [duplicate-arm](#dead-arms-and-arm-order) error, reported where that instantiation is used (with the chain of generic calls that reached it, when there is one).
+- **Ever-larger arguments.** A function that calls itself at a bigger type (`f(Box<T> { v: x })` inside `f<T>`) and lets that call's errors through would have a set that never stops growing. That is an error; declare the set, or catch what the recursive call raises.
+
+Not supported yet: a panic, or a panicking call, inside a body under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter (its member calls are checked by the C++ compiler per instantiation, so there is no set to compute), a generic closure that panics, and a [function type](/docs/language/functions/#function-pointers) whose set names a generic parameter (`fn() panic(E) -> i32`).
 
 ---
 
@@ -346,18 +383,36 @@ See [Control Flow](/docs/language/control-flow/#trycatch-as-an-expression) for t
 
 ## Finally
 
-`finally` defines cleanup code that runs regardless of whether the `try` body succeeds or panics:
+There is one `finally`: a scope-exit block. It runs when control leaves the block it is written in, however it leaves (normal exit, `return`, `break`, `continue`, or a panic), and only if execution reached it. There is no `try`/`finally` clause as in Java, C# or Python: a `finally` written after a `try`/`catch` is the same standalone `finally`, so it does **not** run when the `try` finishes, and a `return`, `break` or uncaught panic leaving the `try` never reaches it.
 
 ```kairo
-try {
-    acquire_lock()
-    do_work()
-} catch e: IOError {
-    handle_error(e)
+fn update() {
+    try {
+        acquire_lock()
+        do_work()
+    } catch e: IOError {
+        handle_error(e)
+    } finally {         // warning: runs when update() returns, not after the try
+        release_lock()
+    }
+    log("done")         // runs before release_lock()
 }
+```
 
-finally { // identical to standalone `finally`
-    release_lock()   // always runs
+Because that is easy to misread, a `finally` that directly follows a `try`/`catch` (on the same line as its closing brace or the next) is a [warning](/docs/language/diagnostics/#sc001w-finally-runs-when-the-enclosing-block-exits-like-any-finally-not-when-the-try-before-it-finishes). To clean up as soon as the `try` is done, on every way out of it, register the `finally` first, in a block of its own:
+
+```kairo
+fn update() {
+    {
+        finally { release_lock() }   // runs at this block's closing brace
+        try {
+            acquire_lock()
+            do_work()
+        } catch e: IOError {
+            handle_error(e)
+        }
+    }
+    log("done")                      // runs after release_lock()
 }
 ```
 
@@ -455,7 +510,7 @@ A bad cast or a null unwrap is a programmer error, not a recoverable condition. 
 - **Constructors and destructors.** No constructor or destructor can panic, and no panic may escape one: handle it inside, or stop with `crash!()`. Construction that can fail belongs in a static factory function. See [Class Lifecycle](/docs/language/classes-lifecycle/#constructors-and-destructors-never-panic).
 - **`eval` functions.** `panic` in a function evaluated at compile time is an error. See [Eval](/docs/language/eval/).
 - **Generators and `async`.** For a [generator](/docs/language/functions-generators/) or an [`async`](/docs/language/concurrency/) function, an error surfaces where the caller resumes it: at the `next()` call (including the hidden one in a `for` loop) or the `await`, which handles or propagates it like any other panicking call. A `panic`, or a panicking call, inside a generator or `async` body is not supported yet.
-- **Generic functions.** A generic function's set can depend on its type arguments, so it will be inferred per instantiation. Not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): a generic `panic` function, a `panic` method of a generic type, and a `panic` or a panicking call inside a generic body.
+- **`<T: type>` bodies.** A `panic` function under a [`<T: type>`](/docs/language/generics/#the-type-regime-transitional) parameter, and a `panic` or a panicking call in such a body, are not supported yet ([SC116E](/docs/language/diagnostics/#sc116e-a-feature-is-not-yet-supported)): the C++ compiler checks that body per instantiation, so it has no set to compute. Bounded and unbounded generics are fine; see [Generic Functions](#generic-functions).
 
 ---
 
@@ -467,7 +522,9 @@ At a call site, the compiler tests the tag where the call is, so arguments still
 
 `try`/`catch` lowers to one tag compare per `catch` arm, in order, with a bare `catch` as the final fallback, and a catch binding refers to the error in place. An error type's tag is the same in every set that contains it, so passing an error up through callers with larger sets never translates it. When a `try` body holds a single panicking call, the arms read that call's result directly. With more than one, the first error is moved into storage that is only ever built on the error path, and moved out again before any arm runs, so every way of leaving an arm (falling through, `return`, `break`, `continue`, a re-panic) destroys it exactly once.
 
-An override of a `virtual` method returns its base method's result type, whatever its own (smaller) set: callers through the base and through the derived type see one function. A function value whose type allows more errors than the function it holds (or any, when the function cannot panic) is wrapped where it is converted.
+An override of a `virtual` method returns its base method's result type, whatever its own (smaller) set: callers through the base and through the derived type see one function.
+
+A generic function is one C++ template for every instantiation, and its result names its type parameters. The C++ compiler orders that set at each instantiation, removing a type that appears twice, into the same order every other function with that set uses, so a generic function's result and a concrete caller's are one type. The compiler checks that ordering against its own at each instantiation it sees. A function value whose type allows more errors than the function it holds (or any, when the function cannot panic) is wrapped where it is converted.
 
 This means:
 
@@ -537,6 +594,9 @@ fn expression_forms(s: string) -> i32 {
 
 // A closure declares its set
 var risky = fn () panic(DivideByZero) -> i32 { return divide(1, 0) }
+
+// A generic body: its set is the requirement's, at the bound (E)
+fn <E, T impl Source<E>> first(src: T) panic -> i32 { return src.read() }
 
 // Scope exit
 fn with_cleanup() panic {

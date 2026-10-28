@@ -33,7 +33,7 @@ Point::origin()  // Point { x: 0.0, y: 0.0 }
 
 Methods added via `extend` are called the same way as methods defined in a class body there is no syntactic distinction at the call site.
 
-An `extend` body is the extended type's scope. Members still need an explicit qualifier `self.x` or `Self::x`, exactly as in a class body (see [Members always need a qualifier](/docs/language/classes/#members-always-need-a-qualifier)) and the same one exception applies: the target's nested types and type aliases are visible unqualified.
+An `extend` body is the extended type's scope. Members still need an explicit qualifier `self.x` or `Self::x`, exactly as in a class body (see [Members always need a qualifier](/docs/language/classes/#members-always-need-a-qualifier)) and the same one exception applies: the target's nested types and type aliases are visible unqualified. As in a class body, the bare form warns; write `Self::Node`.
 
 ```kairo
 class Tree {
@@ -43,9 +43,10 @@ class Tree {
 
 extend Tree {
     fn add(self) {
-        var n = Node { value: 0 }   // ok: `Node` means `Self::Node`
-        self.count += 1             // ok
-        // count += 1               // error: needs `self.`
+        var n = Self::Node { value: 0 }   // ok
+        var m = Node { value: 1 }         // ok, but warns: write `Self::Node`
+        self.count += 1                   // ok
+        // count += 1                     // error: needs `self.`
     }
 }
 ```

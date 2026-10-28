@@ -117,6 +117,18 @@ enum <T> Compact
 
 Type-level constraints are always `requires`. There is no runtime dispatch on type instantiation either the type is valid or it isn't.
 
+### Partial specializations selected by `requires`
+
+A partial specialization may carry a `requires` clause: it is chosen for an instantiation only when its pattern matches and its clause holds there. Its pattern can be the type's own parameters:
+
+```kairo
+struct <T> Store { var value: T }
+struct <P> Store<P> requires sizeof P <= 8 { var small: P }   // Store<i32> is this one
+struct <P> Store<*P> requires sizeof P >= 8 { var wide: *P }  // Store<*i64> is this one
+```
+
+The more specialized pattern wins first (`Store<*P>` over `Store<P>`); between two equal patterns, one with a clause wins over one without, and two with clauses that both hold are ambiguous (an error). The clause is decided at compile time from literals, `sizeof` and `alignof` of builtin types, pointers and arrays of them, arithmetic and comparisons. A clause the compiler cannot decide for an instantiation (the `sizeof` of a struct, an `eval` function) is an error where that instantiation is used, and a conformance (`requires P impl I`) in a partial's clause is not supported yet.
+
 ---
 
 ## Requires on Interface Methods

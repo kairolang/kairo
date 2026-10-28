@@ -12,9 +12,6 @@ enum <T> ParseResult {
 
 Variants without a payload (`EndOfInput` above) are plain discriminants. Variants with a payload carry an anonymous struct alongside the discriminant. A single enum can freely mix both.
 
-> [!NOTE]
-> A non-generic payload enum whose payload holds a type whose copy, move and destruction are not known until instantiation (such as `Box<i32>` for a generic class `Box`) is not compiled yet. See [Status](/docs/status/#not-compiled-yet).
-
 ## Construction
 
 There are three construction forms:

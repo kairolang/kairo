@@ -233,6 +233,8 @@ The compiler verifies that all possible values are covered:
 
 A `default` case matches any value not covered by preceding cases. It must be the last case.
 
+In a [generic](/docs/language/generics/#type-parameter-constraints) body, a match on a generic ADT at a dependent argument (`r: Rep<T>`) is checked like any other: its variants are known, and missing one is an error. A match on a value of a type parameter `T` itself can only bind it, guard it or ignore it (`case var v where v_ok(k)`, `case _`, `default`): `T` has no variants or values a pattern could test, so any other pattern is an error, and the match is exhaustive only when an unguarded binding, `_` or `default` ends it.
+
 A match whose arms are all `=>` is an expression, wherever it appears.
 
 ## No fall-through

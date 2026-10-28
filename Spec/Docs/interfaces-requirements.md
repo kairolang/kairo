@@ -204,6 +204,22 @@ class Memory impl Source {
 
 A conforming method may infer its set, but the set must be a subset of the requirement's. Panicking with a type outside it is an error at the conformer.
 
+A generic interface's requirement may name the interface's own type parameters in its set. A conformer is held to it at the arguments it conforms to, and a [generic body](/docs/language/panic/#generic-functions) calling it through a bound panics with it at the bound's arguments:
+
+```kairo
+interface <E> Source {
+    fn read(self) panic(E) -> i32
+}
+
+class File impl Source<IOError> {
+    fn read(self) panic(IOError) -> i32 { ... }        // ok: E = IOError
+}
+
+fn <T impl Source<IOError>> twice(src: T) panic -> i32 {   // panics with IOError
+    return src.read() + src.read()
+}
+```
+
 ---
 
 ## See also
