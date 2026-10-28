@@ -96,6 +96,9 @@ files it imports) or a documented role (parity/, kairo-only/).
         Inputs/           corpora of the single-file tests beside it: module_walkup (a library found walking up
                           from the file), module_pins_deep / _late / _symlink, std_dash_i
       ExprTyper/        expression typing, overloads, call arguments
+      Conversions/      the primitive conversion matrix: every (S, T) in every context, verdicts from the
+                        spec (gen_matrix.py writes matrix_*.k, roundtrip_as*.k, xfail_as_*.k; run_*.k are
+                        hand-written edge values); Inputs/module_generic is module_generic.k's corpus
       Check/            post-resolution checks (lifecycle, C++ name clashes)
       Operators/        operator declaration / use rules
       Panic/            panic effects: sets, unhandled calls, try/catch arms (PANIC.md)
