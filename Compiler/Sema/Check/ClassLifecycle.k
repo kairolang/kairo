@@ -54,10 +54,27 @@
 ///     dependent. Folding is Kleene AND -- one definite No decides, an
 ///     Unknown only spoils a Yes -- so `{ s: string, v: T }` is definitely
 ///     not trivially copyable. A pointer is a pointer whatever it points at,
-///     so `*T` stays trivial. An instance reads its pattern (nothing computes
-///     facts per instance yet; that is M2's), so `Opt<i32>` reads exactly as
-///     unknown as `Opt<T>`. Every rule that diagnoses from a fact, here and
+///     so `*T` stays trivial. Every rule that diagnoses from a fact, here and
 ///     in MoveCheck, skips an Unknown one rather than guessing either way.
+///
+///   \par Instances (MONO.md G6)
+///     Unknown is the PATTERN's answer only. A concrete instance of a Kairo
+///     generic (`Opt<i32>`, `Opt<Mv>`) has facts of its own: the same rules
+///     over the pattern's declared members -- or the selected partial's --
+///     with the instance's arguments substituted into every field, payload
+///     and base type (Substitution, the one G4 built), so `Opt<i32>` is COPY
+///     and `Opt<Mv>` MOVE, and every reader that is handed the instance
+///     (MoveCheck, moves_on_pass, assignment, the non-generic-ADT gate,
+///     lifecycle requirements) reads them. A fact only, never a re-typed
+///     body (MONO.md D0). The memo below is the side table: keyed by the
+///     instance decl, which is one per registry entry. An imported
+///     template's instance keeps clang's facts (ensure_filled).
+///
+///     The rules a generic class's declaration skipped on an Unknown --
+///     rule 5, rule 6 and the virtual-destructor rule -- are asked again of
+///     each LIVE instance (instance_failures): ConformanceChecking reports
+///     what fails at the instance's use with its instantiation chain
+///     (MONO.md D6), once per instance, as it does an unmet bound.
 ///
 ///     A record that writes a @copy or @move constructor has the category it
 ///     DECLARED, read off the copyable / movable rules above: @copy is COPY,
@@ -162,6 +179,9 @@ import AST::Mixin::FFILinkage::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
+import Sema::Type::Substitution::*;
+import AST::Context::InstantiationRegistry::*;
+import Location::SourceRange::*;
 
 enum LifecycleCategory derives u8 {
     Copy = 0,      ///< @copy, explicit or implicit; DEFAULT reads as this.
@@ -260,9 +280,34 @@ fn lifecycle_open(f: *LifecycleFacts) -> bool {
         || (f->movable == LifecycleTri::Unknown);
 }
 
+/// One lifecycle rule an instance fails (ClassLifecycle::instance_failures),
+/// as data: ConformanceChecking reports it, at the instance's use and with
+/// its chain, which this file cannot (it is imported by that one).
+class LifecycleFailure {
+    pub var id:  DiagID = DiagID::SC001E;
+    pub var msg: string = "";
+    /// Parallel: each note's code (I900N for a plain one), place, text.
+    pub var note_ids: vec::<DiagID>;
+    pub var note_at:  vec::<SourceRange>;
+    pub var note_msg: vec::<string>;
+    fn LifecycleFailure(self) { }
+
+    fn add_note(self, id: DiagID, at: SourceRange, msg: string) {
+        self.note_ids.push_back(id);
+        self.note_at.push_back(at);
+        self.note_msg.push_back(msg);
+    }
+}
+
 class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     pub var sc: *SemaContext;
     priv var _tu:    TypeUtil;
+    /// The arguments of the instance whose facts _compute is computing, or
+    /// null for a pattern or a non-generic record: what _through reads a
+    /// field, payload or base type with. Saved and restored around every
+    /// computation (facts_of), since computing one instance recurses into
+    /// its components' own.
+    priv var _sub: *Substitution = &null;
     /// Facts live in _facts_arena, the map holds their address: facts_of
     /// hands out a *LifecycleFacts that _compute keeps writing while it
     /// recurses into bases and fields -- each recursion inserts here, and a
@@ -313,13 +358,21 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
 
     /// The facts for the entity \p d belongs to. Any record kind, any TU. An
     /// unfilled instance of an imported template is filled first (clang's
-    /// facts); a Kairo instance M2 has not filled reads its pattern.
+    /// facts); a concrete Kairo instance has its own, its pattern's members
+    /// over its arguments (file header, Instances). Anything else unfilled
+    /// reads its pattern.
     fn facts_of(self, d_in: *Decl) -> *LifecycleFacts {
         var d = NameLookup::representative(d_in);
         MemberLookup::ensure_filled(self.sc, d);
+        var inst: *InstanceEntry = &null;
+        var body = d;
         if MemberLookup::unfilled(d) {
+            inst = self._concrete_instance(d);
             var pat = self.sc->body_of(d);   // the selected partial spec's, if one was.
-            if pat != &null { d = NameLookup::representative(pat); }
+            if pat != &null {
+                body = NameLookup::representative(pat);
+                if inst == &null { d = body; }
+            }
         }
         var key = reinterpret_cast::<u64>(d);
         var it  = self._facts.find(key);
@@ -329,8 +382,44 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // Published BEFORE _compute: its in_progress mark is how a cyclic
         // recursion back to \p d is caught.
         self._facts[key] = f;
-        self._compute(d, f);
+        var saved = self._sub;
+        self._sub = &null;
+        if inst != &null {
+            var sub = Substitution(self.sc);
+            sub.bind_from_record(self.sc->types->record(inst->decl, &(inst->args)));
+            self._sub = &sub;
+            self._compute(body, f);
+        } else {
+            self._compute(d, f);
+        }
+        self._sub = saved;
         return f;
+    }
+
+    /// \p d's registry entry when it is an instance of a KAIRO generic at
+    /// concrete arguments -- the one kind of record whose facts are its own
+    /// but computed from another's members. Null for an imported template's
+    /// (clang's facts) and for anything still dependent.
+    priv fn _concrete_instance(self, d: *Decl) -> *InstanceEntry {
+        if (d == &null) || (!decl_is_instance(d)) || (self.sc->instances == &null) { return &null; }
+        var e = self.sc->instances->entry_of(d);
+        if (e == &null) || (e->primary == &null) || decl_is_imported(e->primary) { return &null; }
+        for var i: usize = 0; i < e->args.size(); ++i {
+            var a = e->args[i];
+            if (a == &null) || a->is_dependent() || a->is_instantiation_dependent() { return &null; }
+        }
+        return e;
+    }
+
+    /// \p t as the instance being computed sees it (`T` of `Opt<Mv>` is Mv),
+    /// or \p t itself: outside an instance, or where a substitution does not
+    /// go through, in which case the component stays Unknown, as the
+    /// pattern's is.
+    priv fn _through(self, t: *Type) -> *Type {
+        if (t == &null) || (self._sub == &null) { return t; }
+        if (!t->is_dependent()) && (!t->is_instantiation_dependent()) { return t; }
+        var s = self._sub->substitute(t);
+        return (s) if (s != &null) else (t);
     }
 
     /// Facts for a canonical TYPE: a record's are its decl's; everything
@@ -361,10 +450,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         }
 
         // A tuple is its arity's record, but its facts are its ELEMENTS'
-        // folded, not the pattern's: the record's fields are typed by its
-        // parameters, and facts_of(instance) reads the pattern until M2
-        // fills instances -- which would make `(i32, i32)` Unknown in every
-        // fact and trip the non-generic-ADT gate on a payload that holds one.
+        // folded: the record is a lang item whose fields are typed by its
+        // parameters, and its element types are the tuple's own, packs
+        // included, so the fold needs no instance entry to read them from.
         if self._tu.is_tuple(t) {
             var elems = self._tu.tuple_elems(t);
             for var i: usize = 0; i < elems.size(); ++i {
@@ -618,7 +706,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             var fd = fields[i];
             if (fd == &null) || fd->is_static() { continue; }
             if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
-            var ff = self.facts_of_type(fd->type_->canonical);
+            var ff = self.facts_of_type(self._through(fd->type_->canonical));
             if ff.in_progress { continue; }
             f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(ff.trivial_dtor));
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
@@ -701,7 +789,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                 // Unresolved: T reported it, and guessing here would only add
                 // a second error about a type nobody could name.
                 if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
-                var pf = self.facts_of_type(fd->type_->canonical);
+                var pf = self.facts_of_type(self._through(fd->type_->canonical));
                 if pf.in_progress { continue; }                // a cycle; TypeCycleCheck's.
                 f->own_dtor_work = lifecycle_or(f->own_dtor_work, lifecycle_not(pf.trivial_dtor));
                 self._absorb(f, &pf,
@@ -770,7 +858,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // which made every class deriving a non-trivial base an error -- even
         // one adding nothing a base-typed `delete` would skip.
         if df->own_dtor_work == LifecycleTri::No { return true; }
-        // Unknown facts are resolved per instance at M2, which does not exist yet.
+        // An Unknown is the pattern's; each instance is asked again (instance_failures).
         if df->own_dtor_work == LifecycleTri::Unknown { return true; }
         var dn = self.sc->ctx->get_spelling(n->name);
 
@@ -781,7 +869,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if isa::<InterfaceDecl>(bd) { continue; }
             var bf = self.facts_of(bd);
             if bf->virtual_dtor == LifecycleTri::Yes { continue; }
-            // Unknown facts are resolved per instance at M2, which does not exist yet.
+            // An Unknown is the pattern's; each instance is asked again (instance_failures).
             if bf->virtual_dtor == LifecycleTri::Unknown { continue; }
 
             var bn = self._tu.decl_name(bd);
@@ -997,7 +1085,9 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         //    Only when the derived category really is COPY: a move-only or
         //    non-transferable field already keeps C++ from generating the
         //    copy, so there is nothing silent to warn about.
-        //    Unknown facts are resolved per instance at M2, which does not exist yet.
+        //    Not re-asked per instance: an instance of a generic that left
+        //    the category open would warn about a declaration it cannot
+        //    change.
         if (dtor != &null) && (dtor->body_kind != FnBodyKind::Default) && (dtor->body_kind != FnBodyKind::Delete)
         && (!f->user_transfer) && (f->category == LifecycleCategory::Copy) {
             self.sc->diag->report(DiagID::SC060W, dtor->range.start,
@@ -1018,7 +1108,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             var bd = self._base_decl(e->base);
             if (bd == &null) || isa::<InterfaceDecl>(bd) { continue; }
             var bf = self.facts_of(bd);
-            // Unknown facts are resolved per instance at M2, which does not exist yet.
+            // An Unknown is the pattern's; each instance is asked again (instance_failures).
             if (f->category == LifecycleCategory::Unknown) || (bf->category == LifecycleCategory::Unknown) { continue; }
             var ok = (f->category == LifecycleCategory::NonTransfer)
                   || (f->category == bf->category);
@@ -1097,7 +1187,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     /// Why a component with facts \p c cannot be transferred by a defaulted
     /// copy (\p is_copy) or move, or "" when it can or cannot be told yet.
     priv fn _untransferable(self, c: *LifecycleFacts, is_copy: bool) -> string {
-        // Unknown facts are resolved per instance at M2, which does not exist yet.
+        // An Unknown is the pattern's; each instance is asked again (instance_failures).
         if is_copy {
             if c->copyable != LifecycleTri::No { return ""; }
             if c->movable == LifecycleTri::Yes { return "move-only"; }
@@ -1118,6 +1208,152 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             case LifecycleCategory::Unknown     { return "undecided until instantiation"; }
             default                             { return "copyable (@copy)";            }
         }
+    }
+
+    // === per instance ==========================================================
+
+    /// The rules a generic class's declaration could not decide -- an
+    /// Unknown fact skips them (file header, Unknown) -- asked again of
+    /// instance \p e with its own facts (file header, Instances), appended
+    /// to \p out: rule 6 (a defaulted transfer over a component the
+    /// instance cannot transfer that way), rule 5 (its category against
+    /// each base's), the virtual-destructor rule. Only what the pattern did
+    /// NOT already report, so a failure the declaration shows is never
+    /// reported again per instance. Nothing for an explicit specialization
+    /// (it is a declaration of its own, checked as one) or a non-class.
+    fn instance_failures(self, e: *InstanceEntry, out: *vec::<LifecycleFailure>) {
+        if (e == &null) || (out == &null) || e->is_explicit || (e->decl == &null) { return; }
+        if self._concrete_instance(e->decl) != e { return; }
+        var body = self.sc->body_of(e->decl);
+        if (body == &null) || (!isa::<ClassDecl>(body)) { return; }
+        body = NameLookup::representative(body);
+        var n  = cast::<ClassDecl>(body);
+        if n->is_poisoned() { return; }
+        var pf = self.facts_of(body);       // the pattern's: what its declaration already decided.
+        var f  = self.facts_of(e->decl);    // the instance's own.
+        var sub = Substitution(self.sc);
+        sub.bind_from_record(self.sc->types->record(e->decl, &(e->args)));
+        var iname = self._tu.str(self.sc->types->record(e->decl, &(e->args)));
+
+        // Rule 6, per defaulted transfer constructor.
+        var copy_ctor: *FunctionDecl = &null;
+        var move_ctor: *FunctionDecl = &null;
+        for var i: usize = 0; i < n->methods.size(); ++i {
+            var m = n->methods[i];
+            if (m == &null) || m->is_poisoned() || (m->adt_role != AdtRole::None) { continue; }
+            if (m->transfer == TransferKind::Copy) && (copy_ctor == &null) { copy_ctor = m; }
+            if (m->transfer == TransferKind::Move) && (move_ctor == &null) { move_ctor = m; }
+        }
+        if (copy_ctor != &null) && (copy_ctor->body_kind == FnBodyKind::Default) {
+            self._instance_defaulted(n, &sub, iname, copy_ctor, out);
+        }
+        if (move_ctor != &null) && (move_ctor->body_kind == FnBodyKind::Default) {
+            self._instance_defaulted(n, &sub, iname, move_ctor, out);
+        }
+
+        for var i: usize = 0; i < n->derives_list.size(); ++i {
+            var edge = n->derives_list.get(i);
+            var pb = self._base_decl(edge->base);
+            var ib = self._inst_base(&sub, edge->base);
+            if (ib == &null) || isa::<InterfaceDecl>(ib) { continue; }
+            var bf  = self.facts_of(ib);
+            if bf->in_progress { continue; }
+            var pbf: *LifecycleFacts = &null;
+            if (pb != &null) && (!isa::<InterfaceDecl>(pb)) { pbf = self.facts_of(pb); }
+            var bn = self._tu.str(self._inst_type(&sub, edge->base->canonical));
+
+            // Rule 5.
+            var p_open = (pbf == &null) || (pf->category == LifecycleCategory::Unknown) || (pbf->category == LifecycleCategory::Unknown);
+            if p_open && (f->category != LifecycleCategory::Unknown) && (bf->category != LifecycleCategory::Unknown)
+            && (f->category != LifecycleCategory::NonTransfer) && (f->category != bf->category) {
+                var x = LifecycleFailure();
+                x.id  = DiagID::SC061E;
+                x.msg = f"'{iname}' is {self._cat_word(f->category)}, but its base '{bn}' is {self._cat_word(bf->category)}; a derived class's lifecycle category must match its base's, or be non-transferable";
+                x.add_note(DiagID::I900N, edge->range, f"'{bn}' is a base of '{iname}' here");
+                if ib->range.is_valid() { x.add_note(DiagID::I900N, ib->range, "base declared here"); }
+                out->push_back(x);
+            }
+
+            // The virtual-destructor rule.
+            var p_said = (pf->own_dtor_work == LifecycleTri::Yes) && (pbf != &null) && (pbf->virtual_dtor == LifecycleTri::No);
+            if (!p_said) && (f->own_dtor_work == LifecycleTri::Yes) && (bf->virtual_dtor == LifecycleTri::No) {
+                var x = LifecycleFailure();
+                x.id  = DiagID::SC056E;
+                x.msg = f"class '{iname}' has a non-trivial destructor, but its base '{bn}' does not have a virtual destructor; deleting a '{iname}' through a '*{bn}' would run only '{bn}''s destructor and leak the rest";
+                x.add_note(DiagID::I900N, edge->range, f"'{bn}' is a base of '{iname}' here");
+                if ib->range.is_valid() {
+                    x.add_note(DiagID::I900N, ib->range, f"declare 'virtual fn op delete(self)' in '{bn}\x27");
+                }
+                out->push_back(x);
+            }
+        }
+    }
+
+    /// Rule 6 for defaulted transfer \p x of \p n's instance \p iname (its
+    /// arguments in \p sub): the first base, then the first field, that the
+    /// instance cannot transfer the way \p x does and the pattern did not
+    /// already report. One failure per constructor, as the rule has.
+    priv fn _instance_defaulted(self, n: *ClassDecl, sub: *Substitution, iname: string, x: *FunctionDecl,
+                                out: *vec::<LifecycleFailure>) {
+        var is_copy = x->transfer == TransferKind::Copy;
+        var kind    = ("copy") if (is_copy) else ("move");
+        for var i: usize = 0; i < n->derives_list.size(); ++i {
+            var edge = n->derives_list.get(i);
+            var pb = self._base_decl(edge->base);
+            if (pb != &null) && (!isa::<InterfaceDecl>(pb)) && (self._untransferable(self.facts_of(pb), is_copy).size() > 0) { return; }
+            var ib = self._inst_base(sub, edge->base);
+            if (ib == &null) || isa::<InterfaceDecl>(ib) { continue; }
+            var bf = self.facts_of(ib);
+            if bf->in_progress { continue; }
+            var why = self._untransferable(bf, is_copy);
+            if why.size() == 0 { continue; }
+            var bn = self._tu.str(self._inst_type(sub, edge->base->canonical));
+            var f = LifecycleFailure();
+            f.id  = DiagID::SC129E;
+            f.msg = f"'{iname}' cannot have a defaulted {kind} constructor: base '{bn}' is {why}";
+            f.add_note(DiagID::SC129N, edge->range, f"'{bn}' is a base of '{iname}' here");
+            f.add_note(DiagID::I900N, x->range, f"the defaulted {kind} constructor is declared here");
+            out->push_back(f);
+            return;
+        }
+        var fields = self._fields(static_cast::<*Decl>(n));
+        for var i: usize = 0; i < fields.size(); ++i {
+            var fd = fields[i];
+            if (fd == &null) || fd->is_static() { continue; }
+            if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
+            var pff = self.facts_of_type(fd->type_->canonical);
+            if self._untransferable(&pff, is_copy).size() > 0 { return; }   // the declaration's own SC129E.
+            var it = self._inst_type(sub, fd->type_->canonical);
+            var ff = self.facts_of_type(it);
+            if ff.in_progress { continue; }
+            var why = self._untransferable(&ff, is_copy);
+            if why.size() == 0 { continue; }
+            var fname = self.sc->ctx->get_spelling(fd->name);
+            var f = LifecycleFailure();
+            f.id  = DiagID::SC129E;
+            f.msg = f"'{iname}' cannot have a defaulted {kind} constructor: field '{fname}' of type '{self._tu.str(it)}' is {why}";
+            f.add_note(DiagID::SC129N, fd->range, f"'{fname}' declared here");
+            f.add_note(DiagID::I900N, x->range, f"the defaulted {kind} constructor is declared here");
+            out->push_back(f);
+            return;
+        }
+    }
+
+    /// \p t (a canonical) under \p sub, or \p t where it does not go through.
+    priv fn _inst_type(self, sub: *Substitution, t: *Type) -> *Type {
+        if t == &null { return t; }
+        var c = canon_unqual(t);
+        if (!c->is_dependent()) && (!c->is_instantiation_dependent()) { return c; }
+        var s = sub->substitute(c);
+        return (canon_unqual(s)) if (s != &null) else (c);
+    }
+
+    /// The record a base edge names under \p sub: an instance's own base.
+    priv fn _inst_base(self, sub: *Substitution, t: *Type) -> *Decl {
+        if (t == &null) || (t->canonical == &null) { return &null; }
+        var c = self._inst_type(sub, t->canonical);
+        if !isa::<RecordType>(c) { return &null; }
+        return cast::<RecordType>(c)->decl;
     }
 
     // === the derived `op =` ==================================================
@@ -1292,9 +1528,11 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     }
 
     /// The record decl a base edge names, or null (unresolved, dependent).
+    /// Read through the instance being computed, if any (_through): an
+    /// instance's `derives Base<T>` is its own `Base<i32>`.
     priv fn _base_decl(self, t: *Type) -> *Decl {
         if (t == &null) || (t->canonical == &null) { return &null; }
-        var c = canon_unqual(t->canonical);
+        var c = canon_unqual(self._through(canon_unqual(t->canonical)));
         if !isa::<RecordType>(c) { return &null; }
         return cast::<RecordType>(c)->decl;
     }
@@ -1303,7 +1541,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
     /// parameter (`derives T`), as opposed to one T could not resolve.
     priv fn _dependent_base(self, t: *Type) -> bool {
         if (t == &null) || (t->canonical == &null) { return false; }
-        var c = canon_unqual(t->canonical);
+        var c = canon_unqual(self._through(canon_unqual(t->canonical)));
         return c->is_dependent() || c->is_instantiation_dependent();
     }
 }

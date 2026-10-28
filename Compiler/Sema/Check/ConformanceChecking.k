@@ -396,7 +396,30 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             self.sc->instances->set_checked(e);
         }
         self.sc->instances->set_rows(e, &rows);
+        if ok { self._check_facts(e); }
         return ok;
+    }
+
+    /// Live record instance \p e's lifecycle (MONO.md G6): a rule its
+    /// generic class's declaration could not decide (an Unknown fact) that
+    /// the instance's own facts fail, reported at its use with its chain
+    /// (D6). Once per build, with the bounds; a failure the declaration
+    /// shows is the declaration's, never repeated here (instance_failures).
+    priv fn _check_facts(self, e: *InstanceEntry) {
+        if (e == &null) || (e->primary == &null) || isa::<FunctionDecl>(e->primary) { return; }
+        if !e->use_at.start.is_valid() { return; }
+        var fails = vec::<LifecycleFailure>();
+        lifecycle_of(self.sc)->instance_failures(e, &fails);
+        for var i: usize = 0; i < fails.size(); ++i {
+            var x = &(fails[i]);
+            var b = self.sc->diag->report(x->id, e->use_at.start, x->msg);
+            b.first(e->use_at, f"'{self._inst_name(e)}' is instantiated here");
+            for var k: usize = 0; k < x->note_ids.size(); ++k {
+                b.note(x->note_ids[k], x->note_at[k].start, x->note_msg[k]).first(x->note_at[k]);
+            }
+            self.chain_notes(&b, e);
+            b.emit();
+        }
     }
 
     /// THE discovery fixpoint (MONO.md D4): walk every live instance's reach,

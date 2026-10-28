@@ -23,6 +23,9 @@ pub class Batch {
     } + (self.tag ?? 0)
 
     pub fn op [](self, idx: usize) -> *Frame<i32> { return &self.frames[idx] }
+    // Move-only: a custom destructor over an implicit copy is SC060W, now
+    // that Frame<i32> has lifecycle facts of its own and Batch reads as COPY.
+    @move fn Batch(self, other: Self) = default
     fn op delete(self) { println("[Kairo] Batch::~Batch() RAII dtor fired from C++ scope!") }
 }
 

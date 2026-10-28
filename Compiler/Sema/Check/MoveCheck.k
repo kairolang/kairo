@@ -903,7 +903,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
                 var is_tup = self._tu.is_tuple(c);
                 var tf = lifecycle_of(self.sc)->facts_of_type(c);
                 var facts = (&tf) if (is_tup) else (lifecycle_of(self.sc)->facts_of(rd));
-                // A definite No only: Unknown facts are resolved per instance at M2, which does not exist yet.
+                // A definite No only. An instance has facts of its own (ClassLifecycle, Instances); only a pattern reads Unknown.
                 if facts->movable == LifecycleTri::No {
                     var b = self.sc->diag->report(DiagID::SC051E, e->range.start,
                         f"cannot move a value of type '{self._tu.str(c)}': {facts->why_not_movable}"

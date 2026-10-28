@@ -50,11 +50,12 @@ fn foo_a(m: MaybeFoo) -> i32 = match m {
     case .Empty      => -1
 }
 
-// Opaque: Box<i32>'s facts are its pattern's until instances get their own,
-// so whether Opt<Box<i32>> is trivial -- and so whether the outer Opt is
-// niche-filled -- is C++'s call; the match asks __kairo_which(), which both
-// layouts answer. (A match or `==` on a generic ADT inside a generic body
-// would be the other Opaque case, but those ICE today, ticketed.)
+// Box<i32> is an instance with lifecycle facts of its own (MONO.md G6):
+// trivial, so Opt<Box<i32>> is trivial and niche-free, and the outer Opt is
+// niche-filled on the inner one's tag -- Sema decides it, the match reads
+// that tag directly, and the static_assert beside the instantiation pins
+// that C++ chose the same layout. (Before G6 the instance read its pattern's
+// Unknown facts, and the match asked __kairo_which().)
 struct <T> Box { var v: T }
 
 fn layered(o: Opt<Opt<Box<i32>>>) -> i32 = match o {
@@ -134,7 +135,7 @@ fn main() -> i32 {
 // IR:       signed int foo_a(
 // IR:       if(__kairo_m0_s.__kairo_Has.p != nullptr) {
 // IR:       signed int layered(
-// IR:       switch(static_cast<unsigned int>(__kairo_m0_s.__kairo_which())) {
+// IR:       if(static_cast<unsigned int>(__kairo_m0_s.__kairo_Some.v.__kairo_tag) != 2) {
 // IR:       int main()
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>) == 8);
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Color>) == 1);
@@ -142,6 +143,7 @@ fn main() -> i32 {
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::builtin::Nullable< ::{{.*}}::Foo *>>) == 16);
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Inst>) == 8);
 // IR-DAG:   static_assert(sizeof({{ ?}}::{{.*}}::Opt<signed int>) == 8);
+// IR-DAG:   static_assert(sizeof({{ ?}}::{{.*}}::Opt< ::{{.*}}::Opt< ::{{.*}}::Box<signed int>>>) == sizeof({{ ?}}::{{.*}}::Opt< ::{{.*}}::Opt< ::{{.*}}::Box<signed int>>>::__kairo_Some_t) && __is_standard_layout(
 // IR-DAG:   static_assert(sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>) == sizeof({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>::__kairo_Value_t) && __is_standard_layout({{ ?}}::builtin::Nullable< ::{{.*}}::Foo *>));
 
 // REQUIRES: clang

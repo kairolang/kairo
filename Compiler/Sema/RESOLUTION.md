@@ -670,7 +670,9 @@ an unfinished feature is said HERE; the error stops the schedule before L
 and the lowering's ICE stays an invariant. Gated today: a ranged `for` whose
 `iter_kind` is Vector, Set, Map or String, and a non-generic ADT enum one of
 whose lifecycle facts is Unknown (`lifecycle_open`; EnumLayoutLowering picks
-its special members from those facts), and an initializer on an eval
+its special members from those facts; a payload that is a generic instance,
+`Box<i32>`, has facts of its own since MONO.md G6, so this now guards only a
+substitution that does not go through), and an initializer on an eval
 field or on an array-typed field that FieldInitLowering cannot take
 element by element (a static one, an array of arrays, anything but a
 list literal), and a
@@ -1629,8 +1631,13 @@ Kairo generics at types Kairo never enumerates (MONO.md §2).
   own bounds', not its reach's.
 - **M2 computes instance facts** by substituting the instance's
   arguments into what the bounds declare, never by typing the body:
-  ADT layout (EnumLayoutQuery::sweep, built), lifecycle, witness rows,
-  panic sets. Each is predicted by Sema and pinned or selected in C++.
+  ADT layout (EnumLayoutQuery::sweep, built), lifecycle (built:
+  ClassLifecycle computes a concrete instance's facts from its pattern's
+  members over its arguments, on demand, memoized per instance decl; the
+  declaration rules a pattern's Unknown skipped -- rules 5, 6, the
+  virtual-destructor rule -- are asked of each live instance and reported
+  at its use with its chain, ConformanceChecking::_check_facts), witness
+  rows, panic sets. Each is predicted by Sema and pinned or selected in C++.
 - Partial selection is not M2's: the registry selects at mint (§2b
   Instances). Dependent conformance (`f<T>` calling `g<Wrap<T>>`) is
   ConformanceChecking's reach, before the Typed barrier (§2b, "The
@@ -2045,7 +2052,7 @@ Mono / codegen:
        worklist, discovery fixpoint with a depth diagnostic,
        reached-instance homing
     p. M2: instance facts by substitution into the bounds (MONO.md D0:
-       layout built, lifecycle G6, rows G8, panic sets P10). Partial
+       layout built, lifecycle built (G6), rows G8, panic sets P10). Partial
        selection is done at registry mint (§2b Instances; requires-
        selected partials open, G12); dependent conformance is
        ConformanceChecking's reach. No `: type` re-check: clang checks

@@ -32,9 +32,11 @@ fn main() -> i32 {
     {
         var none: Nullable<Widget> = .Null
         if id_of(none) == -1 { r += 1 }
+        // Nullable<Widget> is MOVE, as Widget is (its own lifecycle facts,
+        // MONO.md G6), so even a by-value `const` parameter takes `one`: it is
+        // read once, through the relay.
         var one = present(4)
-        if id_of(one) == 4 { r += 2 }
-        if id_of(relay(one)) == 4 { r += 4 }    // the move-only payload moves out; ~Widget 4 with the temporary
+        if id_of(relay(one)) == 4 { r += 6 }    // the move-only payload moves out; ~Widget 4 with the temporary
         println("scope end")
     }                                           // nothing: the one live Widget died with the relayed temporary
     var n: Nullable<i32> = .Null
