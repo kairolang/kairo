@@ -4,9 +4,9 @@
 //  - one no bound declares, or one two bounds both declare;
 //  - one outside its interface, with no type parameter to reach it;
 //  - a default that breaks the order rule (it sees only earlier ones);
-//  - the parts not built yet: a generic associated type, a member of an
-//    associated type, and a derived interface giving an inherited
-//    associated type a default (SC116E).
+//  - the parts not built yet: a generic associated type and a member type
+//    of an associated type (SC116E). `Sub`'s default for Graph's Node is
+//    legal (assoc_type_derived_default.k) and stays here as a non-error.
 // The body-level cases are assoc_type_body_errors.k: these stop the TU
 // before bodies are typed.
 
@@ -46,9 +46,6 @@ fn main() -> i32 { return 0 }
 // CHECK-NOT: {{error|warning}}
 // CHECK: assoc_type_errors.k:22:23: error [R001E]: the default of associated type 'Loop' names 'Loop', which is not declared before it; defaults resolve in declaration order
 // CHECK-NEXT: assoc_type_errors.k:22:5: note [I900N]: 'Loop' is declared here
-// CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_errors.k:25:36: error [SC116E]: redeclaring inherited associated type 'Node' (to give it a default) is not supported yet
-// CHECK-NEXT: assoc_type_errors.k:14:19: note [SC116N]: the inherited associated type is declared here
 // CHECK-NOT: {{error|warning}}
 // CHECK: assoc_type_errors.k:32:28: error [R025E]: no associated type named 'Node' in the bounds of 'T'
 // CHECK-NEXT: assoc_type_errors.k:32:5: note [I900N]: 'T' has no interface bound; a generic body may use only what its bounds declare

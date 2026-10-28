@@ -999,6 +999,13 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         return id->resolved_decl == static_cast::<*Decl>(gp);
     }
 
+    /// The record decl of canonical \p c0, or null.
+    priv fn _record_decl_of_canon(self, c0: *Type) -> *Decl {
+        var c = canon_unqual(c0);
+        if (c == &null) || (!isa::<RecordType>(c)) { return &null; }
+        return NameLookup::representative(cast::<RecordType>(c)->decl);
+    }
+
     /// The record decl a bound's written type names, or null if it names none
     /// (a builtin, a pointer: nothing with members to offer).
     priv fn _record_decl_of(self, t: *Type) -> *Decl {
@@ -1015,6 +1022,37 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if st->name != &null { at = st->name->range; loc = st->name->range.start.id; }
 
         var gp = self._param_of(a.ty);
+        var b  = ParamBounds{};
+        var assoc = (dyn_cast::<AssocType>(canon_unqual(a.ty))) if (a.ty != &null) else (&null);
+        if (gp == &null) && (assoc != &null) && (st->access_kind != ChainExpr::AccessKind::ColonColon) {
+            // `x.show()` on `x: T::Item`: the associated type's own bounds
+            // (`type Item impl Display`) are its members, as a parameter's
+            // are (TypeUtil::bound_ifaces). `T::Item::make()` stays the
+            // typer's SC116E: a static through it has no witness path yet.
+            var bis = TypeUtil(self.sc).bound_ifaces(a.ty);
+            for var i: usize = 0; i < bis.size(); ++i {
+                var bd = self._record_decl_of_canon(bis[i]);
+                if bd != &null { b.interfaces.push_back(bd); }
+            }
+            if b.interfaces.size() == 0 {
+                var ts = TypeUtil(self.sc).str(a.ty);
+                var what0 = "this member";
+                if st->name != &null { what0 = f"'{self.sc->ctx->get_spelling(st->name->name)}\x27"; }
+                var d0 = self.sc->diag->report(DiagID::R051E, at.start,
+                    f"'{ts}' has no members, so {what0} cannot be resolved");
+                d0.first(at);
+                if (assoc->assoc != &null) && assoc->assoc->range.is_valid() {
+                    d0.note(DiagID::R051N, assoc->assoc->range.start,
+                        "the associated type is declared with no bound; add 'impl <Interface>' to give it members").first(assoc->assoc->range);
+                }
+                d0.emit();
+                if st->name != &null { st->name->poison(); }
+                self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
+                self.n_errored += 1;
+                var r0 = Anchor{}; r0.kind = AnchorKind::Errored; return r0;
+            }
+            return self._bind_through_bounds(st, a, &b, TypeUtil(self.sc).str(a.ty), at, loc);
+        }
         if gp == &null {
             // A dependent COMPOSITE (`[T]`, an unfilled `Foo<T>::Inner`, or a
             // parameter whose declarer T never stamped): no single declaration
@@ -1024,7 +1062,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             return a;
         }
         var owner = cast::<GenericParamType>(a.ty)->owner;
-        var b     = self._bounds_of(gp, owner);
+        b = self._bounds_of(gp, owner);
 
         // `: type` -- the C++ regime. Not a hole we failed to fill: a hole the
         // author asked for.
@@ -1053,6 +1091,13 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
         }
 
+        return self._bind_through_bounds(st, a, &b, pname, at, loc);
+    }
+
+    /// The member \p st names among bounds \p b (a parameter's, or an
+    /// associated type's own), \p pname spelling what they bound.
+    priv fn _bind_through_bounds(self, st: *ChainExpr::Step, a: Anchor, b: *ParamBounds, pname: string,
+                                 at: SourceRange, loc: u32) -> Anchor {
         // An operator or a tuple index through a bound needs the operand's
         // TYPE, which is the typer's to supply, not this pass's.
         if st->is_operator() || st->is_tuple_index() || (st->name == &null) {
@@ -1069,11 +1114,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         var spelled = self.sc->ctx->get_spelling(st->name->name);
         var cands   = vec::<*Decl>();
         var empty   = vec::<*Type>();
-        for var i: usize = 0; i < b.interfaces.size(); ++i {
-            self.ml.lookup(self.sc->types->record(b.interfaces[i], &empty), name, &cands);
+        for var i: usize = 0; i < b->interfaces.size(); ++i {
+            self.ml.lookup(self.sc->types->record(b->interfaces[i], &empty), name, &cands);
         }
-        for var i: usize = 0; i < b.bases.size(); ++i {
-            self.ml.lookup(self.sc->types->record(b.bases[i], &empty), name, &cands);
+        for var i: usize = 0; i < b->bases.size(); ++i {
+            self.ml.lookup(self.sc->types->record(b->bases[i], &empty), name, &cands);
         }
         // `T::Name` names the bounds' statics and nested types only: static
         // fns, static fields/vars, and type members, from interface and base
@@ -1104,7 +1149,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         // _commit binds it like any other member, and the anchor it hands back
         // is already right: an interface method yields NeedsInference (a call
         // result), a base field yields that field's declared type.
-        return self._commit(st, loc, &cands, self._bound_owner(&b), &null);
+        return self._commit(st, loc, &cands, self._bound_owner(b), &null);
     }
 
     /// Whether \p d is reachable through `::`: a static fn, a static field or

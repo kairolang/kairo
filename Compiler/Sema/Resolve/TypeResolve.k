@@ -1868,11 +1868,50 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             ct->poison();
             return &null;
         }
+        // A derived interface's default for an inherited associated type
+        // (`type Node = i64` in `interface D derives G`) is G's Node, not a
+        // second one: one entity, one canonical.
+        var req = td;
+        var inh = self._inherited_assoc(td);
+        if inh != &null { req = inh; }
         var tu = TypeUtil(self.sc);
-        var ai = tu.assoc_iface(self_t, static_cast::<*Decl>(td));
-        if ai == &null { self._assoc_inherited_generic(ct, td, seg->range); return &null; }
+        var ai = tu.assoc_iface(self_t, static_cast::<*Decl>(req));
+        if ai == &null { ai = self._declaring_through(self_t, static_cast::<*Decl>(req), 0); }
+        if ai == &null { self._assoc_inherited_generic(ct, req, seg->range); return &null; }
         self._mark_dependent(ct);
-        return self.sc->types->assoc(self_t, ai, NameLookup::representative(static_cast::<*Decl>(td)));
+        return self.sc->types->assoc(self_t, ai, NameLookup::representative(static_cast::<*Decl>(req)));
+    }
+
+    /// The instance of requirement \p req's declaring interface that
+    /// interface type \p q reaches it through, its `derives` edges read
+    /// through q's arguments hop by hop (`IntSource` -> `Source<i32>`,
+    /// `Wrapped<i8>` -> `Source<i8>`), or null. Walked here rather than read
+    /// off the composed list: T resolves an interface's own requirements
+    /// before InterfaceComposition has composed it.
+    priv fn _declaring_through(self, q: *Type, req: *Decl, depth: u32) -> *Type {
+        if (q == &null) || (req == &null) || (req->semantic_dc == &null) || (depth > 32) { return &null; }
+        var home = NameLookup::representative(reinterpret_cast::<*DeclContext>(req->semantic_dc)->owner_decl());
+        var qr = canon_unqual(q);
+        if !isa::<RecordType>(qr) { return &null; }
+        var qd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(qr)->decl)));
+        if qd == &null { return &null; }
+        if static_cast::<*Decl>(qd) == home { return qr; }
+        for var k: usize = 0; k < qd->derives_list.size(); ++k {
+            var e = qd->derives_list.get(k);
+            if (e == &null) || (e->base == &null) { continue; }
+            if !self.sc->rstate.type_done(e->base) { self.dispatch_type(e->base); }
+            if e->base->canonical == &null { continue; }
+            var bt = canon_unqual(e->base->canonical);
+            if bt->is_dependent() {
+                var ded = Deduction(self.sc, &null);
+                ded.bind_own(qr);
+                var sb = ded.substitute(bt);
+                if sb != &null { bt = canon_unqual(sb); }
+            }
+            var r = self._declaring_through(bt, req, depth + 1);
+            if r != &null { return r; }
+        }
+        return &null;
     }
 
     /// An associated type inherited from a GENERIC interface: its interface's
@@ -1887,16 +1926,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         ct->poison();
     }
 
-    /// `type Node = X` in `interface D derives G` where G declares Node: the
-    /// spec's "a derived interface may give an inherited associated type a
-    /// default" is not built (the composed requirement keeps G's, without
-    /// it), so it is SC116E here rather than a second, unrelated Node.
-    priv fn _redeclares_inherited_assoc(self, td: *TypeAliasDecl) -> bool {
-        if td->semantic_dc == &null { return false; }
+    /// The associated type an interface's `type Node ...` redeclares: the
+    /// one a base interface declares under that name (interfaces.md,
+    /// "Associated types and inheritance"), or null.
+    priv fn _inherited_assoc(self, td: *TypeAliasDecl) -> *TypeAliasDecl {
+        if (td == &null) || (!td->is_associated) || (td->semantic_dc == &null) { return &null; }
         var id = dyn_cast::<InterfaceDecl>(reinterpret_cast::<*DeclContext>(td->semantic_dc)->owner_decl());
-        if id == &null { return false; }
+        if id == &null { return &null; }
         var imm = self._name_imm(td->name);
-        if imm == u32(-1) { return false; }
+        if imm == u32(-1) { return &null; }
         var sp = self.sc->ctx->get_spelling(td->name);
         for var k: usize = 0; k < id->derives_list.size(); ++k {
             var e = id->derives_list.get(k);
@@ -1907,16 +1945,51 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if !isa::<RecordType>(bt) { continue; }
             var bd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(bt)->decl)));
             var inh = self._find_assoc(bd, imm, sp, 0);
-            if inh == &null { continue; }
-            var b = self.sc->diag->report(DiagID::SC116E, td->name.range.start,
-                f"redeclaring inherited associated type '{sp}' (to give it a default) is not supported yet");
-            b.first(td->name.range);
-            b.note(DiagID::SC116N, inh->range.start, "the inherited associated type is declared here").first(inh->range);
-            b.emit();
+            if inh != &null { return inh; }
+        }
+        return &null;
+    }
+
+    /// `type Node = X` in `interface D derives G` where G declares Node: a
+    /// derived interface gives an inherited associated type a default
+    /// (interfaces.md, "Associated types and inheritance"). It is not a
+    /// second Node: InterfaceComposition merges it into G's requirement as
+    /// that requirement's default, every `Self::Node` names G's
+    /// (_assoc_in_iface), and Substitution::assoc_witness takes the default
+    /// from the interface a conformer declares. Anything else written there
+    /// is an error at the redeclaration: no default (it would only restate
+    /// the requirement), its own bounds (they would not be G's), a default
+    /// G already gives ("may not change a default that is already given"),
+    /// and an inherited GENERIC interface's (SC116E, as its uses are).
+    priv fn _redeclares_inherited_assoc(self, td: *TypeAliasDecl) -> bool {
+        var inh = self._inherited_assoc(td);
+        if inh == &null { return false; }
+        var sp = self.sc->ctx->get_spelling(td->name);
+        var home: *Decl = &null;
+        if inh->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(inh->semantic_dc)->owner_decl(); }
+        if (home != &null) && (decl_generic_params(home).size() > 0) {
+            var bg = self.sc->diag->report(DiagID::SC116E, td->name.range.start,
+                f"giving associated type '{sp}' of a generic interface a default is not supported yet");
+            bg.first(td->name.range);
+            bg.note(DiagID::SC116N, inh->range.start, "the inherited associated type is declared here").first(inh->range);
+            bg.emit();
             td->poison();
             return true;
         }
-        return false;
+        var why = "";
+        if td->aliased == &null { why = f"'{sp}' is inherited; a derived interface may only give it a default ('type {sp} = ...')"; }
+        else if td->requires_clause != &null { why = f"'{sp}' is inherited with its bounds; a derived interface may give it a default but not bounds of its own"; }
+        else if inh->aliased != &null { why = f"'{sp}' already has a default where it is declared; a derived interface may not change it"; }
+        if why.size() == 0 { return false; }
+        var b = self.sc->diag->report(DiagID::SC001E, td->name.range.start, why);
+        b.first(td->name.range);
+        b.note(inh->range.start, "the inherited associated type is declared here").first(inh->range);
+        // Restating it, or restating a default it has: the line says nothing
+        // the inherited declaration does not, or contradicts it.
+        if (td->aliased == &null) || (inh->aliased != &null) { b.remove(td->range, f"remove this redeclaration of '{sp}\x27"); }
+        b.emit();
+        td->poison();
+        return true;
     }
 
     /// \p a is declared strictly before \p b in their (one) interface body.
@@ -2018,6 +2091,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         seg->resolved_decl = static_cast::<*Decl>(hit);
         var tu = TypeUtil(self.sc);
         var ai = tu.assoc_iface(hit_iface, static_cast::<*Decl>(hit));
+        // Inherited from a GENERIC interface: its instance as the bound
+        // sees it, through the composed list's source (MONO.md G5.6 left
+        // this SC116E).
+        if ai == &null { ai = self._declaring_through(hit_iface, static_cast::<*Decl>(hit), 0); }
         if ai == &null { self._assoc_inherited_generic(ct, hit, seg->range); return true; }
         var base = self.sc->types->generic_param(owner, gp->index, gp->is_pack);
         self._mark_dependent(ct);

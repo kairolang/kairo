@@ -267,6 +267,17 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     /// parameter: a concrete receiver is bound to the implementing decl,
     /// never to a requirement.
     priv fn _declaring_iface(self, me: *Type, f: *FunctionDecl, at: *CallExpr) -> *Type {
+        // A value of an associated type (`x.show()`, `x: T::Item`): Self is
+        // that type, and the witness is the one of ITS bound declaring the
+        // requirement -- `Display_witness<typename Store_witness<T>::Item>`.
+        if isa::<AssocType>(me) {
+            var bs = self.tu.bound_ifaces(me);
+            for var i: usize = 0; i < bs.size(); ++i {
+                if self._has_requirement(bs[i], f) { return bs[i]; }
+            }
+            ICE_FAIL("ExtensionLowering: no bound of the receiver's associated type requires the callee");
+            return &null;
+        }
         ICE_IF(!isa::<GenericParamType>(me),
             "ExtensionLowering: a requirement call on a receiver that is not a bounded generic parameter; witness Self must be a parameter");
         var g = cast::<GenericParamType>(me);

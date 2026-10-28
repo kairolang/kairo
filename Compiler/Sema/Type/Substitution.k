@@ -586,18 +586,28 @@ class Substitution {
 
         // The default: explicit conformance only.
         var td = dyn_cast::<TypeAliasDecl>(req);
-        if (td == &null) || (td->aliased == &null) || (td->aliased->canonical == &null) { return &null; }
+        if td == &null { return &null; }
         if !self.conforms_explicitly(x, iface, &ml) { return &null; }
-        var d = td->aliased->canonical;
-        if !d->is_dependent() { return d; }
         var home: *Decl = &null;
         if td->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(td->semantic_dc)->owner_decl(); }
         if home == &null { return &null; }
         home = NameLookup::representative(home);
+        // A derived interface the conformer declares may give the inherited
+        // requirement its default (`interface D derives G { type Node = i64
+        // }`); InterfaceComposition kept it on D's composed requirement.
+        // Its `Self::...` are D's Self (or any interface between D and G).
+        var homes = vec::<*Decl>();
+        var d: *Type = self._derived_default(x, req, &ml, &homes);
+        if d == &null {
+            if (td->aliased == &null) || (td->aliased->canonical == &null) { return &null; }
+            d = td->aliased->canonical;
+        }
+        if !d->is_dependent() { return d; }
         var s = Substitution(self.sc);
         // Self first, as _as_conformer does: in a generic interface Self is
         // `I<V>` over its own parameters, which the substitution below
         // would turn into an instance that no longer reads as Self.
+        for var i: usize = 0; i < homes.size(); ++i { d = s.replace_self(d, homes[i], x, true); }
         d = s.replace_self(d, home, x, true);
         if d->is_dependent() {
             var idecl = self.tu.record_decl(iface);
@@ -606,6 +616,74 @@ class Substitution {
             if r != &null { d = r; }
         }
         return d;
+    }
+
+    /// The default an interface \p x EXPLICITLY declares gives requirement
+    /// \p req when that interface is not req's own (a derived interface's
+    /// `type Node = ...`, merged into its composed requirement), or null.
+    /// \p homes receives that interface and every interface it derives, the
+    /// Selfs the default may name.
+    fn _derived_default(self, x: *Type, req: *Decl, ml: *MemberLookup, homes: *vec::<*Decl>) -> *Type {
+        var ifaces = vec::<*Type>();
+        var xd = self.tu.record_decl(x);
+        if xd != &null {
+            var pat = NameLookup::representative(self.tu.pattern_of(xd));
+            self._impl_list_into(pat, &ifaces);
+            var exts = ml->extensions_of_decl(pat);
+            if exts != &null {
+                for var i: usize = 0; i < exts->size(); ++i { self._edges_into(&((*exts)[i]->implements), &ifaces); }
+            }
+        } else {
+            var texts = ml->extensions_of_type(canon_unqual(x));
+            if texts != &null {
+                for var i: usize = 0; i < texts->size(); ++i { self._edges_into(&((*texts)[i]->implements), &ifaces); }
+            }
+        }
+        var rq = NameLookup::representative(req);
+        var td = dyn_cast::<TypeAliasDecl>(req);
+        for var i: usize = 0; i < ifaces.size(); ++i {
+            var idd = self.tu.record_decl(ifaces[i]);
+            var id = (dyn_cast::<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(idd)))) if (idd != &null) else (&null);
+            if (id == &null) || (id->compose_state != 2) { continue; }
+            for var j: usize = 0; j < id->requirements.size(); ++j {
+                var r = id->requirements.get(j);
+                if NameLookup::representative(r->decl) != rq { continue; }
+                if (r->default_ty == &null) || (r->default_ty->canonical == &null) { continue; }
+                if (td != &null) && (r->default_ty == td->aliased) { continue; }   // req's own default: the caller's.
+                self._iface_closure(static_cast::<*Decl>(id), homes, 0);
+                return r->default_ty->canonical;
+            }
+        }
+        return &null;
+    }
+
+    priv fn _impl_list_into(self, d: *Decl, out: *vec::<*Type>) {
+        if isa::<ClassDecl>(d)  { self._edges_into(&(cast::<ClassDecl>(d)->implements), out); }
+        if isa::<StructDecl>(d) { self._edges_into(&(cast::<StructDecl>(d)->implements), out); }
+    }
+
+    priv fn _edges_into(self, edges: *FrozenList::<InheritEdge>, out: *vec::<*Type>) {
+        for var i: usize = 0; i < edges->size(); ++i {
+            var e = edges->get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            out->push_back(canon_unqual(e->base->canonical));
+        }
+    }
+
+    /// \p d and every interface it derives, representatives, once each.
+    priv fn _iface_closure(self, d: *Decl, out: *vec::<*Decl>, depth: u32) {
+        if (d == &null) || (depth > 32) { return; }
+        var r = NameLookup::representative(d);
+        for var i: usize = 0; i < out->size(); ++i { if (*out)[i] == r { return; } }
+        out->push_back(r);
+        var id = dyn_cast::<InterfaceDecl>(r);
+        if id == &null { return; }
+        for var i: usize = 0; i < id->derives_list.size(); ++i {
+            var e = id->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var bd = self.tu.record_decl(canon_unqual(e->base->canonical));
+            if bd != &null { self._iface_closure(self.tu.pattern_of(bd), out, depth + 1); }
+        }
     }
 
     /// \p x declares that it conforms to \p iface (or to an interface

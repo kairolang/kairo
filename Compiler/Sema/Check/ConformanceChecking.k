@@ -181,8 +181,72 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             var x = cast::<ExtensionDecl>(d);
             var t = (self._canon(x->target)) if (x->target != &null) else (&null);
             for var i: usize = 0; i < x->implements.size(); ++i { self._check_declared(d, t, x->implements.get(i)->base); }
+        } else if isa::<InterfaceDecl>(d) {
+            self._check_assoc_defaults(cast::<InterfaceDecl>(d));
         }
         return true;
+    }
+
+    /// interfaces.md, Defaults: "a default must satisfy its own bounds,
+    /// checked once, at the interface declaration, with Self abstract". A
+    /// concrete default by conformance; a default that is another
+    /// associated type (`= Self::Node`) by that type's own bounds, all it is
+    /// known to have while Self is abstract. Any other default naming Self
+    /// (`(Self::Node, Self::Node)`) is not decided here (no conformance
+    /// question can be asked of it before a conformer exists).
+    priv fn _check_assoc_defaults(self, id: *InterfaceDecl) {
+        if id->compose_state != 2 { return; }
+        for var j: usize = 0; j < id->requirements.size(); ++j {
+            var rq = id->requirements.get(j);
+            if rq->leaf != u32(-1) { continue; }
+            var ta = dyn_cast::<TypeAliasDecl>(rq->decl);
+            if (ta == &null) || ta->is_poisoned() || (ta->aliased == &null) || (ta->aliased->canonical == &null) { continue; }
+            var dflt = canon_unqual(ta->aliased->canonical);
+            var bounds = vec::<*ConstraintExpr>();
+            self._impl_bounds(ta->requires_clause, &bounds);
+            for var i: usize = 0; i < bounds.size(); ++i {
+                var c = bounds[i];
+                if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+                var iface = canon_unqual(c->rhs->canonical);
+                if iface->is_dependent() { continue; }
+                var ok = true;
+                if isa::<AssocType>(dflt) {
+                    ok = false;
+                    var has = self.tu.bound_ifaces(dflt);
+                    for var k: usize = 0; k < has.size(); ++k {
+                        if self._iface_derives(has[k], iface, 0) { ok = true; break; }
+                    }
+                } else if dflt->is_dependent() {
+                    continue;
+                } else {
+                    var row = self.conforms(dflt, iface);
+                    ok = (row != &null) && row->ok;
+                }
+                if ok { continue; }
+                var nm = self.sc->ctx->get_spelling(ta->name);
+                var ds = self.tu.str(dflt);
+                var is = self.tu.str(iface);
+                var b = self.sc->diag->report(DiagID::SC001E, ta->aliased->range.start,
+                    f"the default of associated type '{nm}' is '{ds}', which does not meet its bound '{is}\x27");
+                b.first(ta->aliased->range);
+                b.note(c->range.start, "the bound is declared here").first(c->range);
+                b.emit();
+            }
+        }
+    }
+
+    /// Interface type \p have is \p want or derives it.
+    priv fn _iface_derives(self, have: *Type, want: *Type, depth: u32) -> bool {
+        if (have == &null) || (want == &null) || (depth > 32) { return false; }
+        if canon_unqual(have) == canon_unqual(want) { return true; }
+        var d = self._iface_decl(canon_unqual(have));
+        if d == &null { return false; }
+        for var i: usize = 0; i < d->derives_list.size(); ++i {
+            var e = d->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            if self._iface_derives(canon_unqual(e->base->canonical), want, depth + 1) { return true; }
+        }
+        return false;
     }
 
     /// The type a record declares for itself: `R`, or `R<T, U>` over its

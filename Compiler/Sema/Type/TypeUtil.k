@@ -177,6 +177,25 @@ class TypeUtil {
     fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
         var out = vec::<*Type>();
         var c = canon_unqual(t);
+        // `x: T::Item` with `type Item impl Display`: the associated type's
+        // own bounds are what a body may use it through (interfaces.md,
+        // Generic Bodies). A bound that names Self or another associated
+        // type is not read here (it would need the base substituted in).
+        var at = dyn_cast::<AssocType>(c);
+        if at != &null {
+            var ta = dyn_cast::<TypeAliasDecl>(at->assoc);
+            if ta == &null { return out; }
+            var cs = vec::<*ConstraintExpr>();
+            self._conjuncts(ta->requires_clause, &cs);
+            for var i: usize = 0; i < cs.size(); ++i {
+                var k = cs[i];
+                if k->is_derives() || (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+                var r = canon_unqual(k->rhs->canonical);
+                if r->is_dependent() { continue; }
+                out.push_back(r);
+            }
+            return out;
+        }
         if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
         var g = cast::<GenericParamType>(c);
         var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));

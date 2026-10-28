@@ -1290,8 +1290,19 @@ one that DECLARES the requirement (normalized, `TypeUtil::assoc_iface`, so
 -> Self::Node` through the same G are one type). It is checked against the
 bounds there and then: no bound declaring it is R025E, two is R028E, a
 default naming a later one is the order rule's error, a generic associated
-type or a member of one is SC116E. Inside the interface it is never
-expanded; its `aliased` is the DEFAULT. One rule,
+type or a member TYPE or static of one (`T::Node::Inner`, `T::Item::make()`)
+is SC116E. One inherited from a GENERIC interface is declared at the
+instance the bound reaches it through (TypeResolve::_declaring_through,
+`IntSource` -> `Source<i32>`). A derived interface may give an inherited
+one a default (`interface D derives G { type Node = i64 }`): that line is
+G's Node, not a second one (`Self::Node` in D names G's), InterfaceComposition
+merges it into G's requirement as its default, and assoc_witness takes it
+from the interface a conformer declares (`_derived_default`); restating it
+without a default, adding bounds, or changing a default G gives is SC001E at
+the redeclaration. A default must meet its own bounds, checked once at the
+interface (ConformanceChecking::_check_assoc_defaults): a concrete default by
+conformance, `= Self::Other` by Other's own bounds. Inside the interface it
+is never expanded; its `aliased` is the DEFAULT. One rule,
 `Substitution::assoc_witness`, says what it is for a concrete base: the
 conformer's alias (member, inherited, or extension), read through its
 arguments; else, for an EXPLICIT conformer only, the default with Self :=
@@ -1302,8 +1313,11 @@ S` at `bar(c)`) cannot disagree (D0: facts by substitution, never by
 re-typing). ConformanceChecking records the supplied type on the row
 (`assoc_types`), requires it of a structural conformer, and checks it
 against the associated type's own bounds. In a body a value of type
-`T::Node` has no members (SC116E: lookup through its bounds is not built)
-and is built only through a constructor its bounds promise (`type Node
+`T::Node` has exactly the members its own bounds declare (`x.show()` with
+`type Node impl Display`: TypeUtil::bound_ifaces reads the associated
+type's clause, ChainBinding binds the requirement, ExtensionLowering calls
+`Display_witness<typename G_witness<T>::Node>`; no bound is R051E) and is
+built only through a constructor its bounds promise (`type Node
 impl Default` makes `T::Node{}` / `T::Node()` legal; otherwise SC001E). In a GENERIC
 interface `Self` is `I<T...>` over its own parameters, so the Self rule
 (`through_receiver`) also takes that spelling, and CallTyping applies it

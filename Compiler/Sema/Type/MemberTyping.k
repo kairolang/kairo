@@ -178,10 +178,9 @@ class <T> MemberTyping {
             // NeedsInference: bind now with the anchor T could not see.
             if (st->resolved_decl == &null) && (st->candidate_cell == &null)
             && ((st->name == &null) || (!st->name->is_poisoned())) && (!st->is_tuple_index()) {
-                if (cur_kind == 0) && (cur != &null) && isa::<AssocType>(canon_unqual(dyn()->ml.peel_ref(cur))) {
-                    self._assoc_member_unsupported(n, st, canon_unqual(dyn()->ml.peel_ref(cur)));
-                    return &null;
-                }
+                // A value of an associated type (`x.show()`, `x: T::Item`)
+                // binds through the associated type's own bounds: the
+                // anchor is Dependent on it, and ChainBinding reads them.
                 if (cur_kind == 0) && (cur != &null) {
                     var a = dyn()->cb.anchor_for_value(&null, cur);
                     dyn()->cb.bind_step(n, st, a);
