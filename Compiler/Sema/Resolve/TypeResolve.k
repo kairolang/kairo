@@ -122,7 +122,6 @@ class SavedDeclScope {
     pub var frames: vec::<GenericFrame>;
     pub var selfs:  vec::<*Type>;
     pub var ltypes: vec::<LocalTypeFrame>;
-    pub var in_body: u32 = 0;
     fn SavedDeclScope(self) { }
 }
 
@@ -439,11 +438,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// `[T; N]` has an identity only once N is a known constant. A literal,
     /// or anything ConstEval folds: an `eval` name, arithmetic over those
     /// (EVAL.md 0.1: an extent is type identity, so Sema computes it). A
-    /// length that names a generic value parameter is instantiation-
-    /// dependent and left. Anything else is an error here: a `const` name
-    /// (not eval-able, EVAL.md 3; fix-it to `eval`), a call (an `eval fn`
-    /// result is C++'s to compute, and an extent Sema cannot fold has no
-    /// canonical yet: SC116E, EVAL.md 0.2), or a run-time value. A foreign
+    /// length that names a generic value parameter, an eval call or an eval
+    /// constant that does not fold is C++'s to compute: its canonical is the
+    /// interned expression (EVAL.md 0.2), and EmitPlan defines what it
+    /// names ahead of any declaration spelling it (EVAL.md §11). Anything
+    /// else is an error here: a `const` name (not eval-able, EVAL.md 3;
+    /// fix-it to `eval`), a call of a non-eval fn, or a run-time value. A foreign
     /// header's array is left as it was. `[T;]` (incomplete, C interop)
     /// never has an extent and canonicalizes as extent 0 with the
     /// is_incomplete flag preserved on the SYNTAX node.
@@ -515,10 +515,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                     return;
                 }
                 n->canonical = self.sc->types->array(elem, vt->vmag);
-                return;
-            }
-            if !self._value_placeable(n->size_expr, vx, "an array length") {
-                n->poison();
                 return;
             }
             if vx->is_dependent() { self._mark_dependent(n); }
@@ -610,10 +606,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var vx = self._value_expr(n->expr);
         if vx == &null {
             self._report_value(n->expr, &ce, c, "a generic value argument");
-            n->poison();
-            return;
-        }
-        if !self._value_placeable(n->expr, vx, "a generic value argument") {
             n->poison();
             return;
         }
@@ -959,34 +951,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if n == c->args.size() { return d; }
         }
         return &null;
-    }
-
-    /// Whether \p v contains what only C++ computes (an eval call, an eval
-    /// constant that does not fold), as opposed to value parameters and
-    /// literals.
-    priv fn _vx_opaque(self, t: *Type) -> bool {
-        var v = dyn_cast::<TypeExpr>(t);
-        if (v == &null) || (!v->is_value) || v->is_exact() { return false; }
-        if (v->vop == ValueOp::Call) || (v->vop == ValueOp::Decl) { return true; }
-        for var i: usize = 0; i < v->vops.size(); ++i { if self._vx_opaque(v->vops[i]) { return true; } }
-        return false;
-    }
-
-    /// A computed value C++ must read where it is spelled. Outside a
-    /// function body that is a declaration -- a field, a signature, a
-    /// namespace-scope binding -- which C++ reads before any consteval
-    /// body or eval binding is defined (emit_tu puts them after the
-    /// interface): an eval call or an eval constant that does not fold is
-    /// SC116E there -- dependent on a value parameter too, since a
-    /// template's definition must already see the names it calls. Value
-    /// parameters and literals alone are fine anywhere.
-    priv fn _value_placeable(self, e: *Expr, v: *Type, what: string) -> bool {
-        if (self._in_body > 0) || (!self._vx_opaque(v)) { return true; }
-        var b = self.sc->diag->report(DiagID::SC116E, e->range.start,
-            f"{what} computed by C++ from an 'eval' call or an 'eval' constant that does not fold is not yet supported in a declaration\x27s type; write it inside a function body, or make the constant fold");
-        b.first(e->range);
-        b.emit();
-        return false;
     }
 
     /// Why a computed value has no node: a non-eval callee (with a fix-it),
@@ -1601,7 +1565,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                             self._vx_fn  = &null;
                             var vx = self._vx_name(at, r.cell->get(0));
                             if vx != &null {
-                                if !self._value_placeable(at, vx, "a generic value argument") { ct->poison(); return; }
                                 seg0->resolved_decl = r.cell->get(0);
                                 ct->canonical = vx;
                                 return;
@@ -2405,9 +2368,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// The field whose type is being resolved, for EVAL.md 1.2a
     /// (_own_class_constant); null elsewhere.
     priv var _cur_field: *FieldDecl = &null;
-    /// Function bodies (blocks) around the walk: a computed value C++ reads
-    /// there is read after every consteval body (_value_placeable).
-    priv var _in_body: u32 = 0;
     /// Eval fn bodies around the walk: an `eval for` there is a plain loop,
     /// whose binding is no constant.
     priv var _eval_fns: u32 = 0;
@@ -2735,7 +2695,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         saved.frames = self.frames;
         saved.selfs  = self._selfs;
         saved.ltypes = self.ltypes;
-        saved.in_body = self._in_body;
 
         var home = reinterpret_cast::<*DeclContext>(d->semantic_dc);
         if home == &null {
@@ -2766,7 +2725,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             if !c->is_type_scope() { local = true; }      // Function, Lambda, Block.
             c = c->dc_parent;
         }
-        if !local { self.ltypes.clear(); self._in_body = 0; }   // a declaration, not a body (_value_placeable).
+        if !local { self.ltypes.clear(); }
 
         // The same values the walk's traverse_* push, from the same helpers.
         var n = owners.size();
@@ -2790,7 +2749,6 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         self.frames = saved->frames;
         self._selfs = saved->selfs;
         self.ltypes = saved->ltypes;
-        self._in_body = saved->in_body;
     }
 
     // === Receiver synthesis ===================================================
@@ -3029,9 +2987,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     fn traverse_compound_stmt(self, n: *CompoundStmt) -> *CompoundStmt {
         if n == &null { return n; }
         self.ltypes.push_back(LocalTypeFrame{});
-        self._in_body += 1;
         var out = RecursiveASTVisitor::<TypeResolution>::traverse_compound_stmt(n);
-        self._in_body -= 1;
         self.ltypes.pop_back();
         return out;
     }

@@ -114,23 +114,186 @@ enum PlanMode derives u8 {
 /// (N, X); every extend block in that scope contributes. Always COMPLETE --
 /// all its blocks, priv members included -- so its text is the same in every
 /// TU and header that carries it (invariant 11).
-/// The namespace-scope variables an initializer names: the order eval
-/// bindings' definitions are written in (EmitPlan::_eval_vars).
-class EvalVarRefs derives RecursiveASTVisitor::<EvalVarRefs> {
-    pub var out: vec::<*VariableDecl>;
-    fn EvalVarRefs(self) { }
-    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
-        var v = dyn_cast::<VariableDecl>(n->resolved_decl);
-        if v != &null { self.out.push_back(v); }
+/// What one compile-time item needs before C++ evaluates it (EVAL.md
+/// §11): an `eval` / `constexpr` body, or an eval binding's initializer.
+/// `items`: the compile-time bodies it calls (eval fns, eval and constexpr
+/// constructors and operators, an eval field's thunk) and the eval bindings
+/// it reads, each needed DEFINED before the item is evaluated. `const_items`:
+/// the subset C++ evaluates where the item is DEFINED (what a type inside
+/// it computes, an eval local's initializer), each needed defined before
+/// the item's own definition. `recs`: the records it lays out or looks
+/// into, needed COMPLETE before its definition. EmitPlan::_early reads
+/// these on the lowered tree; EvalUsageChecking::EvalNeeds is the Sema
+/// side, which reports what no order satisfies.
+class EarlyNeeds derives RecursiveASTVisitor::<EarlyNeeds> {
+    pub var items:       vec::<*Decl>;
+    pub var const_items: vec::<*Decl>;
+    pub var recs:        vec::<*Decl>;
+    /// > 0 inside an eval local's initializer: what it reads is a const item.
+    priv var _const: u32 = 0;
+
+    fn EarlyNeeds(self) { }
+
+    /// A compile-time body or an eval binding, as an item: the defining
+    /// link of a function (what EmitIR emits), an eval field as its thunk;
+    /// null for anything else.
+    static fn item_of(d: *Decl) -> *Decl {
+        if d == &null { return &null; }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f != &null {
+            if (!f->is_eval()) && (!f->is_constexpr()) { return &null; }
+            var def = f;
+            if !def->has_body() { def = f->definition(); }
+            if (def == &null) || def->is_poisoned() || (def->body_kind != FnBodyKind::Block) { return &null; }
+            return static_cast::<*Decl>(def);
+        }
+        var v = dyn_cast::<VariableDecl>(d);
+        if (v != &null) && v->is_eval() && (v->init != &null) && (!v->is_poisoned()) {
+            var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
+            if (dc != &null) && ((dc->dc_kind == DeclContextKind::TranslationUnit) || (dc->dc_kind == DeclContextKind::Module)) { return d; }
+            return &null;
+        }
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (fd != &null) && fd->is_eval() && (fd->init_fold == FieldFold::Thunk) { return EarlyNeeds::item_of(fd->init_thunk); }
+        return &null;
+    }
+
+    fn named(self, d: *Decl) {
+        if d == &null { return; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) && (dc->owner_decl() != &null) {
+            self._rec(dc->owner_decl());
+        }
+        var it = EarlyNeeds::item_of(d);
+        if it == &null { return; }
+        EarlyNeeds::_once(&(self.items), it);
+        if self._const > 0 { EarlyNeeds::_once(&(self.const_items), it); }
+    }
+
+    static fn _once(v: *vec::<*Decl>, d: *Decl) {
+        for var i: usize = 0; i < v->size(); ++i { if (*v)[i] == d { return; } }
+        v->push_back(d);
+    }
+
+    priv fn _rec(self, d: *Decl) {
+        if d != &null { EarlyNeeds::_once(&(self.recs), d); }
+    }
+
+    /// The records \p t holds by value (raw: EmitPlan maps each to its
+    /// plan entry), and the items its computed values name.
+    fn rec_type(self, t: *Type) {
+        if t == &null { return; }
+        var c = t->canonical;
+        if c == &null { c = t; }
+        switch c->kind {
+            case TypeKind::QualifiedType { self.rec_type(cast::<QualifiedType>(c)->inner); }
+            case TypeKind::RecordType {
+                var rt = cast::<RecordType>(c);
+                self._rec(rt->decl);
+                for var i: usize = 0; i < rt->args.size(); ++i { self.values(*(rt->args.get(i))); }
+            }
+            case TypeKind::FixedArrayType {
+                self.rec_type(cast::<FixedArrayType>(c)->element);
+                self.values(cast::<FixedArrayType>(c)->extent_param);
+            }
+            case TypeKind::NullableType {
+                var lw = cast::<NullableType>(c)->lowered;
+                if lw != &null { self.rec_type(lw); } else { self.rec_type(cast::<NullableType>(c)->inner); }
+            }
+            case TypeKind::TypeExpr { self.values(c); }
+            default { break; }
+        }
+    }
+
+    /// The items a computed value (EVAL.md 0.2) names: C++ evaluates it
+    /// where it is spelled, so they are const items. An eval class it
+    /// constructs is needed complete, with every compile-time member (its
+    /// constructor, its field defaults' thunks).
+    fn values(self, t: *Type) {
+        var v = dyn_cast::<TypeExpr>(t);
+        if (v == &null) || (!v->is_value) || v->is_exact() { return; }
+        self._const += 1;
+        if v->vop == ValueOp::Str {
+            self.rec_type(v->vty);
+            var sr = dyn_cast::<RecordType>(canon_unqual(v->vty));
+            if sr != &null { self._members(sr->decl); }
+        } else if (v->vdecl != &null) && ((v->vop == ValueOp::Call) || (v->vop == ValueOp::Decl)) {
+            if isa::<ClassDecl>(v->vdecl) || isa::<StructDecl>(v->vdecl) {
+                self._rec(v->vdecl);
+                self._members(v->vdecl);
+            } else {
+                var local = (v->vdecl->semantic_dc == &null) || CXXSpell::in_function_scope(v->vdecl);
+                if !local { self.named(v->vdecl); }
+            }
+        }
+        for var i: usize = 0; i < v->vops.size(); ++i { self.values(v->vops[i]); }
+        self._const -= 1;
+    }
+
+    /// Every compile-time member of record \p d with a body, as items.
+    priv fn _members(self, d: *Decl) {
+        var ms: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d)       { ms = &(cast::<ClassDecl>(d)->methods); }
+        else if isa::<StructDecl>(d) { ms = &(cast::<StructDecl>(d)->methods); }
+        if ms == &null { return; }
+        for var i: usize = 0; i < ms->size(); ++i {
+            var m = (*ms)[i];
+            if m == &null { continue; }
+            var it = EarlyNeeds::item_of(static_cast::<*Decl>(m));
+            if it == &null { continue; }
+            EarlyNeeds::_once(&(self.items), it);
+            if self._const > 0 { EarlyNeeds::_once(&(self.const_items), it); }
+        }
+    }
+
+    fn visit_expr(self, e: *Expr) -> bool {
+        if e == &null { return true; }
+        if e->type_ != &null { self.rec_type(e->type_); }
+        switch e->kind {
+            case ExprKind::NamedIdentExpr { self.named(cast::<NamedIdentExpr>(e)->resolved_decl); }
+            case ExprKind::ChainExpr {
+                var ch = cast::<ChainExpr>(e);
+                for var i: usize = 0; i < ch->steps.size(); ++i {
+                    var st = ch->steps.get(i);
+                    if st != &null { self.named(st->resolved_decl); }
+                }
+            }
+            case ExprKind::CallExpr { self.named(cast::<CallExpr>(e)->ctor_decl); }
+            case ExprKind::BinaryOperatorExpr { self.named(cast::<BinaryOperatorExpr>(e)->resolved_op); }
+            case ExprKind::UnaryOperatorExpr { self.named(cast::<UnaryOperatorExpr>(e)->resolved_op); }
+            case ExprKind::SizeOfExpr { self.rec_type(cast::<SizeOfExpr>(e)->type_arg); }
+            case ExprKind::AlignOfExpr { self.rec_type(cast::<AlignOfExpr>(e)->type_arg); }
+            default { break; }
+        }
         return true;
     }
-    fn visit_chain_expr(self, n: *ChainExpr) -> bool {
-        for var i: usize = 0; i < n->steps.size(); ++i {
-            var st = n->steps.get(i);
-            if st == &null { continue; }
-            var v = dyn_cast::<VariableDecl>(st->resolved_decl);
-            if v != &null { self.out.push_back(v); }
+
+    fn visit_decl(self, d: *Decl) -> bool {
+        if d == &null { return true; }
+        switch d->kind {
+            case DeclKind::VariableDecl { self.rec_type(cast::<VariableDecl>(d)->type_); }
+            case DeclKind::ParamDecl {
+                var p = cast::<ParamDecl>(d);
+                if !p->is_self { self.rec_type(p->type_); }
+            }
+            case DeclKind::FunctionDecl { self.rec_type(cast::<FunctionDecl>(d)->return_type); }
+            default { break; }
         }
+        return true;
+    }
+
+    /// An eval local's initializer is a constant expression C++ evaluates
+    /// at the definition (`constexpr T k = g(1);`).
+    fn traverse_variable_decl(self, n: *VariableDecl) -> *VariableDecl {
+        var ev = n->is_eval() && (n->semantic_dc != &null) && CXXSpell::in_function_scope(static_cast::<*Decl>(n));
+        if ev { self._const += 1; }
+        var r = RecursiveASTVisitor::<EarlyNeeds>::traverse_variable_decl(n);
+        if ev { self._const -= 1; }
+        return r;
+    }
+
+    fn visit_type(self, t: *Type) -> bool {
+        if (t != &null) && (t->canonical != &null) { self.values(t->canonical); }
         return true;
     }
 }
@@ -181,6 +344,10 @@ class PlanEntry {
     /// Tier 0 only, with `witness` a primary: this entry defines its
     /// concept, not its forward declaration.
     pub var is_concept: bool        = false;
+    /// Tier 1 only: an early item (EmitPlan::early, EVAL.md §11) -- a
+    /// compile-time body or an eval binding this entry DEFINES, ahead of
+    /// the records whose types need it. `decl` is the item too.
+    pub var eval_item: *Decl        = &null;
 
     fn PlanEntry(self) { }
 }
@@ -239,6 +406,27 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
 
+    /// The early items (EVAL.md §11): every compile-time body (eval fn,
+    /// eval or constexpr method, eval field thunk) and eval binding that a
+    /// DECLARATION's type names through a computed value (`[i32; f(3)]`,
+    /// `Buf<twice(1)>`, `Grid<Pt(2, 3)>`), and everything those read,
+    /// transitively. C++ evaluates such a type where the declaration is
+    /// written, in the interface, so each item is defined in tier 1 ahead of
+    /// the records needing it (an entry with eval_item), and declared ahead
+    /// of all of tier 1 (InterfaceEmitter); EmitIR then skips them.
+    pub var early: vec::<*Decl>;
+    /// Order edges among tier-1 entries that involve an early item:
+    /// _eo_who[i] is written after _eo_dep[i].
+    priv var _eo_who: vec::<*Decl>;
+    priv var _eo_dep: vec::<*Decl>;
+    /// EarlyNeeds per item, flattened: for item _en_key[i], _en_val[i] is an
+    /// item it reads (kind 0), one it evaluates at its definition (1), or a
+    /// record it needs complete (2).
+    priv var _en_done: vec::<*Decl>;
+    priv var _en_key:  vec::<*Decl>;
+    priv var _en_kind: vec::<u8>;
+    priv var _en_val:  vec::<*Decl>;
+
     fn EmitPlan(self, cg: *CodegenContext, mode: PlanMode = PlanMode::Preamble) {
         self._cg    = cg;
         self._spell = CXXSpell(cg);
@@ -269,6 +457,15 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn spell(self) -> *CXXSpell;
     fn _close(self);
     fn _order(self);
+    fn _early(self);
+    fn _early_needs(self, x: *Decl);
+    fn _early_close(self, seeds: *vec::<*Decl>, kind: u8, out: *vec::<*Decl>);
+    fn _decl_type_items(self, d: *Decl, out: *vec::<*Decl>);
+    fn _type_items(self, t: *Type, out: *vec::<*Decl>);
+    fn _eo_add(self, who: *Decl, dep: *Decl);
+    fn _eo_has(self, who: *Decl, dep: *Decl) -> bool;
+    fn _layout_key(self, d: *Decl) -> *Decl;
+    fn is_early(self, d: *Decl) -> bool;
     fn _collect_uses(self);
     fn friend_scopes_of(self, d: *Decl, out: *vec::<*ExtScope>);
     fn dump(self, path: string);
@@ -1087,15 +1284,212 @@ fn EmitPlan::_eval_vars(want_own: bool) -> vec::<*VariableDecl> {
 fn EmitPlan::_place_eval_var(i: usize, pick: *vec::<*VariableDecl>, state: *vec::<u8>, out: *vec::<*VariableDecl>) {
     if (*state)[i] != u8(0) { return; }
     (*state)[i] = u8(1);
-    var refs = EvalVarRefs();
-    refs.dispatch_expr((*pick)[i]->init);
-    for var r: usize = 0; r < refs.out.size(); ++r {
+    // What the initializer reads, through the eval fns it calls too: `eval
+    // A = f()` with f returning B needs B defined first, though A's
+    // initializer never names it.
+    var me = static_cast::<*Decl>((*pick)[i]);
+    self._early_needs(me);
+    var seeds = vec::<*Decl>();
+    for var r: usize = 0; r < self._en_key.size(); ++r {
+        if (self._en_key[r] == me) && (self._en_kind[r] == u8(0)) { seeds.push_back(self._en_val[r]); }
+    }
+    var refs = vec::<*Decl>();
+    self._early_close(&seeds, u8(0), &refs);
+    for var r: usize = 0; r < refs.size(); ++r {
         for var k: usize = 0; k < pick->size(); ++k {
-            if (*pick)[k] == refs.out[r] { self._place_eval_var(k, pick, state, out); }
+            if static_cast::<*Decl>((*pick)[k]) == refs[r] { self._place_eval_var(k, pick, state, out); }
         }
     }
     (*state)[i] = u8(2);
     out->push_back((*pick)[i]);
+}
+
+// --- Early items (EVAL.md §11) -----------------------------------------------
+
+/// Which compile-time items a declaration's type needs defined ahead of it
+/// (EmitPlan::early), and the order edges that put them in tier 1. Seeds:
+/// the computed values in the type of every record this plan defines
+/// (fields, bases, method signatures, nested types), of every function it
+/// declares and of every namespace-scope variable. Closed over what each
+/// item reads. A record follows every item its own types reach; an item
+/// follows the records its definition needs complete, and a binding every
+/// item it evaluates (a body only the items it evaluates at its definition:
+/// what it merely calls is defined by the time anything evaluates it, and
+/// mutual recursion stays free of cycles).
+fn EmitPlan::_early() {
+    for var i: usize = 0; i < self._set.size(); ++i {
+        var d = self._set[i];
+        var seeds = vec::<*Decl>();
+        var rec = self._is_type_decl(d);
+        if rec {
+            if self._need[i] != PlanNeed::Complete { continue; }
+            self._decl_type_items(d, &seeds);
+        } else if isa::<FunctionDecl>(d) {
+            var f = cast::<FunctionDecl>(d);
+            for var p: usize = 0; p < f->params.size(); ++p {
+                var pd = f->params[p];
+                if (pd != &null) && (!pd->is_self) { self._type_items(pd->type_, &seeds); }
+            }
+            self._type_items(f->return_type, &seeds);
+        } else if isa::<VariableDecl>(d) {
+            self._type_items(cast::<VariableDecl>(d)->type_, &seeds);
+        }
+        if seeds.size() == 0 { continue; }
+        var cl = vec::<*Decl>();
+        self._early_close(&seeds, u8(0), &cl);
+        for var k: usize = 0; k < cl.size(); ++k {
+            EarlyNeeds::_once(&(self.early), cl[k]);
+            if rec { self._eo_add(d, cl[k]); }
+        }
+    }
+    for var k: usize = 0; k < self.early.size(); ++k {
+        var x = self.early[k];
+        self._early_needs(x);
+        var defs = vec::<*Decl>();
+        var want = (u8(0)) if (isa::<VariableDecl>(x)) else (u8(1));
+        for var i: usize = 0; i < self._en_key.size(); ++i {
+            if self._en_key[i] != x { continue; }
+            if self._en_kind[i] == u8(2) {
+                var r = self._layout_key(self._en_val[i]);
+                if (r != &null) && (r != x) {
+                    var at = self._index_of(r);
+                    if (at != usize(-1)) && (self._need[at] == PlanNeed::Complete) { self._eo_add(x, r); }
+                }
+            } else if self._en_kind[i] == want {
+                defs.push_back(self._en_val[i]);
+            }
+        }
+        var cl = vec::<*Decl>();
+        self._early_close(&defs, u8(0), &cl);
+        for var i: usize = 0; i < cl.size(); ++i { if cl[i] != x { self._eo_add(x, cl[i]); } }
+    }
+}
+
+/// \p x's EarlyNeeds, computed once into the _en_ tables.
+fn EmitPlan::_early_needs(x: *Decl) {
+    for var i: usize = 0; i < self._en_done.size(); ++i { if self._en_done[i] == x { return; } }
+    self._en_done.push_back(x);
+    var n = EarlyNeeds();
+    var f = dyn_cast::<FunctionDecl>(x);
+    if f != &null {
+        // A member's definition is out of line: its class is complete first.
+        n.named(x);
+        n.dispatch_decl(x);
+    }
+    var v = dyn_cast::<VariableDecl>(x);
+    if v != &null {
+        n.rec_type(v->type_);
+        if v->init != &null { n.dispatch_expr(v->init); }
+    }
+    for var i: usize = 0; i < n.items.size(); ++i {
+        if n.items[i] == x { continue; }
+        self._en_key.push_back(x); self._en_kind.push_back(u8(0)); self._en_val.push_back(n.items[i]);
+    }
+    for var i: usize = 0; i < n.const_items.size(); ++i {
+        if n.const_items[i] == x { continue; }
+        self._en_key.push_back(x); self._en_kind.push_back(u8(1)); self._en_val.push_back(n.const_items[i]);
+    }
+    for var i: usize = 0; i < n.recs.size(); ++i {
+        self._en_key.push_back(x); self._en_kind.push_back(u8(2)); self._en_val.push_back(n.recs[i]);
+    }
+}
+
+/// \p seeds and every item they read (kind 0), transitively, into \p out.
+fn EmitPlan::_early_close(seeds: *vec::<*Decl>, kind: u8, out: *vec::<*Decl>) {
+    for var i: usize = 0; i < seeds->size(); ++i { EarlyNeeds::_once(out, (*seeds)[i]); }
+    for var k: usize = 0; k < out->size(); ++k {
+        var it = (*out)[k];
+        self._early_needs(it);
+        for var i: usize = 0; i < self._en_key.size(); ++i {
+            if (self._en_key[i] == it) && (self._en_kind[i] == kind) { EarlyNeeds::_once(out, self._en_val[i]); }
+        }
+    }
+}
+
+/// The items the types written in record \p d's definition compute from:
+/// fields, bases, method signatures, nested records' (they are defined
+/// inside it).
+fn EmitPlan::_decl_type_items(d: *Decl, out: *vec::<*Decl>) {
+    var rec = self.adt_record(d);
+    var fields: *FrozenList::<*FieldDecl> = &null;
+    var methods: *FrozenList::<*FunctionDecl> = &null;
+    if isa::<ClassDecl>(rec) {
+        var c = cast::<ClassDecl>(rec);
+        fields = &(c->fields); methods = &(c->methods);
+        for var i: usize = 0; i < c->derives_list.size(); ++i {
+            var e = c->derives_list.get(i);
+            if e != &null { self._type_items(e->base, out); }
+        }
+    } else if isa::<StructDecl>(rec) { fields = &(cast::<StructDecl>(rec)->fields); methods = &(cast::<StructDecl>(rec)->methods); }
+    else if isa::<UnionDecl>(rec)  { fields = &(cast::<UnionDecl>(rec)->fields);  methods = &(cast::<UnionDecl>(rec)->methods); }
+    if fields != &null {
+        for var i: usize = 0; i < fields->size(); ++i {
+            var f = (*fields)[i];
+            if f != &null { self._type_items(f->type_, out); }
+        }
+    }
+    if methods != &null {
+        for var i: usize = 0; i < methods->size(); ++i {
+            var m = (*methods)[i];
+            if m == &null { continue; }
+            for var p: usize = 0; p < m->params.size(); ++p {
+                var pd = m->params[p];
+                if (pd != &null) && (!pd->is_self) { self._type_items(pd->type_, out); }
+            }
+            self._type_items(m->return_type, out);
+        }
+    }
+    var dc = CXXSpell::dc_of(rec);
+    if dc == &null { return; }
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var nd = *(dc->dc_decls.get(i));
+        if (nd == &null) || (!self._is_type_decl(nd)) { continue; }
+        if isa::<UnionDecl>(nd) && cast::<UnionDecl>(nd)->is_anonymous { continue; }
+        self._decl_type_items(CXXSpell::rep(nd), out);
+    }
+}
+
+/// The items computed values in \p t name.
+fn EmitPlan::_type_items(t: *Type, out: *vec::<*Decl>) {
+    if t == &null { return; }
+    var n = EarlyNeeds();
+    n.rec_type(t);
+    for var i: usize = 0; i < n.items.size(); ++i { EarlyNeeds::_once(out, n.items[i]); }
+}
+
+fn EmitPlan::_eo_add(who: *Decl, dep: *Decl) {
+    if (who == &null) || (dep == &null) || (who == dep) { return; }
+    if self._eo_has(who, dep) { return; }
+    self._eo_who.push_back(who);
+    self._eo_dep.push_back(dep);
+}
+
+fn EmitPlan::_eo_has(who: *Decl, dep: *Decl) -> bool {
+    for var i: usize = 0; i < self._eo_who.size(); ++i {
+        if (self._eo_who[i] == who) && (self._eo_dep[i] == dep) { return true; }
+    }
+    return false;
+}
+
+/// The tier-1 decl whose definition lays out record \p d: its primary for
+/// an instance, its outermost record for a nested one.
+fn EmitPlan::_layout_key(d: *Decl) -> *Decl {
+    var c = CXXSpell::rep(d);
+    if c == &null { return &null; }
+    if decl_is_instance(c) {
+        var e = self._cg->instances->entry_of(c);
+        if e == &null { return &null; }
+        c = CXXSpell::rep(e->primary);
+        if c == &null { return &null; }
+    }
+    if !self._is_type_decl(c) { return &null; }
+    return self._outermost_type(c);
+}
+
+/// \p d (a defining link) is defined in tier 1 as an early item.
+fn EmitPlan::is_early(d: *Decl) -> bool {
+    for var i: usize = 0; i < self.early.size(); ++i { if self.early[i] == d { return true; } }
+    return false;
 }
 
 /// THE list of foreign bodies this TU emits, beside its own (which EmitIR
@@ -1999,6 +2393,7 @@ fn EmitPlan::_type_reaches_param(t: *Type, prim: *Decl, idx: u32) -> bool {
 // --- Ordering ----------------------------------------------------------------------
 
 fn EmitPlan::_order() {
+    self._early();
     // Tier 0: forward declarations. Namespace-scope types only; a nested
     // type cannot be forward-declared outside its owner.
     var t0: vec::<PlanEntry>;
@@ -2069,6 +2464,14 @@ fn EmitPlan::_order() {
         var e = self._entry(self._witnesses[i].iface, PlanNeed::Complete, PlanTier::Definitions);
         e.witness = &(self._witnesses[i]);
         e.own     = true;
+        t1.push_back(e);
+    }
+    // The early items (EVAL.md §11), each where its edges put it: after the
+    // records its definition needs complete, before the records whose
+    // types evaluate it.
+    for var i: usize = 0; i < self.early.size(); ++i {
+        var e = self._entry(self.early[i], PlanNeed::Complete, PlanTier::Definitions);
+        e.eval_item = self.early[i];
         t1.push_back(e);
     }
     self._sort(&t1);
@@ -2179,6 +2582,15 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
             }
             if ready { picked = i; break; }
         }
+        if picked == usize(-1) {
+            // A cycle through an early item (EVAL.md §11) is EvalUsageChecking's
+            // to report; one of records alone, TypeCycleCheck's.
+            for var i: usize = 0; i < n; ++i {
+                if (!taken[i]) && ((*v)[i].eval_item != &null) {
+                    self._ice((*v)[i].decl->range, "EmitPlan: no order defines the eval items a declaration's type computes from ahead of it; EvalUsageChecking::_check_order should have reported the cycle");
+                }
+            }
+        }
         assert((picked != usize(-1))
             && r"EmitPlan: Complete-edge cycle in tier 1; TypeCycleCheck should have rejected this in sema");
         taken[picked] = true;
@@ -2190,6 +2602,10 @@ fn EmitPlan::_toposort(v: *vec::<PlanEntry>) {
 /// True when entry \p who must follow entry \p dep. A scope follows its
 /// deps; nothing waits on a scope (a friend line needs only tier 0).
 fn EmitPlan::_entry_needs(who: *PlanEntry, dep: *PlanEntry) -> bool {
+    if (who->eval_item != &null) || (dep->eval_item != &null) {
+        if (who->witness != &null) || (who->scope != &null) || (dep->witness != &null) || (dep->scope != &null) { return false; }
+        return self._eo_has(who->decl, dep->decl);
+    }
     if who->witness != &null {
         var w = who->witness;
         if dep->witness != &null {

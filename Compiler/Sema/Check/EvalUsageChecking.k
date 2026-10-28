@@ -64,6 +64,7 @@ import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
 import AST::Node::Base::*;
@@ -107,6 +108,143 @@ class ConstEvalStrings derives RecursiveASTVisitor::<ConstEvalStrings> {
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr { return n; }
 }
 
+/// What one eval item -- an eval fn's body, an eval binding's or eval
+/// field's initializer -- needs before C++ can evaluate it (EVAL.md §11):
+/// the eval items it reads (each DEFINED first) and the records it lays out
+/// or looks into (each COMPLETE first). The Sema side of EmitPlan's early
+/// items (EmitPlan::_early), read by EvalUsageChecking::_check_order.
+class EvalNeeds derives RecursiveASTVisitor::<EvalNeeds> {
+    pub var items: vec::<*Decl>;
+    pub var recs:  vec::<*Decl>;
+    /// Parallel to recs: where the body needs it, for the note.
+    pub var at:    vec::<SourceRange>;
+    priv var _tu:  *TypeUtil = &null;
+
+    fn EvalNeeds(self, tu: *TypeUtil) { self._tu = tu; }
+
+    /// \p d named at \p r: an eval item, and a member's owner (C++ looks
+    /// into a complete class only).
+    fn named(self, d: *Decl, r: SourceRange) {
+        if d == &null { return; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) { self.rec(dc->owner_decl(), r); }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f != &null) && f->is_eval() { self._item(d); return; }
+        var v = dyn_cast::<VariableDecl>(d);
+        if (v != &null) && v->is_eval() && (v->init != &null) && (dc != &null)
+            && ((dc->dc_kind == DeclContextKind::TranslationUnit) || (dc->dc_kind == DeclContextKind::Module)) { self._item(d); return; }
+        var fd = dyn_cast::<FieldDecl>(d);
+        if (fd != &null) && fd->is_eval() && (fd->init != &null) { self._item(d); }
+    }
+
+    priv fn _item(self, d: *Decl) {
+        for var i: usize = 0; i < self.items.size(); ++i { if self.items[i] == d { return; } }
+        self.items.push_back(d);
+    }
+
+    /// Record \p d needed complete (its outermost record: a nested one is
+    /// defined inside it), once.
+    fn rec(self, d0: *Decl, r: SourceRange) {
+        if d0 == &null { return; }
+        var d = d0;
+        if decl_is_instance(d) { d = self._tu->pattern_of(d); }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        while (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) && (dc->owner_decl() != &null) {
+            d  = dc->owner_decl();
+            dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        }
+        if (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d)) && (!isa::<UnionDecl>(d)) && (!isa::<EnumDecl>(d)) { return; }
+        for var i: usize = 0; i < self.recs.size(); ++i { if self.recs[i] == d { return; } }
+        self.recs.push_back(d);
+        self.at.push_back(r);
+    }
+
+    /// The records \p t holds by value: laid out wherever a value of it is.
+    fn rec_type(self, t: *Type, r: SourceRange) {
+        if t == &null { return; }
+        var c = canon_unqual((t->canonical) if (t->canonical != &null) else (t));
+        if c == &null { return; }
+        switch c->kind {
+            case TypeKind::RecordType {
+                var rt = cast::<RecordType>(c);
+                self.rec(rt->decl, r);
+                for var i: usize = 0; i < rt->args.size(); ++i { self.values(*(rt->args.get(i)), r); }
+            }
+            case TypeKind::FixedArrayType {
+                self.rec_type(cast::<FixedArrayType>(c)->element, r);
+                self.values(cast::<FixedArrayType>(c)->extent_param, r);
+            }
+            case TypeKind::NullableType { self.rec_type(cast::<NullableType>(c)->inner, r); }
+            case TypeKind::TypeExpr { self.values(c, r); }
+            default { break; }
+        }
+    }
+
+    /// The eval items computed value \p t names (EVAL.md 0.2): an eval
+    /// fn or an eval class's constructor it calls, an eval constant it
+    /// reads. A class it constructs is needed complete.
+    fn values(self, t: *Type, r: SourceRange) {
+        var v = dyn_cast::<TypeExpr>(t);
+        if (v == &null) || (!v->is_value) || v->is_exact() { return; }
+        if v->vdecl != &null {
+            if (v->vop == ValueOp::Call) && (isa::<ClassDecl>(v->vdecl) || isa::<StructDecl>(v->vdecl)) {
+                self.rec(v->vdecl, r);
+                var ms: *FrozenList::<*FunctionDecl> = &null;
+                if isa::<ClassDecl>(v->vdecl) { ms = &(cast::<ClassDecl>(v->vdecl)->methods); } else { ms = &(cast::<StructDecl>(v->vdecl)->methods); }
+                for var i: usize = 0; i < ms->size(); ++i {
+                    var m = (*ms)[i];
+                    if (m != &null) && m->is_eval() { self._item(static_cast::<*Decl>(m)); }
+                }
+            } else if (v->vop == ValueOp::Call) || (v->vop == ValueOp::Decl) {
+                self.named(v->vdecl, r);
+            }
+        }
+        for var i: usize = 0; i < v->vops.size(); ++i { self.values(v->vops[i], r); }
+    }
+
+    fn visit_expr(self, e: *Expr) -> bool {
+        if e == &null { return true; }
+        if e->type_ != &null { self.rec_type(e->type_, e->range); }
+        if isa::<NamedIdentExpr>(e) { self.named(cast::<NamedIdentExpr>(e)->resolved_decl, e->range); }
+        else if isa::<ChainExpr>(e) {
+            var ch = cast::<ChainExpr>(e);
+            for var i: usize = 0; i < ch->steps.size(); ++i {
+                var st = ch->steps.get(i);
+                if st == &null { continue; }
+                var d = st->resolved_decl;
+                if (d == &null) && (st->name != &null) { d = st->name->resolved_decl; }
+                self.named(d, e->range);
+            }
+        } else if isa::<CallExpr>(e) {
+            self.named(cast::<CallExpr>(e)->ctor_decl, e->range);
+        } else if isa::<BinaryOperatorExpr>(e) {
+            self.named(cast::<BinaryOperatorExpr>(e)->resolved_op, e->range);
+        } else if isa::<UnaryOperatorExpr>(e) {
+            self.named(cast::<UnaryOperatorExpr>(e)->resolved_op, e->range);
+        } else if isa::<SizeOfExpr>(e) {
+            self.rec_type(cast::<SizeOfExpr>(e)->type_arg, e->range);
+        } else if isa::<AlignOfExpr>(e) {
+            self.rec_type(cast::<AlignOfExpr>(e)->type_arg, e->range);
+        }
+        return true;
+    }
+
+    fn visit_decl(self, d: *Decl) -> bool {
+        if d == &null { return true; }
+        if isa::<VariableDecl>(d) { self.rec_type(cast::<VariableDecl>(d)->type_, d->range); }
+        else if isa::<ParamDecl>(d) {
+            var p = cast::<ParamDecl>(d);
+            if !p->is_self { self.rec_type(p->type_, d->range); }
+        } else if isa::<FunctionDecl>(d) { self.rec_type(cast::<FunctionDecl>(d)->return_type, d->range); }
+        return true;
+    }
+
+    fn visit_type(self, t: *Type) -> bool {
+        if (t != &null) && (t->canonical != &null) { self.values(t->canonical, t->range); }
+        return true;
+    }
+}
+
 class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
@@ -144,6 +282,7 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
                 default { 0; }
             }
         }
+        self._check_order();
     }
 
     // === scopes =============================================================
@@ -917,6 +1056,296 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
     priv fn _err(self, at: SourceRange, msg: string) {
         var b = self.sc->diag->report(DiagID::SC001E, at.start, msg);
         b.first(at);
+        b.emit();
+    }
+
+    // === emission order (EVAL.md §11) =======================================
+    //
+    // A declaration's type may hold a value C++ computes from an eval fn or
+    // an eval binding (`[i32; f(3)]`, `Buf<twice(1)>`). EmitPlan defines
+    // those items, and what they read, ahead of the declaration (its early
+    // items); each needs the records its body lays out complete first. When
+    // such a record is the declaration's own -- directly, or through another
+    // record that needs it -- no order exists: that is the error here, at
+    // the type, rather than a clang error on emitted text or an ordering
+    // ICE. So is an eval binding whose value reaches itself through the eval
+    // fns and bindings it reads.
+
+    /// Every needs record computed, flattened: for item _nd_key[i], an
+    /// item (kind 0) or a record (kind 1) _nd_val[i], needed at _nd_at[i].
+    priv var _nd_done: vec::<*Decl>;
+    priv var _nd_key:  vec::<*Decl>;
+    priv var _nd_kind: vec::<u8>;
+    priv var _nd_val:  vec::<*Decl>;
+    priv var _nd_at:   vec::<SourceRange>;
+
+    priv fn _needs_of(self, item: *Decl) {
+        for var i: usize = 0; i < self._nd_done.size(); ++i { if self._nd_done[i] == item { return; } }
+        self._nd_done.push_back(item);
+        var n = EvalNeeds(&(self.tu));
+        var dc = reinterpret_cast::<*DeclContext>(item->semantic_dc);
+        if (dc != &null) && dc->is_type_scope() && (dc->dc_kind != DeclContextKind::Extension) { n.rec(dc->owner_decl(), item->range); }
+        var f = dyn_cast::<FunctionDecl>(item);
+        if f != &null {
+            var def = f;
+            if !def->has_body() { def = f->definition(); }
+            if def != &null { n.dispatch_decl(static_cast::<*Decl>(def)); }
+        }
+        var v = dyn_cast::<VariableDecl>(item);
+        if v != &null {
+            n.rec_type(v->type_, v->range);
+            if v->init != &null { n.dispatch_expr(v->init); }
+        }
+        var fd = dyn_cast::<FieldDecl>(item);
+        if fd != &null {
+            n.rec_type(fd->type_, fd->range);
+            if fd->init != &null { n.dispatch_expr(fd->init); }
+        }
+        for var i: usize = 0; i < n.items.size(); ++i {
+            if n.items[i] == item { continue; }
+            self._nd_key.push_back(item); self._nd_kind.push_back(u8(0)); self._nd_val.push_back(n.items[i]); self._nd_at.push_back(item->range);
+        }
+        for var i: usize = 0; i < n.recs.size(); ++i {
+            self._nd_key.push_back(item); self._nd_kind.push_back(u8(1)); self._nd_val.push_back(n.recs[i]); self._nd_at.push_back(n.at[i]);
+        }
+    }
+
+    /// \p seeds and every item they read, transitively, into \p out.
+    priv fn _closure(self, seeds: *vec::<*Decl>, out: *vec::<*Decl>) {
+        for var i: usize = 0; i < seeds->size(); ++i { self._add_once(out, (*seeds)[i]); }
+        for var k: usize = 0; k < out->size(); ++k {
+            var it = (*out)[k];
+            self._needs_of(it);
+            for var i: usize = 0; i < self._nd_key.size(); ++i {
+                if (self._nd_key[i] == it) && (self._nd_kind[i] == u8(0)) { self._add_once(out, self._nd_val[i]); }
+            }
+        }
+    }
+
+    priv fn _add_once(self, v: *vec::<*Decl>, d: *Decl) {
+        for var i: usize = 0; i < v->size(); ++i { if (*v)[i] == d { return; } }
+        v->push_back(d);
+    }
+
+    /// The items computed values in \p t name (a declaration's type).
+    priv fn _type_items(self, t: *Type, out: *vec::<*Decl>) {
+        var n = EvalNeeds(&(self.tu));
+        n.rec_type(t, SourceRange::invalid());
+        if (t != &null) && (t->canonical != &null) { n.values(t->canonical, SourceRange::invalid()); }
+        for var i: usize = 0; i < n.items.size(); ++i { self._add_once(out, n.items[i]); }
+    }
+
+    /// The types written in \p r's own definition: fields, bases, method
+    /// signatures (C++ reads all of them inside the class body).
+    priv fn _member_types(self, r: *Decl, out: *vec::<*Type>, spots: *vec::<SourceRange>) {
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        var methods: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(r) {
+            var c = cast::<ClassDecl>(r);
+            fields = &(c->fields); methods = &(c->methods);
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var e = c->derives_list.get(i);
+                if (e != &null) && (e->base != &null) { out->push_back(e->base); spots->push_back(e->base->range); }
+            }
+        } else if isa::<StructDecl>(r) { fields = &(cast::<StructDecl>(r)->fields); methods = &(cast::<StructDecl>(r)->methods); }
+        else if isa::<UnionDecl>(r)  { fields = &(cast::<UnionDecl>(r)->fields);  methods = &(cast::<UnionDecl>(r)->methods); }
+        if fields != &null {
+            for var i: usize = 0; i < fields->size(); ++i {
+                var f = (*fields)[i];
+                if (f == &null) || (f->type_ == &null) { continue; }
+                out->push_back(f->type_); spots->push_back(f->type_->range);
+            }
+        }
+        if methods != &null {
+            for var i: usize = 0; i < methods->size(); ++i {
+                var m = (*methods)[i];
+                if m == &null { continue; }
+                for var p: usize = 0; p < m->params.size(); ++p {
+                    var pd = m->params[p];
+                    if (pd == &null) || pd->is_self || (pd->type_ == &null) { continue; }
+                    out->push_back(pd->type_); spots->push_back(pd->type_->range);
+                }
+                if m->return_type != &null { out->push_back(m->return_type); spots->push_back(m->return_type->range); }
+            }
+        }
+    }
+
+    /// The records \p r needs complete before its definition: by-value
+    /// fields and bases, and what the items its types name need.
+    priv fn _rec_edges(self, r: *Decl, out: *vec::<*Decl>) {
+        var ts = vec::<*Type>();
+        var ws = vec::<SourceRange>();
+        self._member_types(r, &ts, &ws);
+        var seeds = vec::<*Decl>();
+        for var i: usize = 0; i < ts.size(); ++i { self._type_items(ts[i], &seeds); }
+        // Method signatures name their types; only fields and bases lay
+        // them out. Close enough: a by-value cycle through a signature is
+        // no definition-order problem, so take fields and bases only.
+        var lay = EvalNeeds(&(self.tu));
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        if isa::<ClassDecl>(r) {
+            fields = &(cast::<ClassDecl>(r)->fields);
+            var c = cast::<ClassDecl>(r);
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var e = c->derives_list.get(i);
+                if e != &null { lay.rec_type(e->base, r->range); }
+            }
+        } else if isa::<StructDecl>(r) { fields = &(cast::<StructDecl>(r)->fields); }
+        if fields != &null {
+            for var i: usize = 0; i < fields->size(); ++i {
+                var f = (*fields)[i];
+                if (f != &null) && (!f->is_static()) && (!f->is_eval()) { lay.rec_type(f->type_, r->range); }
+            }
+        }
+        for var i: usize = 0; i < lay.recs.size(); ++i { if lay.recs[i] != r { self._add_once(out, lay.recs[i]); } }
+        var cl = vec::<*Decl>();
+        self._closure(&seeds, &cl);
+        for var k: usize = 0; k < cl.size(); ++k {
+            for var i: usize = 0; i < self._nd_key.size(); ++i {
+                if (self._nd_key[i] == cl[k]) && (self._nd_kind[i] == u8(1)) { self._add_once(out, self._nd_val[i]); }
+            }
+        }
+    }
+
+    /// Whether record \p from reaches \p goal through _rec_edges.
+    priv fn _rec_reaches(self, from: *Decl, goal: *Decl, seen: *vec::<*Decl>) -> bool {
+        if from == goal { return true; }
+        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == from { return false; } }
+        seen->push_back(from);
+        if seen->size() > 64 { return false; }
+        var es = vec::<*Decl>();
+        self._rec_edges(from, &es);
+        for var i: usize = 0; i < es.size(); ++i { if self._rec_reaches(es[i], goal, seen) { return true; } }
+        return false;
+    }
+
+    priv fn _check_order(self) {
+        var tu = self.sc->tu;
+        if tu == &null { return; }
+        var recs = vec::<*Decl>();
+        var vars = vec::<*VariableDecl>();
+        self._own_decls(static_cast::<*DeclContext>(tu), &recs, &vars);
+        for var i: usize = 0; i < recs.size(); ++i { self._check_record(recs[i]); }
+        for var i: usize = 0; i < vars.size(); ++i { self._check_var(vars[i]); }
+    }
+
+    priv fn _own_decls(self, dc: *DeclContext, recs: *vec::<*Decl>, vars: *vec::<*VariableDecl>) {
+        if dc == &null { return; }
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if (d == &null) || d->is_poisoned() || decl_is_imported(d) { continue; }
+            if isa::<ModuleDecl>(d) { self._own_decls(static_cast::<*DeclContext>(cast::<ModuleDecl>(d)), recs, vars); continue; }
+            if isa::<VisibilityGroupDecl>(d) {
+                var g = cast::<VisibilityGroupDecl>(d);
+                for var k: usize = 0; k < g->members.size(); ++k {
+                    var m = g->members[k];
+                    if m == &null { continue; }
+                    if isa::<ClassDecl>(m) || isa::<StructDecl>(m) || isa::<UnionDecl>(m) { recs->push_back(m); }
+                    var gv = dyn_cast::<VariableDecl>(m);
+                    if (gv != &null) && gv->is_eval() && (gv->init != &null) { vars->push_back(gv); }
+                }
+                continue;
+            }
+            if isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) {
+                recs->push_back(d);
+                var rdc: *DeclContext = &null;
+                if isa::<ClassDecl>(d) { rdc = static_cast::<*DeclContext>(cast::<ClassDecl>(d)); }
+                else if isa::<StructDecl>(d) { rdc = static_cast::<*DeclContext>(cast::<StructDecl>(d)); }
+                if rdc != &null {
+                    var nested = vec::<*VariableDecl>();
+                    self._own_decls(rdc, recs, &nested);
+                }
+                continue;
+            }
+            var v = dyn_cast::<VariableDecl>(d);
+            if (v != &null) && v->is_eval() && (v->init != &null) { vars->push_back(v); }
+        }
+    }
+
+    /// \p r's types name a value C++ computes from items that need \p r
+    /// complete (or a record that does): SC001E at the first such type.
+    priv fn _check_record(self, r: *Decl) {
+        if decl_generic_params(r).size() > 0 { return; }   // a template's head reads its items per instance.
+        var ts = vec::<*Type>();
+        var ws = vec::<SourceRange>();
+        self._member_types(r, &ts, &ws);
+        for var t: usize = 0; t < ts.size(); ++t {
+            var seeds = vec::<*Decl>();
+            self._type_items(ts[t], &seeds);
+            if seeds.size() == 0 { continue; }
+            var cl = vec::<*Decl>();
+            self._closure(&seeds, &cl);
+            // The first item needing r, or a record that reaches r.
+            for var k: usize = 0; k < cl.size(); ++k {
+                for var i: usize = 0; i < self._nd_key.size(); ++i {
+                    if (self._nd_key[i] != cl[k]) || (self._nd_kind[i] != u8(1)) { continue; }
+                    var need = self._nd_val[i];
+                    var via: *Decl = &null;
+                    if need != r {
+                        var seen = vec::<*Decl>();
+                        seen.push_back(r);
+                        if !self._rec_reaches_from(need, r, &seen) { continue; }
+                        via = need;
+                    }
+                    self._report_cycle(r, ws[t], cl[k], via, self._nd_at[i]);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// _rec_reaches, with \p seen already holding the start record.
+    priv fn _rec_reaches_from(self, from: *Decl, goal: *Decl, seen: *vec::<*Decl>) -> bool {
+        for var i: usize = 0; i < seen->size(); ++i { if ((*seen)[i] == from) && (from != goal) { return false; } }
+        if from == goal { return true; }
+        seen->push_back(from);
+        var es = vec::<*Decl>();
+        self._rec_edges(from, &es);
+        for var i: usize = 0; i < es.size(); ++i {
+            if es[i] == goal { return true; }
+            if self._rec_reaches(es[i], goal, seen) { return true; }
+        }
+        return false;
+    }
+
+    priv fn _report_cycle(self, r: *Decl, at: SourceRange, item: *Decl, via: *Decl, need_at: SourceRange) {
+        var rn = self.tu.decl_name(r);
+        var inn = self.tu.decl_name(item);
+        var why = f"which needs '{rn}' complete";
+        if via != &null { why = f"which needs '{self.tu.decl_name(via)}\x27 complete, and '{self.tu.decl_name(via)}\x27 needs '{rn}\x27"; }
+        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+            f"this type has a value C++ computes from '{inn}', {why}; inside its own definition '{rn}' is not complete yet, so no order of the C++ declarations can compute it");
+        b.first(at);
+        var nn = (rn) if (via == &null) else (self.tu.decl_name(via));
+        if need_at.is_valid() {
+            b.note(DiagID::SC001N, need_at.start, f"'{inn}' needs '{nn}\x27 complete here").first(need_at);
+        } else {
+            b.note(DiagID::SC001N, item->range.start, f"'{inn}' is declared here").first(item->range);
+        }
+        b.emit();
+    }
+
+    /// An eval binding whose value reaches itself through the eval fns and
+    /// bindings it reads: no constant at all (C++ would report an
+    /// initializer that is not a constant expression).
+    priv fn _check_var(self, v: *VariableDecl) {
+        var n = EvalNeeds(&(self.tu));
+        n.dispatch_expr(v->init);
+        var seeds = vec::<*Decl>();
+        for var i: usize = 0; i < n.items.size(); ++i { seeds.push_back(n.items[i]); }
+        var cl = vec::<*Decl>();
+        self._closure(&seeds, &cl);
+        var me = static_cast::<*Decl>(v);
+        var hit = false;
+        for var i: usize = 0; i < cl.size(); ++i { if cl[i] == me { hit = true; break; } }
+        if !hit { return; }
+        var vn = self.sc->ctx->get_spelling(v->name);
+        var via = "";
+        if seeds.size() > 0 { via = f" through '{self.tu.decl_name(seeds[0])}\x27"; }
+        var b = self.sc->diag->report(DiagID::SC001E, v->name.range.start,
+            f"the value of 'eval {vn}' depends on itself{via}; an eval binding cannot be computed from its own value");
+        b.first(v->name.range);
+        if v->init != &null { b.note(DiagID::SC001N, v->init->range.start, "its initializer, which reads it back").first(v->init->range); }
         b.emit();
     }
 }

@@ -132,13 +132,16 @@ class CodegenBackend derives TokenFiller {
         cg.advance_phase(CodegenPhase::Planned);
 
         // Every declaration, own and foreign, before any body: the item
-        // loop below then only ever defines what is already declared.
+        // loop below then only ever defines what is already declared. The
+        // body emitter is shared: the interface defines the early items
+        // through it (EmitPlan::early), and it skips them after.
+        var ir = EmitIR(&cg);
         var ie = InterfaceEmitter(&cg, &plan);
+        ie.ir = &ir;
         ie.run();
 
         // Bodies, driven by the plan: the same order the interface used, so
         // a definition always follows the declaration it matches.
-        var ir = EmitIR(&cg);
         ir.emit_tu(&plan);
 
         // Home instantiation definitions last: they only instantiate members

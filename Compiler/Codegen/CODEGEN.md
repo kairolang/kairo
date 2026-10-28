@@ -812,8 +812,28 @@ expression needs what it calls already defined and declarations have no
 order, so EmitIR::emit_tu writes, in order: the compile-time bodies
 (foreign, then the TU's free functions, then its records' methods), then
 every eval binding, foreign and own, dependencies first
-(`EmitPlan::_eval_vars`), then the rest. A header and an include stream
+(`EmitPlan::_eval_vars`, following what each reads through the eval fns
+it calls too), then the rest. A header and an include stream
 (`emit_bodies`) keep the same order.
+
+A declaration's TYPE may itself compute from an eval item (`[i32;
+f(3)]` as a field, `Buf<twice(1)>` in a signature, a namespace-scope
+`var g: [i32; f(1)]`; EVAL.md §11, USER), and C++ evaluates it where the
+declaration stands, in the interface. Those items, and everything they
+read transitively, are the plan's EARLY items (`EmitPlan::early`,
+`_early`): every free one is declared at the start of tier 1, and each is
+defined by a tier-1 entry of its own (`PlanEntry::eval_item`), which
+InterfaceEmitter hands to the shared EmitIR (`EmitIR::early`; the
+backends construct one EmitIR and give it to the interface). The
+toposort places each after the records its definition needs complete
+(by-value types in its body, a member's class) and, for an eval binding,
+after every item its value reads; a body only after what it evaluates at
+its own definition (a computed type inside it, an eval local), so mutual
+recursion orders freely; a record after every item its own types reach.
+EmitIR skips them afterwards (`_eval_done`, `_early_vars`); an include
+stream marks them as bodies the host has. A cycle among those edges is
+EvalUsageChecking's error (`_check_order`); reaching the toposort with one
+is an ICE.
 
 A computed value (EVAL.md 0.2: an array extent or generic value argument
 Sema kept as an expression, `TypeExpr` with a `ValueOp`) is spelled by

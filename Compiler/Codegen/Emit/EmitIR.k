@@ -134,6 +134,9 @@ class EmitIR {
     priv var _eval_done: vec::<*FunctionDecl>;
     /// The eval bindings emit_tu defined ahead of the program walk.
     priv var _hoisted_vars: vec::<*VariableDecl>;
+    /// The eval bindings InterfaceEmitter had defined as early items
+    /// (EmitPlan::early, EVAL.md §11); their bodies are in _eval_done.
+    priv var _early_vars: vec::<*VariableDecl>;
     /// The namespace-scope variable whose initializer is being emitted.
     priv var _cur_global: *VariableDecl = &null;
 
@@ -162,7 +165,7 @@ class EmitIR {
         // field default, EVAL.md 2a / 7b) goes with them: a constant
         // expression needs it defined as much.
         var vis = plan->visible_bodies();
-        for var i: usize = 0; i < vis.size(); ++i { if self._compile_time(vis[i]) { self._visible_body(vis[i]); } }
+        for var i: usize = 0; i < vis.size(); ++i { if self._compile_time(vis[i]) && (!self._done(vis[i])) { self._visible_body(vis[i]); } }
         // Free functions first, then records' compile-time methods: an eval
         // field's definition follows its thunk's body and is evaluated right
         // there, so what the thunk calls must already be defined.
@@ -239,7 +242,38 @@ class EmitIR {
     /// Eval bindings' `inline constexpr` definitions, in the plan's order
     /// (dependencies first), each in its namespace (EVAL.md 1.2b).
     priv fn _eval_vars(self, list: vec::<*VariableDecl>) {
-        for var i: usize = 0; i < list.size(); ++i { self._global_var(list[i]); }
+        for var i: usize = 0; i < list.size(); ++i {
+            var early = false;
+            for var k: usize = 0; k < self._early_vars.size(); ++k { if self._early_vars[k] == list[i] { early = true; break; } }
+            if !early { self._global_var(list[i]); }
+        }
+    }
+
+    /// Whether compile-time body \p f is already written (the eval pass, or
+    /// an early item).
+    priv fn _done(self, f: *FunctionDecl) -> bool {
+        for var i: usize = 0; i < self._eval_done.size(); ++i { if self._eval_done[i] == f { return true; } }
+        return false;
+    }
+
+    /// One early item (EmitPlan::early, EVAL.md §11), defined where
+    /// InterfaceEmitter's tier 1 stands: a compile-time body (in its
+    /// owner's wrapper, a method out of line, an eval field's definition
+    /// after its thunk), or an eval binding's `inline constexpr`
+    /// definition. Recorded, so emit_tu / emit_bodies do not write it again.
+    fn early(self, d: *Decl) {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f != &null {
+            if self._done(f) { return; }
+            self._eval_done.push_back(f);
+            self._visible_body(f);
+            return;
+        }
+        var v = dyn_cast::<VariableDecl>(d);
+        if v == &null { return; }
+        for var k: usize = 0; k < self._early_vars.size(); ++k { if self._early_vars[k] == v { return; } }
+        self._early_vars.push_back(v);
+        self._global_var(v);
     }
 
     /// Every template and inline definition visible here (EmitPlan::
@@ -258,7 +292,7 @@ class EmitIR {
     /// emitted as emit_visible emits one: the compile-time bodies, then the
     /// eval bindings that read them, then the rest (as emit_tu orders them).
     fn emit_bodies(self, list: vec::<*FunctionDecl>, vars: vec::<*VariableDecl>) {
-        for var i: usize = 0; i < list.size(); ++i { if self._compile_time(list[i]) { self._visible_body(list[i]); } }
+        for var i: usize = 0; i < list.size(); ++i { if self._compile_time(list[i]) && (!self._done(list[i])) { self._visible_body(list[i]); } }
         self._eval_vars(vars);
         for var i: usize = 0; i < list.size(); ++i { if !self._compile_time(list[i]) { self._visible_body(list[i]); } }
     }
@@ -277,7 +311,7 @@ class EmitIR {
         // (emit_tu): the eval bindings defined after it call them.
         if self._eval_pass {
             if d->kind == DeclKind::FunctionDecl {
-                if cast::<FunctionDecl>(d)->is_eval() && (!self._eval_records) {
+                if cast::<FunctionDecl>(d)->is_eval() && (!self._eval_records) && (!self._done(cast::<FunctionDecl>(d))) {
                     self._free_fn(cast::<FunctionDecl>(d), &null);
                     self._eval_done.push_back(cast::<FunctionDecl>(d));
                 }

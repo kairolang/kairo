@@ -372,10 +372,15 @@ as its argument. Identity is the expression's structure: `[i32; f(3)]` is
 not `[i32; 4]`, as C++ treats a dependent expression before instantiation.
 ArgumentDeduction substitutes a node's operands and folds it when they
 are all values (ConstEval::value_node), so `Buf<3>`'s `[T; N + 1]` IS
-`[T; 4]`; a computed argument or extent is a non-deduced context. A node
-with an eval call or an eval constant in it is SC116E outside a function
-body (`_value_placeable`): a field, a signature or a namespace-scope
-binding is spelled before any consteval body or eval binding is defined.
+`[T; 4]`; a computed argument or extent is a non-deduced context. Such a
+node is accepted in any position, a declaration's type included (a field,
+a signature, a namespace-scope binding): EmitPlan defines the eval fns,
+eval constructors and eval bindings it names, and what they read, ahead of
+the declaration (its early items, CODEGEN.md §7; EVAL.md §11). Where no
+order exists -- an item whose body needs the declaring record complete,
+directly or through a record that needs it, or an eval binding whose
+value reaches itself -- EvalUsageChecking reports it (SC001E,
+`_check_order`).
 A call of a non-eval function is SC001E with a fix-it. An eval class value
 (7e) enters the same way: an eval constructor call (`Grid<Pt(2, 3)>`) is
 a `Call` node naming the class, and an eval binding of one (`Widget<CFG>`)

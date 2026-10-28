@@ -62,14 +62,16 @@ class EmitCXXHeader {
         var plan = EmitPlan(&cg, PlanMode::Header);
         plan.run();
         cg.advance_phase(CodegenPhase::Planned);
+        var ir = EmitIR(&cg);
         var ie = InterfaceEmitter(&cg, &plan);
+        ie.ir = &ir;   // the early items (EmitPlan::early), defined in tier 1.
         ie.set_ffi_lines(self._ffi_lines(tu));
         ie.run();
         // The module's inline and template bodies, after every class
         // definition: C++ consumers need them for the reason Kairo importers
         // do -- they are part of the interface. Out of line, so the class
         // definitions stay byte-identical to every TU's (invariant 11).
-        EmitIR(&cg).emit_visible(&plan);
+        ir.emit_visible(&plan);
         return ts.out;
     }
 

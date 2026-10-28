@@ -33,6 +33,8 @@ import Codegen::Emit::EmitWitness::*;
 import Interop::Clang::HeaderSet::*;
 import AST::Context::TranslationUnit::*;
 import AST::Node::Declarations::*;
+import AST::Node::Base::*;
+import AST::Node::Casting::*;
 
 import AST::Context::ASTContext::*;
 import AST::Context::InstantiationRegistry::*;
@@ -112,6 +114,12 @@ class IncludedDecls {
         if self._bodies.contains(key) { return false; }
         self._bodies.insert(key);
         return true;
+    }
+
+    /// Whether body or eval binding \p d was already offered (admit_body,
+    /// admit_eval_var), without offering it.
+    fn has_body(self, d: *Decl) -> bool {
+        return self._bodies.contains(reinterpret_cast::<u64>(d));
     }
 
     /// True the first time eval binding \p v's definition is offered
@@ -247,11 +255,17 @@ class IncludeEmitter {
                 if plan.entries[i].inst != &null { pruned.push_back(plan.entries[i].inst); }
                 continue;
             }
+            // An early item (EmitPlan::early) an earlier include already
+            // defined, as an early item or among its bodies: defined once.
+            var ei = plan.entries[i].eval_item;
+            if (ei != &null) && seen->has_body(ei) { continue; }
             if seen->admit(&plan, &(plan.entries[i])) { fresh.push_back(plan.entries[i]); }
         }
         plan.entries = fresh;
 
+        var ir = EmitIR(&cg);
         var ie = InterfaceEmitter(&cg, &plan);
+        ie.ir = &ir;
         ie.have_helpers    = seen->helpers;
         ie.have_ctor_slots = seen->ctor_slots;
         ie.have_fn_value   = seen->fn_value;
@@ -269,6 +283,16 @@ class IncludeEmitter {
         for var k: usize = 0; k < seen->estr_seen.size(); ++k { ie.estr_seen.push_back(seen->estr_seen[k]); }
         for var k: usize = 0; k < pruned.size(); ++k { ie.pruned_insts.push_back(pruned[k]); }
         ie.run();
+        // The early items it defined are bodies this host TU has now: the
+        // body list below, and a later include, leave them out.
+        for var i: usize = 0; i < plan.entries.size(); ++i {
+            var ei = plan.entries[i].eval_item;
+            if ei == &null { continue; }
+            var ef = dyn_cast::<FunctionDecl>(ei);
+            if ef != &null { seen->admit_body(ef); continue; }
+            var ev = dyn_cast::<VariableDecl>(ei);
+            if ev != &null { seen->admit_eval_var(ev); }
+        }
         seen->helpers    = ie.have_helpers;
         seen->ctor_slots = ie.have_ctor_slots;
         seen->fn_value   = ie.have_fn_value;
@@ -294,7 +318,6 @@ class IncludeEmitter {
         for var i: usize = 0; i < allv.size(); ++i {
             if seen->admit_eval_var(allv[i]) { vars.push_back(allv[i]); }
         }
-        var ir = EmitIR(&cg);
         ir.emit_bodies(bodies, vars);
 
         for var i: usize = 0; i < sink->system_headers.size(); ++i {

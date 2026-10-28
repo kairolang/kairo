@@ -82,6 +82,7 @@ import Codegen::CodegenICE::*;
 import Codegen::EmitPlan::*;
 import Codegen::Emit::CXXSpell::*;
 import Codegen::Emit::EmitWitness::*;
+import Codegen::Emit::EmitIR::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
@@ -138,6 +139,11 @@ class InterfaceEmitter {
     /// The long compile-time strings (EmitPlan::big_str_hashes, EVAL.md
     /// §11) already defined in this C++ TU, for the same reason.
     pub var estr_seen: vec::<u64>;
+    /// The body emitter the caller runs after this one (EmitPlan::early,
+    /// EVAL.md §11): tier 1 hands it each early item to define in place, and
+    /// it skips them later. Null (`--print-cxx`'s preamble dump): a local
+    /// one defines them.
+    pub var ir: *EmitIR = &null;
     /// The instances a kcc include's plan named but does not instantiate
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
@@ -387,11 +393,40 @@ class InterfaceEmitter {
             self._type_id_specs(pe->primary, pe);
         }
 
+        // The early items (EmitPlan::early, EVAL.md §11) are defined among
+        // the records below; declared first, so a body may call one defined
+        // after it, and read an eval binding whose definition follows. A
+        // method is declared by its class.
+        for var j: usize = i; (j < n) && (self._plan->entries[j].tier == PlanTier::Definitions); ++j {
+            var ee = &(self._plan->entries[j]);
+            if (ee->eval_item == &null) || (header && (!ee->own)) { continue; }
+            var ev = dyn_cast::<VariableDecl>(ee->eval_item);
+            if ev != &null {
+                self._wrapped(ee->decl, fn () { self._global_var_decl(ev); });
+                continue;
+            }
+            var ef = dyn_cast::<FunctionDecl>(ee->eval_item);
+            if (ef == &null) || (decl_extension_of(ee->eval_item) != &null) { continue; }
+            var fdc = reinterpret_cast::<*DeclContext>(ef->semantic_dc);
+            if (fdc != &null) && fdc->is_type_scope() { continue; }
+            if self._spell->is_main(ee->eval_item) { continue; }
+            self._wrapped(ee->decl, fn () { self._free_fn_decl(ef, &null); });
+        }
+
         // tier 1
         while (i < n) && (self._plan->entries[i].tier == PlanTier::Definitions) {
             var e = &(self._plan->entries[i]);
             i += 1;
             if header && (!e->own) { continue; }   // its header was included.
+            if e->eval_item != &null {
+                if self.ir != &null {
+                    self.ir->early(e->eval_item);
+                } else {
+                    var local_ir = EmitIR(self._cg);
+                    local_ir.early(e->eval_item);
+                }
+                continue;
+            }
             if e->scope != &null {
                 var opened = self._ns_open(e->decl, e->scope->ns, false);
                 self._scope_def(e->scope);
@@ -880,7 +915,7 @@ class InterfaceEmitter {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
             if header && (!e->own) { continue; }
             if self._rebuilds(e->decl) { return true; }
         }
@@ -1565,7 +1600,7 @@ class InterfaceEmitter {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
             if header && (!e->own) { continue; }
             var en = dyn_cast::<EnumDecl>(e->decl);
             if (en != &null) && en->is_adt && (en->adt_explicit_tags || en->adt_void_unit || (en->adt_payload_offset != &null)) { return en; }
@@ -2015,7 +2050,7 @@ class InterfaceEmitter {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
             if header && (!e->own) { continue; }
             var en = dyn_cast::<EnumDecl>(e->decl);
             if en == &null { continue; }
@@ -2030,7 +2065,7 @@ class InterfaceEmitter {
         var header = (self._plan->mode() == PlanMode::Header);
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
             if header && (!e->own) { continue; }
             var en = dyn_cast::<EnumDecl>(e->decl);
             if (en != &null) && en->is_adt && (adt_pack_variant(en) != &null) { return true; }
@@ -2419,7 +2454,7 @@ class InterfaceEmitter {
     priv fn _needs_ctor_slots(self) -> bool {
         for var i: usize = 0; i < self._plan->entries.size(); ++i {
             var e = &(self._plan->entries[i]);
-            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) { continue; }
+            if (e->tier != PlanTier::Definitions) || (e->scope != &null) || (e->witness != &null) || (e->eval_item != &null) { continue; }
             if self._has_split_ctor(e->decl) { return true; }
         }
         return false;
