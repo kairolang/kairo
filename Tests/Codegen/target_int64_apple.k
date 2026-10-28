@@ -21,6 +21,6 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo %s --target=arm64-apple-macosx --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // RUN: { %kairo %s --target=x86_64-apple-macosx --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=LLONG
 // LLONG-NOT: signed long x
-// LLONG: signed long long exp;
+// LLONG: signed long long exp {
 // LLONG: signed long long f(signed long long x, unsigned long long y) noexcept;
 // LLONG-NOT: signed long x

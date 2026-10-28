@@ -116,7 +116,8 @@ fn main() -> i32 {
 // CXX:      const signed int k = 3;
 // CXX:      struct S {
 // CXX:      signed int a = 11;
-// CXX-NEXT: signed int b;
+// CXX-NEXT: signed int b {
+// CXX-NEXT: };
 // CXX:      template<class T> class G {
 // CXX:      T v = __kairo_init_v();
 // CXX-NEXT: signed int n = 9;

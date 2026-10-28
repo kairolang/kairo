@@ -31,8 +31,10 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}field_extent.k
-// IR:      signed int row[2];
-// IR-NEXT: signed int all[6];
+// IR:      signed int row[2] {
+// IR-NEXT: };
+// IR-NEXT: signed int all[6] {
+// IR-NEXT: };
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

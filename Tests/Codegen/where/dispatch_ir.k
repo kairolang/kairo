@@ -32,7 +32,8 @@ fn main() -> i32 {
 //
 // The class declares the dispatcher public and its candidates private.
 // IR:      class Acc {
-// IR-NEXT:   public: signed int n;
+// IR-NEXT:   public: signed int n {
+// IR-NEXT:   };
 // IR-NEXT:   signed int get(signed int k) noexcept;
 // IR-NEXT:   private: signed int __kairo_where_get_0(signed int k) noexcept;
 // IR-NEXT:   signed int __kairo_where_get_1(signed int k) noexcept;

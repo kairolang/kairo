@@ -47,8 +47,8 @@ fn main() -> i32 {
 // so the shapes checked are the uses: Elem and Ptr resolved to Box's own T.
 // RUN: { %kairo %s --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: template<class T> class Box {
-// CXX:     T e;
-// CXX:     T v;
+// CXX:     T e {
+// CXX:     T v {
 // CXX:     T get() noexcept;
 // CXX:     T* addr() noexcept;
 

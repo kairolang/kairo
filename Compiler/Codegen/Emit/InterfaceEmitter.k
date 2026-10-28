@@ -789,6 +789,10 @@ class InterfaceEmitter {
 
 
         
+        var union_first = true;
+        // An ADT payload is only ever built whole, from its variant's
+        // values (the enum's constructors), and sits in the enum's union.
+        var payload = isa::<StructDecl>(d) && cast::<StructDecl>(d)->is_adt_payload;
         for var i: usize = 0; i < fields.size(); ++i {
             var f = fields[i];
             if f == &null { continue; }
@@ -805,7 +809,16 @@ class InterfaceEmitter {
             fs += self._spell->decl(f->type_, self._spell->leaf(static_cast::<*Decl>(f)), &null, d);
             // A static's value is its definition's (_static_defs), never an
             // in-class initializer, which C++ refuses on a non-const static.
-            if !f->is_static() { fs += self._field_default(f); }
+            if !f->is_static() {
+                var dflt = self._field_default(f);
+                // A union's one initializer is its first member's: `{}`
+                // keeps the union default-constructible (C++ deletes its
+                // default constructor when a member's is non-trivial, as a
+                // struct whose fields are zeroed below is) and zeroes it.
+                if (dflt.size() == 0) && (!payload) && ((is_union && union_first) || ((!is_union) && self._zero_by_default(f))) { dflt = "{}"; }
+                union_first = false;
+                fs += dflt;
+            }
             fs += ";";
             self._cg->sink->spell(f->name.range, fs);
         }
@@ -2588,6 +2601,51 @@ class InterfaceEmitter {
             self._ice(f->name.range, "InterfaceEmitter: initializer of an array-typed field reached codegen; FeatureGateCheck rejects it");
         }
         return "";
+    }
+
+    /// True when \p f, a field with no initializer, is value-initialized
+    /// by a `{}` default member initializer: a number, a pointer, a plain
+    /// enum, a union, a type parameter, an array of those. variables.mdx: a binding
+    /// of a type with a default and no initializer is zero-initialized, and
+    /// C++ default-initialization leaves a scalar member indeterminate in
+    /// every constructor that does not name it -- a user one with an empty
+    /// body included. On the class, not in each constructor, so the
+    /// implicit one and a split one's untouched fields read 0 as well. A
+    /// mem-initializer (a split constructor's) replaces it.
+    /// Left alone: a const field (every constructor builds it; CtorInitCheck),
+    /// a class or struct (its own constructor builds it, and one with no default
+    /// would make `{}` ill-formed though every constructor builds it), an
+    /// enum with payloads (likewise), an imported C++ type and anything
+    /// else not listed (clang's to decide, as for a local), and a union's
+    /// members (C++ allows at most one initializer there).
+    priv fn _zero_by_default(self, f: *FieldDecl) -> bool {
+        if f->is_const() || (f->init != &null) || (f->type_ == &null) { return false; }
+        var c = (f->type_->canonical) if (f->type_->canonical != &null) else (f->type_);
+        c = canon_unqual(c);
+        while (c != &null) && isa::<FixedArrayType>(c) { c = canon_unqual(cast::<FixedArrayType>(c)->element); }
+        if c == &null { return false; }
+        switch c->kind {
+            case TypeKind::BuiltinType           { return true; }
+            case TypeKind::PointerType           { return true; }
+            case TypeKind::FunctionPointerType   { return true; }
+            // As `T v;` already did, `T v{}` asks the instance for a
+            // default; a class template instantiates it only for a
+            // constructor that leaves `v` to it.
+            case TypeKind::GenericParamType      { return true; }
+            case TypeKind::SubstGenericParamType { return true; }
+            case TypeKind::AssocType             { return true; }
+            case TypeKind::RecordType            { 0; }
+            default { return false; }
+        }
+        var rd = cast::<RecordType>(c)->decl;
+        if (rd != &null) && decl_is_instance(rd) { rd = decl_pattern(rd); }
+        rd = CXXSpell::rep(rd);
+        if rd == &null { return false; }
+        // A union's members are trivial (unions.mdx), and its first is
+        // zeroed by its own `{}` (_record_def).
+        if isa::<UnionDecl>(rd) { return true; }
+        if !isa::<EnumDecl>(rd) { return false; }
+        return !cast::<EnumDecl>(rd)->is_adt;
     }
 
     // --- Const fields in a constructor ----------------------------------------------

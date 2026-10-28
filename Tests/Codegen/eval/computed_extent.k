@@ -46,7 +46,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}computed_extent.k
 // IR:      template<decltype(sizeof(0)) N> class Buf {
-// IR-NEXT:     public: signed int data[(N + 1)];
+// IR-NEXT:     public: signed int data[(N + 1)] {
+// IR-NEXT:     };
 // IR:      ::computed_extent::Buf<(M * 2)> b =
 // IR:      signed int c[ ::computed_extent::twice(3)] =
 // IR:      signed int d[( ::computed_extent::HALF + 1)] =

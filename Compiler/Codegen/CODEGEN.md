@@ -301,7 +301,17 @@ else as a call of the member function it made of the initializer,
 `T d = __kairo_init_d();`, so the expression is a body like any other;
 an array field's list literal as one such call per element,
 `E a[2] = {__kairo_init0_a(), __kairo_init1_a()};`, since no function
-returns an array),
+returns an array; a field with NO initializer whose type has a default
+and no constructor of its own -- a number, a pointer, a plain enum, a
+type parameter, a union, an array of those -- gets `{}`
+(`_zero_by_default`), so every constructor, the implicit one and a user
+one with an empty body included, leaves it 0 as variables.mdx says
+rather than C++'s indeterminate default-initialization; a const field, a
+record, an ADT and an imported C++ type get none, and an ADT payload
+struct's fields none. A union's first member gets `{}` instead: C++
+allows one initializer there, and it keeps the union
+default-constructible when a member struct's zeroed fields made that
+member's default constructor non-trivial),
 method DECLARATIONS (never bodies in the class — invariant 12), the
 derived `op =` (below),
 one `friend struct ::N::__kairo_ext_X;` per same-file scope, nested

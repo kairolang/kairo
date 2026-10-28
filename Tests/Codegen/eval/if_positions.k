@@ -70,7 +70,8 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}if_positions.k
-// IR:     signed int extra;
+// IR:     signed int extra {
+// IR-NEXT: };
 // IR:     signed int pick() noexcept {
 // IR-NEXT:    return 20;
 // IR:     template<class T> signed int size_class(T x) noexcept {

@@ -10,8 +10,10 @@ fn main() -> i32 { return f((1, 2)) as i32 }
 // RUN: { %kairo %s --print-cxx 2>/dev/null || true; } | %FileCheck %s %datamodel
 // CHECK: template<class T0, class T1> struct Tuple2;
 // CHECK: template<class T0, class T1> struct Tuple2 {
-// CHECK-NEXT: T0 _0;
-// CHECK-NEXT: T1 _1;
+// CHECK-NEXT: T0 _0 {
+// CHECK-NEXT: };
+// CHECK-NEXT: T1 _1 {
+// CHECK-NEXT: };
 // CHECK-NEXT: };
 // CHECK: f(::builtin::Tuple2<signed int, [[CXX_I64]]> p) noexcept;
 // CHECK-NOT: Tuple3

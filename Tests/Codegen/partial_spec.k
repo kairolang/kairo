@@ -81,7 +81,8 @@ fn main() -> i32 {
 // CXX-NEXT: template<> class Store<bool>;
 // CXX: template<class X> struct Pair<X, signed int>;
 // CXX: template<class P> class Store<P *> {
-// CXX-NEXT: P * ptr;
+// CXX-NEXT: P * ptr {
+// CXX-NEXT: };
 // CXX: {{ ?}}::{{.*}}::Store<P *> same() const noexcept;
 // CXX: template<class P> class Store<const P *> {
 // CXX: template<> class Store<bool> {

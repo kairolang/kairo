@@ -35,7 +35,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}value_generics.k
 // IR:     template<decltype(sizeof(0)) N, class T> class Ring {
-// IR-NEXT:    T items[N];
+// IR-NEXT:    T items[N] {
+// IR-NEXT:    };
 // IR:     Ring<4, signed int> a =
 // IR:     Ring<4, signed int> b =
 // IR:     Neg<- 3> n =

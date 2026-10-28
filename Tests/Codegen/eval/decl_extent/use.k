@@ -77,13 +77,19 @@ fn main() -> i32 {
 // IR:      consteval decltype(sizeof(0)) twice(decltype(sizeof(0)) x) noexcept {
 // IR:      inline constexpr decltype(sizeof(0)) const HALF = ::lib::twice(2);
 // IR:      class Table {
-// IR-NEXT:     public: signed int rows[ ::lib::twice(2)];
+// IR-NEXT:     public: signed int rows[ ::lib::twice(2)] {
+// IR-NEXT:     };
 // IR:      class Holder {
-// IR-NEXT:     public: signed int a[ ::lib::twice(3)];
-// IR-NEXT:     signed int b[ ::use::HALF];
-// IR-NEXT:     signed int c[ ::use::quad(1)];
-// IR-NEXT:     signed int d[ ::use::FROM_FN];
-// IR-NEXT:     signed int e[ ::use::area( ::use::Pt(2, 2))];
+// IR-NEXT:     public: signed int a[ ::lib::twice(3)] {
+// IR-NEXT:     };
+// IR-NEXT:     signed int b[ ::use::HALF] {
+// IR-NEXT:     };
+// IR-NEXT:     signed int c[ ::use::quad(1)] {
+// IR-NEXT:     };
+// IR-NEXT:     signed int d[ ::use::FROM_FN] {
+// IR-NEXT:     };
+// IR-NEXT:     signed int e[ ::use::area( ::use::Pt(2, 2))] {
+// IR-NEXT:     };
 // IR-NEXT:     ::use::Buf< ::lib::twice(1)> buf;
 // IR-NEXT:     ::use::Grid< ::use::Pt(2, 3)> g;
 // IR:      signed int first(const signed int(& a)[ ::lib::twice(3)]) noexcept;
@@ -101,7 +107,8 @@ fn main() -> i32 {
 // HDR:      consteval decltype(sizeof(0)) twice(decltype(sizeof(0)) x) noexcept {
 // HDR:      class Table {
 // HDR-NEXT:     public :
-// HDR-NEXT:     signed int rows[::lib::twice(2)];
+// HDR-NEXT:     signed int rows[::lib::twice(2)] {
+// HDR-NEXT:     };
 // HDR-NOT:  consteval decltype(sizeof(0)) twice(decltype(sizeof(0)) x) noexcept {
 // REQUIRES: kcc
 // RUN: cd %S && %kcc -c host.cc -o %t.d/host.o
