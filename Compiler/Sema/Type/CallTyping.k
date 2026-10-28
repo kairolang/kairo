@@ -484,7 +484,7 @@ class <T> CallTyping {
                 var cands = vec::<*Decl>();
                 cands.push_back(d);
                 self._set_explicit(&(id->generic_args));
-                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), &null, &null, true);
+                var rt = self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name), id, &null, true);
                 dyn()->ovl.explicit_args.clear();
                 return rt;
             }
@@ -557,6 +557,19 @@ class <T> CallTyping {
         if t == &null { return false; }
         var d = dyn()->tu.record_decl(canon_unqual(t));
         return (d != &null) && isa::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(d)));
+    }
+
+    /// \p d is none of \p cands (as a `where` group's lead and as a
+    /// redeclaration chain's representative): ADL added it.
+    priv fn _outside(self, cands: *vec::<*Decl>, d: *Decl) -> bool {
+        var want = NameLookup::representative(d);
+        for var i: usize = 0; i < cands->size(); ++i {
+            var c = (*cands)[i];
+            var f = dyn_cast::<FunctionDecl>(c);
+            if (f != &null) && (f->where_lead != &null) { c = static_cast::<*Decl>(f->where_lead); }
+            if NameLookup::representative(c) == want { return false; }
+        }
+        return true;
     }
 
     priv fn _any_method(self, cands: *vec::<*Decl>) -> bool {
@@ -736,8 +749,13 @@ class <T> CallTyping {
             n->qualifier = self._instance_qualifier(r.decl, recv);
         }
 
-        // promote cell -> decl (hard invariant #7).
-        if (ident != &null) && (ident->resolved_decl == &null) {
+        // promote cell -> decl (hard invariant #7). A name N bound to ONE
+        // decl is repointed too when the winner came from argument-dependent
+        // lookup instead: EmitIR calls what the name is bound to, so `tag(b,
+        // d)` with a Kairo `tag(b, x: bool)` in scope and C++'s `adl::tag`
+        // winning called the Kairo one, converting the f64 to bool -- a
+        // conversion resolution had refused.
+        if (ident != &null) && ((ident->resolved_decl == &null) || self._outside(cands, static_cast::<*Decl>(r.decl))) {
             ident->resolved_decl  = static_cast::<*Decl>(r.decl);
             ident->candidate_cell = &null;
         }
