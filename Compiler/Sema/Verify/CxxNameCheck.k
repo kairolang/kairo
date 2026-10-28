@@ -126,7 +126,7 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
 
     /// \p s starts `__builtin_`. MIGRATE(raw_string): a char loop.
     priv fn _is_intrinsic_name(self, s: string) -> bool {
-        var p = "__builtin_";
+        var p = LowerTargets::clang_builtin_prefix();
         if s.length() < p.length() { return false; }
         for var i: usize = 0; i < p.length(); ++i {
             if s[i] != p[i] { return false; }

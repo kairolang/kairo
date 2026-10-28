@@ -1110,7 +1110,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
             // A generic body's T: the count is the instance's, and nothing
             // here can name it (the call is answered before C++ instantiates).
             var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
-                "'__builtin_niche_of' needs a type whose layout is known here; this one depends on a generic parameter");
+                "\x27" + to_string(WellKnownType::NicheOf) + "' needs a type whose layout is known here; this one depends on a generic parameter");
             b.first(n->range, "answered at compile time, before any instantiation");
             b.emit();
             cnt = 0;
@@ -1135,7 +1135,7 @@ class EnumLayoutLowering derives ASTWriter::<EnumLayoutLowering> {
         if ie != &null { id = PanicSets(self.sc).type_id(ie->args[0]); }
         if id == u32(0) {
             var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
-                "'__builtin_type_id' needs a type every TU spells the same way; this one depends on a generic parameter or has no C++ type");
+                "\x27" + to_string(WellKnownType::TypeIdOf) + "' needs a type every TU spells the same way; this one depends on a generic parameter or has no C++ type");
             b.first(n->range, "answered at compile time, before any instantiation");
             b.emit();
         }

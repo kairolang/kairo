@@ -201,9 +201,7 @@ class TypeImport {
             if tt == &null { return &null; }
             var nm = tt->getDecl()->getName();
             var name = string(nm.data(), nm.size());
-            var k = BuiltinKind::COUNT;
-            if (name == "size_t") || (name == "uintptr_t") { k = BuiltinKind::USize; }
-            if (name == "ptrdiff_t") || (name == "intptr_t") || (name == "ssize_t") { k = BuiltinKind::ISize; }
+            var k = builtin_for_c_typedef(name);
             if k != BuiltinKind::COUNT {
                 return self.store->qualified(self.store->builtin(k), TypeImport::quals_of(qt.getCanonicalType()));
             }

@@ -1073,7 +1073,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
 
     /// `__builtin_memcmp(s.data, "<bytes>", n) == 0`.
     priv fn _memcmp_eq(self, occ: u32, bytes: *vec::<u8>) -> *Expr {
-        var f = self._builtin("__builtin_memcmp");
+        var f = self._builtin(LowerTargets::clang_memcmp());
         var pu8 = self.sc->types->pointer(self.sc->types->qualified(self.sc->builtin(BuiltinKind::U8), QUAL_CONST()));
         var args = self.list_builder::<*Expr>();
         args.push(self._string_field(occ, LangMembers::string_data(), pu8));
@@ -1199,7 +1199,7 @@ class MatchLowering derives ASTWriter::<MatchLowering> {
     /// (CodeGenOptions::adt_tag_policy; --hardening=enum-tags restores it).
     priv fn _policy(self, adt: bool) -> *Stmt {
         var pol  = (self.sc->opts.adt_unmatched) if (adt) else (self.sc->opts.unmatched);
-        var name = ("__builtin_unreachable") if (pol == UnmatchedPolicy::Unreachable) else ("__builtin_trap");
+        var name = (LowerTargets::clang_unreachable()) if (pol == UnmatchedPolicy::Unreachable) else (LowerTargets::clang_trap());
         var none = self.list_builder::<*Expr>();
         return self._expr_stmt(self._call(self._builtin(name), &none));
     }

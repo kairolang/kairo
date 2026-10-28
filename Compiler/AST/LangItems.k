@@ -1043,4 +1043,54 @@ class LowerTargets {
     /// record in phase A's AST. The stand-in carries layout only, and phase B
     /// compiles against the real record, so the fields need no real names.
     static fn export_field(i: usize) -> string { return f"__kairo_f{i}"; }
+
+    // --- Default-argument thunk overloads (writer: CallLowering) ---------------
+    /// The `_<k>` default_thunk carries when the function's name cell holds
+    /// more than one entity; \p k is 1-based, source order.
+    static fn default_thunk_ordinal(k: usize) -> string { return f"_{k}"; }
+
+    // --- Foreign parameters (writers: DeclImport, BuiltinImport) ----------------
+    /// The name an unnamed C/C++ parameter is imported under, and every
+    /// clang builtin's k-th parameter (BuiltinImport writes these into its
+    /// virtual buffer and slices the same text back out as tokens).
+    static fn foreign_param(k: usize) -> string  { return f"__arg{k}"; }
+    /// An unnamed C++ template parameter's imported name (DeclImport).
+    static fn foreign_tparam(k: u32) -> string   { return f"__P{k}"; }
+
+    // --- C++ and clang entities the output USES ---------------------------------
+    /// Not invented: these are clang's or the C++ library's, and the emitted
+    /// text calls, includes or derives from them. Each is still spelled once
+    /// so that every writer -- a lowering that resolves one through
+    /// BuiltinImport, an emitter that writes one into a helper -- agrees.
+    /// make_index_seq (above) is one of these too. Clang's TYPE TRAITS
+    /// (`__is_same`, `__is_trivially_copyable`, ...) are not here: clang
+    /// lexes them as keywords, as it does `static_cast`, and the helper text
+    /// that uses them is C++ grammar, not a name.
+    ///
+    /// The prefix of every clang builtin function: CxxNameCheck warns on it
+    /// in a user identifier, which C++ would read as the implementation's.
+    static fn clang_builtin_prefix() -> string     { return "__builtin_"; }
+    static fn clang_trap() -> string               { return "__builtin_trap"; }
+    static fn clang_unreachable() -> string        { return "__builtin_unreachable"; }
+    static fn clang_memcmp() -> string             { return "__builtin_memcmp"; }
+    static fn clang_addressof() -> string          { return "__builtin_addressof"; }
+    static fn clang_bit_cast() -> string           { return "__builtin_bit_cast"; }
+    static fn clang_malloc() -> string             { return "__builtin_malloc"; }
+    static fn clang_free() -> string               { return "__builtin_free"; }
+    static fn clang_atomic_fetch_add() -> string   { return "__atomic_fetch_add"; }
+    static fn clang_atomic_sub_fetch() -> string   { return "__atomic_sub_fetch"; }
+    /// `__type_pack_element<K, T...>`: the K-th type of a pack, clang's
+    /// builtin template (the panic helpers index an error set by it).
+    static fn clang_pack_element() -> string       { return "__type_pack_element"; }
+    /// The base every C++-view panic exception derives from (P7), so a
+    /// plain `catch (const std::exception&)` sees it.
+    static fn cxx_exception_base() -> string       { return "::std::exception"; }
+    /// The header that declares the global placement `::new` a rebuilding
+    /// `op =` calls (InterfaceEmitter::_needs_new).
+    static fn cxx_new_header() -> string           { return "new"; }
+    /// The C++ range protocol's members / free functions ([stmt.ranged]): a
+    /// `for x in r` over a C++ range finds them by this name (StmtTyping).
+    /// Not LangMembers::range_begin -- that is a Kairo Range's field.
+    static fn cxx_range_begin() -> string          { return "begin"; }
+    static fn cxx_range_end() -> string            { return "end"; }
 }

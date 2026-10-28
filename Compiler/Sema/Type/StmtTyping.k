@@ -1108,8 +1108,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
         var mb = vec::<*Decl>();
         var me = vec::<*Decl>();
-        var nb = self._cxx_name("begin");
-        var ne = self._cxx_name("end");
+        var kb = LowerTargets::cxx_range_begin();
+        var ke = LowerTargets::cxx_range_end();
+        var nb = self._cxx_name(kb);
+        var ne = self._cxx_name(ke);
         dyn()->ml.lookup(obj, nb, &mb);
         dyn()->ml.lookup(obj, ne, &me);
         // A hidden friend `friend It begin(R&)` sits in the class's table but
@@ -1131,21 +1133,21 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             // Members, both or neither: one alone is not a fallback to the
             // free pair ([stmt.ranged]/1.2), it is an error.
             if (mb.size() == 0) || (me.size() == 0) {
-                var have = "begin";
-                var miss = "end";
-                if mb.size() == 0 { have = "end"; miss = "begin"; }
+                var have = kb;
+                var miss = ke;
+                if mb.size() == 0 { have = ke; miss = kb; }
                 dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' has a member '{have}' but no '{miss}'; a C++ range needs both");
                 return &null;
             }
-            bf = self._cxx_member(at, obj, &mb, "begin", &bt, &bi);
-            ef = self._cxx_member(at, obj, &me, "end",   &et, &ei);
+            bf = self._cxx_member(at, obj, &mb, kb, &bt, &bi);
+            ef = self._cxx_member(at, obj, &me, ke, &et, &ei);
         } else {
             var scopes = vec::<*DeclContext>();
             dyn()->ml.associated_scopes(obj, &scopes);
             var fb = hb;
             var fe = he;
-            dyn()->ml.adl_candidates(&scopes, nb, "begin", &hb, &fb);
-            dyn()->ml.adl_candidates(&scopes, ne, "end",   &he, &fe);
+            dyn()->ml.adl_candidates(&scopes, nb, kb, &hb, &fb);
+            dyn()->ml.adl_candidates(&scopes, ne, ke, &he, &fe);
             if (fb.size() == 0) && (fe.size() == 0) { return &null; }
             // A `begin` that cannot take this range is some other type's:
             // ADL reaches every free `begin` in the namespace. Not iterable,
@@ -1155,15 +1157,15 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             var nofree = vec::<*Decl>();
             if !dyn()->ovl.any_viable(&nofree, &probe, false, &fb, &probe) { return &null; }
             if (fb.size() == 0) || (fe.size() == 0) {
-                var have = "begin";
-                var miss = "end";
-                if fb.size() == 0 { have = "end"; miss = "begin"; }
+                var have = kb;
+                var miss = ke;
+                if fb.size() == 0 { have = ke; miss = kb; }
                 dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' has a free '{have}' but no '{miss}'; a C++ range needs both");
                 return &null;
             }
             free = true;
-            bf = self._cxx_free(at, &fb, "begin", &bt, &bi);
-            ef = self._cxx_free(at, &fe, "end",   &et, &ei);
+            bf = self._cxx_free(at, &fb, kb, &bt, &bi);
+            ef = self._cxx_free(at, &fe, ke, &et, &ei);
         }
         if (bf == &null) || (ef == &null) { dyn()->poison_only(at); return &null; }
 

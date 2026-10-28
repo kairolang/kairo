@@ -344,7 +344,7 @@ class CallLowering derives ASTWriter::<CallLowering> {
             reps.push_back(r);
         }
         if reps.size() <= 1 { return ""; }
-        return f"_{at + 1}";
+        return LowerTargets::default_thunk_ordinal(at + 1);
     }
 
     /// A pack parameter's C++ type, stamped once. Null for a dependent element.

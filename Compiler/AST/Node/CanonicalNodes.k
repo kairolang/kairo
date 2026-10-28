@@ -630,6 +630,18 @@ fn builtin_for_token(k: TokenKind) -> BuiltinKind {
     }
 }
 
+/// \brief The builtin a C typedef imports as when its width is the target's
+///        pointer width, or COUNT for any other name: `size_t` and
+///        `uintptr_t` are `usize`, `ptrdiff_t`, `intptr_t` and `ssize_t` are
+///        `isize` (TypeImport::_pointer_sized walks a typedef chain asking
+///        this). The names are C's, so they are spelled here beside the
+///        C++ spellings of the rows they map to.
+fn builtin_for_c_typedef(name: string) -> BuiltinKind {
+    if (name == "size_t") || (name == "uintptr_t") { return BuiltinKind::USize; }
+    if (name == "ptrdiff_t") || (name == "intptr_t") || (name == "ssize_t") { return BuiltinKind::ISize; }
+    return BuiltinKind::COUNT;
+}
+
 /// \brief Every row lands at the index its `kind` names, carries a spelling
 ///        and a C++ emission, round-trips through builtin_for_token(), and
 ///        no two float rows claim the same APFloat semantics.

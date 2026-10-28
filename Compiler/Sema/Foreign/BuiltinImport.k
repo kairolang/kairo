@@ -68,6 +68,7 @@ import AST::DeclFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::CanonicalNodes::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import Location::SourceManager::*;
 import Support::FileIO::Path::*;
@@ -151,7 +152,7 @@ class BuiltinImport {
         var arg_offs = vec::<usize>();
         for var i: usize = 0; i < BUILTIN_MAX_PARAMS(); ++i {
             arg_offs.push_back(text.size());
-            text += f"__arg{i}\n";
+            text += LowerTargets::foreign_param(i) + "\n";
         }
 
         // Loaded at most once: a retry after a later failure must not
@@ -189,7 +190,7 @@ class BuiltinImport {
                 t->ctx->make_token(at, TokenKind::LitIdentifier, nm)));
         }
         for var i: usize = 0; i < BUILTIN_MAX_PARAMS(); ++i {
-            var nm = f"__arg{i}";
+            var nm = LowerTargets::foreign_param(i);
             var at = ksm->get_range(fid, arg_offs[i], nm.size());
             self._arg_tok.push_back(t->ctx->make_token(at, TokenKind::LitIdentifier, nm));
         }

@@ -72,6 +72,7 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
 import AST::Node::CanonicalNodes::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Mixin::FFILinkage::*;
@@ -993,7 +994,7 @@ class DeclImport {
         for var i: u32 = 0; i < tpl->size(); ++i {
             var p  = tpl->getParam(i);
             var nm = self._str(p->getName());
-            if nm.size() == 0 { nm = f"__P{i}"; }
+            if nm.size() == 0 { nm = LowerTargets::foreign_tparam(i); }
             var gp = GenericParamDecl::create(t->ctx, self.range_of(p), self.ident(t, nm, self.range_of(p)), i);
             gp->owner = NameLookup::representative(owner);
             gp->kind_bound = GenericParamKindBound::Any;      // opaque: the Rust rule. A concept bound would go in requires.
@@ -1104,7 +1105,7 @@ class DeclImport {
             var pat  = self.range_of(p);
             var pnm  = self._str(p->getName());
             var unnamed = pnm.size() == 0;
-            if unnamed { pnm = f"__arg{idx}"; }
+            if unnamed { pnm = LowerTargets::foreign_param(usize(idx)); }
             // `Args&&... args`: the parameter's type is a PackExpansionType,
             // which has no Kairo shape and imported opaque, so no argument
             // converted to it and every emplace_back was SC063E. A Kairo pack
