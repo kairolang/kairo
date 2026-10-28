@@ -14,7 +14,7 @@
 # The compiler derives --resource-dir, --builtins-dir and --std-dir from
 # <exe>/../lib when they are not given (CompilerInstance::_discover_roots),
 # and the runtime root is the builtin root's parent, so lib/rt has to sit
-# beside lib/builtin or every link misses crash.c and fmt.c. clang finds the
+# beside lib/builtin or every link misses crash.c and fmt_*.c. clang finds the
 # same resource dir on its own: <clang>/../lib/clang/<ver>.
 #
 # release: everything is a COPY, so the tree is relocatable (bundle_tree()

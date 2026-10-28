@@ -1368,8 +1368,9 @@ class CompilerInstance {
         // --cxx-undefine (-U).
         for a: string in FlagTranslator::preprocessor(self.invocation()) { bcfg.extra_cc1.push_back(a); }
         // The runtime root, after the user's: `rt/fmt.h` names the same file
-        // from Lib/builtin/fmt.k (an ffi header set copies this invocation)
-        // and from Lib/rt/fmt.c (compile_native shares these arguments).
+        // from Lib/builtin/fmt/fmt_buf.k (an ffi header set copies this
+        // invocation) and from Lib/rt/fmt_*.c (compile_native shares these
+        // arguments).
         var rt_root = self._runtime_root();
         if !rt_root.empty() { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(rt_root); }
         // The two header-search roots, exactly as given: no discovery. With

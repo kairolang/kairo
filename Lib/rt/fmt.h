@@ -1,8 +1,8 @@
 /* --- The Kairo Project ------------------------------ Lib/rt/fmt.h --- */
 /*
- *   The C behind Lib/builtin/fmt.k: the heap, and float text. Both live
- *   here so the builtin imports no variadic and no libc name it might
- *   collide with. Float text is Dragonbox for f32/f64 and an exact bignum
+ *   The C behind Lib/builtin/fmt/fmt_buf.k: the heap, and float text. Both
+ *   live here (in fmt_*.c; fmt_impl.h is their internal header) so the
+ *   builtin imports no variadic and no libc name it might collide with. Float text is Dragonbox for f32/f64 and an exact bignum
  *   printer for everything else; no libc formatting is involved anywhere,
  *   so no locale is either.
  *

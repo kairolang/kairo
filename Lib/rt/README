@@ -1,0 +1,74 @@
+Lib/rt -- the Kairo runtime
+===========================
+
+The C the builtin library calls. Installed beside builtin as
+<resource-dir>/rt (the runtime root is the builtin root's parent), and
+compiled into every link that emitted Kairo objects, on the same cc1 line
+as Kairo's own TUs (CompilerInstance::_compile_runtime).
+
+Layout
+------
+
+Flat, one file per function family, the way compiler-rt's lib/builtins is.
+The driver compiles EVERY .c/.cc/.cpp directly in this directory
+(CompilerInstance::_runtime_sources enumerates it, sorted), so a new
+source file is picked up with no driver change; a header or this README
+is never compiled. Each object is <cache>/kairo/<stem>.o, so stems must be
+unique, and a subdirectory is NOT searched.
+
+    crash.h            public: kairo_rt_crash, the crash path
+    crash.c              the one entry; async-signal-safe (POSIX, Windows,
+                         wasm)
+    fmt.h              public: the heap and float text FmtBuf calls
+    fmt_impl.h           internal to fmt_*.c: shared types (u128, db_dec,
+                         fval, fclass, bn, exact_ws), the Dragonbox
+                         helpers, and the cross-file declarations
+    fmt_alloc.c          kairo_rt_fmt_alloc / realloc / free
+    fmt_dragonbox32.c    shortest digits, binary32 (with its cache table)
+    fmt_dragonbox64.c    shortest digits, binary64 (with its cache table)
+    fmt_exact.c          the bignum; exact shortest and fixed digits
+    fmt_decode.c         a bit pattern -> fclass (IEEE shapes, x87)
+    fmt_layout.c         digits -> text, and format_float over all of it
+    fmt_float.c          the kairo_rt_fmt_<format> entry points
+
+Headers
+-------
+
+One public header per area, because the builtin imports a header, not a
+function: `ffi "c" import "rt/crash.h"` (errors/crash.k) and
+`ffi "c++" import "rt/fmt.h"` (fmt/fmt_buf.k). Splitting the .c files does
+not change what the builtin imports. Everything a family shares with its
+siblings goes in an internal <area>_impl.h that only Lib/rt includes; the
+builtin never imports one. Includes are spelled from Lib/ ("rt/fmt.h"):
+the driver puts the runtime root on the include path of both the runtime
+and the builtin's ffi header sets.
+
+Names
+-----
+
+Everything with external linkage is kairo_rt_*: these objects link into
+user programs, so an unprefixed name would collide with the user's. A
+helper one file calls in another is kairo_rt_<area>_<name>_ (the trailing
+underscore marks it internal: declared in <area>_impl.h, never in a public
+header); a helper used in one file stays `static`.
+
+Portability
+-----------
+
+Must compile under clang for Linux (glibc and musl), Darwin, Windows
+(MSVC ABI), wasm/WASI and freestanding targets. So: C17, no compiler
+builtin without a fallback (`__int128` and `__builtin_clzll` are both
+guarded), no libc formatting (no locale), only <stddef.h>, <stdint.h>,
+<float.h>, <stdlib.h> and <string.h> outside crash.c, and per-target code
+behind the target's own macro (crash.c's _WIN32 / __wasm__ split,
+fmt_float.c's LDBL_MANT_DIG). Tests/Codegen/builtin_fmt_arm64_msvc.k builds
+the builtin for aarch64-pc-windows-msvc.
+
+Where a new function goes
+-------------------------
+
+  - Part of an existing family: its file.
+  - A new family of an existing area: a new <area>_<family>.c, its shared
+    declarations in <area>_impl.h, its public entry in <area>.h.
+  - A new area: <area>.h plus its .c files, and the builtin file that
+    `ffi`-imports <area>.h.
