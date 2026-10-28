@@ -1648,6 +1648,14 @@ class CXXSpell {
             for var i: usize = 0; i < r->args.size(); ++i { v.push_back(r->args[i]); }
             targs = self.args_str(&v, subst, scope);
         }
+        // `L<i32>::P` (GH#91): the member of the enclosing instance, spelled
+        // through it -- `::ns::L<int>::P`, or `typename ::ns::L<T>::P` while
+        // the instance is dependent.
+        if r->outer != &null {
+            var oq = self._type(r->outer, subst, scope);
+            var dep = r->outer->is_dependent() || r->outer->is_instantiation_dependent();
+            return CXXSpell::_member_type(oq, dep, self.leaf(d), targs);
+        }
         return self._record_name(d, targs, scope);
     }
 

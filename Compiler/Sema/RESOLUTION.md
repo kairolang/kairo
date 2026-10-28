@@ -1231,7 +1231,29 @@ parameters AND every generic base's, as the record sees them (read through
 its arguments hop by hop; `bind_own` is the first half alone): a member a
 generic base declares (`s.me()` on `class Seven derives Mixin<Seven>`)
 reads at the base instance, and OverloadResolution seeds such a call from
-the concrete receiver as it does the receiver's own members. `derives_from(derived, base)` is derived-to-base on
+the concrete receiver as it does the receiver's own members.
+
+**Member types of a generic instance** [DONE, GH#91]. A record nested in a
+generic record named through an instance (`L<i32>::P`, `L<i32>::M::P`) is
+`RecordType(P, own args, outer = L<i32>)` (CanonicalTypeStore::record_in):
+the instance is part of its identity, so `L<i32>::P` and `L<f64>::P` are two
+types, and it is never a registry entry (C++ instantiates a member class
+with its enclosing instance). Inside L's body `P` stays the plain record,
+flagged `InGenericOwner` (it names the current instantiation; not
+dependence). One mechanism, G4's substitution: `substitute` reaches a
+flagged record and rebuilds it over its owner's bound arguments
+(`_owner_through`), and `bind_own` of a record with an `outer` binds the
+enclosing instance's parameters, so `q.k` on `q: L<i32>::P` reads K := i32.
+T forms it for a written `L<i32>::P` (the walk steps through the pattern,
+`_kairo_instance_of` checks and collects the arguments, and the result is
+substituted at the end -- an alias `L<i32>::Key` is the argument);
+ChainBinding and MemberTyping do the same for an expression head
+(`L<i32>::P { .. }`, `L<i32>::Color::Red`); the receiver-seeded call paths
+substitute a flagged result or parameter as they do a dependent one; and
+deduction unifies the enclosing instances (`fn <T> f(r: L<T>::P)`). CXXSpell
+spells it through the instance (`::ns::L<int>::P`, `typename ::ns::L<T>::P`
+while dependent); EmitPlan admits the enclosing instance Complete wherever
+the member type is named; ConformanceChecking makes it live. `derives_from(derived, base)` is derived-to-base on
 TYPES (every implicit upcast, `as`, the downcast hint): an instance's bases
 are its body's declared list (`record_body`: a filled instance's own, a
 selected partial's, else the pattern's) with the instance's arguments

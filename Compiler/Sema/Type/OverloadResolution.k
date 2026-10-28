@@ -943,6 +943,9 @@ class OverloadResolution {
         if (r == &null) || r->is_dependent() || r->is_instantiation_dependent() { return false; }
         var own = NameLookup::representative(owner);
         if (r->args.size() > 0) && (own == NameLookup::representative(self.tu.pattern_of(r->decl))) { return true; }
+        // A member of `L<i32>::Cell`: typed over L's parameters, which the
+        // receiver's enclosing instance binds (GH#91).
+        if r->outer != &null { return true; }
         // A member of a generic BASE the concrete receiver derives an
         // instance of (CRTP: `s.me()` on `class Seven derives
         // Mixin<Seven>`): bind_from_record reads the receiver's bases too,
@@ -1274,7 +1277,7 @@ class OverloadResolution {
                 // takes an i32, and "of type 'T'" names nothing the caller
                 // can pass.
                 var shown = pt;
-                if c->ded.seeded && pt->is_dependent() {
+                if c->ded.seeded && (pt->is_dependent() || pt->in_generic_owner()) {
                     var sp = c->ded.substitute(pt);
                     if sp != &null { shown = sp; }
                 }
@@ -1376,7 +1379,7 @@ class OverloadResolution {
     priv fn _rank_arg(self, c: *Candidate, a: *ArgInfo, pt: *Type, is_pack: bool, mode: ParamMode) -> ImplicitRank {
         // A parameter the receiver already decided ranks as the type it is: a
         // literal takes it (§5), an argument converts to it, nothing re-deduces it.
-        if c->ded.seeded && (pt != &null) && pt->is_dependent() {
+        if c->ded.seeded && (pt != &null) && (pt->is_dependent() || pt->in_generic_owner()) {
             var s = c->ded.substitute(pt);
             if s != &null { pt = s; }
         }

@@ -391,8 +391,19 @@ class <T> MemberTyping {
                         continue;
                     }
                     if dyn()->tu.is_type_decl(d) {
+                        var outer_t = (cur_type) if (cur_kind == 1) else (&null);
                         cur_type = dyn()->type_from_type_decl(d, st->generic_args, n);
                         if cur_type == &null { dyn()->poison_only(n); return &null; }
+                        // `L<i32>::P { .. }` / `L<i32>::Color::Red`: a member
+                        // type named through an instance is that instance's
+                        // (GH#91), as in type position (TypeResolve).
+                        if (outer_t != &null) && (cur_type->in_generic_owner() || cur_type->is_dependent())
+                        && isa::<RecordType>(canon_unqual(outer_t)) {
+                            var sd = Deduction(dyn()->sc, &null);
+                            sd.bind_from_record(canon_unqual(outer_t));
+                            var sub = sd.substitute(cur_type);
+                            if sub != &null { cur_type = sub; }
+                        }
                         cur_kind = 1;
                         st->resolved_type = cur_type;
                     } else {

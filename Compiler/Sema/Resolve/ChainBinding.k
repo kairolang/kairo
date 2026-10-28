@@ -169,7 +169,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             var st = n->steps.get(i);
             if st == &null { break; }
             if st->resolved_decl != &null {   // idempotent re-run.
-                a = self._anchor_after(st->resolved_decl, st, self._receiver_of(a, st));
+                a = self._anchor_after(st->resolved_decl, st, self._through_of(a, st));
                 continue;
             }
             a = self._bind_step(n, st, a);
@@ -325,11 +325,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 a.decl = d;
                 return a;
             }
-            case DeclKind::ClassDecl     { return self._type_anchor(d); }
-            case DeclKind::StructDecl    { return self._type_anchor(d); }
-            case DeclKind::UnionDecl     { return self._type_anchor(d); }
+            case DeclKind::ClassDecl     { return self._type_anchor_seen(d, through); }
+            case DeclKind::StructDecl    { return self._type_anchor_seen(d, through); }
+            case DeclKind::UnionDecl     { return self._type_anchor_seen(d, through); }
             case DeclKind::InterfaceDecl { return self._type_anchor(d); }
-            case DeclKind::EnumDecl      { return self._type_anchor(d); }
+            case DeclKind::EnumDecl      { return self._type_anchor_seen(d, through); }
             case DeclKind::TypeAliasDecl {
                 var td = cast::<TypeAliasDecl>(d);
                 if td->aliased == &null { a.kind = AnchorKind::Errored; return a; }
@@ -415,6 +415,12 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 a.decl = d;
                 a.ty   = self.sc->types->record(NameLookup::representative(ed), &args);
                 if self._generic_count(ed) > 0 { a.kind = AnchorKind::Dependent; }
+                // `L<i32>::Color::Green` is an `L<i32>::Color`.
+                var tr = (canon_unqual(through)) if (through != &null) else (&null);
+                if (tr != &null) && isa::<RecordType>(tr) && (cast::<RecordType>(tr)->outer != &null)
+                && (NameLookup::representative(cast::<RecordType>(tr)->decl) == NameLookup::representative(ed)) {
+                    a.ty = tr;
+                }
                 return a;
             }
             case DeclKind::FunctionDecl {
@@ -447,6 +453,28 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         }
     }
 
+    /// _type_anchor for a member type reached through \p through (`::P` on
+    /// the type anchor `L<i32>`): seen through it, `L<i32>::P` (GH#91),
+    /// rather than the pattern's P.
+    priv fn _type_anchor_seen(self, d: *Decl, through: *Type) -> Anchor {
+        var a = self._type_anchor(d);
+        if (through == &null) || (a.ty == &null) || (!a.ty->in_generic_owner()) { return a; }
+        var r = canon_unqual(through);
+        if (r == &null) || (!isa::<RecordType>(r)) { return a; }
+        var ded = Deduction(self.sc, &null);
+        ded.bind_from_record(r);
+        var s = ded.substitute(a.ty);
+        if s != &null { a.ty = s; }
+        return a;
+    }
+
+    /// What a step's member is read through: the receiver's type for `.` /
+    /// `->`, the type itself for `::` on a type.
+    priv fn _through_of(self, a: Anchor, st: *ChainExpr::Step) -> *Type {
+        if (st != &null) && (st->access_kind == ChainExpr::AccessKind::ColonColon) && (a.kind == AnchorKind::Type) { return a.ty; }
+        return self._receiver_of(a, st);
+    }
+
     priv fn _type_anchor(self, d: *Decl) -> Anchor {
         var a = Anchor{};
         var canon = NameLookup::representative(d);
@@ -473,9 +501,10 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     /// member_through only binds and substitutes, it never ranks.
     priv fn _seen_through(self, t: *Type, through: *Type) -> *Type {
         if (t == &null) || t->is_poisoned() || (t->canonical == &null) || (through == &null) { return &null; }
-        if !t->canonical->is_dependent() { return &null; }
+        if (!t->canonical->is_dependent()) && (!t->canonical->in_generic_owner()) { return &null; }
         var r = canon_unqual(through);
-        if (!isa::<RecordType>(r)) || (cast::<RecordType>(r)->args.size() == 0) { return &null; }
+        if !isa::<RecordType>(r) { return &null; }
+        if (cast::<RecordType>(r)->args.size() == 0) && (cast::<RecordType>(r)->outer == &null) { return &null; }
         var ded = Deduction(self.sc, &null);
         var s = ded.member_through(r, t->canonical);
         return (s) if (s != t->canonical) else (&null);
@@ -658,7 +687,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
                 var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
             }
-            return self._commit(st, loc, &cands, a.decl, &null);
+            return self._commit(st, loc, &cands, a.decl, &null, a.ty);
         }
 
         // --- `.` `->` `?.` `?->` -----------------------------------------------------

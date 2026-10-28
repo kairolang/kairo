@@ -7,9 +7,9 @@
 // out-of-line member definitions, and in a sibling nested type's body, it
 // is the dependent member `typename ...::L<K>::P`.
 //
-// `main` never names `L<i32>::P` itself: Sema types that as the pattern's
-// `P`, without the outer arguments, so nothing outside `L` can spell it
-// yet. The values cross `main` only as call results and arguments.
+// `main` names `L<i32>::P` itself too (GH#91): the local carries L's
+// arguments, so `q.k` is an i32, and C++ spells it `::...::L<int>::P`
+// (generic_nested_instance.k has the wider shapes).
 
 class <K> L {
     pub struct P {
@@ -52,7 +52,9 @@ fn main() -> i32 {
     var l = L<i32>(3)
     l.put(l.get())
     l.put(l.make(9))
-    return l.val() + l.n()      // 9 + 5
+    var q: L<i32>::P = l.make(2)
+    var k: i32 = q.k
+    return l.val() + l.n() + k  // 9 + 5 + 2
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -72,6 +74,7 @@ fn main() -> i32 {
 // CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::make(K k) noexcept {
 // CXX:      template<class K> typename{{ ?}}::generic_nested_type::L<K>::P L<K>::get() noexcept {
 // CXX:      template<class K> void L<K>::put(typename{{ ?}}::generic_nested_type::L<K>::P p) noexcept {
+// CXX:      {{ ?}}::generic_nested_type::L<signed int>::P q = l.make(2);
 
 // The argument-less qualified form must not appear anywhere.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=NOQUAL
@@ -80,4 +83,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 14
+// RUN: %t.exe; test $? -eq 16

@@ -222,6 +222,10 @@ class Substitution {
         if part != &null {
             for var i: usize = 0; i < pargs.size(); ++i { self.bind(part, static_cast::<u32>(i), pargs[i]); }
         }
+        // `L<i32>::P`: P's own members are typed over L's parameters, which
+        // the enclosing instance binds (GH#91).
+        var ru = dyn_cast::<RecordType>(canon_unqual(rec));
+        if (ru != &null) && (ru->outer != &null) { self.bind_from_record(ru->outer); }
     }
 
     /// Every generic base of record \p rec, read through \p rec's arguments
@@ -256,7 +260,10 @@ class Substitution {
     /// result goes through the registry so `Foo<i32>` is the instance decl.
     fn substitute(self, t: *Type) -> *Type {
         if t == &null { return &null; }
-        if !t->is_dependent() { return t; }
+        // A member type of a generic record named as its owner's current
+        // instantiation is no parameter, yet reads through the owner's
+        // bindings (`P` through `L<i32>` is `L<i32>::P`).
+        if (!t->is_dependent()) && (!t->in_generic_owner()) { return t; }
 
         switch t->kind {
             case TypeKind::GenericParamType {
@@ -331,6 +338,15 @@ class Substitution {
                 return self.sc->types->qualified(i, q->quals);
             } case TypeKind::RecordType {
                 var r = cast::<RecordType>(t);
+                var outer = r->outer;
+                if outer != &null {
+                    if outer->is_dependent() || outer->in_generic_owner() {
+                        outer = self.substitute(outer);
+                        if outer == &null { return &null; }
+                    }
+                } else if t->in_generic_owner() {
+                    outer = self._owner_through(r->decl);   // null: the owners' parameters are not bound here.
+                }
                 var args = vec::<*Type>();
                 var dep  = false;
                 for var i: usize = 0; i < r->args.size(); ++i {
@@ -352,6 +368,9 @@ class Substitution {
                     args.push_back(a);
                 }
                 var primary = NameLookup::representative(self.tu.pattern_of(r->decl));
+                // Seen through its enclosing instance: never a registry entry,
+                // the enclosing instance's instantiation is the member's.
+                if outer != &null { return self.sc->types->record_in(primary, &args, outer); }
                 if dep || (args.size() == 0) { return self.sc->types->record(primary, &args); }
                 var e = self.sc->instances->instance_for(primary, &args, self.sc->ctx->fid,
                                                          NameLookup::ctx_of(primary));
@@ -386,6 +405,28 @@ class Substitution {
                 return self.assoc_witness(b, i, a->assoc);
             } default { return &null; }
         }
+    }
+
+    /// The record nested type \p d belongs to, as the current bindings see
+    /// it: its owner over the owner's own parameters, substituted (`L<K>`
+    /// under K := i32 is the instance `L<i32>`; an owner that is itself
+    /// nested recurses). Null when nothing changes, i.e. the owners'
+    /// parameters are not bound here: \p d then stays the current
+    /// instantiation's.
+    priv fn _owner_through(self, d: *Decl) -> *Type {
+        var o = decl_type_owner(NameLookup::representative(d));
+        if o == &null { return &null; }
+        o = NameLookup::representative(o);
+        var gps = decl_generic_params(o);
+        var own = vec::<*Type>();
+        for var i: usize = 0; i < gps.size(); ++i {
+            if gps[i] == &null { return &null; }
+            own.push_back(self.sc->types->generic_param(o, u32(i), gps[i]->is_pack));
+        }
+        var ot = self.sc->types->record(o, &own);
+        var s = self.substitute(ot);
+        if (s == &null) || (s == ot) { return &null; }
+        return s;
     }
 
     /// \p own: `I<T...>` over I's OWN parameters is Self too. That is what
@@ -632,7 +673,7 @@ class Substitution {
     /// field `var x: T` reads as i32). Non-dependent members pass through.
     fn member_through(self, recv: *Type, mt: *Type) -> *Type {
         if mt == &null { return &null; }
-        if !mt->is_dependent() { return mt; }
+        if (!mt->is_dependent()) && (!mt->in_generic_owner()) { return mt; }
         self.bind_from_record(recv);
         var s = self.substitute(mt);
         return (s) if (s != &null) else (mt);

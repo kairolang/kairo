@@ -216,6 +216,12 @@ class Deduction derives Substitution {
                 var ppat = NameLookup::representative(self.tu.pattern_of(pr->decl));
                 var apat = NameLookup::representative(self.tu.pattern_of(ar->decl));
                 if ppat != apat { return ImplicitRank::None; }
+                // `L<T>::P` against `L<i32>::P`: the enclosing instances
+                // unify too (RecordType::outer), so T := i32.
+                if (pr->outer != &null) || (ar->outer != &null) {
+                    if (pr->outer == &null) || (ar->outer == &null) { return ImplicitRank::None; }
+                    if self.unify(pr->outer, ar->outer, false) == ImplicitRank::None { return ImplicitRank::None; }
+                }
                 for var i: usize = 0; i < pr->args.size(); ++i {
                     // `Outcome<i32, E...>` against `Outcome<i32, f64, bool>`:
                     // a trailing pack takes every argument from here on, and

@@ -765,6 +765,15 @@ class BuiltinType derives Type {
 class RecordType derives Type {
     pub var decl: *Decl = &null;          ///< canonical Class/Struct/Union/Interface/EnumDecl.
     pub var args: FrozenList::<*Type>;    ///< canonical generic args; empty if non-generic.
+    /// The enclosing record AS SEEN through an instance, for a record
+    /// nested in a generic one and named through it (`L<i32>::P`: outer is
+    /// `L<i32>`, decl the pattern's P, args P's own). Null for every other
+    /// record, and for the nested record named as its owner's current
+    /// instantiation (`P` inside L's body; TypeFlags::InGenericOwner). Part
+    /// of the identity: `L<i32>::P` and `L<f64>::P` are two types. Never a
+    /// registry entry: C++ instantiates a member class with its enclosing
+    /// instance, so `L<i32>`'s explicit instantiation covers it.
+    pub var outer: *Type = &null;
 
     /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
         return ptr->kind == TypeKind::RecordType;

@@ -220,6 +220,15 @@ class CanonicalTypeStore {
     /// \p decl MUST be the canonical redecl link (the definition where one
     /// exists) -- passing a forward declaration forks the entity in two.
     fn record(self, decl: *Decl, args_in: *vec::<*Type>) -> *Type {
+        return self.record_in(decl, args_in, &null);
+    }
+
+    /// \p decl, a record nested in a generic one, seen through the
+    /// enclosing record \p outer (`L<i32>::P`; RecordType::outer). Null
+    /// \p outer is record(): the plain type, flagged InGenericOwner when
+    /// \p decl's owners are generic (it then names their current
+    /// instantiation).
+    fn record_in(self, decl: *Decl, args_in: *vec::<*Type>, outer: *Type) -> *Type {
         if decl == &null { return &null; }
         // An enum's expanded pack is a set (decl_dedup_pack_args), so its
         // duplicates are gone before the type has an identity.
@@ -239,15 +248,17 @@ class CanonicalTypeStore {
         for var i: usize = 0; i < n; ++i {
             h = canon_hash_ptr(h, reinterpret_cast::<*void>((*args)[i]));
         }
+        if outer != &null { h = canon_hash_ptr(h, reinterpret_cast::<*void>(outer)); }
 
         var lock = std::LockGuard(self._mu);
-        var hit = self._probe_record(h, decl, args, n);
+        var hit = self._probe_record(h, decl, args, n, outer);
         if hit != &null { return hit; }
 
         var rt = self._alloc::<RecordType>();
         rt->kind  = TypeKind::RecordType;
         rt->range = SourceRange::invalid();
         rt->decl  = decl;
+        rt->outer = outer;
         rt->init_annotations(&(self._arena));
         rt->init_spans(&(self._arena));
 
@@ -264,6 +275,15 @@ class CanonicalTypeStore {
         // A generic instance is exactly as dependent as its arguments.
         for var i: usize = 0; i < n; ++i {
             self._absorb_flags(ty, (*args)[i]);
+        }
+        // ...and a member type as its enclosing instance; one named as its
+        // owner's current instantiation carries the owner's parameters
+        // implicitly.
+        if outer != &null {
+            self._absorb_flags(ty, outer);
+        } else if decl_in_generic_owner(decl) {
+            ty->type_flags = static_cast::<Type::TypeFlags>(
+                static_cast::<u8>(ty->type_flags) | static_cast::<u8>(Type::TypeFlags::InGenericOwner));
         }
         self._insert(h, ty);
         return ty;
@@ -932,7 +952,7 @@ class CanonicalTypeStore {
         return &null;
     }
 
-    priv fn _probe_record(self, h: u64, decl: *Decl, args: *vec::<*Type>, n: usize) -> *Type {
+    priv fn _probe_record(self, h: u64, decl: *Decl, args: *vec::<*Type>, n: usize, outer: *Type) -> *Type {
         var b = self._bucket(h);
         if b == &null { return &null; }
         for var i: usize = 0; i < b->size(); ++i {
@@ -940,6 +960,7 @@ class CanonicalTypeStore {
             if c->kind != TypeKind::RecordType { continue; }
             var r = cast::<RecordType>(c);
             if r->decl != decl { continue; }
+            if r->outer != outer { continue; }
             if r->args.size() != n { continue; }
             var same = true;
             for var j: usize = 0; j < n; ++j {

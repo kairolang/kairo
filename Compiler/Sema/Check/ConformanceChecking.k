@@ -244,6 +244,8 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
                 for var i: usize = 0; i < r->args.size(); ++i { self._check_type(r->args[i], at, depth + 1); }
+                // `L<i32>::P` uses L<i32>: its bounds hold, and it is homed.
+                if r->outer != &null { self._check_type(r->outer, at, depth + 1); }
                 if (r->decl == &null) || (!decl_is_instance(r->decl)) { return; }
                 var e = self.sc->instances->entry_of(r->decl);
                 if e != &null { self._check_instance(e, at); }
@@ -662,6 +664,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             case TypeKind::RecordType {
                 var r = cast::<RecordType>(c);
                 for var i: usize = 0; i < r->args.size(); ++i { if !self._take_type(outer, r->args[i], at, depth + 1) { return false; } }
+                if (r->outer != &null) && (!self._take_type(outer, r->outer, at, depth + 1)) { return false; }
                 if (r->decl == &null) || (!decl_is_instance(r->decl)) { return true; }
                 var ne = self.sc->instances->entry_of(r->decl);
                 if ne == &null { return true; }

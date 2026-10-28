@@ -209,6 +209,39 @@ fn decl_is_imported(d: *Decl) -> bool {
     return false;
 }
 
+/// The record \p d is a member type of, or null: at namespace scope, in a
+/// function, in an extension body (an extension opens no C++ class scope
+/// a type could live in), or in an enum (its payload structs and layout
+/// record ARE the enum's, laid out by EnumLayoutLowering, never member
+/// types named through an instance).
+fn decl_type_owner(d: *Decl) -> *Decl {
+    if d == &null { return &null; }
+    var lex = reinterpret_cast::<*DeclContext>(d->lexical_dc);
+    if (lex != &null) && (lex->dc_kind == DeclContextKind::Extension) { return &null; }
+    var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+    if (dc == &null) || (!dc->is_type_scope()) { return &null; }
+    if (dc->dc_kind == DeclContextKind::Extension) || (dc->dc_kind == DeclContextKind::Enum) { return &null; }
+    return dc->owner_decl();
+}
+
+/// \p d is a record nested, at any depth, in a GENERIC record: its owners'
+/// parameters are implicit in it (Type::TypeFlags::InGenericOwner).
+fn decl_in_generic_owner(d: *Decl) -> bool {
+    if (d == &null) || (!(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d))) { return false; }
+    // An imported template's member type is clang's: each instance's is its
+    // own filled decl (TypeResolve::_foreign_instance_of), never a pattern
+    // type seen through an instance.
+    if decl_is_imported(d) { return false; }
+    var o = decl_type_owner(d);
+    var depth: u32 = 0;
+    while (o != &null) && (depth < 64) {
+        if decl_generic_params(o).size() > 0 { return true; }
+        o = decl_type_owner(o);
+        depth += 1;
+    }
+    return false;
+}
+
 /// The clang decl behind an imported entity, as *void (this layer cannot
 /// name clang). Null on a Kairo-authored decl and on kinds without the mixin.
 fn decl_clang(d: *Decl) -> *void {

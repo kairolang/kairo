@@ -220,6 +220,8 @@ class EarlyNeeds derives RecursiveASTVisitor::<EarlyNeeds> {
                 var rt = cast::<RecordType>(c);
                 self._rec(rt->decl);
                 for var i: usize = 0; i < rt->args.size(); ++i { self.values(*(rt->args.get(i))); }
+                // `L<i32>::P` is laid out inside L<i32>'s instantiation.
+                if rt->outer != &null { self.rec_type(rt->outer); }
             }
             case TypeKind::FixedArrayType {
                 self.rec_type(cast::<FixedArrayType>(c)->element);
@@ -1040,6 +1042,7 @@ fn EmitPlan::_scope_sig_dep(k: usize, t: *Type) {
         case TypeKind::RecordType {
             var r = cast::<RecordType>(c);
             for var i: usize = 0; i < r->args.size(); ++i { self._scope_sig_dep(k, *(r->args.get(i))); }
+            if r->outer != &null { self._scope_sig_dep(k, r->outer); }
             var d = self.layout_decl(r->decl);
             if (d == &null) || decl_is_imported(d) || isa::<InterfaceDecl>(d) { return; }
             var outer = self._outermost_type(d);
@@ -1969,6 +1972,9 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::RecordType {
             var r = cast::<RecordType>(c);
             var d = CXXSpell::rep(r->decl);
+            // Naming `L<i32>::P` at all -- through a pointer too -- looks P
+            // up inside L<i32>, which C++ must have instantiated.
+            if r->outer != &null { self._admit_type(r->outer, PlanNeed::Complete); }
             if (d != &null) && decl_is_instance(d) {
                 self._admit(d, need);                 // _admit_instance handles the args.
             } else {

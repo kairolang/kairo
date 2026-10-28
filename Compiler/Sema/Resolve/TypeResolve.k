@@ -1604,6 +1604,9 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var cur       = head;
         var cur_owner = head_owner;
         var went_dependent = false;
+        // Kairo generic records the walk stepped THROUGH with arguments
+        // (`L<i32>` of `L<i32>::M::P`), outermost first.
+        var through = vec::<*Type>();
 
         for var i: usize = 1; i < n; ++i {
             var seg = ct->segments.get(i);
@@ -1633,6 +1636,54 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
                 if ct->is_poisoned() { return; }   // arity / arg errors, diagnosed inside.
                 if inst != &null {
                     self._scope_of(inst, seg->range);   // the fill trigger.
+                }
+                // `L<i32>::P` with L a Kairo generic record: its member types
+                // live on the pattern, so the walk stays there and the
+                // instance's arguments are read into the result at the end
+                // (GH#91). Dropped, they made `L<i32>::P` the pattern's P,
+                // whose `k` is a `K`.
+                if inst == &null {
+                    var kt = self._kairo_instance_of(ct, cur, prev);
+                    if ct->is_poisoned() { return; }
+                    if kt != &null {
+                        through.push_back(kt);
+                        prev->resolved_type = kt;
+                        // The body the instance selects: a partial
+                        // specialization's members are its own.
+                        var body0 = self.sc->record_body(kt);
+                        if body0 != &null { cur = body0; }
+                        var scope0 = self._scope_of(cur, seg->range);
+                        if scope0 == &null { ct->poison(); return; }
+                        var simm0 = self._name_imm(seg->name->name);
+                        if simm0 == u32(-1) { ct->poison(); return; }
+                        var sspell0 = self.sc->ctx->get_spelling(seg->name->name);
+                        var sr0 = self.sc->lookup.in_context(scope0, DeclName::ident(simm0), sspell0);
+                        // Not in the body chosen here, but the template has
+                        // specializations: one Kairo cannot select (a pack
+                        // pattern is never registered) may hold the member,
+                        // so the old deferral stands rather than a false
+                        // R025E.
+                        if (!sr0.found()) && self._has_specializations(prev) {
+                            seg->seg_kind = ChainType::SegmentKind::Dependent;
+                            went_dependent = true;
+                            break;
+                        }
+                        if !sr0.found() {
+                            var snm0 = self.sc->ctx->get_spelling(seg->name->name);
+                            var pnm0 = self.sc->ctx->get_spelling(prev->name->name);
+                            self.sc->diag->report(DiagID::R025E, seg->name->range.start,
+                                f"no type named '{snm0}' in '{pnm0}\x27"
+                            ).first(seg->name->range).emit();
+                            ct->poison();
+                            return;
+                        }
+                        cur = self._pick_type_candidate(sr0, seg->name);
+                        if cur == &null { ct->poison(); return; }
+                        cur_owner = &null;
+                        seg->resolved_decl = cur;
+                        mods.clear();
+                        continue;
+                    }
                 }
                 if (inst == &null) || MemberLookup::unfilled(inst) {
                     seg->seg_kind = ChainType::SegmentKind::Dependent;
@@ -1714,7 +1765,56 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // --- 4. the final decl becomes a type --------------------------------
         var last = ct->segments.get(n - 1);
         ct->canonical = self._type_of_decl(ct, cur, cur_owner, last);
+        // ...read through the instances it was named through: the pattern's
+        // `P` becomes `L<i32>::P` (Substitution's InGenericOwner rule), an
+        // alias `type Key = K` becomes i32. G4's substitution, no second
+        // mechanism (MONO.md D0).
+        if (through.size() > 0) && (ct->canonical != &null) && (!ct->is_poisoned()) {
+            var ded = Deduction(self.sc, &null);
+            for var i: usize = 0; i < through.size(); ++i { ded.bind_own(through[i]); }
+            var sub = ded.substitute(ct->canonical);
+            if sub != &null { ct->canonical = sub; }
+        }
         if last->resolved_type == &null { last->resolved_type = ct->canonical; }
+    }
+
+    /// The primary \p seg names is declared beside a specialization of
+    /// itself (`struct <T> Traits<Box<T>>` next to `struct <R> Traits`).
+    priv fn _has_specializations(self, seg: *ChainType::ChainSegment) -> bool {
+        var d = seg->resolved_decl;
+        if (d == &null) || (d->semantic_dc == &null) || (seg->name == &null) { return false; }
+        var imm = self._name_imm(seg->name->name);
+        if imm == u32(-1) { return false; }
+        var r = self.sc->lookup.in_context(reinterpret_cast::<*DeclContext>(d->semantic_dc), DeclName::ident(imm),
+                                           self.sc->ctx->get_spelling(seg->name->name));
+        if !r.found() { return false; }
+        for var i: usize = 0; i < r.cell->size(); ++i {
+            if (r.cell->get(i) != &null) && NameLookup::is_specialization(r.cell->get(i)) { return true; }
+        }
+        return false;
+    }
+
+    /// `L<i32>` as the qualifier of a member type: the type of Kairo generic
+    /// record \p d at \p seg's arguments -- its registry instance when they
+    /// are concrete (so the instance is the one every other spelling of
+    /// `L<i32>` names), the dependent record otherwise. Null when \p d is
+    /// not a Kairo generic record (an alias, an interface, a foreign
+    /// template: their old paths apply).
+    priv fn _kairo_instance_of(self, ct: *ChainType, d: *Decl, seg: *ChainType::ChainSegment) -> *Type {
+        if (d == &null) || (!(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d))) { return &null; }
+        var canon = NameLookup::representative(d);
+        if MemberLookup::primary_is_imported(canon) { return &null; }
+        var gps = decl_generic_params(canon);
+        if gps.size() == 0 { return &null; }
+        if !self._check_arity(canon, gps, seg, ct) { return &null; }
+        var args = vec::<*Type>();
+        if !self._collect_args(seg, ct, canon, gps, &args) { return &null; }
+        for var i: usize = 0; i < args.size(); ++i {
+            if args[i]->is_dependent() || args[i]->is_instantiation_dependent() { return self.sc->types->record(canon, &args); }
+        }
+        var e = self.sc->instances->instance_for(canon, &args, self.sc->ctx->fid, NameLookup::ctx_of(canon));
+        if e == &null { return &null; }
+        return self.sc->types->record(e->decl, &args);
     }
 
     // === Associated types (interfaces.md, Associated Types) =================

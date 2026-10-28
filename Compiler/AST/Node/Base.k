@@ -259,6 +259,14 @@ class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qual
         /// Type involves a runtime-variable size (VLA or similar).
         /// You said no VLAs so this is future-proofing / FFI import only.
         IsVariablyModified        = 1 << 3,
+        /// A record nested (at any depth) in a generic record, named as its
+        /// owner's CURRENT instantiation (`P` inside `class <K> L`): the
+        /// owner's parameters are implicit in it, so a substitution that
+        /// binds them must reach it (`P` read through `L<i32>` is
+        /// `L<i32>::P`, RecordType::outer) although nothing in it is a
+        /// parameter. Not dependence: the type is checked as written in
+        /// the owner's body, as it always was. Propagates up like the rest.
+        InGenericOwner            = 1 << 4,
     }
     
     // for error nodes, the kind of stmt we were trying to parse (for better error messages)
@@ -344,6 +352,13 @@ class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qual
         return static_cast::<TypeFlags>(
               static_cast::<u8>(self.type_flags)
             & static_cast::<u8>(TypeFlags::IsVariablyModified))
+         != TypeFlags::None;
+    }
+
+    fn in_generic_owner(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::InGenericOwner))
          != TypeFlags::None;
     }
 

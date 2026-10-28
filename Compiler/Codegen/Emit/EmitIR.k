@@ -1813,7 +1813,18 @@ class EmitIR {
         } else if k != usize(-1) {
             var st = n->steps.get(k);
             if (st->resolved_decl == &null) { self._ice(st->range, "EmitIR: unbound `::` step reached codegen; ChainBinding gate failure"); }
-            self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
+            // A member of a type named through a generic instance
+            // (`L<i32>::Color::Green`, GH#91): qualified through that
+            // type, since the plain qualified name `::ns::L::Color` names
+            // the template without its arguments.
+            var pt: *Type = &null;
+            if k > 0 { pt = n->steps.get(k - 1)->resolved_type; }
+            var pr = (dyn_cast::<RecordType>(canon_unqual(pt->canonical))) if ((pt != &null) && (pt->canonical != &null)) else (&null);
+            if (pr != &null) && (pr->outer != &null) {
+                self._cg->sink->spell(st->range, self._spell._type(pt, &null) + "::" + self._spell.leaf(st->resolved_decl));
+            } else {
+                self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));
+            }
             is_ptr = self._type_is_pointer(st->resolved_type);
             i = k + 1;
         } else {

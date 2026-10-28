@@ -266,7 +266,7 @@ class <T> CallTyping {
             }
             if (p == &null) || (p->type_ == &null) { if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); } continue; }
             var pt = self._self_first(f, r, p->type_->canonical, true);
-            if (pt != &null) && pt->is_dependent() { pt = r->ded.substitute(pt); }
+            if (pt != &null) && (pt->is_dependent() || pt->in_generic_owner()) { pt = r->ded.substitute(pt); }
             // `other: Self` is `other: T`. Resolution already judged the
             // argument this way; this is the same rule applied to the winner.
             pt = r->ded.through_receiver(f, r->receiver, pt);
@@ -357,7 +357,10 @@ class <T> CallTyping {
                 rt = rs;
             }
         }
-        if rt->is_dependent() {
+        // A member type of the receiver's generic class (`-> Self::P` on
+        // `L<i32>`) is no parameter but still reads through the receiver:
+        // `L<i32>::P` (InGenericOwner).
+        if rt->is_dependent() || rt->in_generic_owner() {
             var s = r->ded.substitute(rt);
             if s == &null { return &null; }   // still dependent: caller marks unknown.
             rt = s;

@@ -1002,6 +1002,8 @@ class TypeUtil {
 
                 var r = cast::<RecordType>(t);
                 var s = self.decl_name(r->decl);
+                // `L<i32>::P`: named through its enclosing instance.
+                if r->outer != &null { s = self.str(r->outer) + "::" + s; }
                 if r->args.size() > 0 {
                     s += "<";
                     for var i: usize = 0; i < r->args.size(); ++i {
