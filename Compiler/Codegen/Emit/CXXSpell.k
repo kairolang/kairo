@@ -83,6 +83,18 @@ class CXXSpell {
     /// adt_void_unit, the Panic lang item): that enum, whose own non-pack
     /// parameters spell as `::__kairo_nv<T>` there. Null everywhere else.
     pub var void_unit_owner: *Decl = &null;
+    /// While set, the template parameters of this decl are spelled
+    /// `__kairo_ft<i>` (LowerTargets::friend_tparam), head, signature and
+    /// requires-clause alike: a friend declaration of a generic function or
+    /// record inside a class template must not redeclare the class's own
+    /// parameter names ([temp.local]/6), and a redeclaration's parameters
+    /// may be named anything (InterfaceEmitter::_friends).
+    pub var rename_tparams: *Decl = &null;
+    /// rename_tparams's parameters (template_params), filled on first use:
+    /// a parameter is matched by entity, so a default-argument thunk spelling
+    /// its function's parameters is renamed with them.
+    priv var _renamed: vec::<*GenericParamDecl>;
+    priv var _renamed_for: *Decl = &null;
 
     fn CXXSpell(self) { self._cg = &null; }
     fn CXXSpell(self, cg: *CodegenContext) { self._cg = cg; }
@@ -1448,7 +1460,7 @@ class CXXSpell {
             var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
             if !isa::<InterfaceDecl>(idecl) { continue; }
             s += (" requires (") if (s.size() == 0) else (" && ");
-            s += self.concept_name(idecl) + self.witness_args(self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner))), rhs);
+            s += self.concept_name(idecl) + self.witness_args(self.tparam_name(gp, CXXSpell::rep(gp->owner)), rhs);
         }
         // A record's VALUE predicates (`class <T> B requires sizeof T <= 128`)
         // as C++ constraints, so clang rejects a bad instance where it is
@@ -1558,7 +1570,7 @@ class CXXSpell {
         if isa::<NamedIdentExpr>(e) {
             var gp = dyn_cast::<GenericParamDecl>(cast::<NamedIdentExpr>(e)->resolved_decl);
             if (gp == &null) || (!gp->is_const_param) || (gp->owner == &null) { return ""; }
-            return self.imm_name(gp->name.imm, CXXSpell::fid_of(CXXSpell::rep(gp->owner)));
+            return self.tparam_name(gp, CXXSpell::rep(gp->owner));
         }
         if isa::<UnaryOperatorExpr>(e) {
             var u = cast::<UnaryOperatorExpr>(e);
@@ -1628,6 +1640,20 @@ class CXXSpell {
         if (c != &null) && (!c->is_derives()) { out->push_back(c); }
     }
 
+    /// Generic parameter \p gp of \p owner by name (rename_tparams).
+    fn tparam_name(self, gp: *GenericParamDecl, owner: *Decl) -> string {
+        if self.rename_tparams != &null {
+            if self._renamed_for != self.rename_tparams {
+                self._renamed_for = self.rename_tparams;
+                self._renamed = CXXSpell::template_params(self.rename_tparams);
+            }
+            for var i: usize = 0; i < self._renamed.size(); ++i {
+                if self._renamed[i] == gp { return LowerTargets::friend_tparam(i); }
+            }
+        }
+        return self.imm_name(gp->name.imm, CXXSpell::fid_of(owner));
+    }
+
     /// `template <class T, class... Ts, int N>` for a generic decl; "" otherwise.
     fn template_head(self, d_in: *Decl) -> string {
         var d = d_in;
@@ -1653,7 +1679,7 @@ class CXXSpell {
             }
             if gp->is_pack { s += "..."; }
             s += " ";
-            s += self.imm_name(gp->name.imm, CXXSpell::fid_of(d));
+            s += self.tparam_name(gp, d);
         }
         s += ">";
         s += self.requires_clause(d);
@@ -1921,7 +1947,7 @@ class CXXSpell {
         }
         var gps = decl_generic_params(owner);
         if (static_cast::<usize>(g->param_index) >= gps.size()) { self._ice(owner->range, "CXXSpell: generic param index out of range"); }
-        var nm = self.imm_name(gps[static_cast::<usize>(g->param_index)]->name.imm, CXXSpell::fid_of(owner));
+        var nm = self.tparam_name(gps[static_cast::<usize>(g->param_index)], owner);
         if (!g->is_pack) && (self.void_unit_owner != &null) && (CXXSpell::rep(self.void_unit_owner) == owner) {
             return "::" + LowerTargets::void_unit() + "<" + nm + ">";
         }

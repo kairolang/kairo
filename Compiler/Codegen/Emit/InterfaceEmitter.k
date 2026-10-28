@@ -849,6 +849,7 @@ class InterfaceEmitter {
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
         if is_class { cur_access = self._base_usings(cast::<ClassDecl>(d), cur_access, at); }
+        if is_class { cur_access = self._edge_narrowing(cast::<ClassDecl>(d), cur_access, at); }
 
         // Each constructor that initializes a field in place: its slot record,
         // its pre-function and the constructor that takes the slots
@@ -913,13 +914,98 @@ class InterfaceEmitter {
                 var seen = vec::<*Decl>();
                 var found = self._base_method_named(self._edge_decl(e), nm, &seen, 0, CXXSpell::fid_of(static_cast::<*Decl>(d)));
                 if (found == 0) || (found == 255) { continue; }
-                // At the base members' own access: a public using of a
+                // At the base members' own access, narrowed by a `priv` /
+                // `prot` edge (_edge_narrowing): a public using of a
                 // protected member would make it public through d.
-                cur = self._access(cur, found, false, at);
+                var want = found;
+                if ((e->visibility == VIS_PRIV()) || (e->visibility == VIS_PROT())) && (e->visibility < want) { want = e->visibility; }
+                cur = self._access(cur, want, false, at);
                 self._cg->sink->spell(at, "using " + self._spell->_type(e->base) + "::" + nm + ";");
             }
         }
         return cur;
+    }
+
+    /// `derives priv B` / `derives prot B`: the base stays public (a private
+    /// base would refuse the upcast Kairo allows from another file, and null
+    /// the checked downcast at run time), and the narrowing is said the other
+    /// way, `private: using B::x;` (`protected:` for `prot`) for every name
+    /// d inherits through the edge and does not declare itself. Through d, and
+    /// whatever derives d, those names are then private (protected); through
+    /// a `*B` they are B's own -- Kairo's rule (AccessCheck::_check_edges).
+    /// Left alone: B's constructors and destructor, names d declares (its own
+    /// hide B's, and _base_usings brings in the shared method names), nested
+    /// types, a name one of whose members d cannot name (private to a base in
+    /// another file: hidden from d anyway), and a name already narrower than
+    /// the edge. Members of B's own bases are reached only through B's public
+    /// edges. One using takes a whole overload set at one level, the
+    /// narrowest of the edge's and the members' own.
+    priv fn _edge_narrowing(self, d: *ClassDecl, cur_in: u8, at: SourceRange) -> u8 {
+        var cur = cur_in;
+        var dd = static_cast::<*Decl>(d);
+        var fid = CXXSpell::fid_of(dd);
+        var mine = vec::<string>();
+        for var i: usize = 0; i < d->fields.size(); ++i { if d->fields[i] != &null { mine.push_back(self._spell->leaf(static_cast::<*Decl>(d->fields[i]))); } }
+        for var i: usize = 0; i < d->methods.size(); ++i { if d->methods[i] != &null { mine.push_back(self._spell->leaf(static_cast::<*Decl>(d->methods[i]))); } }
+        for var j: usize = 0; j < d->derives_list.size(); ++j {
+            var e = d->derives_list.get(j);
+            if (e == &null) || (e->base == &null) { continue; }
+            var ev = e->visibility;
+            if (ev != VIS_PRIV()) && (ev != VIS_PROT()) { continue; }
+            var names = vec::<string>();
+            var acc   = vec::<u8>();
+            var seen  = vec::<*Decl>();
+            self._edge_names(self._edge_decl(e), fid, &names, &acc, &seen, 0);
+            var bs = self._spell->_type(e->base);
+            for var k: usize = 0; k < names.size(); ++k {
+                var nm = names[k];
+                if acc[k] == 255 { continue; }
+                var dup = false;
+                for var q: usize = 0; q < mine.size(); ++q { if mine[q] == nm { dup = true; break; } }
+                if dup { continue; }
+                // VIS_PRIV < VIS_PROT < VIS_PUB: the narrower of the two.
+                var want = (ev) if (ev < acc[k]) else (acc[k]);
+                if want == acc[k] { continue; }
+                cur = self._access(cur, want, false, at);
+                self._cg->sink->spell(at, "using " + bs + "::" + nm + ";");
+            }
+        }
+        return cur;
+    }
+
+    /// The member names class \p b (and its bases through public edges)
+    /// lets a deriving class of file \p fid inherit: fields and methods,
+    /// each name once, with the narrowest C++ access of its members, or 255
+    /// when one of them is private to another file.
+    priv fn _edge_names(self, b: *Decl, fid: u32, names: *vec::<string>, acc: *vec::<u8>, seen: *vec::<*Decl>, depth: u32) {
+        if (b == &null) || (depth > 64) || (!isa::<ClassDecl>(b)) { return; }
+        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == b { return; } }
+        seen->push_back(b);
+        var cd = cast::<ClassDecl>(b);
+        var own = self._spell->leaf(b);
+        var members = vec::<*Decl>();
+        for var i: usize = 0; i < cd->fields.size(); ++i { if cd->fields[i] != &null { members.push_back(static_cast::<*Decl>(cd->fields[i])); } }
+        for var i: usize = 0; i < cd->methods.size(); ++i { if cd->methods[i] != &null { members.push_back(static_cast::<*Decl>(cd->methods[i])); } }
+        for var i: usize = 0; i < members.size(); ++i {
+            var m = members[i];
+            if m->is_implicit { continue; }
+            var fd = dyn_cast::<FieldDecl>(m);
+            if (fd != &null) && fd->is_anonymous_union { continue; }
+            var nm = self._spell->leaf(m);
+            if (nm.size() == 0) || (nm == own) || (nm[0] == '~') { continue; }
+            var a = self._spell->cxx_access(m);
+            if (a == VIS_PRIV()) && (CXXSpell::fid_of(m) != fid) { a = 255; }
+            var at = names->size();
+            for var k: usize = 0; k < names->size(); ++k { if (*names)[k] == nm { at = k; break; } }
+            if at == names->size() { names->push_back(nm); acc->push_back(a); continue; }
+            if ((*acc)[at] == 255) || (a == 255) { (*acc)[at] = 255; continue; }
+            if a < (*acc)[at] { (*acc)[at] = a; }
+        }
+        for var j: usize = 0; j < cd->derives_list.size(); ++j {
+            var e = cd->derives_list.get(j);
+            if (e == &null) || (e->visibility == VIS_PRIV()) || (e->visibility == VIS_PROT()) { continue; }
+            self._edge_names(self._edge_decl(e), fid, names, acc, seen, depth + 1);
+        }
     }
 
     /// The record a base edge names, as the pattern whose members are
@@ -997,14 +1083,21 @@ class InterfaceEmitter {
                 continue;
             }
             var key = ("class") if (isa::<ClassDecl>(r)) else ((("union") if (isa::<UnionDecl>(r)) else ("struct")));
-            var head = (self._fresh_head(r)) if (ff.fresh[i]) else (self._spell->template_head(r));
+            // Its own parameter names could redeclare d's: spelled as
+            // __kairo_ft<i>, requires-clause included (rename_tparams).
+            self._spell->rename_tparams = r;
+            var head = self._spell->template_head(r);
+            self._spell->rename_tparams = &null;
             self._cg->sink->spell(at, head + "friend " + key + " " + q + ";");
         }
         for var i: usize = 0; i < ff.scopes.size(); ++i {
             self._cg->sink->spell(at, "friend struct " + self._spell->ext_scope_name(ff.scopes[i]) + ";");
         }
         for var i: usize = 0; i < ff.fns.size(); ++i {
-            self._cg->sink->spell(at, self._friend_fn_text(ff.fns[i], ff.far[i]));
+            self._spell->rename_tparams = static_cast::<*Decl>(ff.fns[i]);
+            var ft = self._friend_fn_text(ff.fns[i], ff.far[i]);
+            self._spell->rename_tparams = &null;
+            self._cg->sink->spell(at, ft);
         }
         for var i: usize = 0; i < ff.ifaces.size(); ++i {
             var iface = ff.ifaces[i];
@@ -1019,22 +1112,6 @@ class InterfaceEmitter {
         if ff.main != &null {
             self._cg->sink->spell(at, "friend " + self._main_decl_text(ff.main, true));
         }
-    }
-
-    /// `template <class __kairo_ft0, int __kairo_ft1> `: \p r's template head
-    /// under names of its own, for a friend declaration inside a record
-    /// whose own parameters may share \p r's (EmitPlan::_ff_record).
-    priv fn _fresh_head(self, r: *Decl) -> string {
-        var gps = CXXSpell::template_params(r);
-        var s = "template <";
-        for var i: usize = 0; i < gps.size(); ++i {
-            var gp = gps[i];
-            if i > 0 { s += ", "; }
-            s += (self._spell->_type(gp->value_type)) if (gp->is_const_param) else ("class");
-            if gp->is_pack { s += "..."; }
-            s += " " + LowerTargets::friend_tparam(i);
-        }
-        return s + "> ";
     }
 
     /// `friend R f(P...) noexcept;`, or with its template head: the

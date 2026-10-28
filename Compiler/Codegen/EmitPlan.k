@@ -421,11 +421,8 @@ class FileFriends {
     pub var needed:  bool = false;
     /// Every other outermost record of the file, and every hoisted local
     /// one (`friend ::ns::X;`, `template <...> friend class ::ns::G;`): a
-    /// friend class covers its members and nested classes. Parallel:
-    /// `fresh` spells a generic one's head with names of its own, since the
-    /// record's own template parameters may not be redeclared inside it.
+    /// friend class covers its members and nested classes.
     pub var records: vec::<*Decl>;
-    pub var fresh:   vec::<bool>;
     /// The file's free functions in the record's namespace, generic ones
     /// and hoisted locals included (unqualified `friend R f(P);`).
     pub var fns:     vec::<*FunctionDecl>;
@@ -605,14 +602,12 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn friend_scopes_of(self, d: *Decl, out: *vec::<*ExtScope>);
     fn file_friends(self, d: *Decl, out: *FileFriends);
     fn needs_friends(self, d: *Decl) -> bool;
-    fn _ff_dc(self, dc: *DeclContext, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends);
-    fn _ff_decl(self, x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends);
-    fn _ff_record(self, r: *Decl, tparams: *vec::<string>, out: *FileFriends);
-    fn _ff_fn_kind(self, f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>) -> u8;
-    fn _ff_add_fn(self, f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends);
+    fn _ff_dc(self, dc: *DeclContext, d: *Decl, mine: *Decl, ns: *vec::<string>, out: *FileFriends);
+    fn _ff_decl(self, x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, out: *FileFriends);
+    fn _ff_record(self, r: *Decl, out: *FileFriends);
+    fn _ff_fn_kind(self, f: *FunctionDecl, ns: *vec::<string>) -> u8;
+    fn _ff_add_fn(self, f: *FunctionDecl, ns: *vec::<string>, out: *FileFriends);
     fn _ff_nested(self, t: *Type, depth: u32) -> bool;
-    fn _ff_tparams(self, d: *Decl, out: *vec::<string>);
-    fn _ff_clash(self, d: *Decl, tparams: *vec::<string>) -> bool;
     fn _ff_iface(self, t: *Type, out: *FileFriends, depth: u32);
     fn _ff_ifaces_in(self, cand: *Decl, d: *Decl, out: *FileFriends);
     fn _admit_friends(self, d: *Decl);
@@ -859,6 +854,16 @@ fn EmitPlan::needs_friends(d_in: *Decl) -> bool {
     if (d == &null) || (!(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d))) { return false; }
     var fields:  FrozenList::<*FieldDecl>;
     var methods: FrozenList::<*FunctionDecl>;
+    if isa::<ClassDecl>(d) {
+        // A `derives priv` / `prot` edge narrows the inherited names with
+        // `private:` / `protected:` usings (InterfaceEmitter::_edge_narrowing),
+        // which the file must still reach through d.
+        var cd = cast::<ClassDecl>(d);
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e != &null) && ((e->visibility == VIS_PRIV()) || (e->visibility == VIS_PROT())) { return true; }
+        }
+    }
     if isa::<ClassDecl>(d)      { fields = cast::<ClassDecl>(d)->fields;  methods = cast::<ClassDecl>(d)->methods; }
     else if isa::<UnionDecl>(d) { fields = cast::<UnionDecl>(d)->fields;  methods = cast::<UnionDecl>(d)->methods; }
     else                        { fields = cast::<StructDecl>(d)->fields; methods = cast::<StructDecl>(d)->methods; }
@@ -888,14 +893,15 @@ fn EmitPlan::needs_friends(d_in: *Decl) -> bool {
 /// lets it name, whether it does or not, so no walk of any body -- which
 /// another TU may not have lowered -- decides the text.
 ///
-/// Left out, because C++ cannot befriend them from here, and so still
-/// unable to reach a private member in the C++ (ClangDiagAdapter makes the
-/// clang error a loud internal one): a function whose signature names a
-/// nested type (not declarable ahead of the record), and a generic one, or
-/// a constrained generic record, whose template parameters share a name
-/// with the record's own. A function in another namespace of the file (a
-/// `module` block's), or an `ffi "c"` or `-> !` one, is befriended by its
-/// qualified name after a declaration of its own (_ff_fn_kind).
+/// Left out, because C++ cannot befriend it from here, and so still unable
+/// to reach a private member in the C++ (ClangDiagAdapter makes the clang
+/// error a loud internal one): a function whose signature names a nested
+/// type, not declarable ahead of the record. A function in another
+/// namespace of the file (a `module` block's), or an `ffi "c"` or `-> !`
+/// one, is befriended by its qualified name after a declaration of its own
+/// (_ff_fn_kind); a generic friend's parameters are spelled under names of
+/// their own (CXXSpell::rename_tparams), so they never redeclare the
+/// record's.
 fn EmitPlan::file_friends(d_in: *Decl, out: *FileFriends) {
     var d = CXXSpell::rep(d_in);
     if !self.needs_friends(d) { return; }
@@ -907,17 +913,15 @@ fn EmitPlan::file_friends(d_in: *Decl, out: *FileFriends) {
     // record too, since C++ gives an enclosing class no access to a nested
     // one's private members.
     var mine = d;
-    var tparams = vec::<string>();
-    self._ff_tparams(d, &tparams);
-    self._ff_dc(static_cast::<*DeclContext>(tu), d, mine, &ns, &tparams, out);
+    self._ff_dc(static_cast::<*DeclContext>(tu), d, mine, &ns, out);
     var hl = HoistedLocals();
     hl.run(tu);
     for var i: usize = 0; i < hl.found.size(); ++i {
         var h = CXXSpell::rep(hl.found[i]);
         if (h == &null) || h->is_poisoned() || (h == mine) { continue; }
-        if isa::<ClassDecl>(h) || isa::<StructDecl>(h) || isa::<UnionDecl>(h) { self._ff_record(h, &tparams, out); continue; }
+        if isa::<ClassDecl>(h) || isa::<StructDecl>(h) || isa::<UnionDecl>(h) { self._ff_record(h, out); continue; }
         var f = dyn_cast::<FunctionDecl>(h);
-        if f != &null { self._ff_add_fn(f, &ns, &tparams, out); }
+        if f != &null { self._ff_add_fn(f, &ns, out); }
     }
     // The witnesses of what the file declares d implements: on d itself,
     // and on every `extend d impl I` of the file.
@@ -944,19 +948,19 @@ fn EmitPlan::file_friends(d_in: *Decl, out: *FileFriends) {
     }
 }
 
-fn EmitPlan::_ff_dc(dc: *DeclContext, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends) {
+fn EmitPlan::_ff_dc(dc: *DeclContext, d: *Decl, mine: *Decl, ns: *vec::<string>, out: *FileFriends) {
     for var i: usize = 0; i < dc->dc_decls.size(); ++i {
         var x = *(dc->dc_decls.get(i));
-        if x != &null { self._ff_decl(x, d, mine, ns, tparams, out); }
+        if x != &null { self._ff_decl(x, d, mine, ns, out); }
     }
 }
 
-fn EmitPlan::_ff_decl(x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends) {
+fn EmitPlan::_ff_decl(x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, out: *FileFriends) {
     if x->is_poisoned() { return; }
-    if isa::<ModuleDecl>(x) { self._ff_dc(static_cast::<*DeclContext>(cast::<ModuleDecl>(x)), d, mine, ns, tparams, out); return; }
+    if isa::<ModuleDecl>(x) { self._ff_dc(static_cast::<*DeclContext>(cast::<ModuleDecl>(x)), d, mine, ns, out); return; }
     if isa::<VisibilityGroupDecl>(x) {
         var g = cast::<VisibilityGroupDecl>(x);
-        for var i: usize = 0; i < g->members.size(); ++i { if g->members[i] != &null { self._ff_decl(g->members[i], d, mine, ns, tparams, out); } }
+        for var i: usize = 0; i < g->members.size(); ++i { if g->members[i] != &null { self._ff_decl(g->members[i], d, mine, ns, out); } }
         return;
     }
     if isa::<ExtensionDecl>(x) {
@@ -978,7 +982,7 @@ fn EmitPlan::_ff_decl(x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, tpara
         var r = CXXSpell::rep(x);
         if (r != x) || (r == mine) || r->is_implicit || CXXSpell::is_record_spec(r) || decl_only_forward(r) { return; }
         if (decl_ffi_tag_target(r) != &null) || (!self._plannable(r)) { return; }
-        self._ff_record(r, tparams, out);
+        self._ff_record(r, out);
         return;
     }
     var f = dyn_cast::<FunctionDecl>(x);
@@ -988,32 +992,20 @@ fn EmitPlan::_ff_decl(x: *Decl, d: *Decl, mine: *Decl, ns: *vec::<string>, tpara
         if (out->main == &null) && (CXXSpell::c_linkage(rf).size() == 0) { out->main = rf; }
         return;
     }
-    self._ff_add_fn(rf, ns, tparams, out);
+    self._ff_add_fn(rf, ns, out);
 }
 
-fn EmitPlan::_ff_add_fn(f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>, out: *FileFriends) {
-    var k = self._ff_fn_kind(f, ns, tparams);
+fn EmitPlan::_ff_add_fn(f: *FunctionDecl, ns: *vec::<string>, out: *FileFriends) {
+    var k = self._ff_fn_kind(f, ns);
     if k == 0 { return; }
     for var i: usize = 0; i < out->fns.size(); ++i { if out->fns[i] == f { return; } }
     out->fns.push_back(f);
     out->far.push_back(k == 2);
 }
 
-/// A record friend; a generic one whose parameters clash with \p tparams
-/// is spelled with fresh ones, which a requires-clause (written in the
-/// parameters' own names) forbids -- that one is left out.
-fn EmitPlan::_ff_record(r: *Decl, tparams: *vec::<string>, out: *FileFriends) {
+fn EmitPlan::_ff_record(r: *Decl, out: *FileFriends) {
     for var i: usize = 0; i < out->records.size(); ++i { if out->records[i] == r { return; } }
-    var fresh = false;
-    if CXXSpell::template_params(r).size() > 0 {
-        fresh = true;
-        if self._spell.requires_clause(r).size() > 0 {
-            if self._ff_clash(r, tparams) { return; }
-            fresh = false;
-        }
-    }
     out->records.push_back(r);
-    out->fresh.push_back(fresh);
 }
 
 /// How \p f is befriended: 0 not at all; 1 unqualified, which names (or
@@ -1022,9 +1014,8 @@ fn EmitPlan::_ff_record(r: *Decl, tparams: *vec::<string>, out: *FileFriends) {
 /// another namespace of the file, or one whose first declaration must
 /// carry its `ffi "c"` linkage or `[[noreturn]]`, which a friend
 /// declaration may not.
-fn EmitPlan::_ff_fn_kind(f: *FunctionDecl, ns: *vec::<string>, tparams: *vec::<string>) -> u8 {
+fn EmitPlan::_ff_fn_kind(f: *FunctionDecl, ns: *vec::<string>) -> u8 {
     if f->is_poisoned() || f->is_method() || (decl_extension_of(static_cast::<*Decl>(f)) != &null) { return 0; }
-    if self._ff_clash(static_cast::<*Decl>(f), tparams) { return 0; }
     if self._ff_nested(f->return_type, 0) || self._ff_nested(f->panic_result, 0) { return 0; }
     for var i: usize = 0; i < f->params.size(); ++i {
         var p = f->params[i];
@@ -1073,32 +1064,6 @@ fn EmitPlan::_ff_nested(t: *Type, depth: u32) -> bool {
             return false;
         }
         default { return false; }
-    }
-    return false;
-}
-
-/// The template parameter names in scope inside \p d's body: its own and
-/// every enclosing record's.
-fn EmitPlan::_ff_tparams(d: *Decl, out: *vec::<string>) {
-    var cur = d;
-    var depth: u32 = 0;
-    while (cur != &null) && (depth < 64) {
-        depth += 1;
-        var gps = CXXSpell::template_params(cur);
-        for var i: usize = 0; i < gps.size(); ++i { out->push_back(self._spell.imm_name(gps[i]->name.imm, CXXSpell::fid_of(cur))); }
-        var dc = reinterpret_cast::<*DeclContext>(cur->semantic_dc);
-        if (dc == &null) || (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { break; }
-        cur = CXXSpell::rep(dc->dc_owner);
-    }
-}
-
-/// A template parameter of \p d is spelled as one in \p tparams: declared
-/// inside that scope it would redeclare it ([temp.local]/6).
-fn EmitPlan::_ff_clash(d: *Decl, tparams: *vec::<string>) -> bool {
-    var gps = CXXSpell::template_params(d);
-    for var i: usize = 0; i < gps.size(); ++i {
-        var nm = self._spell.imm_name(gps[i]->name.imm, CXXSpell::fid_of(d));
-        for var k: usize = 0; k < tparams->size(); ++k { if (*tparams)[k] == nm { return true; } }
     }
     return false;
 }

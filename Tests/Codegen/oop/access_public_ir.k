@@ -65,6 +65,11 @@ fn main() -> i32 {
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
 // CXX-NEXT:     class Sealed: public::{{[A-Za-z0-9_]+}}::Vault {
+// CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::Vault::shared;
+// CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::Vault::pick;
+// CXX-NEXT:         friend::{{[A-Za-z0-9_]+}}::Vault;
+// CXX-NEXT:         friend::{{[A-Za-z0-9_]+}}::Plain;
+// CXX-NEXT:         friend int::main() noexcept;
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {

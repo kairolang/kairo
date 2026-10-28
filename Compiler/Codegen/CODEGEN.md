@@ -306,6 +306,10 @@ access (a `where` group's candidates `private:`). A `using Base::m;` for
 every method name the class shares with a base (`_base_usings`: Kairo
 merges the base's overloads, C++ would hide them), at the narrowest access
 of those overloads, and none when one is private to another file's base;
+for a `derives priv B` / `derives prot B` edge, a `private:` / `protected:`
+`using B::m;` per name inherited through it and not declared by the class
+(`_edge_narrowing`): the base stays public so the upcast and checked
+downcast keep working, and the names are narrowed through the class;
 fields (a default as a C++ default member initializer: a
 constant FieldInitLowering folded as it is, `signed int n = 5;`, anything
 else as a call of the member function it made of the initializer,
@@ -332,8 +336,8 @@ then, for a record with a non-public member, the rest of its file
 declarations only, so the record is one text in its own TU, an importer, a
 header and a kcc include): every other outermost record and hoisted local
 record (`friend ::ns::X;`, a generic one `template <...> friend class
-::ns::G;` under `__kairo_ft<i>` names when its own could redeclare the
-record's), every other-target scope in its namespace (`friend struct
+::ns::G;`; every generic friend's parameters are spelled `__kairo_ft<i>`,
+`CXXSpell::rename_tparams`, since its own could redeclare the record's), every other-target scope in its namespace (`friend struct
 __kairo_ext_Y;`), every free function of the file (unqualified in the
 record's namespace; qualified, after a declaration of its own ahead of
 tier 1 (`friend_early`), for one in another namespace or one whose first
@@ -343,8 +347,7 @@ each global whose initializer reaches a private member (a variable cannot
 be a friend: EmitIR calls the thunk instead), and `main` (declared at
 global scope first: `friend int ::main()`). The plan admits what those
 lines name (`_admit_friends`). Left out: a function whose signature names
-a nested type, and a generic one whose parameter names clash with the
-record's. Nested types. Enums: C-like as `enum class`, an ADT as its layout record (below).
+a nested type. Nested types. Enums: C-like as `enum class`, an ADT as its layout record (below).
 Functions: free only. Extension scopes:
 `struct __kairo_ext_X {` and one `static` declaration per member (merged
 template head, receiver first via `ext_receiver`, the postfix `int` dummy

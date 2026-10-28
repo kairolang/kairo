@@ -9,7 +9,9 @@
 // sibling's field default, an extension of another type, an operator of a
 // file-scope `fn op`, a witness through a declared `impl` with a private
 // member, a generic class's private field, a struct's private operator, a
-// constrained generic class, a function in a `module` block (another C++
+// constrained generic class, a generic function whose parameter is named
+// as Cell's is (its friend line inside Cell renames it), a function in a
+// `module` block (another C++
 // namespace: befriended by its qualified name after a declaration of its
 // own), the initializers of two globals (a C++ variable cannot be a friend:
 // each calls a befriended `__kairo_ginit_` thunk), and `main`. Before, each of these was a CL001E from clang the moment the
@@ -80,6 +82,7 @@ var g_secret: i32 = Vault(9).secret
 
 fn free_read(v: *Vault) -> i32 { return v->secret }
 fn <T> gen_read(v: *Vault, t: T) -> i32 { return v->secret }
+fn <T> cell_item(c: *Cell<T>) -> T { return c->item }
 fn <T impl Area> measure(t: T) -> i32 { return t.area() }
 
 fn closure_read(v: Vault) -> i32 {
@@ -111,6 +114,7 @@ fn main() -> i32 {
     if v.key_of() != 2 { return 9 }                     // an outer class, a nested one's privates
     var c = Cell<i32>(9)
     if c.item != 9 { return 10 }                        // a generic class's private field
+    if cell_item(&c) != 9 { return 20 }                 // from a generic fn naming its T too
     var pt = Pt{ x: 4 }
     if pt * 2 != 8 { return 11 }                        // a struct's private operator
     var p = Point()
