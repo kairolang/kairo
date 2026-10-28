@@ -461,15 +461,19 @@ into a self-contained toolchain:
                                  builtin, std, rt (Lib/'s trees).
                                  debug: builtin/std/rt are symlinks into Lib/
                                  (always current); release: copies.
-  Scripts/bundle.sh <tree>       copies non-system shared libs into lib/,
-                                 makes every RUNPATH $ORIGIN-relative, and
-                                 fails unless the tree is relocatable (no
-                                 dangling links, no unresolved deps, no
-                                 absolute RUNPATH). Linux only; needs
-                                 patchelf. Prints the glibc floor.
+                                 Then bundles it: copies non-system shared
+                                 libs in and makes every search path
+                                 relative to the binary (Linux: patchelf ->
+                                 $ORIGIN RUNPATH; macOS: install_name_tool ->
+                                 @rpath + @loader_path, re-signed; Windows:
+                                 DLLs beside the exe), and fails unless the
+                                 tree is relocatable (no dangling links,
+                                 unresolved deps or absolute search paths).
+                                 Prints the glibc floor on Linux.
+                                 --no-bundle stages only.
 
-By hand: `python3 Scripts/stage_tree.py --all` stages debug and release,
-`sh Scripts/bundle.sh build/<triple>/debug build/<triple>/release` bundles.
+By hand: `python3 Scripts/stage_tree.py --all` stages and bundles debug and
+release.
 
 A staged tree runs with no root flags:
 
