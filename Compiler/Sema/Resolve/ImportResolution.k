@@ -402,7 +402,7 @@ class ImportResolution {
             if e.cell == &null { continue; }
             var spelling = e.name.describe(self.sc->g->get_context(fid));
             if spelling.size() == 0 { continue; }
-            if skip_std && (spelling == "std") { continue; }
+            if skip_std && (spelling == cxx_std_name()) { continue; }
             // A hidden C/C++ tag's internal key (`struct timezone`,
             // DeclImport::_bind_named): no source spells it, so it has no
             // business in an importer's overlay.
@@ -616,7 +616,7 @@ class ImportResolution {
         if syms == &null { return; }
         var imms = self.sc->ctx->tcm->get_imm_table_for_fid(fid);
         if imms == &null { return; }
-        var cell = SymbolTable::lookup_foreign(syms, imms, "std");
+        var cell = SymbolTable::lookup_foreign(syms, imms, cxx_std_name());
         if cell == &null { return; }
         for var i: usize = 0; i < cell->size(); ++i {
             var d = cell->get(i);
@@ -663,7 +663,7 @@ class ImportResolution {
         tok.imm   = self.sc->imm_table()->intern_ident_copy(cxx_root_name());
 
         var tbl  = self.sc->ctx->alloc_init_cleanup::<SymbolTable>(self.sc->ctx);
-        var skey = self.sc->imm_table()->intern_ident_copy("std");
+        var skey = self.sc->imm_table()->intern_ident_copy(cxx_std_name());
         for var i: usize = 0; i < std_mods.size(); ++i {
             tbl->append_ident(skey, std_mods[i]);
         }

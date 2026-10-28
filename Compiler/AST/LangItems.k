@@ -25,7 +25,18 @@
 ///
 ///   \par Lower targets
 ///     Not user-writable: the `__kairo_` prefix is reserved (CxxNameCheck
-///     rejects it in user identifiers). One writer per entry, named.
+///     rejects it in user identifiers). One writer per entry, named. The
+///     C++ and clang entities the emitted text USES without declaring
+///     (`__builtin_trap`, `::std::exception`, `<new>`) are rows here too:
+///     no lowering or emitter carries a copy of a C++ name.
+///
+///   \par Words the user writes
+///     A third kind sits between the two: a spelling the USER writes that
+///     the compiler gives a meaning by text -- the `@copy` attribute
+///     (LangAttrs), the `label!` intrinsic (LangIntrinsics), a file-scope
+///     `fn main` (entry_point_name). Nothing declares them and nothing
+///     invents them; the parser or sema matches them, and every matcher
+///     and every message reads the one row.
 ///
 ///   Layer: AST leaf. Imports Base and CanonicalNodes only; imported by Sema and Codegen.
 ///
@@ -134,6 +145,20 @@ fn builtin_root_name() -> string { return "builtin"; }
 fn std_root_name() -> string     { return "kairo::std"; }
 fn std_root_spelling() -> string { return "std"; }
 fn cxx_root_name() -> string     { return "cxx"; }
+
+/// C++'s own `std`: the namespace a bare ffi import's headers declare, which
+/// ImportResolution keeps out of the bare-name fold and rebinds as the one
+/// member of cxx_root_name() (IMPORTS.md §5). The same word as
+/// std_root_spelling() and a different entity, so a different row.
+fn cxx_std_name() -> string      { return "std"; }
+
+/// The program's entry point: a free function by this name at file scope
+/// is the program's (CXXSpell::is_main emits it as the global `int main`,
+/// StmtTyping and ScriptRules hold it to that shape), and ScriptLowering
+/// mints one around a script's top-level statements. The linker's default
+/// entry SYMBOL (Config/Linker.k) is the C runtime's word for the same
+/// function and is spelled there.
+fn entry_point_name() -> string  { return "main"; }
 
 /// Tuples exist up to this arity. Not a lang item: `(A, B)` is the record
 /// `Tuple2<A, B>` that TupleRecords MINTS on first use (one per arity per

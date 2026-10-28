@@ -52,6 +52,7 @@ import AST::Node::Patterns::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::StmtKind::*;
@@ -587,7 +588,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if f->is_operator || f->is_method() { return false; }
         var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
         if (dc != &null) && dc->is_type_scope() { return false; }
-        return dyn()->tu.decl_name(static_cast::<*Decl>(f)) == "main";
+        return dyn()->tu.decl_name(static_cast::<*Decl>(f)) == entry_point_name();
     }
 
     fn traverse_field_decl(self, n: *FieldDecl) -> *FieldDecl {

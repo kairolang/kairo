@@ -596,7 +596,7 @@ class ScriptLowering derives ASTWriter::<ScriptLowering> {
         libcxx::memset(static_cast::<*void>(n), 0, sizeof(FunctionDecl));
         n->kind  = DeclKind::FunctionDecl;
         n->range = at;
-        n->name  = self.synth.ident(at, "main");
+        n->name  = self.synth.ident(at, entry_point_name());
         n->init_annotations(&(self.ctx->ast_alloc));
         n->init_dc(DeclContextKind::Function, self.ctx, dc, static_cast::<*Decl>(n));
         n->init_redecl();

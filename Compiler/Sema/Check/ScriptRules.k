@@ -48,6 +48,7 @@ import AST::Node::Expressions::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::ExprKind::*;
 import Memory::ArenaList::*;
@@ -87,7 +88,7 @@ class ScriptRules {
     fn is_main(self, d: *Decl) -> bool {
         var f = dyn_cast::<FunctionDecl>(d);
         if (f == &null) || f->is_method() || f->is_operator { return false; }
-        return self.tu.decl_name(d) == "main";
+        return self.tu.decl_name(d) == entry_point_name();
     }
 
     /// The file's `fn main`, or null.

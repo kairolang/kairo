@@ -541,7 +541,7 @@ class CXXSpell {
         if cast::<FunctionDecl>(d)->is_method() { return false; }
         var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
         if (dc == &null) || (!dc->is_translation_unit()) { return false; }
-        return self.leaf(d) == "main";
+        return self.leaf(d) == entry_point_name();
     }
 
     /// \p s as one C++ identifier: anything else becomes `_`, a leading
