@@ -171,7 +171,22 @@ class Deduction derives Substitution {
         switch param->kind {
             case TypeKind::PointerType {
                 if self.tu.is_unsafe_ptr(param) != self.tu.is_unsafe_ptr(arg) { return ImplicitRank::None; }
-                return self._inner(self.unify(cast::<PointerType>(param)->pointee, cast::<PointerType>(arg)->pointee, false));
+                // A qualification conversion at the outermost pointer
+                // ([temp.deduct.call]/4): `*const T` takes a `*i64`, T := i64,
+                // as the concrete `*i64 -> *const i64` already converts. Only
+                // here: deeper levels must match, or `**const T` would accept
+                // a `**T` C++ refuses.
+                var ppe = cast::<PointerType>(param)->pointee;
+                var ape = cast::<PointerType>(arg)->pointee;
+                if top && isa::<QualifiedType>(ppe) {
+                    var pq   = cast::<QualifiedType>(ppe)->quals;
+                    var aq   = canon_quals(ape);
+                    var rest = self.sc->types->qualified(canon_unqual(ape), static_cast::<u8>(aq & (~pq)));
+                    var r    = self._inner(self.unify(cast::<QualifiedType>(ppe)->inner, rest, false));
+                    if r == ImplicitRank::None { return r; }
+                    return (r) if ((aq & pq) == pq) else (ImplicitRank::Converted);
+                }
+                return self._inner(self.unify(ppe, ape, false));
             } case TypeKind::NullableType {
                 return self._inner(self.unify(cast::<NullableType>(param)->inner, cast::<NullableType>(arg)->inner, false));
             } case TypeKind::VectorType {

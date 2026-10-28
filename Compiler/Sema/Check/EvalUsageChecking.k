@@ -609,6 +609,9 @@ class EvalUsageChecking derives RecursiveASTVisitor::<EvalUsageChecking> {
         var f = self._callee_fn(n);
         if f == &null { return; }      // a constructor no one wrote, or untyped: nothing to say.
         if f->is_eval() { return; }
+        // A C++ `constexpr` / `consteval` function is C++'s eval fn: clang
+        // evaluates it at compile time, which is all an eval context asks.
+        if f->ffi_constexpr { return; }
         var nm  = self.tu.decl_name(static_cast::<*Decl>(f));
         var what = ("constructor") if (n->ctor_decl != &null) else ("function");
         var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
