@@ -67,6 +67,8 @@ import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::ParamMode::*;
 import AST::DeclFacts::*;
+import AST::LangItems::*;
+import Lexer::Immediate::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Types::*;
@@ -221,6 +223,14 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// put in a slot. The preamble must define `::__kairo_raw`, which it
     /// otherwise writes with the Panic lang item's helpers.
     pub var needs_raw_slot: bool = false;
+    /// Compile-time string literals too long for `__kairo_estr<...>`
+    /// (LowerTargets::eval_str_inline_max, EVAL.md §11), once each by
+    /// content: InterfaceEmitter defines each as a named `inline constexpr`
+    /// array at global scope, ahead of every body and type that spells it.
+    /// Parallel: the bytes, their count, their eval_str_hash.
+    pub var big_str_bytes:  vec::<std::ConstPtr::<u8>>;
+    pub var big_str_lens:   vec::<usize>;
+    pub var big_str_hashes: vec::<u64>;
 
     /// Nothing of this TU's own to define. Written once, at the end of run().
     priv var _empty: bool = true;
@@ -278,6 +288,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _witness_dep(self, k: usize, t: *Type);
     fn _witness_scope(self, k: usize, x: *ExtensionDecl);
     fn visit_expr(self, e: *Expr) -> bool;
+    fn note_eval_str(self, p: std::ConstPtr::<u8>, n: usize);
     fn visit_type(self, t: *Type) -> bool;
     fn visit_decl(self, d: *Decl) -> bool;
     fn _admit_use(self, d: *Decl);
@@ -1251,6 +1262,13 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
         } case ExprKind::ClosureExpr {
             // A panicking closure's lambda returns its Panic result.
             self._admit_type(cast::<ClosureExpr>(e)->panic_result, PlanNeed::Complete);
+        } case ExprKind::StringLiteralExpr {
+            // A byte literal C++ reads at compile time (EVAL.md 2a): a long
+            // one is a named array this plan's interface defines.
+            var sl = cast::<StringLiteralExpr>(e);
+            if sl->const_eval && (sl->imm != &null) && sl->imm->has_owned_text() {
+                self.note_eval_str(sl->imm->owned_ptr, static_cast::<usize>(sl->imm->owned_len));
+            }
         } case ExprKind::SizeOfExpr {
             // The operand is laid out, not just named: Complete, whatever
             // visit_type (Fwd, for a type merely spelled) would say.
@@ -1273,6 +1291,20 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
         } default { break; }
     }
     return true;
+}
+
+/// A compile-time literal's bytes, \p n of them at \p p: one past the
+/// inline limit is recorded for its named definition, once per content
+/// (the name is the content's, so equal bytes are one definition).
+fn EmitPlan::note_eval_str(p: std::ConstPtr::<u8>, n: usize) {
+    if n <= LowerTargets::eval_str_inline_max() { return; }
+    var h = LowerTargets::eval_str_hash(p, n);
+    for var i: usize = 0; i < self.big_str_hashes.size(); ++i {
+        if (self.big_str_hashes[i] == h) && (self.big_str_lens[i] == n) { return; }
+    }
+    self.big_str_bytes.push_back(p);
+    self.big_str_lens.push_back(n);
+    self.big_str_hashes.push_back(h);
 }
 
 /// Naming a type in syntax declares it; layout strength comes from the

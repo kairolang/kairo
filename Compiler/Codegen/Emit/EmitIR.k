@@ -1625,6 +1625,13 @@ class EmitIR {
         // arguments of `__kairo_estr`, a `const unsigned char` array with the
         // NUL appended, which needs no cast to reach the string's `data`.
         if n->const_eval {
+            // A long one is a named array instead (EVAL.md §11), which
+            // InterfaceEmitter defined at global scope ahead of every body
+            // (EmitPlan::big_strs collected it from this body).
+            if len > LowerTargets::eval_str_inline_max() {
+                self._cg->sink->spell(n->range, "::" + LowerTargets::eval_str_hashed(LowerTargets::eval_str_hash(p, len), len));
+                return;
+            }
             var t = "::" + LowerTargets::eval_str() + "<";
             for var i: usize = 0; i < len; ++i {
                 if i > 0 { t += ", "; }

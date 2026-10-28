@@ -135,6 +135,9 @@ class InterfaceEmitter {
     /// (their keys): a token stream carries no guard, so a kcc include
     /// chain carries this from one include to the next (IncludedDecls).
     pub var tid_seen: vec::<u64>;
+    /// The long compile-time strings (EmitPlan::big_str_hashes, EVAL.md
+    /// §11) already defined in this C++ TU, for the same reason.
+    pub var estr_seen: vec::<u64>;
     /// The instances a kcc include's plan named but does not instantiate
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
@@ -265,6 +268,10 @@ class InterfaceEmitter {
             self._cg->sink->unanchored(false);
             self.have_eval_helpers = true;
         }
+        // Each long compile-time string (EVAL.md §11): ahead of every type
+        // and body, which may spell it (a consteval body, an eval binding,
+        // a value argument), foreign ones included.
+        self._big_strs(header);
 
         // The niche trait (_niche_helpers), wherever an enum is defined: a
         // plain enum's specialization of it follows the enum, and an ADT's
@@ -809,6 +816,40 @@ class InterfaceEmitter {
     /// spelled one, or a body or constant it emits from elsewhere may (an
     /// eval fn, an eval binding, a record with eval members). Which foreign
     /// body holds a literal is not known here, so any eval entry counts.
+    /// `inline constexpr unsigned char __kairo_estrh_<len>_<hash>[len + 1] =
+    /// {b..., 0};` for each long compile-time string the plan holds
+    /// (EmitPlan::big_str_bytes, EVAL.md §11), at global scope. `inline` and
+    /// named for its content, so every TU and header that writes one writes
+    /// the same entity, which the linker keeps once; a header guards each
+    /// (two Kairo headers in one C++ TU), an include stream skips what an
+    /// earlier include wrote (estr_seen).
+    priv fn _big_strs(self, header: bool) {
+        var n = self._plan->big_str_hashes.size();
+        if n == 0 { return; }
+        self._cg->sink->unanchored(true);
+        for var i: usize = 0; i < n; ++i {
+            var h   = self._plan->big_str_hashes[i];
+            var len = self._plan->big_str_lens[i];
+            var p   = self._plan->big_str_bytes[i];
+            var seen = false;
+            for var k: usize = 0; k < self.estr_seen.size(); ++k { if self.estr_seen[k] == h { seen = true; break; } }
+            if seen { continue; }
+            self.estr_seen.push_back(h);
+            var g = LowerTargets::eval_str_hashed_guard(h, len);
+            if header { self._cg->sink->directive(self._tu_at(), "#ifndef " + g); }
+            if header { self._cg->sink->directive(self._tu_at(), "#define " + g); }
+            var s = "inline constexpr unsigned char " + LowerTargets::eval_str_hashed(h, len) + "[" + f"{len + 1}" + "] = {";
+            for var b: usize = 0; b < len; ++b {
+                s += f"{static_cast::<u32>(p[b])}, ";
+            }
+            s += "0};";
+            self._cg->sink->spell(self._tu_at(), s);
+            self._cg->sink->brk();
+            if header { self._cg->sink->directive(self._tu_at(), "#endif"); }
+        }
+        self._cg->sink->unanchored(false);
+    }
+
     priv fn _needs_eval_helpers(self) -> bool {
         if (self._cg->tu != &null) && (self._cg->tu->has_eval_for || self._cg->tu->has_eval_string) { return true; }
         for var i: usize = 0; i < self._plan->entries.size(); ++i {

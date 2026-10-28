@@ -510,6 +510,37 @@ class LowerTargets {
     /// address everywhere, and a header body naming it is no ODR hazard),
     /// and no array has to be hoisted ahead of the body that names it.
     static fn eval_str() -> string { return "__kairo_estr"; }
+    /// The most bytes a compile-time literal spells as `__kairo_estr<...>`
+    /// (EVAL.md §11, USER: a size switch). One template argument per byte is
+    /// fine for names and messages; a multi-kilobyte literal (an
+    /// `embed_str!` result, a table) would be a template with thousands of
+    /// arguments and a mangled name to match. Above it the literal is one
+    /// named array, eval_str_hashed.
+    static fn eval_str_inline_max() -> usize { return 256; }
+    /// `inline constexpr unsigned char __kairo_estrh_<len>_<hash>[len + 1]`:
+    /// a long compile-time literal's bytes, named for its content (FNV-1a
+    /// over the bytes, eval_str_hash) and length, so the same literal is
+    /// the same `inline` entity in every TU and header that writes it (no
+    /// ODR hazard, one object after linking) and two different ones never
+    /// share a name short of a 64-bit collision at equal length. At global
+    /// scope, so `::` reaches it from any namespace.
+    static fn eval_str_hashed(hash: u64, len: usize) -> string {
+        return f"__kairo_estrh_{len}_" + hex64(hash);
+    }
+    /// A header's guard around one eval_str_hashed definition: two Kairo
+    /// headers in one C++ TU may both carry it.
+    static fn eval_str_hashed_guard(hash: u64, len: usize) -> string {
+        return f"__KAIRO_ESTRH_{len}_" + hex64(hash);
+    }
+    /// FNV-1a, 64 bits, over \p n bytes at \p p: eval_str_hashed's key.
+    static fn eval_str_hash(p: std::ConstPtr::<u8>, n: usize) -> u64 {
+        var h: u64 = u64(0xcbf29ce484222325);
+        for var i: usize = 0; i < n; ++i {
+            h = h ^ static_cast::<u64>(p[i]);
+            h = h * u64(0x100000001b3);
+        }
+        return h;
+    }
 
     // --- Extension scopes (writer: InterfaceEmitter; reader: CXXSpell) -----------------
 

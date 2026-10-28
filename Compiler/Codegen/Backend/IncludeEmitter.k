@@ -64,6 +64,7 @@ class IncludedDecls {
     pub var panic_api:  bool = false;    ///< InterfaceEmitter::have_panic_api
     pub var raw_slot:   bool = false;    ///< InterfaceEmitter::have_raw_slot
     pub var tid_seen:   vec::<u64>;      ///< InterfaceEmitter::tid_seen
+    pub var estr_seen:  vec::<u64>;      ///< InterfaceEmitter::estr_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
     /// `class X;` is not `class X { ... };`, and a Fwd entry must not keep
     /// a later include from defining X.
@@ -91,6 +92,7 @@ class IncludedDecls {
         self.panic_api  = false;
         self.raw_slot   = false;
         self.tid_seen.clear();
+        self.estr_seen.clear();
         self._keys.clear();
         self._scopes.clear();
         self._bodies.clear();
@@ -264,6 +266,7 @@ class IncludeEmitter {
         // rejects a `throw` in a template it only defines.
         ie.cxx_exceptions = static_cast::<bool>(ci->getLangOpts().CXXExceptions);
         for var k: usize = 0; k < seen->tid_seen.size(); ++k { ie.tid_seen.push_back(seen->tid_seen[k]); }
+        for var k: usize = 0; k < seen->estr_seen.size(); ++k { ie.estr_seen.push_back(seen->estr_seen[k]); }
         for var k: usize = 0; k < pruned.size(); ++k { ie.pruned_insts.push_back(pruned[k]); }
         ie.run();
         seen->helpers    = ie.have_helpers;
@@ -278,6 +281,8 @@ class IncludeEmitter {
         seen->raw_slot  = ie.have_raw_slot;
         seen->tid_seen.clear();
         for var k: usize = 0; k < ie.tid_seen.size(); ++k { seen->tid_seen.push_back(ie.tid_seen[k]); }
+        seen->estr_seen.clear();
+        for var k: usize = 0; k < ie.estr_seen.size(); ++k { seen->estr_seen.push_back(ie.estr_seen[k]); }
 
         var bodies = vec::<*FunctionDecl>();
         var all = plan.include_bodies();

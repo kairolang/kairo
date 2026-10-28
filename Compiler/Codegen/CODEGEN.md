@@ -836,7 +836,18 @@ const_eval`, set by EvalUsageChecking, EVAL.md 2a) passes its bytes as
 with the NUL appended (InterfaceEmitter writes it with the eval helpers):
 no `reinterpret_cast`, which no constant expression may hold, and keyed on
 the bytes, so a literal is one object in every TU and header. A run-time
-literal keeps `reinterpret_cast<const unsigned char*>("...")`.
+literal keeps `reinterpret_cast<const unsigned char*>("...")`. Past
+`LowerTargets::eval_str_inline_max` (256 bytes; EVAL.md §11, USER) one
+template argument per byte is too many: such a literal is
+`::__kairo_estrh_<len>_<hash>`, an `inline constexpr unsigned char[len +
+1]` named for its content (FNV-1a, `LowerTargets::eval_str_hash`).
+EmitPlan collects each one a walked body, eval initializer or value
+argument spells (`big_str_bytes`), and InterfaceEmitter defines them at
+global scope right after the eval helpers, ahead of every type and body,
+foreign consteval bodies included: `#ifndef`-guarded per name in a header,
+skipped by an include stream when an earlier include wrote it
+(`estr_seen`). Inline and content-named, so every TU and header that
+writes one writes the same entity and the linker keeps one.
 
 Why, rather than "the template's own TU plus every TU that homes an
 instance": clang instantiates templates Kairo never names -- a coroutine's
