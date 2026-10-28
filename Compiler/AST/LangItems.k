@@ -676,6 +676,16 @@ class LowerTargets {
         return f"__kairo_init{i}_" + field;
     }
 
+    // --- Local declarations (writer: CXXSpell::leaf) -------------------------------
+
+    /// A `fn`, class, struct, union or enum declared in a function body is
+    /// emitted at namespace scope (CODEGEN.md §6, Local declarations), so its
+    /// C++ name carries where it was written: `__kairo_local_<line>_<col>_<name>`.
+    /// Two functions' locals of one name, two in sibling blocks, and an
+    /// overload pair in one body each get their own, and the name is a
+    /// function of the source alone, the same in every TU that spells it.
+    static fn local_decl(name: string, line: u32, col: u32) -> string { return f"__kairo_local_{line}_{col}_{name}"; }
+
     // --- finally (writer: FinallyLowering) -----------------------------------------
 
     /// `__kairo_FinK` is the record a `finally` becomes, `__kairo_finK` the

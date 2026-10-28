@@ -214,7 +214,25 @@ class CXXSpell {
         var f = dyn_cast::<FunctionDecl>(d);
         if (f != &null) && f->is_operator { return self.operator_name(f); }
         var t = decl_name_tok(d);
-        return self.imm_name(t.imm, CXXSpell::fid_of(d));
+        var nm = self.imm_name(t.imm, CXXSpell::fid_of(d));
+        // An ADT's layout record IS the enum to C++, and takes its name.
+        var lay = dyn_cast::<StructDecl>(d);
+        var named = d;
+        if (lay != &null) && (lay->adt_of != &null) { named = lay->adt_of; }
+        if CXXSpell::is_hoisted_local(named) { return self._local_leaf(named, nm); }
+        return nm;
+    }
+
+    /// A hoisted local's namespace-scope name (LowerTargets::local_decl),
+    /// from the position of its own name: the same in every TU, since it is
+    /// a fact about the source alone.
+    priv fn _local_leaf(self, d: *Decl, nm: string) -> string {
+        var r  = CXXSpell::rep(d);
+        var at = decl_name_tok(r).range.start;
+        var sm = self._cg->ctx->sm;
+        if (sm == &null) || (!at.is_valid()) { self._ice(r->range, "CXXSpell: a local declaration with no source position to name it by"); }
+        var lc = sm->get_line_col(at);
+        return LowerTargets::local_decl(nm, static_cast::<u32>(lc.line), static_cast::<u32>(lc.column));
     }
 
     /// `operator+`, `operator[]`, `operator<=>`; `op as` -> `operator T`;
@@ -484,15 +502,41 @@ class CXXSpell {
     /// enclosing it, is a function, block or lambda (FinallyLowering's guard
     /// record, its members and its local). Such a decl has no namespace: it
     /// is named by leaf, emitted inside the body, and never planned.
+    ///
+    /// A HOISTED local (is_hoisted_local) is the exception, and so is
+    /// everything declared in one: it is emitted at namespace scope, so
+    /// the walk stops at it as at a namespace. A local of one of its
+    /// functions still meets that function's scope first.
     static fn in_function_scope(d: *Decl) -> bool {
         if d == &null { return false; }
+        if CXXSpell::is_hoisted_local(d) { return false; }
         var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
         while dc != &null {
             if dc->is_function() || (dc->dc_kind == DeclContextKind::Block) || (dc->dc_kind == DeclContextKind::Lambda) { return true; }
             if dc->is_translation_unit() || (dc->dc_kind == DeclContextKind::Module) || (dc->dc_kind == DeclContextKind::Extension) { return false; }
+            if dc->is_type_scope() && (dc->dc_owner != &null) && CXXSpell::is_hoisted_local(dc->dc_owner) { return false; }
             dc = dc->dc_parent;
         }
         return false;
+    }
+
+    /// \p d is a `fn`, class, struct, union or enum the user wrote in a
+    /// function body. C++ has no local functions, and a local class can have
+    /// no member template, no static data member and no out-of-line member,
+    /// so each is emitted at NAMESPACE scope instead -- the scope of the
+    /// function it is written in -- under a name that carries its position
+    /// (LowerTargets::local_decl), and planned and emitted as any other own
+    /// declaration (CODEGEN.md §6, Local declarations). It cannot reach the
+    /// function's locals (ClosureCaptures rejects that), so nothing it needs
+    /// is lost by the move. A lowering's record (FinallyLowering's guard) is
+    /// implicit and stays in the body.
+    static fn is_hoisted_local(d: *Decl) -> bool {
+        if (d == &null) || d->is_implicit { return false; }
+        if (!isa::<FunctionDecl>(d)) && (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))
+        && (!isa::<UnionDecl>(d)) && (!isa::<EnumDecl>(d)) { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+        if dc == &null { return false; }
+        return dc->is_function() || (dc->dc_kind == DeclContextKind::Block) || (dc->dc_kind == DeclContextKind::Lambda);
     }
 
     /// The scope a decl's NAMESPACE is read from: for an extension member

@@ -39,6 +39,15 @@
 ///     closure reaches a pointer capture through the pointer), EmitIR (the
 ///     capture list).
 ///
+///     A NAMED function declared in a body -- a local `fn`, or a method of
+///     a local class, struct or union -- captures nothing (closures.mdx,
+///     Closures vs Inner Functions): a local or a parameter of an enclosing
+///     function (`self` included) used in it is an error, and so is a
+///     `static` local, which codegen could not reach either -- the local
+///     declaration is emitted at namespace scope (CODEGEN.md §6, Local
+///     declarations). Each use is reported once, by the innermost such
+///     function.
+///
 ///   SC001E is the placeholder until the monthly sweep gives the error a code.
 ///
 ///   Phase: CHECK, after ExprTyper and ClassLifecycle (MOVE types), before
@@ -82,6 +91,9 @@ class ClosureCaptures derives RecursiveASTVisitor::<ClosureCaptures> {
     /// resolved before anything nested in it.
     priv var _open: vec::<*ClosureExpr>;
     pub var n_errored: usize = 0;
+    /// Uses already reported by an inner function's scan: an enclosing
+    /// local function's scan sees them free too.
+    priv var _reported: vec::<*NamedIdentExpr>;
 
     fn ClosureCaptures(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -112,6 +124,66 @@ class ClosureCaptures derives RecursiveASTVisitor::<ClosureCaptures> {
         var out = RecursiveASTVisitor::<ClosureCaptures>::traverse_closure_expr(n);
         self._open.pop_back();
         return out;
+    }
+
+    // --- named functions in a body ----------------------------------------------------
+
+    /// After what the declaration holds: a function nested in this one is
+    /// scanned first, so a use is reported by the innermost function that
+    /// makes it, and this scan skips it (_reported).
+    fn traverse_decl_stmt(self, n: *DeclStmt) -> *DeclStmt {
+        if n == &null { return n; }
+        var out = RecursiveASTVisitor::<ClosureCaptures>::traverse_decl_stmt(n);
+        var d = n->decl;
+        if d == &null { return out; }
+        var f = dyn_cast::<FunctionDecl>(d);
+        if f != &null { self._inner_fn(f); return out; }
+        var methods: *FrozenList::<*FunctionDecl> = &null;
+        if isa::<ClassDecl>(d)       { methods = &(cast::<ClassDecl>(d)->methods);  }
+        else if isa::<StructDecl>(d) { methods = &(cast::<StructDecl>(d)->methods); }
+        else if isa::<UnionDecl>(d)  { methods = &(cast::<UnionDecl>(d)->methods);  }
+        if methods == &null { return out; }
+        for var i: usize = 0; i < methods->size(); ++i {
+            var m = (*methods)[i];
+            if m != &null { self._inner_fn(m); }
+        }
+        return out;
+    }
+
+    /// \p f's free locals: every one belongs to a function around it.
+    priv fn _inner_fn(self, f: *FunctionDecl) {
+        if f->is_poisoned() || f->is_implicit { return; }
+        var inner = FreeVarScan();
+        inner.dispatch_decl(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < inner.free.size(); ++i {
+            var d = inner.free[i];
+            var at = inner.free_at[i];
+            if !self._outer_local(d) { continue; }
+            var seen = false;
+            for var k: usize = 0; k < self._reported.size(); ++k { if self._reported[k] == at { seen = true; break; } }
+            if seen { continue; }
+            self._reported.push_back(at);
+            var nm  = self._tu.decl_name(d);
+            var fnm = self._tu.decl_name(static_cast::<*Decl>(f));
+            var b = self.sc->diag->report(DiagID::SC001E, at->range.start,
+                f"'{fnm}' is a named function declared in a body, and cannot use '{nm}' from the function around it"
+            );
+            b.first(at->range, "declared outside it");
+            b.note(d->range.start, f"'{nm}' is declared here; a named function captures nothing -- pass it as a parameter, or use a closure");
+            b.emit();
+            self.n_errored += 1;
+        }
+    }
+
+    /// A local or a parameter of some function: never a global, a field or
+    /// a namespace-scope static.
+    priv fn _outer_local(self, d: *Decl) -> bool {
+        if isa::<ParamDecl>(d) { return true; }
+        var v = dyn_cast::<VariableDecl>(d);
+        if v == &null { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(v->semantic_dc);
+        if dc == &null { return true; }
+        return dc->is_function() || (dc->dc_kind == DeclContextKind::Block) || (dc->dc_kind == DeclContextKind::Lambda);
     }
 
     // --- the decision ---------------------------------------------------------------

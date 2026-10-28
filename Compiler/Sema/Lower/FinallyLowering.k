@@ -260,6 +260,10 @@ class FinallyLowering derives ASTWriter::<FinallyLowering> {
         var fdc = static_cast::<*DeclContext>(f);
         var rec = StructDecl::create(self.ctx, at, self.synth.ident(at, LowerTargets::finally_record(k)), fdc);
         self._home(static_cast::<*Decl>(rec), fdc);
+        // Implicit: a record the user writes in a body is hoisted to
+        // namespace scope (CXXSpell::is_hoisted_local); this one captures
+        // the body's locals by address and stays in it.
+        rec->is_implicit = true;
         var rdc = static_cast::<*DeclContext>(rec);
         var no_args = vec::<*Type>();
         var rec_ty  = self.sc->types->record(static_cast::<*Decl>(rec), &no_args);

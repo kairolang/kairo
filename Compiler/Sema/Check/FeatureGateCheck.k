@@ -49,6 +49,15 @@
 ///         its parameters (no canonical for `T`) nor a call of it, so there
 ///         is no signature for EmitIR to spell; a C++ generic lambda is the
 ///         target once both are typed.
+///       - a `fn`, class, struct, union or enum declared in a body that
+///         names a generic parameter of a declaration around it (the
+///         function's `T`, or its class's). Codegen emits a local
+///         declaration at namespace scope (CXXSpell::is_hoisted_local),
+///         where that parameter is not in scope; it would have to become a
+///         template over it, and every use in the body pass it. One that
+///         names no outer parameter -- generic in its own right or not --
+///         is emitted, in a generic function as anywhere else.
+///       - an `extend` in a body: nothing emits one there.
 ///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
@@ -79,6 +88,7 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Statements::*;
 import AST::Node::Expressions::*;
+import AST::Node::PrimaryExpressions::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Node::CanonicalNodes::*;
@@ -89,6 +99,51 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Token::Token::*;
 import Location::SourceRange::*;
 import Diagnostic::Registry::*;
+
+/// The first generic parameter \p local names that belongs to a declaration
+/// AROUND it, not to \p local or to anything declared in it. Types (a
+/// written `T`, `*T`, `Box<T>`: every node the walk reaches, by its
+/// canonical) and value parameters (a bare `N`) both count.
+class OuterGenericScan derives RecursiveASTVisitor::<OuterGenericScan> {
+    pub var local: *Decl = &null;
+    pub var hit:   *GenericParamDecl = &null;
+
+    fn OuterGenericScan(self) { }
+
+    /// \p owner is \p local itself or declared somewhere inside it.
+    priv fn _inside(self, owner: *Decl) -> bool {
+        var d = owner;
+        while d != &null {
+            if d == self.local { return true; }
+            var dc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
+            if dc == &null { return false; }
+            d = dc->dc_owner;
+        }
+        return false;
+    }
+
+    priv fn _check(self, gp: *GenericParamDecl) {
+        if (gp == &null) || (self.hit != &null) { return; }
+        if self._inside(gp->owner) { return; }
+        self.hit = gp;
+    }
+
+    fn visit_type(self, t: *Type) -> bool {
+        if (t == &null) || (self.hit != &null) { return true; }
+        var c = (t->canonical) if (t->canonical != &null) else (t);
+        var g = dyn_cast::<GenericParamType>(c);
+        if (g == &null) || (g->owner == &null) { return true; }
+        var ps = decl_generic_params(g->owner);
+        var i = static_cast::<usize>(g->param_index);
+        if i < ps.size() { self._check(ps[i]); }
+        return true;
+    }
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if (n != &null) && (n->resolved_decl != &null) { self._check(dyn_cast::<GenericParamDecl>(n->resolved_decl)); }
+        return true;
+    }
+}
 
 class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
     pub var sc: *SemaContext;
@@ -255,6 +310,36 @@ class FeatureGateCheck derives RecursiveASTVisitor::<FeatureGateCheck> {
         if n->is_static() { what = "an initializer on a static array-typed field"; }
         else if (el != &null) && (el->kind == TypeKind::FixedArrayType) { what = "an initializer on a field that is an array of arrays"; }
         self._gate(n->init->range, what);
+        return true;
+    }
+
+    // --- local declarations --------------------------------------------------------
+
+    /// A local declaration that needs a generic parameter of a declaration
+    /// around it: the first one it names is reported, at the local's name,
+    /// with a note at that parameter.
+    fn visit_decl_stmt(self, n: *DeclStmt) -> bool {
+        if (n == &null) || (n->decl == &null) || n->decl->is_poisoned() || n->decl->is_implicit { return true; }
+        var d = n->decl;
+        if isa::<ExtensionDecl>(d) { self._gate(d->range, "an 'extend' in a function body"); return true; }
+        if (!isa::<FunctionDecl>(d)) && (!isa::<ClassDecl>(d)) && (!isa::<StructDecl>(d))
+        && (!isa::<UnionDecl>(d)) && (!isa::<EnumDecl>(d)) { return true; }
+        var scan = OuterGenericScan();
+        scan.local = d;
+        scan.dispatch_decl(d);
+        if scan.hit == &null { return true; }
+        var gp  = scan.hit;
+        var tu  = TypeUtil(self.sc);
+        var gn  = self.sc->ctx->get_spelling(gp->name);
+        var own = ("the declaration around it") if (gp->owner == &null) else (f"'{tu.decl_name(gp->owner)}\x27");
+        var at  = decl_name_tok(d).range;
+        if !at.is_valid() { at = d->range; }
+        var b = self.sc->diag->report(DiagID::SC116E, at.start,
+            f"'{tu.decl_name(d)}' is declared in a body and uses '{gn}', a generic parameter of {own}; that is not yet supported"
+        );
+        b.first(at);
+        b.note(gp->range.start, f"'{gn}' is declared here; a local declaration is emitted outside the generic function, where '{gn}' is not in scope -- declare it at file scope with its own '<{gn}>\x27");
+        b.emit();
         return true;
     }
 

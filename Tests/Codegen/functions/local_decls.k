@@ -2,12 +2,12 @@
 // declarations.mdx; classes.mdx): each is visible from its declaration to the
 // end of the block.
 //
-// XFAIL: *
-// Ticket "[Codegen] Functions, classes and enums declared in a function body
-// are not emitted" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today each
-// type-checks and ICEs: "EmitIR: statement-scope named decls (local
-// fn/class/type) are not emitted yet". A local `struct` works. When it
-// XPASSes, delete the XFAIL -- the run below is already the real assertion.
+// Was XFAIL on the ticket "[Codegen] Functions, classes and enums declared in
+// a function body are not emitted" (private/IMPORTANT/TICKETS.TXT,
+// 2026-10-26): each type-checked and ICEd in EmitIR. Each is now emitted at
+// namespace scope (CXXSpell::is_hoisted_local); the shapes are in
+// local_decls_shapes.k, local_decls_generic.k, local_decls_cross_module.k
+// and local_decls_selfhost.k.
 
 fn main() -> i32 {
     fn helper(x: i32) -> i32 { return x + 1 }

@@ -263,6 +263,14 @@ class <T> StmtParse {
         || isa::<InterfaceDecl>(d) || isa::<EnumDecl>(d)   || isa::<FunctionDecl>(d)
         || isa::<ExtensionDecl>(d) {
             dc->add_decl(d);
+            // Where it was written, for whoever asks the decl and not the
+            // tree around it: codegen hoists a local fn or type to the
+            // namespace of the function it sits in (CXXSpell::
+            // is_hoisted_local), and finds that function from here. The
+            // symbol build stamps the same scope when it reaches the decl;
+            // a body parsed after that build is not reached by it.
+            if d->semantic_dc == &null { d->semantic_dc = reinterpret_cast::<*void>(dc); }
+            if d->lexical_dc == &null  { d->lexical_dc  = reinterpret_cast::<*void>(dc); }
         }
     }
 
@@ -352,6 +360,7 @@ class <T> StmtParse {
                     var d = dyn()->parse_decl(true);
                     if d != &null {
                         if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
+                        self._attach_local_decl(d);
                         return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
                     }
                 }
@@ -378,6 +387,7 @@ class <T> StmtParse {
                     var d = dyn()->parse_decl(true);
                     if d != &null {
                         if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
+                        self._attach_local_decl(d);
                         return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
                     }
                 }
@@ -411,6 +421,9 @@ class <T> StmtParse {
             }
 
             if dyn()->is_fatal_decl(d) { return dyn()->fatal_ptr::<Stmt>(); }
+            // A local `fn` belongs to the function it is written in, as a
+            // local type does (_parse_decl_stmt): codegen hoists both.
+            self._attach_local_decl(d);
             return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
         }
 

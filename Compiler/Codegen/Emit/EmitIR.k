@@ -206,6 +206,13 @@ class EmitIR {
             }
         }
 
+        // The bodies of what the program's functions declare locally,
+        // hoisted to namespace scope (CXXSpell::is_hoisted_local); the plan
+        // declared each, so order among them does not matter.
+        var hl = HoistedLocals();
+        hl.run(tu);
+        for var i: usize = 0; i < hl.found.size(); ++i { self.emit(hl.found[i]); }
+
         for var i: usize = 0; i < vis.size(); ++i { if !self._compile_time(vis[i]) { self._visible_body(vis[i]); } }
         self._panic_sites(tu);
     }
@@ -993,8 +1000,21 @@ class EmitIR {
                     self._var_decl(cast::<VariableDecl>(n->decl));
                 }
             }
-            case DeclKind::StructDecl   { self._local_record(cast::<StructDecl>(n->decl)); }
-            default { self._ice(n->range, "EmitIR: statement-scope named decls (local fn/class/type) are not emitted yet"); }
+            // A `fn`, class or enum the user wrote here was hoisted to
+            // namespace scope (CXXSpell::is_hoisted_local): emit_tu defines
+            // it there, and nothing of it stays in the body.
+            default {
+                if CXXSpell::is_hoisted_local(n->decl) { return; }
+                // An alias has no C++ entity: every use is spelled through
+                // its canonical, as a file-scope one's is (emit()).
+                if n->decl->kind == DeclKind::TypeAliasDecl { return; }
+                if n->decl->kind == DeclKind::StructDecl { self._local_record(cast::<StructDecl>(n->decl)); }
+                else {
+                    var sdc = reinterpret_cast::<*DeclContext>(n->decl->semantic_dc);
+                    var scope_s = ("no semantic scope") if (sdc == &null) else (f"semantic scope kind {static_cast::<u32>(static_cast::<u8>(sdc->dc_kind))}");
+                    self._ice(n->range, f"EmitIR: a statement-scope {to_string(n->decl->kind)} that is neither hoisted nor a lowering's record ({scope_s}, implicit={n->decl->is_implicit})");
+                }
+            }
         }
         self._cg->sink->synth_at_end(n->range, clang::tok::semi);
     }

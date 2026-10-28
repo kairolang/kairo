@@ -586,6 +586,37 @@ decay of a prvalue array ("taking address of temporary array") and clang
 does not — bodies only ever go through clang, and that is a HARD dependency
 of this layer, not a preference.
 
+### Local declarations
+
+A `fn`, class, struct, union or enum the user writes in a function body
+(`CXXSpell::is_hoisted_local`: its semantic scope is a function, block or
+lambda, and it is not implicit) is HOISTED: emitted at namespace scope, in
+the namespace of the function it is written in, as if it were a `priv`
+declaration there. C++ has no local functions, and a local class can have
+no member template, no static data member and no out-of-line member; at
+namespace scope none of that is in the way, and the plan, InterfaceEmitter
+and EmitIR handle it exactly as a file-scope declaration (tiers, ADT
+layout, explicit instantiation of its own generics).
+
+- Name: `CXXSpell::leaf` gives `__kairo_local_<line>_<col>_<name>`
+  (`LowerTargets::local_decl`), from the position of its own name, so two
+  functions' locals of one name and two sibling blocks' coexist, and every
+  TU spells it alike. An ADT's layout record takes its enum's.
+- Plan: `HoistedLocals` finds every one in the TU's program; a Preamble
+  roots each as an own decl. A header or include takes one only through a
+  use, from an inline or template body it compiles (linked from the home
+  TU, like any `priv` helper).
+- EmitIR: the DeclStmt emits nothing; `emit_tu` emits each one's bodies
+  after the program's.
+- What makes the move sound: a named function in a body captures nothing
+  (ClosureCaptures rejects a use of an enclosing local, parameter, `self`
+  or static), so no binding is lost. What it cannot carry is an ENCLOSING
+  generic parameter -- out of the function it is not in scope -- so a
+  local that names one is SC116E (FeatureGateCheck); one generic in its own
+  right is a namespace-scope template. An `extend` in a body is SC116E.
+- FinallyLowering's guard record is implicit and stays in the body
+  (`_local_record`): it holds the body's locals by address.
+
 ### Closures
 
 A closure is a C++ lambda inside the `fn` value its type is. closures.md

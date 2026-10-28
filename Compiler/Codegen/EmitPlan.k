@@ -125,6 +125,35 @@ enum PlanMode derives u8 {
 /// into, needed COMPLETE before its definition. EmitPlan::_early reads
 /// these on the lowered tree; EvalUsageChecking::EvalNeeds is the Sema
 /// side, which reports what no order satisfies.
+/// Every hoisted local declaration (CXXSpell::is_hoisted_local) a TU's
+/// program holds, in source order, an enclosing one before those nested in
+/// it. The plan roots each one as an own declaration and EmitIR emits each
+/// one's bodies at namespace scope, so both walk the same list.
+class HoistedLocals derives RecursiveASTVisitor::<HoistedLocals> {
+    pub var found: vec::<*Decl>;
+
+    fn HoistedLocals(self) { }
+
+    fn run(self, tu: *TranslationUnit) {
+        if (tu == &null) || (tu->program == &null) { return; }
+        var items = &(tu->program->items);
+        for var i: usize = 0; i < items->size(); ++i {
+            var item = *(items->get(i));
+            switch item.get_kind() {
+                case TopLevelKind::Decl { self.dyn()->dispatch_decl(item.as_decl()); }
+                case TopLevelKind::Stmt { self.dyn()->dispatch_stmt(item.as_stmt()); }
+                case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
+            }
+        }
+    }
+
+    fn visit_decl_stmt(self, n: *DeclStmt) -> bool {
+        if (n == &null) || (n->decl == &null) || n->decl->is_poisoned() { return true; }
+        if CXXSpell::is_hoisted_local(n->decl) { self.found.push_back(n->decl); }
+        return true;
+    }
+}
+
 class EarlyNeeds derives RecursiveASTVisitor::<EarlyNeeds> {
     pub var items:       vec::<*Decl>;
     pub var const_items: vec::<*Decl>;
@@ -475,6 +504,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _collect_own(self, dc: *DeclContext);
     fn _collect_own_decl(self, d: *Decl);
     fn _collect_own_globals(self);
+    fn _collect_own_locals(self);
     fn _scope_for(self, x: *ExtensionDecl, reach: bool) -> usize;
     fn _fill_scope(self, k: usize, cand: *Decl);
     fn _same_scope(self, k: usize, x: *ExtensionDecl) -> bool;
@@ -633,6 +663,7 @@ fn EmitPlan::run() {
 
     self._collect_own(static_cast::<*DeclContext>(tu));
     self._collect_own_globals();
+    if self._mode == PlanMode::Preamble { self._collect_own_locals(); }
     if self._mode == PlanMode::Preamble { self._collect_uses(); }
     self._walk_visible();
     self._close();
@@ -811,6 +842,17 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
 /// definitions are globals is is_empty, and a function naming one finds no
 /// prior `extern`, which for a `const` is the difference between external
 /// and internal linkage.
+/// The `fn`s, classes and enums written in this TU's function bodies: each
+/// is an own declaration at namespace scope (CXXSpell::is_hoisted_local),
+/// defined here whether or not a body names it. A header and an include
+/// take one only through a use -- an inline or template body that calls
+/// it, which the body walk admits.
+fn EmitPlan::_collect_own_locals() {
+    var hl = HoistedLocals();
+    hl.run(self._cg->tu);
+    for var i: usize = 0; i < hl.found.size(); ++i { self._collect_own_decl(hl.found[i]); }
+}
+
 fn EmitPlan::_collect_own_globals() {
     var prog = self._cg->tu->program;
     for var i: usize = 0; i < prog->items.size(); ++i {
