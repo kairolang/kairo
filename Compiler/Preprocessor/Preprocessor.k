@@ -2272,7 +2272,7 @@ class PPWalker
             self._unique_counter += 1;
 
             var tok = self.make_ident_token(
-                f"__synth_{tag}_{self._fid}_{self._unique_counter}",
+                LowerTargets::unique_ident(tag, self._fid, self._unique_counter),
                 range
             );
 
@@ -2284,11 +2284,7 @@ class PPWalker
         // Untagged, or tagged at the top level: fresh on every invocation.
         self._unique_counter += 1;
 
-        var name = (f"__synth_{self._fid}_{self._unique_counter}")
-            if tag.empty()
-            else (f"__synth_{tag}_{self._fid}_{self._unique_counter}");
-
-        out->append(self.make_ident_token(name, range));
+        out->append(self.make_ident_token(LowerTargets::unique_ident(tag, self._fid, self._unique_counter), range));
         return out;
     }
 

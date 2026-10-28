@@ -1053,6 +1053,16 @@ class LowerTargets {
     /// compiles against the real record, so the fields need no real names.
     static fn export_field(i: usize) -> string { return f"__kairo_f{i}"; }
 
+    // --- unique_id! (writer: Preprocessor::_builtin_unique_id) ------------------
+    /// The identifier `unique_id!()` / `unique_id!(tag)` expands to, \p k the
+    /// preprocessor's per-file counter. From there on it is an ordinary user
+    /// identifier, so it reaches the emitted C++ as whatever the user named
+    /// with it.
+    static fn unique_ident(tag: string, fid: u32, k: u32) -> string {
+        if tag.empty() { return f"__synth_{fid}_{k}"; }
+        return f"__synth_{tag}_{fid}_{k}";
+    }
+
     // --- Default-argument thunk overloads (writer: CallLowering) ---------------
     /// The `_<k>` default_thunk carries when the function's name cell holds
     /// more than one entity; \p k is 1-based, source order.
