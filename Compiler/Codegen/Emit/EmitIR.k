@@ -1817,10 +1817,15 @@ class EmitIR {
             // (`L<i32>::Color::Green`, GH#91): qualified through that
             // type, since the plain qualified name `::ns::L::Color` names
             // the template without its arguments.
+            // A static member named through an instance (`Box<i32>::count`)
+            // has it on the step (ChainExpr::Step::through), which also
+            // covers a head with no earlier step to read it from.
             var pt: *Type = &null;
             if k > 0 { pt = n->steps.get(k - 1)->resolved_type; }
             var pr = (dyn_cast::<RecordType>(canon_unqual(pt->canonical))) if ((pt != &null) && (pt->canonical != &null)) else (&null);
-            if (pr != &null) && (pr->outer != &null) {
+            if st->through != &null {
+                self._cg->sink->spell(st->range, self._spell._type(st->through, &null) + "::" + self._spell.leaf(st->resolved_decl));
+            } else if (pr != &null) && (pr->outer != &null) {
                 self._cg->sink->spell(st->range, self._spell._type(pt, &null) + "::" + self._spell.leaf(st->resolved_decl));
             } else {
                 self._cg->sink->spell(st->range, self._spell.qual_name(st->resolved_decl));

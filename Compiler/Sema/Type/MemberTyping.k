@@ -110,6 +110,19 @@ class <T> MemberTyping {
         dyn()->poison_only(n);
     }
 
+    /// `Box<i32>::count`: the record a `::` step names its member through
+    /// (ChainExpr::Step::through), when that record is a generic one's
+    /// instance or a nested type of one (`L<i32>::P::k`), else null. The
+    /// member's decl is the pattern's, and the arguments are on \p cur_type
+    /// and nowhere else once this chain is typed. The value-chain twin of
+    /// CallTyping::_instance_qualifier.
+    priv fn _instance_through(self, st: *ChainExpr::Step, cur_kind: u8, cur_type: *Type) -> *Type {
+        if (cur_kind != 1) || (cur_type == &null) || (st->access_kind != ChainExpr::AccessKind::ColonColon) { return &null; }
+        var r = dyn_cast::<RecordType>(canon_unqual(cur_type));
+        if (r == &null) || ((r->args.size() == 0) && (r->outer == &null)) { return &null; }
+        return static_cast::<*Type>(r);
+    }
+
     fn type_chain(self, n: *ChainExpr, expected: *Type) -> *Type {
         var info = dyn()->new_chain_info(n);
 
@@ -328,6 +341,7 @@ class <T> MemberTyping {
                     // through Base's generic args, it is seen through T's.
                     var seen = (val) if (cur_kind == 0) else (cur_type);
                     cur = dyn()->ded_scratch()->member_through(seen, ft);
+                    st->through = self._instance_through(st, cur_kind, cur_type);
                     cur_kind = 0;
                     st->resolved_type = cur;
                     n->value_category = Expr::ValueCategory::LValue;
@@ -338,6 +352,7 @@ class <T> MemberTyping {
                     if cur == &null { info->unknown = true; dyn()->mark_unknown(n); return &null; }
                     // A const binding is a const object; see ExprTyper::_type_ident.
                     if v->is_const() { cur = dyn()->sc->types->qualified(cur, QUAL_CONST()); }
+                    st->through = self._instance_through(st, cur_kind, cur_type);
                     cur_kind = 0; st->resolved_type = cur;
                     n->value_category = Expr::ValueCategory::LValue;
                 }

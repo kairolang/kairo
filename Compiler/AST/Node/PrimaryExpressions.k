@@ -375,6 +375,17 @@ class ChainExpr derives Expr {
         /// splits the chain after this step around a `__value()` call.
         pub var narrowed_from: *Type = &null;
 
+        /// The record a `::` step's member is named THROUGH, when that
+        /// record is a generic one's instance (`Box<i32>::count`,
+        /// `L<i32>::P::k`) or a pattern used dependently (`Box<T>::count`
+        /// in a generic body); null otherwise. The member's decl is the
+        /// pattern's (an instance shell has no members of its own), so the
+        /// decl alone spells `Box::count`, a class template with no
+        /// arguments. The value-chain counterpart of CallExpr::qualifier.
+        /// One writer: X (MemberTyping); EmitIR spells the step through it
+        /// and EmitPlan admits it Complete.
+        pub var through: *Type = &null;
+
         fn is_operator(self) -> bool {
             return self.target == StepTarget::Operator;
         }

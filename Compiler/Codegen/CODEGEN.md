@@ -752,7 +752,11 @@ The no-headroom rules, each with one home:
   `Box<U>::zero()` in a generic body) is spelled through
   `CallExpr::qualifier`, which CallTyping writes: the member's decl is the
   pattern's, and the decl alone spells the bare class template. EmitPlan
-  admits the qualifier Complete. A default-thunk call to a generic type's
+  admits the qualifier Complete. A static FIELD named so
+  (`Box<i32>::count`, `L<i32>::P::k`) is a value chain, whose `::` step
+  carries the instance on `ChainExpr::Step::through` (MemberTyping
+  writes it; `_chain_prefix` spells `Box<int>::count` from it; EmitPlan
+  admits it Complete). A default-thunk call to a generic type's
   method goes the same way (`Box<int>::__kairo_default_m_x()`). A constructor call's parameters are
   `CallExpr::ctor_decl`'s, not the named type's.
 - `_check_arity`: CallLowering's postcondition, checked in `_call`. Every

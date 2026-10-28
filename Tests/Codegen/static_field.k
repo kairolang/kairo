@@ -55,7 +55,9 @@ fn main() -> i32 {
 // CXX-NEXT: inline constinit bool Counter{{ ?}}::{{ ?}}on = true;
 // CXX-NEXT: inline double Counter{{ ?}}::{{ ?}}ratio = __kairo_init_ratio{{ ?}}();
 // CXX-NEXT: inline {{.*}}signed int Counter{{ ?}}::{{ ?}}next = {{.*}};
-// CXX-NEXT: inline signed int Counter{{ ?}}::{{ ?}}zero{{ ?}}{};
+// The printer lays out every brace pair as a block, `{}` included.
+// CXX-NEXT: inline signed int Counter{{ ?}}::{{ ?}}zero{{ ?}}{
+// CXX-NEXT: };
 // CXX:      template{{ ?}}<class T{{ ?}}>{{ ?}}inline constinit signed int Box{{ ?}}<{{ ?}}T{{ ?}}>{{ ?}}::{{ ?}}n = 3;
 
 // REQUIRES: clang

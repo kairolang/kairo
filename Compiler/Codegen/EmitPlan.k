@@ -1708,6 +1708,9 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
                 if s == &null { continue; }
                 self._admit_use(s->resolved_decl);
                 self._admit_cell(s->candidate_cell);
+                // `Box<int>::count`: the member is looked up in the class,
+                // so the instance is complete here (as CallExpr::qualifier).
+                self._admit_type(s->through, PlanNeed::Complete);
             }
         } case ExprKind::ClosureExpr {
             // A panicking closure's lambda returns its Panic result.
