@@ -5,16 +5,9 @@
 // argument rule is the same at every call). Deduction must not overrule a
 // written argument.
 //
-// XFAIL: *
-// Ticket "[Sema] An explicit generic argument is overridden when the call
-// could deduce it" (2026-10-28). `pass<u32>(gi())` type-checks with T =
-// i32: no error, and the result is an i32 (assigning it to a bool says
-// "cannot convert 'i32'"). Likewise `pass<i64>(gf())` with an f64 is
-// accepted. `zero<u32>()`, where nothing deduces T, does bind u32
-// (2dbf9754), and so does `pass<u8>(1)`, whose literal deduces nothing,
-// so the binding is made and then lost to a TYPED argument's deduction:
-// OverloadResolution::_bind_explicit seeds c.ded, and the argument's own
-// unification apparently rebinds T. When it XPASSes, delete the XFAIL.
+// Was XFAIL (ticket "[Sema] An explicit generic argument is overridden when
+// the call could deduce it", 2026-10-28); fixed by 4c1132c9, which stops a
+// call's explicit generic arguments leaking into its arguments' typing.
 
 fn <T> pass(x: T) -> T { return x; }
 fn gi() -> i32 { return 1; }
@@ -33,8 +26,8 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } \
 // RUN:   | %FileCheck %s --check-prefix=DIAG --implicit-check-not='error ['
-// DIAG: xfail_explicit_generic_arg.k:25:13: error [SC063E]: no matching overload for call to 'pass'
+// DIAG: explicit_generic_arg.k:18:13: error [SC063E]: no matching overload for call to 'pass'
 // DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'i32' to parameter 'x' of type 'u32'
-// DIAG: xfail_explicit_generic_arg.k:26:13: error [SC063E]: no matching overload for call to 'pass'
+// DIAG: explicit_generic_arg.k:19:13: error [SC063E]: no matching overload for call to 'pass'
 // DIAG-NEXT: {{.*}}: note [I900N]: candidate not viable: cannot convert argument of type 'f64' to parameter 'x' of type 'i64'
-// DIAG: xfail_explicit_generic_arg.k:29:19: error [SC028E]: cannot convert 'u8' to 'bool'; the conversion may lose value and needs an explicit 'as'
+// DIAG: explicit_generic_arg.k:22:19: error [SC028E]: cannot convert 'u8' to 'bool'; the conversion may lose value and needs an explicit 'as'

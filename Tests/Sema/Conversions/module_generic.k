@@ -11,8 +11,8 @@
 //            candidate note (in numlib.k) at an argument, whatever the
 //            value came through.
 //
-// An EXPLICIT generic argument (`pass<u32>(x)`) belongs here too, and is
-// xfail_explicit_generic_arg.k: today it is overridden by deduction.
+// An EXPLICIT generic argument (`pass<u32>(x)`) is covered by
+// explicit_generic_arg.k.
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: cd %S/Inputs/module_generic && { %kairo bad.k --type-check-only 2>&1 || true; } \
