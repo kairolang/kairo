@@ -517,9 +517,11 @@ class <T> CallTyping {
                 var nm = "<operator>";
                 if last->name != &null { nm = dyn()->sc->ctx->get_spelling(last->name->name); }
                 self._set_explicit(&(last->generic_args));
+                dyn()->ovl.recv_cat = info->receiver_cat;
                 var r = self._call_candidates(n, &(info->callable_cands), info->has_receiver, info->receiver,
                                               nm, &null, last);
                 dyn()->ovl.explicit_args.clear();
+                dyn()->ovl.recv_cat = Expr::ValueCategory::LValue;
                 if ce->has_optional_chaining() { return self._safe_call_result(n, r); }
                 return r;
             }
@@ -656,10 +658,14 @@ class <T> CallTyping {
         // a call of its own, and one that never sets them (a constructor
         // call, `make_box<Pair>(Pair(3, 4))`) read them as written on it:
         // "it takes 0 generic argument(s), and 1 were written".
+        // The receiver's category likewise (ChainInfo::receiver_cat).
         var outer_explicit = dyn()->ovl.explicit_args;
+        var outer_cat = dyn()->ovl.recv_cat;
         dyn()->ovl.explicit_args.clear();
+        dyn()->ovl.recv_cat = Expr::ValueCategory::LValue;
         var ok = self.build_args(n->args, &args);
         dyn()->ovl.explicit_args = outer_explicit;
+        dyn()->ovl.recv_cat = outer_cat;
 
         // ADL ([basic.lookup.argdep]): an unqualified call also sees functions
         // of the same name in the modules of its arguments' types -- how

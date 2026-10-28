@@ -283,6 +283,11 @@ class OverloadResolution {
     /// parameter no argument mentions (`fn <eval N: usize> width()`) has a
     /// value. CallTyping sets and clears it around one resolve.
     pub var explicit_args: vec::<*Type>;
+    /// The receiver OBJECT's value category on a method call (ChainInfo::
+    /// receiver_cat), which only an imported method with a ref-qualifier
+    /// reads (_judge_receiver). LValue -- what every other caller means --
+    /// unless CallTyping sets it around one resolve.
+    pub var recv_cat: Expr::ValueCategory = Expr::ValueCategory::LValue;
 
     fn OverloadResolution(self) { self.sc = &null; self.conv = &null; }
     fn OverloadResolution(self, sc: *SemaContext, conv: *Conversion) {
@@ -627,9 +632,13 @@ class OverloadResolution {
         // C++ types such a method's implicit object parameter as the
         // DERIVED class ([over.match.funcs]/4), so a non-const object
         // prefers a base's `self` to the derived class's `const self`.
+        // With ref-qualifiers on both ([over.ics.rank]/3.2.3 excludes only
+        // an implicit object of a method WITHOUT one), the object is what it
+        // is: a temporary prefers `q() &&` to `q() const &`.
         if (x->recv_bind != 0) && (y->recv_bind != 0) {
             var ra = ArgInfo{};
             ra.cat      = Expr::ValueCategory::LValue;
+            if (x->f->ffi_ref_qualifier != 0) && (y->f->ffi_ref_qualifier != 0) { ra.cat = self.recv_cat; }
             ra.is_const = x->recv_const;
             if self._ref_prefers(&ra, x->recv_bind, y->recv_bind) { better = true; }
             else if self._ref_prefers(&ra, y->recv_bind, x->recv_bind) { return false; }
@@ -1110,6 +1119,25 @@ class OverloadResolution {
         }
         c->recv_bind  = (1) if ((sq & QUAL_CONST()) != 0) else (3);
         c->recv_const = (oq & QUAL_CONST()) != 0;
+        // A ref-qualified method's implicit object parameter IS a reference
+        // ([over.match.funcs]/4) and binds like one: `q() &` an lvalue
+        // only (`const &` anything), `q() &&` an rvalue only. Without a
+        // qualifier any object binds, rvalues included (/5), as above.
+        var rq = c->f->ffi_ref_qualifier;
+        if rq == 0 { return; }
+        var rvalue = (self.recv_cat == Expr::ValueCategory::RValue) || (self.recv_cat == Expr::ValueCategory::XValue);
+        var mname = self.tu.decl_name(static_cast::<*Decl>(c->f));
+        if (rq == 1) && rvalue && ((sq & QUAL_CONST()) == 0) {
+            c->viable = false;
+            c->reason = f"'{mname}' is '&'-qualified; it cannot be called on a temporary";
+            return;
+        }
+        if (rq == 2) && (!rvalue) {
+            c->viable = false;
+            c->reason = f"'{mname}' is '&&'-qualified; it can only be called on a temporary";
+            return;
+        }
+        if rq == 2 { c->recv_bind = 2; }
     }
 
     priv fn _judge(self, c: *Candidate, args: *vec::<ArgInfo>, has_receiver: bool,

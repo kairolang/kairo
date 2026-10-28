@@ -69,6 +69,11 @@ class ChainInfo {
     pub var last_is_type:   bool  = false;    ///< last step names a type.
     pub var callable_cands: vec::<*Decl>;     ///< last step is a method / set / operator.
     pub var unknown:        bool  = false;    ///< dependent or foreign; nothing to say.
+    /// The receiver OBJECT's value category: what a ref-qualified method's
+    /// implicit object parameter binds (`q() &` an lvalue, `q() &&` an
+    /// rvalue). `p->m()` and a field of an lvalue are lvalues, a field of
+    /// an rvalue an xvalue ([expr.ref]/7).
+    pub var receiver_cat:   Expr::ValueCategory = Expr::ValueCategory::LValue;
     fn ChainInfo(self) { }
 }
 
@@ -169,12 +174,23 @@ class <T> MemberTyping {
                 cur_kind = 0; cur = bt;
             }
         }
+        // The object's category, carried along the value steps (ChainInfo::
+        // receiver_cat). The base's own when it is a value; Unknown is a
+        // name whose arm decided nothing, which is an lvalue's place.
+        var obj_cat = Expr::ValueCategory::LValue;
+        if (n->base != &null) && (n->base->value_category != Expr::ValueCategory::Unknown) { obj_cat = n->base->value_category; }
 
         // -- steps -----------------------------------------------------------
         for var i: usize = 0; i < n->steps.size(); ++i {
             var st = n->steps.get(i);
             if st == &null { break; }
             var is_last = (i + 1 == n->steps.size());
+            var ak = st->access_kind;
+            if (ak == ChainExpr::AccessKind::Arrow) || (ak == ChainExpr::AccessKind::QuestionArrow) {
+                obj_cat = Expr::ValueCategory::LValue;
+            } else if (i > 0) && (obj_cat == Expr::ValueCategory::RValue) {
+                obj_cat = Expr::ValueCategory::XValue;     // a member of a temporary.
+            }
 
             if cur_kind == 4 { info->unknown = true; dyn()->mark_unknown(n); return &null; }
             if cur_kind == 3 {
@@ -285,6 +301,7 @@ class <T> MemberTyping {
                 var recv_ty = (cur_type) if (cur_kind == 1) else (val);
                 info->receiver     = (dyn()->sc->types->qualified(recv_ty, recv_q)) if (recv_ty != &null) else (&null);
                 info->has_receiver = (cur_kind == 0) && (st->access_kind != ChainExpr::AccessKind::ColonColon);
+                info->receiver_cat = obj_cat;
             }
 
             // -- tuple index --

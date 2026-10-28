@@ -1271,6 +1271,13 @@ ODRHash of its constraints / decltype return appended
 (`TypeImport::_tpl_discriminator`): the USR generator drops both, and two
 such templates were one registry entity.
 
+The implicit object parameter ranks as [over.ics.rank] says: without a
+ref-qualifier any object binds and only constness orders two candidates
+(3.2.6); WITH one (`ffi_ref_qualifier`) it is a reference -- `q() &` takes
+an lvalue (or anything, if const), `q() &&` an rvalue -- and between two
+qualified methods an rvalue object prefers `&&` (3.2.3). The object's
+category is `ChainInfo::receiver_cat`, carried to resolve as
+`OverloadResolution::recv_cat`.
 
 **Deduction** (`ArgumentDeduction.k`). Structural unify of the param's
 canonical against the arg's, binding `(owner, index)`; conflicts fail,
