@@ -181,6 +181,7 @@ import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Config::Invocation::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -330,6 +331,13 @@ class RedeclMerge {
                 // that rule sees it.
                 if (a->transfer != TransferKind::NotTransfer) && (b->transfer != TransferKind::NotTransfer) { continue; }
                 if !self._same_signature(a, b) {
+                    // Two generic overloads equal up to their parameters'
+                    // names, one of them guarded: one generic `where` group
+                    // (MONO.md G12), never linked. Asked only beside a guard:
+                    // an unguarded generic pair keeps today's identity (two
+                    // overloads), which a declaration and its definition
+                    // depend on.
+                    if (a->has_where() || b->has_where()) && self._alpha_same(a, b) { continue; }
                     // Two entities to Kairo -- but maybe one to the C++ it
                     // emits, and maybe unchoosable at a Kairo call site.
                     // Asked here, where the pair is already known to be an
@@ -363,7 +371,7 @@ class RedeclMerge {
             for var j: usize = 0; j < group->size(); ++j {
                 var m = (*group)[j];
                 if m->is_unsafe() || m->is_poisoned() { continue; }
-                if (m != g) && (!self._same_signature(m, g)) { continue; }
+                if (m != g) && (!self._same_signature(m, g)) && (!self._alpha_same(m, g)) { continue; }
                 if lead == &null { lead = m; }
                 m->where_lead = lead;
             }
@@ -539,6 +547,31 @@ class RedeclMerge {
     }
 
     // === signature identity ===============================================
+
+    /// Two GENERIC functions whose signatures are one up to the names of
+    /// their generic parameters (`fn <T> f(x: T, n: i32)` twice): each
+    /// parameter's canonical, read over \p a's parameters (Substitution::
+    /// bind_alpha), is \p a's, mode for mode. Only a `where` group asks
+    /// (MONO.md G12); _same_signature keeps saying no to dependent pairs.
+    priv fn _alpha_same(self, a: *FunctionDecl, b: *FunctionDecl) -> bool {
+        if (a->generic_params.size() == 0) || (a->generic_params.size() != b->generic_params.size()) { return false; }
+        if (a->is_variadic != b->is_variadic) || (a->params.size() != b->params.size()) { return false; }
+        if a->is_operator || b->is_operator { return false; }
+        var sub = Substitution(self.sc);
+        if !sub.bind_alpha(static_cast::<*Decl>(a), static_cast::<*Decl>(b)) { return false; }
+        for var i: usize = 0; i < a->params.size(); ++i {
+            var pa = a->params[i];
+            var pb = b->params[i];
+            if (pa == &null) || (pb == &null) || (pa->type_ == &null) || (pb->type_ == &null) { return false; }
+            if (pa->is_self != pb->is_self) || (pa->mode != pb->mode) { return false; }
+            var ca = pa->type_->canonical;
+            var cb = pb->type_->canonical;
+            if (ca == &null) || (cb == &null) { return false; }
+            var sb = sub.substitute(cb);
+            if (sb == &null) || (canon_unqual(sb) != canon_unqual(ca)) { return false; }
+        }
+        return true;
+    }
 
     /// See the header for what is in and what is out, and why each
     /// exclusion is load-bearing.

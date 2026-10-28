@@ -53,6 +53,16 @@
 ///     `@inout` binds its `T&` as is, and a copyable value copies. Every
 ///     parameter is passed once, on the one path taken.
 ///
+///   \par Generic groups (MONO.md G12)
+///     Members equal up to their generic parameters' names (RedeclMerge
+///     _alpha_same) fold the same way: each candidate is a template over
+///     its member's parameters, the dispatcher is the lead's template, and
+///     each guard is an ordinary `if` in it, a runtime test even when it
+///     reads only the parameters' types (`sizeof T > 8`). Under D0 every
+///     candidate is well-formed for every argument its (shared) bounds
+///     admit, so testing a per-instance constant at run time is correct,
+///     and clang folds it; no `if constexpr`, no prediction to pin.
+///
 ///   Phase: LOWER, right after ExprBodyDesugar (so every candidate's body
 ///   is a block, and the dispatcher is a block for every pass after it)
 ///   and before CopyMoveLowering (which reads the move sites recorded
@@ -272,6 +282,20 @@ class WhereDispatchLowering derives ASTWriter::<WhereDispatchLowering> {
         c->semantic_dc = m->semantic_dc;
         c->lexical_dc  = m->lexical_dc;
         c->visibility  = VisibilityKind::Private;
+        // A generic member's candidate is a template of its own: it takes
+        // the member's parameter list and clause (shared with the lead's
+        // dispatcher for the lead's candidate: the same names, the same
+        // entities its parameter types already point at), and the
+        // dispatcher calls it with nothing written, C++ deducing the
+        // arguments (WhereGuardCheck refused a group where it could not).
+        // It keeps the member's visibility: wherever the dispatcher's
+        // template is instantiated, a module header included, the candidate
+        // must be declared (MONO.md G12).
+        if m->generic_params.size() > 0 {
+            c->generic_params  = m->generic_params;
+            c->requires_clause = m->requires_clause;
+            c->visibility      = m->visibility;
+        }
         c->is_implicit = true;
         c->abi         = m->abi;              // a static method's candidates are static.
         c->modifiers   = m->modifiers;

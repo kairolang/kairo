@@ -31,11 +31,11 @@
 ///   \par Not yet supported (SC116E)
 ///     A guarded `virtual` / `override` method (a dispatcher in a vtable has
 ///     no rule yet), a generic
-///     function (its parameter types are dependent, so RedeclMerge never
-///     finds two signatures the same, and a template dispatcher's calls
-///     need the per-instance registry entries M2 builds; a METHOD of a
-///     generic record is fine, its members are instantiated with the
-///     class), an extension member (ExtensionLowering rewrites its
+///     function with a value or pack parameter, or one whose type parameter
+///     no parameter's type mentions (the dispatcher's calls leave the
+///     arguments to C++ deduction; a generic group is otherwise folded,
+///     MONO.md G12, and must agree on its parameters' names and bounds),
+///     an extension member (ExtensionLowering rewrites its
 ///     receiver; not yet tried with a dispatcher), a default argument
 ///     (the dispatcher would have to carry the right one), a guarded
 ///     operator or constructor (neither can be renamed), an out-of-line
@@ -86,6 +86,8 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
+import Sema::Resolve::NameLookup::*;
 import Sema::Check::ConstEval::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -199,8 +201,19 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         var order = vec::<*FunctionDecl>();
         var fallback: *FunctionDecl = &null;
         for var i: usize = 0; i < members.size(); ++i {
-            if members[i]->has_where() { order.push_back(members[i]); }
-            else { fallback = members[i]; }
+            if members[i]->has_where() { order.push_back(members[i]); continue; }
+            // Two unguarded members are two fallbacks. RedeclMerge links a
+            // non-generic pair (R029E there); a generic pair is grouped up
+            // to its parameters' names only, so the second is reported here.
+            if fallback != &null {
+                var b = self.sc->diag->report(DiagID::R029E, members[i]->range.start, f"redefinition of '{name}\x27");
+                b.first(members[i]->range);
+                b.note(DiagID::R029N, fallback->range.start, f"previous definition of '{name}' is here").first(fallback->range);
+                b.emit();
+                members[i]->poison();
+                return;
+            }
+            fallback = members[i];
         }
 
         self._build_boxes(&order);
@@ -270,7 +283,8 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
 
         var gate = "";
         if (f->abi == AbiKind::Virtual) || (f->abi == AbiKind::Override) { gate = "a 'virtual' or 'override' method"; }
-        else if f->generic_params.size() > 0 { gate = "a generic function"; }
+        else if self._value_param(f)  { gate = "a generic function with a value or pack parameter"; }
+        else if self._undeduced(f).size() > 0 { gate = f"a generic function whose parameter '{self._undeduced(f)}' is not deduced from its arguments"; }
         else if decl_extension_of(static_cast::<*Decl>(f)) != &null { gate = "an extension member"; }
         else if f->is_operator     { gate = "an operator"; }
         else if self._is_ctor(f)   { gate = "a constructor"; }
@@ -290,14 +304,98 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
         return false;
     }
 
+    /// A generic member's dispatcher forwards to each candidate with no
+    /// template arguments written (WhereDispatchLowering): C++ deduces them
+    /// from the dispatcher's parameters, so every type parameter must occur
+    /// in a parameter's type, and a value or pack parameter (not compared
+    /// by Substitution::bind_alpha) is not supported. True for the latter.
+    priv fn _value_param(self, f: *FunctionDecl) -> bool {
+        for var i: usize = 0; i < f->generic_params.size(); ++i {
+            var g = f->generic_params[i];
+            if (g != &null) && (g->is_pack || g->is_const_param) { return true; }
+        }
+        return false;
+    }
+
+    /// The name of \p f's first type parameter no parameter's type
+    /// mentions, or "". Asked by substitution: every OTHER parameter is
+    /// bound to itself, so a parameter type that does not go through
+    /// names the one left unbound.
+    priv fn _undeduced(self, f: *FunctionDecl) -> string {
+        var rep = NameLookup::representative(static_cast::<*Decl>(f));
+        for var i: usize = 0; i < f->generic_params.size(); ++i {
+            var sub = Substitution(self.sc);
+            for var j: usize = 0; j < f->generic_params.size(); ++j {
+                if j != i { sub.bind(rep, u32(j), self.sc->types->generic_param(rep, u32(j), false)); }
+            }
+            var seen = false;
+            for var k: usize = 0; k < f->params.size(); ++k {
+                var p = f->params[k];
+                if (p == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { continue; }
+                if sub.substitute(p->type_->canonical) == &null { seen = true; break; }
+            }
+            if !seen { return self.sc->ctx->get_spelling(f->generic_params[i]->name); }
+        }
+        return "";
+    }
+
+    /// \p b's bounds read over \p a's generic parameters equal \p a's:
+    /// one C++ template signature, so one set of constraints. Compared as
+    /// (parameter, interface / base) pairs from the bound table.
+    priv fn _same_bounds(self, a: *FunctionDecl, b: *FunctionDecl, sub: *Substitution) -> bool {
+        var ai = vec::<u32>(); var at = vec::<*Type>();
+        var bi = vec::<u32>(); var bt = vec::<*Type>();
+        self._bounds_of(a, &null, &ai, &at);
+        self._bounds_of(b, sub, &bi, &bt);
+        if ai.size() != bi.size() { return false; }
+        for var i: usize = 0; i < bi.size(); ++i {
+            var hit = false;
+            for var j: usize = 0; j < ai.size(); ++j {
+                if (ai[j] == bi[i]) && (at[j] == bt[i]) { hit = true; break; }
+            }
+            if !hit { return false; }
+        }
+        return true;
+    }
+
+    priv fn _bounds_of(self, f: *FunctionDecl, sub: *Substitution, idx: *vec::<u32>, tys: *vec::<*Type>) {
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(NameLookup::representative(static_cast::<*Decl>(f))));
+        if it == self.sc->bounds.end() { return; }
+        var set = &(it->second);
+        for var pass: u32 = 0; pass < 2; ++pass {
+            var n = (set->impl_constraints.size()) if (pass == 0) else (set->derives_constraints.size());
+            for var i: usize = 0; i < n; ++i {
+                var k = (set->impl_constraints[i]) if (pass == 0) else (set->derives_constraints[i]);
+                var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+                var gp = (dyn_cast::<GenericParamDecl>(id->resolved_decl)) if (id != &null) else (&null);
+                var t: *Type = &null;
+                if (k->rhs != &null) && (k->rhs->canonical != &null) { t = canon_unqual(k->rhs->canonical); }
+                if (sub != &null) && (t != &null) { t = sub->substitute(t); }
+                idx->push_back((gp->index + pass * 65536) if (gp != &null) else (u32(-1)));
+                tys->push_back(t);
+            }
+        }
+    }
+
     /// One function to C++, so one contract. A disagreement is reported at
-    /// the later member, with a note at the first.
+    /// the later member, with a note at the first. A generic group's
+    /// members are compared over the first one's parameters (MONO.md G12),
+    /// and must name those parameters the same: the guards move into the
+    /// dispatcher, whose template declares the first member's names.
     priv fn _members_agree(self, members: *vec::<*FunctionDecl>, name: string) -> bool {
         var a = (*members)[0];
         for var i: usize = 1; i < members->size(); ++i {
             var b = (*members)[i];
             var what = "";
-            if self._ret(a) != self._ret(b)           { what = "return type"; }
+            var sub = Substitution(self.sc);
+            var generic = a->generic_params.size() > 0;
+            if generic { sub.bind_alpha(static_cast::<*Decl>(a), static_cast::<*Decl>(b)); }
+            var rb = self._ret(b);
+            if generic && (rb != &null) && rb->is_dependent() { rb = sub.substitute(rb); }
+            if (rb != &null) && generic { rb = canon_unqual(rb); }
+            if generic && (!self._same_names(a, b))  { what = "generic parameter names"; }
+            else if generic && (!self._same_bounds(a, b, &sub)) { what = "bounds"; }
+            else if self._ret(a) != rb                { what = "return type"; }
             else if a->is_const() != b->is_const()   { what = "'const self\x27"; }
             else if a->is_inline() != b->is_inline() { what = "'inline\x27"; }
             else if a->is_noreturn != b->is_noreturn { what = "'-> !\x27"; }
@@ -311,6 +409,14 @@ class WhereGuardCheck derives RecursiveASTVisitor::<WhereGuardCheck> {
             d.emit();
             b->poison();
             return false;
+        }
+        return true;
+    }
+
+    priv fn _same_names(self, a: *FunctionDecl, b: *FunctionDecl) -> bool {
+        if a->generic_params.size() != b->generic_params.size() { return false; }
+        for var i: usize = 0; i < a->generic_params.size(); ++i {
+            if self.sc->ctx->get_spelling(a->generic_params[i]->name) != self.sc->ctx->get_spelling(b->generic_params[i]->name) { return false; }
         }
         return true;
     }

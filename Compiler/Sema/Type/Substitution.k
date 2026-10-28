@@ -89,6 +89,30 @@ class Substitution {
         return true;
     }
 
+    /// Bind \p from's generic parameters to \p to's, position by position,
+    /// so substitute() reads a type written over \p from's parameters as one
+    /// over \p to's: two same-shape generic declarations compared up to the
+    /// names of their parameters (a generic `where` group, MONO.md G12).
+    /// False when the lists differ in length or a position differs in kind
+    /// (`: class` against none, a value parameter, a pack: none of those is
+    /// compared, so none is alpha-equal).
+    fn bind_alpha(self, to: *Decl, from: *Decl) -> bool {
+        var tp = decl_generic_params(to);
+        var fp = decl_generic_params(from);
+        if (tp.size() == 0) || (tp.size() != fp.size()) { return false; }
+        var tr = NameLookup::representative(to);
+        var fr = NameLookup::representative(from);
+        for var i: usize = 0; i < tp.size(); ++i {
+            var a = tp[i];
+            var b = fp[i];
+            if (a == &null) || (b == &null) { return false; }
+            if a->is_pack || b->is_pack || a->is_const_param || b->is_const_param { return false; }
+            if a->kind_bound != b->kind_bound { return false; }
+            if !self.bind(fr, u32(i), self.sc->types->generic_param(tr, u32(i), false)) { return false; }
+        }
+        return true;
+    }
+
     /// Open the type pack (owner, index): it is bound from here on, to the
     /// elements push_pack adds (none is an empty pack).
     fn open_pack(self, owner: *Decl, index: u32) {

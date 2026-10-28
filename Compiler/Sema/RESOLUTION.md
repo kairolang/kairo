@@ -595,10 +595,18 @@ ChainBinding, §2.6.)
 `WhereGuardCheck` [DONE] judges each `where` group: a guard on an
 interface method, an `unsafe` overload or a bodiless declaration, a group
 with no fallback, and members disagreeing on return type, `const self`,
-`inline`, `-> !` or linkage are SC001E; virtual, `panic`, generic,
+`inline`, `-> !` or linkage are SC001E; virtual, `panic`,
 extension, operator, constructor, out-of-line, forward-declared,
 generator, `async`, defaulted and variadic members are SC116E (`where` on
-an `eval` fn is EvalUsageChecking's SC001E).
+an `eval` fn is EvalUsageChecking's SC001E). A GENERIC group [DONE, MONO.md
+G12]: RedeclMerge groups generic overloads equal up to their parameters'
+names (`_alpha_same`, Substitution::bind_alpha) when one is guarded; the
+members must also agree on those names and on their bounds (SC001E), two
+unguarded ones are R029E here, and a value/pack parameter or a type
+parameter no parameter's type mentions is SC116E (the dispatcher's calls
+leave the arguments to C++ deduction). Every guard is a run-time `if`,
+also one on a type alone (`sizeof T > 8`): under D0 every candidate is
+valid for every argument the shared bounds admit.
 Guards that are conjunctions of integer-parameter-vs-constant comparisons
 (and bool parameters) are boxes; a box inside an earlier one (or inside
 the union of earlier one-parameter boxes) is unreachable, a box meeting
