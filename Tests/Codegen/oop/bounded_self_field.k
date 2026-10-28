@@ -18,7 +18,7 @@ class <T impl Show> Holder {
 
 class Node impl Show {
     pub var v: i32 = 4
-    pub var next: *Holder<Node> = &null
+    pub var next: unsafe *Holder<Node> = &null
     fn show(const self) -> i32 { return self.v }
 }
 
@@ -27,8 +27,8 @@ fn main() -> i32 {
     var b = Node()
     b.v = 9
     var h = Holder<Node>(&b)
-    a.next = &h
-    return a.next->get() + a.show()      // 9 + 4
+    a.next = unsafe &h
+    unsafe { return a.next->get() + a.show() }      // 9 + 4
 }
 
 // --- lit wiring -----------------------------------------------------------
