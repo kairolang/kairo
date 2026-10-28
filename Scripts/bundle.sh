@@ -20,6 +20,8 @@
 #   - the loader's ldd line names it by path (/lib64/ld-linux-x86-64.so.2),
 #     so SYS matches the basename; the path form matched nothing and was
 #     copied to $LIB//lib64/..., which fails.
+#   - dangling symlinks inside sysroot/ (vendored target filesystems) are
+#     reported, not gated: the release sysroots ship 37 of them.
 #   - musl: its loader is ld-musl-<arch>.so.1 and it has no GLIBC_ symbol
 #     versions, so the floor reports "none" instead of an empty string.
 set -eu
@@ -91,7 +93,18 @@ bundle_one() {
 
     # 4. Gates.
     fail=0
-    if find "$R" -xtype l | grep .; then echo "FAIL: dangling symlinks"; fail=1; fi
+    # sysroot/ is the TARGETS' filesystems, packaged elsewhere
+    # (kairo-sysroots): its links are theirs (a static musl libc.so ->
+    # ld-musl, SDK frameworks into Cryptexes) and not this tree's to fix, so
+    # they are counted, not gated. A debug tree's sysroot is one symlink to
+    # the release one, which find does not descend.
+    if find "$R" -path "$R/sysroot" -prune -o -xtype l -print | grep .; then
+        echo "FAIL: dangling symlinks"; fail=1
+    fi
+    if [ -d "$R/sysroot" ] && [ ! -L "$R/sysroot" ]; then
+        n=$(find "$R/sysroot" -xtype l | wc -l)
+        [ "$n" -eq 0 ] || echo "note: $n dangling symlinks inside sysroot/ (vendored target content, not gated)"
+    fi
     for f in $(elf_files); do
         if env -u LD_LIBRARY_PATH ldd "$f" 2>&1 | grep -q 'not found'; then
             echo "FAIL: unresolved deps in $f"; fail=1
