@@ -580,8 +580,9 @@ class <T> MemberTyping {
                 // A bounded parameter has no members of its own: its `op []`
                 // is a bound's requirement, as a binary operator's is
                 // (OperatorTyping::_gather), which sends the call through the
-                // interface's witness (CODEGEN.md §7b.5).
-                var bound = dyn()->bound_ifaces(recv);
+                // interface's witness (CODEGEN.md §7b.5) -- or a `derives`
+                // bound's base's own `op []`, an ordinary member.
+                var bound = dyn()->bound_scopes(recv);
                 if bound.size() > 0 {
                     for var i: usize = 0; i < bound.size(); ++i { dyn()->ml.lookup(bound[i], sub_name, &cands); }
                 } else {

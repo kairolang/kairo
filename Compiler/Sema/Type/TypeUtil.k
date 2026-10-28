@@ -241,14 +241,39 @@ class TypeUtil {
 
     /// The declaration of \p t when it is a generic parameter whose body is
     /// checked against its bounds (MONO.md D0): a bare, non-pack parameter,
-    /// no `: type` (the C++-checked regime, D1), and no `derives` bound (a
-    /// base class's operators are C++ members the bound table does not
-    /// list, so that case still defers). Null for anything else, including
-    /// a dependent composite (`*T`, `Rep<T>`), whose own rules apply. What
-    /// such a parameter can do is exactly what bound_ifaces grants: an
-    /// operator, a conversion, an interpolation or a pattern its bounds do
-    /// not declare is an error at the definition (opaque_param_ops.k).
-    fn checked_param(self, t: *Type) -> *GenericParamDecl {
+    /// no `: type` (the C++-checked regime, D1), and no `derives` bound
+    /// (its conversions, f-string holes and patterns would need the base's
+    /// members as well as bound_ifaces, which those paths do not read yet;
+    /// its OPERATORS do, see op_checked_param). Null for anything else,
+    /// including a dependent composite (`*T`, `Rep<T>`), whose own rules
+    /// apply. What such a parameter can do is exactly what bound_ifaces
+    /// grants: an operator, a conversion, an interpolation or a pattern its
+    /// bounds do not declare is an error at the definition
+    /// (opaque_param_ops.k).
+    fn checked_param(self, t: *Type) -> *GenericParamDecl { return self._checked_param(t, false); }
+
+    /// checked_param with a `derives`-bounded parameter included: the
+    /// regime of its OPERATORS (binary, unary, compound, `^^`, the `==` of
+    /// `===`). Those are looked up in bound_scopes -- the bases' tables
+    /// beside the interfaces' -- so a base that declares the operator binds
+    /// it, and an operator no bound declares is the bound error at the
+    /// definition rather than a deferral to clang.
+    fn op_checked_param(self, t: *Type) -> *GenericParamDecl { return self._checked_param(t, true); }
+
+    /// The scopes a bounded parameter \p t's operators are looked up in: its
+    /// interface bounds (bound_ifaces), then its `derives` bounds' bases
+    /// (bound_bases), as a member step through T reads both (ChainBinding's
+    /// ParamBounds). Empty when \p t has neither.
+    fn bound_scopes(self, t: *Type) -> vec::<*Type> {
+        var out = self.bound_ifaces(t);
+        var bs = self.bound_bases(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            if isa::<RecordType>(bs[i]) { out.push_back(bs[i]); }
+        }
+        return out;
+    }
+
+    priv fn _checked_param(self, t: *Type, with_bases: bool) -> *GenericParamDecl {
         var c = canon_unqual(t);
         if (c == &null) || (!isa::<GenericParamType>(c)) { return &null; }
         var g = cast::<GenericParamType>(c);
@@ -257,6 +282,7 @@ class TypeUtil {
         if static_cast::<usize>(g->param_index) >= gps.size() { return &null; }
         var gp = gps[static_cast::<usize>(g->param_index)];
         if (gp == &null) || (gp->kind_bound == GenericParamKindBound::Duck) { return &null; }
+        if with_bases { return gp; }
         var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
         if it == self.sc->bounds.end() { return gp; }
         var _set = &(it->second);

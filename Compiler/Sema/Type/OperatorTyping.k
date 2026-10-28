@@ -153,7 +153,13 @@ class <T> OperatorTyping {
     /// operator on one T see the same bounds.
     fn bound_ifaces(self, t: *Type) -> vec::<*Type> { return dyn()->tu.bound_ifaces(t); }
 
-    priv fn _bounded(self, t: *Type) -> bool { return self.bound_ifaces(t).size() > 0; }
+    /// Where a bounded parameter \p t's operators come from: bound_ifaces,
+    /// then the bases its `derives` bounds name (TypeUtil::bound_scopes). A
+    /// base's operator is an ordinary member, bound and emitted as one; an
+    /// interface's is a requirement, called through the witness.
+    fn bound_scopes(self, t: *Type) -> vec::<*Type> { return dyn()->tu.bound_scopes(t); }
+
+    priv fn _bounded(self, t: *Type) -> bool { return self.bound_scopes(t).size() > 0; }
 
     /// The requirement(s) that would give `sym` (an operator's spelling) on
     /// a bounds-checked parameter, as the derivations below try them:
@@ -166,7 +172,7 @@ class <T> OperatorTyping {
     }
 
     /// The D0 refusal of a binary operator touching a bounds-checked
-    /// parameter that nothing granted it (TypeUtil::checked_param). The
+    /// parameter that nothing granted it (TypeUtil::op_checked_param). The
     /// left operand's parameter is named: Kairo's operators are the left
     /// operand's. A parameter on the right of a CONCRETE left operand is
     /// refused too (`1 + t`: an `i32` has no `+` taking a T); one beside a
@@ -174,8 +180,8 @@ class <T> OperatorTyping {
     /// and still defers. True after reporting.
     priv fn _refuse_checked(self, n: *BinaryOperatorExpr, k: TokenKind, lt: *Type, rt: *Type) -> bool {
         var sym = dyn()->sc->ctx->get_spelling(n->op_token);
-        var gl = dyn()->tu.checked_param(lt);
-        var gr = dyn()->tu.checked_param(rt);
+        var gl = dyn()->tu.op_checked_param(lt);
+        var gr = dyn()->tu.op_checked_param(rt);
         var gp = gl;
         var bounded = (gl != &null) && self._bounded(lt);
         if gp == &null {
@@ -283,8 +289,10 @@ class <T> OperatorTyping {
                     cands: *vec::<*Decl>, frees: *vec::<*Decl>) {
         // A bounded parameter offers its bounds' requirements and nothing
         // else: no ADL, no free operator, since neither can be known to apply
-        // to every T the bound admits.
-        var bound = self.bound_ifaces(recv_ty);
+        // to every T the bound admits. A base's free operators are no
+        // exception: they take the base by value, and a T does not slice
+        // into one implicitly any more than a derived record does.
+        var bound = self.bound_scopes(recv_ty);
         if bound.size() > 0 {
             for var i: usize = 0; i < bound.size(); ++i { dyn()->ml.lookup(bound[i], name, cands); }
             return;
@@ -624,14 +632,14 @@ class <T> OperatorTyping {
                 li = dyn()->tu.pointee(li);
                 ri = dyn()->tu.pointee(ri);
             }
-            if (dyn()->tu.checked_param(li) != &null) || (dyn()->tu.checked_param(ri) != &null) {
+            if (dyn()->tu.op_checked_param(li) != &null) || (dyn()->tu.op_checked_param(ri) != &null) {
                 return self._type_identity(n, lt, rt);
             }
             // Two operands that are never nullable whatever T is (a pointer,
             // a bounds-checked T): SC034E, as on any non-nullable pair.
             if (dyn()->tu.nullable_inner(lt) == &null) && (dyn()->tu.nullable_inner(rt) == &null)
-            && ((dyn()->tu.pointee(lt) != &null) || (dyn()->tu.checked_param(lt) != &null))
-            && ((dyn()->tu.pointee(rt) != &null) || (dyn()->tu.checked_param(rt) != &null)) {
+            && ((dyn()->tu.pointee(lt) != &null) || (dyn()->tu.op_checked_param(lt) != &null))
+            && ((dyn()->tu.pointee(rt) != &null) || (dyn()->tu.op_checked_param(rt) != &null)) {
                 return self._type_identity(n, lt, rt);
             }
         }
@@ -742,7 +750,12 @@ class <T> OperatorTyping {
                 ut = self.resolve_user_op(static_cast::<*Expr>(n), ck, TokenKind::TkUnknown, n->lhs, lt, rt,
                                           &args, -1, self._label(n->op_token), &found);
                 if found {
-                    if n->is_poisoned() || n->is_instantiation_dependent() { return &null; }
+                    // Bound or not is resolved_op, set only on Selected: the
+                    // node's dependence flags are its OPERANDS' too
+                    // (propagate), so a `T` left operand whose bound declares
+                    // `op +=` would read as deferred and leave the node
+                    // untyped for _derived_sum.
+                    if n->is_poisoned() || (n->resolved_op == &null) { return &null; }
                     return canon_unqual(lt);
                 }
             }
@@ -1061,9 +1074,9 @@ class <T> OperatorTyping {
         }
         // A bounds-checked parameter's `==` is only ever its bounds' (D0),
         // and they were asked above: `T === T` unifying is no comparison.
-        var gq = dyn()->tu.checked_param(li);
+        var gq = dyn()->tu.op_checked_param(li);
         var gt = li;
-        if gq == &null { gq = dyn()->tu.checked_param(ri); gt = ri; }
+        if gq == &null { gq = dyn()->tu.op_checked_param(ri); gt = ri; }
         if gq != &null {
             var pname = dyn()->sc->ctx->get_spelling(gq->name);
             dyn()->needs_bound(static_cast::<*Expr>(n), gq, self._bounded(gt),
@@ -1131,7 +1144,7 @@ class <T> OperatorTyping {
         lt = dyn()->tu.as_value(lt);
         rt = dyn()->tu.as_value(rt);
         // A bounds-checked base has the `op ^^` its bounds grant, or none.
-        var pg = dyn()->tu.checked_param(lt);
+        var pg = dyn()->tu.op_checked_param(lt);
         if (pg != &null) && self._bounded(lt) {
             var pfound = false;
             var pargs  = vec::<*Expr>();
@@ -1320,7 +1333,7 @@ class <T> OperatorTyping {
         // A bounds-checked parameter defers nothing (D0): `t?` and `*t` get
         // the switch's own errors (a T is no nullable and no pointer), and
         // every other operator is the bounds' to grant, which they did not.
-        var ug = dyn()->tu.checked_param(ot);
+        var ug = dyn()->tu.op_checked_param(ot);
         if (ug != &null) && (k != TokenKind::OpAmp) && (k != TokenKind::OpStar) && (k != TokenKind::OpQuestion) && (k != TokenKind::OpEllipsis) {
             var sym = dyn()->sc->ctx->get_spelling(n->op_token);
             if (k == TokenKind::OpExclaim) || (k == TokenKind::KwNot) { return self._unary_bool(n, ot); }
@@ -1619,7 +1632,7 @@ class <T> OperatorTyping {
         // A bounded parameter on the left binds through its bounds, as in
         // the binary case; any other dependent operand defers.
         if (self._is_dependent(lt) || self._is_dependent(rt)) && (!self._bounded(lt)) {
-            var cg = dyn()->tu.checked_param(lt);
+            var cg = dyn()->tu.op_checked_param(lt);
             if cg == &null { dyn()->mark_unknown(n); return &null; }
             dyn()->needs_bound(static_cast::<*Expr>(n), cg, false, self._compound_msg(n, cg, base));
             return &null;
@@ -1694,7 +1707,7 @@ class <T> OperatorTyping {
             if self._bounded(lt) {
                 // Nothing in the bounds: an error on a bounds-checked
                 // parameter (D0), else deferred as before.
-                var cg = dyn()->tu.checked_param(lt);
+                var cg = dyn()->tu.op_checked_param(lt);
                 if cg == &null { dyn()->mark_unknown(n); return &null; }
                 dyn()->needs_bound(static_cast::<*Expr>(n), cg, true, self._compound_msg(n, cg, base));
                 return &null;

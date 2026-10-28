@@ -579,8 +579,8 @@ conjuncts, read from `sc->bounds`):
                    bounds. Binds to I's REQUIREMENT decl. `derives B`
                    bounds expose B's members likewise. An operator on
                    T -- `op []` included (MemberTyping) -- gathers from
-                   the same bounds (OperatorTyping::bound_ifaces) and
-                   nothing else. Definition-side
+                   the same bounds, interfaces and bases alike
+                   (TypeUtil::bound_scopes), and nothing else. Definition-side
                    checking: the error lands on the template, not on the
                    40th instantiation.
     <T: type>      duck (on unless -fno-duck-generics). Every step Dependent and
@@ -605,6 +605,20 @@ Opaque domain. A generic ADT at dependent arguments (`Rep<T>`) is no
 composite for patterns and `==`: its variants are its pattern's
 (PatternTyping::dependent_adt, PatternSpace::domain_of), a binder reads
 through the instance, and the tag is read through `__kairo_which()`.
+
+**Operators on `<T derives B>`** [DONE, 2026-10-28]. A `derives`-bounded
+parameter is out of `checked_param` (its conversions, f-string holes and
+patterns read only `bound_ifaces`, so those still defer), but its
+OPERATORS take the rule above through `TypeUtil::op_checked_param`: every
+operator site in OperatorTyping and MemberTyping's `op []` gathers from
+`TypeUtil::bound_scopes` -- the interface bounds, then the bases -- so a
+base that declares the operator (or one the derivations build from: `!=`
+from `op ==`, a relational from `op <=>`, `a + b` from `op +=`) binds it
+as the ordinary member it is, emitted as a member call on the T, and an
+operator no bound declares is R025E at the definition. A base's FREE
+operators are not consulted: they take the base by value, which a T does
+not slice into implicitly, as a derived record does not (`op ==(self, o:
+Base)` cannot take a T either: SC063E, as on `Der == Der`).
 
     [DONE] A dependent RECORD is still looked up by name (`self.x` in
     `class <T> Foo` binds to the field).
