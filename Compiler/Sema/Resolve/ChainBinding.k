@@ -56,6 +56,7 @@ import Sema::Resolve::GenericArgs::*;
 import Sema::Resolve::ResolutionTrace::*;
 import Sema::Resolve::ResolutionState::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::ArgumentDeduction::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -332,6 +333,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             case DeclKind::EnumDecl      { return self._type_anchor_seen(d, through); }
             case DeclKind::TypeAliasDecl {
                 var td = cast::<TypeAliasDecl>(d);
+                // An associated type reached through a dependent head
+                // (`T::Item` then `::make`): abstract, whatever its default.
+                // Which type it is depends on the head, which the typer
+                // forms (MemberTyping), and the next step binds there.
+                if td->is_associated { a.kind = AnchorKind::NeedsInference; a.decl = d; return a; }
                 if td->aliased == &null { a.kind = AnchorKind::Errored; return a; }
                 var c = canon_unqual(td->aliased->canonical);
                 if c == &null {
@@ -676,6 +682,15 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 // two contributing scopes the union is a new set.
                 if nhit > 1 { frozen = &null; }
                 return self._commit(st, loc, &cands, a.decl, frozen);
+            }
+            // A dependent head the typer computed (`T::Item` then `::make`):
+            // what its declaration promised, as `.` on a value of it reads.
+            if (a.ty != &null) && isa::<AssocType>(canon_unqual(a.ty)) {
+                var dep0 = Anchor{};
+                dep0.kind = AnchorKind::Dependent;
+                dep0.decl = a.decl;
+                dep0.ty   = canon_unqual(a.ty);
+                return self._bind_dependent_step(st, dep0);
             }
             // Type: statics, nested types, enum variants, ctors -- member lookup.
             var cands = vec::<*Decl>();
@@ -1024,12 +1039,13 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         var gp = self._param_of(a.ty);
         var b  = ParamBounds{};
         var assoc = (dyn_cast::<AssocType>(canon_unqual(a.ty))) if (a.ty != &null) else (&null);
-        if (gp == &null) && (assoc != &null) && (st->access_kind != ChainExpr::AccessKind::ColonColon) {
-            // `x.show()` on `x: T::Item`: the associated type's own bounds
-            // (`type Item impl Display`) are its members, as a parameter's
-            // are (TypeUtil::bound_ifaces). `T::Item::make()` stays the
-            // typer's SC116E: a static through it has no witness path yet.
-            var bis = TypeUtil(self.sc).bound_ifaces(a.ty);
+        if (gp == &null) && (assoc != &null) {
+            // `x.show()` on `x: T::Item`, and `T::Item::make()`: the
+            // associated type's own bounds (`type Item impl Display`) are
+            // its members, as a parameter's are, read through what it was
+            // reached by (Substitution::bound_ifaces) -- the same lookup,
+            // `.` or `::`, at any depth.
+            var bis = Substitution(self.sc).bound_ifaces(a.ty);
             for var i: usize = 0; i < bis.size(); ++i {
                 var bd = self._record_decl_of_canon(bis[i]);
                 if bd != &null { b.interfaces.push_back(bd); }

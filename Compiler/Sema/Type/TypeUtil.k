@@ -171,31 +171,13 @@ class TypeUtil {
 
     /// The interfaces a bounded generic parameter \p t promises, as their
     /// canonical instances (`T impl Same`, `T impl Container<U>`), or none
-    /// when \p t is not a bare parameter or has no interface bound. Here and
-    /// not in a typer because overload resolution needs it too: a call
-    /// through the bound reads the requirement at the bound's arguments.
+    /// when \p t is not a bare parameter or has no interface bound. The
+    /// parameter half of Substitution::bound_ifaces, which every reader
+    /// goes through: an associated type's bounds need its base substituted
+    /// in, which this layer cannot do.
     fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
         var out = vec::<*Type>();
         var c = canon_unqual(t);
-        // `x: T::Item` with `type Item impl Display`: the associated type's
-        // own bounds are what a body may use it through (interfaces.md,
-        // Generic Bodies). A bound that names Self or another associated
-        // type is not read here (it would need the base substituted in).
-        var at = dyn_cast::<AssocType>(c);
-        if at != &null {
-            var ta = dyn_cast::<TypeAliasDecl>(at->assoc);
-            if ta == &null { return out; }
-            var cs = vec::<*ConstraintExpr>();
-            self._conjuncts(ta->requires_clause, &cs);
-            for var i: usize = 0; i < cs.size(); ++i {
-                var k = cs[i];
-                if k->is_derives() || (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
-                var r = canon_unqual(k->rhs->canonical);
-                if r->is_dependent() { continue; }
-                out.push_back(r);
-            }
-            return out;
-        }
         if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
         var g = cast::<GenericParamType>(c);
         var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
@@ -316,65 +298,43 @@ class TypeUtil {
         return self.sc->types->record(home, &none);
     }
 
-    /// `T::name` in expression position (`T::Node { }`, `T::Node()`): the
-    /// associated type the first of \p t's interface bounds that declares
-    /// \p name gives, or null. Type position resolves it in T, which also
-    /// reports the ambiguity of two bounds declaring it; this reads the same
-    /// composed requirement lists.
-    fn assoc_named(self, t: *Type, name: string) -> *Type {
-        var bs = self.bound_ifaces(t);
-        for var i: usize = 0; i < bs.size(); ++i {
-            var d = self.record_decl(bs[i]);
-            if d == &null { continue; }
-            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.pattern_of(d)));
-            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
-            for var j: usize = 0; j < idecl->requirements.size(); ++j {
-                var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(j)->decl);
-                if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
-                if self.decl_name(static_cast::<*Decl>(ta)) != name { continue; }
-                var ai = self.assoc_iface(bs[i], static_cast::<*Decl>(ta));
-                if ai == &null { return &null; }
-                return self.sc->types->assoc(canon_unqual(t), ai, NameLookup::representative(static_cast::<*Decl>(ta)));
-            }
-        }
-        return &null;
+    /// The `impl` conjuncts of clause \p e, in clause order.
+    fn impl_conjuncts(self, e: *Expr, out: *vec::<*ConstraintExpr>) {
+        var cs = vec::<*ConstraintExpr>();
+        self._conjuncts(e, &cs);
+        for var i: usize = 0; i < cs.size(); ++i { if !cs[i]->is_derives() { out->push_back(cs[i]); } }
     }
 
-    /// Associated type \p t's own bounds (`type Node impl Default`) promise a
-    /// constructor taking \p arity arguments: the one thing that lets a
-    /// generic body build a value of it (interfaces.md, Generic Bodies).
-    fn assoc_has_ctor(self, t: *Type, arity: usize) -> bool {
-        var a = dyn_cast::<AssocType>(canon_unqual(t));
-        if a == &null { return false; }
-        var ta = dyn_cast::<TypeAliasDecl>(a->assoc);
-        if ta == &null { return false; }
+    /// Associated type \p ta's OWN `impl` bounds (`type Item impl Display`),
+    /// in clause order. A generic one's clause also holds its parameters'
+    /// (`type <K impl Hashable> Map`, hoisted as `K impl Hashable`), which
+    /// bound K, not the type.
+    fn assoc_own_bounds(self, ta: *TypeAliasDecl, out: *vec::<*ConstraintExpr>) {
         var cs = vec::<*ConstraintExpr>();
-        self._conjuncts(ta->requires_clause, &cs);
+        self.impl_conjuncts(ta->requires_clause, &cs);
         for var i: usize = 0; i < cs.size(); ++i {
-            var c = cs[i];
-            if c->is_derives() || (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
-            var d = self.record_decl(canon_unqual(c->rhs->canonical));
-            if d == &null { continue; }
-            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.pattern_of(d)));
-            if idecl == &null { continue; }
-            var ms = vec::<*FunctionDecl>();
-            if idecl->compose_state == 2 {
-                for var j: usize = 0; j < idecl->requirements.size(); ++j {
-                    var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
-                    if m != &null { ms.push_back(m); }
-                }
-            } else {
-                for var j: usize = 0; j < idecl->methods.size(); ++j { ms.push_back(idecl->methods[j]); }
-            }
-            for var j: usize = 0; j < ms.size(); ++j {
-                var m = ms[j];
-                if !decl_is_ctor_requirement(m) { continue; }
-                var n: usize = 0;
-                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { n += 1; } }
-                if n == arity { return true; }
-            }
+            if self._assoc_param_index(ta, cs[i]) == usize(-1) { out->push_back(cs[i]); }
         }
-        return false;
+    }
+
+    /// The `impl` bounds of generic associated type \p ta's parameter \p k.
+    fn assoc_param_bounds(self, ta: *TypeAliasDecl, k: usize, out: *vec::<*ConstraintExpr>) {
+        var cs = vec::<*ConstraintExpr>();
+        self.impl_conjuncts(ta->requires_clause, &cs);
+        for var i: usize = 0; i < cs.size(); ++i {
+            if self._assoc_param_index(ta, cs[i]) == k { out->push_back(cs[i]); }
+        }
+    }
+
+    /// Which of \p ta's own generic parameters conjunct \p c constrains, or
+    /// usize(-1) for one about \p ta itself.
+    priv fn _assoc_param_index(self, ta: *TypeAliasDecl, c: *ConstraintExpr) -> usize {
+        var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+        if (id == &null) || (id->resolved_decl == &null) { return usize(-1); }
+        for var k: usize = 0; k < ta->generic_params.size(); ++k {
+            if static_cast::<*Decl>(*(ta->generic_params.get(k))) == id->resolved_decl { return k; }
+        }
+        return usize(-1);
     }
 
     priv fn _conjuncts(self, e: *Expr, out: *vec::<*ConstraintExpr>) {
@@ -1168,6 +1128,14 @@ class TypeUtil {
             case TypeKind::AssocType {
                 var a = cast::<AssocType>(t);
                 var nm = self.decl_name(a->assoc);
+                if a->args.size() > 0 {
+                    nm += "<";
+                    for var i: usize = 0; i < a->args.size(); ++i {
+                        if i > 0 { nm += ", "; }
+                        nm += self.str(a->args[i]);
+                    }
+                    nm += ">";
+                }
                 if a->base == a->iface { return "Self::" + nm; }
                 return self.str(a->base) + "::" + nm;
             }

@@ -225,12 +225,11 @@ class EmitWitness {
         return false;
     }
 
-    /// \p idecl (composed) requires an associated type.
+    /// \p idecl (composed) requires an associated type, generic or not.
     fn has_assoc(self, idecl: *InterfaceDecl) -> bool {
         if (idecl == &null) || (idecl->compose_state != 2) { return false; }
         for var i: usize = 0; i < idecl->requirements.size(); ++i {
-            var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(i)->decl);
-            if (ta != &null) && (ta->generic_params.size() == 0) { return true; }
+            if isa::<TypeAliasDecl>(idecl->requirements.get(i)->decl) { return true; }
         }
         return false;
     }
@@ -399,6 +398,8 @@ class EmitWitness {
         if idecl->compose_state == 2 {
             for var i: usize = 0; i < idecl->requirements.size(); ++i {
                 var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(i)->decl);
+                // A generic associated type has no argument to probe it
+                // with, as a generic requirement has none to call it with.
                 if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
                 tn += " typename " + self._spell->witness_name(p->iface) + self_args + "::" + self._spell->leaf(static_cast::<*Decl>(ta)) + ";";
             }
@@ -430,10 +431,10 @@ class EmitWitness {
         if idecl->compose_state == 2 {
             for var i: usize = 0; i < idecl->requirements.size(); ++i {
                 var ta = dyn_cast::<TypeAliasDecl>(idecl->requirements.get(i)->decl);
-                if (ta == &null) || (ta->generic_params.size() > 0) { continue; }
+                if ta == &null { continue; }
                 var at_t = (row->assoc_types[i]) if (i < row->assoc_types.size()) else (&null);
                 if at_t == &null { self._ice(CXXSpell::at(static_cast::<*Decl>(ta)), "EmitWitness: a row with no type for an associated type; ConformanceChecking records only complete rows on an instance"); }
-                self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(ta)), "using " + self._spell->leaf(static_cast::<*Decl>(ta)) + " = " + self._spell->_type(at_t, subst) + ";");
+                self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(ta)), self._assoc_head(ta, row, i) + "using " + self._spell->leaf(static_cast::<*Decl>(ta)) + " = " + self._spell->_type(at_t, subst) + ";");
             }
         }
         var subs = vec::<*InstanceEntry>();
@@ -446,16 +447,36 @@ class EmitWitness {
             var decl = self._member_decl(m, (subs[i]) if (subs[i] != &null) else (subst), x);
             var ea = vec::<*Type>();
             row->ext_args_of(i, &ea);
-            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x, &ea) + "; }");
+            self._cg->sink->spell(CXXSpell::at(static_cast::<*Decl>(m)), decl + " { return " + self._target(w, m, x, &ea, row->conformer->is_dependent()) + "; }");
         }
         self._cg->sink->spell(at, "};");
         self._cg->sink->brk();
     }
 
+    /// `template <class K> ` for generic associated type \p ta in \p row:
+    /// the member alias template's parameters are those of the decl that
+    /// supplies it (the conformer's `type <K> Map = ...`, or the requirement
+    /// for a default), since the row's type is spelled over them. "" for a
+    /// plain associated type.
+    priv fn _assoc_head(self, ta: *TypeAliasDecl, row: *ConformanceRow, i: usize) -> string {
+        if ta->generic_params.size() == 0 { return ""; }
+        var w = (row->witnesses[i]) if (i < row->witnesses.size()) else (&null);
+        if w == &null { w = static_cast::<*Decl>(ta); }
+        var gps = decl_generic_params(CXXSpell::rep(w));
+        if gps.size() != ta->generic_params.size() { self._ice(CXXSpell::at(static_cast::<*Decl>(ta)), "EmitWitness: a generic associated type supplied by a decl of another arity; ConformanceChecking matches arities"); }
+        var s = "template <";
+        for var k: usize = 0; k < gps.size(); ++k {
+            if k > 0 { s += ", "; }
+            s += "class ";
+            s += self._spell->imm_name(gps[k]->name.imm, CXXSpell::fid_of(CXXSpell::rep(w)));
+        }
+        return s + "> ";
+    }
+
     /// The call a specialization member makes: the extension member,
     /// qualified, receiver first (none for a static); or the conformer's own
     /// member, through \p x for a static.
-    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string, ext_args: *vec::<*Type>) -> string {
+    priv fn _target(self, w: *FunctionDecl, m: *FunctionDecl, x: string, ext_args: *vec::<*Type>, dep: bool) -> string {
         var args = self._forward(m);
         // A generic requirement's arguments are the witness member's own
         // parameters, spelled: nothing is left for deduction to choose.
@@ -481,7 +502,12 @@ class EmitWitness {
             if args.size() > 0 { all += ((", ") if (all.size() > 0) else ("")) + args; }
             return self._spell->qual_name(static_cast::<*Decl>(w)) + targs + "(" + all + ")";
         }
-        return self._member_call(m, x, LowerTargets::witness_receiver_name(), self._spell->leaf(static_cast::<*Decl>(w)) + targs);
+        // A generic requirement's member is a template-id through a receiver
+        // whose type a generic row's partial specialization leaves dependent
+        // (`self->template wrap<K>(k)` for `Tag<N>`): without the keyword
+        // clang reads the `<` as less-than.
+        var tkw = ("template ") if ((targs.size() > 0) && dep) else ("");
+        return self._member_call(m, x, LowerTargets::witness_receiver_name(), tkw + self._spell->leaf(static_cast::<*Decl>(w)) + targs);
     }
 
     /// The call of member \p name (already carrying any `template` keyword

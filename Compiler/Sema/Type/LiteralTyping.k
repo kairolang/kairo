@@ -30,6 +30,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::NullnessFlow::*;
@@ -580,7 +581,7 @@ class <T> LiteralTyping {
         if cg != &null {
             self._string_conv(v, repr, conv);
             if ((*repr) == &null) && ((*conv) == &null) {
-                dyn()->needs_bound(e, cg, dyn()->tu.bound_ifaces(v).size() > 0,
+                dyn()->needs_bound(e, cg, Substitution(dyn()->sc).bound_ifaces(v).size() > 0,
                     f"formatting a '{dyn()->sc->ctx->get_spelling(cg->name)}' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string\x27");
                 return false;
             }
@@ -645,7 +646,7 @@ class <T> LiteralTyping {
         var s = dyn()->tu.string_type();
         // A bounds-checked parameter's members are its bounds' requirements.
         var scopes = vec::<*Type>();
-        if dyn()->tu.checked_param(v) != &null { scopes = dyn()->tu.bound_ifaces(v); }
+        if dyn()->tu.checked_param(v) != &null { scopes = Substitution(dyn()->sc).bound_ifaces(v); }
         else { scopes.push_back(v); }
 
         var imm   = dyn()->sc->imm_table()->intern_ident_copy("repr");

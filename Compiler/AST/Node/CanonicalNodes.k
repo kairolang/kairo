@@ -799,6 +799,9 @@ class RecordType derives Type {
 ///  TypeAliasDecl (its redecl representative), which may be declared in a
 ///  base interface of `iface`. Uniqued on all three.
 ///
+///  `T::Item::Inner` is an AssocType whose base is another AssocType: a
+///  name reached through a dependent type is one rule however deep.
+///
 ///  Always dependent: nothing about it is known until `base` is a conformer,
 ///  and then it is not an AssocType at all but the conformer's alias
 ///  (Substitution::assoc_witness).
@@ -807,6 +810,21 @@ class AssocType derives Type {
     pub var base:  *Type = &null;
     pub var iface: *Type = &null;
     pub var assoc: *Decl = &null;
+    /// A GENERIC associated type's arguments (`T::Map<K>` of `type <K>
+    /// Map`), in its own parameter order; empty for every other. Part of
+    /// the identity, as a record's arguments are.
+    pub var args: FrozenList::<*Type>;
+    /// The interfaces a value of this type may be used through: its
+    /// requirement's own `impl` bounds read with Self := `base`, the
+    /// declaring interface's parameters := `iface`'s arguments and its own
+    /// parameters := `args`. NOT identity: a cache of a pure function of
+    /// the three, filled by Substitution::bound_ifaces (the one place that
+    /// computes it) once the requirement's clause is resolved, so that
+    /// codegen can read the bound a member type is spelled through.
+    /// `bounds_state`: 0 not computed, 1 being computed (a bound naming its
+    /// own associated type), 2 done.
+    pub var bounds: FrozenList::<*Type>;
+    pub var bounds_state: u8 = 0;
 
     /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
         return ptr->kind == TypeKind::AssocType;

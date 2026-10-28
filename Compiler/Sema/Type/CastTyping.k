@@ -385,7 +385,7 @@ class <T> CastTyping {
         //     never a conversion C++ might find per instance.
         var cands = vec::<*Decl>();
         var cg = dyn()->tu.checked_param(src);
-        var cbound = dyn()->tu.bound_ifaces(src);
+        var cbound = Substitution(dyn()->sc).bound_ifaces(src);
         if cg != &null {
             for var i: usize = 0; i < cbound.size(); ++i {
                 dyn()->ml.lookup(cbound[i], DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);

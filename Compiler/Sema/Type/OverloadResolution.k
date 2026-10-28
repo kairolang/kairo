@@ -962,7 +962,7 @@ class OverloadResolution {
     /// does wins: two bounds reaching one requirement at different
     /// arguments is a conflict the bounds' own checking owns, not this call.
     priv fn _bound_declaring(self, c: *Candidate, receiver: *Type) -> *Type {
-        var bs = self.tu.bound_ifaces(receiver);
+        var bs = Substitution(self.sc).bound_ifaces(receiver);
         for var i: usize = 0; i < bs.size(); ++i {
             var di = c->ded.declaring_instance(c->f, bs[i]);
             if di != &null { return di; }

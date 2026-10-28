@@ -9,8 +9,8 @@
 // conformer declares every associated type, a defaulted one included
 // (interfaces.md, Defaults), and a default meets its own bounds (checked at
 // the interface, assoc_default_bounds.k: `= i32` here was accepted before
-// that check existed); a generic associated type is not checked at
-// conformance (its uses are SC116E, assoc_type_errors.k). The clause's
+// that check existed); a generic associated type is required too, as a
+// generic alias of its arity (Tests/Codegen/witness/assoc_generic.k). The clause's
 // subject is the declaration's own name, not a use: no readability lint
 // (SC001W) for it.
 
@@ -26,6 +26,7 @@ extend Shown { pub fn show(const self) -> i32 = self.v }
 pub struct G {
     type Edge = Shown
     type Key = Shown
+    type <K> Map = K
     pub var n: i32
 }
 extend G { pub fn edges(const self) -> i32 = self.n }

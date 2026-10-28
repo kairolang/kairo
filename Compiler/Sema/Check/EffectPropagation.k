@@ -441,7 +441,7 @@ fn panic_bind_call(tu: *TypeUtil, d: *Deduction, f: *FunctionDecl, c: *CallExpr,
         var di: *Type = &null;
         if (c != &null) && (c->witness_iface != &null) { di = d->declaring_instance(f, c->witness_iface); }
         if (di == &null) && (recv != &null) {
-            var bs = tu->bound_ifaces(recv);
+            var bs = Substitution(tu->sc).bound_ifaces(recv);
             for var i: usize = 0; (i < bs.size()) && (di == &null); ++i { di = d->declaring_instance(f, bs[i]); }
             // A concrete receiver conforming to a generic interface is the
             // row's instance: the bound list of a concrete type is empty.

@@ -165,7 +165,35 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     fn visit_type(self, t: *Type) -> bool {
         if (t != &null) && t->range.start.is_valid() { self._cur_at = t->range; }
         if t != &null { self._check_type(t, t->range, 0); }
+        if (t != &null) && (t->canonical != &null) && isa::<AssocType>(canon_unqual(t->canonical)) {
+            self._check_assoc_args(cast::<AssocType>(canon_unqual(t->canonical)), t->range);
+        }
         return true;
+    }
+
+    /// A generic associated type named at concrete arguments (`T::Map<i32>`
+    /// of `type <K impl Hashable> Map`): each meets its parameter's bounds,
+    /// as a generic record's arguments do. A dependent argument is its own
+    /// declaration's to bound.
+    priv fn _check_assoc_args(self, a: *AssocType, at: SourceRange) {
+        var ta = dyn_cast::<TypeAliasDecl>(a->assoc);
+        if (ta == &null) || (a->args.size() == 0) { return; }
+        for var k: usize = 0; (k < a->args.size()) && (k < ta->generic_params.size()); ++k {
+            var x = canon_unqual(a->args[k]);
+            if (x == &null) || x->is_dependent() || x->is_instantiation_dependent() { continue; }
+            var bs = vec::<*ConstraintExpr>();
+            self.tu.assoc_param_bounds(ta, k, &bs);
+            for var i: usize = 0; i < bs.size(); ++i {
+                var c = bs[i];
+                if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+                var iface = canon_unqual(c->rhs->canonical);
+                if iface->is_dependent() { continue; }
+                var row = self.conforms(x, iface);
+                if (row == &null) || row->ok { continue; }
+                self._report(at, c, x, iface, row);
+                return;
+            }
+        }
     }
 
     fn visit_decl(self, d: *Decl) -> bool {
@@ -203,7 +231,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             if (ta == &null) || ta->is_poisoned() || (ta->aliased == &null) || (ta->aliased->canonical == &null) { continue; }
             var dflt = canon_unqual(ta->aliased->canonical);
             var bounds = vec::<*ConstraintExpr>();
-            self._impl_bounds(ta->requires_clause, &bounds);
+            self.tu.assoc_own_bounds(ta, &bounds);
             for var i: usize = 0; i < bounds.size(); ++i {
                 var c = bounds[i];
                 if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
@@ -212,7 +240,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 var ok = true;
                 if isa::<AssocType>(dflt) {
                     ok = false;
-                    var has = self.tu.bound_ifaces(dflt);
+                    var has = Substitution(self.sc).bound_ifaces(dflt);
                     for var k: usize = 0; k < has.size(); ++k {
                         if self._iface_derives(has[k], iface, 0) { ok = true; break; }
                     }
@@ -951,7 +979,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 w = self._assoc_implementation(x, iface, ta, &at);
                 // The supplied type must meet the associated type's own
                 // bounds (`type Item impl Display`).
-                if (w != &null) && (at != &null) && (!self._assoc_bounds_met(at, ta, x)) { w = &null; }
+                if (w != &null) && (at != &null) && (!self._assoc_bounds_met(at, ta, x, (srcs[i]) if (srcs[i] != &null) else (iface), &(row.assoc_rows))) { w = &null; }
                 if w == &null { row.ok = false; }
             }
             if m != &null {
@@ -1201,9 +1229,10 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     /// Substitution::assoc_witness's answer, the same one every use reads.
     /// A dependent \p x (a generic row's `Wrap<E>`) reads its alias through
     /// E, which the partial specialization spells. A generic associated
-    /// type is not checked: its uses are SC116E.
+    /// type (`type <K> Map`) is supplied by a generic alias of the same
+    /// arity, and its type is that alias at its own parameters, which the
+    /// witness spells as a member alias template.
     priv fn _assoc_implementation(self, x: *Type, iface: *Type, ta: *TypeAliasDecl, out: *(*Type)) -> *Decl {
-        if ta->generic_params.size() > 0 { return static_cast::<*Decl>(ta); }
         var d = Deduction(self.sc, &null);
         var t = d.assoc_witness(x, iface, static_cast::<*Decl>(ta));
         if (t == &null) || isa::<AssocType>(canon_unqual(t)) { return &null; }
@@ -1215,30 +1244,30 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         self.ml.lookup(x, DeclName::ident(imms->intern_ident_copy(self.tu.decl_name(static_cast::<*Decl>(ta)))), &cands);
         for var i: usize = 0; i < cands.size(); ++i {
             var a = dyn_cast::<TypeAliasDecl>(cands[i]);
-            if (a != &null) && (!a->is_associated) { return NameLookup::representative(cands[i]); }
+            if (a != &null) && (!a->is_associated) && (a->generic_params.size() == ta->generic_params.size()) { return NameLookup::representative(cands[i]); }
         }
         return static_cast::<*Decl>(ta);
     }
 
-    /// \p t, supplied for associated type \p ta by conformer \p x, meets
-    /// every `impl` bound \p ta declares, `Self` in a bound read as \p x.
-    /// A bound still dependent after that is not checked here.
-    priv fn _assoc_bounds_met(self, t: *Type, ta: *TypeAliasDecl, x: *Type) -> bool {
-        var cs = vec::<*ConstraintExpr>();
-        self._impl_bounds(ta->requires_clause, &cs);
-        var home: *Decl = &null;
-        if ta->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(ta->semantic_dc)->owner_decl(); }
-        for var i: usize = 0; i < cs.size(); ++i {
-            var c = cs[i];
-            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
-            var bt = canon_unqual(c->rhs->canonical);
-            if bt->is_dependent() && (home != &null) {
-                var d = Deduction(self.sc, &null);
-                bt = canon_unqual(d.replace_self(bt, NameLookup::representative(home), x, true));
-            }
+    /// \p t, supplied for associated type \p ta by conformer \p x through
+    /// \p iface, meets every `impl` bound \p ta declares, read for \p x as
+    /// every use reads them (Substitution::clause_bounds: `Self` is \p x,
+    /// the interface's parameters its arguments, another associated type
+    /// \p x's). A bound still dependent after that is not checked here, nor
+    /// is a generic associated type's alias at its own parameters.
+    priv fn _assoc_bounds_met(self, t: *Type, ta: *TypeAliasDecl, x: *Type, iface: *Type, rows: *vec::<*ConformanceRow>) -> bool {
+        if t->is_dependent() && (ta->generic_params.size() > 0) { return true; }
+        var ready = true;
+        var none = vec::<*Type>();
+        var bs = Substitution(self.sc).clause_bounds(ta, x, iface, &none, &ready);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var bt = canon_unqual(bs[i]);
             if bt->is_dependent() { continue; }
             var r = self.conforms(canon_unqual(t), bt);
             if (r != &null) && (!r->ok) { return false; }
+            // A generic row's dependent supply (`Item = Wrap<N>`) is no row of
+            // its own: its instances' rows are, when they are formed.
+            if (r != &null) && (!t->is_dependent()) { rows->push_back(r); }
         }
         return true;
     }
@@ -1571,6 +1600,27 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 bd.note(areq->range.start, f"'{an}' and its bounds are declared here").first(areq->range);
                 if e != &null { self.chain_notes(&bd, e); }
                 bd.emit();
+                return;
+            }
+            // Declared, but not in the requirement's shape: a generic
+            // associated type needs a generic alias of its arity, and a plain
+            // one a plain alias.
+            var acands = vec::<*Decl>();
+            var aimms = self.sc->ctx->get_imm_table();
+            self.ml.lookup(x, DeclName::ident(aimms->intern_ident_copy(an)), &acands);
+            for var i: usize = 0; i < acands.size(); ++i {
+                var al = dyn_cast::<TypeAliasDecl>(acands[i]);
+                if (al == &null) || al->is_associated || (al->generic_params.size() == areq->generic_params.size()) { continue; }
+                var want = areq->generic_params.size();
+                var have = al->generic_params.size();
+                var sd = self.sc->diag->report(DiagID::SC001E, at.start,
+                    f"'{xs}' does not conform to '{is}': its '{an}' takes {have} generic parameter(s), and the associated type takes {want}");
+                sd.first(at);
+                if b != &null { sd.note(b->range.start, f"required by this bound").first(b->range); }
+                sd.note(al->range.start, f"'{xs}' declares '{an}' here").first(al->range);
+                sd.note(areq->range.start, f"'{an}' is required here").first(areq->range);
+                if e != &null { self.chain_notes(&sd, e); }
+                sd.emit();
                 return;
             }
             // interfaces.md, Defaults: a structural conformer declares every

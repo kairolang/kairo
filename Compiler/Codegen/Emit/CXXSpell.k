@@ -1192,9 +1192,21 @@ class CXXSpell {
     /// assoc_self_qual (a concept).
     fn assoc_spelling(self, a: *AssocType, subst: *InstanceEntry = &null, scope: *Decl = &null) -> string {
         var leaf = self.leaf(a->assoc);
+        // A generic associated type is the witness's member alias template
+        // (`template <class K> using Map = ...`), named with its arguments.
+        var targs = "";
+        if a->args.size() > 0 {
+            targs = "<";
+            for var i: usize = 0; i < a->args.size(); ++i {
+                if i > 0 { targs += ", "; }
+                targs += self._type(a->args[i], subst, scope);
+            }
+            targs += ">";
+        }
         var b = canon_unqual(a->base);
         if isa::<RecordType>(b) && isa::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(b)->decl)))) {
-            if self.assoc_self_qual.size() == 0 { return leaf; }
+            if self.assoc_self_qual.size() == 0 { return leaf + targs; }
+            if targs.size() > 0 { return "typename " + self.assoc_self_qual + "::template " + leaf + targs; }
             return "typename " + self.assoc_self_qual + "::" + leaf;
         }
         var via = a->iface;
@@ -1203,11 +1215,37 @@ class CXXSpell {
             var bt = self._assoc_bound(g, a);
             if bt != &null { via = bt; }
         }
+        // Reached through another associated type (`T::Item::Inner`): the
+        // bound of THAT type that requires this one, as Sema read it
+        // (AssocType::bounds) -- rows, and so specializations, exist for the
+        // bound, not for the interface that declares the requirement.
+        var ab = dyn_cast::<AssocType>(b);
+        if ab != &null {
+            var bt2 = self._assoc_bound_of(ab, a);
+            if bt2 != &null { via = bt2; }
+        }
         var ic = canon_unqual(via);
         if (ic == &null) || (!isa::<RecordType>(ic)) { self._ice(a->range, "CXXSpell: an associated type through a non-interface"); return ""; }
         var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(ic)->decl)));
         var q = self.witness_name(idecl) + self.witness_args(self._type(a->base, subst, scope), via, subst);
-        return CXXSpell::_member_type(q, true, leaf, "");
+        return CXXSpell::_member_type(q, true, leaf, targs);
+    }
+
+    /// The bound of associated type \p base (its cached, substituted
+    /// bounds) whose interface requires \p a's associated type, or null.
+    priv fn _assoc_bound_of(self, base: *AssocType, a: *AssocType) -> *Type {
+        if base->bounds_state != 2 { return &null; }
+        var want = CXXSpell::rep(a->assoc);
+        for var i: usize = 0; i < base->bounds.size(); ++i {
+            var bt = canon_unqual(base->bounds[i]);
+            if (bt == &null) || (!isa::<RecordType>(bt)) { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(bt)->decl))));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                if CXXSpell::rep(idecl->requirements.get(j)->decl) == want { return bt; }
+            }
+        }
+        return &null;
     }
 
     /// The bound of \p g whose interface requires \p a's associated type

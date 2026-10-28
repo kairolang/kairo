@@ -124,6 +124,13 @@ class ConformanceRow {
     /// itself for a default. EmitWitness spells it as the specialization's
     /// member type.
     pub var assoc_types: vec::<*Type>;
+    /// The rows proving each supplied associated type meets that
+    /// associated type's own bounds (`type Item impl Holder`, Item := Purse:
+    /// `Purse impl Holder`). They are this row's facts too: a body bounded
+    /// by the interface reaches members through the associated type, and
+    /// those spell the bound's witness at the supplied type, so EmitPlan
+    /// admits them wherever it admits this row.
+    pub var assoc_rows: vec::<*ConformanceRow>;
     /// A concrete row that a GENERIC declared row (`extend <E> Wrap<E> impl
     /// I`, conformer over its own parameters) covers -- same witnesses, its
     /// conformer and interface at this row's arguments -- or null. EmitPlan
@@ -849,6 +856,7 @@ class InstantiationRegistry {
         for var i: usize = 0; i < r->sources.size(); ++i { row->sources.push_back(r->sources[i]); }
         for var i: usize = 0; i < r->seen_by.size(); ++i { row->seen_by.push_back(r->seen_by[i]); }
         for var i: usize = 0; i < r->assoc_types.size(); ++i { row->assoc_types.push_back(r->assoc_types[i]); }
+        for var i: usize = 0; i < r->assoc_rows.size(); ++i { row->assoc_rows.push_back(r->assoc_rows[i]); }
         return row;
     }
 

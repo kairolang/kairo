@@ -72,6 +72,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::ArgumentDeduction::*;
@@ -202,20 +203,31 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     }
 
     /// `T::make(x)` bound to static requirement `make` of I: `make(x)`
-    /// through the witness, Self the qualifier, no receiver. Only a bare
-    /// bounded parameter qualifies one; any other `::` form of a requirement
+    /// through the witness, Self the qualifier, no receiver. The qualifier
+    /// is any dependent head a bound reaches the requirement through: a
+    /// bounded parameter (`T::make()`) or an associated type
+    /// (`T::Item::make()`, `T::Item::Inner::make()`), whose denoted type the
+    /// typer left on the step before. Any other `::` form of a requirement
     /// (`I::m(a)`, a method named through `T::`) is left for EmitIR's ICE.
     priv fn _static_witness(self, n: *CallExpr, ch: *ChainExpr, st: *ChainExpr::Step,
                             f: *FunctionDecl, req: *InterfaceDecl) {
         // CallTyping's qualifier, not a witness: a form left unrewritten
         // must still reach EmitIR's ICE rather than spell a Self-less one.
         n->witness_iface = &null;
-        if f->is_method() || (ch->steps.size() != 1) || (ch->base == &null) { return; }
-        var q = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(ch->base));
-        if q == &null { return; }
-        var gp = dyn_cast::<GenericParamDecl>(q->resolved_decl);
-        if (gp == &null) || (gp->owner == &null) { return; }
-        var me = self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
+        if f->is_method() || (ch->base == &null) { return; }
+        var me: *Type = &null;
+        var k = ch->steps.size();
+        if k == 1 {
+            var q = dyn_cast::<NamedIdentExpr>(self.tu.strip_parens(ch->base));
+            if q == &null { return; }
+            var gp = dyn_cast::<GenericParamDecl>(q->resolved_decl);
+            if (gp == &null) || (gp->owner == &null) { return; }
+            me = self.sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
+        } else {
+            var prev = ch->steps.get(k - 2);
+            if (prev == &null) || (prev->resolved_type == &null) || (!isa::<AssocType>(canon_unqual(prev->resolved_type))) { return; }
+            me = canon_unqual(prev->resolved_type);
+        }
         n->callee        = self._head(st, f);
         n->witness_self  = me;
         n->witness_iface = self._declaring_iface(me, f, n);
@@ -231,7 +243,7 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
         ICE_IF(me == &null, "ExtensionLowering: an untyped receiver for a qualified requirement call; ExprTyper gate failure");
         n->callee       = self._head(st, f);
         n->witness_self = me;
-        if isa::<GenericParamType>(me) {
+        if isa::<GenericParamType>(me) || isa::<AssocType>(me) {
             // The bound ConformanceChecking chose by the qualifier; the first
             // bound with the requirement serves only a call that named none.
             if n->witness_iface == &null { n->witness_iface = self._declaring_iface(me, f, n); }
@@ -265,37 +277,18 @@ class ExtensionLowering derives ASTWriter::<ExtensionLowering> {
     /// through the BOUND's witness -- `Stream_witness<T>::read` -- since every
     /// interface's list holds what it derives. Self must be a generic
     /// parameter: a concrete receiver is bound to the implementing decl,
-    /// never to a requirement.
+    /// never to a requirement. Self is a dependent head -- a bounded
+    /// parameter, or an associated type (`x.show()` on `x: T::Item` is
+    /// `Display_witness<typename Store_witness<T>::Item>`) -- and its bounds
+    /// are Substitution::bound_ifaces', the one list every reader shares.
     priv fn _declaring_iface(self, me: *Type, f: *FunctionDecl, at: *CallExpr) -> *Type {
-        // A value of an associated type (`x.show()`, `x: T::Item`): Self is
-        // that type, and the witness is the one of ITS bound declaring the
-        // requirement -- `Display_witness<typename Store_witness<T>::Item>`.
-        if isa::<AssocType>(me) {
-            var bs = self.tu.bound_ifaces(me);
-            for var i: usize = 0; i < bs.size(); ++i {
-                if self._has_requirement(bs[i], f) { return bs[i]; }
-            }
-            ICE_FAIL("ExtensionLowering: no bound of the receiver's associated type requires the callee");
-            return &null;
+        ICE_IF((!isa::<GenericParamType>(me)) && (!isa::<AssocType>(me)),
+            "ExtensionLowering: a requirement call on a receiver that is neither a bounded generic parameter nor an associated type; witness Self must be dependent");
+        var bs = Substitution(self.sc).bound_ifaces(me);
+        for var i: usize = 0; i < bs.size(); ++i {
+            if self._has_requirement(canon_unqual(bs[i]), f) { return canon_unqual(bs[i]); }
         }
-        ICE_IF(!isa::<GenericParamType>(me),
-            "ExtensionLowering: a requirement call on a receiver that is not a bounded generic parameter; witness Self must be a parameter");
-        var g = cast::<GenericParamType>(me);
-        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
-        ICE_IF(it == self.sc->bounds.end(), "ExtensionLowering: a requirement call on a parameter whose owner has no bound table entry");
-        var _set = &(it->second);
-        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
-            var c = _set->impl_constraints[i];
-            var id = dyn_cast::<NamedIdentExpr>(c->lhs);
-            if id == &null { continue; }
-            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
-            if (gp == &null) || (gp->index != g->param_index) { continue; }
-            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
-            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
-            var t = canon_unqual(c->rhs->canonical);
-            if self._has_requirement(t, f) { return t; }
-        }
-        ICE_FAIL("ExtensionLowering: no bound on the receiver's parameter requires the callee");
+        ICE_FAIL("ExtensionLowering: no bound of the receiver requires the callee");
         return &null;
     }
 

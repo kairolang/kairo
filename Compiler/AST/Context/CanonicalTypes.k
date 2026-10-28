@@ -723,12 +723,16 @@ class CanonicalTypeStore {
     /// (AssocType). Dependent by construction, whatever \p base is: even
     /// `record(Graph)`, a non-dependent record, stands for every conformer
     /// while it is the interface's Self.
-    fn assoc(self, base: *Type, iface: *Type, assoc: *Decl) -> *Type {
+    fn assoc(self, base: *Type, iface: *Type, assoc: *Decl, args: *vec::<*Type> = &null) -> *Type {
         if (base == &null) || (iface == &null) || (assoc == &null) { return &null; }
+        var n: usize = 0;
+        if args != &null { n = args->size(); }
         var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::AssocType)));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(base));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(iface));
         h = canon_hash_ptr(h, reinterpret_cast::<*void>(assoc));
+        h = canon_hash_u64(h, static_cast::<u64>(n));
+        for var i: usize = 0; i < n; ++i { h = canon_hash_ptr(h, reinterpret_cast::<*void>((*args)[i])); }
 
         var lock = std::LockGuard(self._mu);
         var b = self._bucket(h);
@@ -737,7 +741,10 @@ class CanonicalTypeStore {
                 var c = (*b)[i];
                 if c->kind != TypeKind::AssocType { continue; }
                 var a = cast::<AssocType>(c);
-                if (a->base == base) && (a->iface == iface) && (a->assoc == assoc) { return c; }
+                if (a->base != base) || (a->iface != iface) || (a->assoc != assoc) || (a->args.size() != n) { continue; }
+                var same = true;
+                for var k: usize = 0; k < n; ++k { if a->args[k] != (*args)[k] { same = false; break; } }
+                if same { return c; }
             }
         }
 
@@ -747,6 +754,15 @@ class CanonicalTypeStore {
         at->base  = base;
         at->iface = iface;
         at->assoc = assoc;
+        if n > 0 {
+            var buf = self._alloc_array::<*Type>(n);
+            for var i: usize = 0; i < n; ++i { buf[i] = (*args)[i]; }
+            at->args.from_raw(buf, n);
+        } else {
+            at->args.from_raw(static_cast::<*(*Type)>(&null), 0);
+        }
+        at->bounds.from_raw(static_cast::<*(*Type)>(&null), 0);
+        at->bounds_state = 0;
         at->init_annotations(&(self._arena));
         at->init_spans(&(self._arena));
 
@@ -754,12 +770,29 @@ class CanonicalTypeStore {
         ty->canonical = ty;
         self._absorb_flags(ty, base);
         self._absorb_flags(ty, iface);
+        for var i: usize = 0; i < n; ++i { self._absorb_flags(ty, (*args)[i]); }
         ty->type_flags = static_cast::<Type::TypeFlags>(
             static_cast::<u8>(ty->type_flags)
           | static_cast::<u8>(Type::TypeFlags::IsDependent)
           | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent));
         self._insert(h, ty);
         return ty;
+    }
+
+    /// Fill \p a's bound cache (AssocType::bounds) with \p bs. The store
+    /// owns the storage; Substitution::bound_ifaces computes the list.
+    fn set_assoc_bounds(self, a: *AssocType, bs: *vec::<*Type>) {
+        if a == &null { return; }
+        var lock = std::LockGuard(self._mu);
+        var n = bs->size();
+        if n > 0 {
+            var buf = self._alloc_array::<*Type>(n);
+            for var i: usize = 0; i < n; ++i { buf[i] = (*bs)[i]; }
+            a->bounds.from_raw(buf, n);
+        } else {
+            a->bounds.from_raw(static_cast::<*(*Type)>(&null), 0);
+        }
+        a->bounds_state = 2;
     }
 
     /// An opaque C++ type, keyed by its spelling imm. Genuinely a black box:

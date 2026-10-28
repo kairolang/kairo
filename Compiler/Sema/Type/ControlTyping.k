@@ -41,6 +41,7 @@ import Sema::SemaContext::*;
 import Sema::Check::EffectPropagation::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::NullnessFlow::*;
@@ -606,7 +607,7 @@ class <T> ControlTyping {
             dyn()->poison_only(n);
             return &null;
         }
-        if !dyn()->tu.assoc_has_ctor(rec, 0) {
+        if !Substitution(dyn()->sc).bounds_construct(rec, 0) {
             var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
                 f"cannot construct '{ts}': no bound of associated type '{an}' requires a constructor taking no arguments");
             b.first(n->range);

@@ -402,6 +402,8 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     /// Every witness piece the plan holds: interface primaries and row
     /// specializations. Index-based while the closure runs, as _scopes.
     priv var _witnesses: vec::<WitnessPiece>;
+    /// Rows whose ConformanceRow::assoc_rows _witness_row has followed.
+    priv var _assoc_seen: vec::<*ConformanceRow>;
 
     /// Memo for param_by_value: (primary, index) -> answer. Pairs, linear
     /// scan; a build has tens of generic primaries, not thousands.
@@ -1096,6 +1098,16 @@ fn EmitPlan::_witness_primary(iface_in: *Decl) -> usize {
 /// it forwards to defined.
 fn EmitPlan::_witness_row(row: *ConformanceRow) {
     if (row == &null) || (row->iface_decl == &null) { return; }
+    // The rows its associated types' bounds rest on come with it, whether
+    // or not this row needs a specialization of its own: a body reaching
+    // `T::Item::Inner` spells `Holder_witness<Purse>` (ConformanceRow::
+    // assoc_rows). Once each: a row may name itself through a bound.
+    var seen = false;
+    for var i: usize = 0; i < self._assoc_seen.size(); ++i { if self._assoc_seen[i] == row { seen = true; } }
+    if !seen {
+        self._assoc_seen.push_back(row);
+        for var i: usize = 0; i < row->assoc_rows.size(); ++i { self._witness_row(row->assoc_rows[i]); }
+    }
     var iface = CXXSpell::rep(row->iface_decl);
     self._witness_primary(iface);
     var ew = EmitWitness(self._cg, &(self._spell));
@@ -2033,6 +2045,7 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::AssocType {
             var a = cast::<AssocType>(c);
             self._admit_type(a->base, PlanNeed::Fwd);
+            for var i: usize = 0; i < a->args.size(); ++i { self._admit_type(a->args[i], PlanNeed::Fwd); }
             var ic = canon_unqual(a->iface);
             if (ic != &null) && isa::<RecordType>(ic) { self._admit(cast::<RecordType>(ic)->decl, PlanNeed::Complete); }
         }

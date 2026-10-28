@@ -244,6 +244,20 @@ class Deduction derives Substitution {
                 }
                 if pr->args.size() != ar->args.size() { return ImplicitRank::None; }
                 return ImplicitRank::Exact;
+            } case TypeKind::AssocType {
+                // `T::Map<K>` against `T::Map<i32>`: one associated type of
+                // one head, so its arguments unify as a record's do (K :=
+                // i32). The head and the interface are matched, not deduced
+                // from: both are the caller's own already.
+                var pa = cast::<AssocType>(param); var aa = cast::<AssocType>(arg);
+                if NameLookup::representative(pa->assoc) != NameLookup::representative(aa->assoc) { return ImplicitRank::None; }
+                if pa->args.size() != aa->args.size() { return ImplicitRank::None; }
+                if self.unify(pa->base, aa->base, false) == ImplicitRank::None { return ImplicitRank::None; }
+                if self.unify(pa->iface, aa->iface, false) == ImplicitRank::None { return ImplicitRank::None; }
+                for var i: usize = 0; i < pa->args.size(); ++i {
+                    if self.unify(pa->args[i], aa->args[i], false) == ImplicitRank::None { return ImplicitRank::None; }
+                }
+                return ImplicitRank::Exact;
             } default { return ImplicitRank::None; }
         }
     }

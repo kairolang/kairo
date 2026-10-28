@@ -81,6 +81,7 @@
 import Sema::SemaContext::*;
 import AST::OperatorFacts::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::NullnessFlow::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
@@ -151,7 +152,7 @@ class <T> OperatorTyping {
     /// sends it through the interface's witness (CODEGEN.md §7b.5).
     /// MemberTyping's `op []` reads it too, so a subscript and a binary
     /// operator on one T see the same bounds.
-    fn bound_ifaces(self, t: *Type) -> vec::<*Type> { return dyn()->tu.bound_ifaces(t); }
+    fn bound_ifaces(self, t: *Type) -> vec::<*Type> { return Substitution(dyn()->sc).bound_ifaces(t); }
 
     /// Where a bounded parameter \p t's operators come from: bound_ifaces,
     /// then the bases its `derives` bounds name (TypeUtil::bound_scopes). A

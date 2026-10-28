@@ -4,9 +4,9 @@
 //  - one no bound declares, or one two bounds both declare;
 //  - one outside its interface, with no type parameter to reach it;
 //  - a default that breaks the order rule (it sees only earlier ones);
-//  - the parts not built yet: a generic associated type and a member type
-//    of an associated type (SC116E). `Sub`'s default for Graph's Node is
-//    legal (assoc_type_derived_default.k) and stays here as a non-error.
+//  - a member of an associated type none of ITS bounds declares (`Item` has
+//    none). `T::Map<i32>` and `Sub`'s default for Graph's Node are legal
+//    (assoc_generic.k, assoc_type_derived_default.k): non-errors here.
 // The body-level cases are assoc_type_body_errors.k: these stop the TU
 // before bodies are typed.
 
@@ -60,9 +60,6 @@ fn main() -> i32 { return 0 }
 // CHECK: assoc_type_errors.k:35:24: error [R001E]: associated type 'Node' of 'Graph' is named outside the interface; name it through a type parameter bounded by 'Graph' ('T::Node')
 // CHECK-NEXT: assoc_type_errors.k:14:19: note [I900N]: declared here
 // CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_errors.k:36:39: error [SC116E]: generic associated type 'Map' is not supported yet
-// CHECK-NEXT: assoc_type_errors.k:28:5: note [SC116N]: declared here
-// CHECK-NOT: {{error|warning}}
-// CHECK: assoc_type_errors.k:37:44: error [SC116E]: a member of associated type 'T::Item' cannot be named yet
-// CHECK-NEXT: assoc_type_errors.k:29:5: note [SC116N]: the associated type is declared here
+// CHECK: assoc_type_errors.k:37:44: error [R025E]: no associated type named 'Inner' in the bounds of 'T::Item'
+// CHECK-NEXT: assoc_type_errors.k:29:5: note [I900N]: 'T::Item' is declared with no bound; add 'impl <Interface>' to give it associated types
 // CHECK-NOT: {{error|warning}}

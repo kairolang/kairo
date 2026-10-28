@@ -92,6 +92,7 @@ import Sema::Type::ArgumentDeduction::*;
 import Sema::Type::PanicSets::*;
 import AST::ParamMode::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Check::EffectPropagation::*;
 
 ///
@@ -1616,6 +1617,21 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // into until instantiation. Mark and stop; M2 owns it (hard
             // invariant #5: dependent = deferred, not failed).
             var prev = ct->segments.get(i - 1);
+            // `Self::Item::Inner` (or bare `Item::Inner`) inside the
+            // interface: Item is abstract here, and what follows it is
+            // named through ITS bounds, as through `T::Item` outside.
+            if isa::<TypeAliasDecl>(cur) && cast::<TypeAliasDecl>(cur)->is_associated {
+                var ta0 = cast::<TypeAliasDecl>(cur);
+                var at0 = self._assoc_in_iface(ct, ta0, prev);
+                if at0 == &null { return; }   // diagnosed, poisoned.
+                prev->resolved_type = at0;
+                self._ready_assoc_clause(ta0);
+                var bx0 = vec::<*ConstraintExpr>();
+                TypeUtil(self.sc).assoc_own_bounds(ta0, &bx0);
+                var bt0 = Substitution(self.sc).bound_ifaces(at0);
+                self._assoc_through(ct, at0, TypeUtil(self.sc).str(at0), &bx0, &bt0, ta0->range, i);
+                return;
+            }
             if isa::<GenericParamDecl>(cur) {
                 // `T::Node` with T bounded: the associated type its bound
                 // declares, checked here once against the bounds (MONO.md
@@ -1829,14 +1845,12 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// interface -- outside one there is no Self for it to belong to.
     priv fn _assoc_in_iface(self, ct: *ChainType, td: *TypeAliasDecl, seg: *ChainType::ChainSegment) -> *Type {
         var nm = self.sc->ctx->get_spelling(td->name);
-        if (!seg->generic_args.is_empty()) || (td->generic_params.size() > 0) {
-            var b = self.sc->diag->report(DiagID::SC116E, seg->range.start,
-                f"generic associated type '{nm}' is not supported yet");
-            b.first(seg->range);
-            b.note(DiagID::SC116N, td->range.start, "declared here").first(td->range);
-            b.emit();
-            ct->poison();
-            return &null;
+        // A generic associated type is named with its arguments
+        // (`Self::Map<K>`), exactly its own arity.
+        if !self._check_arity(static_cast::<*Decl>(td), td->generic_params, seg, ct) { return &null; }
+        var gargs = vec::<*Type>();
+        if td->generic_params.size() > 0 {
+            if !self._collect_args(seg, ct, static_cast::<*Decl>(td), td->generic_params, &gargs) { ct->poison(); return &null; }
         }
         var self_t = canon_unqual(self._current_self());
         var sd = self._self_decl_of(self_t);
@@ -1879,7 +1893,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if ai == &null { ai = self._declaring_through(self_t, static_cast::<*Decl>(req), 0); }
         if ai == &null { self._assoc_inherited_generic(ct, req, seg->range); return &null; }
         self._mark_dependent(ct);
-        return self.sc->types->assoc(self_t, ai, NameLookup::representative(static_cast::<*Decl>(req)));
+        return Substitution(self.sc).assoc_type(self_t, ai, static_cast::<*Decl>(req), &gargs);
     }
 
     /// The instance of requirement \p req's declaring interface that
@@ -1959,23 +1973,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// from the interface a conformer declares. Anything else written there
     /// is an error at the redeclaration: no default (it would only restate
     /// the requirement), its own bounds (they would not be G's), a default
-    /// G already gives ("may not change a default that is already given"),
-    /// and an inherited GENERIC interface's (SC116E, as its uses are).
+    /// G already gives ("may not change a default that is already given").
     priv fn _redeclares_inherited_assoc(self, td: *TypeAliasDecl) -> bool {
         var inh = self._inherited_assoc(td);
         if inh == &null { return false; }
         var sp = self.sc->ctx->get_spelling(td->name);
-        var home: *Decl = &null;
-        if inh->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(inh->semantic_dc)->owner_decl(); }
-        if (home != &null) && (decl_generic_params(home).size() > 0) {
-            var bg = self.sc->diag->report(DiagID::SC116E, td->name.range.start,
-                f"giving associated type '{sp}' of a generic interface a default is not supported yet");
-            bg.first(td->name.range);
-            bg.note(DiagID::SC116N, inh->range.start, "the inherited associated type is declared here").first(inh->range);
-            bg.emit();
-            td->poison();
-            return true;
-        }
+        // One inherited from a GENERIC interface (`interface IntSource
+        // derives Source<i32> { type Item = Cell }`) is the same: its uses
+        // are declared at the instance the derived interface names
+        // (_declaring_through), and the default is taken by the same rule.
         var why = "";
         if td->aliased == &null { why = f"'{sp}' is inherited; a derived interface may only give it a default ('type {sp} = ...')"; }
         else if td->requires_clause != &null { why = f"'{sp}' is inherited with its bounds; a derived interface may give it a default but not bounds of its own"; }
@@ -2012,95 +2018,156 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// class's nested type is C++'s to find).
     priv fn _assoc_through_param(self, ct: *ChainType, gp: *GenericParamDecl, owner: *Decl, i: usize) -> bool {
         if gp->kind_bound == GenericParamKindBound::Duck { return false; }
-        var seg = ct->segments.get(i);
-        var simm = self._name_imm(seg->name->name);
-        if simm == u32(-1) { return false; }
-        var sspell = self.sc->ctx->get_spelling(seg->name->name);
-        var gname  = self.sc->ctx->get_spelling(gp->name);
-
         var conj = vec::<*ConstraintExpr>();
         if owner != &null { self._param_conjuncts(decl_requires_clause(owner), gp, owner, &conj); }
-        var has_derives = false;
         var bounds = vec::<*ConstraintExpr>();
         for var k: usize = 0; k < conj.size(); ++k {
-            if conj[k]->is_derives() { has_derives = true; continue; }
+            if conj[k]->is_derives() { return false; }
             bounds.push_back(conj[k]);
         }
-        if has_derives { return false; }
-
-        // Every bound declaring the name; one entity found twice (a bound and
-        // an interface deriving it) is one hit.
-        var hit: *TypeAliasDecl = &null;
-        var hit_iface: *Type = &null;
+        // The bound table is ConstraintExtraction's, after T: read the
+        // clause, resolving each bound on demand.
+        var btys = vec::<*Type>();
         for var k: usize = 0; k < bounds.size(); ++k {
             var c = bounds[k];
             if c->rhs == &null { continue; }
             if !self.sc->rstate.type_done(c->rhs) { self.dispatch_type(c->rhs); }
-            if c->rhs->canonical == &null { continue; }
-            var bt = canon_unqual(c->rhs->canonical);
-            if !isa::<RecordType>(bt) { continue; }
-            var bd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(bt)->decl)));
-            if bd == &null { continue; }
-            var td = self._find_assoc(bd, simm, sspell, 0);
-            if td == &null { continue; }
-            if hit == &null { hit = td; hit_iface = bt; continue; }
-            if NameLookup::representative(static_cast::<*Decl>(td)) == NameLookup::representative(static_cast::<*Decl>(hit)) { continue; }
-            // interfaces.md, Name collisions between bounds: two bounds'
-            // `Node`s are different types, and T::Node names neither.
-            var b = self.sc->diag->report(DiagID::R028E, seg->name->range.start,
-                f"'{gname}::{sspell}' is ambiguous: more than one bound of '{gname}' declares an associated type '{sspell}\x27");
-            b.first(seg->name->range);
-            b.note(DiagID::R028N, hit->range.start, "one is declared here").first(hit->range);
-            b.note(DiagID::R028N, td->range.start, "another is declared here").first(td->range);
-            b.emit();
-            ct->poison();
-            return true;
+            if c->rhs->canonical != &null { btys.push_back(canon_unqual(c->rhs->canonical)); }
         }
-        if hit == &null {
-            var b = self.sc->diag->report(DiagID::R025E, seg->name->range.start,
-                f"no associated type named '{sspell}' in the bounds of '{gname}\x27");
-            b.first(seg->name->range);
-            if bounds.size() == 0 {
-                b.note(gp->range.start, f"'{gname}' has no interface bound; a generic body may use only what its bounds declare").first(gp->range);
-            } else {
-                for var k: usize = 0; k < bounds.size(); ++k { b.note(bounds[k]->range.start, "bound here").first(bounds[k]->range); }
-            }
-            b.emit();
-            ct->poison();
-            return true;
-        }
-        if (!seg->generic_args.is_empty()) || (hit->generic_params.size() > 0) {
-            var b = self.sc->diag->report(DiagID::SC116E, seg->range.start,
-                f"generic associated type '{sspell}' is not supported yet");
-            b.first(seg->range);
-            b.note(DiagID::SC116N, hit->range.start, "declared here").first(hit->range);
-            b.emit();
-            ct->poison();
-            return true;
-        }
-        if i + 1 < ct->segments.size() {
-            var nx = ct->segments.get(i + 1);
-            var b = self.sc->diag->report(DiagID::SC116E, nx->range.start,
-                f"a member of associated type '{gname}::{sspell}' cannot be named yet");
-            b.first(nx->range);
-            b.note(DiagID::SC116N, hit->range.start, "the associated type is declared here").first(hit->range);
-            b.emit();
-            ct->poison();
-            return true;
-        }
-        seg->resolved_decl = static_cast::<*Decl>(hit);
-        var tu = TypeUtil(self.sc);
-        var ai = tu.assoc_iface(hit_iface, static_cast::<*Decl>(hit));
-        // Inherited from a GENERIC interface: its instance as the bound
-        // sees it, through the composed list's source (MONO.md G5.6 left
-        // this SC116E).
-        if ai == &null { ai = self._declaring_through(hit_iface, static_cast::<*Decl>(hit), 0); }
-        if ai == &null { self._assoc_inherited_generic(ct, hit, seg->range); return true; }
         var base = self.sc->types->generic_param(owner, gp->index, gp->is_pack);
-        self._mark_dependent(ct);
-        ct->canonical = self.sc->types->assoc(base, ai, NameLookup::representative(static_cast::<*Decl>(hit)));
-        seg->resolved_type = ct->canonical;
+        return self._assoc_through(ct, base, self.sc->ctx->get_spelling(gp->name), &bounds, &btys, gp->range, i);
+    }
+
+    /// `H::A::B...` from segment \p i on, for a dependent head \p base (a
+    /// bounded parameter, or an associated type already formed) spelled
+    /// \p hname, whose bounds are \p btys (written as \p bexprs, for the
+    /// notes; \p decl_at is the head's declaration). Each segment names an
+    /// associated type one of the current head's bounds declares, and the
+    /// type it names is the head for the next: `T::Item::Inner` is Inner
+    /// through Item's own bounds, read through `T::Item` (one rule,
+    /// Substitution::bound_ifaces, at every depth). A generic one takes its
+    /// arguments (`T::Map<K>`). Always true: resolved or diagnosed.
+    priv fn _assoc_through(self, ct: *ChainType, base_in: *Type, hname_in: string, bexprs_in: *vec::<*ConstraintExpr>,
+                           btys_in: *vec::<*Type>, decl_at_in: SourceRange, i0: usize) -> bool {
+        var base = base_in;
+        var hname = hname_in;
+        var bexprs = vec::<*ConstraintExpr>();
+        for var k: usize = 0; k < bexprs_in->size(); ++k { bexprs.push_back((*bexprs_in)[k]); }
+        var btys = vec::<*Type>();
+        for var k: usize = 0; k < btys_in->size(); ++k { btys.push_back((*btys_in)[k]); }
+        var decl_at = decl_at_in;
+        var head_assoc: *TypeAliasDecl = &null;
+        for var i: usize = i0; i < ct->segments.size(); ++i {
+            var seg = ct->segments.get(i);
+            if (seg == &null) || (seg->name == &null) { ct->poison(); return true; }
+            var simm = self._name_imm(seg->name->name);
+            if simm == u32(-1) { ct->poison(); return true; }
+            var sspell = self.sc->ctx->get_spelling(seg->name->name);
+
+            // Every bound declaring the name; one entity found twice (a bound
+            // and an interface deriving it) is one hit.
+            var hit: *TypeAliasDecl = &null;
+            var hit_iface: *Type = &null;
+            for var k: usize = 0; k < btys.size(); ++k {
+                var bt = btys[k];
+                if !isa::<RecordType>(bt) { continue; }
+                var bd = dyn_cast::<InterfaceDecl>(NameLookup::representative(decl_pattern(cast::<RecordType>(bt)->decl)));
+                if bd == &null { continue; }
+                var td = self._find_assoc(bd, simm, sspell, 0);
+                if td == &null { continue; }
+                if hit == &null { hit = td; hit_iface = bt; continue; }
+                if NameLookup::representative(static_cast::<*Decl>(td)) == NameLookup::representative(static_cast::<*Decl>(hit)) { continue; }
+                // interfaces.md, Name collisions between bounds: two bounds'
+                // `Node`s are different types, and T::Node names neither.
+                var b = self.sc->diag->report(DiagID::R028E, seg->name->range.start,
+                    f"'{hname}::{sspell}' is ambiguous: more than one bound of '{hname}' declares an associated type '{sspell}\x27");
+                b.first(seg->name->range);
+                b.note(DiagID::R028N, hit->range.start, "one is declared here").first(hit->range);
+                b.note(DiagID::R028N, td->range.start, "another is declared here").first(td->range);
+                b.emit();
+                ct->poison();
+                return true;
+            }
+            if hit == &null {
+                var b = self.sc->diag->report(DiagID::R025E, seg->name->range.start,
+                    f"no associated type named '{sspell}' in the bounds of '{hname}\x27");
+                b.first(seg->name->range);
+                if bexprs.size() == 0 {
+                    if head_assoc == &null {
+                        b.note(decl_at.start, f"'{hname}' has no interface bound; a generic body may use only what its bounds declare").first(decl_at);
+                    } else {
+                        b.note(decl_at.start, f"'{hname}' is declared with no bound; add 'impl <Interface>' to give it associated types").first(decl_at);
+                    }
+                } else {
+                    for var k: usize = 0; k < bexprs.size(); ++k { b.note(bexprs[k]->range.start, "bound here").first(bexprs[k]->range); }
+                }
+                b.emit();
+                ct->poison();
+                return true;
+            }
+            // A generic associated type takes exactly its own arity, and a
+            // plain one none (GenericArgs' arity error, as any template).
+            if !self._check_arity(static_cast::<*Decl>(hit), hit->generic_params, seg, ct) { return true; }
+            var args = vec::<*Type>();
+            if hit->generic_params.size() > 0 {
+                if !self._collect_args(seg, ct, static_cast::<*Decl>(hit), hit->generic_params, &args) { ct->poison(); return true; }
+            }
+            seg->resolved_decl = static_cast::<*Decl>(hit);
+            var tu = TypeUtil(self.sc);
+            var ai = tu.assoc_iface(hit_iface, static_cast::<*Decl>(hit));
+            // Inherited from a GENERIC interface: its instance as the bound
+            // sees it, walked on the derives edges (T runs before
+            // InterfaceComposition composes the lists).
+            if ai == &null { ai = self._declaring_through(hit_iface, static_cast::<*Decl>(hit), 0); }
+            if ai == &null { self._assoc_inherited_generic(ct, hit, seg->range); return true; }
+            // Its bounds are the next head's, so its clause must be resolved
+            // before the type is formed (the bound cache is filled then).
+            self._ready_assoc_clause(hit);
+            var at = Substitution(self.sc).assoc_type(base, ai, static_cast::<*Decl>(hit), &args);
+            seg->resolved_type = at;
+            if i + 1 == ct->segments.size() {
+                self._mark_dependent(ct);
+                ct->canonical = at;
+                return true;
+            }
+            // The next segment is a member of `at`: what its own bounds
+            // declare, read through what it was reached by.
+            base = at;
+            hname = TypeUtil(self.sc).str(at);
+            bexprs.clear();
+            TypeUtil(self.sc).assoc_own_bounds(hit, &bexprs);
+            btys = Substitution(self.sc).bound_ifaces(at);
+            decl_at = hit->range;
+            head_assoc = hit;
+        }
         return true;
+    }
+
+    /// Associated types whose clause _ready_assoc_clause is resolving: a
+    /// clause that reaches its own associated type through a member
+    /// (`type Item impl P<Self::Item::X>`) sees it unresolved, not again.
+    priv var _readying: vec::<*TypeAliasDecl>;
+
+    /// Resolve associated type \p ta's own clause now, in its declaration
+    /// scope, if the walk has not reached it yet: its bounds are what a
+    /// member named through it (`T::Item::Inner`) is looked up in. An
+    /// imported one is already resolved (its TU's T ran first).
+    priv fn _ready_assoc_clause(self, ta: *TypeAliasDecl) {
+        if (ta == &null) || (ta->requires_clause == &null) || self._foreign(static_cast::<*Decl>(ta)) { return; }
+        var cs = vec::<*ConstraintExpr>();
+        TypeUtil(self.sc).impl_conjuncts(ta->requires_clause, &cs);
+        var todo = false;
+        for var k: usize = 0; k < cs.size(); ++k {
+            if (cs[k]->rhs != &null) && (!self.sc->rstate.type_done(cs[k]->rhs)) { todo = true; }
+        }
+        if !todo { return; }
+        for var k: usize = 0; k < self._readying.size(); ++k { if self._readying[k] == ta { return; } }
+        self._readying.push_back(ta);
+        var sv = self._enter_decl_scope(static_cast::<*Decl>(ta));
+        for var k: usize = 0; k < ta->generic_params.size(); ++k { self.dyn()->dispatch_decl(*(ta->generic_params.get(k))); }
+        ta->requires_clause = self.dyn()->dispatch_expr(ta->requires_clause);
+        self._leave_decl_scope(&sv);
+        self._readying.pop_back();
     }
 
     /// The `impl` / `derives` conjuncts of \p e that constrain \p gp, in
@@ -2140,7 +2207,13 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         if r.found() {
             for var k: usize = 0; k < r.cell->size(); ++k {
                 var ta = dyn_cast::<TypeAliasDecl>(r.cell->get(k));
-                if (ta != &null) && ta->is_associated { return ta; }
+                if (ta == &null) || (!ta->is_associated) { continue; }
+                // A derived interface's `type Node = X` is the base's Node
+                // with a default (_redeclares_inherited_assoc): the entity,
+                // and its bounds, are the base's.
+                var inh = self._inherited_assoc(ta);
+                if inh != &null { return inh; }
+                return ta;
             }
         }
         for var k: usize = 0; k < id->derives_list.size(); ++k {

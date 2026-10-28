@@ -39,6 +39,7 @@ import Sema::Resolve::NameLookup::*;
 import AST::Context::TranslationUnit::*;
 import Sema::Resolve::ChainBinding::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
@@ -96,18 +97,26 @@ class <T> MemberTyping {
         dyn()->poison_only(n);
     }
 
-    /// A member of an associated type (`x.show()` on `x: T::Item`, or
-    /// `T::Item::make()`): lookup through the associated type's own bounds
-    /// is not built (MONO.md G5), so it is SC116E rather than unknown.
-    priv fn _assoc_member_unsupported(self, n: *ChainExpr, st: *ChainExpr::Step, t: *Type) {
-        var a = cast::<AssocType>(canon_unqual(t));
-        var ts = dyn()->tu.str(t);
-        var b = dyn()->sc->diag->report(DiagID::SC116E, st->range.start,
-            f"a member of associated type '{ts}' cannot be used yet; lookup through an associated type's bounds is not supported");
-        b.first(st->range);
-        if (a->assoc != &null) && a->assoc->range.is_valid() { b.note(DiagID::SC116N, a->assoc->range.start, "the associated type is declared here").first(a->assoc->range); }
-        b.emit();
-        dyn()->poison_only(n);
+    /// \p st's written generic arguments as canonicals, into \p out; false
+    /// when one is unresolved (its own error, or dependent past knowing).
+    priv fn _step_type_args(self, st: *ChainExpr::Step, out: *vec::<*Type>) -> bool {
+        for var i: usize = 0; i < st->generic_args.size(); ++i {
+            var g = st->generic_args.get(i);
+            if (g->ty == &null) || g->ty->is_poisoned() || (g->ty->canonical == &null) { return false; }
+            out->push_back(g->ty->canonical);
+        }
+        return true;
+    }
+
+    /// `X::Name` / `X::Name<A>` on dependent head \p head (a bounded
+    /// parameter, or an associated type at any depth): the associated type
+    /// one of its bounds declares under that name and arity, or null.
+    priv fn _assoc_step(self, head: *Type, st: *ChainExpr::Step, name: string) -> *Type {
+        var c = canon_unqual(head);
+        if (c == &null) || ((!isa::<GenericParamType>(c)) && (!isa::<AssocType>(c))) { return &null; }
+        var args = vec::<*Type>();
+        if !self._step_type_args(st, &args) { return &null; }
+        return Substitution(dyn()->sc).assoc_named(c, name, &args);
     }
 
     /// `Box<i32>::count`: the record a `::` step names its member through
@@ -198,33 +207,38 @@ class <T> MemberTyping {
                     var a = dyn()->cb.anchor_for_value(&null, cur);
                     dyn()->cb.bind_step(n, st, a);
                 } else if cur_kind == 1 {
-                    // A step ChainBinding left unbound on a type PARAMETER is
-                    // dependent by its decision (`: type`, or no bound
-                    // answered): M2's, not a lookup to retry on T here.
-                    if isa::<GenericParamType>(canon_unqual(cur_type)) {
-                        // `T::Node` naming an associated type of T's bounds
-                        // is that type (as in type position), not unknown.
-                        var at: *Type = &null;
-                        if (st->access_kind == ChainExpr::AccessKind::ColonColon) && (st->name != &null) && st->generic_args.is_empty() {
-                            at = dyn()->tu.assoc_named(cur_type, dyn()->sc->ctx->get_spelling(st->name->name));
-                        }
+                    // `X::Node` on a dependent head -- a bounded parameter or
+                    // an associated type, at any depth (`T::Item::Inner`) --
+                    // naming an associated type of its bounds is that type
+                    // (as in type position), not unknown.
+                    var head0 = canon_unqual(cur_type);
+                    var dep_head = (head0 != &null) && (isa::<GenericParamType>(head0) || isa::<AssocType>(head0));
+                    if dep_head && (st->access_kind == ChainExpr::AccessKind::ColonColon) && (st->name != &null) {
+                        var at = self._assoc_step(head0, st, dyn()->sc->ctx->get_spelling(st->name->name));
                         if at != &null {
                             cur_type = at;
                             st->resolved_type = at;
+                            // The requirement, as ChainBinding binds `T::Node`:
+                            // `T::Item::Made()` is then the associated type's
+                            // construction for codegen, as `T::Made()` is.
+                            st->resolved_decl = cast::<AssocType>(at)->assoc;
                             if is_last {
                                 info->receiver     = at;
                                 info->has_receiver = false;
                             }
                             continue;
                         }
+                    }
+                    // A step ChainBinding left unbound on a type PARAMETER is
+                    // dependent by its decision (`: type`, or no bound
+                    // answered): M2's, not a lookup to retry on T here.
+                    if (head0 != &null) && isa::<GenericParamType>(head0) {
                         info->unknown = true;
                         dyn()->mark_unknown(n);
                         return &null;
                     }
-                    if isa::<AssocType>(canon_unqual(cur_type)) {
-                        self._assoc_member_unsupported(n, st, cur_type);
-                        return &null;
-                    }
+                    // An associated type's statics (`T::Item::make()`) bind
+                    // through its own bounds, as a value's members do.
                     var a = dyn()->cb.anchor_for_type(cur_type);
                     dyn()->cb.bind_step(n, st, a);
                 }
@@ -387,16 +401,20 @@ class <T> MemberTyping {
                         var at: *Type = &null;
                         if (cur_kind == 1) && (cur_type != &null) {
                             var ct0 = canon_unqual(cur_type);
-                            if isa::<GenericParamType>(ct0) {
-                                at = dyn()->tu.assoc_named(ct0, dyn()->tu.decl_name(d));
+                            if isa::<GenericParamType>(ct0) || isa::<AssocType>(ct0) {
+                                at = self._assoc_step(ct0, st, dyn()->tu.decl_name(d));
                             } else if (dyn()->tu.record_decl(ct0) != &null)
                                    && isa::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(dyn()->tu.record_decl(ct0)))) {
                                 var ai = dyn()->tu.assoc_iface(ct0, d);
-                                if ai != &null { at = dyn()->sc->types->assoc(ct0, ai, NameLookup::representative(d)); }
+                                var sargs = vec::<*Type>();
+                                if (ai != &null) && self._step_type_args(st, &sargs) {
+                                    at = Substitution(dyn()->sc).assoc_type(ct0, ai, d, &sargs);
+                                }
                             }
                         }
                         if at == &null { info->unknown = true; dyn()->mark_unknown(n); return &null; }
-                        if !is_last { self._assoc_member_unsupported(n, n->steps.get(i + 1), at); return &null; }
+                        // A further step (`T::Item::make()`) binds on it as on
+                        // any dependent head, below.
                         cur_type = at;
                         cur_kind = 1;
                         st->resolved_type = at;

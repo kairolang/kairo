@@ -348,12 +348,15 @@ class <T> CallTyping {
         // as it does a non-generic `record(I)` -- with the qualifier binding
         // T, it would read `I<i32>`. Read Self as C first, and let C stand
         // for itself in the substitution that follows, which the rest of
-        // the type (`-> (Self, U)`) still needs.
+        // the type (`-> (Self, U)`) still needs. C is any dependent head: a
+        // bounded parameter, or an associated type (`T::Item::make()` and
+        // `x.clone()` on `x: T::Item` are `T::Item`), whose own parameters
+        // this call's deduction never binds either.
         if rt->is_dependent() && (r->receiver != &null) && r->receiver->is_dependent() {
-            var g = dyn_cast::<GenericParamType>(canon_unqual(r->receiver));
+            var rc = canon_unqual(r->receiver);
             var rs = r->ded.through_receiver(f, r->receiver, rt);
-            if (g != &null) && (rs != rt) {
-                r->ded.bind(g->owner, g->param_index, static_cast::<*Type>(g));
+            if (isa::<GenericParamType>(rc) || isa::<AssocType>(rc)) && (rs != rt) {
+                r->ded.bind_identity(rc);
                 rt = rs;
             }
         }
@@ -1026,21 +1029,11 @@ class <T> CallTyping {
     priv fn _param_ctor_call(self, n: *CallExpr, gp: *GenericParamDecl) -> *Type {
         self._type_args_blind(n);
         var t = dyn()->sc->types->generic_param(NameLookup::representative(gp->owner), gp->index, gp->is_pack);
-        var bs = dyn()->bound_ifaces(t);
-        for var i: usize = 0; i < bs.size(); ++i {
-            var rt = dyn_cast::<RecordType>(bs[i]);
-            if rt == &null { continue; }
-            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(dyn()->tu.pattern_of(rt->decl)));
-            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
-            for var j: usize = 0; j < idecl->requirements.size(); ++j {
-                var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
-                if (m == &null) || (!decl_is_ctor_requirement(m)) { continue; }
-                var arity: usize = 0;
-                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { arity += 1; } }
-                if arity != n->args.size() { continue; }
-                n->value_category = Expr::ValueCategory::RValue;
-                return t;
-            }
+        // The same question an associated type's `T::Node(args)` asks
+        // (_assoc_ctor_call), of the same bound list.
+        if Substitution(dyn()->sc).bounds_construct(t, n->args.size()) {
+            n->value_category = Expr::ValueCategory::RValue;
+            return t;
         }
         dyn()->mark_unknown(n);
         return &null;
@@ -1048,7 +1041,7 @@ class <T> CallTyping {
 
     priv fn _assoc_ctor_call(self, n: *CallExpr, rec: *Type) -> *Type {
         self._type_args_blind(n);
-        if dyn()->tu.assoc_has_ctor(rec, n->args.size()) {
+        if Substitution(dyn()->sc).bounds_construct(rec, n->args.size()) {
             n->value_category = Expr::ValueCategory::RValue;
             return rec;
         }

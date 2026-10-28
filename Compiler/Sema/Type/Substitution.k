@@ -63,6 +63,12 @@ class Substitution {
     /// element, in argument order. A pack is one parameter with many types,
     /// which `bindings` (one type per parameter) cannot hold.
     pub var packs: vec::<DeducedBinding>;
+    /// substitute() keeps a parameter it has no binding for instead of
+    /// failing: for reading a declaration's type at SOME of its parameters
+    /// (an associated type's bound at its interface's arguments, while the
+    /// base it is read for is still the caller's `T`). Off for deduction,
+    /// where an unbound callee parameter must stay a failure.
+    pub var keep_unbound: bool = false;
 
     fn Substitution(self) { self.sc = &null; }
     fn Substitution(self, sc: *SemaContext) {
@@ -269,6 +275,7 @@ class Substitution {
             case TypeKind::GenericParamType {
                 var g = cast::<GenericParamType>(t);
                 var b = self.lookup(g->owner, g->param_index);
+                if (b == &null) && self.keep_unbound { return t; }
                 return b;   // null = unbound, stays dependent for the caller to notice.
             } case TypeKind::PointerType {
                 var p = self.substitute(cast::<PointerType>(t)->pointee);
@@ -401,8 +408,18 @@ class Substitution {
                 var i = a->iface;
                 if i->is_dependent() { i = self.substitute(i); }
                 if i == &null { return &null; }
-                if (b == a->base) && (i == a->iface) { return t; }
-                return self.assoc_witness(b, i, a->assoc);
+                // A generic associated type's arguments substitute as a
+                // record's do (`T::Map<K>` under K := i32).
+                var args = vec::<*Type>();
+                var same = (b == a->base) && (i == a->iface);
+                for var k: usize = 0; k < a->args.size(); ++k {
+                    var x = self.substitute(a->args[k]);
+                    if x == &null { return &null; }
+                    if x != a->args[k] { same = false; }
+                    args.push_back(x);
+                }
+                if same { return t; }
+                return self.assoc_witness(b, i, a->assoc, &args);
             } default { return &null; }
         }
     }
@@ -515,8 +532,15 @@ class Substitution {
                 // spelling: its conformance is what fails, and reports.
                 var a = cast::<AssocType>(t);
                 var b = self.replace_self(a->base, iface, with, own);
-                if b == a->base { return t; }
-                var w = self.assoc_witness(b, a->iface, a->assoc);
+                var args = vec::<*Type>();
+                var same = (b == a->base);
+                for var k: usize = 0; k < a->args.size(); ++k {
+                    var x = self.replace_self(a->args[k], iface, with, own);
+                    if x != a->args[k] { same = false; }
+                    args.push_back(x);
+                }
+                if same { return t; }
+                var w = self.assoc_witness(b, a->iface, a->assoc, &args);
                 return (w) if (w != &null) else (t);
             } default { return t; }
         }
@@ -551,15 +575,25 @@ class Substitution {
     /// THE one rule. The conformance match (`-> Self::Node` against
     /// `-> i64`), a call result through a bound, and an instance's
     /// `T::Node := S` all come out of this function, so they cannot drift.
-    fn assoc_witness(self, x_in: *Type, iface: *Type, assoc: *Decl) -> *Type {
+    fn assoc_witness(self, x_in: *Type, iface: *Type, assoc: *Decl, args: *vec::<*Type> = &null) -> *Type {
         var x = canon_unqual(x_in);
         if (x == &null) || (iface == &null) || (assoc == &null) { return &null; }
         var req = NameLookup::representative(assoc);
         var xd  = self.tu.record_decl(x);
         var xpat: *Decl = (NameLookup::representative(self.tu.pattern_of(xd))) if (xd != &null) else (&null);
         if isa::<GenericParamType>(x) || isa::<AssocType>(x) || ((xpat != &null) && isa::<InterfaceDecl>(xpat)) {
-            return self.sc->types->assoc(x, iface, req);
+            return self.assoc_type(x, iface, req, args);
         }
+        var td = dyn_cast::<TypeAliasDecl>(req);
+        // A generic associated type (`type <K> Map`) is supplied by a generic
+        // alias of the same arity (`type <K> Map = Bag<K>`), read at \p args.
+        // No arguments asks for the alias itself, over its own parameters:
+        // what a conformance row records and a witness spells as a member
+        // alias template.
+        var arity: usize = 0;
+        if td != &null { arity = td->generic_params.size(); }
+        var nargs: usize = 0;
+        if args != &null { nargs = args->size(); }
 
         var nm = self.tu.decl_name(req);
         var imms = self.sc->ctx->get_imm_table();
@@ -570,14 +604,18 @@ class Substitution {
         for var i: usize = 0; i < cands.size(); ++i {
             var ta = dyn_cast::<TypeAliasDecl>(cands[i]);
             if (ta == &null) || ta->is_associated || ta->is_poisoned() { continue; }
-            if ta->generic_params.size() > 0 { continue; }   // a generic alias is not the requirement (SC116E at its use).
+            if ta->generic_params.size() != arity { continue; }   // not the requirement's shape: ConformanceChecking says so.
             if (ta->aliased == &null) || (ta->aliased->canonical == &null) { continue; }
             var c = ta->aliased->canonical;
-            if c->is_dependent() && isa::<RecordType>(x) {
+            if c->is_dependent() {
                 // `class <T> Box impl Graph { type Node = T }` reached as
-                // Box<i32>: the alias through the instance's arguments.
+                // Box<i32>: the alias through the instance's arguments, and
+                // a generic one's own parameters through \p args.
                 var s = Substitution(self.sc);
-                s.bind_from_record(x);
+                if isa::<RecordType>(x) { s.bind_from_record(x); }
+                var tr = NameLookup::representative(static_cast::<*Decl>(ta));
+                for var k: usize = 0; (k < nargs) && (k < arity); ++k { s.bind(tr, u32(k), (*args)[k]); }
+                s.keep_unbound = (nargs < arity);
                 var r = s.substitute(c);
                 if r != &null { c = r; }
             }
@@ -585,7 +623,6 @@ class Substitution {
         }
 
         // The default: explicit conformance only.
-        var td = dyn_cast::<TypeAliasDecl>(req);
         if td == &null { return &null; }
         if !self.conforms_explicitly(x, iface, &ml) { return &null; }
         var home: *Decl = &null;
@@ -612,10 +649,201 @@ class Substitution {
         if d->is_dependent() {
             var idecl = self.tu.record_decl(iface);
             if (idecl != &null) && (NameLookup::representative(self.tu.pattern_of(idecl)) == home) { s.bind_from_record(iface); }
+            for var k: usize = 0; (k < nargs) && (k < arity); ++k { s.bind(req, u32(k), (*args)[k]); }
+            s.keep_unbound = (nargs < arity);
             var r = s.substitute(d);
             if r != &null { d = r; }
         }
         return d;
+    }
+
+    /// THE way an associated type is formed in Sema: interned, and its bound
+    /// cache (AssocType::bounds) filled when its requirement's clause is
+    /// resolved. Every AssocType goes through here (T, substitution, the
+    /// typers), so codegen can rely on the cache for one Sema reached.
+    fn assoc_type(self, base: *Type, iface: *Type, req: *Decl, args: *vec::<*Type> = &null) -> *Type {
+        var t = self.sc->types->assoc(base, iface, NameLookup::representative(req), args);
+        if t != &null { self.bound_ifaces(t); }
+        return t;
+    }
+
+    // === bounds of a dependent type =========================================
+
+    /// The interfaces a value of dependent type \p t may be used through:
+    /// a checked generic parameter's bounds (the bound table), or an
+    /// associated type's own (`type Item impl Display`), read through what
+    /// it was reached by. ONE rule for every dependent head, however deep:
+    /// `T`, `T::Item`, `T::Map<K>`, `T::Item::Inner` -- member lookup,
+    /// statics, nested associated types, constructors, operators and the
+    /// witness a call or a spelling goes through all read this.
+    fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<AssocType>(c)) { return self.tu.bound_ifaces(t); }
+        var a = cast::<AssocType>(c);
+        var out = vec::<*Type>();
+        if a->bounds_state == 2 {
+            for var i: usize = 0; i < a->bounds.size(); ++i { out.push_back(a->bounds[i]); }
+            return out;
+        }
+        // Being computed: a bound naming the associated type itself
+        // (`type Item impl Pair<Self::Item>`) sees it with no bounds yet.
+        if a->bounds_state == 1 { return out; }
+        var ta = dyn_cast::<TypeAliasDecl>(a->assoc);
+        if ta == &null { return out; }
+        a->bounds_state = 1;
+        var args = vec::<*Type>();
+        for var i: usize = 0; i < a->args.size(); ++i { args.push_back(a->args[i]); }
+        var ready = true;
+        out = self.clause_bounds(ta, a->base, a->iface, &args, &ready);
+        // An unresolved clause (T reaching it before the interface's own
+        // walk) is not cached: the next asker computes it again.
+        if ready { self.sc->types->set_assoc_bounds(a, &out); }
+        else { a->bounds_state = 0; }
+        return out;
+    }
+
+    /// Associated type \p ta's `impl` bounds read for \p base: Self :=
+    /// base (an interface's own spelling `I<V>` included), the declaring
+    /// interface's parameters := \p iface's arguments, \p ta's own (a
+    /// generic associated type's) := \p args. A bound naming Self or another
+    /// associated type (`type Item impl Comparable<Self::Key>`) is thereby
+    /// `Comparable<T::Key>` for `T::Item`, and `Comparable<i64>` for a
+    /// concrete conformer. \p ready is cleared when part of the clause is
+    /// not resolved yet.
+    fn clause_bounds(self, ta: *TypeAliasDecl, base: *Type, iface: *Type, args: *vec::<*Type>, ready: *bool) -> vec::<*Type> {
+        var out = vec::<*Type>();
+        var cs = vec::<*ConstraintExpr>();
+        self.tu.assoc_own_bounds(ta, &cs);
+        if cs.size() == 0 { return out; }
+        var home: *Decl = &null;
+        if ta->semantic_dc != &null { home = reinterpret_cast::<*DeclContext>(ta->semantic_dc)->owner_decl(); }
+        if home != &null { home = NameLookup::representative(home); }
+        for var i: usize = 0; i < cs.size(); ++i {
+            var k = cs[i];
+            if k->rhs == &null { continue; }
+            if k->rhs->canonical == &null {
+                if !k->rhs->is_poisoned() { (*ready) = false; }
+                continue;
+            }
+            var r = canon_unqual(k->rhs->canonical);
+            if r->is_dependent() && (home != &null) {
+                var s = Substitution(self.sc);
+                s.keep_unbound = true;
+                r = canon_unqual(s.replace_self(r, home, base, true));
+                var idecl = self.tu.record_decl(iface);
+                if (idecl != &null) && (NameLookup::representative(self.tu.pattern_of(idecl)) == home) { s.bind_from_record(iface); }
+                var tr = NameLookup::representative(static_cast::<*Decl>(ta));
+                for var j: usize = 0; (args != &null) && (j < args->size()); ++j { s.bind(tr, u32(j), (*args)[j]); }
+                var r2 = s.substitute(r);
+                if r2 != &null { r = canon_unqual(r2); }
+            }
+            out.push_back(r);
+        }
+        return out;
+    }
+
+    /// Bind every generic parameter \p t mentions to itself: a dependent
+    /// receiver (`T`, `T::Item`) stands for itself in a callee's signature,
+    /// which this call's deduction never binds.
+    fn bind_identity(self, t: *Type) {
+        var c = canon_unqual(t);
+        if c == &null { return; }
+        switch c->kind {
+            case TypeKind::GenericParamType {
+                var g = cast::<GenericParamType>(c);
+                if (!g->is_pack) && (self.lookup(g->owner, g->param_index) == &null) { self.bind(g->owner, g->param_index, c); }
+            } case TypeKind::AssocType {
+                var a = cast::<AssocType>(c);
+                self.bind_identity(a->base);
+                self.bind_identity(a->iface);
+                for var i: usize = 0; i < a->args.size(); ++i { self.bind_identity(a->args[i]); }
+            } case TypeKind::RecordType {
+                var r = cast::<RecordType>(c);
+                for var i: usize = 0; i < r->args.size(); ++i { self.bind_identity(r->args[i]); }
+                if r->outer != &null { self.bind_identity(r->outer); }
+            } case TypeKind::PointerType {
+                self.bind_identity(cast::<PointerType>(c)->pointee);
+            } case TypeKind::NullableType {
+                self.bind_identity(cast::<NullableType>(c)->inner);
+            } default { return; }
+        }
+    }
+
+    /// `X::name` (or `X::name<A...>`) on dependent head \p t: the associated
+    /// type the first of \p t's bounds that declares \p name, at that
+    /// arity, gives; or null. Expression position's twin of
+    /// TypeResolve::_assoc_through, which also reports the ambiguity of two
+    /// bounds declaring it; this reads the same composed requirement lists.
+    fn assoc_named(self, t: *Type, name: string, args: *vec::<*Type>) -> *Type {
+        var bs = self.bound_ifaces(t);
+        var nargs: usize = 0;
+        if args != &null { nargs = args->size(); }
+        for var i: usize = 0; i < bs.size(); ++i {
+            var d = self.tu.record_decl(bs[i]);
+            if d == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(d)));
+            if (idecl == &null) || (idecl->compose_state != 2) { continue; }
+            for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                var r  = idecl->requirements.get(j);
+                var ta = dyn_cast::<TypeAliasDecl>(r->decl);
+                if (ta == &null) || (ta->generic_params.size() != nargs) { continue; }
+                if self.tu.decl_name(static_cast::<*Decl>(ta)) != name { continue; }
+                var ai = self.declaring_iface_of(bs[i], r);
+                if ai == &null { return &null; }
+                return self.assoc_type(canon_unqual(t), ai, static_cast::<*Decl>(ta), args);
+            }
+        }
+        return &null;
+    }
+
+    /// The instance of composed requirement \p r's DECLARING interface as
+    /// bound \p bound sees it (TypeUtil::assoc_iface's normal form): the
+    /// bound itself or a non-generic declarer directly; one inherited from
+    /// a generic interface through the requirement's source, read at the
+    /// bound's arguments (`IntSource` -> `Source<i32>`).
+    fn declaring_iface_of(self, bound: *Type, r: *Requirement) -> *Type {
+        var ai = self.tu.assoc_iface(bound, r->decl);
+        if ai != &null { return ai; }
+        if (r->source == &null) || (r->source->canonical == &null) { return &null; }
+        var src = canon_unqual(r->source->canonical);
+        if src->is_dependent() {
+            var s = Substitution(self.sc);
+            s.bind_own(bound);
+            var sb = s.substitute(src);
+            if sb == &null { return &null; }
+            src = canon_unqual(sb);
+        }
+        return src;
+    }
+
+    /// Some bound of dependent head \p t declares a constructor requirement
+    /// taking \p arity arguments: what lets a generic body build a value of
+    /// it (`T()`, `T::Node{}`; interfaces.md, Generic Bodies).
+    fn bounds_construct(self, t: *Type, arity: usize) -> bool {
+        var bs = self.bound_ifaces(t);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var d = self.tu.record_decl(bs[i]);
+            if d == &null { continue; }
+            var idecl = dyn_cast::<InterfaceDecl>(NameLookup::representative(self.tu.pattern_of(d)));
+            if idecl == &null { continue; }
+            var ms = vec::<*FunctionDecl>();
+            if idecl->compose_state == 2 {
+                for var j: usize = 0; j < idecl->requirements.size(); ++j {
+                    var m = dyn_cast::<FunctionDecl>(idecl->requirements.get(j)->decl);
+                    if m != &null { ms.push_back(m); }
+                }
+            } else {
+                for var j: usize = 0; j < idecl->methods.size(); ++j { ms.push_back(idecl->methods[j]); }
+            }
+            for var j: usize = 0; j < ms.size(); ++j {
+                var m = ms[j];
+                if !decl_is_ctor_requirement(m) { continue; }
+                var n: usize = 0;
+                for var k: usize = 0; k < m->params.size(); ++k { if (m->params[k] != &null) && (!m->params[k]->is_self) { n += 1; } }
+                if n == arity { return true; }
+            }
+        }
+        return false;
     }
 
     /// The default an interface \p x EXPLICITLY declares gives requirement

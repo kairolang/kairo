@@ -1312,9 +1312,28 @@ one that DECLARES the requirement (normalized, `TypeUtil::assoc_iface`, so
 `G::Node` through `G impl Big`, `Big derives Graph`, and Graph's `first()
 -> Self::Node` through the same G are one type). It is checked against the
 bounds there and then: no bound declaring it is R025E, two is R028E, a
-default naming a later one is the order rule's error, a generic associated
-type or a member TYPE or static of one (`T::Node::Inner`, `T::Item::make()`)
-is SC116E. One inherited from a GENERIC interface is declared at the
+default naming a later one is the order rule's error. A GENERIC associated
+type (`type <K> Map`) is named with exactly its arity (`T::Map<K>`,
+`Self::Map<K>`), its arguments part of the canonical (`AssocType::args`).
+
+ONE rule for a name reached through a dependent head, whatever the head
+is -- a bounded parameter `T`, an associated type `T::Item`, a generic one
+`T::Map<K>`, at any depth (`T::Item::Inner::make()`): the head's bounds
+are `Substitution::bound_ifaces` (a parameter's from the bound table; an
+associated type's its requirement's own `impl` clause read with Self :=
+its base, the declaring interface's parameters := its interface's
+arguments and its own := `args` -- so `type Item impl Has<Self::Key>` is
+`Has<T::Key>` for `T::Item`), cached on the AssocType (`bounds`, a pure
+function of its identity, filled once its clause is resolved). Every
+reader goes through it: TypeResolve::_assoc_through walks `H::A::B` one
+head at a time (type position), MemberTyping's `_assoc_step` and
+ChainBinding's dependent path the expression forms (`.`, and `::` for a
+static or a nested associated type), ExtensionLowering the witness Self
+(`T::Item::make()` is `Make_witness<typename Store_witness<T>::Item>::
+make()`), CXXSpell the bound an associated type through another one is
+spelled through (`BigHolder_witness<...::Item>::Inner`, the bound, not the
+declaring Holder), and constructors (`bounds_construct`).
+One inherited from a GENERIC interface is declared at the
 instance the bound reaches it through (TypeResolve::_declaring_through,
 `IntSource` -> `Source<i32>`). A derived interface may give an inherited
 one a default (`interface D derives G { type Node = i64 }`): that line is
@@ -1329,15 +1348,25 @@ is never expanded; its `aliased` is the DEFAULT. One rule,
 `Substitution::assoc_witness`, says what it is for a concrete base: the
 conformer's alias (member, inherited, or extension), read through its
 arguments; else, for an EXPLICIT conformer only, the default with Self :=
-the conformer. `replace_self` and `substitute` both route through it, so
+the conformer. A generic associated type is supplied by a generic alias of
+the same arity (`type <K> Map = Bag<K>`), read at the use's arguments; with
+none (a row) the alias at its own parameters, which the witness spells as a
+member alias template (`template <class K> using Map = Bag<K>;`), and
+`T::Map<i32>` as `typename I_witness<T>::template Map<int>`. Deduction
+unifies two of one head (`T::Map<K>` against `T::Map<i32>`: K := i32).
+`replace_self` and `substitute` both route through it, so
 the conformance match (`-> Self::Node` against `-> i64`), a call result
 through a bound (`T::Node` in the body) and the instance fact (`T::Node :=
 S` at `bar(c)`) cannot disagree (D0: facts by substitution, never by
 re-typing). ConformanceChecking records the supplied type on the row
 (`assoc_types`), requires it of a structural conformer, and checks it
-against the associated type's own bounds. In a body a value of type
+against the associated type's own bounds, keeping the rows that prove it
+(`assoc_rows`): EmitPlan admits them with the row, since a body reaching
+`T::Item::Inner` spells `Holder_witness<Purse>` in whatever TU instantiates
+it. A generic associated type's argument is checked against its
+parameter's bounds where the type is written (`_check_assoc_args`). In a body a value of type
 `T::Node` has exactly the members its own bounds declare (`x.show()` with
-`type Node impl Display`: TypeUtil::bound_ifaces reads the associated
+`type Node impl Display`: Substitution::bound_ifaces reads the associated
 type's clause, ChainBinding binds the requirement, ExtensionLowering calls
 `Display_witness<typename G_witness<T>::Node>`; no bound is R051E) and is
 built only through a constructor its bounds promise (`type Node
