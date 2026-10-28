@@ -172,7 +172,7 @@ class InterfaceEmitter {
         // or header that writes one (_needs_new). Outside the guard below:
         // a header that needs it may follow one that defined the guard
         // without it.
-        if self._needs_new() { self._cg->sink->system_header(self._tu_at(), "new"); }
+        if self._needs_new() { self._cg->sink->system_header(self._tu_at(), LowerTargets::cxx_new_header()); }
         // A header carries the module's inline and template bodies too
         // (EmitPlan::visible_bodies), so it needs these as much as a
         // preamble. Guarded there: one C++ TU may include several Kairo
@@ -191,7 +191,7 @@ class InterfaceEmitter {
             // A forwarding reference binds the prvalue, so the address is the
             // temporary's, which lives to the end of the full-expression.
             self._cg->sink->spell(self._tu_at(),
-                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return __builtin_addressof(t); }");
+                "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return " + LowerTargets::clang_addressof() + "(t); }");
             self._cg->sink->brk();
             // An ADT's variant tags: `E(::__kairo_vt<I>{}, ...)` picks variant I's
             // constructor. The explicit default constructor keeps a bare `{}`
@@ -1673,9 +1673,9 @@ class InterfaceEmitter {
         // One element: built into R's element of its type when the tag is
         // its id (the last element is the tag without a test).
         self._cg->sink->spell(at, "template <class R, " + u + " K, " + tp + ", class T, class... E> R " + fk + "(P<T, E...>& s)" + nx + " { "
-            + "using X = __type_pack_element<K, E...>; "
+            + "using X = " + LowerTargets::clang_pack_element() + "<K, E...>; "
             + "constexpr " + u + " J = " + px + "<X>(static_cast<R*>(nullptr)); "
-            + "if constexpr (J == " + npos + ") { if constexpr (K + 1 < sizeof...(E)) { return " + fk + "<R, K + 1>(s); } else { __builtin_unreachable(); } } "
+            + "if constexpr (J == " + npos + ") { if constexpr (K + 1 < sizeof...(E)) { return " + fk + "<R, K + 1>(s); } else { " + LowerTargets::clang_unreachable() + "(); } } "
             + "else { if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(s." + tag + ") != " + tid + "<X>) { return " + fk + "<R, K + 1>(s); } } "
             + "return R(" + vt + "<" + f"{errpos}" + ">{}, " + vt + "<J>{}, s." + site + ", [&]()" + nx + " -> typename R::template " + ert + "<X> { "
             + "return { static_cast<X&&>(s." + erm + ".template " + get + "<K>()." + erf + ") }; }); } }");
@@ -1685,10 +1685,10 @@ class InterfaceEmitter {
         self._cg->sink->spell(at, "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>& s)" + nx + " { "
             + "using S = P<T, E...>; "
             + "if constexpr (__is_same(R, S)) { return static_cast<S&&>(s); } "
-            + "else if constexpr " + bits + " { return __builtin_bit_cast(R, s); } "
+            + "else if constexpr " + bits + " { return " + LowerTargets::clang_bit_cast() + "(R, s); } "
             + "else { if constexpr (A) { if (s." + tag + " == S::" + tt + "::" + okn + ") { return R(" + vt + "<0>{}, [&]()" + nx + " -> typename R::" + okt + " { "
             + "return { static_cast<" + nv + "<T>&&>(s." + okm + "." + okf + ") }; }); } } "
-            + "if constexpr (sizeof...(E) == 0) { __builtin_unreachable(); } else { return " + fk + "<R, 0>(s); } } }");
+            + "if constexpr (sizeof...(E) == 0) { " + LowerTargets::clang_unreachable() + "(); } else { return " + fk + "<R, 0>(s); } } }");
         self._cg->sink->brk();
         self._cg->sink->spell(at, "template <class R, bool A, " + tp + ", class T, class... E> R " + fw + "(P<T, E...>&& s)" + nx + " { return " + fw + "<R, A>(s); }");
         self._cg->sink->brk();
@@ -1863,17 +1863,17 @@ class InterfaceEmitter {
             // include's tokens are past the preprocessor, so the
             // __ATOMIC_* macros would not expand.
             var t = "namespace " + api + " { ";
-            t += "struct " + eb + " : public ::std::exception { " + u + " type; " + u + " site; ";
-            t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { __atomic_fetch_add(" + w + ", 1, 0); } } ";
-            t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { __atomic_fetch_add(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } ";
+            t += "struct " + eb + " : public " + LowerTargets::cxx_exception_base() + " { " + u + " type; " + u + " site; ";
+            t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(" + w + ", 1, 0); } } ";
+            t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } ";
             t += "~" + eb + "() override { " + drp + "(); } ";
             t += "const char* what() const noexcept override { return " + w + " ? reinterpret_cast<const char*>(" + w + " + 1) : \x22\x22; } ";
             t += "protected: " + eb + "(" + u + " t, " + u + " s) noexcept : type(t), site(s) {} ";
             t += cnt + "* " + w + " = nullptr; ";
-            t += "void " + drp + "() noexcept { if (" + w + " && (__atomic_sub_fetch(" + w + ", 1, 4) == 0)) { __builtin_free(" + w + "); } " + w + " = nullptr; } ";
+            t += "void " + drp + "() noexcept { if (" + w + " && (" + LowerTargets::clang_atomic_sub_fetch() + "(" + w + ", 1, 4) == 0)) { " + LowerTargets::clang_free() + "(" + w + "); } " + w + " = nullptr; } ";
             t += "void " + bld + "(const unsigned char* m, " + sz + " ml, bool hm, const char* name) noexcept { "
                + sz + " n = ::" + api + "::" + im + "::text(nullptr, m, ml, hm, name, site); "
-               + w + " = static_cast<" + cnt + "*>(__builtin_malloc(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; "
+               + w + " = static_cast<" + cnt + "*>(" + LowerTargets::clang_malloc() + "(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; "
                + "char* o = reinterpret_cast<char*>(" + w + " + 1); ::" + api + "::" + im + "::text(o, m, ml, hm, name, site); o[n] = 0; } ";
             t += "}; ";
             t += "template <class E> struct " + et + " : public ::" + api + "::" + eb + " { E " + LowerTargets::panic_api_error() + "; ";
@@ -1886,12 +1886,12 @@ class InterfaceEmitter {
             // The error the result holds, thrown as panic_error<X>: moved
             // out of an rvalue result, copied out of an lvalue one.
             t += "struct " + th + " { ";
-            t += "template <" + u + " K, bool M, class T, class... E> [[noreturn]] static void raise(" + pt + "& p) { using X = __type_pack_element<K, E...>; "
+            t += "template <" + u + " K, bool M, class T, class... E> [[noreturn]] static void raise(" + pt + "& p) { using X = " + LowerTargets::clang_pack_element() + "<K, E...>; "
                + "if constexpr (K + 1 < sizeof...(E)) { if (static_cast<" + u + ">(p." + tag + ") != " + tid + "<X>) { raise<K + 1, M>(p); } } "
                + "if constexpr (M) { throw ::" + api + "::" + et + "<X>(static_cast<X&&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } "
                + "else { throw ::" + api + "::" + et + "<X>(static_cast<const X&>(p." + erm + ".template " + get + "<K>()." + erf + "), p." + site + "); } } ";
             t += "template <bool M, class T, class... E> static T value(" + pt + "& p) { "
-               + "if (p." + tag + " != " + pt + "::" + tt + "::" + okn + ") { if constexpr (sizeof...(E) > 0) { raise<0, M>(p); } else { __builtin_unreachable(); } } "
+               + "if (p." + tag + " != " + pt + "::" + tt + "::" + okn + ") { if constexpr (sizeof...(E) > 0) { raise<0, M>(p); } else { " + LowerTargets::clang_unreachable() + "(); } } "
                + "if constexpr (!__is_same(T, void)) { if constexpr (M) { return static_cast<T&&>(p." + okv + "); } else { return p." + okv + "; } } } ";
             t += "}; ";
             t += "template <class T, class... E> T " + LowerTargets::panic_api_value_or_throw() + "(" + pt + "&& p) { return " + th + "::template value<true>(p); } ";
@@ -1965,7 +1965,7 @@ class InterfaceEmitter {
     /// the element's id. EnumLayoutQuery::tag_value is the same rule.
     priv fn _pack_tag(self, en: *EnumDecl, v: *EnumVariantDecl, k: string, tt: string) -> string {
         if en->adt_explicit_tags {
-            return "static_cast<" + tt + ">(::" + LowerTargets::type_id() + "<__type_pack_element<" + k + ", " + self._pack_name(en) + "...>>)";
+            return "static_cast<" + tt + ">(::" + LowerTargets::type_id() + "<" + LowerTargets::clang_pack_element() + "<" + k + ", " + self._pack_name(en) + "...>>)";
         }
         return "static_cast<" + tt + ">(" + f"{v->adt_tag_value}" + " + " + k + ")";
     }
@@ -2988,7 +2988,7 @@ class InterfaceEmitter {
         t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }";
         t += " template <class F> static void* __copy(const void* o) {";
         t +=   " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }";
-        t +=   " else { __builtin_trap(); } }";
+        t +=   " else { " + LowerTargets::clang_trap() + "(); } }";
         t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }";
         t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};";
         t += " __ptr __f = nullptr;";
@@ -3005,7 +3005,7 @@ class InterfaceEmitter {
         t +=   " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }";
         t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }";
         t += " R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }";
-        t += " operator __ptr() const noexcept { if (__o) { __builtin_trap(); } return __f; }";
+        t += " operator __ptr() const noexcept { if (__o) { " + LowerTargets::clang_trap() + "(); } return __f; }";
         t += " };";
         self._cg->sink->spell(at, t);
         self._cg->sink->brk();

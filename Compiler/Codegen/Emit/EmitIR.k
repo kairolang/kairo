@@ -1378,7 +1378,7 @@ class EmitIR {
         self._ef_depth = sd;
         self._ef_loops = sl;
 
-        self._cg->sink->spell(at, "return true; }.template operator()<" + K + ">()); }(__make_integer_seq<::" + LowerTargets::eval_iseq() + ", " + sz + ", ");
+        self._cg->sink->spell(at, "return true; }.template operator()<" + K + ">()); }(" + LowerTargets::make_index_seq() + "<::" + LowerTargets::eval_iseq() + ", " + sz + ", ");
         if is_range {
             self._cg->sink->spell(at, "static_cast<" + sz + ">((");
             self.emit(n->ev_hi);
@@ -2705,13 +2705,14 @@ class EmitIR {
         var one: u64 = 1;
         var top = one << 63;
         var v = "";
+        var wide = builtin_info(BuiltinKind::U128)->cxx;
         if hi != 0 {
-            v = f"static_cast<unsigned __int128>({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL";
-            if neg { v = "static_cast<unsigned __int128>(0) - (" + v + ")"; }
+            v = "static_cast<" + wide + f">({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL";
+            if neg { v = "static_cast<" + wide + ">(0) - (" + v + ")"; }
         } else if neg {
             if lo < top { v = f"-{lo}"; }
             else if lo == top { v = "(-9223372036854775807LL - 1)"; }
-            else { v = f"static_cast<unsigned __int128>(0) - {lo}ULL"; }
+            else { v = "static_cast<" + wide + f">(0) - {lo}ULL"; }
         } else {
             v = f"{lo}";
             if (lo >> 63) != 0 { v += "ULL"; }

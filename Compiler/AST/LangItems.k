@@ -497,6 +497,15 @@ class LangMacros {
 /// \class LowerTargets
 /// \brief The invented C++ name fragments. Nothing else in the compiler
 ///        carries a copy of any string here.
+///
+/// \par Where a row stops
+///   A helper InterfaceEmitter writes as one piece of text (`__kairo_fn`,
+///   `__kairo_slot`, the panic API) keeps its PRIVATE names in that text:
+///   its template parameters, locals and the members nothing outside the
+///   text names (`__b`, `__ops`, `__f`). They have one writer by
+///   construction. The moment another emitter names one -- EmitIR calling a
+///   slot's `set` -- it becomes a row (ctor_slot_set), as every member
+///   below did.
 class LowerTargets {
     // --- Operators C++ cannot spell (writer: CXXSpell::operator_name) -----------
 
