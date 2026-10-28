@@ -971,15 +971,17 @@ gets `requires I_c<E>` -- heads it), and every concrete row it covers
 specialization of its own; and the
 instances a generic's body reaches (`outer<T>` calling
 `inner(Wrap<T>{...})`): CallTyping keeps a dependent call's deduced
-arguments (`CallExpr::dep_args`) and ConformanceChecking substitutes them
-per instance, adding the reached rows to the outer instance's. A reached
-instance is registered (its `home_fid` is the reaching TU's unless a TU
-named it first) and recorded as reached by the outer one
+arguments (`CallExpr::dep_args`) and ConformanceChecking's discovery
+fixpoint substitutes them per live instance, to any depth below
+`--cmax-generic-depth` (RESOLUTION.md §2.10). A reached instance is
+registered (its `home_fid` is the reaching TU's unless a TU named it
+first), keeps its own rows, and is recorded as reached by the outer one
 (`InstanceEntry::reached`, `add_reach`). Every plan that admits an
-instance admits what it reaches, transitively, so the home writes the
+instance -- a member template of a class template included -- admits
+what it reaches, transitively, rows and all, so the home writes the
 reached instance's explicit instantiation and every other TU holding the
 outer one its `extern template`, exactly as for a named instance
-(`Tests/Codegen/mono_reached/`).
+(`Tests/Codegen/mono_reached/`, `Tests/Codegen/witness/deep_chain.k`).
 
 Not built, each the ICE or diagnostic that names it:
 

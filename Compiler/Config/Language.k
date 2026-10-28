@@ -76,7 +76,7 @@ class LangOptions {
     pub var test_panic_id_bits: i32  = 32;     ///< --test-panic-id-bits: type ids masked to this many bits.
 
     // -- sema / type system limits (from --c* config flags) ----------------
-    pub var max_generic_depth:     i32 = 256;
+    pub var max_generic_depth:     i32 = 128;
     pub var max_generic_backtrace: i32 = 16;
     pub var max_const_eval_steps:  i32 = 1000000;
     pub var max_const_eval_depth:  i32 = 512;

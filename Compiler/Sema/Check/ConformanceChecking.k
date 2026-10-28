@@ -81,11 +81,16 @@ import Location::SourceRange::*;
 class _NestedUses derives RecursiveASTVisitor::<_NestedUses> {
     pub var calls: vec::<*CallExpr>;
     pub var types: vec::<*Type>;
+    /// Parallel to `types`: where each was found, the hop note's place.
+    pub var type_at: vec::<SourceRange>;
     fn _NestedUses(self) { }
 
     fn visit_expr(self, e: *Expr) -> bool {
         if (e == &null) || e->is_poisoned() { return true; }
-        if (e->type_ != &null) && e->type_->is_dependent() { self.types.push_back(e->type_); }
+        if (e->type_ != &null) && e->type_->is_dependent() {
+            self.types.push_back(e->type_);
+            self.type_at.push_back(e->range);
+        }
         if e->kind != ExprKind::CallExpr { return true; }
         var c = cast::<CallExpr>(e);
         if c->dep_args.size() > 0 { self.calls.push_back(c); }
@@ -93,7 +98,10 @@ class _NestedUses derives RecursiveASTVisitor::<_NestedUses> {
     }
 
     fn visit_type(self, t: *Type) -> bool {
-        if (t != &null) && t->is_dependent() { self.types.push_back(t); }
+        if (t != &null) && t->is_dependent() {
+            self.types.push_back(t);
+            self.type_at.push_back(t->range);
+        }
         return true;
     }
 }
@@ -114,6 +122,7 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var tu = self.sc->tu;
         if (tu == &null) || (tu->program == &null) { return; }
         self.ml.index_extensions();
+        self._indexed = true;
         var items = &(tu->program->items);
         for var i: usize = 0; i < items->size(); ++i {
             var item = *(items->get(i));
@@ -123,10 +132,15 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
                 case TopLevelKind::Expr { self.dyn()->dispatch_expr(item.as_expr()); }
             }
         }
+        for var i: usize = 0; i < self._rangeless.size(); ++i { self._check_instance(self._rangeless[i], self._rangeless_at[i]); }
+        // What the instances this TU uses reach, to the fixpoint: their
+        // nonconformance is this TU's to report, beside its own.
+        self.discover();
     }
 
     fn visit_expr(self, e: *Expr) -> bool {
         if (e == &null) || e->is_poisoned() { return true; }
+        if e->range.start.is_valid() { self._cur_at = e->range; }
         // A bounded record's instance is an instantiation site wherever its
         // type turns up: written, inferred, or as an argument of another.
         if e->type_ != &null { self._check_type(e->type_, e->range, 0); }
@@ -139,12 +153,14 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
     }
 
     fn visit_type(self, t: *Type) -> bool {
+        if (t != &null) && t->range.start.is_valid() { self._cur_at = t->range; }
         if t != &null { self._check_type(t, t->range, 0); }
         return true;
     }
 
     fn visit_decl(self, d: *Decl) -> bool {
         if (d == &null) || d->is_poisoned() { return true; }
+        if d->range.start.is_valid() { self._cur_at = d->range; }
         if isa::<ClassDecl>(d) {
             var cd = cast::<ClassDecl>(d);
             for var i: usize = 0; i < cd->implements.size(); ++i { self._check_declared(d, self._self_type(d), cd->implements.get(i)->base); }
@@ -313,56 +329,101 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
 
     // --- the instantiation site ----------------------------------------------------
 
-    /// Fill \p e's rows from its primary's `impl` bounds, reporting at \p at
-    /// a bound its argument does not meet.
-    /// Instances whose rows are being computed, outermost first: a generic
-    /// that reaches itself (directly, or `f<T>` calling `f<Wrap<T>>`) stops
-    /// there instead of recursing forever.
-    priv var _active: vec::<*InstanceEntry>;
+    /// The last range the visitor passed: where a use with no range of its
+    /// own (a canonical reached without a written node) is checked when no
+    /// written use of the instance follows, instead of not at all (D4).
+    priv var _cur_at: SourceRange = SourceRange::invalid();
+    /// Roots whose chain already reported the depth limit: one error per
+    /// use, however many branches of its chain run past it.
+    priv var _too_deep: vec::<*InstanceEntry>;
+    priv var _indexed: bool = false;
+    /// Instances first met with no range, and the range the visitor was
+    /// under: checked there if no written use came by the end of the TU.
+    priv var _rangeless:    vec::<*InstanceEntry>;
+    priv var _rangeless_at: vec::<SourceRange>;
 
-    priv fn _check_instance(self, e: *InstanceEntry, at: SourceRange) {
-        if e->rows_done { return; }
-        for var i: usize = 0; i < self._active.size(); ++i { if self._active[i] == e { return; } }
-        if self._active.size() >= 8 { return; }   // M2's depth, not ours to chase further.
-        // Checked at its first use with a place to report at; a type with no
-        // range (a canonical reached without a written node) waits for one.
-        if !at.start.is_valid() { return; }
+    /// \p e is used at \p site: a root of the discovery fixpoint. Its bounds
+    /// are checked here, once for the build -- a non-conforming instance is
+    /// reported at its first use, however many times it is named -- and
+    /// what its body reaches is walked by discover.
+    priv fn _check_instance(self, e: *InstanceEntry, site: SourceRange) {
+        if (e == &null) || (e->depth > 0) { return; }
+        if !site.start.is_valid() {
+            // A written use usually follows (`var b = Box<M>(...)` visits the
+            // decl's inferred type before its initializer): wait for it, and
+            // fall back to the enclosing range at the end of the TU (run).
+            if self._cur_at.start.is_valid() {
+                self._rangeless.push_back(e);
+                self._rangeless_at.push_back(self._cur_at);
+            }
+            return;
+        }
+        if !self.sc->instances->mark_live(e, site, &null, SourceRange::invalid()) { return; }
+        self._check_bounds(e);
+    }
+
+    /// Fill live \p e's rows from its primary's `impl` bounds, reporting at
+    /// its use (InstanceEntry::use_at, a reached one's root's) a bound its
+    /// argument does not meet. False when one did not: such an instance's
+    /// body is not walked (it is marked walked here).
+    priv fn _check_bounds(self, e: *InstanceEntry) -> bool {
+        var at = e->use_at;
         var prim = e->primary;
-        if prim == &null { return; }
-        var req = decl_requires_clause(prim);
-        var bounds = vec::<*ConstraintExpr>();
-        self._impl_bounds(req, &bounds);
-
         var rows = vec::<*ConformanceRow>();
         var ok = true;
-        var gps = decl_generic_params(prim);
-        for var i: usize = 0; i < bounds.size(); ++i {
-            var b = bounds[i];
-            var gp = self._param_named(b, prim);
-            if (gp == &null) || gp->is_pack { continue; }
-            var x = self._arg_of(e, prim, gp);
-            var iface = self._bound_iface(b, prim, e);
-            if (x == &null) || (iface == &null) { continue; }
-            var row = self.conforms(x, iface);
-            if (row == &null) || (!row->ok) {
-                self._report(at, b, x, iface, row);
-                ok = false;
-                continue;
+        if prim != &null {
+            var req = decl_requires_clause(prim);
+            var bounds = vec::<*ConstraintExpr>();
+            self._impl_bounds(req, &bounds);
+            for var i: usize = 0; i < bounds.size(); ++i {
+                var b = bounds[i];
+                var gp = self._param_named(b, prim);
+                if (gp == &null) || gp->is_pack { continue; }
+                var x = self._arg_of(e, prim, gp);
+                var iface = self._bound_iface(b, prim, e);
+                if (x == &null) || (iface == &null) { continue; }
+                var row = self.conforms(x, iface);
+                if (row == &null) || (!row->ok) {
+                    self._report(at, b, x, iface, row);
+                    ok = false;
+                    continue;
+                }
+                if !self._push_closure(row, x, &rows, at, b) { ok = false; }
             }
-            if !self._push_closure(row, x, &rows, at, b) { ok = false; }
         }
-        // The instances its body reaches once its parameters are known, and
-        // their rows: every TU holding this instance may compile its body
-        // and theirs (§7b.6), so they ride on this instance's rows.
-        if ok {
-            self._active.push_back(e);
-            if !self._reach(e, prim, at, &rows) { ok = false; }
-            self._active.pop_back();
+        if !ok {
+            rows.clear();
+            self.sc->instances->set_checked(e);
         }
-        // Done either way: a non-conforming instance is reported once, at its
-        // first use, however many times it is named.
-        if !ok { rows.clear(); }
         self.sc->instances->set_rows(e, &rows);
+        return ok;
+    }
+
+    /// THE discovery fixpoint (MONO.md D4): walk every live instance's reach,
+    /// a batch at a time in worklist (mint) order, until a walk makes nothing
+    /// new live. Run at the end of each TU's checks, and again by M1, where
+    /// it finds the worklist empty unless something after the checks made an
+    /// instance live. A chain longer than --cmax-generic-depth is an error
+    /// (_too_deep), never a silent stop.
+    fn discover(self) {
+        var reg = self.sc->instances;
+        if reg == &null { return; }
+        var batch = vec::<*InstanceEntry>();
+        reg->drain(&batch);
+        // M1's pass is a fresh one: a row's member lookup needs the
+        // extension index run() builds.
+        if (batch.size() > 0) && (!self._indexed) {
+            self.ml.index_extensions();
+            self._indexed = true;
+        }
+        while batch.size() > 0 {
+            for var i: usize = 0; i < batch.size(); ++i {
+                reg->set_checked(batch[i]);
+                self._walk(batch[i]);
+            }
+            batch.clear();
+            reg->drain(&batch);
+        }
     }
 
     /// Instance \p e's argument for \p gp, a parameter of \p prim or of its
@@ -380,23 +441,40 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         return (canon_unqual(e->args[k])) if (k < e->args.size()) else (&null);
     }
 
-    /// Walk \p prim's body (a record's: its methods') for the dependent
-    /// uses that become instances under \p e's arguments, check each, and
-    /// add its rows -- its own reach included -- to \p rows. False when one
-    /// of them does not conform (reported at \p at, the outer use).
-    priv fn _reach(self, e: *InstanceEntry, prim: *Decl, at: SourceRange, rows: *vec::<*ConformanceRow>) -> bool {
+    /// Walk live \p e's primary's body (a record's: its methods, and its
+    /// fields' types) for the dependent uses that become instances
+    /// under \p e's arguments. Each is minted, linked (InstanceEntry::reached:
+    /// every plan holding \p e homes or `extern`s it, and admits its rows,
+    /// CODEGEN.md §7b.6) and made live one hop below \p e, which checks its
+    /// bounds; its own reach is the worklist's next batch. The cycle state
+    /// is the entry's (`checked`), never the decl's: every function instance
+    /// shares its primary's decl.
+    priv fn _walk(self, e: *InstanceEntry) {
+        var prim = e->primary;
+        if prim == &null { return; }
         var uses = _NestedUses();
         if isa::<FunctionDecl>(prim) {
             uses.dispatch_decl(prim);
         } else {
             var ms = self._methods_of(prim);
             for var i: usize = 0; i < ms.size(); ++i { if ms[i] != &null { uses.dispatch_decl(static_cast::<*Decl>(ms[i])); } }
+            // The fields' types are instantiated with the record (C++ checks a
+            // constrained template's bounds even where it is only named, as
+            // behind a pointer), and a field is no method's use.
+            var fs = self._fields_of(prim);
+            for var i: usize = 0; i < fs.size(); ++i {
+                var f = fs[i];
+                if (f == &null) || (f->type_ == &null) { continue; }
+                var ft = self._canon(f->type_);
+                if (ft == &null) || (!ft->is_dependent()) { continue; }
+                uses.types.push_back(f->type_);
+                uses.type_at.push_back(f->range);
+            }
         }
-        if (uses.calls.size() == 0) && (uses.types.size() == 0) { return true; }
+        if (uses.calls.size() == 0) && (uses.types.size() == 0) { return; }
 
         var d = Deduction(self.sc, &null);
         self._bind_instance(&d, e, prim);
-        var ok = true;
         for var i: usize = 0; i < uses.calls.size(); ++i {
             var c = uses.calls[i];
             var callee = self._callee_of(c);
@@ -410,66 +488,123 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
             }
             if !whole { continue; }   // a parameter of an inner generic: that one's instances reach it.
             var rep = NameLookup::representative(callee);
+            if e->depth >= self._depth_limit() {
+                var have = self.sc->instances->find(rep, &args);
+                if (have == &null) || (have->depth == 0) {
+                    self._too_deep_at(e, self._spell(rep, &args), c->range);
+                    return;
+                }
+            }
             var ne = self.sc->instances->instance_for(rep, &args, self.sc->ctx->fid, NameLookup::ctx_of(rep));
-            // Named in no tree: the edge is how every plan holding \p e
-            // finds it (InstanceEntry::reached).
+            if ne == &null { continue; }
             self.sc->instances->add_reach(e, ne);
-            if !self._take(ne, at, rows) {
-                // The error points at the outer use; this says which call in
+            if !self.sc->instances->mark_live(ne, SourceRange::invalid(), e, c->range) { continue; }
+            if !self._check_bounds(ne) {
+                // The error points at the root use; this says which call in
                 // the generic's body asked for the instance that failed.
                 var nb = self.sc->diag->report(DiagID::SC001N, c->range.start,
                     f"required by this call, in the instance of '{self.tu.decl_name(prim)}' used there");
                 nb.first(c->range);
                 nb.emit();
-                ok = false;
             }
         }
         for var i: usize = 0; i < uses.types.size(); ++i {
             var s = d.substitute(self._canon(uses.types[i]));
             if (s == &null) || s->is_dependent() { continue; }
-            if !self._take_type(e, s, at, rows, 0) { ok = false; }
+            var at = uses.type_at[i];
+            if !at.start.is_valid() { at = e->use_at; }
+            if !self._take_type(e, s, at, 0) { return; }
         }
-        return ok;
     }
 
-    /// Check nested instance \p ne at the outer use and add its rows.
-    priv fn _take(self, ne: *InstanceEntry, at: SourceRange, rows: *vec::<*ConformanceRow>) -> bool {
-        if ne == &null { return true; }
-        var before = self.sc->diag->error_count();
-        self._check_instance(ne, at);
-        if self.sc->diag->error_count() != before { return false; }
-        for var k: usize = 0; k < ne->rows.size(); ++k {
-            var dup = false;
-            for var j: usize = 0; j < rows->size(); ++j { if (*rows)[j] == ne->rows[k] { dup = true; break; } }
-            if !dup { rows->push_back(ne->rows[k]); }
+    /// Every record instance in substituted type \p t, as _check_type finds
+    /// them, each linked as reached by \p outer and made live below it at
+    /// \p at. False when the chain ran past the depth limit (reported).
+    priv fn _take_type(self, outer: *InstanceEntry, t: *Type, at: SourceRange, depth: u32) -> bool {
+        var c = self._canon(t);
+        if (c == &null) || (depth > 16) { return true; }
+        switch c->kind {
+            case TypeKind::PointerType      { return self._take_type(outer, cast::<PointerType>(c)->pointee, at, depth + 1); }
+            case TypeKind::CXXLValueRefType { return self._take_type(outer, cast::<CXXLValueRefType>(c)->referee, at, depth + 1); }
+            case TypeKind::CXXRValueRefType { return self._take_type(outer, cast::<CXXRValueRefType>(c)->referee, at, depth + 1); }
+            case TypeKind::NullableType     { return self._take_type(outer, cast::<NullableType>(c)->inner, at, depth + 1); }
+            case TypeKind::FixedArrayType   { return self._take_type(outer, cast::<FixedArrayType>(c)->element, at, depth + 1); }
+            case TypeKind::RecordType {
+                var r = cast::<RecordType>(c);
+                for var i: usize = 0; i < r->args.size(); ++i { if !self._take_type(outer, r->args[i], at, depth + 1) { return false; } }
+                if (r->decl == &null) || (!decl_is_instance(r->decl)) { return true; }
+                var ne = self.sc->instances->entry_of(r->decl);
+                if ne == &null { return true; }
+                self.sc->instances->add_reach(outer, ne);
+                if ne->depth > 0 { return true; }
+                if outer->depth >= self._depth_limit() {
+                    self._too_deep_at(outer, self.tu.str(c), at);
+                    return false;
+                }
+                if self.sc->instances->mark_live(ne, SourceRange::invalid(), outer, at) { self._check_bounds(ne); }
+                return true;
+            }
+            default { return true; }
         }
         return true;
     }
 
-    /// Every record instance in substituted type \p t, as _check_type finds
-    /// them, each recorded as reached by \p outer.
-    priv fn _take_type(self, outer: *InstanceEntry, t: *Type, at: SourceRange, rows: *vec::<*ConformanceRow>, depth: u32) -> bool {
-        var c = self._canon(t);
-        if (c == &null) || (depth > 16) { return true; }
-        var ok = true;
-        switch c->kind {
-            case TypeKind::PointerType      { ok = self._take_type(outer, cast::<PointerType>(c)->pointee, at, rows, depth + 1); }
-            case TypeKind::CXXLValueRefType { ok = self._take_type(outer, cast::<CXXLValueRefType>(c)->referee, at, rows, depth + 1); }
-            case TypeKind::CXXRValueRefType { ok = self._take_type(outer, cast::<CXXRValueRefType>(c)->referee, at, rows, depth + 1); }
-            case TypeKind::NullableType     { ok = self._take_type(outer, cast::<NullableType>(c)->inner, at, rows, depth + 1); }
-            case TypeKind::FixedArrayType   { ok = self._take_type(outer, cast::<FixedArrayType>(c)->element, at, rows, depth + 1); }
-            case TypeKind::RecordType {
-                var r = cast::<RecordType>(c);
-                for var i: usize = 0; i < r->args.size(); ++i { if !self._take_type(outer, r->args[i], at, rows, depth + 1) { ok = false; } }
-                if (r->decl != &null) && decl_is_instance(r->decl) {
-                    var ne = self.sc->instances->entry_of(r->decl);
-                    self.sc->instances->add_reach(outer, ne);
-                    if !self._take(ne, at, rows) { ok = false; }
-                }
+    priv fn _depth_limit(self) -> u32 {
+        var lim = self.sc->opts.max_generic_depth;
+        if lim < 1 { lim = 1; }
+        return static_cast::<u32>(lim);
+    }
+
+    /// Live \p e, at the depth limit, needs \p next at \p at in its body: the
+    /// chain is too long (D4). One error per root, at the root's use, naming
+    /// the chain's first three and last three instances.
+    priv fn _too_deep_at(self, e: *InstanceEntry, next: string, at: SourceRange) {
+        var chain = vec::<*InstanceEntry>();
+        var r = e;
+        while r != &null { chain.push_back(r); r = r->via; }
+        var root = chain[chain.size() - 1];
+        for var i: usize = 0; i < self._too_deep.size(); ++i { if self._too_deep[i] == root { return; } }
+        self._too_deep.push_back(root);
+        var names = vec::<string>();
+        for var i: usize = chain.size(); i > 0; --i { names.push_back(self._inst_name(chain[i - 1])); }
+        names.push_back(next);
+        var n = names.size();
+        var shown = "";
+        for var i: usize = 0; i < n; ++i {
+            if (n > 6) && (i >= 3) && (i + 3 < n) {
+                if i == 3 { shown += " -> ..."; }
+                continue;
             }
-            default { ok = true; }
+            if i > 0 { shown += " -> "; }
+            shown += "\x27" + names[i] + "\x27";
         }
-        return ok;
+        var lim = self._depth_limit();
+        var b = self.sc->diag->report(DiagID::SC001E, e->use_at.start,
+            f"instantiation depth exceeds {lim}: {shown}");
+        b.first(e->use_at, "the chain starts here");
+        if at.start.is_valid() { b.note(at.start, f"'{next}' is required here, instantiation {lim + 1} of the chain").first(at); }
+        b.note("the limit is set by --cmax-generic-depth");
+        b.emit();
+    }
+
+    /// \p e as the user reads it: `Wrap<Metric>`, `inner<Wrap<Metric>>`.
+    priv fn _inst_name(self, e: *InstanceEntry) -> string {
+        if (e->decl != &null) && (!isa::<FunctionDecl>(e->primary)) {
+            var t = self.sc->types->record(e->decl, &(e->args));
+            if t != &null { return self.tu.str(t); }
+        }
+        return self._spell(e->primary, &(e->args));
+    }
+
+    priv fn _spell(self, prim: *Decl, args: *vec::<*Type>) -> string {
+        var s = self.tu.decl_name(prim);
+        s += "<";
+        for var i: usize = 0; i < args->size(); ++i {
+            if i > 0 { s += ", "; }
+            s += self.tu.str((*args)[i]);
+        }
+        s += ">";
+        return s;
     }
 
     /// \p e's arguments bound to \p prim's parameters (an extension
@@ -500,6 +635,13 @@ class ConformanceChecking derives RecursiveASTVisitor::<ConformanceChecking> {
         var ch = dyn_cast::<ChainExpr>(callee);
         if (ch != &null) && (ch->steps.size() > 0) { return ch->steps.get(ch->steps.size() - 1)->resolved_decl; }
         return &null;
+    }
+
+    priv fn _fields_of(self, d: *Decl) -> FrozenList::<*FieldDecl> {
+        if isa::<ClassDecl>(d)  { return cast::<ClassDecl>(d)->fields; }
+        if isa::<StructDecl>(d) { return cast::<StructDecl>(d)->fields; }
+        if isa::<UnionDecl>(d)  { return cast::<UnionDecl>(d)->fields; }
+        return create_empty_frozen_list::<*FieldDecl>();
     }
 
     priv fn _methods_of(self, d: *Decl) -> FrozenList::<*FunctionDecl> {

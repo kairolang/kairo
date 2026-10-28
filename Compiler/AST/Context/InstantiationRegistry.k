@@ -33,7 +33,9 @@
 ///
 ///   \par Order (M1, MONO.md D4)
 ///     Every entry is appended to one worklist as it is minted, whoever
-///     mints it; M1 drains it (Sema.k::_stage_mono_collect). That order, not
+///     mints it; the discovery fixpoint (ConformanceChecking::discover, run
+///     by each TU's checks and again by M1, Sema.k::_stage_mono_collect)
+///     drains its live entries, walking each one's reach. That order, not
 ///     the hash table's, is the registry's iteration order. An instance a
 ///     generic body reaches is linked to the instance that reached it
 ///     (InstanceEntry::reached), which is how a plan holding the outer one
@@ -194,12 +196,26 @@ class InstanceEntry {
     /// runs one TU at a time in DAG order, so this is (TU order, mint order)
     /// and the same on every run (MONO.md D4).
     pub var seq:               u32 = 0;
-    /// M1 has drained it from the worklist (Sema.k::_stage_mono_collect).
-    /// What M1 does per entry is "enumerate": its home is fixed and its
-    /// reach edges are whatever ConformanceChecking recorded. G3 makes the
-    /// drain walk an unchecked entry's reach itself, so "checked" becomes
-    /// "every instance its body reaches is in the registry".
+    /// Its reach has been walked (ConformanceChecking::discover): every
+    /// instance its body reaches is in the registry, linked by `reached`,
+    /// and bound-checked. Only a LIVE entry (`depth` > 0) is ever walked.
     pub var checked:           bool = false;
+    /// Live: some use needs it. 1 for an instance a tree names at a use
+    /// (ConformanceChecking's instantiation site), the reacher's + 1 for one
+    /// only a generic body reaches; 0 for an entry nothing has needed yet --
+    /// minted by substitution into a losing overload candidate, say, whose
+    /// bounds must not be checked (MONO.md D4: depth is a limit, reported).
+    pub var depth:             u32 = 0;
+    /// The use site that made its chain's root live, inherited down the
+    /// chain: where every diagnostic about this instance is reported (D6),
+    /// and the range an instance minted with none of its own takes (D4).
+    pub var use_at:            SourceRange = SourceRange::invalid();
+    /// The live instance whose body made this one live, and the use in that
+    /// body (a call, a type) that did: one hop of the instantiation chain
+    /// D6's notes print. Null / invalid at a root. Unlike `reached_by` (the
+    /// first reacher, for homing) this is the hop that gave it its depth.
+    pub var via:               *InstanceEntry = &null;
+    pub var via_at:            SourceRange = SourceRange::invalid();
     /// The instances its body reaches once its arguments are known
     /// (ConformanceChecking's reach: `outer<M>` calling `inner(Wrap<T>
     /// {...})` reaches `inner<Wrap<M>>` and `Wrap<M>`), in reach order,
@@ -208,9 +224,9 @@ class InstanceEntry {
     /// too, their explicit instantiation in their home and `extern template`
     /// elsewhere. Writer: add_reach, under the lock.
     pub var reached:           vec::<*InstanceEntry>;
-    /// The first instance whose body reached this one, or null (named
-    /// directly, never reached). Where D4's range inheritance and D6's
-    /// instantiation-note chain start.
+    /// The first instance whose body reached this one, or null (never
+    /// reached). The chain diagnostics follow `via` instead: an instance a
+    /// tree names is a root whoever reaches it later.
     pub var reached_by:        *InstanceEntry = &null;
     fn InstanceEntry(self) { }
 }
@@ -253,8 +269,6 @@ class InstantiationRegistry {
     /// it. collect() reads this, never the hash table: anything that
     /// iterates the registry gets the same order on every run.
     priv var _order:   vec::<*InstanceEntry>;
-    /// How far M1 has drained _order.
-    priv var _drained: usize = 0;
 
     fn InstantiationRegistry(self) {
         self._table.reserve(128);
@@ -652,15 +666,40 @@ class InstantiationRegistry {
         return self._order.size();
     }
 
-    /// M1's drain: every entry minted since the last drain, in mint order,
-    /// appended to \p out. Entries minted while the caller works through
-    /// them come back on its next call, so draining until this yields
-    /// nothing is the fixpoint (G3's discovery loop runs on exactly this).
+    /// Make \p e live at depth 1, used at \p at (\p via null), or one hop
+    /// below live \p via, through the use \p via_at in its body. Once: the
+    /// first need fixes the depth, the range and the hop. True when it was
+    /// not live before.
+    fn mark_live(self, e: *InstanceEntry, at: SourceRange, via: *InstanceEntry, via_at: SourceRange) -> bool {
+        if e == &null { return false; }
+        var lock = std::LockGuard(self._mu);
+        if e->depth > 0 { return false; }
+        e->use_at = at;
+        e->depth  = 1;
+        if via != &null {
+            e->use_at = via->use_at;
+            e->depth  = via->depth + 1;
+            e->via    = via;
+            e->via_at = via_at;
+        }
+        return true;
+    }
+
+    /// THE worklist's next batch (MONO.md D4): every live entry whose reach
+    /// is not walked yet, in mint order, appended to \p out. Walking a batch
+    /// makes more entries live -- minted at the end of the order, or older
+    /// ones newly needed -- and they come back on the next call, so draining
+    /// until this yields nothing is the discovery fixpoint. Deterministic:
+    /// liveness and the order are both functions of the input.
     fn drain(self, out: *vec::<*InstanceEntry>) {
         if out == &null { return; }
         var lock = std::LockGuard(self._mu);
-        for var i: usize = self._drained; i < self._order.size(); ++i { out->push_back(self._order[i]); }
-        self._drained = self._order.size();
+        // A scan, not a cursor: an entry minted long ago (by T, by a losing
+        // candidate) may become live only now, in a later TU.
+        for var i: usize = 0; i < self._order.size(); ++i {
+            var e = self._order[i];
+            if (e->depth > 0) && (!e->checked) { out->push_back(e); }
+        }
     }
 
     fn set_checked(self, e: *InstanceEntry) {

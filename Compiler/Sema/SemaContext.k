@@ -158,6 +158,9 @@ class SemaOptions {
     pub var max_union_width:     i32 = 0;  ///< 0 = unlimited.
     pub var max_interface_impls: i32 = 0;  ///< 0 = unlimited.
     pub var max_extend_chain:    i32 = 0;  ///< 0 = unlimited.
+    /// --cmax-generic-depth: the longest instantiation chain the discovery
+    /// fixpoint follows before it reports one (MONO.md D4).
+    pub var max_generic_depth:   i32 = 128;
     /// Compiler test hooks for the Panic lang item (PANIC.md §7, P1): source
     /// may name `Panic<...>`, and type ids keep only this many low bits.
     pub var test_panic_type:    bool = false;
@@ -203,6 +206,7 @@ class SemaOptions {
         self.max_union_width     = ci->lang.max_union_width;
         self.max_interface_impls = ci->lang.max_interface_impls;
         self.max_extend_chain    = ci->lang.max_extend_chain;
+        self.max_generic_depth   = ci->lang.max_generic_depth;
         self.test_panic_type     = ci->lang.test_panic_type;
         self.test_panic_id_bits  = ci->lang.test_panic_id_bits;
         self.library_build       = ci->linker.shared;

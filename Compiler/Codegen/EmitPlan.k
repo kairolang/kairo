@@ -193,6 +193,9 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     priv var _need:  vec::<PlanNeed>;
     priv var _queue: vec::<usize>;
     priv var _insts: vec::<*InstanceEntry>;
+    /// Member-template instances admitted (no tier-3 line, so not _insts):
+    /// their reach is followed once.
+    priv var _members: vec::<*InstanceEntry>;
     /// Every extension scope the plan touches. Indexed while the closure
     /// runs (it grows); PlanEntry::scope points in only once it is done.
     priv var _scopes:   vec::<ExtScope>;
@@ -282,6 +285,7 @@ class EmitPlan derives RecursiveASTVisitor::<EmitPlan> {
     fn _member_owner(self, d: *Decl) -> *Decl;
     fn _admit(self, d: *Decl, need: PlanNeed);
     fn _admit_instance(self, e: *InstanceEntry, need: PlanNeed);
+    fn _admit_reached(self, e: *InstanceEntry);
     fn _admit_type(self, t: *Type, need: PlanNeed);
     fn _nullable_record(self, c: *Type) -> *Type;
     fn _expand(self, d: *Decl, need: PlanNeed);
@@ -1408,29 +1412,21 @@ fn EmitPlan::_admit_instance(e: *InstanceEntry, need: PlanNeed) {
     if self._member_of_template(prim) {
         for var i: usize = 0; i < e->rows.size(); ++i { self._witness_row(e->rows[i]); }
         for var i: usize = 0; i < e->args.size(); ++i { self._admit_type(e->args[i], PlanNeed::Fwd); }
+        // Its body is compiled wherever the owner is, so what it reaches is
+        // needed there too, rows included (no tier-3 line of its own).
+        var mseen = false;
+        for var i: usize = 0; i < self._members.size(); ++i { if self._members[i] == e { mseen = true; break; } }
+        if !mseen {
+            self._members.push_back(e);
+            self._admit_reached(e);
+        }
         return;
     }
     var seen = false;
     for var i: usize = 0; i < self._insts.size(); ++i { if self._insts[i] == e { seen = true; break; } }
     if !seen {
         self._insts.push_back(e);
-        // What its body reaches once its arguments are known (`outer<M>`
-        // calling `inner(Wrap<T>{...})`: `inner<Wrap<M>>`, `Wrap<M>`) is
-        // named in no tree, yet this TU compiles that body or links against
-        // it: hold each reached instance too, so tier 3 writes its explicit
-        // instantiation in its home and `extern template` everywhere else.
-        // Once per instance (`seen`), so a body that reaches itself stops.
-        // A function instance comes in as a call's does, its arguments Fwd.
-        // A record instance as a type naming it does (_admit: an interface's
-        // is its witness, an imported one clang's), Complete: its explicit
-        // instantiation lays it out.
-        var rs = vec::<*InstanceEntry>();
-        self._cg->instances->reached_of(e, &rs);
-        for var i: usize = 0; i < rs.size(); ++i {
-            var r = rs[i];
-            if isa::<FunctionDecl>(r->primary) { self._admit_instance(r, PlanNeed::Fwd); }
-            else if r->decl != &null { self._admit(r->decl, PlanNeed::Complete); }
-        }
+        self._admit_reached(e);
     }
     self._admit(prim, PlanNeed::Complete);
     // Every TU holding the instance may compile its body (it is a visible
@@ -1721,6 +1717,28 @@ fn EmitPlan::_ext_target(x: *ExtensionDecl) -> *Decl {
     var c = x->target->canonical;
     if (c == &null) || (c->kind != TypeKind::RecordType) { return &null; }
     return self.layout_decl(cast::<RecordType>(c)->decl);
+}
+
+/// What \p e's body reaches once its arguments are known (`outer<M>`
+/// calling `inner(Wrap<T>{...})`: `inner<Wrap<M>>`, `Wrap<M>`) is named in
+/// no tree, yet this TU compiles that body or links against it: hold each
+/// reached instance too, so tier 3 writes its explicit instantiation in its
+/// home and `extern template` everywhere else, and its witness rows are
+/// admitted with it -- an instance's rows are its own bounds', never its
+/// reach's (the discovery walk checks each instance once, MONO.md D4).
+/// Callers run this once per instance, so a body that reaches itself
+/// stops. A function instance comes in as a call's does, its arguments
+/// Fwd. A record instance as a type naming it does (_admit: an interface's
+/// is its witness, an imported one clang's), Complete: its explicit
+/// instantiation lays it out.
+fn EmitPlan::_admit_reached(e: *InstanceEntry) {
+    var rs = vec::<*InstanceEntry>();
+    self._cg->instances->reached_of(e, &rs);
+    for var i: usize = 0; i < rs.size(); ++i {
+        var r = rs[i];
+        if isa::<FunctionDecl>(r->primary) { self._admit_instance(r, PlanNeed::Fwd); }
+        else if r->decl != &null { self._admit(r->decl, PlanNeed::Complete); }
+    }
 }
 
 // --- Layout queries (LayoutSpine + _admit_instance) ------------------------------

@@ -652,34 +652,26 @@ class Sema {
         return true;
     }
 
-    /// M1: instance enumeration (MONO.md D0/D4). Creates nothing: T, X, the
-    /// reach, the lang records and the lowerings minted every instance into
-    /// the build-wide registry already, each appended to its worklist. M1
-    /// drains what is new since the last drain, in mint order, whichever TU
-    /// minted it: a TU that hard-stopped before here leaves its entries to
-    /// the next TU's drain, and the order is the same either way. Here,
-    /// after this TU's lowerings, so the instances a lowering mints are in.
+    /// M1: instance enumeration (MONO.md D0/D4). Creates nothing new of its
+    /// own: T, X, the reach, the lang records and the lowerings minted every
+    /// instance into the build-wide registry already, each appended to its
+    /// worklist. M1 drains that worklist to the fixpoint: every LIVE entry
+    /// (one a use needs) whose reach is not walked yet, in mint order, has
+    /// its body's uses minted, linked and bound-checked, until a walk makes
+    /// nothing new live (ConformanceChecking::discover). Each TU's checks
+    /// already ran the same fixpoint before the Typed barrier, where its
+    /// diagnostics belong; this drain finds nothing unless something after
+    /// them made an instance live, and is what guarantees the invariant
+    /// "every live instance's reach is in the registry" past this point.
     ///
     /// Homing needs nothing more from M1: an entry's home is its first
     /// namer (D3, `home_fid`, fixed at mint), and EmitPlan reaches an
-    /// instance no tree names through the `reached` edge ConformanceChecking
-    /// recorded. G3 puts the discovery fixpoint here: walk each drained,
-    /// unchecked entry's reach (what `_reach` does today under a depth cap),
-    /// and the drain loop below runs until nothing new was minted.
+    /// instance no tree names through the `reached` edge the walk recorded.
     priv fn _stage_mono_collect(self) -> bool {
         if self._already(SemaPhase::MonoCollected) { return true; }
         var _t = TimeRegion("Collect");
         self.sc.require_phase(SemaPhase::Lowered);
-        var reg = self.sc.instances;
-        if reg != &null {
-            var batch = vec::<*InstanceEntry>();
-            reg->drain(&batch);
-            while batch.size() > 0 {
-                for var i: usize = 0; i < batch.size(); ++i { reg->set_checked(batch[i]); }
-                batch.clear();
-                reg->drain(&batch);
-            }
-        }
+        ConformanceChecking(&self.sc).discover();
         self.sc.advance_phase(SemaPhase::MonoCollected);
         return !self._hard_stop();
     }
