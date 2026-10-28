@@ -194,6 +194,9 @@ import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
 import AST::OperatorFacts::*;
 import AST::Node::Types::*;
+import AST::Node::Expressions::*;
+import AST::Node::PrimaryExpressions::*;
+import AST::Kind::ExprKind::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::Token::*;
@@ -330,13 +333,10 @@ class RedeclMerge {
                 // ctors as one C++ signature and poison the second before
                 // that rule sees it.
                 if (a->transfer != TransferKind::NotTransfer) && (b->transfer != TransferKind::NotTransfer) { continue; }
-                if !self._same_signature(a, b) {
+                if !self._one_entity(a, b) {
                     // Two generic overloads equal up to their parameters'
                     // names, one of them guarded: one generic `where` group
-                    // (MONO.md G12), never linked. Asked only beside a guard:
-                    // an unguarded generic pair keeps today's identity (two
-                    // overloads), which a declaration and its definition
-                    // depend on.
+                    // (MONO.md G12), never linked.
                     if (a->has_where() || b->has_where()) && self._alpha_same(a, b) { continue; }
                     // Two entities to Kairo -- but maybe one to the C++ it
                     // emits, and maybe unchoosable at a Kairo call site.
@@ -350,6 +350,12 @@ class RedeclMerge {
                 // (header), or an `unsafe` one beside a guard, which
                 // WhereGuardCheck reports. Never one entity.
                 if a->has_where() || b->has_where() { continue; }
+                // Two bodiless generic MEMBERS that differ only in their
+                // bounds are two overloads (C++ orders them by constraint);
+                // a member list may not repeat a member, so only a file-scope
+                // declaration and its definition are one entity with them,
+                // and _link holds that pair to one set of bounds.
+                if in_type_body && (!self._bounds_differ(a, b).empty()) { continue; }
                 self._link(name, a, b, in_type_body);
             }
         }
@@ -371,7 +377,7 @@ class RedeclMerge {
             for var j: usize = 0; j < group->size(); ++j {
                 var m = (*group)[j];
                 if m->is_unsafe() || m->is_poisoned() { continue; }
-                if (m != g) && (!self._same_signature(m, g)) && (!self._alpha_same(m, g)) { continue; }
+                if (m != g) && (!self._one_entity(m, g)) && (!self._alpha_same(m, g)) { continue; }
                 if lead == &null { lead = m; }
                 m->where_lead = lead;
             }
@@ -438,12 +444,16 @@ class RedeclMerge {
             if cell == &null { continue; }             // N(a) diagnosed the missing name.
 
             var group = self._fn_group(cell);
+            // Generic overloads differing only in their bounds share a
+            // shape: the one whose bounds agree is the declaration this
+            // defines. Any other same-shape one is the fallback, and _link
+            // then reports the bounds it disagrees about.
             var hit: *FunctionDecl = &null;
             for var j: usize = 0; j < group.size(); ++j {
                 if group[j] == f { continue; }
                 if !self._same_signature(group[j], f) { continue; }
-                hit = group[j];
-                break;
+                if hit == &null { hit = group[j]; }
+                if self._bounds_differ(group[j], f).empty() { hit = group[j]; break; }
             }
 
             if hit == &null {
@@ -592,6 +602,16 @@ class RedeclMerge {
         // Prefix and postfix `++`/`--` are one name cell and two entities.
         if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return false; }
 
+        // Two declarations of one GENERIC function name their parameters
+        // independently: each `T` is a GenericParamType owned by its own
+        // decl, so the canonicals never meet by pointer. Read \p b's
+        // signature over \p a's parameters first (Substitution::
+        // bind_redecl); a pair whose parameter lists cannot be aligned
+        // (kinds, value types, packs) is two overloads, as before.
+        var gen = a->generic_params.size() > 0;
+        var sub = Substitution(self.sc);
+        if gen && (!sub.bind_redecl(static_cast::<*Decl>(a), static_cast::<*Decl>(b))) { return false; }
+
         // `@copy` beside `@move` (see header). Both marked only: an unmarked
         // decl of the same shape is either an out-of-line definition that did
         // not repeat the marker, which must still find its declaration, or an
@@ -634,6 +654,10 @@ class RedeclMerge {
             var ca = pa->type_->canonical;
             var cb = pb->type_->canonical;
             if (ca == &null) || (cb == &null) { return false; }   // dependent: M2's.
+            if gen {
+                cb = sub.substitute(cb);
+                if cb == &null { return false; }
+            }
 
             if pa->is_self || pb->is_self {
                 if pa->is_self != pb->is_self { return false; }
@@ -655,6 +679,129 @@ class RedeclMerge {
             if sa.ty   != sb.ty   { return false; }
         }
         return true;
+    }
+
+    /// R(a)'s question: \p a and \p b are declarations of ONE function. The
+    /// signature agrees, and for a generic pair at most one has a body: a
+    /// declaration and its definition, the shape generic chains exist for.
+    /// Two generic DEFINITIONS of one shape keep their old identity, two
+    /// overloads -- a `where` group's members (WhereGuardCheck judges them
+    /// together, fallbacks included) or a constraint-ordered pair differing
+    /// only in bounds; an unconstrained repeat stays the ambiguity it was
+    /// at each call. R(b) asks _same_signature directly: an out-of-line
+    /// definition always pairs with a bodiless in-class declaration.
+    priv fn _one_entity(self, a: *FunctionDecl, b: *FunctionDecl) -> bool {
+        if !self._same_signature(a, b) { return false; }
+        if (a->generic_params.size() > 0) && a->has_body() && b->has_body() { return false; }
+        return true;
+    }
+
+    /// \p t, a type written over \p b's generic parameters, read over \p a's
+    /// (Substitution::bind_redecl): what to compare against a type of \p a.
+    /// \p t unchanged for a non-generic pair, or one that cannot be aligned
+    /// (the comparison then fails on its own); null if a component does not
+    /// substitute.
+    priv fn _alpha_ret(self, a: *FunctionDecl, b: *FunctionDecl, t: *Type) -> *Type {
+        if (t == &null) || (a->generic_params.size() == 0) || (!t->is_dependent()) { return t; }
+        var sub = Substitution(self.sc);
+        if !sub.bind_redecl(static_cast::<*Decl>(a), static_cast::<*Decl>(b)) { return t; }
+        return sub.substitute(t);
+    }
+
+    /// Two declarations of one generic function, already found one entity
+    /// by _same_signature, that disagree about a parameter's bounds
+    /// (`<T impl Graph>` against `<T impl Tree>`). functions-declarations.mdx:
+    /// a definition and its forward declaration "must match exactly". The
+    /// inline bounds are in the requires clause by now (RequiresDesugar
+    /// hoisted them in E, clearing the lists), so each parameter's bounds are
+    /// that clause's `impl` / `derives` conjuncts on it, compared as a set of
+    /// (kind, canonical) with \p cur's read over \p prev's parameters. Any
+    /// other conjunct is an expression, not compared. Empty when they agree;
+    /// otherwise the first disagreeing parameter's name.
+    priv fn _bounds_differ(self, prev: *FunctionDecl, cur: *FunctionDecl) -> string {
+        var n = prev->generic_params.size();
+        if (n == 0) || (n != cur->generic_params.size()) { return ""; }
+        var sub = Substitution(self.sc);
+        if !sub.bind_redecl(static_cast::<*Decl>(prev), static_cast::<*Decl>(cur)) { return ""; }
+        var ca = vec::<*ConstraintExpr>();
+        var cb = vec::<*ConstraintExpr>();
+        self._conjuncts(prev->requires_clause, &ca);
+        self._conjuncts(cur->requires_clause, &cb);
+        for var i: usize = 0; i < n; ++i {
+            var ta = vec::<*Type>();
+            var ka = vec::<bool>();
+            var tb = vec::<*Type>();
+            var kb = vec::<bool>();
+            if !self._param_bounds(&ca, prev->generic_params[i], &null, &ta, &ka) { continue; }
+            if !self._param_bounds(&cb, cur->generic_params[i], &sub, &tb, &kb) { continue; }
+            if (!self._bounds_within(&ta, &ka, &tb, &kb)) || (!self._bounds_within(&tb, &kb, &ta, &ka)) {
+                return self.sc->ctx->get_spelling(cur->generic_params[i]->name);
+            }
+        }
+        return "";
+    }
+
+    /// Every `impl` / `derives` conjunct of \p e (an `&&` / `and` tree), in
+    /// clause order.
+    priv fn _conjuncts(self, e: *Expr, out: *vec::<*ConstraintExpr>) {
+        if e == &null { return; }
+        if e->kind == ExprKind::BinaryOperatorExpr {
+            var b = cast::<BinaryOperatorExpr>(e);
+            if (b->op_token.kind == TokenKind::OpAmpAmp) || (b->op_token.kind == TokenKind::KwAnd) {
+                self._conjuncts(b->lhs, out);
+                self._conjuncts(b->rhs, out);
+            }
+            return;
+        }
+        if e->kind == ExprKind::ConstraintExpr { out->push_back(cast::<ConstraintExpr>(e)); }
+    }
+
+    /// The bounds the conjuncts \p cs put on \p gp: each one's canonical
+    /// (read through \p sub when given) into \p tys, and whether it is a
+    /// `derives` bound into \p kinds. False when one did not resolve: it was
+    /// diagnosed, and comparing around it would only add a second error.
+    priv fn _param_bounds(self, cs: *vec::<*ConstraintExpr>, gp: *GenericParamDecl, sub: *Substitution,
+                          tys: *vec::<*Type>, kinds: *vec::<bool>) -> bool {
+        if gp == &null { return false; }
+        for var i: usize = 0; i < cs->size(); ++i {
+            var c = (*cs)[i];
+            var id = dyn_cast::<NamedIdentExpr>(c->lhs);
+            if (id == &null) || (id->resolved_decl != static_cast::<*Decl>(gp)) { continue; }
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { return false; }
+            var t = c->rhs->canonical;
+            if sub != &null {
+                t = sub->substitute(t);
+                if t == &null { return false; }
+            }
+            tys->push_back(canon_unqual(t));
+            kinds->push_back(c->is_derives());
+        }
+        return true;
+    }
+
+    /// Every bound of (\p xt, \p xk) is one of (\p yt, \p yk).
+    priv fn _bounds_within(self, xt: *vec::<*Type>, xk: *vec::<bool>, yt: *vec::<*Type>, yk: *vec::<bool>) -> bool {
+        for var i: usize = 0; i < xt->size(); ++i {
+            var hit = false;
+            for var j: usize = 0; j < yt->size(); ++j {
+                if ((*yt)[j] == (*xt)[i]) && ((*yk)[j] == (*xk)[i]) { hit = true; break; }
+            }
+            if !hit { return false; }
+        }
+        return true;
+    }
+
+    /// One entity, one set of bounds (see _bounds_differ).
+    priv fn _check_bounds_agree(self, name: string, prev: *FunctionDecl, cur: *FunctionDecl) {
+        var p = self._bounds_differ(prev, cur);
+        if p.empty() { return; }
+        self.sc->diag->report(DiagID::R001E, cur->range.start,
+            f"'{name}' redeclared with different bounds on generic parameter '{p}'; " +
+            "a declaration and its definition must name the same bounds"
+        ).first(cur->range)
+         .note(DiagID::R001N, prev->range.start, "previously declared here")
+         .first(prev->range).emit();
+        cur->poison();
     }
 
     /// True when clang owns \p d: an `ffi` import, from this TU or another
@@ -886,6 +1033,8 @@ class RedeclMerge {
         var rc = self._return_canonical(cur);
         if (rp == &null) || (rc == &null) { return; }   // dependent or diagnosed.
         if rp == rc { return; }
+        // `-> T` on both links of a generic chain: two decls' own `T`s.
+        if self._alpha_ret(prev, cur, rc) == rp { return; }
 
         var at      = (cur->return_type->range)  if (cur->return_type  != &null) else (cur->range);
         var prev_at = (prev->return_type->range) if (prev->return_type != &null) else (prev->range);
@@ -1048,6 +1197,7 @@ class RedeclMerge {
         }
 
         self._check_return_agrees(name, prev, cur);
+        self._check_bounds_agree(name, prev, cur);
         self._check_defaults_once(prev, cur);
         self._check_linkage_agrees(name, prev, cur);
         self._check_modifiers_agree(name, prev, cur);

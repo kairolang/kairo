@@ -113,6 +113,37 @@ class Substitution {
         return true;
     }
 
+    /// bind_alpha for two declarations of ONE generic function (a forward
+    /// declaration and its definition, RedeclMerge): the same, plus value
+    /// parameters, which are alpha-equal when their declared types are one
+    /// canonical (`<eval N: usize>` against `<eval M: usize>`). Each decl's
+    /// parameters are keyed on the DECL ITSELF, not its representative: T
+    /// built them before R linked anything, when every function was its own
+    /// representative, and a chain linked since would point elsewhere.
+    /// Packs still answer false. Bounds are not compared: a disagreement
+    /// there is the caller's error, not a different entity.
+    fn bind_redecl(self, to: *Decl, from: *Decl) -> bool {
+        var tp = decl_generic_params(to);
+        var fp = decl_generic_params(from);
+        if (tp.size() == 0) || (tp.size() != fp.size()) { return false; }
+        for var i: usize = 0; i < tp.size(); ++i {
+            var a = tp[i];
+            var b = fp[i];
+            if (a == &null) || (b == &null) { return false; }
+            if a->is_pack || b->is_pack { return false; }
+            if a->is_const_param != b->is_const_param { return false; }
+            if a->kind_bound != b->kind_bound { return false; }
+            if a->is_const_param {
+                if (a->value_type == &null) || (b->value_type == &null) { return false; }
+                var va = a->value_type->canonical;
+                var vb = b->value_type->canonical;
+                if (va == &null) || (vb == &null) || (canon_unqual(va) != canon_unqual(vb)) { return false; }
+            }
+            if !self.bind(from, u32(i), self.sc->types->generic_param(to, u32(i), false)) { return false; }
+        }
+        return true;
+    }
+
     /// Open the type pack (owner, index): it is bound from here on, to the
     /// elements push_pack adds (none is an empty pack).
     fn open_pack(self, owner: *Decl, index: u32) {

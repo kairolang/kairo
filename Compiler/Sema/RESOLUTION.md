@@ -470,6 +470,27 @@ builtin table only (`usize`/`isize` vs the fixed-width integer of
 `target.pointer_width`); records, pointers and refs compare by canonical as
 identity does. Kairo-authored pairs only.
 
+GENERIC signatures compare up to the names of their parameters: each
+decl's `T` is a GenericParamType owned by that decl, so `_same_signature`
+first reads the second decl's parameter types over the first's
+(Substitution::bind_redecl -- bind_alpha plus value parameters whose
+declared types are one canonical, keyed on each DECL rather than its
+representative, since T built the canonicals before R linked anything) and
+then compares as above. `fn <T impl G> g(x: T)` followed by `fn <U impl G>
+g(x: U) { ... }` is one function, out of line too (`fn <W> C::m`); before,
+every call was SC064E ambiguous between the two links. Return agreement
+substitutes the same way (`-> T` against `-> U`). Bounds are NOT in the
+signature: a file-scope declaration/definition pair that disagrees about a
+parameter's bounds (the requires clause's `impl` / `derives` conjuncts,
+since RequiresDesugar hoisted the inline lists) is R001E at the later one.
+Only a pair with at most one body links (`_one_entity`): two generic
+DEFINITIONS of one shape stay two overloads whatever their bounds, as
+before -- a `where` group's members, which WhereGuardCheck judges
+together, or a constraint-ordered pair -- and so do two bodiless members
+differing only in their bounds. Packs never align. Codegen spells every
+link's template head from the representative (CXXSpell::template_head),
+because `_gparam` spells every canonical parameter through it.
+
 An out-of-line definition may not carry a default (R056E, in R(b)): a
 method's defaults are its in-class declaration's. The default is cleared
 once diagnosed and the definition still links. Free-function

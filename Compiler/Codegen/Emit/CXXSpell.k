@@ -1426,7 +1426,17 @@ class CXXSpell {
     }
 
     /// `template <class T, class... Ts, int N>` for a generic decl; "" otherwise.
-    fn template_head(self, d: *Decl) -> string {
+    fn template_head(self, d_in: *Decl) -> string {
+        var d = d_in;
+        // A generic function declared and then defined is one entity whose
+        // links may name their parameters differently (`fn <U> m` in the
+        // class, `fn <W> C::m` out of line). Every canonical `U` / `W` is
+        // spelled through the representative (_gparam), so every link's head
+        // is the representative's too: one set of names, one requires.
+        if isa::<FunctionDecl>(d) {
+            var r = CXXSpell::rep(d);
+            if (r != &null) && (r != d) && (decl_generic_params(r).size() == decl_generic_params(d).size()) { d = r; }
+        }
         var gps = CXXSpell::template_params(d);
         if gps.size() == 0 { return ""; }
         var s = "template <";
