@@ -169,6 +169,7 @@ import AST::Node::Program::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
 import AST::Node::Expressions::*;
+import AST::Node::PrimaryExpressions::*;
 import AST::ParamMode::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
@@ -1453,6 +1454,19 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
 
     // === assignment ==========================================================
 
+    /// `self.k` naming a const field of the record (CtorInitCheck's
+    /// ctor_init_self_field, restated: this pass does not import it).
+    priv fn _is_self_const_field(self, e: *Expr) -> bool {
+        var c = dyn_cast::<ChainExpr>(e);
+        if (c == &null) || (c->steps.size() != 1) { return false; }
+        var ni = dyn_cast::<NamedIdentExpr>(c->base);
+        if (ni == &null) || (ni->resolved_decl == &null) { return false; }
+        var p = dyn_cast::<ParamDecl>(ni->resolved_decl);
+        if (p == &null) || (!p->is_self) { return false; }
+        var fd = dyn_cast::<FieldDecl>(c->steps.get(0)->resolved_decl);
+        return (fd != &null) && (!fd->is_static()) && fd->is_const();
+    }
+
     /// `a = b` where the derived `op =` of a's record does not exist (file
     /// header, Assignment): an error here, in Kairo's terms, rather than
     /// clang's about a deleted operator. A definite No only. A compound
@@ -1466,6 +1480,10 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         if rd == &null { return true; }
         var f = self.facts_of(rd);
         if f->assignable != LifecycleTri::No { return true; }
+        // `self.k = v` on a const field is its one initialization, a
+        // mem-initializer (CODEGEN.md §6 split) that constructs rather than
+        // assigns; CtorInitCheck reports any other write to it.
+        if self._is_self_const_field(n->lhs) { return true; }
         var b = self.sc->diag->report(DiagID::SC071E, n->range.start,
             f"cannot assign a '{self._tu.str(c)}': {f->why_not_assignable}"
         );

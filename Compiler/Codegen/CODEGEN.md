@@ -561,7 +561,12 @@ __kairo_lref = T&;` and `__kairo_slot<T>`, a T in union storage built on
 its first assignment through its box's own placement `operator new` (no
 `<new>`), destroyed only if built, never copied: `init` (first
 assignment), `put` (may be a later one; the only use of T's `op =`),
-`get`, `take`, `set`. `__kairo_slot<T[N]>` is the array field's: `init`
+`get`, `take`, `set`. Every member is `constexpr` with an `if consteval`
+arm for an eval constructor's slots (EVAL.md 7), which live inside one
+constant evaluation: C++23 allows no placement new there, so that arm
+keeps the value in a transient heap box (`__p = new __h{...}`) that the
+destructor deletes before the evaluation ends; `__v()` reads whichever
+arm holds it. `__kairo_slot<T[N]>` is the array field's: `init`
 takes the array by `&&` (a list literal's prvalue, its elements moved) or
 `const&` (copied), building the elements from an index pack
 (`__make_integer_seq`, `LowerTargets::make_index_seq`), and there is no
@@ -717,7 +722,9 @@ array is initialized from elements, never from an array), then
 `if (__kairo_s.y.set) { this->y = __kairo_s.y.take(); }` for one it
 assigns on some (never an array: CtorInitCheck requires every path), then
 S_post; and the declared constructor, `R(P p) :
-R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}`. In S_pre (`_ci_pre`)
+R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}`. An eval constructor's
+three functions are all `consteval` (`constexpr` for a constexpr one),
+at their declarations in the class and at every definition. In S_pre (`_ci_pre`)
 `self.x = e` is `__kairo_s.x.init(e)` (`.put(e)` for a `var` field that
 is not an array),
 a write CtorInitCheck marked `ci_elem_init` (`self.a[k] = e`, building

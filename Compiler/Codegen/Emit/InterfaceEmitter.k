@@ -2686,6 +2686,13 @@ class InterfaceEmitter {
     /// reference. `init` is a first assignment (a const field, a local);
     /// `put` may be a later one (a `var` field written twice), so only it
     /// asks T for `operator=`.
+    /// An eval constructor's slots live inside one constant evaluation,
+    /// where C++23 allows no placement new (C++26 does) but does allow a
+    /// transient `new`/`delete`: there (`if consteval`) the value is a heap
+    /// box `__p`, which the slot's destructor frees before the evaluation
+    /// ends. Every member reads the value through `__v()`, which picks the
+    /// arm. The run-time arm is unchanged and never sees `__p`; clang emits
+    /// no code for the compile-time one.
     priv fn _ctor_slot_helpers(self, header: bool) {
         var at = self._tu_at();
         if header { self._cg->sink->directive(at, "#ifndef " + LowerTargets::ctor_slot_guard()); }
@@ -2696,19 +2703,22 @@ class InterfaceEmitter {
         var sz = builtin_info(BuiltinKind::USize)->cxx;
         var t = "template <class T> struct " + sl + " {";
         t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
+        t += " struct __h { T v; };";
         t += " union { __b b; };";
+        t += " __h* __p = nullptr;";
         // The members EmitIR calls, one spelling each (LowerTargets).
         var st = LowerTargets::ctor_slot_set();
         var si = LowerTargets::ctor_slot_init();
         t += " bool " + st + " = false;";
-        t += " " + sl + "() noexcept {}";
+        t += " constexpr " + sl + "() noexcept {}";
         t += " " + sl + "(const " + sl + "&) = delete;";
         t += " " + sl + "& operator=(const " + sl + "&) = delete;";
-        t += " ~" + sl + "() { if (" + st + ") { b.~__b(); } }";
-        t += " void " + si + "(T u) { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; " + st + " = true; }";
-        t += " void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { b.v = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }";
-        t += " T& " + LowerTargets::ctor_slot_get() + "() noexcept { return b.v; }";
-        t += " T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(b.v); }";
+        t += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }";
+        t += " constexpr T& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }";
+        t += " constexpr void " + si + "(T u) { if consteval { __p = new __h{static_cast<T&&>(u)}; } else { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; } " + st + " = true; }";
+        t += " constexpr void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { __v() = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }";
+        t += " constexpr T& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }";
+        t += " constexpr T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(__v()); }";
         t += " };";
         self._cg->sink->spell(at, t);
         self._cg->sink->brk();
@@ -2722,26 +2732,33 @@ class InterfaceEmitter {
         a += " using __a = T[N];";
         a += " template <class I, I... K> struct __q {};";
         a += " struct __b { T v[N]; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
+        a += " struct __h { T v[N]; };";
         a += " union { __b b; };";
+        a += " __h* __p = nullptr;";
         a += " bool " + st + " = false;";
-        a += " " + sl + "() noexcept {}";
+        a += " constexpr " + sl + "() noexcept {}";
         a += " " + sl + "(const " + sl + "&) = delete;";
         a += " " + sl + "& operator=(const " + sl + "&) = delete;";
-        a += " ~" + sl + "() { if (" + st + ") { b.~__b(); } }";
-        a += " template <" + sz + "... K> void __mv(__a& u, __q<" + sz + ", K...>) { new (static_cast<void*>(&b)) __b{{static_cast<T&&>(u[K])...}}; " + st + " = true; }";
-        a += " template <" + sz + "... K> void __cp(const __a& u, __q<" + sz + ", K...>) { new (static_cast<void*>(&b)) __b{{u[K]...}}; " + st + " = true; }";
-        a += " void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
-        a += " void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
+        a += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }";
+        a += " constexpr __a& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }";
+        a += " template <" + sz + "... K> constexpr void __mv(__a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{static_cast<T&&>(u[K])...}}; } else { new (static_cast<void*>(&b)) __b{{static_cast<T&&>(u[K])...}}; } " + st + " = true; }";
+        a += " template <" + sz + "... K> constexpr void __cp(const __a& u, __q<" + sz + ", K...>) { if consteval { __p = new __h{{u[K]...}}; } else { new (static_cast<void*>(&b)) __b{{u[K]...}}; } " + st + " = true; }";
+        a += " constexpr void " + si + "(__a&& u) { __mv(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
+        a += " constexpr void " + si + "(const __a& u) { __cp(u, " + LowerTargets::make_index_seq() + "<__q, " + sz + ", N>{}); }";
         // Element by element (CtorInitCheck): each element is built once,
         // in place, in its own box (no <new>), and the array counts as built
         // when the last one is. A constructor never leaves S_pre with part of
         // it built (it cannot panic or return there, and every path builds
         // every element), so a partly built array is never destroyed.
+        // At compile time an element has no box of its own to be built in:
+        // the array is made whole first, which needs T's default (a T with
+        // none cannot be built this way in a constant evaluation, and clang
+        // says so where the evaluation stops).
         a += " struct __e { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };";
         a += " " + sz + " __n = 0;";
-        a += " void " + LowerTargets::ctor_slot_init_at() + "(" + sz + " k, T u) { new (static_cast<void*>(&b.v[k])) __e{static_cast<T&&>(u)}; if (++__n == N) { " + st + " = true; } }";
-        a += " __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return b.v; }";
-        a += " __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(b.v); }";
+        a += " constexpr void " + LowerTargets::ctor_slot_init_at() + "(" + sz + " k, T u) { if consteval { if constexpr (__is_constructible(__h)) { if (__p == nullptr) { __p = new __h{}; } __p->v[k] = static_cast<T&&>(u); } } else { new (static_cast<void*>(&b.v[k])) __e{static_cast<T&&>(u)}; } if (++__n == N) { " + st + " = true; } }";
+        a += " constexpr __a& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }";
+        a += " constexpr __a&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<__a&&>(__v()); }";
         a += " };";
         self._cg->sink->spell(at, a);
         self._cg->sink->brk();
@@ -2818,9 +2835,13 @@ class InterfaceEmitter {
         var ci = LowerTargets::ctor_slots(m->ci_index);
         var sa = LowerTargets::ctor_slot_arg();
         var ps = self._lref_params(m, owner);
+        // The halves run where the constructor runs: an eval one's at
+        // compile time only, so they are `consteval` with it (EVAL.md 1.1),
+        // and C++ wants every declaration to say so.
+        var ce = (("consteval ") if (m->is_eval()) else ((("constexpr ") if (m->is_constexpr()) else (""))));
         self._cg->sink->spell(at, "struct " + ci + ";");
-        self._cg->sink->spell(at, "static auto " + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;");
-        self._cg->sink->spell(at, self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");");
+        self._cg->sink->spell(at, "static " + ce + "auto " + LowerTargets::ctor_pre(m->ci_index) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;");
+        self._cg->sink->spell(at, ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");");
     }
 
     /// `, __kairo_lref<P> p` per parameter but `self`, in order.

@@ -37,7 +37,7 @@ extend V2 {
 
 pub class Counter {
     pub static made: i32 = 0
-    pub var id: i32 = 0
+    pub const id: i32
     pub var n: i32 = 0
 
     pub fn Counter(self, id: i32) {

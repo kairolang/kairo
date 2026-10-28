@@ -573,6 +573,13 @@ class EmitIR {
         var oh   = self._owner_template_head(owner);
         var q    = self._owner_qual(owner);
         var inl  = ("inline ") if (m->is_inline()) else ("");
+        // An eval constructor is `consteval` in the class (EVAL.md 1.1), and
+        // so are its halves (InterfaceEmitter::_split_ctor_decls): every
+        // definition repeats it, or clang reads a run-time redeclaration.
+        // The slots then live inside one constant evaluation (the ctor
+        // slot helpers' `if consteval` arm).
+        if m->is_eval() { inl += "consteval "; }
+        else if m->is_constexpr() { inl += "constexpr "; }
         var ci   = LowerTargets::ctor_slots(m->ci_index);
         var sa   = LowerTargets::ctor_slot_arg();
         var leaf = self._spell.leaf(owner);
