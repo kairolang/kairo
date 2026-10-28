@@ -4,15 +4,11 @@
 // method, and its result is the requirement's return type at the bound's
 // arguments).
 //
-// XFAIL: *
-// Ticket "[Sema/Codegen] A member of a bound call's record result ICEs in
-// EmitIR" (private/IMPORTANT/TICKETS.TXT, 2026-10-24). Today it
-// type-checks and then ICEs: "EmitIR: unbound member step reached codegen;
-// gate failure" at `.w` -- the call's return type is not substituted at the
-// bound's arguments where the member step is typed, so `.w` is never bound.
-// witness/composed_dependent_leaf.k carries the workaround (bind the result
-// to a typed local first). When it XPASSes, delete the XFAIL -- the run
-// below is already the real assertion.
+// Overload resolution binds the requirement's interface parameters from the
+// bound (V := i32), so the call types as Wrap<i32> and `.w` binds as on any
+// Wrap<i32>. It used to type as unknown and ICE in EmitIR ("unbound member
+// step reached codegen"); witness/composed_dependent_leaf.k still spells the
+// typed-temporary form that worked around it.
 
 pub struct <W> Wrap { pub var w: W }
 pub interface <V> PW { fn get(const self, i: i32) -> Wrap<V> }

@@ -169,6 +169,32 @@ class TypeUtil {
         return cast::<RecordType>(u)->decl;
     }
 
+    /// The interfaces a bounded generic parameter \p t promises, as their
+    /// canonical instances (`T impl Same`, `T impl Container<U>`), or none
+    /// when \p t is not a bare parameter or has no interface bound. Here and
+    /// not in a typer because overload resolution needs it too: a call
+    /// through the bound reads the requirement at the bound's arguments.
+    fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
+        var out = vec::<*Type>();
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
+        var g = cast::<GenericParamType>(c);
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        if it == self.sc->bounds.end() { return out; }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
+            var k = _set->impl_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if id == &null { continue; }
+            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
+            if (gp == &null) || (gp->index != g->param_index) { continue; }
+            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
+            if (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
+            out.push_back(canon_unqual(k->rhs->canonical));
+        }
+        return out;
+    }
+
     fn record_args(self, t: *Type) -> FrozenList::<*Type> {
         var u = canon_unqual(t);
         if (u == &null) || (!isa::<RecordType>(u)) { return create_empty_frozen_list::<*Type>(); }

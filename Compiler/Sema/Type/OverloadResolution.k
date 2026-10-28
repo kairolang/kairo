@@ -738,6 +738,22 @@ class OverloadResolution {
         return NameLookup::representative(owner) == NameLookup::representative(self.tu.pattern_of(r->decl));
     }
 
+    /// The instance of \p c's declaring interface that a bound of the
+    /// parameter \p receiver names, read through the bound's `derives` chain
+    /// (`C impl Wrapped<i32>` declares Container's `get` at
+    /// `Container<Wrap<i32>>`); null when \p receiver is no bounded
+    /// parameter or no bound declares the candidate. The first bound that
+    /// does wins: two bounds reaching one requirement at different
+    /// arguments is a conflict the bounds' own checking owns, not this call.
+    priv fn _bound_declaring(self, c: *Candidate, receiver: *Type) -> *Type {
+        var bs = self.tu.bound_ifaces(receiver);
+        for var i: usize = 0; i < bs.size(); ++i {
+            var di = c->ded.declaring_instance(c->f, bs[i]);
+            if di != &null { return di; }
+        }
+        return &null;
+    }
+
     priv fn _judge_receiver(self, c: *Candidate, p: *ParamDecl, receiver: *Type) {
         if (receiver == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return; }
         var sq = canon_quals(p->type_->canonical);
@@ -801,6 +817,18 @@ class OverloadResolution {
         if qualifier != &null {
             var di = c->ded.declaring_instance(f, qualifier);
             if di != &null { c->ded.bind_from_record(di); c->ded.seeded = true; }
+        } else if receiver != &null {
+            // `c.get(1)` through `C impl PW<i32>`: the bound is the qualifier
+            // the call did not write. The body is checked once, against its
+            // bounds (MONO.md D0), so the requirement means what the bound
+            // says at the bound's arguments -- `-> Wrap<V>` reads `Wrap<i32>`
+            // -- and the result is an ordinary value. Left unbound, V made
+            // the result unknown: nothing checked `var z: Q = c.shine()`, and
+            // `c.get(1).w` reached codegen with its member step unbound.
+            // A non-generic interface has nothing to bind, and its `Self` is
+            // call_result_type's (through_receiver), so it is not seeded.
+            var di = self._bound_declaring(c, receiver);
+            if (di != &null) && (self.tu.record_args(di).size() > 0) { c->ded.bind_from_record(di); c->ded.seeded = true; }
         }
 
         var nparams = params.size();

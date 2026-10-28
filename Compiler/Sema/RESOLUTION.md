@@ -1076,7 +1076,16 @@ A qualified requirement call (`Container<i32>::get(b, 0)`) seeds the same
 way from its qualifier: `declaring_instance(f, Q)` is the instance of the
 requirement's declaring interface Q names (through the composed list's
 `Requirement::source` when Q derives it), and its arguments bind the
-interface's parameters before any argument is ranked. In a GENERIC
+interface's parameters before any argument is ranked. A call THROUGH a
+bound (`c.get(1)` with `C impl PW<i32>`, an operator or `op []` on such a
+`C`) is the same call with the bound as the unwritten qualifier: the first
+interface bound of the receiver parameter (`TypeUtil::bound_ifaces`) whose
+`declaring_instance` is non-null seeds it, so `-> Wrap<V>` reads
+`Wrap<i32>` and the result is an ordinary value (a member of it binds, its
+initializer is checked; MONO.md G7, D0). A bound over the body's own
+parameter (`C impl Fancy<E>`) binds V := E and the result is E. A
+non-generic interface binds nothing and is not seeded. An associated-type
+result (`-> Self::Node`) does not substitute and stays unknown (G5). In a GENERIC
 interface `Self` is `I<T...>` over its own parameters, so the Self rule
 (`through_receiver`) also takes that spelling, and CallTyping applies it
 before the substitution for a concrete receiver: substituted first, `I<T>`

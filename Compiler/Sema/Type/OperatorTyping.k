@@ -147,26 +147,7 @@ class <T> OperatorTyping {
     /// sends it through the interface's witness (CODEGEN.md §7b.5).
     /// MemberTyping's `op []` reads it too, so a subscript and a binary
     /// operator on one T see the same bounds.
-    fn bound_ifaces(self, t: *Type) -> vec::<*Type> {
-        var out = vec::<*Type>();
-        var c = canon_unqual(t);
-        if (c == &null) || (!isa::<GenericParamType>(c)) { return out; }
-        var g = cast::<GenericParamType>(c);
-        var it = dyn()->sc->bounds.find(reinterpret_cast::<u64>(g->owner));
-        if it == dyn()->sc->bounds.end() { return out; }
-        var _set = &(it->second);
-        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
-            var k = _set->impl_constraints[i];
-            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
-            if id == &null { continue; }
-            var gp = dyn_cast::<GenericParamDecl>(id->resolved_decl);
-            if (gp == &null) || (gp->index != g->param_index) { continue; }
-            if NameLookup::representative(gp->owner) != NameLookup::representative(g->owner) { continue; }
-            if (k->rhs == &null) || (k->rhs->canonical == &null) { continue; }
-            out.push_back(canon_unqual(k->rhs->canonical));
-        }
-        return out;
-    }
+    fn bound_ifaces(self, t: *Type) -> vec::<*Type> { return dyn()->tu.bound_ifaces(t); }
 
     priv fn _bounded(self, t: *Type) -> bool { return self.bound_ifaces(t).size() > 0; }
 
