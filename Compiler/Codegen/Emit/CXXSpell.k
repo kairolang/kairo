@@ -941,7 +941,7 @@ class CXXSpell {
         // A type pack is `T...` (the C++ parameter pack); under an instance it
         // is that instance's elements, one parameter each.
         if param_is_type_pack(p) {
-            var g = cast::<GenericParamType>(canon_unqual(p->type_->canonical));
+            var g = param_type_pack_param(p);
             var cq = ("const ") if (p->is_const) else ("");
             var els = vec::<*Type>();
             if self.subst_pack(g, subst, &els) {

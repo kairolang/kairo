@@ -344,6 +344,11 @@ class GenericParamDecl derives Decl {
     pub var is_const_param: bool = false;           ///< `const N: T` value parameter.
     pub var value_type:     *Type = &null;          ///< type of a const value param; null for type params.
     pub var default_type:   *Type = &null;          ///< `<T = i32>` default; null if none.
+    /// Imported only: C++ declares a default, which default_type may not
+    /// hold (`enable_if_t<...> = 0` depends on the other parameters). A
+    /// function template's parameter like that is C++'s to fill, so
+    /// deduction does not require it (Deduction::is_complete).
+    pub var ffi_has_default: bool = false;
     pub var index:          u32 = 0;                ///< position in the param list.
 
     static fn create(

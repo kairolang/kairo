@@ -1126,7 +1126,11 @@ Specializations are skipped (paired later). A one-type pack ranks each
 argument against its element. A TYPE pack deduces one element per argument,
 its type by value (a literal its default), into `Deduction::packs`, opened
 even for an empty run; the instance carries the elements flat, at the
-pack's position. Its elements cannot be written as explicit generic
+pack's position. An imported pack's pattern through a reference deduces
+the same way through it: `Args&&...` and `const Ts&...` take any argument,
+`Ts&...` only an lvalue. An imported template parameter with a C++ default
+(`enable_if_t<...> = 0`) is not required of deduction
+(`GenericParamDecl::ffi_has_default`): clang fills it. Its elements cannot be written as explicit generic
 arguments yet (not viable, with that reason). A default is looked for across the WHOLE redecl
 chain (`TypeUtil::param_default`): defaults accumulate over redeclarations,
 and the link judged need not be the one that wrote it. An imported C++
@@ -1638,7 +1642,8 @@ defaults evaluate after them, in parameter order. A pack over one type is a
 `Slice<E>` by value (`ParamDecl::pack_type`) over a backing array alive for
 the call's full-expression; a TYPE pack (`fn <...T> f(...xs: T)`,
 `param_is_type_pack`) is a C++ parameter pack, its run left one argument
-per element. A call with an lvalue or record result keeps C++ order
+per element. An imported pack (`Args&&... args`) is one too: its element is
+the expansion's pattern, which may be a reference to the pack. A call with an lvalue or record result keeps C++ order
 (the documented SequenceLowering hole). Dependent calls are left as written
 until M2.
 

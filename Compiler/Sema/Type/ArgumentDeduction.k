@@ -87,7 +87,13 @@ class Deduction derives Substitution {
             var gp = gps[i];
             if gp == &null { continue; }
             if gp->is_pack { continue; }   // packs deduce to "whatever arrived"; see OverloadResolution.
-            if self.lookup(owner, gp->index) == &null { return false; }
+            // An imported template's defaulted parameter is not deduced in C++
+            // either: `make_unique`'s `enable_if_t<!is_array_v<T>, int> = 0`
+            // is clang's to fill when it instantiates the call.
+            if self.lookup(owner, gp->index) == &null {
+                if gp->ffi_has_default { continue; }
+                return false;
+            }
         }
         return true;
     }

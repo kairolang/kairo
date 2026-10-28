@@ -992,6 +992,7 @@ class DeclImport {
             var tt = llvm::dyn_cast::<clang::TemplateTypeParmDecl>(p);
             if tt != &null {
                 gp->is_pack = tt->isParameterPack();
+                gp->ffi_has_default = tt->hasDefaultArgument();
                 if tt->hasDefaultArgument() {
                     gp->default_type = ti->_import(tt->getDefaultArgument().getArgument().getAsType());
                 }
@@ -1001,6 +1002,7 @@ class DeclImport {
                 gp->is_const_param = true;
                 gp->is_pack        = nt->isParameterPack();
                 gp->value_type     = ti->_import(nt->getType());
+                gp->ffi_has_default = nt->hasDefaultArgument();
                 // `template <class T, unsigned N = 3>`: a default clang can
                 // fold now is the value argument a Kairo `<.., 3>` would be,
                 // so `Buf<i32>` keys as `Buf<i32, 3>` (GenericArgs fills it).
@@ -1020,6 +1022,8 @@ class DeclImport {
                     }
                 }
             }
+            var tm = llvm::dyn_cast::<clang::TemplateTemplateParmDecl>(p);
+            if tm != &null { gp->ffi_has_default = tm->hasDefaultArgument(); }
             // Template template params: recorded as an opaque type param.
             gp->impl_bounds.from_raw(static_cast::<*InheritEdge>(&null), 0);
             gp->derives_bounds.from_raw(static_cast::<*InheritEdge>(&null), 0);
@@ -1093,7 +1097,20 @@ class DeclImport {
             var pnm  = self._str(p->getName());
             var unnamed = pnm.size() == 0;
             if unnamed { pnm = f"__arg{idx}"; }
-            var kp = ParamDecl::create(t->ctx, pat, self.ident(t, pnm, pat), ti->_import(p->getType()), idx, unnamed);
+            // `Args&&... args`: the parameter's type is a PackExpansionType,
+            // which has no Kairo shape and imported opaque, so no argument
+            // converted to it and every emplace_back was SC063E. A Kairo pack
+            // parameter is its ELEMENT's type marked is_pack; the element of
+            // a C++ pack is the expansion's pattern (`Args&&`), one per
+            // argument (OverloadResolution::_rank_arg).
+            var ptype = p->getType();
+            var is_pack = false;
+            if p->isParameterPack() {
+                var pe = ptype->getAs::<clang::PackExpansionType>();
+                if pe != &null { ptype = pe->getPattern(); is_pack = true; }
+            }
+            var kp = ParamDecl::create(t->ctx, pat, self.ident(t, pnm, pat), ti->_import(ptype), idx, unnamed);
+            kp->is_pack = is_pack;
             kp->has_default = p->hasDefaultArg();           // spec: new field; OverloadResolution reads it.
             kp->cxx_int_alias = ti->is_int_alias(p->getType());
             kf->cxx_param_spellings.push_back(ti->spelling(p->getType()));

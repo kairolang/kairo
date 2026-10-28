@@ -987,7 +987,7 @@ class OverloadResolution {
         // 4. rank every placed argument. A type pack is bound even when no
         //    argument reaches it: `f()` of `fn <...T> f(...xs: T)` is T = {}.
         if (pack_at != usize(-1)) && param_is_type_pack(params[pack_at]) {
-            var pg = cast::<GenericParamType>(canon_unqual(params[pack_at]->type_->canonical));
+            var pg = param_type_pack_param(params[pack_at]);
             c->ded.open_pack(pg->owner, pg->param_index);
         }
         for var i: usize = 0; i < args->size(); ++i {
@@ -1190,9 +1190,23 @@ class OverloadResolution {
             // literal its default): that is the instance's element, and what
             // C++'s `T... xs` deduces from the same argument.
             var pg = dyn_cast::<GenericParamType>(pt);
+            // An imported pack's pattern through a reference -- `Args&&...`
+            // (emplace_back, make_unique), `const Ts&...` -- deduces each
+            // element through the reference, as [temp.deduct.call]/3 reads a
+            // single `T&&`: any argument binds a forwarding `&&` or a `const
+            // &`, only an lvalue a plain `&`. The element is still the
+            // argument's value type; C++ re-deduces the reference itself.
+            var pref: *Type = &null;
+            if pg == &null {
+                if isa::<CXXRValueRefType>(pt) { pref = cast::<CXXRValueRefType>(pt)->referee; }
+                if isa::<CXXLValueRefType>(pt) { pref = cast::<CXXLValueRefType>(pt)->referee; }
+                if pref != &null { pg = dyn_cast::<GenericParamType>(canon_unqual(pref)); }
+            }
             if (pg != &null) && pg->is_pack {
+                if (pref != &null) && isa::<CXXLValueRefType>(pt) && (!canon_has_const(pref))
+                && (a->cat != Expr::ValueCategory::LValue) { return ImplicitRank::None; }
                 var et: *Type = &null;
-                if a->lit != LitKind::None { et = self._literal_default(a, pt); }
+                if a->lit != LitKind::None { et = self._literal_default(a, static_cast::<*Type>(pg)); }
                 else if a->ty != &null     { et = self.tu.as_value(a->ty); }
                 if et == &null { return ImplicitRank::None; }   // `null`, `.V`: no type to deduce an element from.
                 c->ded.push_pack(pg->owner, pg->param_index, et);

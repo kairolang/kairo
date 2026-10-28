@@ -434,15 +434,31 @@ fn decl_pack_param(d: *Decl) -> *ParamDecl {
     return &null;
 }
 
+/// The type pack \p p expands (param_is_type_pack, below), through the one
+/// C++ reference an imported pattern may add; null when it is not one.
+/// Defined first: Stage 0 needs a free fn declared above its callers.
+fn param_type_pack_param(p: *ParamDecl) -> *GenericParamType {
+    if (p == &null) || (!p->is_pack) || (p->type_ == &null) || (p->type_->canonical == &null) { return &null; }
+    var t = canon_unqual(p->type_->canonical);
+    if isa::<CXXLValueRefType>(t) { t = canon_unqual(cast::<CXXLValueRefType>(t)->referee); }
+    else if isa::<CXXRValueRefType>(t) { t = canon_unqual(cast::<CXXRValueRefType>(t)->referee); }
+    var g = dyn_cast::<GenericParamType>(t);
+    if (g == &null) || (!g->is_pack) { return &null; }
+    return g;
+}
+
 /// `...xs: T` with T a TYPE pack (`fn <...T> f(...xs: T)`): a C++
 /// parameter pack, `T... xs`, one argument per element. A pack over one
 /// type (`...xs: i32`, or a non-pack `U`) is a `Slice<E>` instead
 /// (ParamDecl::pack_type); the two never mix, so every reader that builds,
 /// spells or passes a pack asks this first.
+///
+/// An imported C++ pack's element is its expansion's PATTERN, and the
+/// pattern can be a reference to the pack (`Args&&... args`, `const Ts&...`):
+/// still a C++ parameter pack, one argument per element. Only an import has
+/// such a parameter; Kairo spells no C++ reference.
 fn param_is_type_pack(p: *ParamDecl) -> bool {
-    if (p == &null) || (!p->is_pack) || (p->type_ == &null) || (p->type_->canonical == &null) { return false; }
-    var g = dyn_cast::<GenericParamType>(canon_unqual(p->type_->canonical));
-    return (g != &null) && g->is_pack;
+    return param_type_pack_param(p) != &null;
 }
 
 /// The pack-expanded variant of ADT \p en (`Err { e: E }...`), or null.
