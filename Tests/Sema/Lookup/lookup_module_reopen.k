@@ -5,11 +5,11 @@ module Util {
 
 module Util {
     fn b() -> i32 { return a() + 1 }
-    fn uses_p() -> i32 { var p: *P = &null; return 0 }
+    fn uses_p() -> i32 { var p: unsafe *P = &null; return 0 }
 }
 
 fn use_util() -> i32 {
-    var p: *Util::P = &null;
+    var p: unsafe *Util::P = &null;
     return Util::a() + Util::b()
 }
 

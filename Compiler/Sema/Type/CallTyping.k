@@ -279,7 +279,9 @@ class <T> CallTyping {
             if (p->mode == ParamMode::Inout) && (!a->marked) { dyn()->flow.inout_arg(a->expr, &null); }
             else { dyn()->flow.pass_pointer(a->expr, pt); }
             if a->lit != LitKind::None {
+                dyn()->push_null_target(a->expr, p->type_, static_cast::<*Decl>(p));
                 dyn()->type_of(a->expr, pt);
+                dyn()->pop_null_target();
                 continue;
             }
             // Either side dependent -- only reachable through a dependent

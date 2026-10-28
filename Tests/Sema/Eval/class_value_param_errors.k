@@ -10,7 +10,7 @@ pub struct Runtime {
 }
 
 pub struct Ptr {
-    pub var p: *i32
+    pub var p: unsafe *i32
     eval fn Ptr(self) { self.p = &null }
 }
 

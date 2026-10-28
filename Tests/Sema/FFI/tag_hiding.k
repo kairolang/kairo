@@ -21,7 +21,7 @@ ffi "c++" import "Inputs/tag_hiding/all.h" as h
 fn use_all() -> i32 {
     var off: i64 = timezone
     var p = get_tz()
-    var q: *pair = &null
+    var q: unsafe *pair = &null
     return tz_minutes(p) + st(1) + (off as i32) + (h::timezone as i32) + h::st(2)
 }
 
@@ -36,7 +36,7 @@ fn main() -> i32 {
 // SEMA:      member  ::timezone {{.*}} -> var timezone @ 1:1
 // SEMA:      member  ::st {{.*}} -> fn st @ 3:1
 // SEMA:      CallExpr {{.*}} : unsafe *timezone
-// SEMA:      NullLiteralExpr {{.*}} : *pair
+// SEMA:      NullLiteralExpr {{.*}} : unsafe *pair
 
 // IR: signed long off = ::timezone;
 // IR: struct{{ ?}}::timezone * p = ::get_tz();

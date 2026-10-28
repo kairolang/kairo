@@ -49,7 +49,7 @@ fn main() -> i32 {
     var ps = f"{p}"                                                 // "i32 @ 0x..."
     var b  = Bare{ v: 1 }
     var bs = f"{b}"                                                 // "Bare @ 0x..."
-    var np: *i32 = &null
+    var np: unsafe *i32 = &null
     var ns = f"{np}"                                                // "&null"
 
     // 51 + 35 + 2 + 11 + 4 == 103

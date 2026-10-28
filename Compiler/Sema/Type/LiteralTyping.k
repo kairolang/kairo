@@ -52,6 +52,19 @@ import Support::UTF8View::*;
 import Token::TokenKind::*;
 import Location::SourceRange::*;
 
+/// A declared slot a value is being typed into (pointers.mdx: `*T` is
+/// never null). `root` is the value as written, `written` the slot's type as
+/// written (its range is where a fix-it goes; null when the slot has no
+/// written type, an inferred one or a canonical from an instance), `owner`
+/// the declaration the slot belongs to (null when none: a function value's
+/// parameter). ExprTyper keeps the stack (push_null_target); it is
+/// declared here, ahead of the mixin that reads it.
+struct NullTarget {
+    var root:    *Expr;
+    var written: *Type;
+    var owner:   *Decl;
+}
+
 class <T> LiteralTyping {
     priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
 
@@ -257,13 +270,83 @@ class <T> LiteralTyping {
     /// pointer). Neither has a type of its own to fall back on.
     fn type_null_literal(self, n: *NullLiteralExpr, expected: *Type) -> *Type {
         if n->is_ref {
-            if dyn()->tu.pointee(dyn()->tu.strip_nullable(expected)) != &null { return expected; }
+            if dyn()->tu.pointee(dyn()->tu.strip_nullable(expected)) != &null {
+                // A safe `*T` is never null (pointers.mdx), so `&null` has
+                // nowhere to go in one: only a `*T?` (as that nullable's
+                // null) or an `unsafe *T` holds it. A comparison operand is
+                // not stored, so `p == &null` stays the comparison it is.
+                var safe = (dyn()->tu.nullable_inner(expected) == &null) && (!dyn()->tu.is_unsafe_ptr(expected));
+                // FIXME(builtin): Lib/builtin's string and FmtBuf still clear
+                // their `*u8` data with `&null` (string.k, fmt_buf.k finish);
+                // the builtin module is the user's to migrate, so it is not
+                // held to the rule until it is.
+                var sc = dyn()->sc;
+                if (sc->g != &null) && sc->g->is_builtin_fid(sc->ctx->fid) { safe = false; }
+                if safe && (static_cast::<*Expr>(n) != dyn()->null_compared) {
+                    self._null_into_safe_pointer(n, expected);
+                    return &null;
+                }
+                return expected;
+            }
             dyn()->fail(n, DiagID::SC076E, "cannot infer the pointer type of '&null' here; annotate the target");
             return &null;
         }
         if dyn()->tu.nullable_inner(expected) != &null { return expected; }
         dyn()->fail(n, DiagID::SC076E, "cannot infer the type of 'null' here; annotate the target with a nullable type");
         return &null;
+    }
+
+    /// `&null` typed into the safe pointer \p to. The slot it lands in is
+    /// the innermost null target whose value \p n is: its declaration gets
+    /// the note, and its written type the fix-it -- `*T?`, the pointer that
+    /// may be absent. `unsafe *T` is named in the note rather than offered:
+    /// it drops the tracking, which is not a choice a fix-it should make.
+    priv fn _null_into_safe_pointer(self, n: *NullLiteralExpr, to: *Type) {
+        var e = static_cast::<*Expr>(n);
+        if e->is_poisoned() { return; }
+        var ts = dyn()->tu.str(to);
+        var b = dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"'&null' cannot be stored in '{ts}': a safe pointer is never null"
+        );
+        b.first(n->range, "the null address");
+        var why = f"a pointer that may be absent is '{ts}?', and a raw pointer that may hold '&null' is 'unsafe {ts}\x27";
+        var slot: *NullTarget = &null;
+        var i = dyn()->null_targets.size();
+        while i > 0 {
+            i -= 1;
+            if self._value_of(dyn()->null_targets[i].root, e) { slot = &(dyn()->null_targets[i]); break; }
+        }
+        var w: *Type = (slot->written) if (slot != &null) else (&null);
+        if (w != &null) && w->range.is_valid() {
+            var who = ("the slot") if (slot->owner == &null) else (f"'{dyn()->tu.decl_name(slot->owner)}\x27");
+            var what = ("is declared to return") if ((slot->owner != &null) && isa::<FunctionDecl>(slot->owner)) else ("is declared");
+            b.note(w->range.start, f"{who} {what} '{ts}' here; {why}");
+            b.insert(w->range.end, "?", f"make the pointer nullable: '{ts}?\x27");
+        } else {
+            b.note(f"'{ts}' is a safe pointer, which always points at something; {why}");
+        }
+        b.emit();
+        e->poison();
+    }
+
+    /// \p e is the value \p root produces, through parentheses, the arms
+    /// of an `if` expression and the fallback of a `??` -- the shapes whose
+    /// result IS one of their operands, so the operand lands in the slot.
+    priv fn _value_of(self, root: *Expr, e: *Expr) -> bool {
+        var r = dyn()->tu.strip_parens(root);
+        if r == &null { return false; }
+        if r == e { return true; }
+        var ie = dyn_cast::<IfExpr>(r);
+        if ie != &null {
+            if self._value_of(ie->then_expr, e) || self._value_of(ie->else_expr, e) { return true; }
+            for var j: usize = 0; j < ie->else_ifs.size(); ++j {
+                if self._value_of(ie->else_ifs.get(j)->body, e) { return true; }
+            }
+            return false;
+        }
+        var bo = dyn_cast::<BinaryOperatorExpr>(r);
+        if (bo != &null) && (bo->op_token.kind == TokenKind::OpQuestionQuestion) { return self._value_of(bo->rhs, e); }
+        return false;
     }
 
     fn type_list_literal(self, n: *ListLiteralExpr, expected: *Type) -> *Type {

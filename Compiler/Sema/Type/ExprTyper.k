@@ -235,6 +235,14 @@ class ExprTyper
     /// matches, so ControlTyping::type_variant_value does not make it a
     /// construction of its own. One writer: ControlTyping::type_head.
     pub var variant_head: *Expr = &null;
+    /// The slots the values being typed right now go into, innermost last
+    /// (push_null_target). Only `&null` reads it: when it lands in a safe
+    /// pointer, the error names the slot and offers its fix-it there.
+    pub var null_targets: vec::<NullTarget>;
+    /// The `&null` operand of the `==` / `<` being typed, or null. It takes
+    /// the other operand's pointer type without storing anything in it, so a
+    /// comparison is never the "`&null` into a `*T`" error (LiteralTyping).
+    pub var null_compared: *Expr = &null;
 
     // --- side tables --------------------------------------------------------
     // Keyed by expr address: a pointer can never be DenseMap's reserved
@@ -271,6 +279,23 @@ class ExprTyper
         self.flow = NullnessFlow(sc, &(self.tu));
         self.discr_enum   = &null;
         self.variant_head = &null;
+        self.null_compared = &null;
+    }
+
+    /// \p root is about to be typed into a slot declared \p written (as
+    /// written, or null) by \p owner. Pair every push with a pop_null_target
+    /// once \p root is typed: the stack holds the slots being typed into
+    /// right now, nothing older.
+    fn push_null_target(self, root: *Expr, written: *Type, owner: *Decl) {
+        var t = NullTarget{};
+        t.root    = root;
+        t.written = written;
+        t.owner   = owner;
+        self.null_targets.push_back(t);
+    }
+
+    fn pop_null_target(self) {
+        if !self.null_targets.empty() { self.null_targets.pop_back(); }
     }
 
     /// The type of a variant of \p ed used as a value: the enum, except

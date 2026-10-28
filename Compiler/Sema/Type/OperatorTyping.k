@@ -515,6 +515,14 @@ class <T> OperatorTyping {
         // operand typing below is then a memo hit.
         if self._is_logical(k) { self._type_logical_operands(n); }
 
+        // `p == &null` on a safe `p` reads the literal as a `*T` it never
+        // stores into: not the "`&null` in a `*T`" error (LiteralTyping).
+        if self._is_equality(k) || self._is_relational(k) {
+            var cl = null_literal_of(n->lhs);
+            if cl == &null { cl = null_literal_of(n->rhs); }
+            if (cl != &null) && cl->is_ref { dyn()->null_compared = static_cast::<*Expr>(cl); }
+        }
+
         // literal on one side takes the other's type.
         var l_lit = dyn()->is_untyped_literal(n->lhs);
         var r_lit = dyn()->is_untyped_literal(n->rhs);
@@ -1496,6 +1504,31 @@ class <T> OperatorTyping {
         return (!f->is_static()) && (f->semantic_dc == fd->semantic_dc);
     }
 
+    /// The variable, parameter or field an assignment writes: `x = v`, or
+    /// the last step of `a.b.c = v`. Null for any other place (`*p = v`,
+    /// `v[i] = x`), which has no declaration to point a fix-it at.
+    priv fn _assigned_decl(self, lhs: *Expr) -> *Decl {
+        var x = dyn()->tu.strip_parens(lhs);
+        if x == &null { return &null; }
+        var id = dyn_cast::<NamedIdentExpr>(x);
+        if id != &null { return id->resolved_decl; }
+        var ch = dyn_cast::<ChainExpr>(x);
+        if (ch != &null) && (ch->steps.size() > 0) { return ch->steps.get(ch->steps.size() - 1)->resolved_decl; }
+        return &null;
+    }
+
+    /// \p d's type as written, or null: what a fix-it on its slot edits.
+    priv fn _written_type_of(self, d: *Decl) -> *Type {
+        if d == &null { return &null; }
+        var v = dyn_cast::<VariableDecl>(d);
+        if v != &null { return v->type_; }
+        var p = dyn_cast::<ParamDecl>(d);
+        if p != &null { return p->type_; }
+        var f = dyn_cast::<FieldDecl>(d);
+        if f != &null { return f->type_; }
+        return &null;
+    }
+
     fn type_assign(self, n: *AssignOperatorExpr, expected: *Type) -> *Type {
         var k  = n->op_token.kind;
         var lt = dyn()->type_of(n->lhs, &null);
@@ -1520,7 +1553,10 @@ class <T> OperatorTyping {
                 dyn()->fail(n, DiagID::SC071E, "an array is not assignable; assign its elements, or go through a slice");
                 return &null;
             }
+            var ad = self._assigned_decl(n->lhs);
+            dyn()->push_null_target(n->rhs, self._written_type_of(ad), ad);
             dyn()->type_of(n->rhs, lt);
+            dyn()->pop_null_target();
             if dyn()->propagate(n, n->rhs) { return &null; }
             if dyn()->reject_slice_literal(n->rhs, "assigned to a slice") { dyn()->poison_only(n); return &null; }
             if !dyn()->check_convertible(n->rhs, lt) { dyn()->poison_only(n); return &null; }

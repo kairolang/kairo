@@ -17,6 +17,6 @@ pub struct <T impl Named> Box { pub var item: T }
 pub struct Metric { pub var base: i32 }
 pub struct <T> Outer { pub var b: Box<T> }
 fn main() -> i32 {
-    var p: *Outer<Metric> = &null
+    var p: *Outer<Metric>? = &null
     return 0
 }

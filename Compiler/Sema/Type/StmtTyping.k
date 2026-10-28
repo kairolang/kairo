@@ -401,7 +401,9 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             var p = n->params[i];
             if (p == &null) || (p->default_val == &null) { continue; }
             var pt = (p->type_->canonical) if (p->type_ != &null) else (&null);
+            dyn()->push_null_target(p->default_val, p->type_, static_cast::<*Decl>(p));
             dyn()->type_of(p->default_val, pt);
+            dyn()->pop_null_target();
             if dyn()->reject_slice_literal(p->default_val, "used as a default argument") { continue; }
             if pt != &null { dyn()->check_convertible(p->default_val, pt); }
             var scan = DefaultRefScan();
@@ -579,7 +581,9 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n->init != &null {
             var ft = (n->type_->canonical) if (n->type_ != &null) else (&null);
             dyn()->flow.enter();   // a default runs in no body's state.
+            dyn()->push_null_target(n->init, n->type_, static_cast::<*Decl>(n));
             dyn()->type_of(n->init, ft);
+            dyn()->pop_null_target();
             dyn()->reject_slice_literal(n->init, "used as a field default");
             if ft != &null { dyn()->check_convertible(n->init, ft); }
             dyn()->flow.leave();
@@ -737,7 +741,9 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(n), false);
             return n;
         }
+        dyn()->push_null_target(n->init, n->type_, static_cast::<*Decl>(n));
         var t = dyn()->type_of(n->init, declared);
+        dyn()->pop_null_target();
         dyn()->mark_list_storage(n->init);
         self._reject_array_copy(n, (declared) if (declared != &null) else (t));
         var ok = true;
@@ -815,7 +821,15 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             return n;
         }
         fr->saw_return_value = true;
+        var rw: *Type = (fr->fn_decl->return_type) if (fr->fn_decl != &null) else (&null);
+        dyn()->push_null_target(n->value, rw, static_cast::<*Decl>(fr->fn_decl));
         var t = dyn()->type_of(n->value, fr->declared);
+        dyn()->pop_null_target();
+        // Re-read: typing a closure in the value pushes its frame, and a
+        // `frames` that grew moved this one. The old pointer read freed
+        // memory (an inferred return wrote to it), harmless only while
+        // nothing reused the block.
+        fr = self.cur_frame();
         dyn()->reject_slice_literal(n->value, "returned from a function");
         if fr->declared != &null {
             if dyn()->tu.is_never(fr->declared) {

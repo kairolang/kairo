@@ -442,7 +442,12 @@ class <T> ControlTyping {
             // a function type has no top-level cv on its parameters ([dcl.fct]/5)
             params.push_back(canon_unqual(p->type_->canonical));
             modes.push_back(p->mode);
-            if p->default_val != &null { dyn()->type_of(p->default_val, p->type_->canonical); dyn()->check_convertible(p->default_val, p->type_->canonical); }
+            if p->default_val != &null {
+                dyn()->push_null_target(p->default_val, p->type_, static_cast::<*Decl>(p));
+                dyn()->type_of(p->default_val, p->type_->canonical);
+                dyn()->pop_null_target();
+                dyn()->check_convertible(p->default_val, p->type_->canonical);
+            }
         }
         for var i: usize = 0; i < n->captures.size(); ++i {
             var c = n->captures.get(i);
@@ -565,7 +570,9 @@ class <T> ControlTyping {
             }
             var ft = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
             if ft != &null { ft = dyn()->ded_scratch()->member_through(rec, ft); }
+            dyn()->push_null_target(f->value, fd->type_, static_cast::<*Decl>(fd));
             dyn()->type_of(f->value, ft);
+            dyn()->pop_null_target();
             if dyn()->reject_slice_literal(f->value, "stored in a field") { ok = false; continue; }
             // `Full{ buf: self.buf }` reached clang as an array copy.
             if (ft != &null) && dyn()->reject_array_copy(f->value, ft) { ok = false; continue; }
@@ -813,7 +820,9 @@ class <T> ControlTyping {
             if v->is_pack_expansion && ve.is_pack_field(fd) { dyn()->type_of(f->value, &null); continue; }
             var ft = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
             if ft != &null { ft = dyn()->ded_scratch()->member_through(rec, ft); }
+            dyn()->push_null_target(f->value, fd->type_, static_cast::<*Decl>(fd));
             dyn()->type_of(f->value, ft);
+            dyn()->pop_null_target();
             if dyn()->reject_slice_literal(f->value, "stored in a field") { ok = false; continue; }
             if (ft != &null) && dyn()->reject_array_copy(f->value, ft) { ok = false; continue; }
             // Either side dependent: the instance's question, as for a record.

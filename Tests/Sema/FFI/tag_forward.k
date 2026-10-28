@@ -22,8 +22,8 @@ ffi "c" struct only_kairo
 fn use_forward() -> i32 {
     var p: unsafe *timezone = get_tz()
     var off: i64 = timezone
-    var q: *pair = &null
-    var k: *only_kairo = &null
+    var q: unsafe *pair = &null
+    var k: unsafe *only_kairo = &null
     return tz_minutes(p) + (off as i32) + st(1)    // 5 + 3 + 2
 }
 
