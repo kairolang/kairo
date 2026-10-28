@@ -2,14 +2,14 @@
 // constructor by qualified name, `Base::Base(self, args)`
 // (classes-inheritance.md, Inheritance; the diamond example's `A::A`).
 //
-// XFAIL: *
-// Waiting on base-constructor calls: `Animal::Animal(self, ...)` is R025E
-// "no member named 'Animal' in 'Animal'" -- the constructor is not found
-// as a member by its own name. Without it a base with only a parameterized
-// constructor cannot be derived at all: Kairo accepts the class and clang
-// rejects it with "must explicitly initialize the base class".
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Formerly an expected failure: `Animal::Animal(self, ...)` was R025E "no
+// member named 'Animal' in 'Animal'", so a base with only a parameterized
+// constructor could not be derived at all (Kairo accepted the class, clang
+// rejected it with "must explicitly initialize the base class"). The name
+// now finds the constructors (ChainBinding), the leading calls become the
+// C++ mem-initializers (EmitIR), and BaseInitCheck refuses the rest;
+// base_ctor_shapes.k, base_ctor_transfer.k, base_ctor_cross_module.k and
+// Sema/Check/base_init_errors.k cover the rest.
 
 class Animal {
     prot var legs: i32

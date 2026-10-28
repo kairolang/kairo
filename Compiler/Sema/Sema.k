@@ -63,6 +63,7 @@ import Sema::Check::FeatureGateCheck::*;
 import Sema::Check::EvalUsageChecking::*;
 import Sema::Check::FlagGates::*;
 import Sema::Check::InitCheck::*;
+import Sema::Check::BaseInitCheck::*;
 import Sema::Check::CtorInitCheck::*;
 import Sema::Check::ConformanceChecking::*;
 import Sema::Check::InterfaceComposition::*;
@@ -419,6 +420,12 @@ class Sema {
         // Default member initializers read only fields built before them.
         // REQUIRES N's bindings (a bare sibling in a default is a field).
         { var _p = TimeRegion("InitCheck"); InitCheck(&self.sc).run(); }
+
+        // Base initializers (`Base::Base(self, ...)`): where one may be, and
+        // that every base needing one gets one. REQUIRES X's callee
+        // bindings. Before CtorInitCheck, which skips the statements it
+        // admits.
+        { var _p = TimeRegion("BaseInitCheck"); BaseInitCheck(&self.sc).run(); }
 
         // A const field is initialized exactly once, in its record's
         // constructor, before `self` is used as a whole; the statement that

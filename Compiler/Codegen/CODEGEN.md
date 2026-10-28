@@ -570,7 +570,10 @@ elements, and a canonical pack parameter in an argument list as `E...`.
 
 Declarations are the plan's; EmitIR writes bodies. What it knows:
 
-A qualified method call
+A constructor's leading `Base::Base(self, args)` statements (BaseInitCheck
+admits them nowhere else) are its mem-initializers, `: Base(args)`, and
+are skipped in the body; a split constructor's go on its slot
+constructor, ahead of the fields'. A qualified method call
 `Base::m(obj, args)` is `(obj).Base::m(args)` -- non-virtual, as the
 qualified name means -- with a generic owner spelled through the object's
 instance or base (`Box<int>::get`).

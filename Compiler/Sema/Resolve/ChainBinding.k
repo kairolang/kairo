@@ -651,6 +651,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             // Type: statics, nested types, enum variants, ctors -- member lookup.
             var cands = vec::<*Decl>();
             self.ml.lookup(a.ty, name, &cands);
+            if cands.empty() { self._ctors_by_name(a, spelled, &cands); }
             if cands.empty() {
                 self._err(DiagID::R025E, at, f"no member named '{spelled}' in '{self._decl_name_str(a.decl)}\x27");
                 st->name->poison();
@@ -1153,6 +1154,28 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
 
     /// Spelled with the decl's OWN context: a name reached through an import
     /// is interned in the source file's imm table, not this TU's.
+    /// `Animal::Animal`: a record's constructors, named by the record's own
+    /// name after `::` (classes-inheritance.md: `Animal::Animal(self, name)`
+    /// initializes a base). They live under DeclName::ctor(), never under
+    /// the identifier, so member lookup cannot find them; only the record's
+    /// OWN table is read -- a constructor is not inherited. Whether the call
+    /// is one Kairo allows (a base, from a derived constructor's first
+    /// statements) is BaseInitCheck's question, not name binding's.
+    priv fn _ctors_by_name(self, a: Anchor, spelled: string, out: *vec::<*Decl>) {
+        if (a.decl == &null) || (!isa::<ClassDecl>(a.decl)) || (a.ty == &null) { return; }
+        if spelled != self._decl_name_str(a.decl) { return; }
+        var body = self.sc->record_body(a.ty);
+        if body == &null { body = decl_pattern(a.decl); }
+        var dc = NameLookup::context_of(body);
+        if dc == &null { return; }
+        var cell = self.sc->lookup.in_context(dc, DeclName::ctor());
+        if !cell.found() { return; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var d = cell.cell->get(i);
+            if (d != &null) && isa::<FunctionDecl>(d) { out->push_back(d); }
+        }
+    }
+
     priv fn _decl_name_str(self, d: *Decl) -> string {
         if d == &null { return "<null>"; }
         var ctx = NameLookup::ctx_of(d);

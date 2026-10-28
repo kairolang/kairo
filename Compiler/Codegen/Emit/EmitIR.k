@@ -523,6 +523,7 @@ class EmitIR {
         if m->is_method() && m->is_const() { head += " const"; }
         if m->no_unwind { head += " noexcept"; }
         self._cg->sink->spell(at, head);
+        if is_ctor { self._mem_inits(m, owner, &(m->body_block->body), true); }
 
         self._body(m, &null);
         self._eval_field_def(m, owner, at);
@@ -603,7 +604,10 @@ class EmitIR {
             + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&");
         self._ci_pre = true;
         self._cg->sink->synth_at_start(pre->range, clang::tok::l_brace);
-        for var i: usize = 0; i < pre->body.size(); ++i { self.emit(pre->body[i]); }
+        // The base initializers lead S_pre and belong to the slot
+        // constructor's mem-initializers, below.
+        var lead = self._lead_base_inits(&(pre->body));
+        for var i: usize = lead; i < pre->body.size(); ++i { self.emit(pre->body[i]); }
         // Cast, not `return __kairo_s;`: since C++23 a returned rvalue
         // reference parameter is an xvalue (P2266), which the `&` return
         // type cannot bind.
@@ -612,9 +616,15 @@ class EmitIR {
         self._ci_pre = false;
         self._cg->sink->brk();
 
-        // The object, built from the slots; then S_post in it.
+        // The object, built from the slots; then S_post in it. Its bases
+        // first, as C++ builds them: from the leading `Base::Base(self,
+        // ...)` calls, whose arguments are the parameters this constructor
+        // takes by reference too -- so a base is built after S_pre ran,
+        // and sees what S_pre did to a parameter.
         var h = oh + inl + q + "::" + leaf + "(" + ci + "& " + sa + ps + ")";
-        var first = true;
+        self._cg->sink->spell(at, h);
+        h = "";
+        var first = !self._mem_inits(m, owner, &(pre->body), false);
         for var i: usize = 0; i < m->ci_slots.size(); ++i {
             var f = dyn_cast::<FieldDecl>(m->ci_slots[i]);
             if (f == &null) || (!m->ci_dense[i]) { continue; }
@@ -635,7 +645,7 @@ class EmitIR {
                 h += "}";
             }
         }
-        self._cg->sink->spell(at, h);
+        if h.size() > 0 { self._cg->sink->spell(at, h); }
         self._cg->sink->synth_at_start(post->range, clang::tok::l_brace);
         // A `var` field S_pre assigned on some paths only kept its default;
         // the slot's value replaces it where there is one.
@@ -854,7 +864,11 @@ class EmitIR {
             if (et == &null) { self._ice(f->range, "EmitIR: an eval generator with no element type"); }
             self._cg->sink->spell(b->range, "::" + LowerTargets::eval_buf() + "<" + self._spell._type(et) + "> " + LowerTargets::eval_yield_buf() + ";");
         }
-        for var i: usize = 0; i < b->body.size(); ++i { self.emit(b->body[i]); }
+        // A constructor's leading `Base::Base(self, ...)` calls went out as
+        // its mem-initializers (_mem_inits).
+        var from: usize = 0;
+        if self._is_ctor(f) { from = self._lead_base_inits(&(b->body)); }
+        for var i: usize = from; i < b->body.size(); ++i { self.emit(b->body[i]); }
         // A function is a coroutine only when its body holds a coroutine
         // keyword, and a generator with no `yield` (or only a bare `return`
         // the emitter already spelled `co_return`) may have none. X's
@@ -2672,7 +2686,58 @@ class EmitIR {
         self._cg->sink->create_int(t.range, digits);
     }
 
-    // --- Qualified method calls ------------------------------------------------------
+    // --- Base initializers ------------------------------------------------------------
+
+    /// The constructor a statement calls by qualified name to initialize a
+    /// base -- `Animal::Animal(self, 4);` -- or null. BaseInitCheck admits
+    /// such a call only as one of a constructor's leading statements, so
+    /// the shape alone identifies it here.
+    priv fn _base_init_ctor(self, s: *Stmt) -> *FunctionDecl {
+        var es = dyn_cast::<ExpressionStmt>(s);
+        if (es == &null) || (es->expr == &null) { return &null; }
+        var n = dyn_cast::<CallExpr>(es->expr);
+        if (n == &null) || (n->ctor_decl != &null) { return &null; }
+        var ch = dyn_cast::<ChainExpr>(n->callee);
+        if (ch == &null) || (ch->steps.size() == 0) { return &null; }
+        var last = ch->steps.get(ch->steps.size() - 1);
+        if last->access_kind != ChainExpr::AccessKind::ColonColon { return &null; }
+        var f = dyn_cast::<FunctionDecl>(last->resolved_decl);
+        if !self._is_ctor(f) { return &null; }
+        return f;
+    }
+
+    /// How many of \p stmts, from the first, are base initializers.
+    priv fn _lead_base_inits(self, stmts: *FrozenList::<*Stmt>) -> usize {
+        var k: usize = 0;
+        while (k < stmts->size()) && (self._base_init_ctor((*stmts)[k]) != &null) { k += 1; }
+        return k;
+    }
+
+    /// ` : Animal(4), ...` after constructor \p m's head, from the base
+    /// initializers leading \p stmts; true when there was one. C++ builds a
+    /// base before the body runs and has no way to construct one from a
+    /// statement, so the call becomes its mem-initializer, which is also
+    /// what makes a virtual base's initializer in an intermediate class
+    /// ignored (classes-inheritance.md, Diamond and virtual inheritance).
+    priv fn _mem_inits(self, m: *FunctionDecl, owner: *Decl, stmts: *FrozenList::<*Stmt>, colon: bool) -> bool {
+        var k = self._lead_base_inits(stmts);
+        if k == 0 { return false; }
+        var saved_fn  = self._cur_fn;
+        var saved_ext = self._cur_ext;
+        self._cur_fn  = m;
+        self._cur_ext = &null;
+        for var i: usize = 0; i < k; ++i {
+            var f = self._base_init_ctor((*stmts)[i]);
+            var n = cast::<CallExpr>(cast::<ExpressionStmt>((*stmts)[i])->expr);
+            var lead = (", ") if (i > 0) else ((" : ") if (colon) else (": "));
+            self._cg->sink->spell(n->range, lead + self._base_init_type(owner, f, n->range) + "(");
+            self._args(n, f, false, reinterpret_cast::<*InstanceEntry>(n->instance), true);
+            self._cg->sink->spell(n->range, ")");
+        }
+        self._cur_fn  = saved_fn;
+        self._cur_ext = saved_ext;
+        return true;
+    }
 
     /// The instance of generic method \p f's class that object \p obj is,
     /// or has as a base -- what `Box<i32>::get(obj)` names, which the bare
@@ -2688,9 +2753,18 @@ class EmitIR {
         return self._base_edge_to(CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl))), want, &seen, 0);
     }
 
-    /// The base of \p d that is an instance of \p want, as the class
-    /// that derives it spells it; a base further up through the bases in
-    /// between.
+    /// The base \p f constructs, spelled as \p owner's base list names it
+    /// (`GB<int>`, not the template); a virtual base further up is found
+    /// through the bases in between.
+    priv fn _base_init_type(self, owner: *Decl, f: *FunctionDecl, at: SourceRange) -> string {
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        var want = CXXSpell::rep(decl_pattern(CXXSpell::rep(dc->dc_owner)));
+        var seen = vec::<*Decl>();
+        var t = self._base_edge_to(CXXSpell::rep(owner), want, &seen, 0);
+        if (t == &null) { self._ice(at, "EmitIR: a base initializer whose class is no base of the constructor's; BaseInitCheck admits only bases"); }
+        return self._spell._type(t);
+    }
+
     priv fn _base_edge_to(self, d: *Decl, want: *Decl, seen: *vec::<*Decl>, depth: u32) -> *Type {
         if (d == &null) || (depth > 64) || (!isa::<ClassDecl>(d)) { return &null; }
         for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == d { return &null; } }

@@ -633,6 +633,28 @@ class OverloadResolution {
         return better;
     }
 
+    /// `Base::Base(self, other)` in a derived `@copy`/`@move` constructor:
+    /// the transfer constructor's source parameter is a reference in C++
+    /// (`const Base&`, `Base&&`), so the derived object binds by
+    /// derived-to-base conversion, the copy of just the base part C++'s own
+    /// implicit transfer constructor makes. Only on a constructor called by
+    /// name (no receiver), and only for an argument of a class strictly
+    /// derived from the parameter's: an ordinary `Base(d)` is still not a
+    /// slicing copy, and a Base argument ranks as it always did.
+    priv fn _transfer_upcast(self, f: *FunctionDecl, p: *ParamDecl, a: *ArgInfo, pt: *Type, has_receiver: bool) -> bool {
+        if has_receiver || (f->transfer == TransferKind::NotTransfer) || (!f->is_method()) { return false; }
+        if (a->ty == &null) || (a->lit != LitKind::None) || (pt == &null) || pt->is_dependent() { return false; }
+        var first: *ParamDecl = &null;
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if (f->params[i] != &null) && (!f->params[i]->is_self) { first = f->params[i]; break; }
+        }
+        if first != p { return false; }
+        var av = canon_unqual(self.tu.as_value(a->ty));
+        var pv = canon_unqual(pt);
+        if (av == &null) || (pv == &null) || (av == pv) { return false; }
+        return Substitution(self.sc).derives_from(av, pv);
+    }
+
     /// The proper base of record \p a that is an instance of the pattern
     /// the dependent `self` type \p pt names, read through \p a's
     /// arguments as Substitution::derives_from reads them; null if none.
@@ -1218,7 +1240,9 @@ class OverloadResolution {
                 obj.cat = Expr::ValueCategory::LValue;
                 ra = &obj;
             }
-            var r = self._rank_arg(c, ra, rt, pi == usize(-1), mode);
+            var r = ImplicitRank::None;
+            if self._transfer_upcast(f, p, a, pt, has_receiver) { r = ImplicitRank::Converted; }
+            else { r = self._rank_arg(c, ra, rt, pi == usize(-1), mode); }
             // `Box<i32>::Box(self, n)` from `class IntBox derives Box<i32>`:
             // a generic record's `self` is `Box<T>`, and unification alone
             // never looks past IntBox for it. C++ deduces against a base of

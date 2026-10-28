@@ -90,6 +90,7 @@
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Check::ConstEval::*;
+import Sema::Check::BaseInitCheck::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
@@ -745,6 +746,9 @@ class CtorInitCheck derives RecursiveASTVisitor::<CtorInitCheck> {
 
     priv fn _stmt(self, s: *Stmt) {
         if s == &null { return; }
+        // `Base::Base(self, ...)`: the base's mem-initializer, built before
+        // any field (BaseInitCheck admitted it, and judged its `self`).
+        if base_init_stmt(s) != &null { return; }
         switch s->kind {
             case StmtKind::RecoveryStmt { return; }
             case StmtKind::CompoundStmt { self._block(cast::<CompoundStmt>(s)); }

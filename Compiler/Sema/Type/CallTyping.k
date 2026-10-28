@@ -294,7 +294,11 @@ class <T> CallTyping {
             // object does, by reference, so a Derived needs no value
             // conversion (OverloadResolution ranked it so). EmitIR writes
             // it as `obj.Base::m()`; nothing is copied or sliced.
-            if p->is_self && (pt != &null) && (a->expr->type_ != &null)
+            // The same for a transfer constructor's source called by name,
+            // `Base::Base(self, other)` (OverloadResolution::_transfer_upcast).
+            var by_ref = p->is_self;
+            if (!by_ref) && (f->transfer != TransferKind::NotTransfer) && (!r->receiver_bound) && (pi == 1) && f->is_method() { by_ref = true; }
+            if by_ref && (pt != &null) && (a->expr->type_ != &null)
             && Substitution(dyn()->sc).derives_from(dyn()->tu.as_value(a->expr->type_), canon_unqual(pt)) { continue; }
             if pt != &null {
                 dyn()->lint_cast_into_slot(a->expr, pt);

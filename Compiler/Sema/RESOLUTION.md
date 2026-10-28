@@ -625,7 +625,7 @@ and T's types; an enum it rejects is poisoned), `ExprTyper` (§2.9), `ValueCateg
 `ShadowCheck`, `ShorthandLint` (NULLABLE.md 1.8), `PatternChecking`,
 `ReturnPathCheck`, `ControlFlowAnalysis`, JumpLabelCheck's script rule,
 `WhereGuardCheck`, `ClassLifecycle`, `ClosureCaptures`,
-`MoveCheck`, `InitCheck`,
+`MoveCheck`, `InitCheck`, `BaseInitCheck`,
 `CtorInitCheck`, `ConformanceChecking` -- Typed, the panic-set barrier
 (top of this file) -- `PanicEffectChecking`, `EvalUsageChecking` (EVAL.md §6:
 what an eval context, `eval for` and a body `eval if` may hold; needs X's
@@ -701,6 +701,17 @@ it is defined `T R::s{}`). It also gates (SC116E) an earlier sibling read
 in a GENERIC record's default, which the thunk's qualified spelling
 cannot compile yet: CXXSpell gives the record no template arguments
 there.
+
+`BaseInitCheck` [DONE] (Check/BaseInitCheck.k): `Base::Base(self, args)`
+(ChainBinding finds a record's constructors under its own name after
+`::`) is legal only as one of a constructor's leading statements, for a
+direct base or a virtual base, with `self` first and nowhere else, each
+base once; any other call of a constructor by name is an error. A base
+with no default constructor (none declared, or deleted, or only a
+transfer constructor declared) is initialized by every constructor of a
+class deriving it, which then needs one. EmitIR writes the leading calls
+as the constructor's mem-initializers (a split constructor's go on its
+slot constructor), and CtorInitCheck skips them. SC001E (placeholder).
 
 `CtorInitCheck` [DONE] is the const-field rule (classes.md, Const members
 in constructors), structural like ReturnPathCheck. A const field with no
