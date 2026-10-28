@@ -155,10 +155,12 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
         var never = noreturn;
         if (!never) {
             var rc = ret->canonical;
-            // Unresolved return type: T already reported it.
-            if rc == &null { return; }
-            if self._tu.is_void(rc) { return; }
-            if self._tu.is_never(rc) { never = true; }
+            // Unresolved return type: T already reported it. A DEPENDENT one
+            // with no canonical (`Foo<T>::Inner`) is still a value type --
+            // never void, never `!` -- so falling off its end is reported.
+            if (rc == &null) && (ret->is_poisoned() || (!ret->is_dependent())) { return; }
+            if (rc != &null) && self._tu.is_void(rc) { return; }
+            if (rc != &null) && self._tu.is_never(rc) { never = true; }
         }
         if !self._ft.falls_through(static_cast::<*Stmt>(body)) { return; }
 
@@ -177,12 +179,13 @@ class ReturnPathCheck derives RecursiveASTVisitor::<ReturnPathCheck> {
             return;
         }
 
-        var ty = self._tu.str(ret->canonical);
+        // A dependent type with no canonical has no spelling of its own.
+        var ty = (f"'{self._tu.str(ret->canonical)}\x27") if (ret->canonical != &null) else ("a value");
         var b = self.sc->diag->report(DiagID::SC104E, brace.start,
             f"{what} does not return a value on all control paths");
         b.first(brace);
         b.note(DiagID::SC104N, decl_at.start,
-            f"declared to return '{ty}' here; every path must end in 'return', 'panic', or a call that does not return"
+            f"declared to return {ty} here; every path must end in 'return', 'panic', or a call that does not return"
         ).first(decl_at);
         b.emit();
     }
