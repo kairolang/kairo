@@ -91,6 +91,24 @@ class <T> PatternTyping {
         var st = self._column(scrutinee);
         if (st != &null) && (p->type_ == &null) { p->type_ = st; }
 
+        // A value of a bounds-checked parameter (MONO.md D0) has no
+        // variants, no fields and no values a literal could equal; nothing
+        // in a bound declares them. It can be bound, guarded, or ignored.
+        if (st != &null) && (p->kind != PatternKind::WildcardPattern) && (p->kind != PatternKind::BindingPattern)
+        && (p->kind != PatternKind::AlternationPattern) && (p->kind != PatternKind::RecoveryPattern) {
+            var cg = dyn()->tu.checked_param(st);
+            if cg != &null {
+                var pname = dyn()->sc->ctx->get_spelling(cg->name);
+                var b = dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                    f"a value of type '{pname}' can only be matched by a binding, '_' or 'default' (with a 'where' guard)");
+                b.first(p->range);
+                b.note(cg->range.start, f"'{pname}' is a generic parameter: no bound gives it variants, fields or values a pattern could test");
+                b.emit();
+                p->poison();
+                return;
+            }
+        }
+
         switch p->kind {
             case PatternKind::BindingPattern {
                 self._type_binder(cast::<BindingPattern>(p), st);
@@ -279,7 +297,11 @@ class <T> PatternTyping {
 
         // Unknown or dependent column: nothing to resolve against. Binders
         // still get typed (as unknown) so the body has decls to bind to.
-        if (st == &null) || st->is_dependent() {
+        // A generic ADT's instance at dependent arguments is the exception:
+        // its variants are its pattern's, known here, and a payload field's
+        // type reads through the instance (`v: T` of `Rep<T>`), so the
+        // pattern resolves like any other (MONO.md G11).
+        if (st == &null) || (st->is_dependent() && (!self.dependent_adt(st))) {
             if head != &null { dyn()->type_head(head); }
             self._type_subs_unknown(subs);
             // A variadic enum's constructors are per instance: which tag a
@@ -554,6 +576,16 @@ class <T> PatternTyping {
 
     /// The enum a column ranges over, or null. ControlTyping reads the enum
     /// of a variant construction's type through it too.
+    /// \p st is an instance of a Kairo generic ADT at dependent arguments
+    /// whose variants are one list for every instance (no pack-expanded
+    /// variant): a match on it is typed, checked and compiled at the
+    /// definition, and C++ picks the layout (EnumLayoutQuery's Opaque).
+    fn dependent_adt(self, st: *Type) -> bool {
+        var en = self._enum_of(st);
+        if (en == &null) || (!en->is_adt) || en->is_imported() { return false; }
+        return adt_pack_variant(en) == &null;
+    }
+
     fn _enum_of(self, st: *Type) -> *EnumDecl {
         var rd = dyn()->tu.record_decl(st);
         if rd == &null { return &null; }

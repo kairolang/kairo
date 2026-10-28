@@ -7,7 +7,8 @@
 // ADT with no `op ==` (tag compare); nullable POINTERS compared by
 // pointee, where `==` compares addresses; a nullable and a plain pointer;
 // call operands bound once, left to right, and not skipped by the test;
-// `===` narrowing its places in the true branch; a generic `T?` body.
+// `===` narrowing its places in the true branch; a generic `T?` body,
+// whose `==` is its bound's (MONO.md D0: an unbounded T has none).
 // Each line prints, so a wrong value shows which case broke.
 
 import std::io::println
@@ -23,7 +24,8 @@ enum Shape { Dot, Line { len: i32 } }
 var calls = 0
 
 fn find(k: i32) -> i32? { calls += 1; if k > 0 { return k } return null }
-fn <T> same(a: T?, b: T?) -> bool { return a === b }
+interface Eqable { fn op ==(self, o: Self) -> bool }
+fn <T impl Eqable> same(a: T?, b: T?) -> bool { return a === b }
 
 fn main() -> i32 {
     var a: i32? = 4
@@ -64,7 +66,7 @@ fn main() -> i32 {
     if a === b { println(f"narrowed: {a + b}") }
 
     var g: i32? = 4
-    println(f"generic: {same(a, g)} {same(a, n)}")
+    println(f"generic: {same(p, q)} {same(p, z)}")
     return 0
 }
 
@@ -73,7 +75,8 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      return(((!a.is_null()) &&(!b.is_null())) &&(a.__value() == b.__value()));
+// CXX:      return(((!a.is_null()) &&(!b.is_null())) &&({
+// CXX:      Eqable_witness<T>::__kairo_op_eq(__kairo_arg0, __kairo_arg1);
 // CXX:      (((!a.is_null()) &&(!b.is_null())) &&(a.__value() == b.__value()));
 // CXX:      ((!a.is_null()) &&(a.__value() == 4));
 // CXX:      ((!s.is_null()) &&(s.__value() == 7));

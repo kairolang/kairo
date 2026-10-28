@@ -599,6 +599,13 @@ class LowerTargets {
     /// witness ever needs this name, and no forwarder goes with it.
     static fn witness_subscript() -> string { return "__kairo_op_index"; }
 
+    /// A witness member's name for an `op as` requirement (an interpolation
+    /// or a cast through a bound, MONO.md G11). Like `op []` it has no
+    /// extension row. One name per interface: two `op as` requirements of
+    /// one interface differ only in their return type, which C++ cannot
+    /// overload on (ticketed).
+    static fn witness_conversion() -> string { return "__kairo_op_as"; }
+
     // --- Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR) ----------
 
     /// `template <class T> auto* __kairo_tmp(T&& t)`: the address of a

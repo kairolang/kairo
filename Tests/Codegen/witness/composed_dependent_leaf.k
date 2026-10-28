@@ -38,7 +38,8 @@ pub fn <C impl Deep<i64>> d(c: C) -> i64 { return c.get(1) + c.shine() + c.dig()
 // was typed at the bound's arguments; witness/bound_call_member.k has the
 // direct `c.get(1).w`.
 pub fn <C impl Wrapped<i32>> w(c: C) -> i32 { var r: Wrap<i32> = c.get(1); return r.w + c.raw() }
-pub fn <E, C impl Fancy<E>> h(c: C, z: E) -> E { return c.get(2) + z }
+// (`z` is only deduced from: an unbounded E has no `+`, MONO.md D0.)
+pub fn <E, C impl Fancy<E>> h(c: C, z: E) -> E { return c.get(2) }
 
 fn main() -> i32 {
     var b = Box()

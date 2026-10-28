@@ -48,7 +48,10 @@ pub enum <T> Nullable {
 /// division: for an integer base that reciprocal is 0, 1 or -1 and nothing
 /// can overflow on the way back; for a float base it is the reciprocal.
 /// `-(exp + 1)` rather than `-exp`, which has no value for the minimum.
-priv fn <B, E> pow(base: B, exp: E) -> B {
+/// `: type`: B and E are only ever primitives, and no interface says
+/// "numeric" yet, so this one body is C++'s to check per instance (MONO.md
+/// D1); a bare `<B, E>` would be refused, its operators granted by no bound.
+priv fn <B: type, E: type> pow(base: B, exp: E) -> B {
     if exp < 0 {
         var inv: B = 1 / base
         return pow(inv, -(exp + 1)) * inv

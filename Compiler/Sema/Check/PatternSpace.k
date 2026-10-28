@@ -148,7 +148,24 @@ class PatternSpace {
         if t == &null { return d; }
         var u = canon_unqual(self.tu.as_value(t));
         if u == &null { return d; }
-        if u->is_dependent() { return d; }
+        // A bounds-checked parameter (MONO.md D0) has values no pattern
+        // can name: only a wildcard or a binder covers it.
+        if u->is_dependent() {
+            if self.tu.checked_param(u) != &null { d.kind = DomainKind::Opaque; }
+            // A generic ADT at dependent arguments: its variants are its
+            // pattern's, one list for every instance unless a variant is
+            // pack-expanded (PatternTyping::dependent_adt).
+            if isa::<RecordType>(u) {
+                var den = dyn_cast::<EnumDecl>(self.tu.pattern_of(cast::<RecordType>(u)->decl));
+                if (den != &null) && den->is_adt && (!den->is_imported()) && (adt_pack_variant(den) == &null) {
+                    d.en = den;
+                    d.kind = (DomainKind::OpenEnum) if (self.is_open_enum(den)) else (DomainKind::ClosedEnum);
+                    d.ty = u;
+                    d.nctors = u32(den->variants.size());
+                }
+            }
+            return d;
+        }
 
         if self.tu.is_bool(u) { d.kind = DomainKind::Bool; return d; }
 

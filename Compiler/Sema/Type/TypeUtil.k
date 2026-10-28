@@ -195,6 +195,35 @@ class TypeUtil {
         return out;
     }
 
+    /// The declaration of \p t when it is a generic parameter whose body is
+    /// checked against its bounds (MONO.md D0): a bare, non-pack parameter,
+    /// no `: type` (the C++-checked regime, D1), and no `derives` bound (a
+    /// base class's operators are C++ members the bound table does not
+    /// list, so that case still defers). Null for anything else, including
+    /// a dependent composite (`*T`, `Rep<T>`), whose own rules apply. What
+    /// such a parameter can do is exactly what bound_ifaces grants: an
+    /// operator, a conversion, an interpolation or a pattern its bounds do
+    /// not declare is an error at the definition (opaque_param_ops.k).
+    fn checked_param(self, t: *Type) -> *GenericParamDecl {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<GenericParamType>(c)) { return &null; }
+        var g = cast::<GenericParamType>(c);
+        if g->is_pack || (g->owner == &null) { return &null; }
+        var gps = decl_generic_params(g->owner);
+        if static_cast::<usize>(g->param_index) >= gps.size() { return &null; }
+        var gp = gps[static_cast::<usize>(g->param_index)];
+        if (gp == &null) || (gp->kind_bound == GenericParamKindBound::Duck) { return &null; }
+        var it = self.sc->bounds.find(reinterpret_cast::<u64>(g->owner));
+        if it == self.sc->bounds.end() { return gp; }
+        var _set = &(it->second);
+        for var i: usize = 0; i < _set->derives_constraints.size(); ++i {
+            var k = _set->derives_constraints[i];
+            var id = dyn_cast::<NamedIdentExpr>(k->lhs);
+            if (id != &null) && (id->resolved_decl == static_cast::<*Decl>(gp)) { return &null; }
+        }
+        return gp;
+    }
+
     /// The interface instance an AssocType for requirement \p td carries
     /// when it is named through \p through (a bound, or the Self of the
     /// interface it is named in): its DECLARING interface, so one entity has

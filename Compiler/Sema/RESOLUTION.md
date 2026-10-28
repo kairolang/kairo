@@ -548,6 +548,22 @@ conjuncts, read from `sc->bounds`):
 A dependent COMPOSITE (`*T`, `[T]`, an unfilled `Foo<T>::Inner`) is still
 Dependent under every regime; it has no scope to look into.
 
+**Operators, conversions, null tests and patterns on `<T>` / `<T impl I>`**
+[DONE, MONO.md G11]. The expression typer applies the same rule to a value
+of a bare parameter that is not `: type` and has no `derives` bound
+(`TypeUtil::checked_param`): an operator (binary, unary, compound, `^^`,
+and the derived `!=` / relational / `a + b`), `===` (its `==`), `as T`,
+and an f-string hole bind ONLY to the bounds' requirements (`op ==`,
+`op as`, `repr`), called through the witness; with none it is R051E
+(unbounded) or R025E (bounds that do not declare it) at the definition,
+never a deferral. The parameter is never nullable (`t?`, `t == null`,
+`unwrap!(t)` get the non-nullable errors), and a pattern on it other than
+a binder or `_` is SC001E (PatternTyping); its match is analysed with an
+Opaque domain. A generic ADT at dependent arguments (`Rep<T>`) is no
+composite for patterns and `==`: its variants are its pattern's
+(PatternTyping::dependent_adt, PatternSpace::domain_of), a binder reads
+through the instance, and the tag is read through `__kairo_which()`.
+
     [DONE] A dependent RECORD is still looked up by name (`self.x` in
     `class <T> Foo` binds to the field).
     [DONE] `Box<i32>::make()`: a type head with explicit args anchors as
@@ -1716,8 +1732,9 @@ member step went through the parameter, else a note points at the first
 one). Library files are exempt like every other gate, and use none.
 Inside such a body a panicking call is SC116E (a bounded body's set is
 computed at its definition, PANIC.md P10; this one has none to compute),
-and `match` / `==` / `===` / f-strings on the opaque `T` behave as they do
-on any dependent operand. Removal: flip the default, delete the regime
+and operators, `===`, null tests and patterns on the parameter defer as on
+any dependent operand (none of G11's definition-time errors above); its
+`as string` / f-string are still refused (SC027E / SC080E). Removal: flip the default, delete the regime
 branch (ChainBinding `b.duck`), the gate and the flag, after the mixin
 migration (MONO.md G13/G14).
 

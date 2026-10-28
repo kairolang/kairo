@@ -7,7 +7,9 @@ fn chk(c: bool) -> i32 { if c { return 1 } return 0 }
 
 fn f(a: i32, b: i32 = 7) -> i32 { return a * 10 + b }
 fn late(a: i32 = 3, b: i32) -> i32 { return a * 10 + b }
-fn <T> pick(a: T, b: T = T()) -> T { return a + b }
+// `: type`: `+` and `T()` are C++'s to check per instance (MONO.md D1);
+// an unbounded T has neither.
+fn <T: type> pick(a: T, b: T = T()) -> T { return a + b }
 
 class Counter {
     var v: i32
@@ -28,13 +30,13 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo %s -fduck-generics --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 
 // The thunks are declared: a free function per default, a static member for
 // the method's, and a function template for the generic one. Its explicit
 // instantiations are emitted after the bodies, not here; the link proves them.
-// RUN: { %kairo %s --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// RUN: { %kairo %s -fduck-generics --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-DAG: static signed int __kairo_default_add_x();
 // CXX-DAG: signed int __kairo_default_f_b();
 // CXX-DAG: signed int __kairo_default_late_a();
@@ -42,5 +44,5 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -fduck-generics -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 6

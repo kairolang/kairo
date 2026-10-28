@@ -20,7 +20,7 @@ fn main() -> i32 {
 }
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: needs a concrete type
+// CHECK: formatting a 'T' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string'
 // CHECK: invalid format spec '>4q' for a value of type 'i32'
 // CHECK: invalid format spec '.3' for a value of type 'i32': precision
 // CHECK: invalid format spec '+' for a value of type 'string'

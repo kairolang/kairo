@@ -1,36 +1,21 @@
-// `===` on nullable pointers compares what they point to, one level down
-// (nullables.mdx, Null-aware equality) -- also in a generic function whose
-// `T` turns out to be a pointer: `same(a, b)` with `T = *i32` compares the
-// two i32s, not the addresses.
-//
-// XFAIL: *
-// Ticket "[Sema] `===` in a generic body decides \"pointee or value\" on the
-// written type" (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today the
-// template is typed once on `T?`, where no pointer is visible, so the
-// instance at `T = *i32` compares ADDRESSES: `same(a, b)` is false and the
-// program exits 6. When it XPASSes, delete the XFAIL -- the run below is
-// already the real assertion.
+// `===` on nullables compares the values with their `==`, one level down
+// on nullable pointers (nullables.mdx, Null-aware equality). In a generic
+// body that `==` is T's, and under MONO.md D0 T has only what its bounds
+// grant: an unbounded `T` has no `==`, so `same` is refused at its
+// definition. This test used to be an XFAIL asking that `same` at
+// `T = *i32` compare the pointees; that is not expressible under D0
+// (nothing a bound says makes T a pointer, and the body is typed once), so
+// the decision (MONO.md G11) is the error below. With a bound declaring
+// `op ==`, `===` on a `T?` runs through the bound's witness
+// (witness/bound_ops.k); a `(*T)?` written as such compares pointees, whose
+// `==` is again T's.
 
 fn <T> same(a: T?, b: T?) -> bool = a === b
+fn <T> same_pointee(a: (*T)?, b: (*T)?) -> bool = a === b
 
-fn main() -> i32 {
-    var x: i32 = 1
-    var y: i32 = 1
-    var a: *i32? = &x
-    var b: *i32? = &y
-    var r = 0
-    if same(a, b) { r += 1 } else { r += 2 }    // pointees equal: 1
-    var n: i32? = 5
-    var m: i32? = 5
-    if same(n, m) { r += 4 }                    // values equal: 4
-    return r                                    // 5
-}
+fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// DIAG-NOT: {{error|warning}}
-
-// REQUIRES: clang
-// RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 5
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
+// DIAG: triple_eq_generic.k:13:37: error [R051E]: '===' on 'T?' compares the values with 'op ==', so it needs a bound on 'T' that declares 'op =='
+// DIAG: triple_eq_generic.k:14:51: error [R051E]: '===' on '*T?' compares the values with 'op ==', so it needs a bound on 'T' that declares 'op =='

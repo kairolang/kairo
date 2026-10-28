@@ -1,4 +1,4 @@
-// witness/generic_iface.k -- exit 7
+// witness/generic_iface.k -- exit 5
 // A generic interface keys its witness on `<Self, A...>`: the bound names
 // the interface's argument (`T impl Container<U>`), the concept and the call
 // spell it, and Bag's row is the specialization at `<Bag, i32>`
@@ -13,7 +13,7 @@ extend Bag {
     pub fn get(const self, i: i32) -> i32 = self.base + i
 }
 pub fn <T, U> first(c: T, seed: U) -> U requires T impl Container<U> {
-    return c.get(1) + seed
+    return c.get(1)       // `seed` only deduces U: an unbounded U has no `+`
 }
 fn main() -> i32 {
     var b = Bag { base: 4 }
@@ -36,4 +36,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 7
+// RUN: %t.exe; test $? -eq 5

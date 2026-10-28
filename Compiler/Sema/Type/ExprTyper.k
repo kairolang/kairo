@@ -875,6 +875,32 @@ class ExprTyper
         self.sc->diag->report(id, e->range.start, msg).first(e->range).emit();
     }
 
+    /// \p e asks a bounds-checked parameter \p gp (TypeUtil::checked_param)
+    /// for something only a bound can grant (MONO.md D0): an operator, a
+    /// conversion, an interpolation. \p msg says what and which requirement
+    /// would grant it. R051E when \p gp has no bound at all (R051's "not its
+    /// operators"); R025E when it has bounds and none declares it (the
+    /// bounds are the scope, and the scope was searched). The note points at
+    /// the parameter, which is where the fix goes. No fix-it: which
+    /// interface should carry the requirement is the author's call.
+    fn needs_bound(self, e: *Expr, gp: *GenericParamDecl, bounded: bool, msg: string) {
+        if e == &null { return; }
+        if e->is_poisoned() { return; }
+        var pname = self.sc->ctx->get_spelling(gp->name);
+        if bounded {
+            var b = self.sc->diag->report(DiagID::R025E, e->range.start, f"{msg}; none of the bounds of '{pname}' does");
+            b.first(e->range);
+            b.note(gp->range.start, f"'{pname}' is declared here; add the requirement to one of its interfaces, or bound it by one that declares it");
+            b.emit();
+        } else {
+            var b = self.sc->diag->report(DiagID::R051E, e->range.start, msg);
+            b.first(e->range);
+            b.note(DiagID::R051N, gp->range.start, f"'{pname}' is declared with no bound").first(gp->range);
+            b.emit();
+        }
+        e->poison();
+    }
+
     /// Poison without a diagnostic: the child already reported.
     fn poison_only(self, e: *Expr) { if e != &null { e->poison(); } }
 

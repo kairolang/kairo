@@ -353,8 +353,19 @@ class <T> CastTyping {
         if dyn()->conv.array_views_as(src, canon_unqual(target)) { return target; }
 
         // 5c. `fn op as (self) -> T` on the source
+        //     A bounds-checked parameter's `op as` is its bounds' (MONO.md
+        //     D0): looked up in them, and absent there is the error below,
+        //     never a conversion C++ might find per instance.
         var cands = vec::<*Decl>();
-        dyn()->ml.lookup(dyn()->tu.strip_nullable(src), DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
+        var cg = dyn()->tu.checked_param(src);
+        var cbound = dyn()->tu.bound_ifaces(src);
+        if cg != &null {
+            for var i: usize = 0; i < cbound.size(); ++i {
+                dyn()->ml.lookup(cbound[i], DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
+            }
+        } else {
+            dyn()->ml.lookup(dyn()->tu.strip_nullable(src), DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
+        }
         if cands.size() > 0 {
             var exact = vec::<*Decl>();
             for var i: usize = 0; i < cands.size(); ++i {
@@ -416,6 +427,11 @@ class <T> CastTyping {
         }
 
         // 5e. nothing
+        if cg != &null {
+            dyn()->needs_bound(static_cast::<*Expr>(n), cg, cbound.size() > 0,
+                f"'as {dyn()->tu.str(target)}' on '{dyn()->sc->ctx->get_spelling(cg->name)}' needs a bound that declares 'op as' returning '{dyn()->tu.str(target)}\x27");
+            return &null;
+        }
         dyn()->fail(n, DiagID::SC027E, f"no conversion from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}\x27");
         return &null;
     }

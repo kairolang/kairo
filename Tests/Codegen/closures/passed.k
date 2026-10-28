@@ -22,7 +22,8 @@ fn map3(const data: [i32; 3], transform: fn(i32) -> i32) -> i32 {
 
 fn <T> apply_g(f: fn(T) -> T, x: T) -> T { return f(x) }
 
-fn <T> add_to(x: T, y: T) -> T {
+// `: type`: an unbounded T has no `+` (MONO.md D0); C++ checks this one.
+fn <T: type> add_to(x: T, y: T) -> T {
     var g = fn (z: T) -> T { return z + x }
     return g(y)
 }
@@ -44,12 +45,12 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo %s -fduck-generics --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -fduck-generics -o %t.exe --cache-dir %t.d
 // RUN: %t.exe > %t.out
 // RUN: %FileCheck %s --check-prefix=OUT --match-full-lines < %t.out
 // OUT:      literal: 42

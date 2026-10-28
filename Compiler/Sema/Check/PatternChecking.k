@@ -160,7 +160,12 @@ class PatternChecking derives RecursiveASTVisitor::<PatternChecking> {
         var v = MatchVerdict{};
         if (scrutinee == &null) || (scrutinee->type_ == &null) || scrutinee->is_poisoned() { return v; }
         if canon_unqual(scrutinee->type_) == &null { return v; }
-        if canon_unqual(scrutinee->type_)->is_dependent() { return v; }
+        // A bounds-checked parameter's match is analysed like any other:
+        // its rows can only bind (PatternTyping refused the rest), so it is
+        // exhaustive exactly when an unguarded binder or wildcard ends it.
+        // So is a generic ADT's at dependent arguments, whose variants are
+        // known (PatternSpace::domain_of); anything else dependent is not.
+        if canon_unqual(scrutinee->type_)->is_dependent() && (self._ps.domain_of(scrutinee->type_).kind == DomainKind::Unknown) { return v; }
         for var i: usize = 0; i < cases->size(); ++i {
             var mc = cases->get(i);
             for var j: usize = 0; j < mc->patterns.size(); ++j {

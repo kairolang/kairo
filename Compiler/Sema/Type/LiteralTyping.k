@@ -416,6 +416,19 @@ class <T> LiteralTyping {
     priv fn _classify_hole(self, e: *Expr, t: *Type, h: *FormatHole, repr: *(*Decl), conv: *(*Decl)) -> bool {
         var v = dyn()->tu.as_value(t);
         if v == &null { return false; }
+        // A bounds-checked parameter formats through what its bounds grant
+        // (MONO.md D0): a `repr` or `op as` requirement returning string,
+        // called through the witness like any other requirement.
+        var cg = dyn()->tu.checked_param(v);
+        if cg != &null {
+            self._string_conv(v, repr, conv);
+            if ((*repr) == &null) && ((*conv) == &null) {
+                dyn()->needs_bound(e, cg, dyn()->tu.bound_ifaces(v).size() > 0,
+                    f"formatting a '{dyn()->sc->ctx->get_spelling(cg->name)}' needs a bound that declares 'fn repr(self) -> string' or 'op as' returning 'string\x27");
+                return false;
+            }
+            return true;
+        }
         if v->is_dependent() {
             dyn()->fail(e, DiagID::SC080E, "an interpolation in a generic body needs a concrete type; format it in the caller");
             return false;
@@ -466,10 +479,14 @@ class <T> LiteralTyping {
     /// construction.
     priv fn _string_conv(self, v: *Type, repr: *(*Decl), conv: *(*Decl)) {
         var s = dyn()->tu.string_type();
+        // A bounds-checked parameter's members are its bounds' requirements.
+        var scopes = vec::<*Type>();
+        if dyn()->tu.checked_param(v) != &null { scopes = dyn()->tu.bound_ifaces(v); }
+        else { scopes.push_back(v); }
 
         var imm   = dyn()->sc->imm_table()->intern_ident_copy("repr");
         var cands = vec::<*Decl>();
-        dyn()->ml.lookup(v, DeclName::ident(imm), &cands);
+        for var k: usize = 0; k < scopes.size(); ++k { dyn()->ml.lookup(scopes[k], DeclName::ident(imm), &cands); }
         for var i: usize = 0; i < cands.size(); ++i {
             var f = dyn_cast::<FunctionDecl>(cands[i]);
             if (f == &null) || (!f->is_method()) || f->is_operator { continue; }
@@ -479,7 +496,7 @@ class <T> LiteralTyping {
         }
 
         cands.clear();
-        dyn()->ml.lookup(v, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
+        for var k: usize = 0; k < scopes.size(); ++k { dyn()->ml.lookup(scopes[k], DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands); }
         for var i: usize = 0; i < cands.size(); ++i {
             var f = dyn_cast::<FunctionDecl>(cands[i]);
             if (f == &null) || (!f->is_method()) || (!f->is_operator) { continue; }

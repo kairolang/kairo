@@ -5,7 +5,7 @@
 fn <T> twice(x: T) -> T {
     type Local = T
     var y: Local = x
-    return y + x
+    return y          // (no `+`: an unbounded T has none, MONO.md D0)
 }
 
 fn <T> addr_of(x: *T) -> *T {

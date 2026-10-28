@@ -2,15 +2,12 @@
 // in a generic class's method (pattern-matching.mdx; enums-adt.mdx,
 // Destructuring with match).
 //
-// XFAIL: *
-// Ticket "[Sema/Lower] `match` inside a generic body ICEs: \"EmitIR: match
-// MatchLowering left in place\"" (private/IMPORTANT/TICKETS.TXT,
-// 2026-10-25). Today it type-checks and ICEs: PatternCompilation leaves no
-// decision tree for a dependent scrutinee that is TESTED (a variant
-// column), MatchLowering returns null and the MatchExpr reaches EmitIR.
-// (A match on a `T?` with only binder rows after `null` already works.)
-// When it XPASSes, delete the XFAIL -- the run below is already the real
-// assertion.
+// It used to ICE ("EmitIR: match MatchLowering left in place"): the
+// patterns were never resolved against a dependent scrutinee, so no decision
+// tree was built. Under MONO.md D0 they are: `Rep<T>`'s variants are its
+// pattern's, a payload binder reads through the instance (`v: T`), the
+// match is checked for exhaustiveness here, and the tag is read through
+// `__kairo_which()` because C++ picks each instance's layout (G11).
 
 enum <T> Rep {
     Some { v: T },
@@ -39,7 +36,8 @@ fn main() -> i32 {
     var r = 0
     if is_none(Rep<i32>::None) { r += 1 }
     if !is_none(Rep<i32>::Some { v: 3 }) { r += 2 }
-    var h = Holder<i64>(Rep<i64>::Some { v: 9 })
+    var nine: i64 = 9      // a literal payload of `Rep<i64>` is its own ticket
+    var h = Holder<i64>(Rep<i64>::Some { v: nine })
     r += h.present() * 4
     return r                                    // 7
 }
@@ -47,6 +45,9 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
+
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// CXX: __kairo_which()
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

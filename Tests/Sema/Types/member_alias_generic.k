@@ -26,8 +26,8 @@ struct <T, ...Args> Traits<Box<T>, Args...> {
     pub type P = Box<T>::Elem
 }
 
-fn <T> twice(x: T) -> T {
-    var y: T = x
+fn twice(x: i32) -> i32 {
+    var y: i32 = x
     return y + x
 }
 
