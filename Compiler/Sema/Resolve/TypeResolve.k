@@ -459,7 +459,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             // structural -- rewriting it would stop the imported signature
             // matching the header it came from.
             if (self.sc->tu != &null) && self.sc->tu->is_foreign {
-                n->canonical = self.sc->types->array(elem, 0);
+                n->canonical = self.sc->types->incomplete_array(elem);
                 return;
             }
             var sargs = vec::<*Type>();

@@ -316,6 +316,7 @@ class Substitution {
                     if isa::<GenericParamType>(x) || ((v != &null) && v->is_value && (!v->is_exact())) { return self.sc->types->array_of_param(e, x); }
                     return &null;
                 }
+                if a->is_incomplete { return self.sc->types->incomplete_array(e); }   // `T[]` stays unbounded.
                 return self.sc->types->array(e, static_cast::<u64>(a->size_bits));
             } case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);

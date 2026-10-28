@@ -402,6 +402,47 @@ class CanonicalTypeStore {
         return ty;
     }
 
+    /// C's array of unknown bound, `T[]`, as a foreign header has it (a
+    /// Kairo file's `[T;]` is the Slice lang item instead). Its own
+    /// identity, apart from `[T; 0]`: both have no elements to lay out, but
+    /// they are different C++ types, and a template argument spelled from
+    /// the canonical has to say which -- `unique_ptr<int[]>` is the array
+    /// specialization, `unique_ptr<int[0]>` is not a valid one.
+    fn incomplete_array(self, element: *Type) -> *Type {
+        if element == &null { return &null; }
+        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::FixedArrayType)));
+        h = canon_hash_ptr(h, reinterpret_cast::<*void>(element));
+        h = canon_hash_u64(h, u64(0x696e636f6d706c74));     // a salt no extent shares the bucket by.
+
+        var lock = std::LockGuard(self._mu);
+        var b = self._bucket(h);
+        if b != &null {
+            for var i: usize = 0; i < b->size(); ++i {
+                var c = (*b)[i];
+                if c->kind != TypeKind::FixedArrayType { continue; }
+                var a = cast::<FixedArrayType>(c);
+                if (a->element == element) && a->is_incomplete { return c; }
+            }
+        }
+
+        var at = self._alloc::<FixedArrayType>();
+        at->kind          = TypeKind::FixedArrayType;
+        at->range         = SourceRange::invalid();
+        at->element       = element;
+        at->size_expr     = &null;
+        at->is_incomplete = true;
+        at->extent_param  = &null;
+        at->init_annotations(&(self._arena));
+        at->init_spans(&(self._arena));
+        at->size_bits = 0;
+
+        var ty = static_cast::<*Type>(at);
+        ty->canonical = ty;
+        self._absorb_flags(ty, element);
+        self._insert(h, ty);
+        return ty;
+    }
+
     /// `[T; N]` for a generic VALUE parameter N (\p param, its canonical
     /// GenericParamType): dependent, keyed on (element, param), substituted
     /// to array() per instance (EVAL.md 3).
@@ -1024,7 +1065,7 @@ class CanonicalTypeStore {
             if c->kind != TypeKind::FixedArrayType { continue; }
             var a = cast::<FixedArrayType>(c);
             if a->element != element { continue; }
-            if a->extent_param != &null { continue; }
+            if (a->extent_param != &null) || a->is_incomplete { continue; }
             if static_cast::<u64>(a->size_bits) == extent { return c; }
         }
         return &null;

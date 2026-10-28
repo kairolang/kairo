@@ -220,6 +220,18 @@ class Candidate {
     pub var inout_unmarked: vec::<usize>;
     pub var inout_params:   vec::<*ParamDecl>;
     pub var ded:          Deduction;
+    /// An imported template's return type as clang's specialization has it,
+    /// when Kairo's import of the declared one is opaque; else null.
+    /// Written by _clang_substitute.
+    pub var cxx_ret:      *Type = &null;
+    /// An imported template clang could not judge because an argument is a
+    /// generic body's dependent type: its SFINAE verdict is the instance's.
+    pub var sfinae_dep:   bool  = false;
+    /// Clang removed this imported template, but over a Kairo record's
+    /// stand-in, which has the record's fields and none of its methods: the
+    /// removal may be the stand-in's. Viable, and loses any tie to a
+    /// candidate clang kept (resolve_mixed).
+    pub var soft_rejected: bool = false;
     fn Candidate(self) { }
 }
 
@@ -250,6 +262,9 @@ class OvlResult {
     /// from inside a generic body: `inner(Wrap<T>{...})` deduces
     /// [Wrap<T>]), in instance order; empty when `instance` is set.
     pub var dep_args: vec::<*Type>;
+    /// Copied off the winner (Candidate::cxx_ret): call_result_type's answer
+    /// where the declared return type has no Kairo shape.
+    pub var cxx_ret:  *Type = &null;
     fn OvlResult(self) { }
 }
 
@@ -407,6 +422,18 @@ class OverloadResolution {
             }
             if firm.size() > 0 { winners = firm; }
         }
+        // A soft-rejected template (Candidate::soft_rejected) yields to any
+        // winner clang did not reject: `make_unique<Cp>(4)` keeps the
+        // single-object overload over the array ones, whose conditions the
+        // stand-in for `Cp` answers truly. Alone, it stands: the concept a
+        // Kairo record meets through its methods is not one a stand-in can.
+        if winners.size() > 1 {
+            var firm = vec::<usize>();
+            for var i: usize = 0; i < winners.size(); ++i {
+                if !cs[winners[i]].soft_rejected { firm.push_back(winners[i]); }
+            }
+            if firm.size() > 0 { winners = firm; }
+        }
         // Reference kind, BEFORE the generic tiebreak for the reason C++
         // orders them so ([over.match.best]: better conversion sequences
         // first, templates after): see _ref_better.
@@ -428,6 +455,14 @@ class OverloadResolution {
             return out;
         }
 
+        // A tie only among imported templates whose substitution waits on a
+        // generic body's parameter: SFINAE may well split it at every
+        // instance (`on_default(x)` with `x: T`), so it is no ambiguity yet.
+        // Dependent, as a dependent argument is: decided per instance.
+        if (winners.size() > 1) && self._sfinae_pending(&cs, &winners) {
+            out.outcome = OvlOutcome::Dependent;
+            return out;
+        }
         if winners.size() > 1 {
             self._report_ambiguous(&cs, &winners, margs, fargs, at, name);
             out.outcome = OvlOutcome::Ambiguous;
@@ -443,6 +478,7 @@ class OverloadResolution {
         out.ded          = w->ded;
         out.inout_unmarked = w->inout_unmarked;
         out.inout_params   = w->inout_params;
+        out.cxx_ret        = w->cxx_ret;
         return out;
     }
 
@@ -537,6 +573,15 @@ class OverloadResolution {
             if (*cs)[i].viable { viable += 1; }
         }
         return viable > 1;
+    }
+
+    /// Every one of \p winners is an imported template whose substitution
+    /// waits on a dependent argument (Candidate::sfinae_dep).
+    priv fn _sfinae_pending(self, cs: *vec::<Candidate>, winners: *vec::<usize>) -> bool {
+        for var i: usize = 0; i < winners->size(); ++i {
+            if !(*cs)[(*winners)[i]].sfinae_dep { return false; }
+        }
+        return true;
     }
 
     /// The winners no other winner beats on reference kind.
@@ -861,8 +906,92 @@ class OverloadResolution {
             c.ded     = Deduction(self.sc, self.conv);
             if !self._bind_explicit(&c) { cs->push_back(c); continue; }
             self._judge(&c, args, has_receiver, receiver, qualifier);
+            if c.viable && c.generic && f->is_imported() && (!c.assumed) { self._clang_substitute(&c, args, has_receiver); }
             cs->push_back(c);
         }
+    }
+
+    /// An imported function template Kairo found viable goes through clang's
+    /// own deduction and substitution as well (ForeignInstantiate::
+    /// deduce_call), so a substitution failure removes it exactly as in
+    /// C++: libc++'s `make_unique` overloads differ only in which
+    /// `enable_if_t<...> = 0` fails, and `vector::insert(pos, a, b)` keeps
+    /// its iterator template away from two integers the same way. Kairo's
+    /// deduction cannot evaluate any of it -- the conditions are C++
+    /// expressions over the deduced arguments -- and asking for one shape
+    /// at a time would never end. A Kairo candidate in the same set is not
+    /// touched, and neither is the ranking among the survivors.
+    ///
+    /// The arguments go to clang in C++ order: param slots in declaration
+    /// order, a pack's run where the pack is, C `...` extras last. The
+    /// implicit object is not one of them (no explicit object parameters
+    /// are imported), so a `Type::m(obj, ...)` call drops `obj`. Anything
+    /// clang cannot be shown leaves the candidate as Kairo judged it.
+    priv fn _clang_substitute(self, c: *Candidate, args: *vec::<ArgInfo>, has_receiver: bool) {
+        if (self.sc->foreign == &null) || (args == &null) { return; }
+        var f = c->f;
+        var params = vec::<*ParamDecl>();
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var p = f->params[i];
+            if p == &null { continue; }
+            if p->is_self && has_receiver { continue; }
+            params.push_back(p);
+        }
+        var order = vec::<usize>();
+        for var k: usize = 0; k < params.size(); ++k {
+            if params[k]->is_self { continue; }
+            if params[k]->is_pack {
+                for var i: usize = 0; i < args->size(); ++i { if c->arg_to_param[i] == usize(-1) { order.push_back(i); } }
+                continue;
+            }
+            for var i: usize = 0; i < args->size(); ++i { if c->arg_to_param[i] == k { order.push_back(i); } }
+        }
+        for var i: usize = 0; i < args->size(); ++i { if c->arg_to_param[i] == usize(-2) { order.push_back(i); } }
+
+        var tys  = vec::<*Type>();
+        var cats = vec::<Expr::ValueCategory>();
+        for var j: usize = 0; j < order.size(); ++j {
+            var a = &((*args)[order[j]]);
+            var t: *Type = &null;
+            // A list literal becomes whatever container its parameter asks
+            // for, which C++ only learns from Kairo's lowering: not shown.
+            if a->lit == LitKind::List { return; }
+            if a->lit != LitKind::None {
+                // A literal takes the type it was ranked at: its default
+                // where a deduced parameter reads it, which is what C++
+                // deduces from the literal EmitIR writes.
+                t = self._literal_default(a, c->targets[order[j]]);
+            } else if a->ty != &null {
+                t = canon_unqual(self.tu.as_value(a->ty));
+                if a->is_const && (a->cat != Expr::ValueCategory::RValue) { t = self.sc->types->qualified(t, QUAL_CONST()); }
+            }
+            if t == &null { return; }               // `null`, `.V`: nothing clang can be shown.
+            // A generic body's argument (`x: T`): which template survives is
+            // each instance's question, exactly as for a dependent call in a
+            // C++ template. Flagged, so a tie it leaves defers (resolve_mixed).
+            if t->is_dependent() || t->is_instantiation_dependent() { c->sfinae_dep = true; return; }
+            tys.push_back(t);
+            cats.push_back((Expr::ValueCategory::RValue) if (a->lit != LitKind::None) else (a->cat));
+        }
+        var why = "";
+        // The specialization's return type is wanted only where Kairo's
+        // import of it is opaque: a return type that IS the SFINAE
+        // (`enable_if_t<cond, int>`, `-> decltype(...)`) has no Kairo shape.
+        var want_ret = (f->return_type != &null) && (f->return_type->canonical != &null)
+                    && isa::<OpaqueFFIType>(canon_unqual(f->return_type->canonical));
+        var ret: *Type = &null;
+        var fid: i64 = -1;
+        if self.sc->ctx != &null { fid = i64(self.sc->ctx->fid); }
+        var keep = self.sc->foreign->deduce_call(static_cast::<*Decl>(f), &(self.explicit_args), &tys, &cats,
+                                                 self.sc->diag, &why, want_ret, ret, fid);
+        if (keep == 1) && (ret != &null) && (!isa::<OpaqueFFIType>(canon_unqual(ret))) { c->cxx_ret = ret; }
+        if keep == 0 {
+            c->viable = false;
+            c->reason = f"template ignored: {why}";
+        }
+        // Removed over a Kairo record's stand-in: maybe the stand-in's fault
+        // (no methods), so it only loses a tie (resolve_mixed).
+        if keep == 2 { c->soft_rejected = true; }
     }
 
     // === one candidate ======================================================

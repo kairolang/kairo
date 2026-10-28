@@ -52,8 +52,12 @@ ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/Decl.h";
 ffi "c++" import "clang/AST/DeclCXX.h";
 ffi "c++" import "clang/AST/DeclTemplate.h";
+ffi "c++" import "clang/AST/Expr.h";
 ffi "c++" import "clang/Basic/DiagnosticSema.h";
+ffi "c++" import "clang/Basic/PartialDiagnostic.h";
 ffi "c++" import "clang/Sema/Sema.h";
+ffi "c++" import "clang/Sema/TemplateDeduction.h";
+ffi "c++" import "llvm/ADT/SmallString.h";
 ffi "c++" import "llvm/ADT/SmallVector.h";
 
 import AST::Context::ASTContext::*;
@@ -271,6 +275,167 @@ class ForeignInstantiate {
         Logger::info(Logger::Stage::Driver,
             f"ForeignInstantiate: filled {sp}: {di.n_declared} decl(s) declared, {di.n_defined} defined, {ti.n_opaque} opaque type(s)");
         return true;
+    }
+
+    /// Whether clang's own template argument deduction and substitution
+    /// keep the imported function template \p f as a candidate for a call
+    /// with these arguments: 1 kept, 0 removed (\p why says by what), 2
+    /// removed over a Kairo record's stand-in (soft: see below), -1
+    /// undecided -- the arguments or the template have no clang spelling
+    /// here, or clang's DEDUCTION (not substitution) disagreed with Kairo's.
+    ///
+    /// Why clang and not Kairo's own deduction: a C++ overload set is told
+    /// apart by substitution failure ([temp.deduct]/8) -- `enable_if_t<...>
+    /// = 0` on a defaulted parameter (libc++'s three `make_unique`s), on the
+    /// return type, on a parameter, `void_t`, decltype, a requires-clause.
+    /// Each is an expression over the deduced arguments that only C++'s
+    /// template machinery can evaluate, and clang is in-process with the
+    /// header's AST. Kairo deduces first (the candidate's rank and bindings
+    /// are its), then clang deduces again from the same arguments, spelled
+    /// as opaque expressions of their types and value categories, as
+    /// AddTemplateOverloadCandidate does for the call EmitIR writes.
+    ///
+    /// Only a substitution-class failure removes the candidate --
+    /// SubstitutionFailure, ConstraintsNotSatisfied, InvalidExplicitArguments:
+    /// C++'s SFINAE verdicts. A deduction mismatch is left to Kairo's own
+    /// deduction, which already judged the same arguments with its
+    /// conversions; overruling it there would make an export gap (an
+    /// argument TypeExport spells approximately) look like the user's error.
+    ///
+    /// \p explicit_args are the call's written generic arguments, \p arg_tys
+    /// / \p arg_cats the call arguments in C++ order with no implicit object,
+    /// each the argument's value type (a literal's default) and category.
+    /// Takes `_mu` then the set's sema_lock(), the fill order.
+    ///
+    /// \p ret, when \p want_ret, receives the specialization's return type as
+    /// clang substituted it, imported: the one source for a return type
+    /// Kairo imported opaque (`enable_if_t<..., int>`, `-> decltype(...)`).
+    /// \p fid is the calling TU (-1 none), as for fill().
+    fn deduce_call(self, f: *Decl, explicit_args: *vec::<*Type>, arg_tys: *vec::<*Type>,
+                   arg_cats: *vec::<Expr::ValueCategory>, sink: *BufferedDiagSink, why: *string,
+                   want_ret: bool, ret: ref!(*Type), fid: i64 = -1) -> i8 {
+        var cd = reinterpret_cast::<*clang::Decl>(decl_clang(f));
+        if cd == &null { return -1; }
+        var ftd = llvm::dyn_cast::<clang::FunctionTemplateDecl>(cd);
+        if ftd == &null {
+            var fd = llvm::dyn_cast::<clang::FunctionDecl>(cd);
+            if fd != &null { ftd = fd->getDescribedFunctionTemplate(); }
+        }
+        if ftd == &null { return -1; }
+        // A member template of a class template's PATTERN: its enclosing
+        // arguments are not known, so there is nothing concrete to deduce.
+        // A filled instance's members are concrete and take the path below.
+        if ftd->getDeclContext()->isDependentContext() { return -1; }
+        var hs = reinterpret_cast::<*HeaderSet>(decl_origin_set(f));
+        if (hs == &null) || (!hs->alive()) { return -1; }
+        var cctx = hs->ast();
+        var csema = hs->sema();
+        if (cctx == &null) || (csema == &null) { return -1; }
+
+        var lock  = std::LockGuard(self._mu);
+        var slock = std::LockGuard(*(hs->sema_lock()));
+        // A hard error outside the immediate context (a static_assert in a
+        // trait the condition instantiates) is the program's error in C++
+        // too; it goes to the calling TU like a fill's.
+        var da: *ClangDiagAdapter = &null;
+        if sink != &null { da = hs->begin_diag(sink); }
+        finally { hs->end_diag(da); }
+
+        var tx = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
+        tx.reg       = self._reg;
+        tx.psym      = self.psym;
+        tx.instances = self._instances;
+        tx.home_fid  = fid;            // \p fid: the calling TU, which a Kairo instance spelled here is homed in.
+        var loc = ftd->getLocation();
+        var tpl = ftd->getTemplateParameters();
+
+        var ali = clang::TemplateArgumentListInfo(loc, loc);
+        var prior: llvm::SmallVector::<clang::TemplateArgument, 8>;
+        for var i: usize = 0; i < explicit_args->size(); ++i {
+            var a = tx.to_clang_arg_of(tpl, i, (*explicit_args)[i], prior);
+            if a.isNull() { return -1; }
+            if !tx.add_arg_loc(ali, a, loc) { return -1; }
+            prior.push_back(a);
+        }
+
+        // Each argument as an expression of its type and category, which is
+        // all [temp.deduct.call] reads of one. Allocated in the set's
+        // ASTContext: the deduction's bookkeeping may keep pointers to them.
+        var exprs: llvm::SmallVector::<*clang::Expr, 8>;
+        for var i: usize = 0; i < arg_tys->size(); ++i {
+            var q = tx.to_clang((*arg_tys)[i]);
+            if q.isNull() { return -1; }
+            var vk = clang::VK_PRValue;
+            if (*arg_cats)[i] == Expr::ValueCategory::LValue { vk = clang::VK_LValue; }
+            if (*arg_cats)[i] == Expr::ValueCategory::XValue { vk = clang::VK_XValue; }
+            var mem = cctx->Allocate(sizeof(clang::OpaqueValueExpr), alignof(clang::OpaqueValueExpr));
+            var e = libcxx::construct_at(reinterpret_cast::<*clang::OpaqueValueExpr>(mem), loc, q, vk,
+                                         clang::OK_Ordinary, static_cast::<*clang::Expr>(&null));
+            exprs.push_back(static_cast::<*clang::Expr>(e));
+        }
+
+        var info = clang::sema::TemplateDeductionInfo(loc, 0);
+        var spec: *clang::FunctionDecl = &null;
+        var eap: *clang::TemplateArgumentListInfo = &null;
+        if explicit_args->size() > 0 { eap = &ali; }
+        // No non-dependent conversion check: Kairo ranked every argument
+        // against its parameter already, with its own conversions.
+        var r = csema->DeduceTemplateArguments(ftd, eap, exprs, spec, info,
+                    false, false, false, clang::QualType(), clang::Expr::Classification(), false,
+                    fn (ps: llvm::ArrayRef::<clang::QualType>, only: bool) -> bool { return false; });
+        if r == clang::TemplateDeductionResult::Success {
+            if want_ret && (spec != &null) {
+                var t = self._hindex->target_for_fid(decl_origin_fid(f));
+                if t != &null {
+                    var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid);
+                    ret = ti._import(spec->getReturnType());
+                }
+            }
+            return 1;
+        }
+
+        if (r != clang::TemplateDeductionResult::ConstraintsNotSatisfied)
+        && (r != clang::TemplateDeductionResult::SubstitutionFailure)
+        && (r != clang::TemplateDeductionResult::InvalidExplicitArguments) {
+            Logger::info(Logger::Stage::Driver,
+                f"ForeignInstantiate: clang's deduction of {string(ftd->getQualifiedNameAsString())} disagreed with Kairo's (result {static_cast::<i32>(r)}); Kairo's verdict kept");
+            return -1;
+        }
+        // A removal that read a Kairo record through its stand-in (fields,
+        // no methods: TypeExport::used_standin) may be the stand-in's fault
+        // -- `IndexableBuffer<RingBuf<i32>>` probes `len()`, which only the
+        // real record has -- or may not be (`make_unique<Cp>`'s array
+        // overloads fail on `Cp` being no array, which the stand-in shows
+        // truly). So it is a SOFT removal (2): the candidate loses to any
+        // firm one it ties, and stands when nothing else does.
+        var verdict: i8 = (2) if (tx.used_standin) else (0);
+        if r == clang::TemplateDeductionResult::ConstraintsNotSatisfied {
+            (*why) = "its constraints are not satisfied";
+            return verdict;
+        }
+        (*why) = "substitution failure";
+        if info.hasSFINAEDiagnostic() {
+            // getStringArg is not const; the diagnostic is ours to read.
+            var pd = const_cast::<*clang::PartialDiagnosticAt>(&(info.peekSFINAEDiagnostic()));
+            var d  = &(libcxx::get::<1>(*pd));
+            // clang's own note for a failed enable_if condition
+            // (DiagnoseBadDeduction): the error text reads "'enable_if'
+            // cannot be used to disable this declaration", which is what a
+            // hard error would say, not why this candidate went.
+            if d->getDiagID() == clang::diag::err_typename_nested_not_found_requirement {
+                var req = d->getStringArg(0);
+                (*why) = f"requirement '{string(req.data(), req.size())}' was not satisfied";
+                return verdict;
+            }
+            if d->getDiagID() == clang::diag::err_typename_nested_not_found_enable_if {
+                (*why) = "disabled by 'enable_if\x27";
+                return verdict;
+            }
+            var buf: llvm::SmallString::<128>;
+            d->EmitToString(csema->getDiagnostics(), buf);
+            if buf.size() > 0 { (*why) = f"substitution failure: {string(buf.data(), buf.size())}"; }
+        }
+        return verdict;
     }
 
     /// Nested records of the specialization. Implicit instantiation of

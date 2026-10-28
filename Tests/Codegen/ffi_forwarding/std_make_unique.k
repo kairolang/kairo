@@ -1,14 +1,12 @@
 // std::make_unique itself. libc++ declares three overloads told apart only
 // by SFINAE on an `enable_if_t<...> = 0` parameter (single object, array of
-// unknown bound, deleted array of known bound); Kairo cannot evaluate the
-// condition, so all three are viable and tie.
-//
-// XFAIL: *
-// Waiting on SFINAE for imported function templates: SC064E "call to
-// 'make_unique' is ambiguous". The forwarding itself works (a user
-// make_unique without the SFINAE split: user_forward.k's make_box).
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// unknown bound, deleted array of known bound). Kairo's own deduction
+// cannot evaluate the condition, so all three were viable and tied
+// (SC064E); clang's deduction and substitution now remove the two whose
+// condition fails (OverloadResolution::_clang_substitute), and the call
+// is emitted with its written `<int>` though no Kairo instance exists for
+// a template with a parameter only C++ fills. More shapes:
+// Codegen/ffi_sfinae/.
 
 ffi "c++" import "memory"
 

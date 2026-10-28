@@ -42,6 +42,7 @@ ffi "c++" import "clang/AST/ASTContext.h";
 ffi "c++" import "clang/AST/Decl.h";
 ffi "c++" import "clang/AST/DeclCXX.h";
 ffi "c++" import "clang/AST/DeclTemplate.h";
+ffi "c++" import "clang/AST/ODRHash.h";
 ffi "c++" import "clang/AST/PrettyPrinter.h";
 ffi "c++" import "clang/AST/QualTypeNames.h";
 ffi "c++" import "clang/AST/Type.h";
@@ -124,8 +125,40 @@ class TypeImport {
     /// so the common case never touches the heap.
     static fn usr_of(d: const_obs::<clang::Decl>) -> llvm::SmallString::<128> {
         var buf: llvm::SmallString::<128>;
-        if clang::index::generateUSRForDecl(d, buf) { buf.clear(); }
+        if clang::index::generateUSRForDecl(d, buf) { buf.clear(); return buf; }
+        TypeImport::_tpl_discriminator(d, buf);
         return buf;
+    }
+
+    /// A function template's USR leaves out what C++ overloads it by
+    /// beyond the parameters: its constraints (a requires-clause, a
+    /// constrained parameter) and a decltype return type, which the USR
+    /// generator writes as a blank. Two templates differing only there --
+    /// `requires integral<T>` beside `requires (!integral<T>)`, SFINAE on
+    /// `-> decltype(t.size())` -- had one USR, so the registry read the
+    /// second as a redeclaration of the first and the overload set lost
+    /// it. The ODRHash of those parts goes on the end: it hashes by name,
+    /// not by node, so every header set that sees one template agrees on
+    /// it. Templates with neither keep the bare USR.
+    static fn _tpl_discriminator(d: const_obs::<clang::Decl>, buf: ref!(llvm::SmallString::<128>)) {
+        var ftd = llvm::dyn_cast::<clang::FunctionTemplateDecl>(d);
+        if ftd == &null {
+            var fd = llvm::dyn_cast::<clang::FunctionDecl>(d);
+            if fd != &null { ftd = fd->getDescribedFunctionTemplate(); }
+        }
+        if ftd == &null { return; }
+        ftd = ftd->getCanonicalDecl();
+        var rt = ftd->getTemplatedDecl()->getReturnType();
+        var by_decltype = llvm::isa::<clang::DecltypeType>(rt.getTypePtr());
+        var acs: llvm::SmallVector::<clang::AssociatedConstraint, 4>;
+        ftd->getAssociatedConstraints(acs);
+        if (acs.size() == 0) && (!by_decltype) { return; }
+        var h = clang::ODRHash();
+        for var i: usize = 0; i < acs.size(); ++i {
+            if acs[i].ConstraintExpr != &null { h.AddStmt(acs[i].ConstraintExpr); }
+        }
+        if by_decltype { h.AddQualType(rt); }
+        buf.append(sref(f"@K{h.CalculateHash()}"));
     }
 
     // === the mapping ========================================================
@@ -263,7 +296,7 @@ class TypeImport {
         }
         var ia = llvm::dyn_cast::<clang::IncompleteArrayType>(ty);
         if ia != &null {
-            return self.store->array(self._map_or_opaque(ia->getElementType()), 0);
+            return self.store->incomplete_array(self._map_or_opaque(ia->getElementType()));
         }
 
         // --- functions ------------------------------------------------------------

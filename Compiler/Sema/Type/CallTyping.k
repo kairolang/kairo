@@ -365,9 +365,14 @@ class <T> CallTyping {
         // `L<i32>::P` (InGenericOwner).
         if rt->is_dependent() || rt->in_generic_owner() {
             var s = r->ded.substitute(rt);
+            if (s == &null) && (r->cxx_ret != &null) { s = r->cxx_ret; }
             if s == &null { return &null; }   // still dependent: caller marks unknown.
             rt = s;
         }
+        // An imported template whose declared return type IS its SFINAE
+        // (`enable_if_t<cond, int>`, `-> decltype(...)`) imports opaque;
+        // clang's specialization has the real one (_clang_substitute).
+        if (r->cxx_ret != &null) && isa::<OpaqueFFIType>(canon_unqual(rt)) { rt = r->cxx_ret; }
         // An interface member's `Self` is the receiver, so `-> Self` through a
         // bound `T impl I` reads back as T. AFTER the deduced substitution,
         // not before, and the order is not cosmetic: rewriting first turns
@@ -647,7 +652,14 @@ class <T> CallTyping {
                              receiver: *Type, name: string, ident: *NamedIdentExpr,
                              step: *ChainExpr::Step, adl: bool = false) -> *Type {
         var args = vec::<ArgInfo>();
+        // The explicit arguments are THIS call's; typing an argument can be
+        // a call of its own, and one that never sets them (a constructor
+        // call, `make_box<Pair>(Pair(3, 4))`) read them as written on it:
+        // "it takes 0 generic argument(s), and 1 were written".
+        var outer_explicit = dyn()->ovl.explicit_args;
+        dyn()->ovl.explicit_args.clear();
         var ok = self.build_args(n->args, &args);
+        dyn()->ovl.explicit_args = outer_explicit;
 
         // ADL ([basic.lookup.argdep]): an unqualified call also sees functions
         // of the same name in the modules of its arguments' types -- how

@@ -114,6 +114,11 @@ class TypeExport {
     /// there). The demanding TU, which the fill knows; -1 falls back to the
     /// primary's own TU, right only when the primary is the user's.
     pub var home_fid:  i64 = -1;
+    /// Some type this exporter spelled was a Kairo record's stand-in. A
+    /// stand-in has the record's layout and none of its behaviour, so a
+    /// question clang answers about it -- a concept probing `b.len()`, a
+    /// trait probing a member -- can come out false for the real type.
+    pub var used_standin: bool = false;
 
     /// The substitution in force while a stand-in specialization is being
     /// defined: the primary whose parameters are being read, and what they
@@ -227,20 +232,7 @@ class TypeExport {
         var loc = ct->getLocation();                     // any valid loc; the pattern's is honest.
         var ali = clang::TemplateArgumentListInfo(loc, loc);
         for var i: usize = 0; i < args.size(); ++i {
-            var a = args[i];
-            if a.getKind() == clang::TemplateArgument::Type {
-                var qt = a.getAsType();
-                ali.addArgument(clang::TemplateArgumentLoc(a, self.cctx->getTrivialTypeSourceInfo(qt, loc)));
-                continue;
-            }
-            // A value goes in as the expression clang itself would rebuild
-            // from it, so the template-id is checked exactly as a written
-            // `ct<..., 4>` is, and a diagnostic about it has a source
-            // expression to print instead of a null one.
-            var er = self.sema->BuildExpressionFromNonTypeTemplateArgument(a, loc);
-            if er.isInvalid() || (er.get() == &null) { return clang::QualType(); }
-            var e = er.get();
-            ali.addArgument(clang::TemplateArgumentLoc(clang::TemplateArgument(e, false), e));
+            if !self.add_arg_loc(ali, args[i], loc) { return clang::QualType(); }
         }
         var diags  = &(self.sema->getDiagnostics());
         var before = diags->getNumErrors();
@@ -253,6 +245,26 @@ class TypeExport {
         return ty.getCanonicalType();
     }
 
+    /// Append \p a to \p ali as a written argument would be. False when a
+    /// value argument has no expression. PRE: sema_lock() held.
+    fn add_arg_loc(self, ali: ref!(clang::TemplateArgumentListInfo), a: clang::TemplateArgument,
+                   loc: clang::SourceLocation) -> bool {
+        if a.getKind() == clang::TemplateArgument::Type {
+            var qt = a.getAsType();
+            ali.addArgument(clang::TemplateArgumentLoc(a, self.cctx->getTrivialTypeSourceInfo(qt, loc)));
+            return true;
+        }
+        // A value goes in as the expression clang itself would rebuild
+        // from it, so the template-id is checked exactly as a written
+        // `ct<..., 4>` is, and a diagnostic about it has a source
+        // expression to print instead of a null one.
+        var er = self.sema->BuildExpressionFromNonTypeTemplateArgument(a, loc);
+        if er.isInvalid() || (er.get() == &null) { return false; }
+        var e = er.get();
+        ali.addArgument(clang::TemplateArgumentLoc(clang::TemplateArgument(e, false), e));
+        return true;
+    }
+
     /// Argument \p i of a template-id of \p ct, for canonical \p t, or a
     /// null TemplateArgument. A type goes through to_clang. A value argument
     /// (`4` of `array<i32, 4>`) is an exact integer with no C++ type of its
@@ -263,6 +275,15 @@ class TypeExport {
     /// typed by an earlier one (`integral_constant<T, T v>`).
     fn to_clang_arg(self, ct: *clang::ClassTemplateDecl, i: usize, t: *Type,
                     prior: ref!(llvm::SmallVector::<clang::TemplateArgument, 8>)) -> clang::TemplateArgument {
+        if ct == &null { return clang::TemplateArgument(); }
+        return self.to_clang_arg_of(ct->getTemplateParameters(), i, t, prior);
+    }
+
+    /// to_clang_arg against any template's parameter list: a function
+    /// template's explicit arguments (`make_unique<i32>`) are spelled the
+    /// same way a class template-id's are.
+    fn to_clang_arg_of(self, tpl: *clang::TemplateParameterList, i: usize, t: *Type,
+                       prior: ref!(llvm::SmallVector::<clang::TemplateArgument, 8>)) -> clang::TemplateArgument {
         if t == &null { return clang::TemplateArgument(); }
         if !isa::<TypeExpr>(t) {
             var q = self.to_clang(t);
@@ -273,7 +294,7 @@ class TypeExport {
         // A computed value (`N + 1` over a parameter) is dependent: there is
         // no concrete clang argument for it, as for a dependent type.
         if !te->is_exact() { return clang::TemplateArgument(); }
-        var pt = self._value_param_type(ct, i, prior);
+        var pt = self._value_param_type(tpl, i, prior);
         if pt.isNull() { return clang::TemplateArgument(); }
 
         var bits = static_cast::<u32>(self.cctx->getIntWidth(pt));
@@ -296,12 +317,11 @@ class TypeExport {
         return clang::TemplateArgument(*(self.cctx), v, pt);
     }
 
-    /// The (canonical, integral or enum) type of \p ct's \p i-th parameter
+    /// The (canonical, integral or enum) type of \p tpl's \p i-th parameter
     /// when it is a non-type one, or null. Past the end, the trailing pack's.
-    priv fn _value_param_type(self, ct: *clang::ClassTemplateDecl, i: usize,
+    priv fn _value_param_type(self, tpl: *clang::TemplateParameterList, i: usize,
                               prior: ref!(llvm::SmallVector::<clang::TemplateArgument, 8>)) -> clang::QualType {
-        if ct == &null { return clang::QualType(); }
-        var tpl = ct->getTemplateParameters();
+        if tpl == &null { return clang::QualType(); }
         var n = static_cast::<usize>(tpl->size());
         if n == 0 { return clang::QualType(); }
         var k = i;
@@ -589,6 +609,7 @@ class TypeExport {
     /// PRE: sema_lock() held (it mutates the AST).
     priv fn _standin(self, d_in: *Decl, rt: *RecordType) -> clang::QualType {
         if !self._can_standin() { return clang::QualType(); }
+        self.used_standin = true;      // records, enums, ADTs alike: layout, no behaviour.
         var d = NameLookup::representative(d_in);
         if rt->args.size() > 0 { return clang::QualType(); }
         if decl_generic_params(d).size() > 0 { return clang::QualType(); }
@@ -710,6 +731,7 @@ class TypeExport {
     /// PRE: sema_lock() held.
     priv fn _standin_instance(self, prim_in: *Decl, args: *vec::<*Type>) -> clang::QualType {
         if !self._can_standin() { return clang::QualType(); }
+        self.used_standin = true;      // a Kairo generic's instance, `T?` (Nullable) included.
         var prim = NameLookup::representative(prim_in);
         var ct = self._standin_template(prim);
         if ct == &null { return clang::QualType(); }

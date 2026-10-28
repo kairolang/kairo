@@ -2049,6 +2049,21 @@ class EmitIR {
     // --- Calls -----------------------------------------------------------------------
 
     priv fn _call(self, n: *CallExpr) {
+        // An overload set of imported templates that only an instance can
+        // split (`on_default(x)` with `x: T`: which `enable_if` holds is
+        // T's question -- OverloadResolution::_sfinae_pending). Left
+        // unpromoted by decision; it goes out as the dependent call it is,
+        // by the set's one C++ name, and clang resolves it per instance.
+        var dset = self._dependent_imported_set(n->callee);
+        if dset.size() > 0 {
+            var wa = self._written_targs(n->callee);
+            if wa.size() > 0 { dset += self._spell.args_str(&wa); }
+            self._cg->sink->spell(n->callee->range, dset);
+            self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+            self._args(n, &null, true, &null);
+            self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            return;
+        }
         var callee = self._callee_decl(n->callee);
         // A call through a `fn` value: a local, a parameter, a field, or any
         // expression of `fn` type (`make()(4)`). Its parameters are the
@@ -2178,6 +2193,21 @@ class EmitIR {
             // back as `i8`'s `signed char`: a std::string iterator's `==`
             // named `operator==<signed char*>`.
             self._cg->sink->spell(n->callee->range, self._spell.leaf(callee));
+        } else if (f != &null) && (f->generic_params.size() > 0) && decl_is_imported(callee) && self._plain_callee(n->callee) {
+            // An imported function template is called as C++ calls it: the
+            // generic arguments the call WROTE, and clang deduces the rest
+            // from the arguments -- which Sema already had clang do
+            // (OverloadResolution::_clang_substitute). Kairo's instance args
+            // are the wrong spelling for the rest: a forwarding pack's
+            // elements are value types (`Args&&` against an lvalue needs
+            // `T&`, which only deduction produces), and a parameter only
+            // C++ fills (`enable_if_t<...> = 0`) has no instance arg at all,
+            // so the instance is null and `make_unique<i32>(5)` lost its
+            // `<int>` along with it.
+            var wa = self._written_targs(n->callee);
+            var s = self._spell.qual_name(callee);
+            if wa.size() > 0 { s += self._spell.args_str(&wa); }
+            self._cg->sink->spell(n->callee->range, s);
         } else if (inst != &null) && (CXXSpell::template_params(callee).size() > 0) && self._plain_callee(n->callee) {
             // A generic extension member's instance is `<ext args..., member args...>`.
             self._cg->sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
@@ -2231,6 +2261,47 @@ class EmitIR {
     /// A callee whose name is spelled whole: a bare name or a `::` path. A
     /// generic METHOD through `.` needs `.template m<...>` and is still
     /// RESOLUTION.md item r.
+    /// The one C++ name of an UNPROMOTED plain callee whose candidates are
+    /// all imported functions spelled alike, or "" for any other callee.
+    priv fn _dependent_imported_set(self, c: *Expr) -> string {
+        if !self._plain_callee(c) { return ""; }
+        var cell: *OverloadCell = &null;
+        var ni = dyn_cast::<NamedIdentExpr>(c);
+        if (ni != &null) && (ni->resolved_decl == &null) { cell = ni->candidate_cell; }
+        var ch = dyn_cast::<ChainExpr>(c);
+        if (ch != &null) && (ch->steps.size() > 0) {
+            var last = ch->steps.get(ch->steps.size() - 1);
+            if last->resolved_decl == &null { cell = last->candidate_cell; }
+        }
+        if (cell == &null) || (cell->size() == 0) { return ""; }
+        var name = "";
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if (d == &null) || (!isa::<FunctionDecl>(d)) || (!decl_is_imported(d)) { return ""; }
+            var s = self._spell.qual_name(d);
+            if i == 0 { name = s; }
+            else if s != name { return ""; }
+        }
+        return name;
+    }
+
+    /// The generic arguments written on a plain callee (`f<A>` or
+    /// `ns::f<A>`), as canonicals in order; empty when none were written.
+    priv fn _written_targs(self, c: *Expr) -> vec::<*Type> {
+        var out = vec::<*Type>();
+        var gl: *FrozenList::<ChainType::GenericArg> = &null;
+        if isa::<NamedIdentExpr>(c) { gl = &(cast::<NamedIdentExpr>(c)->generic_args); }
+        var ch = dyn_cast::<ChainExpr>(c);
+        if (ch != &null) && (ch->steps.size() > 0) { gl = &(ch->steps.get(ch->steps.size() - 1)->generic_args); }
+        if gl == &null { return out; }
+        for var i: usize = 0; i < gl->size(); ++i {
+            var ga = gl->get(i);
+            if (ga->ty == &null) || (ga->ty->canonical == &null) { self._ice(c->range, "EmitIR: a written generic argument with no type"); }
+            out.push_back(ga->ty->canonical);
+        }
+        return out;
+    }
+
     priv fn _plain_callee(self, c: *Expr) -> bool {
         if isa::<NamedIdentExpr>(c) { return true; }
         var ch = dyn_cast::<ChainExpr>(c);

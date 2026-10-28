@@ -765,6 +765,8 @@ class InstantiationRegistry {
                 return self._match(cast::<NullableType>(p)->inner, cast::<NullableType>(a)->inner, spec, binds);
             } case TypeKind::FixedArrayType {
                 if p->size_bits != a->size_bits { return false; }
+                // `T[]` and `T[0]` share an extent of 0 and nothing else.
+                if cast::<FixedArrayType>(p)->is_incomplete != cast::<FixedArrayType>(a)->is_incomplete { return false; }
                 return self._match(cast::<FixedArrayType>(p)->element, cast::<FixedArrayType>(a)->element, spec, binds);
             } case TypeKind::FunctionPointerType {
                 var pf = cast::<FunctionPointerType>(p); var af = cast::<FunctionPointerType>(a);

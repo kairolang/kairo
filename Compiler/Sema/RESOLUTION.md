@@ -1221,7 +1221,7 @@ pack's position. An imported pack's pattern through a reference deduces
 the same way through it: `Args&&...` and `const Ts&...` take any argument,
 `Ts&...` only an lvalue. An imported template parameter with a C++ default
 (`enable_if_t<...> = 0`) is not required of deduction
-(`GenericParamDecl::ffi_has_default`): clang fills it. Its elements cannot be written as explicit generic
+(`GenericParamDecl::ffi_has_default`): clang fills it, and judges it (below). Its elements cannot be written as explicit generic
 arguments yet (not viable, with that reason). A default is looked for across the WHOLE redecl
 chain (`TypeUtil::param_default`): defaults accumulate over redeclarations,
 and the link judged need not be the one that wrote it. An imported C++
@@ -1240,6 +1240,37 @@ SUBSTITUTED type, so a literal takes it and an argument converts to it
 rather than re-deducing it, and an extension whose parameters are still
 unbound is not viable. Diagnostics: no viable (capped candidate notes),
 ambiguous, not callable.
+
+An IMPORTED function template that Kairo found viable is then deduced
+again by clang itself (`_clang_substitute` ->
+`ForeignInstantiate::deduce_call`: `Sema::DeduceTemplateArguments` on the
+written generic arguments and the call arguments as opaque expressions of
+their types and categories), so substitution failure removes it exactly as
+in C++: `enable_if` on a defaulted parameter, the return type or a
+parameter, decltype / `void_t` expressions, requires-clauses. libc++'s
+`make_unique` split and `vector::assign/insert`'s iterator-vs-count pair
+are this. Only SFINAE verdicts (SubstitutionFailure, ConstraintsNotSatisfied,
+InvalidExplicitArguments) remove; a deduction mismatch keeps Kairo's
+verdict. A removal that read a Kairo record through its TypeExport
+stand-in (layout only, no methods: a concept probing `b.len()` is false
+for it and true for the record) is SOFT (`Candidate::soft_rejected`): the
+candidate stays viable and loses any tie to one clang kept, so
+`make_unique<Cp>(4)` still drops the array overloads and a lone
+concept-constrained template taking a Kairo record still binds. The reason is clang's own ("template ignored: requirement '...'
+was not satisfied"). A Kairo candidate in the set is not touched, and
+ranking among the survivors is unchanged. A declared return type that IS
+the SFINAE (opaque to Kairo) reads clang's specialization's
+(`OvlResult::cxx_ret`). An argument still dependent (`x: T` in a generic
+body) defers the verdict: a tie only among such candidates is
+OvlOutcome::Dependent, emitted as the dependent C++ call it is
+(EmitIR::_dependent_imported_set). An imported template is emitted with
+the generic arguments the call WROTE and nothing else: clang deduces the
+rest, which is the only spelling that keeps a forwarding `Args&&` an
+lvalue reference where it should be. A function template's USR gets the
+ODRHash of its constraints / decltype return appended
+(`TypeImport::_tpl_discriminator`): the USR generator drops both, and two
+such templates were one registry entity.
+
 
 **Deduction** (`ArgumentDeduction.k`). Structural unify of the param's
 canonical against the arg's, binding `(owner, index)`; conflicts fail,
