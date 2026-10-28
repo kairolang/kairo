@@ -3048,3 +3048,46 @@ group = "type-check"
     points at the variant's declaration, at the payload field that was left out, or at the first
     place a repeated field was given.
     """
+
+[SC132]
+brief = "declaration-scope eval if depends on a type parameter"
+group = "type-check"
+
+    [SC132.E]
+    explain = """
+    # declaration-scope `eval if` on a type parameter
+
+    an `eval if` outside a function body chooses which declarations exist: which fields a class
+    has, which functions it declares. a generic is emitted as one C++ template for all of its
+    instances, and C++ has no `if constexpr` at class scope, so the members of a generic cannot
+    differ from one instance to another. a condition that reads a type parameter
+    (`is_trivially_copyable!(T)`, `sizeof T`) would need exactly that.
+
+    ```kairo
+    class <T> Holder {
+        eval if is_trivially_copyable!(T) {   // error: depends on T
+            var fast: T
+        } else {
+            var slow: *T
+        }
+    }
+    ```
+
+    a condition inside a generic that names no parameter (`is_trivially_copyable!(Plain)`,
+    `sizeof usize < 8`) is decided once, after types are resolved, and is fine.
+
+    ## how to fix
+
+    select a type instead: declare each member set as a partial specialization of the generic,
+    chosen by a `requires` clause, so that C++ picks one for each instance. in a function body an
+    `eval if` on a type parameter is `if constexpr` and needs no change.
+    """
+
+    [SC132.N]
+    explain = """
+    # note: the partial specialization to write
+
+    points at the generic whose members the condition chose, and spells the partial
+    specialization to declare once per member set: `class <T> Holder<T> requires <condition>`,
+    with that set as its body.
+    """

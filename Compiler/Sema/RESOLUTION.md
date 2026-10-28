@@ -577,8 +577,11 @@ The facts: `sizeof` / `alignof` from `EnumLayoutQuery::size_of` (builtins,
 pointers, arrays, plain enums and plain records of them; any other layout is
 C++'s to choose, SC001E with a note pointing at `if constexpr`), and
 `is_trivially_copyable!` / `is_trivially_destructible!` from
-`ClassLifecycle::facts_of_type_concrete`. A fact about a type parameter is an
-error. A fact about a record whose own member set another deferred `eval if`
+`ClassLifecycle::facts_of_type_concrete`. A fact about a type parameter is
+SC132E: a generic is one C++ template and C++ has no class-scope `if
+constexpr` (MONO.md §2), so its members cannot differ per instance; the note
+spells the requires-selected partial to write instead. A fact about a record
+whose own member set another deferred `eval if`
 still decides -- the record itself, or one it holds by value through a field,
 base, array element or type argument -- and a name only such branches
 declare, wait: the walk repeats while a round folds something,
@@ -2405,7 +2408,8 @@ A pass that needs one asks that file; it never spells the string itself.
    a value: X (SC108E, SC109E). Dependent conformance:
    ConformanceChecking, at the outer use. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
    A declaration-scope `eval if` whose type-fact condition cannot be decided,
-   or that waits on another forever: EvalIfLateFolding. Two declarations in
+   or that waits on another forever (SC001E), or that reads a type parameter
+   (SC132E): EvalIfLateFolding. Two declarations in
    sibling branches of a deferred `eval if` are never a redefinition (N(a))
    or a redeclaration (R).
 4. **Parallelism boundary.** P parallel. Sema is sequential today: one

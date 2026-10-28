@@ -261,6 +261,9 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     /// This late round folded something / left something waiting.
     priv var _progress: bool = false;
     priv var _waiting: bool = false;
+    /// The failure _report is about is a fact about a type parameter
+    /// (SC132E), not a condition that does not fold.
+    priv var _dep: bool = false;
 
     fn EvalIfFolding(self, sc: *SemaContext) {
         self.sc  = sc;
@@ -464,6 +467,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
             self._why_at       = &null;
             self._why_decl     = &null;
             self._pending_name = false;
+            self._dep          = false;
             var v = self._fold(c->cond, 0);
             if v.deferred { return 2; }
             if !v.ok {
@@ -500,6 +504,10 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
 
     priv fn _report(self, c: *ConditionalStmt) {
         var at = (self._why_at) if (self._why_at != &null) else (c->cond);
+        if self._dep {
+            self._report_dependent(at);
+            return;
+        }
         var why = (self._why) if (self._why.size() > 0) else ("it is not a compile-time constant");
         var by_when = ("must fold once types are resolved") if (self._late) else ("must fold before names are resolved");
         var b = self.sc->diag->report(DiagID::SC001E, at->range.start,
@@ -521,6 +529,51 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
                 "in a function body the same condition is 'if constexpr', which C++ decides with the layout it chooses").first(at->range);
         }
         b.emit();
+    }
+
+    /// SC132E (EVAL.md 4.2b, MONO.md §2): a generic is one C++ template for
+    /// every instance, and C++ has no `if constexpr` at class scope, so the
+    /// members of one cannot differ per instance. What can: a partial
+    /// specialization per member set, chosen by a requires clause, which C++
+    /// selects for each instance. The note spells it on the generic.
+    priv fn _report_dependent(self, at: *Expr) {
+        var b = self.sc->diag->report(DiagID::SC132E, at->range.start,
+            "a declaration-scope 'eval if' cannot depend on a type parameter; select a type instead");
+        b.first(at->range);
+        var owner = self._generic_owner();
+        if owner != &null {
+            var nt = decl_name_tok(owner);
+            var nm = self.ctx->get_spelling(nt);
+            var ps = self._param_list(owner);
+            var kw = ("struct") if (isa::<StructDecl>(owner)) else ("class");
+            b.note(DiagID::SC132N, nt.range.start,
+                f"declare '{kw} <{ps}> {nm}<{ps}> requires <condition>' once per member set: each a partial specialization of '{nm}' whose body holds that set").first(nt.range);
+        }
+        b.emit();
+    }
+
+    /// The innermost generic record around the `eval if` being reported.
+    priv fn _generic_owner(self) -> *Decl {
+        var i = self._dcs.size();
+        while i > 0 {
+            i -= 1;
+            var dc = self._dcs[i];
+            if (dc == &null) || (!dc->is_type_scope()) { continue; }
+            var o = dc->owner_decl();
+            if (o != &null) && (decl_generic_params(o).size() > 0) { return o; }
+        }
+        return &null;
+    }
+
+    /// `T, U`: \p d's generic parameters as written.
+    priv fn _param_list(self, d: *Decl) -> string {
+        var gps = decl_generic_params(d);
+        var s = "";
+        for var i: usize = 0; i < gps.size(); ++i {
+            if i > 0 { s += ", "; }
+            s += self.ctx->get_spelling(decl_name_tok(static_cast::<*Decl>(gps[i])));
+        }
+        return s;
     }
 
     // === deferred (file header, Type facts) =================================
@@ -900,6 +953,7 @@ class EvalIfFolding derives ASTWriter::<EvalIfFolding> {
     /// A fact about a type parameter: one answer per instance, while a
     /// declaration-scope `eval if` chooses members once for all of them.
     priv fn _dependent_fact(self, e: *Expr) -> FoldVal {
+        if self._why_at == &null { self._dep = true; }
         return self._no(e, "it depends on a type parameter, and the members it chooses are the same for every instance");
     }
 
