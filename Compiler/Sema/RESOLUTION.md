@@ -1395,7 +1395,8 @@ Dispatch on (source, target), first match, no fallthrough:
        one-param ctor on the target -> error. `op as` beats ctor.
 
 `as static` disables 3-4 and errors on a dynamic answer; a static downcast
-is forbidden outright. `as const` asserts 1. `T? as T` is an error naming
+is forbidden, except the CRTP downcast of rung 3b, which a `derives` bound
+proves. `as const` asserts 1. `T? as T` is an error naming
 `??` / `unwrap!()`; there is no collapsing cast. Pointer <-> integer: `ptr
 as usize` needs no unsafe; `ptr as u8` is an error; `int as unsafe *T`
 needs unsafe; `int as *T` is an error; `*T as unsafe *T` needs unsafe.
