@@ -188,8 +188,9 @@ class Candidate {
     /// types a literal there with its default, which is C's promotion).
     pub var arg_to_param: vec::<usize>;
     /// per arg: the reference kind it bound AT EXACT -- 0 none (a value
-    /// parameter, or not Exact), 1 `const T&`, 2 `T&&`, 3 `T&`. Read only by
-    /// the reference tiebreak.
+    /// parameter, or not Exact), 1 `const T&`, 2 `T&&`, 3 `T&` -- or, 4-6,
+    /// the same kinds bound to a converted temporary. Read only by the
+    /// reference tiebreak.
     pub var binds:        vec::<u8>;
     /// per arg: how a TYPED integer argument bound AT EXACT -- 0 not judged
     /// (not an integer, not Exact, an untyped literal), 1 its natural C
@@ -620,6 +621,9 @@ class OverloadResolution {
     }
 
     priv fn _ref_prefers(self, a: *ArgInfo, bx: u8, by: u8) -> bool {
+        // Two bindings of one converted temporary: it is an rvalue, so `T&&`
+        // beats `const T&` ([over.ics.rank]/3.2.3), as for an rvalue at Exact.
+        if by == 4 { return bx == 5; }
         if by != 1 { return false; }                      // only ever over `const T&`.
         var rvalue = (a->cat == Expr::ValueCategory::RValue) || (a->cat == Expr::ValueCategory::XValue);
         if (bx == 2) && rvalue { return true; }
@@ -1076,6 +1080,15 @@ class OverloadResolution {
             if (r == ImplicitRank::Converted) && (c->rank < 1) { c->rank = 1; }
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
             if r == ImplicitRank::Exact { c->binds[i] = (3) if (mode == ParamMode::Inout) else (self._bind_kind(pt)); }
+            // A reference reached through a conversion binds the converted
+            // TEMPORARY, an rvalue whatever the argument was: `push_back(x)`
+            // with x: i32 into `vector<i64>`. Recorded apart from the Exact
+            // codes (+3), so only two such bindings are ever compared
+            // (_ref_prefers).
+            if (r == ImplicitRank::Converted) && (mode != ParamMode::Inout) {
+                var bk = self._bind_kind(pt);
+                if bk != 0 { c->binds[i] = bk + 3; }
+            }
             if (r == ImplicitRank::Exact) && (a->lit == LitKind::None) && (a->ty != &null) && self.tu.is_integer(a->ty) {
                 c->ints[i] = (2) if (p->cxx_int_alias) else (1);
             }

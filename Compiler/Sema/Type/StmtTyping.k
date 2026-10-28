@@ -255,9 +255,19 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     /// "add a level". A deliberate `(T?)?` is still writable as a type.
     priv fn _shorthand_type(self, v: *VariableDecl, t: *Type) -> *Type {
         var c = canon_unqual(t);
-        if v->pointer_depth > 0 { self._check_pointer_shorthand(v, c); }
+        if v->pointer_depth > 0 { self._check_pointer_shorthand(v, self._cxx_referee(c)); }
         if !v->nullable_shorthand { return c; }
         return self._nullable_once(c);
+    }
+
+    /// \p c, or what it refers to when it is a C++ reference: the stars of
+    /// `var *p = ptrs.at(0)` state the pointer `ptrs.at(0)` refers to
+    /// (`*Node&`), as for any other read of a reference.
+    priv fn _cxx_referee(self, c: *Type) -> *Type {
+        if c == &null { return c; }
+        if isa::<CXXLValueRefType>(c) { return canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
+        if isa::<CXXRValueRefType>(c) { return canon_unqual(cast::<CXXRValueRefType>(c)->referee); }
+        return c;
     }
 
     /// `var *y = e` (NULLABLE.md 1.7): the stars state the pointer depth of

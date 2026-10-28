@@ -690,6 +690,21 @@ prints every value argument with its type
 (`PrintingPolicy::AlwaysIncludeTypeForTemplateArgument`): bare, an `unsigned
 char` 255 printed as the plain-char literal `'\xff'`, which is -1.
 
+[DONE] Pointer arguments keep their flavour. `*Node` and `unsafe *Node` are
+both `Node*` to C++, and a `Node*` read out of a header imports as `unsafe
+*Node`. Inside a fill, every pointer level of every argument is recorded
+against the clang type it spells (`TypeImport::note_pointer_arg`), and a
+member type naming that clang type reads back as the argument: so
+`vector<*Node>::push_back` takes `const *Node&` and its iterator's
+`reference` is `*Node&`. A Kairo record is reachable from a header only
+through the arguments, which is what makes the argument the right answer.
+A nullable pointer `*Node?` is NOT `Node*` to C++ (it is
+`::builtin::Nullable<Node*>`, an ADT TypeExport has no stand-in for), so
+`vector<*Node?>` still cannot be filled. Two flavours of one pointee in one
+program (`vector<*Node>` and `vector<unsafe *Node>`) are two shells over ONE
+clang specialization, whose members are registered once by USR: the second
+shares the first's member decls (known gap, ticketed).
+
 [DONE] Kairo-native args (`std::vector<S>`). Phase A has never heard of `S`,
 so TypeExport declares a STAND-IN in the set's AST: a complete struct with
 S's non-static fields in order, under exactly the name EmitIR emits

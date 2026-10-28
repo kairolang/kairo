@@ -4,15 +4,14 @@
 // An imported container of Kairo object pointers, the `vec::<*Decl>` shape
 // Compiler/ uses everywhere: push a `*Node`, read it back, call through it.
 //
-// XFAIL: *
-// Waiting on two things. (1) The element type: `vector<*Node>` imports its
-// element as `unsafe *Node`, so push_back(`*Node`) is SC063E ("cannot
-// convert argument of type '*Node' to parameter '__x' of type 'const unsafe
-// *Node&'"). (2) Even spelled `vector<unsafe *Node>` inside `unsafe`,
-// `ptrs[0]->id` is emitted with `.`: CL001E "member reference type
-// 'value_type' (aka 'Node *') is a pointer; did you mean to use '->'?".
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// This used to fail twice over. (1) `vector<*Node>` imported its element
+// as `unsafe *Node` -- every `Node*` read out of a header is -- so
+// push_back(`*Node`) was SC063E ("cannot convert argument of type '*Node'
+// to parameter '__x' of type 'const unsafe *Node&'"); inside an instance
+// whose argument wrote the pointer, the argument's flavour now wins. (2)
+// `ptrs[0]->id` was emitted with `.`: the step's receiver is `reference`
+// (`Node*&`), which EmitIR did not see as a pointer. More shapes:
+// Codegen/ffi_pointer_elems/.
 
 ffi "c++" import "vector"
 

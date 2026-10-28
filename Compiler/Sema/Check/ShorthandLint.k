@@ -121,6 +121,11 @@ class ShorthandLint derives RecursiveASTVisitor::<ShorthandLint> {
 
         var c = canon_unqual(v->type_->canonical);
         if (c == &null) || c->is_dependent() { return; }
+        // A C++ reference is its referee: `var p = ptrs.at(0)` holds the
+        // `*Node` the `*Node&` refers to, and is named like one.
+        if isa::<CXXLValueRefType>(c) { c = canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
+        else if isa::<CXXRValueRefType>(c) { c = canon_unqual(cast::<CXXRValueRefType>(c)->referee); }
+        if c == &null { return; }
 
         var base     = c;
         var inner    = self._tu.nullable_inner(c);

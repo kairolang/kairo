@@ -1983,7 +1983,13 @@ class EmitIR {
         if t == &null { return false; }
         var c = t->canonical;
         if c == &null { c = t; }
-        return canon_unqual(c)->kind == TypeKind::PointerType;
+        c = canon_unqual(c);
+        // A C++ reference to a pointer is that pointer: `ptrs[0]->id` on a
+        // `vector<*Node>` steps through `reference` (`Node*&`), and `.` there
+        // is clang's "is a pointer; did you mean '->'" (CL001E).
+        if isa::<CXXLValueRefType>(c) { c = canon_unqual(cast::<CXXLValueRefType>(c)->referee); }
+        else if isa::<CXXRValueRefType>(c) { c = canon_unqual(cast::<CXXRValueRefType>(c)->referee); }
+        return (c != &null) && (c->kind == TypeKind::PointerType);
     }
 
     priv fn _type_is_builtin_int(self, t: *Type) -> bool {

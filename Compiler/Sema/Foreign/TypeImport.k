@@ -47,6 +47,7 @@ ffi "c++" import "clang/AST/QualTypeNames.h";
 ffi "c++" import "clang/AST/Type.h";
 ffi "c++" import "clang/Index/USRGeneration.h";
 ffi "c++" import "llvm/ADT/APSInt.h";
+ffi "c++" import "llvm/ADT/DenseMap.h";
 ffi "c++" import "llvm/ADT/SmallString.h";
 ffi "c++" import "llvm/Support/xxhash.h";
 
@@ -57,6 +58,7 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
+import AST::Node::Types::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Foreign::ForeignRegistry::*;
 
@@ -75,6 +77,18 @@ class TypeImport {
     /// type parameter carries only (depth, index), and this is how it finds
     /// the GenericParamDecl it stands for.
     pub var tpl_owners: vec::<*Decl>;
+
+    /// A fill's Kairo pointer arguments, by the clang type they spell
+    /// (unqualified canonical clang::Type* -> unqualified Kairo canonical).
+    /// Both Kairo pointer flavours -- `*Node` and `unsafe *Node` -- are
+    /// `Node*` to C++, and a `Node*` read back out of a header is `unsafe
+    /// *Node` by default (_map_unqual). Inside an instance whose ARGUMENTS
+    /// wrote the pointer, that default is wrong: `vector<*Node>::push_back`
+    /// took `const unsafe *Node&` and refused the `*Node` it was meant for
+    /// (SC063E). A Kairo record is reachable from a header only through the
+    /// arguments, so within the fill the argument's own flavour is the
+    /// answer. Empty outside a fill (note_pointer_arg).
+    priv var _ptr_args: llvm::DenseMap::<u64, *Type>;
 
     fn TypeImport(self, store: *CanonicalTypeStore, instances: *InstantiationRegistry,
                   reg: *ForeignRegistry, cctx: *clang::ASTContext, kctx: *ASTContext, fid: u32) {
@@ -218,6 +232,10 @@ class TypeImport {
 
         // --- pointers / references --------------------------------------------
         var pt = llvm::dyn_cast::<clang::PointerType>(ty);
+        if (pt != &null) && (!self._ptr_args.empty()) {
+            var it = self._ptr_args.find(reinterpret_cast::<u64>(ty));
+            if it != self._ptr_args.end() { return it->second; }
+        }
         if pt != &null {
             var pointee = pt->getPointeeType();
             if pointee->isFunctionType() {
@@ -393,6 +411,59 @@ class TypeImport {
             return false;   // Declaration / Template / Expression: no canonical shape yet.
         }
         return true;
+    }
+
+    /// Record \p kt, a fill's template argument, against \p ct, the clang
+    /// type TypeExport spelled it as, for _ptr_args. Every pointer level is
+    /// recorded, so `vector<*Node>`'s iterator, `__wrap_iter<Node**>`, reads
+    /// its `Node*&` back as `*Node&` in its own fill too; so is every pointer
+    /// inside an instance argument, so `vector<vector<*Node>>`'s members
+    /// name the inner `vector<*Node>` and not a `vector<unsafe *Node>`.
+    /// Anything else is left to the ordinary mapping, which already round
+    /// trips it.
+    fn note_pointer_arg(self, kt: *Type, ct: clang::QualType) {
+        self._note_arg(kt, ct, 0);
+    }
+
+    priv fn _note_arg(self, kt: *Type, ct: clang::QualType, depth: usize) {
+        if (kt == &null) || ct.isNull() || (depth > 16) { return; }
+        var ku = canon_unqual(kt);
+        var cu = ct.getCanonicalType().getTypePtr();
+        var cp = llvm::dyn_cast::<clang::PointerType>(cu);
+        if cp != &null {
+            if !isa::<PointerType>(ku) { return; }
+            if cp->getPointeeType()->isFunctionType() { return; }   // `fn(...)` is not a pointer to Kairo.
+            self._ptr_args.try_emplace(reinterpret_cast::<u64>(cu), ku);
+            self._note_arg(cast::<PointerType>(ku)->pointee, cp->getPointeeType(), depth + 1);
+            return;
+        }
+        // An instance argument: its arguments against the specialization's,
+        // position by position. A pack is flat on the Kairo side and nested
+        // on clang's, so the counts differ and nothing is recorded -- the
+        // ordinary mapping, as before.
+        var rk = dyn_cast::<RecordType>(ku);
+        var spec = llvm::dyn_cast_or_null::<clang::ClassTemplateSpecializationDecl>(cu->getAsCXXRecordDecl());
+        if (rk == &null) || (spec == &null) { return; }
+        var cargs = spec->getTemplateArgs().asArray();
+        if cargs.size() != rk->args.size() { return; }
+        for var i: usize = 0; i < cargs.size(); ++i {
+            if cargs[i].getKind() != clang::TemplateArgument::Type { continue; }
+            self._note_arg(*(rk->args.get(i)), cargs[i].getAsType(), depth + 1);
+        }
+    }
+
+    /// \p t holds a Kairo pointer: is one, or is an instance with one among
+    /// its arguments (the args note_pointer_arg has anything to record for).
+    static fn has_pointer_arg(t: *Type) -> bool {
+        var u = canon_unqual(t);
+        if u == &null { return false; }
+        if isa::<PointerType>(u) { return true; }
+        var rk = dyn_cast::<RecordType>(u);
+        if rk == &null { return false; }
+        for var i: usize = 0; i < rk->args.size(); ++i {
+            if TypeImport::has_pointer_arg(*(rk->args.get(i))) { return true; }
+        }
+        return false;
     }
 
     /// A C++ integer template argument (or a non-type parameter's default)

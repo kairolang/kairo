@@ -1118,7 +1118,10 @@ Converted, generic candidates deduce every non-pack param. Rank = worst
 argument rank. Ties inside a rank are ambiguous, with ONE tiebreak that is
 not a conversion ordering: among Exact winners a non-generic candidate
 beats a generic one (otherwise `fn f(i32)` beside `fn <T> f(T)` is
-ambiguous on every call). A fwd/def pair is one candidate (representative).
+ambiguous on every call). Reference kind orders two bindings of the same
+argument as C++ does (`_ref_better`): an rvalue prefers `T&&` to `const
+T&`, and so does the temporary a conversion makes whatever the argument
+was (`push_back(x)` with x: i32 into `vector<i64>`). A fwd/def pair is one candidate (representative).
 Specializations are skipped (paired later). A one-type pack ranks each
 argument against its element. A TYPE pack deduces one element per argument,
 its type by value (a literal its default), into `Deduction::packs`, opened

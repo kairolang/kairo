@@ -64,6 +64,8 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
 import AST::Node::Casting::*;
+import AST::Node::Types::*;
+import AST::Node::CanonicalNodes::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Foreign::ForeignRegistry::*;
 import Sema::Foreign::TypeImport::*;
@@ -222,6 +224,18 @@ class ForeignInstantiate {
         di.fill_scope  = NameLookup::context_of(shell);
         di.fill_spec   = static_cast::<*clang::Decl>(spec);
         var ti = self._hindex->type_importer_for(hs, t->ctx, t->fid);
+        // The instance's pointer arguments keep the flavour they were written
+        // with (`vector<*Node>` hands out `*Node`, not `unsafe *Node`):
+        // TypeImport::note_pointer_arg. Spelled again here because the hint
+        // path above never spelled them.
+        var px = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
+        px.reg       = self._reg;
+        px.psym      = self.psym;
+        px.instances = self._instances;
+        for var i: usize = 0; i < e->args.size(); ++i {
+            if !TypeImport::has_pointer_arg(e->args[i]) { continue; }
+            ti.note_pointer_arg(e->args[i], px.to_clang(e->args[i]));
+        }
 
         var pairs = vec::<(*void, *Decl)>();
         self._hindex->walk_declare(spec, &di, pairs);
