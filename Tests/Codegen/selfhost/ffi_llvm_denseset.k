@@ -1,17 +1,13 @@
 // One of the constructs Compiler/ is written with, checked on Stage 1 ahead
 // of self-hosting (2026-10-24 probe; tickets in private/IMPORTANT/TICKETS.TXT).
 //
-// Importing llvm/ADT/DenseSet.h, which Compiler/ does in 7 files. DenseMap,
-// StringMap and DenseSet's neighbours import and compile; this one header
-// takes the compiler down.
+// Importing llvm/ADT/DenseSet.h, which Compiler/ does in 7 files.
 //
-// XFAIL: *
-// Waiting on a source-location bug in the import: the bare import ICEs,
-// "VirtualFileManager: Offset out of segment bounds (fid: N, off: 9708)",
-// deterministically -- DenseSet.h is 9562 bytes, so an offset from another
-// file is being resolved against it.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// This used to ICE on the bare import, "VirtualFileManager: Offset out of
+// segment bounds (fid: N, off: 9708)": DenseSet.h ends with `using
+// BaseT::BaseT;`, an inheriting constructor whose printed name (the whole
+// base specialization) ran past the file's last byte when DeclImport ranged
+// the name by its printed length. Generic shape: Sema/FFI/decl_name_range.k.
 
 ffi "c++" import "llvm/ADT/DenseSet.h"
 

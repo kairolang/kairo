@@ -58,6 +58,7 @@ ffi "c++" import "clang/AST/DeclTemplate.h";
 ffi "c++" import "clang/AST/RecordLayout.h";
 ffi "c++" import "clang/Basic/OperatorKinds.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
+ffi "c++" import "clang/Lex/Lexer.h";
 
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -143,8 +144,24 @@ class DeclImport {
         if kb == 0 { return SourceRange::invalid(); }
         var n = d->getNameAsString();
         var len = n.size();
+        // The printed name is not always what is spelled at the location.
+        // `using BaseT::BaseT;` (DenseSet.h's last line) names the base's
+        // CONSTRUCTOR, printed as the whole specialization -- 212 bytes at an
+        // offset 66 bytes from EOF, and get_range ICEd past the segment. When
+        // the bytes there are not the name, the range is the one token clang
+        // lexes there instead; either way it never leaves the file.
+        var buf = self.csm->getBufferData(b.first);
+        var off = static_cast::<usize>(b.second);
+        var avail: usize = 0;
+        if off < buf.size() { avail = buf.size() - off; }
+        var spelled = (len > 0) && (len <= avail) && (buf.substr(off, len) == sref(n));
+        if !spelled {
+            var loc = self.csm->getComposedLoc(b.first, b.second);
+            len = static_cast::<usize>(clang::Lexer::MeasureTokenLength(loc, *(self.csm), self.cctx->getLangOpts()));
+        }
+        if len > avail { len = avail; }
         if len == 0 { len = 1; }
-        return self.ksm->get_range(kb, static_cast::<usize>(b.second), len);
+        return self.ksm->get_range(kb, off, len);
     }
 
     /// Where a decl LIVES: the header it was written in, as a target; null
