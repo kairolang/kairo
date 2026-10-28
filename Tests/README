@@ -3,13 +3,16 @@ Kairo Tests
 
 Run everything from the repo root:
 
-    lit Tests -s
+    lit Tests -s                    (or build/llvm/bin/llvm-lit Tests -s)
 
-`lit`, not `llvm-lit` -- the LLVM-branded wrapper is not installed here, and
-`python3 -m lit` does not work either (lit is a package, not a runnable module).
-Install it with `pip install lit` if the command is missing. FileCheck is also
-required and is found on PATH as `FileCheck` or `filecheck`; pass
-`--param filecheck=/abs/path` if it lives somewhere unusual.
+No flags or environment needed, on any host. Any `lit` works: pip's, the
+distro's (lit 23 deprecated the external shell this suite uses; lit.cfg.py
+forces it), or the one in build/llvm. FileCheck, clang and the clang resource
+dir default to the toolchain staged beside the compiler (Scripts/
+stage_tree.py), then build/llvm, then PATH. builtin and std are always the
+source tree's Lib/. No --sysroot: the compiler picks the sysroot bundled for
+its default target, as a bare `kairo` does. Every default can be overridden:
+--param filecheck= / clang= (or CLANG_BIN) / resource_dir= / sysroot=.
 
 Add `-v` to see the output of failing tests, or `-a` to see it for every test.
 
@@ -21,26 +24,19 @@ thing you are editing. lit resolves it in this order:
 
     --param kairo=/abs/path        explicit, always wins
     KAIRO_BIN=/abs/path            environment
-    build/*/release/bin/kairo      default
+    build/<triple>/{debug,release}/bin/kairo, whichever was built LAST
 
-Note the default is the RELEASE path only. The fast edit/test loop builds with
-`kbld kairo --debug`, which lands in build/<triple>/debug/bin/kairo and will NOT
-be found. Testing a debug build therefore means saying so:
+lit prints the binary it picked (`note: kairo: ...`). The newest build is
+the one you just made, so the edit loop (`kbld kairo --debug`) needs no
+KAIRO_BIN. An older binary as an A/B baseline (a release build from before
+your change) has to be named explicitly:
 
-    KAIRO_BIN=$PWD/build/arm64-apple-macosx/debug/bin/kairo lit Tests -s
+    KAIRO_BIN=$PWD/build/<triple>/release/bin/kairo lit Tests -s
 
 lit deliberately REFUSES to fall back to PATH. A bare `kairo` on PATH is stage
 0, the prebuilt C++ transpiler that acts as the build driver -- it will answer,
 lack the flags these tests use, and quietly test the wrong compiler. A missing
 binary is a loud error here rather than a silent pass.
-
-THE DEFAULT PATH IS OFTEN STALE. Nothing rebuilds build/*/release/bin/kairo
-unless you ask for a release build, so a bare `lit Tests` will happily test a
-binary from weeks ago and report results that have nothing to do with your
-working tree. That staleness is sometimes deliberate -- an old release binary is
-the A/B baseline for judging whether current sources changed parser behaviour --
-which is all the more reason not to hit it by accident. If you just built, name
-your binary.
 
 
 READING THE RESULTS

@@ -54,7 +54,15 @@ def _usable_bash():
 _bash = _usable_bash()
 if _bash:
     lit_config.bashPath = _bash
-    config.test_format = lit.formats.ShTest(execute_external=True)
+    # lit 23 refuses execute_external without force_execute_external (the
+    # internal shell is its default now; the option goes in 24); older lits
+    # do not take the keyword. The suite's RUN lines need a real shell
+    # (`$?`, `{ ...; }`), so force it where that is how it is asked for.
+    try:
+        config.test_format = lit.formats.ShTest(execute_external=True)
+    except ValueError:
+        config.test_format = lit.formats.ShTest(execute_external=True,
+                                                force_execute_external=True)
     config.available_features.add("shell")
 else:
     lit_config.note("no usable bash; using lit's internal shell")
@@ -102,9 +110,9 @@ config.test_source_root = os.path.dirname(__file__)
 config.test_exec_root = config.test_source_root  # run in-place; no build dir
 
 # --- Locate the kairo binary -------------------------------------------------
-# Priority: explicit param (--param kairo=/path) > env KAIRO_BIN > default build
-# path > PATH lookup. Fail loudly if not found so a missing binary isn't a
-# silent "0 tests".
+# Priority: explicit param (--param kairo=/path) > env KAIRO_BIN > the most
+# recently built of build/<triple>/{debug,release}/bin/kairo. Never PATH. Fail
+# loudly if not found so a missing binary isn't a silent "0 tests".
 def _find_kairo():
     # Explicit override always wins.
     p = lit_config.params.get("kairo")
@@ -114,27 +122,25 @@ def _find_kairo():
     if env:
         return os.path.abspath(env)
 
-    # Default: the freshly-built Stage 1 binary. test_source_root is Tests/,
-    # so repo root is one up.
-    matches = sorted(
+    # Default: the most recently built Stage 1 binary, debug or release.
+    # Release alone used to be the default, and a debug edit loop then
+    # silently tested a stale release build unless KAIRO_BIN was set.
+    # test_source_root is Tests/, so the repo root is one up.
+    matches = [
         p for p in glob.glob(os.path.join(
-            config.test_source_root,
-            "..",
-            "build",
-            "*",
-            "release",
-            "bin",
-            "kairo*",
-        ))
+            config.test_source_root, "..", "build", "*", "*", "bin", "kairo*"))
         if os.path.basename(p) in ("kairo", "kairo.exe")
-    )
+        and os.path.basename(os.path.dirname(os.path.dirname(p))) in ("debug", "release")
+    ]
 
     if not matches:
-        raise FileNotFoundError(
-            "Could not locate Kairo compiler under build/*/release/bin/kairo"
-        )
+        lit_config.fatal(
+            "Could not locate the Stage 1 compiler under build/<triple>/"
+            "{debug,release}/bin/kairo. Build it first (kbld kairo --debug), or "
+            "pass --param kairo=/abs/path / set KAIRO_BIN.")
 
-    default = os.path.normpath(matches[0])
+    default = os.path.normpath(max(matches, key=os.path.getmtime))
+    lit_config.note("kairo: %s (newest build; override with KAIRO_BIN)" % default)
 
     # DO NOT fall through to PATH. A stale Stage 0 install at /usr/local/bin
     # will silently answer and you'll test the wrong compiler with the wrong
@@ -149,6 +155,14 @@ def _find_kairo():
     return default
 
 kairo_bin = _find_kairo()
+# The staged tree the binary sits in (Scripts/stage_tree.py): bin/ holds its
+# clang, lld, llvm-objdump; lib/clang/<ver> its resource dir. Preferred over
+# build/llvm and PATH everywhere below, so a bare `llvm-lit Tests/` uses the
+# same toolchain the compiler does, on any host.
+_tree = os.path.dirname(os.path.dirname(kairo_bin))
+_exe = ".exe" if sys.platform == "win32" else ""
+_llvm_bin = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "build", "llvm", "bin"))
 # Exposed for lit.local.cfg files (they do not see this module's globals).
 config.kairo_bin = kairo_bin
 # --- Locate FileCheck --------------------------------------------------------
@@ -156,6 +170,11 @@ def _find_filecheck():
     p = lit_config.params.get("filecheck")
     if p:
         return p
+    # The LLVM build's FileCheck (with `not` beside it) before PATH: a fresh
+    # macOS or Windows host has none on PATH.
+    local = os.path.join(_llvm_bin, "FileCheck" + _exe)
+    if os.path.isfile(local):
+        return local
     for name in ("FileCheck", "filecheck"):
         found = shutil.which(name)
         if found:
@@ -179,17 +198,19 @@ if os.path.isfile(os.path.join(_llvm_tools, "not.exe" if sys.platform == "win32"
 # Plain-text substitution. Order matters only when one pattern is a prefix of
 # another; ours are distinct, but list longest-first as habit.
 # --- C++ header roots for ffi imports -----------------------------------------
-# kairo takes its header-search roots ONLY from flags (no discovery), and ffi
-# imports parse real headers, so the suite hard-passes them. Defaults: the
-# host as sysroot (libc++ at /usr/include/c++/v1, libc at /usr/include) and
-# the tree's own clang resource dir. Override: --param sysroot=/path,
-# --param resource_dir=/path.
+# kairo discovers its roots beside the binary (CompilerInstance::
+# _discover_roots), but the suite passes them explicitly anyway, so a test
+# never depends on discovery working and builtin/std are always the source
+# tree's (current without a re-stage). Defaults: the staged resource dir, else
+# build/llvm's; no --sysroot, so kairo picks the sysroot bundled for its
+# default target. Override: --param sysroot=/path, --param resource_dir=/path.
 def _find_resource_dir():
     res = lit_config.params.get("resource_dir")
     if res:
         return res
-    cands = sorted(glob.glob(os.path.join(
-        config.test_source_root, "..", "build", "llvm", "lib", "clang", "*")))
+    cands = sorted(glob.glob(os.path.join(_tree, "lib", "clang", "*"))) or \
+            sorted(glob.glob(os.path.join(
+                config.test_source_root, "..", "build", "llvm", "lib", "clang", "*")))
     cands = [c for c in cands
              if os.path.isfile(os.path.join(c, "include", "stddef.h"))]
     return os.path.normpath(cands[-1]) if cands else ""
@@ -441,11 +462,11 @@ def _find_clang():
         return env
     # Prefer the tree's own clang: it is the one kairo's FFI is built against,
     # so its C++ verdicts are the ones kairo is actually claiming parity with.
-    local = os.path.normpath(os.path.join(
-        config.test_source_root, "..", "build", "llvm", "bin",
-        "clang.exe" if sys.platform == "win32" else "clang"))
-    if ok(local):
-        return local
+    # The staged copy beside kairo first, then the LLVM build's.
+    for local in (os.path.join(os.path.dirname(kairo_bin), "clang" + _exe),
+                  os.path.join(_llvm_bin, "clang" + _exe)):
+        if ok(local):
+            return local
     found = shutil.which("clang")
     return found if ok(found) else None
 
