@@ -1497,7 +1497,16 @@ inside the class template's member bodies.
   primary's instantiation, as `using Node = typename Self::Node;` in the
   primary would on any concept check of a non-conformer. `T::Node{}` and
   `T::Node(args)` are value-initialization / construction of that member
-  type.
+  type. A GENERIC associated type is a member alias template, `template
+  <class K> using Map = Bag<K>;` (its parameters the supplying alias's),
+  spelled `typename I_witness<T>::template Map<int>`; the concept does not
+  probe it (no argument to probe with). One reached through another
+  associated type (`T::Item::Inner`) goes through the bound of the BASE
+  that requires it, read from AssocType::bounds:
+  `typename Holder_witness<typename Store_witness<T>::Item>::Inner`, and
+  a row's `assoc_rows` (the rows proving its supplied types meet their
+  bounds) are admitted with it. A generic row's member calling a generic
+  requirement spells `self->template m<K>(...)`.
 - **Multiple bounds.** Each call is bound to one requirement and goes
   through the bound whose list contains it. Two bounds both declaring `m` is
   the typer's ambiguity (RESOLUTION.md §2b, "collide at the use"), never
