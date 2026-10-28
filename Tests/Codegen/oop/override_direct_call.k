@@ -1,15 +1,16 @@
 // Calling a method on the class that declares it, when a base declares the
 // same name. RESOLUTION.md §2b merges rather than hides, so both are
-// candidates; the derived one binds `self` exactly and the base one needs a
-// derived-to-base conversion, so the derived one must win (C++ ranks the
-// implicit object argument the same way).
+// candidates; the derived one has the same parameters, so it overrides or
+// hides the base's and must win (C++'s rule, with or without a
+// using-declaration).
 //
-// XFAIL: *
-// Waiting on overload resolution ranking an identity receiver above a
-// derived-to-base one: today every such call is SC064E "call to 'k' is
-// ambiguous", for an `override` and a plain same-name method alike.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Formerly an expected failure (ticket "[Sema] Calling an overridden or
+// same-name method on the derived type is ambiguous"): every such call was
+// SC064E "call to 'k' is ambiguous", for an `override` and a plain
+// same-name method alike. Overload resolution now drops a base's method
+// that a derived one of the same parameters overrides or hides
+// (OverloadResolution::_hide), C++'s rule under the `using Base::m;` the
+// emitted class carries. override_overloads.k has the shapes beside it.
 
 class A {
     virtual fn k(self) -> i32 { return 1 }
@@ -25,7 +26,7 @@ fn main() -> i32 {
     var r = 0
     var d = D()
     if d.k() == 2 { r += 1 }                    // override, called on the derived value
-    var p = &d
+    var *p = &d
     if p->k() == 2 { r += 2 }                   // ... and through a *D
     if d.n() == 20 { r += 4 }                   // non-virtual same name
     var a: *A = &d

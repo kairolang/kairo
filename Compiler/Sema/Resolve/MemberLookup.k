@@ -33,10 +33,13 @@
 ///     is dispatch, decided later.
 ///
 ///   \par needs_using (§2b)
-///     Not recorded yet: the `needs_using` slot on the type decls does not
-///     exist. When it does, the place to write it is _walk_record, at the
-///     point a base cell is unioned in without the derived type overriding
-///     it. One writer, this one.
+///     The merge is C++'s lookup under a `using Base::m;` in the derived
+///     class, and InterfaceEmitter::_base_usings writes one for every
+///     method name a class shares with a base, straight from the decls; no
+///     slot is recorded here. OverloadResolution::_hide applies the
+///     using-declaration's override/hide rule to the merged set. An
+///     IMPORTED class is not merged: its lookup hides as C++'s does
+///     (_walk_record, step 3).
 ///
 ///   Phase: LOWER (component; PRE: T complete -- base types must be canonical)
 ///
@@ -312,9 +315,10 @@ class MemberLookup {
         //    field_of chains reach them, carrying the member FieldDecl
         //    itself (see FieldDecl::is_anonymous_union).
         var dc = NameLookup::context_of(d);
+        var own_hit = false;
         if dc != &null {
             var cell = self.in_scope(dc, name, self._cur_spelling);
-            if cell != &null { self._append_cell(cell, out); }
+            if cell != &null { self._append_cell(cell, out); own_hit = cell->size() > 0; }
         }
 
         // 2. extensions on this exact decl, and on the PRIMARY this decl is
@@ -345,6 +349,24 @@ class MemberLookup {
         //    base), and the bodiless requirement beside it made every direct
         //    call `x.f()` an SC064E tie between the two. A bounded receiver
         //    reaches requirements through its bounds, not through here.
+        //
+        //    An IMPORTED class is C++'s, and so is its lookup: a name its own
+        //    table answers HIDES the bases' ([class.member.lookup]). Merged,
+        //    `d.h(x)` with `int B::h(int)` beside `double D::h(double)` bound
+        //    B's, while the emitted `d.h(x)` called D's -- the result typed
+        //    i32 and computed as a converted double. A Kairo class cannot
+        //    hide (InterfaceEmitter writes a `using` for every shared name
+        //    instead), and neither does a name the header's class merges
+        //    with a `using B::g;` (ClassDecl::ffi_usings). An operator has
+        //    no spelling here and is left merged: ADL finds it either way.
+        if own_hit && decl_is_imported(d) && (self._cur_spelling.size() > 0) && isa::<ClassDecl>(d) {
+            var merged = false;
+            var us = &(cast::<ClassDecl>(d)->ffi_usings);
+            for var i: usize = 0; i < us->size(); ++i {
+                if (*us)[i] == self._cur_spelling { merged = true; break; }
+            }
+            if !merged { return; }
+        }
         if isa::<ClassDecl>(d) {
             var cd = cast::<ClassDecl>(d);
             for var i: usize = 0; i < cd->derives_list.size(); ++i {

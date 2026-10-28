@@ -816,6 +816,7 @@ class InterfaceEmitter {
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), false, at);
             self._cg->sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
+        if is_class { cur_access = self._base_usings(cast::<ClassDecl>(d), cur_access, at); }
 
         // Each constructor that initializes a field in place: its slot record,
         // its pre-function and the constructor that takes the slots
@@ -847,6 +848,80 @@ class InterfaceEmitter {
             self._cg->sink->spell(at, "inline constexpr " + self._spell->leaf(d) + " " + LowerTargets::null_constant() + "{};");
         }
         self._cg->sink->brk();
+    }
+
+    /// `using B::m;` for every method name \p d declares that a direct base
+    /// B also answers with a method. Kairo MERGES a base's members with the
+    /// derived class's (RESOLUTION.md §2b, the `needs_using` rule) and
+    /// overload resolution picks among all of them; C++ name lookup stops at
+    /// the derived class, so without this `d.f(x)` that Kairo bound to the
+    /// base's `f(f64)` went to the derived `f(i32)` through a conversion --
+    /// a silent miscompile. The using-declaration makes C++'s overload set
+    /// Kairo's. An override still overrides: a derived member hides the
+    /// using-declared base member of the same signature ([namespace.udecl]/14).
+    /// Constructors, the destructor and compiler-made members are never
+    /// brought in (constructors are not inherited, and a made member's name
+    /// is its own class's).
+    priv fn _base_usings(self, d: *ClassDecl, cur_in: u8, at: SourceRange) -> u8 {
+        var cur = cur_in;
+        var own = self._spell->leaf(static_cast::<*Decl>(d));
+        var done = vec::<string>();
+        for var i: usize = 0; i < d->methods.size(); ++i {
+            var m = d->methods[i];
+            if (m == &null) || m->is_implicit { continue; }
+            var nm = self._spell->leaf(static_cast::<*Decl>(m));
+            if (nm.size() == 0) || (nm == own) || (nm[0] == '~') { continue; }
+            var dup = false;
+            for var k: usize = 0; k < done.size(); ++k { if done[k] == nm { dup = true; break; } }
+            if dup { continue; }
+            done.push_back(nm);
+            for var j: usize = 0; j < d->derives_list.size(); ++j {
+                var e = d->derives_list.get(j);
+                if (e == &null) || (e->base == &null) { continue; }
+                var seen = vec::<*Decl>();
+                var found = self._base_method_named(self._edge_decl(e), nm, &seen, 0);
+                if found != 1 { continue; }
+                cur = self._access(cur, VIS_PUB(), false, at);
+                self._cg->sink->spell(at, "using " + self._spell->_type(e->base) + "::" + nm + ";");
+            }
+        }
+        return cur;
+    }
+
+    /// The record a base edge names, as the pattern whose members are
+    /// declared (an implicit instance's own list may still be empty).
+    priv fn _edge_decl(self, e: *InheritEdge) -> *Decl {
+        if (e->base == &null) || (e->base->canonical == &null) { return &null; }
+        var r = dyn_cast::<RecordType>(canon_unqual(e->base->canonical));
+        if (r == &null) || (r->decl == &null) { return &null; }
+        return CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl)));
+    }
+
+    /// Whether class \p b or a base of it has a method spelled \p nm: 0 none,
+    /// 1 one C++ can name from a derived class, 2 one it cannot (a `priv`
+    /// method is `private:` in the class definition, and a using-declaration
+    /// naming it is an access error in clang).
+    priv fn _base_method_named(self, b: *Decl, nm: string, seen: *vec::<*Decl>, depth: u32) -> u8 {
+        if (b == &null) || (depth > 64) || (!isa::<ClassDecl>(b)) { return 0; }
+        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == b { return 0; } }
+        seen->push_back(b);
+        var cd = cast::<ClassDecl>(b);
+        var hit: u8 = 0;
+        for var i: usize = 0; i < cd->methods.size(); ++i {
+            var m = cd->methods[i];
+            if (m == &null) || m->is_implicit { continue; }
+            if self._spell->leaf(static_cast::<*Decl>(m)) != nm { continue; }
+            if CXXSpell::vis_of(static_cast::<*Decl>(m)) == VIS_PRIV() { return 2; }
+            hit = 1;
+        }
+        if hit != 0 { return hit; }
+        for var j: usize = 0; j < cd->derives_list.size(); ++j {
+            var e = cd->derives_list.get(j);
+            if e == &null { continue; }
+            var r = self._base_method_named(self._edge_decl(e), nm, seen, depth + 1);
+            if r != 0 { return r; }
+        }
+        return 0;
     }
 
     /// Friends: every same-file extension scope, so an extension member

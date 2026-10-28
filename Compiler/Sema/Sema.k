@@ -643,10 +643,9 @@ class Sema {
         // lowering: an instance a lowering mints (a `T?`'s record) is in
         // the registry by now.
         { var _p = TimeRegion("EnumLayoutSweep"); EnumLayoutQuery(&self.sc).sweep(); }
-        // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
-        //             using Base::name; for merged base overloads C++ would
-        //             hide reads type->needs_using written by MemberLookup,
-        //             never re-walks bases.
+        // `using Base::name;` for merged base overloads C++ would hide is
+        // InterfaceEmitter::_base_usings: a property of the class
+        // definition, written where it is spelled, so no pass here.
         // TODO(sema): ...
         self.sc.advance_phase(SemaPhase::Lowered);
         return true;

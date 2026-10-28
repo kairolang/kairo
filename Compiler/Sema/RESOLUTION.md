@@ -1844,6 +1844,16 @@ Config/Language.k, SemaContext::duck_generics), then delete.
 
 **MERGE, not hide** [DONE]. `MemberLookup::lookup(canonical, name, out)`
 walks own table -> extensions -> bases breadth-first, deduped, UNION.
+That is C++'s lookup with a `using Base::m;` in the derived class, and the
+emitted class carries exactly that for every method name it shares with a
+base (`needs_using`, InterfaceEmitter::_base_usings), so C++'s overload set
+is Kairo's. OverloadResolution then applies C++'s rule for that set
+(`_hide`, [namespace.udecl]/14): a base's method that a derived class's
+method of the same parameters and `self` constness overrides or hides is
+no candidate, so `d.k()` on an override is D's, not an SC064E tie.
+An IMPORTED class hides as C++ does: a name its own table answers stops
+the walk at it, unless the header merges the base's back with a
+using-declaration (`ClassDecl::ffi_usings`, DeclImport).
 The interfaces an `impl` clause names are NOT walked: an interface has no
 default bodies, so each requirement is met by a member the walk already
 finds, and offering the bodiless requirement beside it made every direct
@@ -2098,8 +2108,8 @@ re-check, MONO.md D0/D1).
 One dispatch system, and a precise meaning: "T is a C++ type; clang checks
 the body".
 
-**`needs_using`** [MISSING]. **Virtual dispatch** [MISSING]. **Access
-control** is a late filter [MISSING].
+**`needs_using`** [DONE, as above]. **Virtual dispatch** [MISSING].
+**Access control** is a late filter [MISSING].
 
 ---
 

@@ -290,7 +290,9 @@ reaches into the unnamed namespace through C++'s implicit using-directive —
 so `qual_name` knows nothing about any of it.
 
 Walks plan entries by tier. Records: `class`/`struct` with access
-specifiers, fields (a default as a C++ default member initializer: a
+specifiers, a `using Base::m;` for every
+method name the class shares with a base (`_base_usings`: Kairo merges
+the base's overloads, C++ would hide them), fields (a default as a C++ default member initializer: a
 constant FieldInitLowering folded as it is, `signed int n = 5;`, anything
 else as a call of the member function it made of the initializer,
 `T d = __kairo_init_d();`, so the expression is a body like any other;
@@ -567,6 +569,11 @@ elements, and a canonical pack parameter in an argument list as `E...`.
 ## 6. EmitIR — the core
 
 Declarations are the plan's; EmitIR writes bodies. What it knows:
+
+A qualified method call
+`Base::m(obj, args)` is `(obj).Base::m(args)` -- non-virtual, as the
+qualified name means -- with a generic owner spelled through the object's
+instance or base (`Box<int>::get`).
 
     names, chains (`.`/`->` from the base's canonical; `::` collapses to
     the last scope-resolved decl's qualified name), calls, literals,

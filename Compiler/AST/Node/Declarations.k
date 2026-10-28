@@ -1166,6 +1166,11 @@ class ClassDecl
     pub var assign_from:  *FunctionDecl = &null;
     /// How that `op =` is given to C++. One writer: ClassLifecycle.
     pub var assign_form:  AssignForm    = AssignForm::Implicit;
+    /// An imported C++ class: every name a `using Base::name;` in its
+    /// definition brings in. C++ lookup stops at a class that declares a
+    /// name unless such a declaration merges the base's in; MemberLookup
+    /// hides by this. One writer: DeclImport.
+    pub var ffi_usings:   vec::<string>;
 
     static fn create(
         ctx:    *ASTContext,

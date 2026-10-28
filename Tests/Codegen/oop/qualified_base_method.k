@@ -2,13 +2,12 @@
 // (classes-inheritance.md, Calling base class methods: there is no `super`),
 // from an override that extends it and from a hiding method.
 //
-// XFAIL: *
-// Waiting on the receiver conversion for a qualified call: `self` of type
-// Derived is not viable for Base's `self` (SC063E "cannot convert argument
-// of type 'Derived' to parameter 'self' of type 'Base'"), though a *Derived
-// converts to *Base implicitly everywhere else.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// Formerly an expected failure: `self` of type Derived was not viable for
+// Base's `self` (SC063E "cannot convert argument of type 'Derived' to
+// parameter 'self' of type 'Base'"). The object now binds as C++'s implicit
+// object does, by reference (derived-to-base), and the call is written
+// `obj.Base::m()`: non-virtual, as the qualified name asks.
+// qualified_base_shapes.k has more shapes.
 
 class Base {
     virtual fn cost(self) -> i32 { return 10 }

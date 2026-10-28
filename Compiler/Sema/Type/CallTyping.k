@@ -57,6 +57,7 @@ import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::OverloadResolution::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::Substitution::*;
 import Sema::Type::NullnessFlow::*;
 import Sema::Check::ClassLifecycle::*;
 import AST::Context::DeclContext::*;
@@ -289,6 +290,12 @@ class <T> CallTyping {
             // an initializer field.
             if (pt != &null) && pt->is_dependent() { continue; }
             if a->dependent { continue; }
+            // `Base::m(obj)`: the object binds `self` as C++'s implicit
+            // object does, by reference, so a Derived needs no value
+            // conversion (OverloadResolution ranked it so). EmitIR writes
+            // it as `obj.Base::m()`; nothing is copied or sliced.
+            if p->is_self && (pt != &null) && (a->expr->type_ != &null)
+            && Substitution(dyn()->sc).derives_from(dyn()->tu.as_value(a->expr->type_), canon_unqual(pt)) { continue; }
             if pt != &null {
                 dyn()->lint_cast_into_slot(a->expr, pt);
                 // The resolver admitted this argument by the boundary rung;

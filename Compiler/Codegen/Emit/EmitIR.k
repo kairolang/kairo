@@ -2064,6 +2064,41 @@ class EmitIR {
                  || ((last != &null) && (last->access_kind != ChainExpr::AccessKind::ColonColon));
         self._check_arity(n, f, bound);
 
+        // `Base::m(obj)`: a record's own method named by its qualified name,
+        // the object as argument zero (classes-inheritance.md, Calling base
+        // class methods). C++ has no such call; its spelling is
+        // `obj.Base::m(...)`, which is also the NON-virtual call the
+        // qualified name asks for. An extension member, a witness call and
+        // a constructor have their own forms above and below.
+        if (!bound) && (f != &null) && f->is_method() && (n->args.size() > 0) && (last != &null)
+        && (n->witness_iface == &null) && (!self._is_extension_member(callee)) {
+            self._cg->sink->spell(n->args[0]->range, "(");
+            self._arg(n->args[0], f->params[0], inst);
+            self._cg->sink->spell(n->args[0]->range, ").");
+            var qt = n->qualifier;
+            if (qt == &null) && (CXXSpell::template_params(CXXSpell::rep(reinterpret_cast::<*DeclContext>(f->semantic_dc)->dc_owner)).size() > 0) {
+                qt = self._qualifying_instance(n->args[0], f);
+            }
+            if qt != &null {
+                // Through a generic record's instance, `Box<int>::get`: the
+                // arguments are on the qualifier (CallExpr::qualifier), or on
+                // the object's base list (`IntBox derives Box<i32>`).
+                var s = self._spell._type(qt) + "::";
+                if (inst != &null) && (f->generic_params.size() > 0) {
+                    s += "template " + self._spell.leaf(callee) + self._spell.args_str(&(inst->args));
+                } else {
+                    s += self._spell.leaf(callee);
+                }
+                self._cg->sink->spell(n->callee->range, s);
+            } else {
+                self.emit(n->callee);
+            }
+            self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren);
+            self._args(n, f, bound, inst, true);
+            self._cg->sink->synth_at_end(n->range, clang::tok::r_paren);
+            return;
+        }
+
         if self._is_ctor(f) || self._is_type_decl(callee) || assoc_ctor {
             if n->type_ == &null { self._ice_untyped(static_cast::<*Expr>(n), "EmitIR: untyped constructor call; ExprTyper gate failure"); }
             self._cg->sink->spell(n->callee->range, self._spell._type(n->type_));
@@ -2168,7 +2203,9 @@ class EmitIR {
 
     /// Arguments, each cast to its parameter's canonical where it differs.
     /// \p bound: the callee carries its receiver, so `self` takes no argument.
-    priv fn _args(self, n: *CallExpr, f: *FunctionDecl, bound: bool, inst: *InstanceEntry) {
+    /// \p skip_object: argument zero is the object of a qualified method
+    /// call, already written in front of the callee.
+    priv fn _args(self, n: *CallExpr, f: *FunctionDecl, bound: bool, inst: *InstanceEntry, skip_object: bool = false) {
         var params = self._call_params(f, bound);
         // A type pack's run (CallLowering leaves it one argument per
         // element): every argument from the pack's slot to the surplus is the
@@ -2182,7 +2219,9 @@ class EmitIR {
         if (pk != usize(-1)) && (n->args.size() + 1 >= params.size()) { run = n->args.size() + 1 - params.size(); }
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
-            if i > 0 { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
+            if skip_object && (i == 0) { continue; }
+            var first: usize = (1) if (skip_object) else (0);
+            if i > first { self._cg->sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
             if (pk != usize(-1)) && (i >= pk) && (i < pk + run) { self.emit(a); continue; }
             var p: *ParamDecl = &null;
             var pi = i;
@@ -2631,6 +2670,48 @@ class EmitIR {
             default { }
         }
         self._cg->sink->create_int(t.range, digits);
+    }
+
+    // --- Qualified method calls ------------------------------------------------------
+
+    /// The instance of generic method \p f's class that object \p obj is,
+    /// or has as a base -- what `Box<i32>::get(obj)` names, which the bare
+    /// callee spells as the template. Null when neither (clang then
+    /// reports the template, as before).
+    priv fn _qualifying_instance(self, obj: *Expr, f: *FunctionDecl) -> *Type {
+        if (obj == &null) || (obj->type_ == &null) { return &null; }
+        var want = CXXSpell::rep(decl_pattern(CXXSpell::rep(reinterpret_cast::<*DeclContext>(f->semantic_dc)->dc_owner)));
+        var r = dyn_cast::<RecordType>(canon_unqual(obj->type_));
+        if (r == &null) || (r->decl == &null) { return &null; }
+        if CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl))) == want { return static_cast::<*Type>(r); }
+        var seen = vec::<*Decl>();
+        return self._base_edge_to(CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl))), want, &seen, 0);
+    }
+
+    /// The base of \p d that is an instance of \p want, as the class
+    /// that derives it spells it; a base further up through the bases in
+    /// between.
+    priv fn _base_edge_to(self, d: *Decl, want: *Decl, seen: *vec::<*Decl>, depth: u32) -> *Type {
+        if (d == &null) || (depth > 64) || (!isa::<ClassDecl>(d)) { return &null; }
+        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == d { return &null; } }
+        seen->push_back(d);
+        var cd = cast::<ClassDecl>(d);
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var r = dyn_cast::<RecordType>(canon_unqual(e->base->canonical));
+            if (r == &null) || (r->decl == &null) { continue; }
+            if CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl))) == want { return e->base; }
+        }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var r = dyn_cast::<RecordType>(canon_unqual(e->base->canonical));
+            if (r == &null) || (r->decl == &null) { continue; }
+            var t = self._base_edge_to(CXXSpell::rep(decl_pattern(CXXSpell::rep(r->decl))), want, seen, depth + 1);
+            if t != &null { return t; }
+        }
+        return &null;
     }
 
     priv fn _is_ctor(self, f: *FunctionDecl) -> bool {

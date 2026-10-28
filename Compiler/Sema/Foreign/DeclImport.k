@@ -870,6 +870,14 @@ class DeclImport {
             c->methods.from_vec(&methods, t->ctx);
             c->derives_list.from_vec(&bases, t->ctx);
             c->ffi_is_final = def->hasAttr::<clang::FinalAttr>();
+            // `using B::g;`: g's lookup in this class continues into B
+            // (MemberLookup hides a base's name otherwise, as C++ does).
+            c->ffi_usings.clear();
+            for ud in def->decls() {
+                var u = llvm::dyn_cast::<clang::UsingDecl>(ud);
+                if (u == &null) || (!u->getDeclName().isIdentifier()) { continue; }
+                c->ffi_usings.push_back(string(u->getNameAsString()));
+            }
         } else if isa::<StructDecl>(kd) {
             var s = cast::<StructDecl>(kd);
             s->fields.from_vec(&fields, t->ctx);

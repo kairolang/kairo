@@ -38,6 +38,12 @@
 ///     Everything else that ties is ambiguous and errors, even when one
 ///     conversion looks "narrower".
 ///
+///     Before any of it, hiding (_hide): a base's method that a derived
+///     class's method of the same parameters and `self` constness overrides
+///     or hides is no candidate. Member lookup merges the two sets, which is
+///     C++'s lookup under the `using Base::m;` the emitted class carries,
+///     and that is C++'s rule there ([namespace.udecl]/14).
+///
 ///     Untyped literals rank Exact against any parameter they fit (§5: the
 ///     literal TAKES the type, it is not converted). After selection the
 ///     typer types the literal with the parameter type, so the literal's own
@@ -61,6 +67,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::ArgumentDeduction::*;
+import Sema::Type::Substitution::*;
 import Diagnostic::Registry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
@@ -352,6 +359,7 @@ class OverloadResolution {
         var cs = vec::<Candidate>();
         self._collect(&cs, members, margs, has_receiver, receiver, false, defer, qualifier);
         if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true, defer); }
+        self._hide(&cs);
 
         if cs.size() == 0 {
             self.sc->diag->report(DiagID::SC062E, at.start,
@@ -569,6 +577,11 @@ class OverloadResolution {
         // lvalue prefers `T&` to `const T&` -- data() over data() const. The
         // object counts as an lvalue even when it is a temporary
         // ([over.match.funcs]/5).
+        // A base's method counts as the derived class's here: it reaches the
+        // object through the `using Base::m;` InterfaceEmitter writes, and
+        // C++ types such a method's implicit object parameter as the
+        // DERIVED class ([over.match.funcs]/4), so a non-const object
+        // prefers a base's `self` to the derived class's `const self`.
         if (x->recv_bind != 0) && (y->recv_bind != 0) {
             var ra = ArgInfo{};
             ra.cat      = Expr::ValueCategory::LValue;
@@ -618,6 +631,155 @@ class OverloadResolution {
             if (x->ints[k] == 2) && (y->ints[k] == 1) { return false; }
         }
         return better;
+    }
+
+    /// The proper base of record \p a that is an instance of the pattern
+    /// the dependent `self` type \p pt names, read through \p a's
+    /// arguments as Substitution::derives_from reads them; null if none.
+    priv fn _self_upcast(self, a: *Type, pt: *Type) -> *Type {
+        var pr = dyn_cast::<RecordType>(canon_unqual(pt));
+        var ar = dyn_cast::<RecordType>(canon_unqual(self.tu.as_value(a)));
+        if (pr == &null) || (ar == &null) || (pr->decl == &null) || (ar->decl == &null) { return &null; }
+        var want = NameLookup::representative(self.tu.pattern_of(pr->decl));
+        if NameLookup::representative(self.tu.pattern_of(ar->decl)) == want { return &null; }
+        return self._base_instance(static_cast::<*Type>(ar), want, 0);
+    }
+
+    priv fn _base_instance(self, t: *Type, want: *Decl, depth: u32) -> *Type {
+        var r = dyn_cast::<RecordType>(canon_unqual(t));
+        if (r == &null) || (r->decl == &null) || (depth > 64) { return &null; }
+        if NameLookup::representative(self.tu.pattern_of(r->decl)) == want { return static_cast::<*Type>(r); }
+        var body = self.sc->record_body(static_cast::<*Type>(r));
+        if body == &null { return &null; }
+        var cd = dyn_cast::<ClassDecl>(NameLookup::representative(body));
+        if cd == &null { return &null; }
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var c = canon_unqual(e->base->canonical);
+            if (c == &null) || (!isa::<RecordType>(c)) { continue; }
+            if c->is_dependent() {
+                var s = Substitution(self.sc);
+                s.bind_from_record(static_cast::<*Type>(r));
+                var sub = s.substitute(c);
+                if (sub != &null) && isa::<RecordType>(canon_unqual(sub)) { c = canon_unqual(sub); }
+            }
+            var hit = self._base_instance(c, want, depth + 1);
+            if hit != &null { return hit; }
+        }
+        return &null;
+    }
+
+    /// Drop every member candidate a method of a class derived from its own
+    /// overrides or hides: one with the same parameter types and the same
+    /// `self` constness ([namespace.udecl]/14). MemberLookup MERGES a base's
+    /// members with the derived class's (RESOLUTION.md §2b), which is C++'s
+    /// lookup with a `using Base::m;` in the derived class -- the
+    /// declaration InterfaceEmitter writes for every shared name -- and
+    /// under a using-declaration a same-signature member of the derived
+    /// class hides the base's rather than conflicting with it. Without this
+    /// `d.k()` on an `override fn k` was SC064E "ambiguous" between D::k
+    /// and A::k, and so was any same-name method, on the derived type.
+    /// Different signatures stay and rank as usual: C++ keeps them too.
+    /// Free candidates, and two methods of unrelated classes (two bases of
+    /// a multiple-inheritance class: C++ calls that ambiguous too), are
+    /// never compared.
+    priv fn _hide(self, cs: *vec::<Candidate>) {
+        for var i: usize = 0; i < cs->size(); ++i {
+            var y = &((*cs)[i]);
+            if (!y->viable) || y->free { continue; }
+            var oy = self._method_owner(y->f);
+            if oy == &null { continue; }
+            for var j: usize = 0; j < cs->size(); ++j {
+                if i == j { continue; }
+                var x = &((*cs)[j]);
+                if x->free { continue; }
+                var ox = self._method_owner(x->f);
+                if (ox == &null) || (ox == oy) { continue; }
+                var seen = vec::<*Decl>();
+                if !self._class_derives(ox, oy, &seen, 0) { continue; }
+                if !self._same_signature(x, y) { continue; }
+                y->viable = false;
+                y->reason = f"hidden by '{self.tu.decl_name(ox)}::{self.tu.decl_name(static_cast::<*Decl>(x->f))}', which takes the same parameters";
+                break;
+            }
+        }
+    }
+
+    /// \p x and \p y take the same parameters after `self`, in the same
+    /// modes, and the same `self` constness. A parameter that names a
+    /// generic one of its record reads through what the call deduced
+    /// (`GB<i32>`'s `h(self, t: T)` is `h(self, t: i32)`); one that stays
+    /// dependent never matches.
+    priv fn _same_signature(self, x: *Candidate, y: *Candidate) -> bool {
+        var fx = x->f;
+        var fy = y->f;
+        if (fx->generic_params.size() > 0) || (fy->generic_params.size() > 0) { return false; }
+        if fx->is_method() != fy->is_method() { return false; }
+        if fx->is_method() && (self._self_const(fx) != self._self_const(fy)) { return false; }
+        var px = vec::<*ParamDecl>();
+        var py = vec::<*ParamDecl>();
+        for var i: usize = 0; i < fx->params.size(); ++i { if (fx->params[i] != &null) && (!fx->params[i]->is_self) { px.push_back(fx->params[i]); } }
+        for var i: usize = 0; i < fy->params.size(); ++i { if (fy->params[i] != &null) && (!fy->params[i]->is_self) { py.push_back(fy->params[i]); } }
+        if px.size() != py.size() { return false; }
+        for var i: usize = 0; i < px.size(); ++i {
+            if (px[i]->mode != py[i]->mode) || (px[i]->is_pack != py[i]->is_pack) { return false; }
+            var tx = self._sig_type(x, px[i]);
+            var ty = self._sig_type(y, py[i]);
+            if (tx == &null) || (ty == &null) || (tx != ty) { return false; }
+        }
+        return true;
+    }
+
+    /// `const self`: the receiver's own canonical carries the const.
+    priv fn _self_const(self, f: *FunctionDecl) -> bool {
+        var p = f->params[0];
+        if (p == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return false; }
+        return (canon_quals(p->type_->canonical) & QUAL_CONST()) != 0;
+    }
+
+    priv fn _sig_type(self, c: *Candidate, p: *ParamDecl) -> *Type {
+        if (p->type_ == &null) || (p->type_->canonical == &null) { return &null; }
+        var t = canon_unqual(p->type_->canonical);
+        if (t != &null) && t->is_dependent() {
+            t = c->ded.substitute(t);
+            if t != &null { t = canon_unqual(t); }
+        }
+        if (t != &null) && t->is_dependent() { return &null; }
+        return t;
+    }
+
+    /// The record \p f is a member of, as its pattern's representative (an
+    /// instance's members and the pattern's are one class for this
+    /// question); null for a free function, an extension member or an
+    /// interface requirement.
+    priv fn _method_owner(self, f: *FunctionDecl) -> *Decl {
+        if (f == &null) || (f->semantic_dc == &null) { return &null; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (!dc->is_type_scope()) || (dc->dc_kind == DeclContextKind::Extension) { return &null; }
+        var owner = dc->owner_decl();
+        if (owner == &null) || (!isa::<ClassDecl>(owner)) { return &null; }
+        return NameLookup::representative(self.tu.pattern_of(owner));
+    }
+
+    /// \p d (a pattern representative) reaches \p base through `derives`
+    /// edges, by entity: the edge's arguments do not matter, because
+    /// \p base is a pattern too and only the pattern's relation is asked.
+    priv fn _class_derives(self, d: *Decl, base: *Decl, seen: *vec::<*Decl>, depth: u32) -> bool {
+        if (d == &null) || (depth > 64) || (!isa::<ClassDecl>(d)) { return false; }
+        for var i: usize = 0; i < seen->size(); ++i { if (*seen)[i] == d { return false; } }
+        seen->push_back(d);
+        var cd = cast::<ClassDecl>(d);
+        for var i: usize = 0; i < cd->derives_list.size(); ++i {
+            var e = cd->derives_list.get(i);
+            if (e == &null) || (e->base == &null) || (e->base->canonical == &null) { continue; }
+            var r = dyn_cast::<RecordType>(canon_unqual(e->base->canonical));
+            if (r == &null) || (r->decl == &null) { continue; }
+            var bd = NameLookup::representative(self.tu.pattern_of(r->decl));
+            if bd == base { return true; }
+            if self._class_derives(bd, base, seen, depth + 1) { return true; }
+        }
+        return false;
     }
 
     priv fn _ref_prefers(self, a: *ArgInfo, bx: u8, by: u8) -> bool {
@@ -1039,7 +1201,34 @@ class OverloadResolution {
             var mode = (ParamMode::Value) if (pi == usize(-1)) else (p->mode);
 
             c->targets[i] = pt;
-            var r = self._rank_arg(c, a, pt, pi == usize(-1), mode);
+            // `Base::m(obj)`: the object is an ordinary argument here, but
+            // it is still the implicit object, which C++ binds as `Base&`
+            // (`const Base&` for `const self`) -- a Derived binds by
+            // derived-to-base conversion and nothing is sliced or copied.
+            // Ranked by value it was not viable at all, and the qualified
+            // call is the only way to reach a base's version (no `super`).
+            // The object counts as an lvalue even when it is a temporary
+            // ([over.match.funcs]/5), as on the receiver path.
+            var rt = pt;
+            var ra = a;
+            var obj = ArgInfo{};
+            if p->is_self && (!pt->is_dependent()) && (a->lit == LitKind::None) {
+                rt = self.sc->types->cxx_lref(pt);
+                obj = *a;
+                obj.cat = Expr::ValueCategory::LValue;
+                ra = &obj;
+            }
+            var r = self._rank_arg(c, ra, rt, pi == usize(-1), mode);
+            // `Box<i32>::Box(self, n)` from `class IntBox derives Box<i32>`:
+            // a generic record's `self` is `Box<T>`, and unification alone
+            // never looks past IntBox for it. C++ deduces against a base of
+            // the argument ([temp.deduct.call]/4.3), and so does this.
+            if (r == ImplicitRank::None) && p->is_self && pt->is_dependent() && (a->ty != &null) {
+                var up = self._self_upcast(a->ty, pt);
+                if up != &null {
+                    r = (ImplicitRank::Converted) if (c->ded.unify(canon_unqual(pt), up, true) != ImplicitRank::None) else (ImplicitRank::None);
+                }
+            }
             if r == ImplicitRank::None {
                 var pn = self.tu.param_name(p);
                 var got = (self.tu.str(a->ty)) if (a->ty != &null) else ("<literal>");
@@ -1079,7 +1268,7 @@ class OverloadResolution {
             }
             if (r == ImplicitRank::Converted) && (c->rank < 1) { c->rank = 1; }
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
-            if r == ImplicitRank::Exact { c->binds[i] = (3) if (mode == ParamMode::Inout) else (self._bind_kind(pt)); }
+            if r == ImplicitRank::Exact { c->binds[i] = (3) if (mode == ParamMode::Inout) else (self._bind_kind(rt)); }
             // A reference reached through a conversion binds the converted
             // TEMPORARY, an rvalue whatever the argument was: `push_back(x)`
             // with x: i32 into `vector<i64>`. Recorded apart from the Exact
