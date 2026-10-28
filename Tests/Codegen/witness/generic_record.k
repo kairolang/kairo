@@ -1,11 +1,15 @@
 // witness/generic_record.k -- exit 25
 // A bounded RECORD, `class <T impl Scalable> Box`, and a bounded member
-// template on it. The record's head carries the concept everywhere it is
-// written -- its tier-0 forward declaration (so the concept is tier 0 too,
-// ahead of it), its definition, every out-of-line member's owner head --
-// and a member template's head adds its own bound. `Box<Metric>` is an
-// instantiation site of its own: its row comes from the record instance,
-// with no generic function involved (CODEGEN.md §7b.7, §7b.8).
+// template on it. The record's head carries NO concept -- not on its
+// tier-0 forward declaration, its definition or an out-of-line member's
+// owner head -- because clang checks a class template's constraints where
+// the template-id is named, and a class names an instance over itself while
+// still incomplete (oop/crtp_bounded.k, oop/bounded_self_field.k). The
+// bound is pinned instead by a static_assert after the home's explicit
+// instantiation. A member template's head keeps its own bound (a function's
+// concept is in its mangled name). `Box<Metric>` is an instantiation site of
+// its own: its row comes from the record instance, with no generic function
+// involved (CODEGEN.md §7b.7, §7b.8).
 pub interface Scalable {
     fn scale(const self, factor: i32) -> i32
 }
@@ -32,15 +36,16 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: CODEGEN C++: {{.*}}witness/generic_record.k
+// CXX: template<class T> class Box;
 // CXX: concept Scalable_c =
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) class Box;
 // CXX: template<> struct Scalable_witness<{{ ?}}::{{.*}}::Metric> {
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) class Box {
+// CXX: template<class T> class Box {
 // CXX: template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int both(U other) const noexcept;
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) signed int Box<T>::twice() const noexcept {
+// CXX: template<class T> signed int Box<T>::twice() const noexcept {
 // CXX-NEXT: {{.*}}Scalable_witness<T>::scale((& this->item), 2);
-// CXX: template<class T> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<T>) template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int Box<T>::both(U other) const noexcept {
+// CXX: template<class T> template<class U> requires{{ ?}}({{ ?}}::{{.*}}::Scalable_c<U>) signed int Box<T>::both(U other) const noexcept {
 // CXX: template class{{ ?}}::{{.*}}::Box<{{ ?}}::{{.*}}::Metric>;
+// CXX-NEXT: static_assert({{ ?}}::{{.*}}::Scalable_c<{{ ?}}::{{.*}}::Metric>, "Kairo checked this bound at the instance; C++ disagrees");
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

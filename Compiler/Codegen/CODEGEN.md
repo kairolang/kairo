@@ -1392,6 +1392,21 @@ bounds, value predicates and `where` are NOT rendered: Kairo checks them at
 the instantiation site and WhereDispatchLowering reduces them (IMPORTS.md
 §7), as before.
 
+A generic RECORD primary is the exception (`CXXSpell::defers_bounds`): its
+head carries none of its own interface bounds. Clang checks a class
+template's constraints where the template-id is NAMED, and a class names an
+instance over itself while it is still incomplete -- the CRTP
+base-specifier `class Seven : Mixin<Seven>`, a field `*Holder<Node>` inside
+Node -- where no concept can hold yet (CL001E "constraints not satisfied").
+The bound is pinned instead where the arguments are complete: after the
+home's explicit instantiation, `static_assert(::ns::I_c<A...>, ...)`, one
+per bound (`CXXSpell::bound_asserts`, InterfaceEmitter::_instantiation).
+A record's mangled names carry no constraint, so nothing in the ABI moves;
+a partial specialization keeps its clause (there it selects), and a
+member template's head its own. What is given up: a C++ host naming the
+record at an argument that does not conform now fails inside a member
+that calls the witness, not at the name.
+
 The concept is `I_c<S, A...> = (base interfaces' concepts) && requires
 (<one parameter per requirement argument, typed as the witness member
 takes it>) { <a call of each witness member>; <each constructor

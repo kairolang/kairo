@@ -3,16 +3,13 @@
 // grants X's members; the pointer is reinterpreted, as C++ does it (a safe
 // `&self as *X` is crtp_self_cast.k).
 //
-// XFAIL: *
-// Waiting on codegen deferring a bound that names the class being defined.
-// Kairo type-checks this. The `X impl Impl` bound is lowered to a C++
-// requires-clause on Mixin, and clang evaluates it at
+// The `X impl Impl` bound is checked by Kairo at `derives Mixin<Seven>`,
+// once Seven is complete (D0). It used to be emitted as a requires-clause
+// on Mixin's class head as well, and clang evaluates that at
 // `class Seven : Mixin<Seven>`, where Seven is still incomplete: CL001E
-// "constraints not satisfied for class template 'Mixin'". The bound must be
-// checked once X is complete (on the members, or after the class), not on
-// the base-specifier.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// "constraints not satisfied for class template 'Mixin'". A primary
+// record's head carries no interface bound now; the home pins it with a
+// static_assert after the explicit instantiation (crtp_bounded_shapes.k).
 
 interface Impl {
     fn value(const self) -> i32

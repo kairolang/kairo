@@ -1278,12 +1278,22 @@ class CXXSpell {
         var x = decl_extension_of(d);
         if x != &null { CXXSpell::impl_bounds(decl_requires_clause(static_cast::<*Decl>(x)), &cs); }
         CXXSpell::impl_bounds(decl_requires_clause(d), &cs);
+        // A primary record's head carries none of its interface bounds
+        // (bound_asserts): C++ checks a class template's constraints where
+        // the template-id is NAMED, and a class names an instance over
+        // itself while it is still incomplete -- the CRTP base-specifier
+        // `class Seven : Mixin<Seven>`, a field `*Holder<Node>` in Node --
+        // where no concept on it can hold yet. The bound is Kairo's anyway
+        // (D0: ConformanceChecking proved it at the use); the instance's
+        // home pins it once the class is complete.
+        var deferred = CXXSpell::defers_bounds(d);
         var s = "";
         for var i: usize = 0; i < cs.size(); ++i {
             var c = cs[i];
             if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
             var gp = CXXSpell::_bound_param(c);
             if gp == &null { continue; }
+            if deferred && (gp->owner != &null) && (CXXSpell::rep(gp->owner) == CXXSpell::rep(d)) { continue; }
             var mine = false;
             for var k: usize = 0; k < tps.size(); ++k { if tps[k] == gp { mine = true; break; } }
             if !mine { continue; }
@@ -1318,6 +1328,49 @@ class CXXSpell {
         // no spacing separates them, only the closing paren.
         if s.size() > 0 { s += ")"; }
         return s;
+    }
+
+    /// \p d is a generic record PRIMARY, whose interface bounds stay off its
+    /// template head (requires_clause). A partial specialization keeps its
+    /// clause: there it selects, and dropping it would let C++ pick the
+    /// partial where Kairo did not. Functions keep theirs (their concept is
+    /// in the mangled name, CODEGEN.md §7b.7).
+    static fn defers_bounds(d0: *Decl) -> bool {
+        if d0 == &null { return false; }
+        var d = CXXSpell::rep(d0);
+        if !(isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d)) { return false; }
+        var k = decl_spec_kind(d);
+        return (k == SpecKind::Primary) || (k == SpecKind::None);
+    }
+
+    /// `static_assert(::ns::I_c<A, ...>, "...");` for each interface bound
+    /// requires_clause kept off primary record \p d's head, at instance
+    /// \p ie: written beside the home's explicit instantiation, where the
+    /// arguments are complete, so a C++ disagreement with Kairo's check is
+    /// still an error there. A pack parameter's bound is not pinned (no one
+    /// argument to spell).
+    fn bound_asserts(self, d0: *Decl, ie: *InstanceEntry) -> vec::<string> {
+        var out = vec::<string>();
+        if (ie == &null) || (!CXXSpell::defers_bounds(d0)) { return out; }
+        var d = CXXSpell::rep(d0);
+        var cs = vec::<*ConstraintExpr>();
+        CXXSpell::impl_bounds(decl_requires_clause(d), &cs);
+        for var i: usize = 0; i < cs.size(); ++i {
+            var c = cs[i];
+            if (c->rhs == &null) || (c->rhs->canonical == &null) { continue; }
+            var gp = CXXSpell::_bound_param(c);
+            if (gp == &null) || gp->is_pack || (gp->owner == &null) || (CXXSpell::rep(gp->owner) != d) { continue; }
+            var at = static_cast::<usize>(gp->index);
+            if at >= ie->args.size() { continue; }
+            var rhs = canon_unqual(c->rhs->canonical);
+            if !isa::<RecordType>(rhs) { continue; }
+            var idecl = CXXSpell::rep(decl_pattern(CXXSpell::rep(cast::<RecordType>(rhs)->decl)));
+            if !isa::<InterfaceDecl>(idecl) { continue; }
+            var subj = self._type(ie->args[at], &null);
+            out.push_back("static_assert(" + self.concept_name(idecl) + self.witness_args(subj, rhs, ie)
+                + ", \"Kairo checked this bound at the instance; C++ disagrees\");");
+        }
+        return out;
     }
 
     /// Every VALUE predicate of requires clause \p e (conjuncts that are not

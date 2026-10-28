@@ -3172,6 +3172,13 @@ class InterfaceEmitter {
         self._cg->sink->brk();
         self._instance_layout_asserts(d, ie);
         self._instance_spec_assert(d, ie, e->is_home);
+        if e->is_home && (!isa::<FunctionDecl>(d)) {
+            var bas = self._spell->bound_asserts(d, ie);
+            for var i: usize = 0; i < bas.size(); ++i {
+                self._cg->sink->spell(self._at(d), bas[i]);
+                self._cg->sink->brk();
+            }
+        }
     }
 
     /// The tag of record \p d's body when its template has a partial
