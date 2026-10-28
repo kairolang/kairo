@@ -328,6 +328,10 @@ class RedeclMerge {
             for var j: usize = i + 1; j < group.size(); ++j {
                 var b = group[j];
                 if b->is_poisoned() { continue; }
+                // Sibling branches of one `eval if` that waits for a type
+                // fact (EVAL.md 4.2b): the late fold keeps one of the two, so
+                // they are neither one entity nor an overload pair to vet.
+                if self.sc->eval_branches.exclusive(static_cast::<*Decl>(a), static_cast::<*Decl>(b)) { continue; }
                 // Two marked constructors are never one member (header);
                 // ClassLifecycle reports a pair that may not coexist. Not an
                 // overload to vet either: their `other` modes are unstamped,

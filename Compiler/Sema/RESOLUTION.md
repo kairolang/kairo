@@ -266,6 +266,13 @@ being folded. `WellKnownDecls` lives on `GlobalDisambigTable`, filled once
 per build from the builtin fid between that fid's N and T, by qualified
 path; no TU walks its own root by name. `NameBindingVerifier` unchanged.
 
+A deferred `eval if` (§2.3) is seen whole: two declarations in sibling
+branches of one are never a redefinition (`_validate_cell` judges each
+branch's declarations, with those outside every branch, apart from the
+others', through `sc->eval_branches.exclusive`), and a use of a name declared
+in more than one branch is bound to the cell of all of them
+(`candidate_cell`) until EvalIfLateFolding rebinds it to the survivor (§2.6b).
+
 `NameBindingVerifier` is N's exit test: no reachable `NamedIdentExpr`
 survives with both slots null unless poisoned.
 
@@ -536,6 +543,10 @@ definition (R001E, placeholder): it would be declared inline in C++ with a
 definition nowhere. Per TU, so the body has to be in the declaring file --
 which an importer needs anyway. `= default` / `= delete` / `= virtual`
 count as bodies.
+
+Two functions in sibling branches of one deferred `eval if` (§2.3) are never
+paired by R(a), as one entity or as an overload pair: EvalIfLateFolding, right
+after this pass, keeps one of them (§2.6b).
 
 `where` groups (where.mdx). Two same-signature functions either of which
 has a `where` guard are never linked: they are members of one dispatch
@@ -2393,6 +2404,10 @@ A pass that needs one asks that file; it never spells the string itself.
    builtin: N(b) (R057E). Non-constant builtin argument, builtin used as
    a value: X (SC108E, SC109E). Dependent conformance:
    ConformanceChecking, at the outer use. Orphan violation: ExtensionOrphanCheck. Access: AccessCheck.
+   A declaration-scope `eval if` whose type-fact condition cannot be decided,
+   or that waits on another forever: EvalIfLateFolding. Two declarations in
+   sibling branches of a deferred `eval if` are never a redefinition (N(a))
+   or a redeclaration (R).
 4. **Parallelism boundary.** P parallel. Sema is sequential today: one
    import group at a time in DAG order, each TU's stages in order
    (`CompilerInstance::_sema_group`). The canonical store and the

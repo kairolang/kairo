@@ -660,8 +660,6 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         var group = vec::<*Decl>();
         var all_fn = true;
-        var kind_ok = true;
-        var k0 = DeclKind::DeclKindCount;
 
         for var i: usize = 0; i < n; ++i {
             var d = e.cell->get(i);
@@ -696,19 +694,55 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
             group.push_back(d);
             if !isa::<FunctionDecl>(d) { all_fn = false; }
-            if k0 == DeclKind::DeclKindCount { k0 = d->kind; }
-            else if d->kind != k0 { kind_ok = false; }
         }
 
         if group.size() <= 1 { return; }
+        if all_fn { return; }               // overload set; nothing to judge yet.
+
+        // Sibling branches of one `eval if` that waits for a type fact
+        // (EVAL.md 4.2b): the late fold keeps one branch, so two declarations
+        // in different branches are never a redefinition. Each branch's,
+        // with those outside every branch, are judged apart from the
+        // others': the first one's set, then what is left, in source order.
+        if self.sc->eval_branches.has_rows() {
+            var rest = group;
+            while rest.size() > 1 {
+                var part = vec::<*Decl>();
+                var left = vec::<*Decl>();
+                part.push_back(rest[0]);
+                for var i: usize = 1; i < rest.size(); ++i {
+                    if self.sc->eval_branches.exclusive(rest[0], rest[i]) { left.push_back(rest[i]); }
+                    else { part.push_back(rest[i]); }
+                }
+                self._judge_group(dc, e, &part);
+                rest = left;
+            }
+            return;
+        }
+        self._judge_group(dc, e, &group);
+    }
+
+    /// The verdict on declarations of one name that may all coexist
+    /// (_validate_cell): functions are R's; one redeclarable kind is a
+    /// redecl group to link; anything else is a redefinition.
+    priv fn _judge_group(self, dc: *DeclContext, e: SymbolTable::Entry, group: *vec::<*Decl>) {
+        if group->size() <= 1 { return; }
+        var all_fn  = true;
+        var kind_ok = true;
+        var k0 = (*group)[0]->kind;
+        for var i: usize = 0; i < group->size(); ++i {
+            var d = (*group)[i];
+            if !isa::<FunctionDecl>(d) { all_fn = false; }
+            if d->kind != k0 { kind_ok = false; }
+        }
         if all_fn { return; }               // overload set; nothing to judge yet.
 
         if !kind_ok {
             // `struct S` forward-declaring what is then `class S { }`: one
             // entity named with two record keywords. Said as that, with the
             // keyword fixed, rather than as two unrelated kinds of entity.
-            if self._record_kind_mismatch(e, &group) { return; }
-            self._redefinition(dc, e, &group, "declared with conflicting kinds");
+            if self._record_kind_mismatch(e, group) { return; }
+            self._redefinition(dc, e, group, "declared with conflicting kinds");
             return;
         }
 
@@ -716,14 +750,14 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // repeat; everything else (var, field, type alias, enum variant) is
         // a plain redefinition.
         switch k0 {
-            case DeclKind::ClassDecl     { self._link_group::<ClassDecl>(e, &group);     }
-            case DeclKind::StructDecl    { self._link_group::<StructDecl>(e, &group);    }
-            case DeclKind::UnionDecl     { self._link_group::<UnionDecl>(e, &group);     }
-            case DeclKind::InterfaceDecl { self._link_group::<InterfaceDecl>(e, &group); }
-            case DeclKind::EnumDecl      { self._link_group::<EnumDecl>(e, &group);      }
-            case DeclKind::ModuleDecl    { self._link_group::<ModuleDecl>(e, &group);    }
+            case DeclKind::ClassDecl     { self._link_group::<ClassDecl>(e, group);     }
+            case DeclKind::StructDecl    { self._link_group::<StructDecl>(e, group);    }
+            case DeclKind::UnionDecl     { self._link_group::<UnionDecl>(e, group);     }
+            case DeclKind::InterfaceDecl { self._link_group::<InterfaceDecl>(e, group); }
+            case DeclKind::EnumDecl      { self._link_group::<EnumDecl>(e, group);      }
+            case DeclKind::ModuleDecl    { self._link_group::<ModuleDecl>(e, group);    }
             default {
-                self._redefinition(dc, e, &group, "redefined");
+                self._redefinition(dc, e, group, "redefined");
             }
         }
     }
