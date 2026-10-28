@@ -87,6 +87,9 @@ PIPELINE = [
          "default/delete prefix -> `= default`/`= delete`; before visibility_first "
          "so the modifier run it reorders is final"),
     Pass("visibility_first", "pub/priv/prot lead the modifier run"),
+    Pass("const_value_params",
+         "<const N: T> -> <eval N: T> in generic parameter lists (the S001E fix-it); "
+         "order-independent"),
 
     # Expressions.
     Pass("redundant_parens",

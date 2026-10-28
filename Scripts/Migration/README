@@ -198,6 +198,18 @@ template_alias_macros.py  __inline_cpp("#define B_T B<T>") -> B<T> at every
                           #define (`sink`, function-like) is reported, never
                           substituted. --selftest.
 
+const_value_params.py     <const N: T> -> <eval N: T> in a generic PARAMETER
+                          list only (a `<` right after class / struct / union /
+                          enum / interface / fn / type / extend); argument
+                          lists (`static_cast::<const *T>`), function
+                          parameters and a bound's own arguments keep their
+                          `const`. Only the keyword changes, exactly as
+                          Stage 1's S001E fix-it does, and
+                          Tests/CLI/Migration/const_value_params.k holds the
+                          two to the same output. Idempotent. --selftest.
+                          On Compiler/ (2026-10-28, on a copy): 5 sites in 3
+                          files (TokenBuffer.k, EvalHash.k x2, Lexer.k x2).
+
 ref_and_mref.py           ref!(T) / mref(T) in parameter position
                           -> @inout x: T / @move x: T
 
