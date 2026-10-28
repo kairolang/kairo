@@ -2,13 +2,12 @@
 // from the other operand, as it does on the right (enums-plain.mdx; pattern-
 // matching.mdx).
 //
-// XFAIL: *
-// Ticket "[Sema] `.V` as the left operand of `==` / `!=` is SC123E"
-// (private/IMPORTANT/TICKETS.TXT, 2026-10-26). Today `.North == d` is SC123E
-// "'.North' names an enum variant, but nothing here gives it an enum type" --
-// the left operand is typed before the right one gives it an expected type
-// (GitHub #83). `d == .North` works. When it XPASSes, delete the XFAIL -- the
-// run below is already the real assertion.
+// Was SC123E "'.North' names an enum variant, but nothing here gives it an
+// enum type" (GitHub #83): the left operand was typed before the right one
+// could give it an expected type. Operator typing now types the right
+// operand first whenever the left has no type of its own
+// (ExprTyper::is_context_typed); context_typed_left_operand.k covers the
+// literal and list-literal halves of that rule.
 
 enum Dir { North, South }
 

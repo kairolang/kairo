@@ -1373,8 +1373,22 @@ operand keeps builtin equality; two instances of one generic enum have no
 (`OverloadResolution::resolve_mixed`), so a tie between them is ambiguous.
 An unqualified call gets the same ADL over its arguments unless ordinary
 lookup found a method.
-Literal-on-one-side takes the other side's type. `&x` needs an lvalue and
-yields `*T`; `*p` yields the pointee as an lvalue.
+An operand with no type of its own takes the other side's, on EITHER side
+(`ExprTyper::is_context_typed`: the shapes `arg_info` defers to selection
+-- an untyped scalar literal, `null` / `&null`, a list literal, `.V`). The
+other operand is typed first and is the expected type, so `1 + b`,
+`[1, 2] == a` and `.North == d` are their mirrors (GitHub #83). Typing
+order only: the tree, and so evaluation, stays left to right. Where
+operands unify (arithmetic, bitwise, comparison) the context-typed one
+gets the other's type; `===` reads through the nullable; a shift's
+literal LEFT operand takes the expected type, else an integer count's
+(`1 << 4u8` is a u8 shift, USER 2026-10-28), since a shift's result is
+its left operand's type. Two context-typed operands keep their defaults
+(`1 << 4` is i32; `.A == .B` is SC123E). A dependent right operand gives a
+literal nothing to take (it keeps its default; the operator follows the
+D0 rules) and a `.V` is unknown against it, as `t == .V` is. `in` is not
+covered: its left operand is the right one's `op in` argument. `&x` needs
+an lvalue and yields `*T`; `*p` yields the pointee as an lvalue.
 
 **Casts** (`CastTyping.k`). The written target is the result type, always.
 Dispatch on (source, target), first match, no fallthrough:

@@ -1,8 +1,8 @@
 // `.Variant` as an operand takes its enum from the other side: the right
 // operand of `==` / `!=` and the right side of an assignment are typed
-// against the left one's type. A dotted LEFT operand (`.South == d`) is not
-// typed yet -- Tests/Bugs/Triage/F1-dotted-variant-as-left-operand-of-eq.k --
-// so it is not pinned here.
+// against the left one's type. A dotted LEFT operand (`.South == d`) takes
+// the right one's the same way; dotted_left_operand.k and dotted_left_xmod/
+// pin it.
 
 enum Dir { North, South, East }
 enum Level { Info, Error, Fatal }

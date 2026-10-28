@@ -111,6 +111,25 @@ class <T> LiteralTyping {
         return self.literal_shape(e, &a);
     }
 
+    /// \p e has no type of its own: whatever it is typed against decides it.
+    /// The shapes arg_info defers to selection -- an untyped scalar literal
+    /// (`1`, `-1`, `2.5`, `null`, `&null`), a list literal and `.V` -- and
+    /// for the same reason: until something gives one an expected type, its
+    /// type is a default (`i32`, `f64`, `[i32; N]`) or an error (SC123E).
+    /// OperatorTyping reads it to type the OTHER operand first. Pure: unlike
+    /// list_literal_shape it records no shapes.
+    fn is_context_typed(self, e_in: *Expr) -> bool {
+        if self.is_untyped_literal(e_in) { return true; }
+        var e = dyn()->tu.strip_parens(e_in);
+        if e == &null { return false; }
+        if isa::<ListLiteralExpr>(e) {
+            var l = cast::<ListLiteralExpr>(e);
+            return (l->type_ == &null) && (!l->is_poisoned());
+        }
+        var a = ArgInfo{};
+        return dyn()->dotted_variant_shape(e, &a);
+    }
+
     /// A list literal in ARGUMENT position is ranked by shape and typed after
     /// selection, as an untyped scalar literal is (§5): it takes the
     /// parameter's type. Kept out of literal_shape because is_untyped_literal

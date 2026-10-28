@@ -13,8 +13,12 @@
 ///     operand takes the expected type and its right operand is typed
 ///     independently; compound assignment converts the right operand only.
 ///
-///     An untyped literal on one side takes the other side's type (§5), which
-///     is why `x + 1` works for any integer x with no conversion at all.
+///     An operand with no type of its own -- an untyped literal, a list
+///     literal, `.V` -- takes the other side's type (§5), on EITHER side:
+///     the other operand is typed first. That is why `x + 1` and `1 + x`
+///     work for any integer x with no conversion at all, and why `.North ==
+///     d` is `d == .North`. A shift's literal left operand with no expected
+///     type takes an integer count's type: `1 << 4u8` is a u8 shift.
 ///
 ///   \par User operators
 ///     Candidates come from four places and rank in ONE set
@@ -523,12 +527,21 @@ class <T> OperatorTyping {
             if (cl != &null) && cl->is_ref { dyn()->null_compared = static_cast::<*Expr>(cl); }
         }
 
-        // literal on one side takes the other's type.
-        var l_lit = dyn()->is_untyped_literal(n->lhs);
-        var r_lit = dyn()->is_untyped_literal(n->rhs);
+        // An operand with no type of its own (an untyped literal, a list
+        // literal, `.V`: ExprTyper::is_context_typed) takes the other's,
+        // WHICHEVER side it is on: the other operand is typed first and its
+        // type is the expected one, so `.North == d` is `d == .North` and
+        // `[1, 2] == a` is `a == [1, 2]`. Typing order only: the operands
+        // stay where they are and are evaluated left to right as written.
+        // Both sides context-typed keep their defaults (`1 + 2` is i32).
+        var l_lit = dyn()->is_context_typed(n->lhs);
+        var r_lit = dyn()->is_context_typed(n->rhs);
         var lt: *Type = &null;
         var rt: *Type = &null;
-        var numeric_ctx = self._is_arith(k) || self._is_bitwise(k) || self._is_equality(k) || self._is_relational(k);
+        // Where the operands unify, so either one's type is the other's to
+        // take. `<=>` is a comparison like the four relationals.
+        var numeric_ctx = self._is_arith(k) || self._is_bitwise(k) || self._is_equality(k) || self._is_relational(k)
+                       || (k == TokenKind::OpLessEqualGreater);
         var pass_down: *Type = (expected) if (self._is_arith(k) || self._is_bitwise(k)) else (&null);
         // A shift's result IS its left operand's type, so the left operand
         // takes the expected type (`var m: u8 = 1 << 3` is a u8 shift, as `^^`'s
@@ -537,7 +550,7 @@ class <T> OperatorTyping {
 
         if l_lit && (!r_lit) {
             rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, pass_down));
-            lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else ((self._identity_down(rt, lhs_down)) if (k == TokenKind::OpEqualEqualEqual) else (lhs_down)));
+            lt = dyn()->type_of(n->lhs, self._context_left_down(k, numeric_ctx, rt, lhs_down));
         } else if r_lit && (!l_lit) {
             lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, lhs_down));
             rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (self._coalesce_down(k, lt, pass_down)));
@@ -821,6 +834,23 @@ class <T> OperatorTyping {
         }
         dyn()->fail(n, DiagID::SC066E, f"operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on primitives");
         return &null;
+    }
+
+    /// What a context-typed LEFT operand is typed against, the right one
+    /// \p rt already typed. Where operands unify (arithmetic, bitwise,
+    /// comparison) it is \p rt, as a context-typed right operand gets the
+    /// left's. `===` reads through the nullable (_identity_down). A shift's
+    /// result is its left operand's type, so the expected type \p d decides
+    /// it when there is one (`var m: u16 = 1 << s`); without one, an integer
+    /// count does (`1 << 4u8` is a u8 shift, USER 2026-10-28), never a
+    /// default i32 the count says nothing about. `??` and `in`: \p d.
+    priv fn _context_left_down(self, k: TokenKind, numeric_ctx: bool, rt: *Type, d: *Type) -> *Type {
+        if numeric_ctx { return rt; }
+        if k == TokenKind::OpEqualEqualEqual { return self._identity_down(rt, d); }
+        if self._is_shift(k) && (d == &null) && (rt != &null) && dyn()->tu.is_integer(dyn()->tu.as_value(rt)) {
+            return canon_unqual(dyn()->tu.as_value(rt));
+        }
+        return d;
     }
 
     /// What the right side of `x ?? y` is typed against: `x`'s `T`, the arm
