@@ -272,7 +272,11 @@ class CXXSpell {
         var named = CXXSpell::named_operator(sym, f);
         if named.size() > 0 { return named; }
         if sym == "[]" { return LowerTargets::witness_subscript(); }
-        if sym == "as" { return LowerTargets::witness_conversion(); }
+        if sym == "as" {
+            var rt = "void";
+            if (f->return_type != &null) && (f->return_type->canonical != &null) { rt = self._type(f->return_type->canonical); }
+            return LowerTargets::witness_conversion(CXXSpell::cxx_segment(rt));
+        }
         var key = sym;
         if (sym == "++") || (sym == "--") { key = (("r") if (CXXSpell::op_is_postfix(f)) else ("l")) + sym; }
         var m = LowerTargets::ext_op(key);

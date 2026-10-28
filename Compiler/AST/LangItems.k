@@ -603,10 +603,12 @@ class LowerTargets {
 
     /// A witness member's name for an `op as` requirement (an interpolation
     /// or a cast through a bound, MONO.md G11). Like `op []` it has no
-    /// extension row. One name per interface: two `op as` requirements of
-    /// one interface differ only in their return type, which C++ cannot
-    /// overload on (ticketed).
-    static fn witness_conversion() -> string { return "__kairo_op_as"; }
+    /// extension row. \p target is the requirement's result type as one C++
+    /// identifier: two `op as` requirements of one interface (to `string`
+    /// and to `i32`) take the same parameters and differ only in what they
+    /// return, which a static member -- unlike `operator T` -- cannot be
+    /// overloaded on, so the result is in the name.
+    static fn witness_conversion(target: string) -> string { return "__kairo_op_as_" + target; }
 
     /// `static constexpr unsigned __kairo_spec = k;` in the primary (0) and
     /// each partial specialization (1 + its registration index) of a

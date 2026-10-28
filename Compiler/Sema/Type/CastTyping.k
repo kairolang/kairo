@@ -381,6 +381,15 @@ class <T> CastTyping {
                 var f = dyn_cast::<FunctionDecl>(cands[i]);
                 if f == &null { continue; }
                 var rt = dyn()->fn_return_type(f);
+                // A generic record's `op as -> T`: the target is T as the
+                // source instance binds it (`Wrap<i64> as i64`). Unbound
+                // (a bound's requirement, a dependent source) keeps `rt`.
+                if (rt != &null) && rt->is_dependent() && (cg == &null) {
+                    var sb = Substitution(dyn()->sc);
+                    sb.bind_from_record(dyn()->tu.strip_nullable(src));
+                    var srt = sb.substitute(rt);
+                    if srt != &null { rt = srt; }
+                }
                 if (rt != &null) && (rt == dyn()->tu.strip_nullable(target)) { exact.push_back(cands[i]); }
             }
             if exact.size() > 0 {

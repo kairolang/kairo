@@ -1829,7 +1829,15 @@ class EmitIR {
             if (st->access_kind == ChainExpr::AccessKind::ColonColon) { self._ice(st->range, "EmitIR: `::` after a value step"); }
             if ((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow)) { self._ice(st->range, "EmitIR: optional chaining; CoalesceLowering owns it"); }
             if st->is_operator() {
-                self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
+                var onm = self._spell.leaf(st->resolved_decl);
+                // A generic `op as -> T` called through an instance: the
+                // target OperatorLowering bound (the template's `operator T`
+                // has no T here).
+                var ocf = dyn_cast::<FunctionDecl>(st->resolved_decl);
+                if (ocf != &null) && ocf->is_operator && (ocf->op_token.size() > 0) && (ocf->op_token[0].kind == TokenKind::KwAs) && (st->resolved_type != &null) {
+                    onm = "operator " + self._spell._type(st->resolved_type);
+                }
+                self._cg->sink->spell(st->range, (("->") if (is_ptr) else (".")) + onm);
                 is_ptr = false;
                 continue;
             }

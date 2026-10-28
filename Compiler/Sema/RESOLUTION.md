@@ -491,6 +491,18 @@ differing only in their bounds. Packs never align. Codegen spells every
 link's template head from the representative (CXXSpell::template_head),
 because `_gparam` spells every canonical parameter through it.
 
+`op as` is the one operator whose return type IS its identity
+(casting.mdx: overloaded on the target): two `op as` with different result
+canonicals are two entities (`operator int` / `operator long` to C++, so
+R052E is skipped for them too); two with one result are R041E, now named
+'op as' rather than the cell's bare 'op'. CastTyping already selects by
+exact result; a generic record's `op as -> T` is compared through the
+source instance (`Wrap<i64> as i64`), and OperatorLowering hands EmitIR the
+bound target so the call spells `operator long` rather than the template's
+`operator T`. InterfaceComposition treats two `op as` requirements with
+different results as two requirements, and their witness members carry the
+target in the name (LowerTargets::witness_conversion).
+
 An out-of-line definition may not carry a default (R056E, in R(b)): a
 method's defaults are its in-class declaration's. The default is cleared
 once diagnosed and the definition still links. Free-function

@@ -58,6 +58,7 @@ import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
+import AST::OperatorFacts::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Types::*;
@@ -357,6 +358,11 @@ class InterfaceComposition {
             if (pa->mode != pb->mode) || (pa->is_pack != pb->is_pack) { return false; }
             if self._norm(id, a, pa->type_, &null) != self._norm(id, b, pb->type_, fa) { return false; }
         }
+        // `op as` is overloaded on its target (RedeclMerge::_same_signature),
+        // so two of them with different results are two requirements -- the
+        // witness names carry the target (LowerTargets::witness_conversion).
+        if fa->is_operator && (OperatorFacts::op_kind(fa) == TokenKind::KwAs)
+        && (self._norm(id, a, fa->return_type, &null) != self._norm(id, b, fb->return_type, fa)) { return false; }
         return self._same_bounds(id, a, b);
     }
 

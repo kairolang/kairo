@@ -59,6 +59,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Lower::LowerSynth::*;
 import Sema::Lower::EnumLayoutLowering::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Type::Substitution::*;
 import AST::LangItems::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
@@ -233,7 +234,24 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
         var f = self._fn(n->resolved_op);
         ICE_IF(!f->is_operator, "OperatorLowering: a converting constructor arrives through resolved_ctor, not resolved_op");
         var args = vec::<*Expr>();
-        return self._call_tokens(static_cast::<*Expr>(n), n->operand, f->op_token, n->resolved_op, false, &args, &null);
+        var call = self._call_tokens(static_cast::<*Expr>(n), n->operand, f->op_token, n->resolved_op, false, &args, &null);
+        // A generic record's `op as -> T` is `operator T` in the template,
+        // but a call through an instance has no T to name: the step carries
+        // the target as the instance binds it, and EmitIR spells the
+        // conversion-function-id from it (`wr.operator long()`, which C++
+        // finds as `operator T` with T = long).
+        var rt = (f->return_type->canonical) if (f->return_type != &null) else (&null);
+        if (rt != &null) && rt->is_dependent() && (n->operand->type_ != &null) && isa::<CallExpr>(call) {
+            var tu = TypeUtil(self.sc);
+            var sb = Substitution(self.sc);
+            sb.bind_from_record(tu.strip_nullable(canon_unqual(n->operand->type_)));
+            var cr = sb.substitute(rt);
+            var ch = dyn_cast::<ChainExpr>(cast::<CallExpr>(call)->callee);
+            if (cr != &null) && (!cr->is_dependent()) && (ch != &null) && (ch->steps.size() == 1) {
+                ch->steps.get(0)->resolved_type = cr;
+            }
+        }
+        return call;
     }
 
     // --- `as` into a closed enum -------------------------------------------------

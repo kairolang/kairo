@@ -1,18 +1,15 @@
 // `op as` overloaded on its target type (casting.md, User-Defined
 // Conversions): the `as` target picks the overload.
 //
-// XFAIL: *
-// Waiting on RedeclMerge telling `op as` overloads apart by return type:
-// the second one is R041E "class member 'op' cannot be redeclared". (Note
-// the name, too: 'op', not 'op as'.) A single `op as` works.
-// When it lands this test XPASSes; delete the XFAIL -- the run below is
-// already the real assertion.
+// RedeclMerge keys `op as` on its return type: before, the second one was
+// R041E "class member 'op' cannot be redeclared". More shapes in
+// op_as_targets_run.k; the errors in Sema/Operators/op_as_overload_errors.k.
 
 class Temp {
     var c: i32
     fn Temp(self, c: i32) { self.c = c }
     fn op as(self) -> i32 { return self.c }
-    fn op as(self) -> i64 { return (self.c * 2) as i64 }
+    fn op as(self) -> i64 { return self.c * 2 }
 }
 
 fn main() -> i32 {

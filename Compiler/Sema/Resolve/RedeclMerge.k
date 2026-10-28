@@ -311,6 +311,8 @@ class RedeclMerge {
         if group.size() <= 1 { return; }
 
         var name = e.name.describe(self.sc->ctx);
+        // An operator cell's name describes as the bare `op`; say which.
+        if group[0]->is_operator { name = "op " + OperatorFacts::symbol(group[0]); }
 
         // O(n^2) over one cell. Overload sets are single digits; hashing a
         // vector of canonical pointers costs more than the scan.
@@ -602,6 +604,19 @@ class RedeclMerge {
         // Prefix and postfix `++`/`--` are one name cell and two entities.
         if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return false; }
 
+        // `op as` is overloaded on its TARGET (casting.mdx, User-Defined
+        // Conversions): `-> i32` and `-> i64` take the same `self` and are
+        // two conversions, as `operator int` and `operator long` are two to
+        // C++. The return type is the identity here and nowhere else; an
+        // inferred one (expression body) is not known yet and keeps the
+        // old answer.
+        if self._is_conversion(a) && self._is_conversion(b) {
+            var ra = self._return_canonical(a);
+            var rb = self._return_canonical(b);
+            if (a->body_kind != FnBodyKind::Expr) && (b->body_kind != FnBodyKind::Expr)
+            && (ra != &null) && (rb != &null) && (canon_unqual(ra) != canon_unqual(self._alpha_ret(a, b, rb))) { return false; }
+        }
+
         // Two declarations of one GENERIC function name their parameters
         // independently: each `T` is a GenericParamType owned by its own
         // decl, so the canonicals never meet by pointer. Read \p b's
@@ -694,6 +709,11 @@ class RedeclMerge {
         if !self._same_signature(a, b) { return false; }
         if (a->generic_params.size() > 0) && a->has_body() && b->has_body() { return false; }
         return true;
+    }
+
+    /// `op as`: the one operator whose return type is part of its identity.
+    priv fn _is_conversion(self, f: *FunctionDecl) -> bool {
+        return f->is_operator && (OperatorFacts::op_kind(f) == TokenKind::KwAs);
     }
 
     /// \p t, a type written over \p b's generic parameters, read over \p a's
@@ -904,6 +924,9 @@ class RedeclMerge {
         // Postfix `++`/`--` gets C++'s `int` dummy, prefix does not: two
         // different C++ parameter lists however the Kairo ones compare.
         if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return; }
+        // Two `op as`: `operator int()` and `operator long()` -- the target
+        // type IS the C++ name, so they never share a signature.
+        if self._is_conversion(a) && self._is_conversion(b) { return; }
         // `@copy` beside `@move`: `const X&` / `X&` against `X&&` in C++,
         // though both `other`s still read as by-value here (the stamp that
         // says so comes after this pass). Two marked ctors never get here
